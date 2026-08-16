@@ -18,10 +18,12 @@ goals: |
   someone reading its absence as an oversight.
 upstream: docs/briefs/BRIEF-fold-record-removal.md
 motivating_context: |
-  The record landed one day before this PRD and has never held a row. The
-  decision to keep it was fixed at BRIEF altitude and never re-examined; the
-  design that shipped it chose among surfaces for a record it already assumed,
-  in --auto mode without author confirmation, on a pull request with no review.
+  The record has recorded exactly one fold, and that fold demonstrates both
+  halves of the case: the survivor carries every fact the row holds, and the
+  check meant to verify the row observed nothing. The decision to keep a record
+  was fixed at BRIEF altitude and never re-examined; the design that shipped it
+  chose among surfaces for a record it already assumed, in --auto mode without
+  author confirmation, on a pull request with no review.
 ---
 
 # PRD: Fold-Record Removal
@@ -76,9 +78,19 @@ reported as a mismatch whenever the base branch has advanced. On top of that,
 the record promises duplicate detection in three separate documents and no code
 implements it.
 
-The result is a merge attribute, an append-only assertion, a cleanup carve-out,
-a citation-search exclusion, an eval fixture, and seven shipped documents of
-rationale, all maintaining a file that has never held a row.
+The repository has performed exactly one fold, and it settles all three counts
+at once. `#316` absorbed `BRIEF-scope-chain-mandatory-steps.md` into its PRD.
+The surviving PRD declares the absorbed path in frontmatter, names it in its
+`## Status` line, and carries it in `## Absorbed Brief` — every fact the row
+holds, on disk. The absorbed brief was created and deleted inside that same
+squashed chain, so it appeared in neither endpoint of the workflow's tree
+comparison and the fold-record check exited without asserting anything. The one
+row in the record was written by an agent following prose, verified by nothing,
+and duplicates a trace that three error-level checks already enforce.
+
+Around that single row sit a merge attribute, an append-only assertion, a
+cleanup carve-out, a citation-search exclusion, an eval fixture, and seven
+shipped documents of rationale.
 
 ## Goals
 
@@ -121,8 +133,11 @@ repository.
 
 **R2.** The absorb procedure SHALL NOT write, stage, or roll back any shared
 record. Its step sequence, the sentence stating how many steps it has, its
-rollback table, and the standalone paragraph justifying the un-append SHALL all
-be rewritten so that nothing refers to an append that no longer happens.
+rollback table, the standalone paragraph justifying the un-append, and its final
+commit step SHALL all be rewritten so that nothing refers to an append, an
+un-append, or a record committed alongside the deletion. The cross-reference in
+`skills/scope/SKILL.md` that states the procedure's step count and enumerates
+its parts SHALL be updated to match.
 
 **R3.** The closed write-target set SHALL NOT name an append target. Every
 place enumerating the set — the skill contract and the exit-finalization
@@ -151,8 +166,9 @@ claim that holds without it, rather than deleted. This binds at minimum:
 - the roadmap downstream cell written by `skills/execute/scripts/run-cascade.sh`
   when a chain folds to nothing;
 - the description of the consolidation judgment in `README.md`;
-- the clause in `skills/scope/SKILL.md` defining the `absorb` verdict as ending
-  with the fold being recorded.
+- the clause in `skills/scope/SKILL.md` defining the `absorb` verdict, which
+  SHALL still state what the verdict ends with rather than trailing off where
+  the record used to be.
 
 **R9.** Adopter-facing documentation SHALL NOT describe a fold-record check.
 Removing a check from a reusable workflow is backward-compatible for pinning
@@ -191,18 +207,33 @@ which is a standing `/work-on` instruction independent of any chain. The half
 that is withdrawn is the record of *what happened*; the amendment SHALL name
 what replaces it and SHALL state plainly where nothing does.
 
-**R11.** The removal rationale SHALL be recorded in
-`docs/designs/current/DESIGN-fold-record-removal.md`, naming each carrier
-evaluated and why it was not adopted, so a later proposal to reintroduce a fold
-ledger is answered from the artifact rather than by re-investigation. That
-design SHALL survive this chain: because it holds reasoning no downstream
-document carries, the consolidation judgment at the design-to-plan hop SHALL
-reach `keep`.
+**R11.** The removal rationale SHALL be readable in the working tree after this
+chain completes, naming each carrier evaluated and why it was not adopted, so a
+later proposal to reintroduce a fold ledger is answered from the artifact rather
+than by re-investigation. Its home is
+`docs/designs/current/DESIGN-fold-record-removal.md`.
+
+This requirement states an outcome, not a verdict. `/scope`'s consolidation
+judgment is made against two documents and this PRD does not reach into it. The
+expected consequence of that ground is that the design-to-plan hop reaches
+`keep`, because the carrier reasoning is content the PLAN does not carry and
+folding would lose — but the judgment reaches that on its own terms, and if it
+instead finds the reasoning fully carried, R11 is satisfied wherever the
+reasoning ends up readable.
 
 **R12.** References to the record that do not spell its path SHALL be corrected,
-not left standing. This binds at minimum the "three readers" model asserting the
-record checker as one of them, wherever it appears, and any prose describing a
-durable record column.
+not left standing. This binds at minimum:
+
+- `crates/shirabe-validate/src/formats.rs` — the `ABSORBED_ENTRY_PATTERN` doc
+  comment naming three readers, one of them the record checker's fold signature;
+  and the `contribution_heading` doc comment naming a durable record column.
+- `.github/workflows/check-scope-scripts.yml` — the same three-reader model.
+- `skills/scope/scripts/check-citations.sh` — the comment stating the path shape
+  has three readers.
+
+In each, the stated reader count SHALL match the number that remains. These
+sites are source and workflow rather than amended-document bodies, so R18's
+exemption does not reach them.
 
 **R13.** The scope eval fixture SHALL be rewritten rather than scrubbed. It
 currently specifies the append and its ordering relative to the `git rm`; after
@@ -246,8 +277,8 @@ in an appended section, so the historical text stays as written.
       ':!docs/briefs/BRIEF-fold-record-removal.md'
       ':!docs/prds/PRD-fold-record-removal.md'
       ':!docs/designs/current/DESIGN-fold-record-removal.md'` returns no output.
-- [ ] **AC3.** `git grep -in 'fold record\|fold-record' HEAD` with the same
-      exclusion set returns no output.
+- [ ] **AC3.** `git grep -in 'fold record\|fold-record\|record checker\|fold
+      signature' HEAD` with the same exclusion set returns no output.
 - [ ] **AC4.** `.gitattributes` contains no `merge=union` entry and no comment
       block describing fold-record concurrency.
 - [ ] **AC5.** `.github/workflows/validate-docs.yml` contains no step named for
@@ -259,18 +290,24 @@ in an appended section, so the historical text stays as written.
 - [ ] **AC7.** `bash skills/scope/scripts/check-citations_test.sh` exits 0 and
       contains no case asserting that the fold record does not refuse a later
       hop.
-- [ ] **AC8.** The absorb procedure's step list is contiguously numbered, the
-      sentence stating its step count matches the list length, the rollback
-      table has one row per writing step with step numbers matching the
-      renumbered list, and no step, row, or paragraph mentions an append or an
-      un-append.
+- [ ] **AC8.** The absorb procedure's step list is contiguously numbered; the
+      sentences stating its step count — in `phase-2-chain-orchestration.md` and
+      in `skills/scope/SKILL.md`'s cross-reference — both match the list length;
+      the rollback table has one row per writing step with step numbers matching
+      the renumbered list; and no step, row, paragraph, or cross-reference
+      mentions an append, an un-append, or a record committed alongside the
+      deletion.
 - [ ] **AC9.** The closed write-target set in `skills/scope/SKILL.md` and the
       read-back in `phase-3-exit-finalization.md` both enumerate deletions and
-      mutations only, with no append group, and do not contradict each other.
+      mutations only, with no append group, do not contradict each other, and
+      the sentence stating how many groups Phase 2's absorb adds matches the
+      number of groups listed.
 - [ ] **AC10.** `phase-4-cleanup.md` contains no carve-out naming the record.
-- [ ] **AC11.** `skills/execute/SKILL.md` states a criterion for distinguishing
-      a fully-folded chain from an unfinalized one that does not name the
-      record, and names the surface a reader consults instead.
+- [ ] **AC11.** `skills/execute/SKILL.md`'s rule for distinguishing a
+      fully-folded chain from an unfinalized one does not cite the record. It
+      names a concrete artifact or signal a reader consults, and states in the
+      same passage what a reader observes when even that is absent — the case
+      Known Limitations concedes.
 - [ ] **AC12.** `bash skills/execute/scripts/run-cascade_test.sh` exits 0, and
       the roadmap downstream cell the script emits contains no pointer to the
       record.
@@ -292,17 +329,32 @@ in an appended section, so the historical text stays as written.
       per-fold file.
 - [ ] **AC18.** `git diff <merge-base>..HEAD -- crates/` touches comment lines
       only, and `cargo test` passes.
-- [ ] **AC19.** `git diff <merge-base>..HEAD` over the survivor-trace surfaces —
-      the `absorbed:` handling, the `## Status` absorption line, the
-      contribution-section splice, and their checks — touches comment lines
-      only.
+- [ ] **AC19.** `git diff <merge-base>..HEAD --` over
+      `crates/shirabe-validate/src/checks.rs`,
+      `crates/shirabe-validate/src/formats.rs`,
+      `crates/shirabe/tests/absorption_corpus.rs`, and
+      `.github/workflows/check-scope-scripts.yml` touches comment lines only.
+      These are the survivor-trace enforcement surfaces; the prose and eval
+      surfaces that AC8 and AC21 mandate changing are deliberately excluded.
 - [ ] **AC20.** `shirabe validate --visibility=public` over the changed document
-      set exits 0, and the count of error-severity findings over the full docs
-      corpus is no greater than the merge base's count of five.
+      set exits 0, and
+      `shirabe validate --visibility=public $(git ls-files 'docs/*.md'
+      'docs/**/*.md')` yields no more than five error-severity findings, which
+      is the merge base's count.
 - [ ] **AC21.** `skills/scope/evals/evals.json` describes the absorb procedure
       as it exists after the change: no expected output or rubric criterion
-      mentions appending a row or its ordering relative to the deletion, and the
-      scenario still asserts the procedure's remaining ordering guarantees.
+      mentions appending a row, its ordering relative to the deletion, or a
+      record committed alongside it. The scenario still asserts that the `git
+      rm` precedes the re-validation, that the re-validation precedes the
+      commit, and that the deletion, the splice and the survivor's edits land in
+      one commit.
+- [ ] **AC22.** `crates/shirabe-validate/src/formats.rs`,
+      `.github/workflows/check-scope-scripts.yml`, and
+      `skills/scope/scripts/check-citations.sh` each describe the
+      absorbed-path shape's readers without naming a record checker or a fold
+      signature, and the reader count stated in each matches the number that
+      remains. `formats.rs`'s `contribution_heading` doc comment names no
+      durable record column.
 
 ## Out of Scope
 
@@ -319,7 +371,14 @@ in an appended section, so the historical text stays as written.
   trigger that cannot fire, the dead skip-guard, and the absent duplicate
   detection are evidence that the mechanism was never load-bearing. They are
   deleted with the step that carries them and are not separately repaired.
-- **Migrating existing rows.** The record has never held one.
+- **Migrating the one existing row.** The record holds a single row, for the
+  `#316` brief-to-PRD fold. It is deleted with the file and nothing is carried
+  anywhere, because the surviving PRD already declares the absorbed path in
+  frontmatter, names it in its `## Status` line, and carries it in
+  `## Absorbed Brief`. Every field of the row except the pre-fold blob hash is
+  recoverable from that survivor, and the hash fingerprints bytes no plain clone
+  can reach now that the branch is gone. Migration would move a fact that is
+  already in a better place.
 - **Auditing adopting repositories for rows.** Not verifiable from here, and it
   does not gate this change; removing a check from a reusable workflow cannot
   break a caller.
@@ -380,10 +439,12 @@ is deliberately absent from this document.
   narrows this to chains with no roadmap feature entry — and even there the
   cascade eventually deletes the roadmap. This is the accepted cost of the
   removal and the residual R11's record exists to explain.
-- **The removal is specified against a mechanism that has never executed.** No
-  fold has ever run, so the behavior being removed is documented rather than
-  observed, and the acceptance criteria test the absence of machinery rather
-  than a change in observed fold behavior.
+- **The removal is specified against a mechanism that has executed once.** One
+  fold has run, which is enough to confirm the argument and not enough to
+  characterize the mechanism's behavior across fold shapes. The
+  design-to-plan hop, the multi-hop chain, and the concurrent-fold case remain
+  documented rather than observed, and the acceptance criteria test the absence
+  of machinery rather than a change in observed fold behavior.
 - **Two of the seven amended documents already carry a dated amendment.** The
   new sections are appended alongside, so those documents will carry two, which
   is correct but reads oddly on first encounter.

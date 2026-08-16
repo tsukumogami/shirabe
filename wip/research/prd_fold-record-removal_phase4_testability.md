@@ -1,353 +1,368 @@
-# Testability Verdict: PRD-fold-record-removal
+# Testability Verdict: PRD-fold-record-removal (pass 2)
 
 ## Verdict
 
-**FAIL**
+**FAIL** — 4 blocking.
 
-Most of AC1–AC17 are genuinely mechanical and most fail today, which is the
-right shape for a removal PRD. But three defects are disqualifying: AC2 as
-written is **unsatisfiable** because it contradicts the amendment-in-place
-mechanism R10 mandates; **no criterion catches a reference to the record that
-does not spell the path**, and four such references exist in the tree right
-now, three of which become false the moment the work lands; and AC7's
-"one row per step" describes a rollback table shape the correct outcome will
-not have. AC14 additionally passes vacuously on half its subjects today.
+The rewrite is a large, real improvement. Eight of the ten first-pass findings
+are fully resolved, and the two empirical claims I was asked to check hardest —
+the merge-base error count of five, and the em-dash in `## Amendment — <date>` —
+are both **correct**. AC2 and AC3 parse and run. `cargo test` passes at the
+merge base, so AC18 is meetable.
+
+What blocks is narrower and mostly new. The criterion added to close finding 3
+(AC3) **catches none of the four sites that motivated it** — its pattern misses
+the two that matter and its exclusion set hides the other two by design. AC19,
+the rewrite of the old AC17, now false-fails a correct implementation because
+its file set is described by property and that property picks up three files
+other criteria mandate changing. AC21's discriminating half permits exactly the
+scrub R13 forbids. And AC11 is the old AC10 verbatim — a first-pass blocking
+finding that did not make the author's fix list.
+
+---
+
+## Disposition of first-pass findings
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | AC2/R10 contradiction | **RESOLVED.** AC2 enumerates ten path exclusions covering all seven amended docs plus this chain's three artifacts; R18 states the body exemption explicitly. Ran AC2 verbatim: it parses, exits 0, and returns 20 hits — none inside an amended document's body. No contradiction remains. |
+| 2 | AC2 not a single mechanical test | **RESOLVED.** It is now one literal `git grep … HEAD -- <pathspecs>` with an unambiguous revision. Verified runnable. |
+| 3 | No criterion for non-path references | **NOT RESOLVED.** AC3 exists, but of the four sites the first pass named it catches **zero**. See B1. |
+| 4 | AC7's "one row per step" false | **RESOLVED.** AC8 now says "one row per writing step with step numbers matching the renumbered list", and reaches both the step-count sentence (line 615, "Nine steps") and the un-append paragraph. Confirmed against the live table: 5 writing steps → 5 rows today, 4 after removal. |
+| 5 | AC14 vacuous on two already-amended docs | **RESOLVED.** AC15's date test discriminates: both existing amendments are `2026-08-15` and both *do* contain `folds.md`, so only the "on or after the date this change lands" clause separates them — and it does. |
+| 6 | AC14's "affirmative statement" was judgment | **PARTIAL.** AC16 is split into two clauses, but neither is a locatable string. "Including the case where nothing does" is a genuine falsifier; "the phrase naming the surviving half" is not greppable. Better, still judgment. |
+| 7 | AC15's artifact unpinned | **RESOLVED.** AC17 pins `docs/designs/current/DESIGN-fold-record-removal.md` (confirmed absent today) and names seven carriers. The PRD can no longer satisfy it by accident. |
+| 8 | R14/AC16 unmeetable | **RESOLVED.** R16 is now relative-to-baseline and AC20 states the number. I verified the baseline independently: **five**. The author's claim is correct. |
+| 9 | No criterion for R13 | **RESOLVED for R15 (`crates/`).** AC18 exists, and I confirmed both halves are satisfiable: the `crates/` diff is empty and `cargo test` is 805/805. (Note the requirement renumbered: old R13 → new R15.) |
+| 10 | AC17's exception escapable | **PARTIAL.** AC19 pins the baseline and bounds by line kind — both fixes applied. But it introduced a worse defect in the file set. See B2. |
+
+Not on the author's list, and still open: the first pass also returned a
+**blocking** FAIL on its AC10 (the `skills/execute/SKILL.md` rule). That
+finding did not make the numbered required-changes list, and the criterion —
+now AC11 — is unchanged. See B3.
 
 ---
 
 ## Per-criterion analysis
 
-Every command below was run from the worktree root
-`/home/dgazineu/dev/niwaw/tsuku/tsuku+folds_doesnt_scale-99919916/public/shirabe/.claude/worktrees/fold-record-scaling`.
+All commands run from
+`/home/dgazineu/dev/niwaw/tsuku/tsuku+folds_doesnt_scale-99919916/public/shirabe/.claude/worktrees/fold-record-scaling`
+at `HEAD = 9513d9d`, merge base `39b0981`.
 
-### AC1 — `docs/folds.md` does not exist in the working tree
-
-| | |
-|---|---|
-| **Command** | `test ! -e docs/folds.md` |
-| **Ran** | Yes. `-rw-rw-r-- 3186 bytes docs/folds.md` — **fails today.** Correct. |
-| **Binary** | Yes. |
-| **Catches violation** | Partially. "Working tree" is weaker than R1's "removed from the repository": an uncommitted `rm` passes AC1 while the file is still at `HEAD`. AC2 covers the gap, so this is acceptable but the two should be read together. |
-| **Verdict** | **PASS (weak wording)** |
-
-### AC2 — search of the committed tree returns hits only in dated amendment sections and this chain's own artifacts
+### AC1 — `docs/folds.md` absent
 
 | | |
 |---|---|
-| **Command** | `git grep -n 'docs/folds\.md'` (working tree) or `git grep -n 'docs/folds\.md' HEAD` (committed tree) |
-| **Ran** | Yes. 60+ hits. Non-chain, non-amendment hits: `.gitattributes:10`, `.github/workflows/validate-docs.yml:104,137,138,147,157,158,160`, `README.md:87`, `docs/guides/doc-validation.md:56`, `docs/designs/current/DESIGN-scope-artifact-persistence.md:19,231,308,330,412`, `docs/designs/current/DESIGN-scope-consolidation-over-skipping.md:846`, `docs/prds/PRD-scope-consolidation-over-skipping.md:414`, `skills/execute/SKILL.md:597`, `skills/execute/scripts/run-cascade.sh:465`, `skills/scope/SKILL.md:857`, `skills/scope/evals/evals.json:293,304`, `skills/scope/references/phases/phase-2-chain-orchestration.md:668`, `phase-3-exit-finalization.md:375`, `phase-4-cleanup.md:111`, `skills/scope/scripts/check-citations.sh:56,69`, `check-citations_test.sh:122`. Plus ~20 hits under `wip/`. **Fails today.** |
-| **Binary** | **No — and self-contradictory.** |
-| **Catches violation** | Not reliably. See below. |
-| **Verdict** | **FAIL — blocking** |
+| Command | `test ! -e docs/folds.md` |
+| Ran | Yes. File exists. **Fails today** — correct. |
+| Binary | Yes. |
+| Catches violation | Yes, with AC2 closing the uncommitted-`rm` gap. |
+| Verdict | **PASS** |
 
-Four separate problems:
-
-1. **It is unsatisfiable given R10.** `DESIGN-scope-artifact-persistence.md`
-   carries five hits at lines 19, 231, 308, 330 and 412 — in its Summary, its
-   preflight-exclusion prose, its Phase-2 append description, its
-   shared-append-file argument, and its write-target enumeration. None is in an
-   amendment section. R10 and the "Amendment in place, not supersession"
-   decision explicitly choose to **append** an amendment rather than rewrite
-   the body. So the general clause "hits only inside dated amendment sections"
-   cannot be satisfied without doing exactly the body rewrite the PRD rejects.
-   Same for `DESIGN-scope-consolidation-over-skipping.md:846` and
-   `PRD-scope-consolidation-over-skipping.md:414` — those two happen to sit
-   inside existing `## Amendment — 2026-08-15` sections, which is luck, not
-   design.
-
-2. **The two halves disagree.** The general clause ("only inside dated
-   amendment sections and this chain's own artifacts") is strictly stricter
-   than the trailing enumeration ("no hit in `skills/`, `.github/`, `crates/`,
-   `README.md`, or `.gitattributes`"). `docs/guides/doc-validation.md:56` is a
-   hit that the enumeration permits and the general clause forbids. Two
-   verifiers reading the same criterion reach opposite verdicts.
-
-3. **`wip/` is unaddressed.** ~20 hits live under `wip/`. Whether those are
-   "this chain's own artifacts" is undefined. They are committed today
-   (`git status` shows them tracked), and workspace CLAUDE.md requires wip
-   cleanup before merge — so the answer depends on *when* the verifier runs.
-   The criterion must say `:!wip/` explicitly.
-
-4. **"Committed tree" is not operationalized.** `git grep <pat>` searches the
-   index/worktree; `git grep <pat> HEAD` searches the commit. A verifier
-   running the first form and an author who deleted-but-did-not-commit get
-   different answers.
-
-### AC3 — `.gitattributes` has no `merge=union` and no fold-record comment block
+### AC2 — no `docs/folds.md` outside the exclusion set
 
 | | |
 |---|---|
-| **Command** | `grep -c 'merge=union\|folds' .gitattributes` → expect 0 |
-| **Ran** | Yes. `.gitattributes` is 10 lines: a 7-line comment block about append-only union merge plus `docs/folds.md merge=union`. **Fails today.** Correct. |
-| **Binary** | Yes. |
-| **Catches violation** | Yes. The correct outcome leaves the file as a single line (`*.mermaid.md text eol=lf`). |
-| **Verdict** | **PASS** — the strongest criterion in the set. |
+| Command | Verbatim from the PRD, ten `':!…'` pathspecs. |
+| Ran | Yes. **Parses.** Exit 0, 20 hits: `.gitattributes:10`, `validate-docs.yml:104,137,138,147,157,158,160`, `README.md:87`, `doc-validation.md:56`, `execute/SKILL.md:597`, `run-cascade.sh:465`, `scope/SKILL.md:857`, `evals.json:293,304`, `phase-2:668`, `phase-3:375`, `phase-4:111`, `check-citations.sh:56,69`, `check-citations_test.sh:122`. **Fails today** — correct. |
+| Binary | Yes. |
+| Catches violation | Yes for path-spelled references. |
+| Verdict | **PASS** |
 
-### AC4 — shared validation workflow has no fold-record step
+Exclusion audit: the ten exclusions hide only the seven R10 documents, this
+chain's three artifacts, and `wip/`. Nothing else is hidden. `crates/`,
+`.github/`, `skills/`, `README.md`, `docs/guides/` and `docs/designs/archive/`
+all stay inside the search. `docs/folds.md` itself is not excluded, which is
+right — AC1 owns its deletion. No accidental hiding at the path level.
 
-| | |
-|---|---|
-| **Command** | `grep -n 'folds.md\|Verify the fold record\|git show\|rev-parse' .github/workflows/validate-docs.yml` → expect 0 |
-| **Ran** | Yes. Step `Verify the fold record` at line 102, `git show "$HEAD:docs/folds.md"` at 137 and 147, `git rev-parse "$BASE:$doc"` at 146. **Fails today.** Correct. |
-| **Binary** | Almost. |
-| **Catches violation** | Yes. Confirmed that `git show` and `rev-parse` appear **only** inside the fold step, so grepping for them is a clean signal. |
-| **Verdict** | **PASS (one wording fix)** — "no `grep` … invocation" is a false trap: line 90 and line 120 use `grep` for unrelated purposes and must stay. Drop `grep` from the list, or restate as "no occurrence of the string `folds.md` and no `git show` or `rev-parse` invocation." |
-
-### AC5 — `check-citations.sh` accepts no `--record`
+### AC3 — no `fold record` / `fold-record` outside the same set
 
 | | |
 |---|---|
-| **Command** | `bash skills/scope/scripts/check-citations.sh --record x; echo $?` and `grep -c 'record' skills/scope/scripts/check-citations.sh` |
-| **Ran** | Yes. `--record` present at lines 52, 56, 69, 75; the `^docs/[a-z0-9-]+\.md$` shape assertion at 99–100; `:!$record` exclusions in both tiers at 121 and 143. **Fails today.** Correct. |
-| **Binary** | Yes for the flag and the pathspec halves. |
-| **Catches violation** | **Partially vacuous.** Ran `check-citations.sh --record` with no value today: exits **3** with `check-citations: --record needs a value`. So the "exits non-zero" half already passes before any work is done — the flag is *accepted* and still exits non-zero. Only the "unknown-option error" qualifier discriminates, and that requires asserting on stderr text. |
-| **Verdict** | **PASS with a required tightening** — state the assertion as: stderr matches `unknown argument: --record`. |
+| Command | `git grep -in 'fold record\|fold-record' HEAD` + AC2's ten pathspecs. |
+| Ran | Yes, both forms. **Parses** (BRE `\|` alternation works). Literal form: 143 hits. With exclusions: 12 hits — `.gitattributes:3`, `validate-docs.yml:102,149`, `README.md:86`, `docs/folds.md:1`, `doc-validation.md:54`, `scope/SKILL.md:544`, `phase-2:827`, `check-citations.sh:56,114`, `check-citations_test.sh:126,127`. **Fails today.** |
+| Binary | Yes. |
+| Catches violation | **Only for references that use the two-word form.** See B1. |
+| Verdict | **FAIL — blocking (B1)** |
 
-### AC6 — `check-citations_test.sh` passes and has no record case
-
-| | |
-|---|---|
-| **Command** | `bash skills/scope/scripts/check-citations_test.sh` and `grep -n 'folds\|record' skills/scope/scripts/check-citations_test.sh` |
-| **Ran** | Yes. Suite: **10 passed, 0 failed** — the "passes" half is **vacuous today**. The record case exists at lines 117–127 (`the fold record does not refuse a later hop`, writing `$dir/docs/folds.md`), so the "no case" half **fails today.** |
-| **Binary** | Yes. |
-| **Catches violation** | Yes for the absence half; the pass half is a regression guard, which is a legitimate role but should be labelled so nobody mistakes it for evidence of the change. |
-| **Verdict** | **PASS (one half vacuous by design)** |
-
-### AC7 — absorb procedure contiguous, rollback table one row per step, no append/un-append
+### AC4 — `.gitattributes`
 
 | | |
 |---|---|
-| **Command** | Read `skills/scope/references/phases/phase-2-chain-orchestration.md` steps 3–9 (lines 619–678) and the rollback table (679–695). |
-| **Ran** | Yes. Steps 3–9 present; step 6 is "**Append the record and stage it**"; rollback table rows: `5 write`, `6 append`, `7 delete`, `8 re-validate`, `9 commit`; the un-append paragraph follows. **Fails today.** |
-| **Binary** | **No.** |
-| **Catches violation** | **It would produce a false failure on the correct outcome.** |
-| **Verdict** | **FAIL — blocking** |
+| Command | `grep -n 'merge=union\|folds' .gitattributes` |
+| Ran | Yes. 7-line comment block + `docs/folds.md merge=union` at line 10. **Fails today** — correct. |
+| Binary | Yes. |
+| Catches violation | Yes. Correct outcome is a one-line file. |
+| Verdict | **PASS** — still the cleanest criterion in the set. |
 
-"One row per step" is wrong. The table deliberately covers **only the writing
-steps** — the prose above it says "Steps 1 through 4 mutate nothing … Every step
-from 5 onward writes." After the removal the procedure has 8 steps and 4
-writing steps, so a correct rollback table has 4 rows, not 8. A verifier
-applying AC7 literally rejects a correct implementation.
-
-Two further gaps: "contiguous and correctly numbered" does not reach the count
-sentence "Nine steps. Steps 1 and 2 are Stages 1 and 2 above" at line 617,
-which must become "Eight steps" — an author could renumber correctly and leave
-that stale. And "neither mentions an append or an un-append" does not reach the
-standalone paragraph after the table ("The un-append is explicit because the row
-is forced to exist before the deletion"), which is neither the step list nor the
-table.
-
-### AC8 — closed write-target set and read-back both have no append group
+### AC5 — `validate-docs.yml` has no fold step
 
 | | |
 |---|---|
-| **Command** | `grep -n 'Append' skills/scope/SKILL.md skills/scope/references/phases/phase-3-exit-finalization.md` → expect 0 in the write-target-set regions |
-| **Ran** | Yes. `skills/scope/SKILL.md:856-860` — "**Append**, by Phase 2's absorb: `docs/folds.md` — a fixed constant…". `phase-3-exit-finalization.md:375` — "- **Append:** `docs/folds.md`, a fixed constant." **Fails today.** Correct. |
-| **Binary** | Yes for the append-group half. |
-| **Catches violation** | Yes. |
-| **Verdict** | **PASS with a caveat** — "and do not contradict each other" is judgment-shaped, but the two sites are short parallel enumerations, so a diff-style comparison is feasible. Consider restating as: "both list exactly the deletion and mutation groups, and no third group." |
+| Command | `grep -n 'folds.md\|Verify the fold record\|git show\|rev-parse' .github/workflows/validate-docs.yml` |
+| Ran | Yes. Step `Verify the fold record` at 102; `git show "$HEAD:docs/folds.md"` at 137, 147; `git rev-parse "$BASE:$doc"` at 146. **Fails today** — correct. |
+| Binary | Yes. |
+| Catches violation | Yes. |
+| Verdict | **PASS.** The first pass's false-trap objection to listing `grep` is **fixed** by the qualifier "against the record path" — the surviving `grep`s at lines 90 and 120 are not against the record path. |
 
-### AC9 — cleanup phase has no carve-out naming the record
-
-| | |
-|---|---|
-| **Command** | `grep -n 'folds' skills/scope/references/phases/phase-4-cleanup.md` → expect 0 |
-| **Ran** | Yes. Line 111 opens "**`docs/folds.md` is enumerated and never swept.**" plus a 9-line justification. **Fails today.** Correct. |
-| **Binary** | Yes. |
-| **Catches violation** | Yes. |
-| **Verdict** | **PASS** |
-
-### AC10 — the fully-folded-vs-unfinalized rule states a criterion evaluable without the record
+### AC6 — `check-citations.sh --record x`
 
 | | |
 |---|---|
-| **Command** | Human read of `skills/execute/SKILL.md:596–600`. No mechanical form exists. |
-| **Ran** | Yes. Current text: "Distinguishing it from a genuinely unfinalized chain is what `docs/folds.md` is for: a chain that folded away leaves a row … The record is the evidence." **Fails today** on the grep half only. |
-| **Binary** | **No.** |
-| **Catches violation** | **No.** |
-| **Verdict** | **FAIL — blocking** |
+| Command | `bash skills/scope/scripts/check-citations.sh --record x; echo $?` |
+| Ran | Yes. Exit **3**, message `check-citations: --target is required`. |
+| Binary | Yes, if the verifier reads the message. |
+| Catches violation | Yes — **the message is the discriminator.** Baseline confirmed: `--bogus x` today gives `check-citations: unknown argument: --bogus`, exit 3. So "exits non-zero" is vacuous but "with an unknown-option error" is not. |
+| Verdict | **PASS.** The first pass's tightening was effectively adopted by naming the error class. |
 
-This is the weakest criterion in the set, as suspected. "States a criterion that
-can be evaluated without the record" has no failing form: any replacement
-sentence that avoids the word `folds.md` satisfies it. "Names what a reader
-consults instead" is satisfied by naming *any* document, whether or not that
-document actually distinguishes the two cases.
-
-Worse, the PRD's own Known Limitations concedes that for the terminal-fold
-shape "nothing on the default branch records that the chain ran" — so a
-*genuine* distinguishing criterion may not exist. AC10 therefore reads as
-demanding something the PRD elsewhere says is impossible, while being written
-loosely enough that a hollow sentence passes it. Either state the mechanical
-form (for example: the rule must name a concrete artifact or signal, and must
-state what a reader observes when even that is absent), or restate AC10 as an
-absence criterion — "the rule does not cite the record" — and move the positive
-obligation into R8 where it can be judged in review rather than pretending to
-be an acceptance test.
-
-### AC11 — cascade downstream cell has no record pointer; `run-cascade_test.sh` passes
+### AC7 — `check-citations_test.sh`
 
 | | |
 |---|---|
-| **Command** | `grep -n 'folds' skills/execute/scripts/run-cascade.sh` and `bash skills/execute/scripts/run-cascade_test.sh` |
-| **Ran** | Yes. `run-cascade.sh:465` emits `**Downstream:** _none (chain folded; see docs/folds.md)_` — **fails today.** Test suite: **19 passed, 0 failed** — the pass half is **vacuous today**. |
-| **Binary** | Yes. |
-| **Catches violation** | Yes, and well. The "PLAN→ROADMAP, no DESIGN (folded chain)" scenario exercises exactly this line, so the test is a real coupling: change the string and the scenario's assertion must be updated deliberately. |
-| **Verdict** | **PASS** — the best-designed criterion after AC3. |
+| Command | `bash skills/scope/scripts/check-citations_test.sh` |
+| Ran | Yes. **10 passed, 0 failed** — the pass half is a regression guard, vacuous today by design. The record case at lines 122–127 makes the "no case" half **fail today**. |
+| Binary | Yes. |
+| Catches violation | Yes. |
+| Verdict | **PASS** |
 
-### AC12 — README describes the judgment without naming the record
-
-| | |
-|---|---|
-| **Command** | `grep -n 'folds' README.md` → expect 0, plus confirm the consolidation paragraph still exists |
-| **Ran** | Yes. `README.md:86-87` — "…the upstream is removed, with the fold recorded in `docs/folds.md`." **Fails today.** Correct. |
-| **Binary** | Yes. |
-| **Catches violation** | Mostly. It would also pass if the whole consolidation paragraph were deleted, which R8 forbids ("replaced … rather than deleted"). Add "and the paragraph describing the consolidation judgment remains." |
-| **Verdict** | **PASS (one clause to add)** |
-
-### AC13 — adopter-facing docs describe no fold-record check
+### AC8 — absorb procedure renumbered, count sentence, rollback table, no append/un-append
 
 | | |
 |---|---|
-| **Command** | `grep -n 'Fold-record\|folds.md' docs/guides/doc-validation.md` → expect 0 |
-| **Ran** | Yes. `docs/guides/doc-validation.md:54` is a `### Fold-record verification` heading with a 15-line description. **Fails today.** Correct. |
-| **Binary** | Yes. |
-| **Catches violation** | Yes. |
-| **Verdict** | **PASS** |
+| Command | Read `skills/scope/references/phases/phase-2-chain-orchestration.md` lines 614–706. |
+| Ran | Yes. "Nine steps." at 615; step 6 is "**Append the record and stage it**"; rollback rows `5 write / 6 append / 7 delete / 8 re-validate / 9 commit` (5 rows, 5 writing steps — consistent with "one row per writing step"); un-append paragraph at 696–698. **Fails today.** |
+| Binary | Close to it. "Writing step" is defined in the prose above the table ("Every step from 5 onward writes"), so the row count is derivable, not guessed. |
+| Catches violation | Yes, on all four halves. A renumber that leaves "Nine steps" fails. |
+| Verdict | **PASS.** Finding 4 fully addressed. One gap it happens to close by accident: the resume paragraph at line 700 ("interrupted between steps 5 and 9, un-append the row") is a paragraph mentioning an un-append, so the criterion reaches it. Minor: the criterion never names the file. |
 
-### AC14 — four shipped documents carry dated amendments, retain status, and the consolidation design affirms what now answers the objection
-
-| | |
-|---|---|
-| **Command** | `grep -n '^## Amendment' <doc>` and `grep -n '^status:' <doc>` for each of the four; human read for the affirmative clause. |
-| **Ran** | Yes, on the four most plausible subjects. `PRD-scope-consolidation-over-skipping.md` — status `Done`, **already has `## Amendment — 2026-08-15`**. `DESIGN-scope-consolidation-over-skipping.md` — status `Current`, **already has `## Amendment — 2026-08-15`**. `PRD-scope-artifact-persistence.md` — status `Done`, no amendment. `DESIGN-scope-artifact-persistence.md` — status `Current`, no amendment. |
-| **Binary** | **No** for the affirmative-statement clause. |
-| **Catches violation** | **No — half of it passes vacuously.** |
-| **Verdict** | **FAIL — blocking** |
-
-Three defects:
-
-1. **The set is never enumerated.** "The four shipped documents" has a definite
-   article and no list, anywhere in the PRD. R10 describes them by property
-   ("whose requirements and decisions the record discharges"), which requires
-   the verifier to redo the blast-radius analysis. It should be a list of four
-   paths.
-
-2. **Vacuous on two of four today.** A verifier checking "carries a dated
-   amendment section" plus "retains its prior status" passes
-   `PRD-scope-consolidation-over-skipping.md` and
-   `DESIGN-scope-consolidation-over-skipping.md` **before any work is done**,
-   because both already carry a 2026-08-15 amendment about a different subject.
-   The criterion must require an amendment dated at or after this change *and*
-   naming the fold record.
-
-3. **"Affirmative statement of what now answers the objection" is judgment.**
-   It can pass while the requirement is violated: writing "the survivor-side
-   trace answers it" satisfies the letter, but the objection the design decision
-   was rescued from concerns the terminal fold — precisely the case where there
-   *is* no survivor, per the PRD's own Known Limitations. A verifier has no
-   mechanical basis to reject that.
-
-**AC14/AC16 interaction — tested, and it is fine.** I appended a
-`## Amendment — 2026-08-16` section to both
-`docs/prds/PRD-scope-artifact-persistence.md` (status `Done`) and
-`docs/designs/current/DESIGN-scope-artifact-persistence.md` (status `Current`),
-ran `shirabe validate` on both, and got **exit 0** with only the two
-pre-existing FC10 style notices. Trailing amendment sections do not trip FC15
-canonical ordering or FC04 required sections at terminal status. Both files
-were restored byte-for-byte (`git status` clean afterwards). So amending a
-terminal document is mechanically safe — the AC14 problems above are about
-wording, not about validator conflict.
-
-### AC15 — a durable artifact records the rationale and names the carriers evaluated
+### AC9 — closed write-target set
 
 | | |
 |---|---|
-| **Command** | No command — the artifact is not named, so there is nothing to point at. |
-| **Ran** | Partially. `docs/decisions/` holds seven `DECISION-*.md` files, `docs/spikes/` holds two — either would qualify as "a durable artifact". |
-| **Binary** | Half. The carrier list is pinned (seven named), which is good. Everything else is not. |
-| **Catches violation** | **Weakly — it is close to vacuous already.** |
-| **Verdict** | **FAIL — blocking (near-vacuous)** |
+| Command | `grep -n 'Append' skills/scope/SKILL.md skills/scope/references/phases/phase-3-exit-finalization.md` |
+| Ran | Yes. `scope/SKILL.md:856-860` "**Append**, by Phase 2's absorb: `docs/folds.md`…"; `phase-3:375` "- **Append:** `docs/folds.md`, a fixed constant." **Fails today.** |
+| Binary | Yes for the append-group half; "do not contradict each other" is judgment, but the two sites are short parallel enumerations. |
+| Catches violation | Yes. |
+| Verdict | **PASS** |
 
-The PRD's own Out of Scope section already reads: "Per-fold files, commit
-trailers, git notes, forge metadata, per-chain files, and rotation schemes were
-each measured during exploration and none is adopted." That is six of the seven
-carriers AC15 lists, in a durable artifact under `docs/`. Add "survivor
-frontmatter alone" and a reason per carrier and **this PRD satisfies AC15 with
-no new artifact written at all** — which cannot be the intent, since R11 exists
-because the PRD is not the durable home for that reasoning (a PRD reaches Done
-and stops being read).
-
-Fix by pinning the artifact: name the type and the path shape (for example
-`docs/decisions/DECISION-fold-record-removal-<date>.md`), so the criterion reads
-"file X exists and names all seven carriers with a reason each."
-
-### AC16 — `shirabe validate` reports a clean outcome over the changed document set
+### AC10 — cleanup carve-out
 
 | | |
 |---|---|
-| **Command** | `shirabe validate <changed docs>; echo $?` |
-| **Ran** | Yes, several ways. On the two already-amended docs: exit 0, no output. On the two docs after appending test amendments: exit 0, two `::notice` lines. On the whole corpus (`docs/prds/*.md docs/designs/current/*.md docs/briefs/*.md`): **exit 2, 6 `::error` lines**, all pre-existing R6/R10/R11 upstream violations in `docs/briefs/`, none related to this change. |
-| **Binary** | **No** — "clean outcome" is undefined against `::notice`. |
-| **Catches violation** | **No — it does not verify R14, and R14 as written is unmeetable.** |
-| **Verdict** | **FAIL — blocking** |
+| Command | `grep -n 'folds' skills/scope/references/phases/phase-4-cleanup.md` |
+| Ran | Yes. Line 111 opens a 9-line carve-out. **Fails today.** |
+| Binary | Yes. |
+| Catches violation | Yes. |
+| Verdict | **PASS** |
 
-R14 says "the document validator over the corpus" must pass. The corpus **does
-not pass today**, for reasons this PRD does not own
-(`BRIEF-fc06-index-alias.md`, `BRIEF-lifecycle-draft-ready-discipline.md`,
-`BRIEF-single-pr-plan-validation.md`, `BRIEF-skill-cascade-lifecycle-check.md`).
-AC16 quietly narrows to "the changed document set", so it neither verifies R14
-nor flags that R14 is unsatisfiable. One of the two must move: narrow R14 to the
-changed set, or scope it to "no *new* validator error relative to the pre-change
-baseline."
-
-Separately, "clean outcome" needs a definition. Several documents in the changed
-set emit FC10 style notices today. If "clean" means empty output, AC16 fails for
-reasons unrelated to this change; if it means exit 0, say exit 0.
-
-Also: R14 names two suites ("the document validator over the corpus, and the
-scope-scripts test suite"). AC6 covers `check-citations_test.sh`, AC11 covers
-`run-cascade_test.sh` — but `run-cascade_test.sh` is gated by
-`check-execute-scripts.yml`, not `check-scope-scripts.yml`, so R14's enumeration
-and the AC coverage do not line up cleanly.
-
-### AC17 — the survivor-side trace is byte-identical except where a comment names the removed checker
+### AC11 — `/execute` fully-folded-vs-unfinalized rule
 
 | | |
 |---|---|
-| **Command** | `git diff <base>..<head> -- crates/shirabe-validate/src/checks.rs crates/shirabe-validate/src/formats.rs .github/workflows/check-scope-scripts.yml` and inspect that every changed line is a comment. |
-| **Ran** | Partially. Confirmed `git grep 'folds\|fold record' -- crates/` returns **nothing** — the validator source has no fold-record coupling, so the FC18 machinery needs no change at all. The one site the exception clause is for is `.github/workflows/check-scope-scripts.yml:27`, whose comment calls the path shape's three readers "this script … the validator's FC18 … and **the record checker's fold signature** (the trigger). None substitutes for another." |
-| **Binary** | Half. |
-| **Catches violation** | **No — the exception clause is escapable.** |
-| **Verdict** | **FAIL — blocking (fixable with two words)** |
+| Command | No mechanical form for the positive half. `grep -n 'folds' skills/execute/SKILL.md` for the negative half. |
+| Ran | Yes. Line 597: "Distinguishing it from a genuinely unfinalized chain is what `docs/folds.md` is for… The record is the evidence." **Fails today on the grep half only.** |
+| Binary | **No.** |
+| Catches violation | **No** for "names the surface a reader consults instead." |
+| Verdict | **FAIL — blocking (B3)** |
 
-Two problems. First, no baseline is pinned: "byte-identical to their pre-change
-state" needs a ref (the merge base) for the diff to be reproducible by someone
-who did not write the PRD. Second, "except where a comment names the removed
-checker" scopes the exception by *subject matter*, not by *line kind* — so any
-substantive change smuggled in next to a comment mentioning the record is
-technically permitted. Restate as: "the diff over these files touches comment
-lines only."
+### AC12 — cascade cell + `run-cascade_test.sh`
+
+| | |
+|---|---|
+| Command | `grep -n 'folds' skills/execute/scripts/run-cascade.sh` and `bash skills/execute/scripts/run-cascade_test.sh` |
+| Ran | Yes. Line 465 emits `**Downstream:** _none (chain folded; see docs/folds.md)_` — **fails today.** Suite: **19 passed, 0 failed**, including a "PLAN→ROADMAP, no DESIGN (folded chain)" scenario that asserts on that exact cell. |
+| Binary | Yes. |
+| Catches violation | Yes, and the test is a real coupling: changing the string forces a deliberate assertion update. |
+| Verdict | **PASS** — best-designed criterion in the set. |
+
+### AC13 — README
+
+| | |
+|---|---|
+| Command | `grep -n 'folds' README.md` |
+| Ran | Yes. Lines 86–87. **Fails today.** |
+| Binary | Yes. |
+| Catches violation | **Mostly.** Deleting the whole consolidation paragraph also passes, and R8 forbids deletion. The first pass's suggested clause was not added. |
+| Verdict | **PASS (one clause short)** |
+
+### AC14 — `doc-validation.md`
+
+| | |
+|---|---|
+| Command | `grep -n 'Fold-record\|folds.md' docs/guides/doc-validation.md` |
+| Ran | Yes. `### Fold-record verification` heading at line 54 with a description through 68. **Fails today.** |
+| Binary | Yes. |
+| Catches violation | Yes. |
+| Verdict | **PASS** |
+
+### AC15 — seven dated amendments, statuses unchanged
+
+| | |
+|---|---|
+| Command | `grep -n '^## Amendment' <doc>` per doc; `git show 39b0981:<doc> \| grep '^status:'` vs HEAD. |
+| Ran | Yes. All seven files exist. Statuses: BRIEF-artifact-persistence `Done`, PRD-artifact-persistence `Done`, DESIGN-artifact-persistence `Current`, PRD-consolidation `Done`, DESIGN-consolidation `Current`, PRD-mandatory-steps `Done`, DESIGN-mandatory-steps `Current`. Existing amendments: only `PRD-scope-consolidation-over-skipping.md:394` and `DESIGN-scope-consolidation-over-skipping.md:822`, both `2026-08-15`. **Fails today on all seven.** |
+| Binary | Yes. |
+| Catches violation | Yes — and the vacuity the first pass found is gone. See the heading check below. |
+| Verdict | **PASS** |
+
+### AC16 — the consolidation design's amendment
+
+| | |
+|---|---|
+| Command | No single command; two substring searches plus a read. |
+| Ran | Partially — the target amendment does not exist yet. |
+| Binary | **No.** |
+| Catches violation | Partially. "Including the case where nothing does" is a real falsifier a reviewer can apply; "the phrase naming the surviving half of the answer (the record of *why*, in the code)" is not a literal string and admits many paraphrases. |
+| Verdict | **PASS (weak, judgment-bounded)** — improved over pass 1, not mechanical. |
+
+### AC17 — `DESIGN-fold-record-removal.md` and seven carriers
+
+| | |
+|---|---|
+| Command | `test -e docs/designs/current/DESIGN-fold-record-removal.md` then grep for each carrier. |
+| Ran | Yes. **File does not exist.** Fails today — correct. |
+| Binary | Yes for existence and for the seven names; "with a reason for rejection" needs a read but is bounded per carrier. |
+| Catches violation | Yes. The PRD can no longer satisfy it — the path is pinned to a file that is not the PRD. |
+| Verdict | **PASS** |
+
+### AC18 — `crates/` comment-only, `cargo test` passes
+
+| | |
+|---|---|
+| Command | `git diff 39b0981..HEAD -- crates/` and `cargo test` |
+| Ran | Yes. Diff is **empty** (0 lines). `cargo test`: **805 passed, 0 failed**, plus 0 doc-tests. Both halves vacuous today — correct for a regression guard, and critically it is **meetable**, unlike the old R14. |
+| Binary | Yes. |
+| Catches violation | Yes. |
+| Verdict | **PASS** |
+
+### AC19 — survivor-trace surfaces, comment lines only
+
+| | |
+|---|---|
+| Command | Not runnable as written — the file set is a property, not a path list. |
+| Ran | Partially; I resolved the property myself (below). |
+| Binary | **No.** |
+| Catches violation | **It false-fails the correct outcome on the natural reading.** |
+| Verdict | **FAIL — blocking (B2)** |
+
+### AC20 — validator clean on the changed set, corpus errors ≤ 5
+
+| | |
+|---|---|
+| Command | `shirabe validate --visibility=public <changed docs>`; corpus count (invocation not specified — I used `git ls-files 'docs/**/*.md' 'docs/*.md'`, 177 files). |
+| Ran | Yes, both halves. Corpus at HEAD: **exactly 5 `::error`**, 127 `::notice`, 0 `::warning`. Merge-base-equivalent corpus (same 175 files; the only docs/ files added since `39b0981` are this chain's BRIEF and PRD): **also 5**. |
+| Binary | Yes once the corpus command is fixed; the criterion does not fix it. |
+| Catches violation | Yes — a new error from a bad amendment or the new DESIGN raises the count above 5. |
+| Verdict | **PASS (one tightening needed: pin the corpus invocation)** |
+
+### AC21 — `evals.json` rewritten, not scrubbed
+
+| | |
+|---|---|
+| Command | Search `skills/scope/evals/evals.json` for `folds.md` / append prose; read scenario `consolidation-absorb-brief-into-prd` (eval index 18). |
+| Ran | Yes. Two sites: `expected_output` (one long narration, contains "It appends one row to docs/folds.md and git adds it before anything is deleted") and `expectations[8]` ("Plan appends the docs/folds.md row and git adds it BEFORE the git rm of the BRIEF, then re-runs shirabe validate on the surviving PRD and commits the deletion, the splice, the edits and the record together"). **Fails today** on the first half. |
+| Binary | First half yes. Second half **no**. |
+| Catches violation | **No** for the half that matters. |
+| Verdict | **FAIL — blocking (B4)** |
+
+---
+
+## Empirical claim checks
+
+**AC2 and AC3 parse.** Both run clean. `git grep <pat> HEAD -- ':!…'` is valid,
+the exclusion pathspecs take effect, and AC3's `\|` alternation works under
+git's default BRE. Neither has a syntax defect.
+
+**AC3 does not catch the four sites the previous pass named.** Verified one by
+one:
+
+| Site | Text | Caught by AC3? |
+|---|---|---|
+| `.github/workflows/check-scope-scripts.yml:27` | "the validator's FC18 (the backstop), and **the record checker's fold signature** (the trigger)" | **No** — contains neither `fold record` nor `fold-record`. Also contains no `docs/folds.md`, so AC2 misses it too. |
+| `DESIGN-scope-chain-mandatory-steps.md:313` | "in the shape the fold record's carve-out already uses" | **No** — pattern matches, but the file is in AC3's exclusion set. |
+| `DESIGN-scope-chain-mandatory-steps.md:719` | "the shape the fold record's already uses" | **No** — same exclusion. |
+| `PRD-scope-chain-mandatory-steps.md:784` | "the fold record stay as shipped" | **No** — same exclusion. |
+
+The last three are exempt **by design** under R18 (amended-document bodies), so
+those are defensible. The first is not: `check-scope-scripts.yml` is an
+executable surface, which R18 explicitly says must carry no dangling reference.
+And a fourth site the first pass did not find is in the same shape:
+
+- `crates/shirabe-validate/src/formats.rs:177-182` — doc comment on
+  `ABSORBED_ENTRY_PATTERN`: "three sites read it … this crate's
+  absorbed-declaration check (the *backstop*) … and **the record checker's fold
+  signature** (the *trigger*). None substitutes for another."
+
+Both become false the moment R5 deletes the checker. AC18 and AC19 *permit*
+comment edits in `crates/` but never *require* them, and no criterion names
+`check-scope-scripts.yml` at all.
+
+**AC2's exclusion list hides nothing it shouldn't.** Audited above under AC2.
+
+**AC20's true merge-base error count is five.** Confirmed independently without
+`git stash`: `git diff --stat 39b0981..HEAD` shows the only non-`wip/` additions
+are `docs/briefs/BRIEF-fold-record-removal.md` and
+`docs/prds/PRD-fold-record-removal.md`, so the other 175 corpus files are
+byte-identical to the merge base. Validating those 175 gives 5 `::error`;
+validating all 177 also gives 5. The five:
+
+```
+BRIEF-fc06-index-alias.md:20            [R10] BRIEF may not name DESIGN as upstream
+BRIEF-lifecycle-draft-ready-discipline.md:18  [R10] BRIEF may not name BRIEF as upstream
+BRIEF-single-pr-plan-validation.md:4    [R6]  upstream PLAN does not exist on disk
+BRIEF-single-pr-plan-validation.md:4    [R11] BRIEF names a PLAN as upstream
+BRIEF-skill-cascade-lifecycle-check.md:24     [R10] BRIEF may not name BRIEF as upstream
+```
+
+The author's claim is **correct**. Note also that `docs/folds.md` is itself in
+the corpus and emits one FC10 style *notice* (exit 0), not an error, so deleting
+it does not move the count. The one gap: AC20 says "the full docs corpus" without
+naming an invocation, and CI validates only *changed* files, so no precedent
+exists. I had to choose the file set. Two verifiers can pick different sets.
+
+**AC15's heading format matches the corpus exactly.** Hexdumped both. The corpus
+headings are `## Amendment` + `20 e2 80 94 20` + date — U+2014 EM DASH with
+single spaces. AC15's pattern in the PRD is byte-identical: `## Amendment` +
+`20 e2 80 94 20` + `<date>`. **No mismatch.** Two caveats, both minor: the
+corpus also uses a suffixed form (`## Amendment — 2026-07-06: default-on hooks…`
+in three other documents), so "matching" should be read as prefix-match, not
+exact-match; and the date test relies on the verifier knowing the landing date.
+The vacuity the first pass found is genuinely gone — the two existing
+`2026-08-15` amendments *do* contain `folds.md`, so the date clause is doing all
+the discriminating work, and it does it.
+
+**AC18's `cargo test` baseline passes.** 805 passed, 0 failed. The criterion is
+meetable. `git grep -in 'folds\|fold record' -- crates/` returns only two
+unrelated uses of "folds" as a verb (`lifecycle.rs:998`, `populate.rs:2032`), so
+the required `crates/` diff really is comment-only or empty.
+
+**AC21's remaining assertion set is not checkable as stated.** The scenario's
+ten expectations include four ordering assertions: #2 (preflight before anything
+composed/written/deleted), #5 (carry check before anything written), #7 (splice
+ordering within the single pass), and #8 (append → `git rm` → re-validate →
+atomic commit). Only #8 mentions the append. R13 demands a rewrite, which means
+#8 must survive as "`git rm` the BRIEF, then re-run `shirabe validate` on the
+surviving PRD, then commit the deletion, the splice and the edits together" —
+preserving three guarantees. But AC21 says only "the scenario still asserts the
+procedure's remaining ordering guarantees" without enumerating them, and #2 and
+#5 are themselves ordering assertions. **Deleting #8 outright passes AC21** —
+which is precisely the scrub R13 exists to forbid.
 
 ---
 
 ## Vacuous criteria
 
-Criteria or clauses that already pass, today, before any work:
-
 | Criterion | Vacuous part | Evidence |
 |---|---|---|
-| **AC5** | "invoking it with `--record` exits non-zero" | `check-citations.sh --record` → exit **3** today (`--record needs a value`). Only the stderr-text qualifier discriminates. |
-| **AC6** | "`check-citations_test.sh` passes" | **10 passed, 0 failed** today. |
-| **AC11** | "`run-cascade_test.sh` passes" | **19 passed, 0 failed** today. |
-| **AC14** | "carries a dated amendment section" + "retains its prior status", for 2 of 4 docs | Both consolidation-over-skipping docs already carry `## Amendment — 2026-08-15` at their current statuses. |
-| **AC15** | most of it | The PRD's own Out of Scope already names six of the seven carriers in a durable `docs/` artifact. |
-| **AC16** | all of it | `shirabe validate` on the amended docs → exit 0 today; "the changed document set" is empty pre-change, so trivially clean. |
-| **AC17** | all of it, trivially | "byte-identical to pre-change state" is true when nothing has changed. Legitimate as a regression guard, but needs a pinned baseline to mean anything. |
+| AC7 | "exits 0" | 10 passed, 0 failed today. |
+| AC12 | "exits 0" | 19 passed, 0 failed today. |
+| AC18 | both halves | `crates/` diff empty; `cargo test` 805/805. |
+| AC20 | "no greater than five" | corpus is at exactly 5 today. |
+| AC6 | "exits non-zero" only | exit 3 today, but with a *different* message; the message clause discriminates. |
 
-AC6, AC11 and AC17's vacuity is defensible — they are regression guards, and a
-regression guard passing before the change is exactly what it should do. AC5's,
-AC14's, AC15's and AC16's is not: those clauses are doing verification work the
-PRD is relying on, and they do not do it.
+All five are legitimate regression guards — a guard that passes before the change
+is behaving correctly. **None of the disqualifying vacuity from pass 1 survives.**
+AC15, AC17 and AC20 all now fail or bind today where their predecessors did not.
 
 ---
 
@@ -356,158 +371,114 @@ PRD is relying on, and they do not do it.
 | Req | Catching AC | Assessment |
 |---|---|---|
 | R1 | AC1, AC2 | Covered. |
-| R2 | AC7 | Covered but AC7 is defective — see above. |
-| R3 | AC8 | Covered. |
-| R4 | AC9 | Covered. |
-| R5 | AC4 | Covered. |
-| R6 | AC5, AC6 | Covered. |
-| R7 | AC3 | Covered — cleanly. |
-| R8 (bullet 1) | AC10 | Covered in name only; AC10 cannot fail. |
-| R8 (bullet 2) | AC11 | Covered. |
-| R8 (bullet 3) | AC12 | Covered; add the "paragraph remains" clause so deletion does not pass. |
-| R9 | AC13 | Covered. |
-| R10 | AC14 | Covered but AC14 is half-vacuous and the set is unnamed. |
-| R11 | AC15 | Covered but near-vacuous and the artifact is unpinned. |
-| R12 | AC17 | Covered but the exception is escapable. |
-| **R13** | **none** | **Gap.** "No compiled behavior SHALL change … any source change SHALL be limited to comments" has no criterion. AC17's byte-identical clause covers only the four named trace artifacts and their checks, not `crates/` at large. A one-line criterion fixes it: `git diff <base>..<head> -- crates/` is empty, or touches comment lines only. Cheap to satisfy — I confirmed `git grep 'folds\|fold record' -- crates/` is empty, so the correct diff is empty. |
-| R14 | AC16 (partially) | **Gap.** AC16 tests a narrower set than R14 demands, and R14 as written cannot be met — the corpus exits 2 today with 6 unrelated errors. |
-| **R15** | AC2 (path only) | **Gap.** See the next section — R15 says "no dangling reference"; AC2 tests only "no occurrence of the path string." |
+| R2 | AC8 | Covered, well. |
+| R3 | AC9 | Covered. |
+| R4 | AC10 | Covered. |
+| R5 | AC5 | Covered. |
+| R6 | AC6, AC7 | Covered. |
+| R7 | AC4 | Covered. |
+| R8 bullet 1 | AC11 | Absence half covered; positive half cannot fail. **B3.** |
+| R8 bullet 2 | AC12 | Covered. |
+| R8 bullet 3 | AC13 | Covered; wholesale deletion still passes. |
+| **R8 bullet 4** | AC3 only | **Gap.** `skills/scope/SKILL.md:544` ("and the fold recorded") is caught by AC3 as an *absence* obligation, but R8 says "replaced … rather than deleted". No criterion requires the absorb verdict definition to still state what the verdict ends with. |
+| R9 | AC14 | Covered. |
+| R10 | AC15 | Covered. |
+| R10a | AC16 | Covered, judgment-bounded. |
+| R11 (rationale) | AC17 | Covered. |
+| **R11 (`keep` obligation)** | **none** | **Gap.** "That design SHALL survive this chain … the consolidation judgment at the design-to-plan hop SHALL reach `keep`" has no criterion. AC17 only asserts the file exists at this change's HEAD. |
+| **R12** | AC3 (misses both named sites) | **Gap — B1.** |
+| R13 | AC21 | Covered; the discriminating half is escapable. **B4.** |
+| R14 | AC19 | Covered by a criterion that false-fails. **B2.** |
+| R15 | AC18 | Covered. |
+| R16 | AC20 | Covered; corpus invocation unpinned. |
+| R17 | AC7, AC12 | Covered. |
+| R18 | AC2, AC3 | Covered for path-spelled and two-word references; the `check-scope-scripts.yml` executable surface escapes both. |
 
----
+**Does any criterion merely restate its requirement?** Only AC11, which restates
+R8's first bullet and adds no verification method. Everything else names a
+concrete file, string, or command — a genuine strength of this draft.
 
-## Rubric findings
-
-### Does any criterion merely restate a requirement?
-
-Mostly no — this is a strength of the set. AC3, AC4, AC5, AC9, AC12 and AC13 all
-name a concrete file and a concrete string, which is more than their
-requirements do. The exceptions are **AC10**, which restates R8's first bullet
-almost word for word and adds no verification method, and **AC15**, which
-restates R11 and adds a carrier list but no artifact location.
-
-### Happy path and edge cases — the partial-removal case is NOT covered
-
-This is the second blocking finding, and it is the one the change is most
-exposed to. A removal's characteristic failure is a *dangling reference*: the
-mechanism goes, the prose that depends on it stays. R15 names that risk
-correctly, but AC2 operationalizes it as a **path-string grep only**. Every
-reference that talks about the record without spelling `docs/folds.md` survives
-the entire acceptance set. Four exist right now:
-
-| Site | Text | Fate after the change |
-|---|---|---|
-| `.github/workflows/check-scope-scripts.yml:27` | "…the validator's FC18 (the backstop), and **the record checker's fold signature** (the trigger). None substitutes for another" | **Becomes false.** R5 deletes that checker. Three readers become two. Not in AC2's grep (no path string), and this file is not named by any AC. |
-| `docs/designs/current/DESIGN-scope-chain-mandatory-steps.md:313` | "the handoff is carved out explicitly, **in the shape the fold record's carve-out already uses**" | **Becomes a dangling pattern reference.** R4 deletes that carve-out. Status `Current`. |
-| `docs/designs/current/DESIGN-scope-chain-mandatory-steps.md:719` | "The carve-out is stated in the shape **the fold record's already uses**" | Same. |
-| `docs/prds/PRD-scope-chain-mandatory-steps.md:784` | Out of Scope: "The absorbability judgment, the citation preflight, the carry check, and **the fold record stay as shipped**" | **Becomes false.** Status `Done`. |
-
-The last three are also a **fifth and sixth shipped document** whose content the
-removal falsifies — and AC14 caps the amendment obligation at "the four". Either
-the set is five/six, or R10 needs a stated reason why a prose pattern-reference
-does not need amending while a requirement does.
-
-The fix is one additional criterion: a case-insensitive search for `fold record`
-and `fold-record` across the committed tree, with the same exclusion set as AC2.
-
-### Criteria that could pass while the requirement is violated
-
-- **AC10** — any sentence naming any document passes.
-- **AC12** — deleting the consolidation paragraph outright passes, though R8
-  forbids deletion.
-- **AC14** — a boilerplate "the prior answer is withdrawn; the survivor-side
-  trace answers it" passes, even where no survivor exists.
-- **AC17** — a substantive change adjacent to a comment mentioning the removed
-  checker passes.
-- **AC1** — an uncommitted deletion passes (mitigated by AC2).
+**Partial-removal edge case.** Better covered than pass 1: AC3 now sweeps
+two-word references across `skills/`, `.github/`, `README.md` and `crates/`. The
+residual is exactly B1 — the two "three readers"/"three sites" comments that name
+the record checker without using either pattern.
 
 ---
 
 ## Required changes
 
-1. **Resolve the AC2/R10 contradiction.** AC2's general clause ("hits only
-   inside dated amendment sections") is unsatisfiable while R10 mandates
-   amendment-in-place: `DESIGN-scope-artifact-persistence.md` carries five
-   body-level hits at lines 19, 231, 308, 330, 412 that the amendment mechanism
-   does not touch. Either widen AC2 to permit body hits in the amended
-   documents, or state that those five sites are rewritten too (and reconcile
-   with the "Amendment in place, not supersession" decision).
+1. **Close R12 (B1).** AC3's pattern catches neither site R12 names as its
+   minimum binding. Add a criterion pinned to the two sites by path:
+   `.github/workflows/check-scope-scripts.yml` and
+   `crates/shirabe-validate/src/formats.rs` each describe the document-path
+   shape's readers without naming a record checker, and the reader count in each
+   comment matches the number that remains. A general search will not do this —
+   the phrase is "the record checker's fold signature", which matches neither
+   `docs/folds\.md` nor `fold[ -]record`. Alternatively broaden AC3's pattern to
+   `fold record\|fold-record\|record checker\|fold signature`; I verified
+   `record checker` has no false positives outside the exclusion set beyond
+   `.gitattributes:9`, which AC4 already deletes.
 
-2. **Make AC2 a single mechanical test.** Drop the conflicting two-half phrasing
-   and pin it: `git grep -n 'docs/folds\.md' HEAD -- ':!wip/' ':!docs/prds/PRD-fold-record-removal.md' ':!docs/briefs/BRIEF-fold-record-removal.md' ':!<the four amended docs>'`
-   returns nothing. Name the exclusions as paths, not as categories, and say
-   `HEAD` so "committed tree" is unambiguous.
+2. **Pin AC19's file set by path, and reconcile it with AC8 and AC21 (B2).**
+   "The survivor-trace surfaces … and their checks" resolves, on the natural
+   reading, to a set that includes
+   `skills/scope/references/phases/phase-2-chain-orchestration.md` (step 5
+   specifies the `absorbed:` write, the `## Status` line, and the
+   contribution-section splice) and `skills/scope/evals/evals.json` (its
+   `expected_output` narrates all three) — both of which AC8 and AC21 *mandate*
+   changing with non-comment edits. `.github/workflows/validate-docs.yml` also
+   carries `absorbed:` handling at lines 111 and 138 that R5 deletes wholesale.
+   A verifier applying AC19 literally rejects a correct implementation. Two
+   further problems: "comment lines" is undefined for Markdown and JSON; and once
+   the set is narrowed to files where the phrase means something, AC19 collapses
+   into AC18 plus `check-scope-scripts.yml`. Restate as: the diff over
+   `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/formats.rs`,
+   `crates/shirabe/tests/absorption_corpus.rs` and
+   `.github/workflows/check-scope-scripts.yml` touches comment lines only.
 
-3. **Add a criterion for non-path references** (covers R15's real intent and the
-   partial-removal edge case): a case-insensitive committed-tree search for
-   `fold record` and `fold-record`, with the same exclusions, returns nothing.
-   Four live sites will fail it today —
-   `.github/workflows/check-scope-scripts.yml:27`,
-   `DESIGN-scope-chain-mandatory-steps.md:313` and `:719`,
-   `PRD-scope-chain-mandatory-steps.md:784`.
+3. **Give AC11 a failing form (B3).** This is the first pass's blocking AC10,
+   unchanged. "Names the surface a reader consults instead" is satisfied by
+   naming any document. Either state the mechanical form — the rule names a
+   concrete artifact or signal *and* states what a reader observes when even that
+   is absent, which is the case the Known Limitations concede — or restate AC11
+   as pure absence ("the rule does not cite the record") and move the positive
+   obligation into R8 as a review obligation rather than an acceptance test.
 
-4. **Fix AC7's rollback clause.** "One row per step" is false for the correct
-   outcome: the table covers writing steps only (5 onward today, 4 rows after
-   renumbering an 8-step procedure). Restate as "the rollback table has one row
-   per writing step and its rows' step numbers match the renumbered list."
-   Extend the append-mention clause to reach the Stage 3 count sentence ("Nine
-   steps") at line 617 and the standalone un-append paragraph after the table.
+4. **Enumerate AC21's surviving ordering guarantees (B4).** As written, deleting
+   expectation 8 passes, because expectations 2 and 5 are also ordering
+   assertions. Name them: the scenario asserts that the `git rm` precedes the
+   re-validation, that the re-validation precedes the commit, and that the
+   deletion, the splice and the survivor's edits land in one commit.
 
-5. **Enumerate AC14's four documents by path**, and require the amendment to be
-   **dated on or after the change and to name the fold record** — otherwise the
-   criterion passes vacuously on `PRD-scope-consolidation-over-skipping.md` and
-   `DESIGN-scope-consolidation-over-skipping.md`, which already carry
-   2026-08-15 amendments. Reconcile the count with finding 3: at least two more
-   shipped documents are falsified by this change.
+5. **Pin AC20's corpus invocation.** "The full docs corpus" has no precedent —
+   CI validates only changed files. State the command, e.g.
+   `shirabe validate --visibility=public $(git ls-files 'docs/**/*.md' 'docs/*.md')`,
+   and that the count is of `::error` lines. With that invocation the baseline is
+   five, confirmed.
 
-6. **Give AC14's "affirmative statement" clause a mechanical form**, or move it
-   out of the acceptance set into R10 as a review obligation. As written it is
-   judgment and can pass while the requirement is violated.
-
-7. **Pin AC15's artifact.** Name the type and path shape (e.g.
-   `docs/decisions/DECISION-fold-record-removal-<date>.md`). Without it the
-   PRD's own Out of Scope section nearly satisfies the criterion, which defeats
-   R11's purpose — a PRD reaches Done and stops being consulted.
-
-8. **Reconcile R14 and AC16.** The corpus exits 2 today with 6 pre-existing
-   errors in `docs/briefs/`, so R14 as written cannot be met. Narrow R14 to the
-   changed set, or restate it as "introduces no new validator error relative to
-   the merge base." Define "clean outcome" as `exit 0` — several documents in
-   the changed set emit `::notice` lines that are not errors.
-
-9. **Add a criterion for R13.** `git diff <merge-base>..HEAD -- crates/` is empty
-   or touches comment lines only. Confirmed satisfiable: `crates/` has no
-   fold-record coupling at all.
-
-10. **Bound AC17's exception by line kind, not subject.** "Except where a
-    comment names the removed checker" permits smuggling; "the diff over these
-    files touches comment lines only" does not. Also pin the baseline ref so the
-    byte-comparison is reproducible.
+6. **Add a positive obligation for R8's fourth bullet.** AC3 forces the phrase
+   out of `skills/scope/SKILL.md:544` but nothing requires the `absorb` verdict
+   definition to still say what the verdict ends with. R8 says "replaced …
+   rather than deleted"; give the bullet the same treatment AC11–AC13 give the
+   other three.
 
 ---
 
 ## Optional improvements
 
-- **AC4**: drop `grep` from the forbidden-invocation list. `grep` is used at
-  lines 90 and 120 for unrelated purposes and must stay; `git show` and
-  `rev-parse` appear only in the fold step, so those two alone are a clean
-  signal.
-
-- **AC5**: state the stderr assertion explicitly (`unknown argument: --record`),
-  since exit-non-zero already holds today.
-
-- **AC12**: add "and the paragraph describing the consolidation judgment
+- **AC13**: add "and the paragraph describing the consolidation judgment
   remains", so wholesale deletion cannot pass a criterion whose requirement
-  forbids deletion.
-
-- **AC6, AC11, AC17**: mark these as regression guards in the text. They pass
-  today by design and that is correct; saying so stops a reviewer from reading
-  their vacuity as a defect.
-
-- **AC8**: "do not contradict each other" would be sharper as "both list exactly
-  the deletion and mutation groups and no third group" — the two sites are short
-  parallel enumerations, so this is mechanically checkable.
-
-- Consider one criterion for `skills/scope/evals/evals.json`, whose lines 293
-  and 304 narrate the append step in expected-output prose. AC2 catches it via
-  the `skills/` clause today, but if AC2 is rewritten as a pathspec-exclusion
-  command (change 2), make sure `evals.json` stays inside the search.
+  forbids deletion. (Carried over from pass 1, not applied.)
+- **AC8**: name the file
+  (`skills/scope/references/phases/phase-2-chain-orchestration.md`). The
+  criterion is otherwise the strongest rewrite in the set.
+- **AC15**: say "a heading beginning `## Amendment — <date>`" — three documents
+  in this corpus use a suffixed form (`## Amendment — 2026-07-06: …`), so exact
+  match would be the wrong reading.
+- **AC16**: quote the surviving half as a literal to search for, the way AC15
+  pins `folds.md`.
+- **AC7, AC12, AC18, AC20**: label these regression guards in the text. They pass
+  today by design; saying so stops a reviewer reading their vacuity as a defect.
+- **R11's `keep` obligation** has no criterion. It may be genuinely unverifiable
+  at this change's HEAD — if so, say that in the requirement rather than leaving
+  a silent gap.
