@@ -42,7 +42,7 @@ koto next <WF> --with-data '{"scrutiny_outcome": "passed"}'
 
 ## Retry Loop
 
-When a blocking finding sends the work back, clear the panel verdicts before submitting the retry. Run this instead of a bare `koto next`:
+When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome
