@@ -498,12 +498,19 @@ for applying it.
 
 **The surfaced rule** (`skills/plan/SKILL.md`, section "Execution Mode Decision"):
 
-- Default to single-pr.
-- Escape to multi-pr only when a hard constraint forces multiple PRs, or each PR
-  is independently useful.
-- A roadmap input is multi-pr because each feature is a cohesive deliverable that
-  lands observable incremental value -- the value principle, not the input
-  mechanism.
+- Default to as few PRs as the repository's resolved Delivery Preference permits;
+  `consolidated` (the default) means single-pr.
+- Escape only on a named branch from the plan profile of
+  `${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`: **Hard Constraint**,
+  **Incremental Value**, or **Stated Preference**.
+- A roadmap input is multi-pr under Incremental Value, because each feature is a
+  cohesive deliverable that lands observable value -- the value principle, not the
+  input mechanism.
+
+The branch this step selects is not bookkeeping: it is written into the produced
+PLAN's `split_rationale` frontmatter field and checked by `L09`, so a step that
+recommends a mode without naming its branch leaves the plan unable to satisfy that
+check.
 
 #### Procedure
 
@@ -511,16 +518,41 @@ for applying it.
    it to this decomposition.
 2. **Read the value-guard output (step 3.5a).** Every unit passed cleanly, or
    some were recorded as `assumed` (failing or ambiguous).
-3. **Recommend a mode:**
-   - **Roadmap input** -> multi-pr (each feature is a cohesive deliverable, per
-     the surfaced rule).
+3. **Resolve the Delivery Preference** on the `flag > CLAUDE.md ## Delivery
+   Preference: header > consolidated` stack. This is the default the next step
+   departs from, so it is resolved before a mode is recommended, not after.
+4. **Recommend a mode, and select the branch that produced it.** Every
+   non-default outcome carries exactly one branch name:
+   - **Roadmap input** -> multi-pr, branch **Incremental Value** (each feature is
+     a cohesive deliverable, per the surfaced rule).
    - **Plan input with a named hard constraint** (cross-repo, merge gate between
-     steps, a workflow that must reach main before it can be invoked) -> multi-pr
-     with the constraint named.
-   - **Plan input with each PR independently useful** -> multi-pr with the
-     incremental-value rationale stated.
-   - **Plan input otherwise** -> single-pr.
-4. **Present the recommendation to the user using AskUserQuestion** (interactive
+     steps, a workflow that must reach the default branch before it can be
+     invoked) -> multi-pr, branch **Hard Constraint**, with the constraint named.
+   - **Plan input with each PR independently useful** -> multi-pr, branch
+     **Incremental Value**, with the rationale stated.
+   - **Plan input under an `atomic` preference whose decomposition permits a
+     split** -> multi-pr, branch **Stated Preference**. Do not restate this as an
+     incremental-value claim; the branch exists so the real reason can be given.
+   - **Plan input under `consolidated`, no branch fires** -> single-pr, no branch,
+     no record.
+   - **Plan input under `atomic` that stays single-pr anyway** -> single-pr, but
+     it departed from the preference, so it still owes a branch naming why.
+5. **Record the selected branch** in the decomposition artifact's frontmatter
+   alongside `execution_mode`, so Phase 7 can write it into the PLAN's
+   `split_rationale` without re-deriving the judgment:
+
+   ```yaml
+   execution_mode: multi-pr
+   split_branch: Hard Constraint
+   split_rationale: |
+     Hard Constraint. The reusable workflow added in unit 1 must reach the
+     default branch before unit 2's workflow_dispatch invocation resolves.
+   ```
+
+   Omit both fields when the outcome is `single-pr` under `consolidated` — the
+   no-branch case records nothing.
+
+6. **Present the recommendation to the user using AskUserQuestion** (interactive
    mode):
 
 ```
@@ -538,7 +570,7 @@ the hard constraint, or the incremental-value justification>
 Use <recommended mode>, or override?
 ```
 
-5. **Under `--auto`** follow the recommendation and record a `confirmed` decision
+7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in `wip/plan_<topic>_decisions.md` if the rationale is clear, or
    `assumed` at high review priority if multi-pr was chosen without a hard
    constraint or a clear incremental-value rationale for every unit.

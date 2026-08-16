@@ -33,14 +33,53 @@ issue_count: 18
 
 Required fields: `schema`, `status`, `execution_mode`, `milestone`,
 `issue_count`. Optional: `upstream` (the DESIGN doc this PLAN
-implements; omit if authored without a single upstream DESIGN).
+implements; omit if authored without a single upstream DESIGN), and
+`split_rationale` (required under the condition below, absent
+otherwise).
 
 - **schema** -- `plan/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
-- **execution_mode** -- one of `single-pr` or `multi-pr`. Determines
-  whether the PLAN materializes GitHub issues at finalization
-  (`multi-pr`) or stays self-contained and drives one PR
-  (`single-pr`).
+- **execution_mode** -- one of `single-pr`, `multi-pr`, or
+  `coordinated`. Determines whether the PLAN materializes GitHub
+  issues at finalization (`multi-pr`) or stays self-contained and
+  drives one PR (`single-pr`); `coordinated` is the multi-repo
+  generalization of `multi-pr`.
+- **split_rationale** -- why this PLAN has the delivery shape it has.
+  Required when **either** of these holds:
+  - `execution_mode` is not `single-pr`; **or**
+  - `execution_mode` is `single-pr` and the repository's resolved
+    Delivery Preference is `atomic` — that is, the plan departed from
+    what the preference would have produced.
+
+  Both disjuncts are stated because the second is easy to miss: in a
+  repository preferring atomic delivery, `single-pr` *is* the
+  departure, and it owes a reason for the same purpose the first
+  disjunct does.
+
+  The value is free text and MUST name one of the three branches
+  defined in `${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md` —
+  Hard Constraint, Incremental Value, or Stated Preference — followed
+  by the specific justification. Free text rather than an enum
+  because the plan-altitude branch vocabulary is not yet settled
+  enough to be worth a migration-costly schema; naming the branch is
+  what keeps the check stronger than "the author typed something."
+
+  A value that is present but names none of the three branches fails
+  `L09`, so this contract and the check agree on what naming a branch
+  requires.
+
+  A `single-pr` PLAN in a repository whose preference is
+  `consolidated` (the default) omits the field entirely. That is
+  correct rather than an omission: one pull request is the shape
+  nobody asks about, and requiring a note there would add a mandatory
+  field to the common case for symmetry alone.
+
+  ```yaml
+  split_rationale: |
+    Hard Constraint. The reusable workflow added in the first unit
+    must reach the default branch before the second unit's
+    workflow_dispatch invocation can resolve.
+  ```
 - **upstream** -- path to the upstream DESIGN doc, repo-relative or
   cross-repo (`owner/repo:path`). Omit if the PLAN was authored from
   a topic with no single upstream DESIGN. Cross-repo upstream
