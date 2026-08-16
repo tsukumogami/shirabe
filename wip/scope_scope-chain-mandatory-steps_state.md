@@ -1,7 +1,7 @@
 ```yaml
 topic: scope-chain-mandatory-steps
 chain_started: 2026-08-16T03:06:25Z
-last_updated: 2026-08-16T03:08:00Z
+last_updated: 2026-08-16T03:42:19Z
 phase_pointer: phase-2
 exit: UNSET
 exit_artifacts: []
@@ -16,16 +16,33 @@ chain_ran:
   - name: brief
     started_at: 2026-08-16T03:10:00Z
     completed_at: 2026-08-16T03:15:04Z
+  - name: prd
+    started_at: 2026-08-16T03:16:00Z
+    completed_at: 2026-08-16T03:42:19Z
 child_snapshots:
-  brief:
-    status: Draft
-    content_hash: 3f1174177af4e69ec5340ffdcacc4921f50728ed
-    captured_at: 2026-08-16T03:15:04Z
-consolidation_judgments: []
-parent_orchestration:
-  invoking_child: prd
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+  prd:
+    status: Accepted
+    content_hash: 558fb314fc32ad31a7bfe35378137916003b2cac
+    captured_at: 2026-08-16T03:42:19Z
+consolidation_judgments:
+  - hop: brief->prd
+    verdict: absorb
+    stage: carry
+    target: docs/briefs/BRIEF-scope-chain-mandatory-steps.md
+    survivor: docs/prds/PRD-scope-chain-mandatory-steps.md
+    preflight_exit: 0
+    carried:
+      problem-statement: true
+      user-outcome: true
+      user-journeys: true
+      scope-boundary: true
+    blob: 6f96746e956c2286409f7d5b71ca23a153a5d564
+    finding: >-
+      The brief holds nothing at an altitude the PRD does not reach. Its problem
+      statement arrives at greater length, its user outcome as Goals, all five
+      journeys as User Stories with the same actors and triggers, and its scope
+      boundary as the requirements themselves plus Out of Scope. It carries no
+      requirements, no architecture, and no sequencing.
 worktree_rebases:
   - phase: brief
     upstream_commits: [8e07f07, 85fda73]
@@ -36,6 +53,10 @@ worktree_rebases:
       evals.json (scope 26->28, charter 21->22, execute 34->35). Every scenario
       this chain cites keeps its id and name; artifacts cite by id and name
       rather than by suite count.
+  - phase: prd
+    upstream_commits: []
+    impact: none
+    rebased_at: 2026-08-16T03:16:00Z
 r6_predicates:
   p1: fires
   p1_reason: >-
