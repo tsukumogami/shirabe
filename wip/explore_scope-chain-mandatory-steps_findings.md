@@ -350,3 +350,8 @@ the PR-time check only counts files, and no crate or CI script reads skill prose
 The corpus drifted for a full release cycle with a shipped requirement unmet and
 nothing surfaced it. Whatever this change lands, the same drift can recur unless
 something checks at PR time.
+
+## Decision: Crystallize
+
+Round 1 was sufficient. The author elected to decide rather than run a second
+round; the residue is choices to make against alternatives, not facts to find.
