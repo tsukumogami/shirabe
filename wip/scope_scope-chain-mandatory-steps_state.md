@@ -19,11 +19,18 @@ chain_ran:
   - name: prd
     started_at: 2026-08-16T03:16:00Z
     completed_at: 2026-08-16T03:42:19Z
+  - name: design
+    started_at: 2026-08-16T03:43:00Z
+    completed_at: 2026-08-16T04:07:47Z
 child_snapshots:
   prd:
-    status: Accepted
+    status: In Progress
     content_hash: 558fb314fc32ad31a7bfe35378137916003b2cac
     captured_at: 2026-08-16T03:42:19Z
+  design:
+    status: Accepted
+    content_hash: 722b8b1432cee71f9988c1970202678dbd91cb4d
+    captured_at: 2026-08-16T04:07:47Z
 consolidation_judgments:
   - hop: brief->prd
     verdict: absorb
@@ -43,6 +50,21 @@ consolidation_judgments:
       journeys as User Stories with the same actors and triggers, and its scope
       boundary as the requirements themselves plus Out of Scope. It carries no
       requirements, no architecture, and no sequencing.
+  - hop: prd->design
+    verdict: keep
+    stage: judgment
+    target: docs/prds/PRD-scope-chain-mandatory-steps.md
+    survivor: docs/designs/DESIGN-scope-chain-mandatory-steps.md
+    preflight_exit: 0
+    finding: >-
+      The PRD holds work the DESIGN does not. Forty numbered requirements and
+      fifty-four acceptance criteria are the executable contract for the change
+      and have no equivalent anywhere in the design; four Known Limitations
+      (the decision skill's durability gap, the eval suite running on a cron
+      rather than on pull requests, the narrowed pipeline-model scope, and the
+      handoff being exercised only by its consumers) are named in the PRD and
+      only partly overlapped by the design's Consequences. A contribution
+      composed from the survivor's own body would find none of it there.
 worktree_rebases:
   - phase: brief
     upstream_commits: [8e07f07, 85fda73]
