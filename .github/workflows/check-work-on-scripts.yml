@@ -1,0 +1,57 @@
+name: Check work-on scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/work-on/scripts/**'
+      # retry-clearing_test.sh extracts the clearing blocks out of the phase
+      # files at run time rather than carrying copies, so a phase-file edit can
+      # break it while leaving skills/work-on/scripts/** untouched. Without
+      # these paths that edit would merge with the suite never having run.
+      - 'skills/work-on/references/phases/**'
+      # The suite drives the shipped template, so a template edit can change
+      # which gate holds which state.
+      - 'skills/work-on/koto-templates/**'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it has
+      # to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+
+jobs:
+  test-work-on-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite asserts that a cleared context key holds its phase, which
+      # cannot be checked without the engine that evaluates the gate. koto
+      # arrives through the project tool manifest, the same way
+      # check-execute-scripts.yml and validate-templates.yml get it.
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      # The harness skips with exit 0 when koto is absent, so this step is what
+      # keeps a silent skip from hiding a koto that vanished from CI: the install
+      # above fails first.
+      - name: Run retry-clearing tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/retry-clearing_test.sh
+
+      # The macOS leg is the floor check. It goes through the runner rather than
+      # calling /bin/bash directly so the whole process tree stays on 3.2, and so
+      # it is the same command a developer runs locally.
+      - name: Run work-on suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system work-on

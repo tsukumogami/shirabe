@@ -100,7 +100,7 @@ mktempdir() {
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
 
-SUITES="plan execute preflight templates template-consistency"
+SUITES="plan execute work-on preflight templates template-consistency"
 
 suite_scripts() {
     case "$1" in
@@ -114,6 +114,15 @@ suite_scripts() {
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
             echo "skills/execute/scripts/settled-branch-record_test.sh"
+            ;;
+        work-on)
+            # Drives real koto sessions to assert that a cleared context key
+            # holds its phase, which cannot be checked without the engine that
+            # evaluates the gate. Skips cleanly when koto is absent, which it is
+            # on the macOS runner; it is in this suite for the floor's own sake,
+            # since a developer running it locally has koto and the cases
+            # genuinely execute on 3.2 there.
+            echo "skills/work-on/scripts/retry-clearing_test.sh"
             ;;
         preflight)
             echo "scripts/skill-preflight_test.sh"
@@ -154,6 +163,7 @@ suite_workflow() {
     case "$1" in
         plan)                 echo ".github/workflows/check-plan-scripts.yml" ;;
         execute)              echo ".github/workflows/check-execute-scripts.yml" ;;
+        work-on)              echo ".github/workflows/check-work-on-scripts.yml" ;;
         preflight)            echo ".github/workflows/check-preflight-scripts.yml" ;;
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
