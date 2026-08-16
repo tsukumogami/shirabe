@@ -809,5 +809,5 @@ What Decision 6 settled is unchanged. Work-slicing stays de-conflated from
 execution mode, and the roadmap case stays anchored on the value each feature
 delivers rather than on the mechanism of the input being a roadmap.
 
-See `docs/designs/DESIGN-multi-pr-plan-decoupling.md` for why the default became
+See `docs/designs/current/DESIGN-multi-pr-plan-decoupling.md` for why the default became
 conditional and for the three named branches a non-default shape now cites.
