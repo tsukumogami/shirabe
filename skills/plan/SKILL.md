@@ -56,11 +56,15 @@ multi-pr, or coordinated), `milestone`, and `issue_count`. Optional `upstream`
 links to the source document (design doc, PRD, or roadmap).
 
 PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
-identical for single-pr and multi-pr. Only the Draft -> Active gate
-differs: multi-pr requires human approval (GitHub issues + milestone
-are created on the transition); single-pr auto-fires when /plan
-finishes authoring (no human gate, no GitHub side effects). A
-committed PLAN at `status: Draft` is a violation in either mode.
+identical across execution modes. Only the Draft -> Active gate
+differs, and it keys on **whether the transition will create GitHub
+issues** -- the resolved Tracking Level -- not on `execution_mode`.
+An activation that files issues requires human approval, because that
+is the moment remote artifacts appear; one that files none auto-fires
+when /plan finishes authoring. So a `multi-pr` plan whose tracking
+level is `none` auto-fires, and a `single-pr` plan whose level is
+`issues` waits for approval. A committed PLAN at `status: Draft` is a
+violation in either case.
 
 PLANs are ephemeral: when the work completes, the PLAN file is
 deleted from the tree in the same commit set that transitions the

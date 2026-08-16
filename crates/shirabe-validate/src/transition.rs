@@ -259,8 +259,8 @@ fn rejections(triples: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
 /// (Draft -> Active -> Done -> DELETED): the subcommand accepts the
 /// in-tree transitions (Draft -> Active and Active -> Done) without
 /// any GitHub-side effects. The Draft -> Active gate is purely a
-/// frontmatter edit here; the gate difference between modes (auto
-/// for single-pr, human-approval for multi-pr) is enforced out-of-
+/// frontmatter edit here; the gate difference (auto when no issues
+/// are created, human approval when they are) is enforced out-of-
 /// band by the calling skill, not by this subcommand. Deletion at
 /// Done is performed by the cascade (`git rm`), not by `transition`.
 pub fn transition_spec(format_name: &str) -> Option<TransitionSpec> {
@@ -465,9 +465,9 @@ pub fn transition_table() -> Vec<TransitionSpec> {
             format_name: "Plan".to_string(),
             statuses: s(&["Draft", "Active", "Done"]),
             // Unified PLAN lifecycle: Draft -> Active -> Done. The
-            // gate difference between single-pr (auto-transition on
-            // /shirabe:plan completion) and multi-pr (human approval
-            // gate that also creates GitHub issues + milestone) is
+            // gate difference between a no-issues activation (auto-
+            // transition on /shirabe:plan completion) and an issue-
+            // creating one (approval gate, then the issues) is
             // enforced by the calling skill out-of-band; this
             // subcommand only edits the on-disk status. Done is the
             // ephemeral marker that bridges to deletion (`git rm` is
@@ -1956,8 +1956,8 @@ mod tests {
     #[test]
     fn plan_draft_to_active_succeeds() {
         // The Draft -> Active gate: single-pr execution auto-fires
-        // this when /shirabe:plan finishes authoring; multi-pr
-        // execution fires it under human approval. The subcommand
+        // this when /shirabe:plan finishes authoring; an issue-
+        // creating activation fires it under approval. The subcommand
         // performs the on-disk edit in both cases.
         let doc = "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: single-pr\nmilestone: m\nissue_count: 1\n---\n\n## Status\n\nDraft\n";
         let path = write_doc("PLAN-foo.md", doc);
@@ -2007,9 +2007,9 @@ mod tests {
     #[test]
     fn plan_draft_to_active_for_multi_pr_succeeds_without_gh_side_effects() {
         // The transition subcommand accepts Draft -> Active for
-        // multi-pr PLANs the same way it does for single-pr: the
-        // subcommand only edits frontmatter. The human-approval +
-        // GitHub-issue-creation gate is enforced out-of-band by the
+        // every PLAN the same way regardless of mode: the subcommand
+        // only edits frontmatter. The approval-plus-issue-creation
+        // gate is enforced out-of-band by the
         // calling skill, not by this subcommand.
         let doc = "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: multi-pr\nmilestone: m\nissue_count: 3\n---\n\n## Status\n\nDraft\n";
         let path = write_doc("PLAN-multi.md", doc);

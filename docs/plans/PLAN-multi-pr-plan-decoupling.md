@@ -284,15 +284,20 @@ changed while its decision stands.
   human-approved.
 - The decision record carries an amendment naming the new predicate and stating
   that the asymmetry itself is unchanged; it is not superseded.
-- **Completeness check, file-scoped.** `grep -cniE "(human[ -]approv|approval gate)"`
-  over this issue's eight files returns zero for each. Before the change the
-  counts are `SKILL.md` 1, `plan-doc-structure.md` 3, `phase-7-creation.md` 1,
-  `plan-format.md` 0, `lifecycle.rs` 3, `transition.rs` 4,
-  `DESIGN-lifecycle-draft-ready-discipline.md` 1,
-  `DESIGN-shirabe-artifact-decision-contract.md` 4 — seventeen occurrences to
-  clear. Scoping to named files rather than the tree is deliberate: the pattern
-  alone returns 157 corpus-wide hits from unrelated approval prose in `/roadmap`,
-  `/comp`, `/strategy` and `/brief`.
+- **Completeness check, file-scoped.** Over this issue's eight files,
+  `grep -niE "(human[ -]approv|approval gate)" | grep -iE "multi-pr|single-pr"`
+  returns nothing except prose that explicitly de-keys the gate (a line saying
+  the approval is required "whatever the `execution_mode`" is the fix, not a
+  miss).
+
+  A zero-occurrence check on the approval terms alone would be **wrong**, and an
+  earlier draft of this criterion asked for exactly that. The gate is not being
+  removed — it is being re-keyed — so "human approval" legitimately survives at
+  every site describing it. What must not survive is any site that makes the
+  approval conditional on `execution_mode`. Scoping to the named files rather
+  than the tree is also deliberate: the approval pattern alone returns 157
+  corpus-wide hits from unrelated approval prose in `/roadmap`, `/comp`,
+  `/strategy` and `/brief`.
 - **Discovery check, tree-wide.** `grep -rniE "multi-pr" skills/ crates/ docs/ |
   grep -iE "(human[ -]approv|approval gate)"` returns hits only at the golden
   fixture, the decision record's amendment quotation, and this feature's own

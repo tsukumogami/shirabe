@@ -47,18 +47,19 @@
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
 //! the PLAN's frontmatter `status:` field is the posture signal.
 //! PLAN docs use a unified four-state lifecycle —
-//! Draft -> Active -> Done -> DELETED — identical for single-pr and
-//! multi-pr execution. The only branch is the Draft -> Active gate:
-//! multi-pr requires human approval (GitHub issues + milestone are
-//! created on the transition); single-pr auto-transitions when
+//! Draft -> Active -> Done -> DELETED — identical across execution
+//! modes. The only branch is the Draft -> Active gate, which keys on
+//! whether the transition creates GitHub issues (the resolved
+//! Tracking Level), not on the mode: an issue-creating activation
+//! requires human approval; a no-issues one auto-transitions when
 //! `/shirabe:plan` finishes authoring, so a single-pr PLAN that
 //! reaches a committed branch is already at `Active`. Consequently
 //! the posture rules are: present at `Active` is in-flight (single-pr
 //! mid-PR or multi-pr in-flight); present at `Done` is work-
 //! completing-but-not-yet-deleted (L01 fires); present at `Draft` on
 //! a committed PLAN is a violation (the author landed a single-pr
-//! PLAN without its auto-transition firing, or a multi-pr PLAN whose
-//! human approval gate never ran); absent is at-merge.
+//! PLAN whose auto-transition never fired, or an issue-creating one
+//! whose approval gate never ran); absent is at-merge.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -760,8 +761,8 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
 /// Infer the posture from the root doc's frontmatter.
 ///
 /// PLAN docs use a unified Draft -> Active -> Done -> DELETED
-/// lifecycle. Only the Draft -> Active gate differs between modes
-/// (human-approved for multi-pr, auto-fired for single-pr), so the
+/// lifecycle. Only the Draft -> Active gate differs, and it keys on
+/// whether issues are created rather than on the mode, so the
 /// in-flight on-disk state is `Active` for both. A committed PLAN
 /// at `Draft` is therefore a violation in either mode — the chain
 /// posture maps it to its mode's in-flight bucket so the per-member
