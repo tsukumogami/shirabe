@@ -289,13 +289,23 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 All transitions are executed by `shirabe transition`. The PLAN
 stays in `docs/plans/` through every state.
 
-- **Draft -> Active** (multi-pr only) -- Phase 7 populate has
-  materialized the GitHub issues and the milestone. `single-pr` mode
-  skips this state.
-- **Draft -> Done** (single-pr only) -- the implementing agent has
-  shipped all issues in one PR. Lifecycle cascade fires.
-- **Active -> Done** (multi-pr only) -- all materialized issues are
-  closed. Lifecycle cascade fires.
+The Draft -> Active gate keys on the resolved `tracking_level`, not on
+`execution_mode`: an activation that creates GitHub issues waits for
+human approval, because that is the moment remote artifacts appear;
+one that creates none auto-fires as authoring completes.
+
+- **Draft -> Active** (`tracking_level` is `issues` or
+  `issues-and-milestone`) -- Phase 7 has materialized the GitHub
+  issues, and the milestone at `issues-and-milestone`, behind the
+  approval gate. Reachable at any `execution_mode`: a `single-pr`
+  PLAN whose repo asked for issues takes this path too.
+- **Draft -> Done** (`tracking_level` is `none`) -- no GitHub
+  artifacts were created, so nothing gated the activation; the
+  implementing agent has shipped the work and the lifecycle cascade
+  fires. Reachable at any `execution_mode`: a `multi-pr` PLAN whose
+  repo asked for no tracking takes this path too.
+- **Active -> Done** -- all materialized issues are closed. Lifecycle
+  cascade fires.
 
 ### Lifecycle cascade
 
