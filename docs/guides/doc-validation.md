@@ -51,21 +51,6 @@ For recognized files, the validator:
 Errors produce `::error` GHA annotations that fail the check. Notices
 produce `::notice` annotations that don't.
 
-### Fold-record verification
-
-The reusable workflow also verifies `docs/folds.md` when a pull request
-carries a **fold signature**: a deleted chain document *plus* an
-`absorbed:` declaration naming its path added in the same diff. It
-asserts a row exists for the fold, that the row's blob hash matches the
-document as it was before the fold, and that the record was appended to
-rather than rewritten.
-
-It triggers on the signature rather than on deletion because deleting a
-chain document is ordinary housekeeping -- superseded roadmaps have been
-removed from this repository with no fold involved -- and a
-deletion-triggered check would fail that in every repository pinning this
-workflow.
-
 ## Quick setup
 
 Create `.github/workflows/validate-docs.yml` in your repo:

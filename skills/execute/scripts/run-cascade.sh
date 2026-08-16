@@ -462,7 +462,7 @@ handle_roadmap() {
             if (ref != "") {
                 print "**Downstream:** " ref " (Current)"
             } else {
-                print "**Downstream:** _none (chain folded; see docs/folds.md)_"
+                print "**Downstream:** _none (chain folded)_"
             }
             next
         }

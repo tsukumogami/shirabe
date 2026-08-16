@@ -114,18 +114,6 @@ got=$(run_guard "$dir" --target docs/briefs/BRIEF-topic.md --survivor docs/prds/
     || fail_test "wip scratch does not refuse a fold" "expected 0, got $got"
 rm -rf "$dir"
 
-# --- the record does not refuse the next hop ------------------------------
-# A row from hop 1 names a still-live survivor by path. Without the record
-# exclusion, a chain that folds twice refuses at its second hop.
-dir=$(new_repo) || exit 1
-printf '| 2026-08-15 | docs/briefs/BRIEF-topic.md | docs/prds/PRD-topic.md | absorb |\n' \
-    > "$dir/docs/folds.md"
-( cd "$dir" && git add -A && git commit -qm record )
-got=$(run_guard "$dir" --target docs/briefs/BRIEF-topic.md --survivor docs/prds/PRD-topic.md)
-[[ "$got" == "0" ]] \
-    && ok_test "the fold record does not refuse a later hop" \
-    || fail_test "the fold record does not refuse a later hop" "expected 0, got $got"
-rm -rf "$dir"
 
 # --- 3: a pathspec-shaped argument is refused, not obeyed -----------------
 # `--` does not disable pathspec globbing. An argument like docs/* would blind

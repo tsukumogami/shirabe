@@ -541,7 +541,8 @@ argument — and reaches one of two verdicts:
   does not.
 - **`absorb`** — the upstream's contribution is carried into the
   survivor, the upstream is removed, every link to it re-pointed,
-  and the fold recorded.
+  and the survivor's own `absorbed:` declaration and `## Status`
+  absorption line record what it took in.
 
 The judgment fires only when both endpoints of that edge appear in
 `chain_ran:`. An artifact held back by re-entry protection was
@@ -570,8 +571,8 @@ the absorb and leaves both artifacts in place — the check is the
 receiving mechanism, and an absorb without one is a recommendation
 that nothing confirms.
 
-The full nine-step procedure, its rollback table, the firing
-condition, the record, and the prohibition on reintroducing a
+The full eight-step procedure, its rollback table, the firing
+condition, and the prohibition on reintroducing a
 durable-artifact floor live in the Consolidation Judgment section
 of `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
@@ -851,13 +852,6 @@ survivor at the terminal hop and takes four writes there: the
 line, and the contribution section. Phase 3 still does not *write*
 the PLAN — `/plan` produces it — and Phase 2's absorb does; naming
 the phase is what makes both true at once.
-
-**Append**, by Phase 2's absorb:
-
-- `docs/folds.md` — a fixed constant with nothing interpolated,
-  which is a stronger injection posture than the slug-composed
-  paths beside it. Enumerated here and carved out of Phase 4's
-  sweep, so it is a known target that is never swept.
 
 **Phase 3 and Phase 4**, unchanged: Decision Records under
 `docs/decisions/`, force-materialized partials under
