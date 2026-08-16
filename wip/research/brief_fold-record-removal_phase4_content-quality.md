@@ -1,175 +1,266 @@
-# Content-Quality Verdict: BRIEF-fold-record-removal
+# Content-Quality Verdict: BRIEF-fold-record-removal (pass 2)
 
-Revision 2 — re-review after the author applied all three required changes from
-revision 1. Revision 1's verdict was FAIL with 3 blocking items; all three are
-resolved. This revision also rules explicitly on journey 4, which the structural
-reviewer declined to judge and referred here, and on the shortened frontmatter
-`problem` block.
+Reviewed against the document as it stands at commit `764c62d` — frontmatter
+`status: Accepted`, Open Questions section removed, its single remaining
+question relocated into the Status prose. The document changed on disk during
+this review (the acceptance commit landed mid-read); every quotation below is
+from the current file, not the Draft that preceded it. This file replaces an
+earlier pass-2 verdict committed at `764c62d`, which remains recoverable there.
 
 ## Verdict
 
 PASS
 
-## Rubric findings
+## Disposition of first-pass findings
 
-### 1. Problem Statement states a problem, not a smuggled solution — PASS
+### 1. Merge-attribute contradiction — RESOLVED
 
-Unchanged from revision 1 and still correct. The section opens on the gap —
-"a document that was absorbed and a document that was never produced look
-identical on disk, and they mean opposite things" — and its three bolded
-sub-arguments frame why the current arrangement is wrong rather than what gets
-deleted. No solution is stated; the closing line ("machinery ... protecting a
-file that has never held a row") implies the conclusion without prescribing it.
+The Scope IN list keeps its claim:
 
-**Growth check: still clean.** The third sub-argument is titled "**What it costs
-is contention, not size**," which forecloses the growth argument the author
-excluded rather than merely omitting it. The "machinery" enumeration is a
-complexity cost, a distinct and independently supported claim. Nothing in the
-edits reintroduced a size argument.
+> - Removing the merge attribute that exists only to serve the record.
 
-### 2. Problem Statement stands alone — PASS
+and nothing anywhere in the document now reopens it. The Open Questions section
+is gone entirely (the acceptance transition removed it, as the lifecycle
+requires), so the competing statement is gone with it. There is no second
+sentence in the brief that treats the attribute's fate as undecided. The
+contradiction is genuinely eliminated rather than papered over.
 
-Unchanged and still correct. A cold reader gets the fold mechanic, why deletion
-is ambiguous, why squash-merge does not rescue it, what the current answer is,
-and three specific defects, without opening anything in References.
+**Does dropping the question orphan anything the brief still owes a downstream
+reader?** No. The residue the first pass identified — documents that cite the
+attribute as providing a guarantee it does not provide — has three carriers in
+the repository, and all three sit inside the boundary the IN list already draws:
 
-### 3. User Outcome is outcome-shaped and names its user — PASS
+- `docs/folds.md:51-58` ("`.gitattributes` gives this file `merge=union`, so two
+  branches each appending…") — deleted by IN item 1.
+- `.gitattributes:6-8` — deleted by IN item 3, the comment going with the
+  attribute.
+- `DESIGN-scope-artifact-persistence.md:329-335` ("its merge driver is the
+  repository's first… union-merge resolves a concurrent duplicate row silently")
+  — covered by IN item 6, "Amending the four shipped documents whose
+  requirements and decisions the record discharges."
 
-Still three paragraphs, three named users, no feature list. The revision-2
-rewording of paragraph 1 preserves the outcome shape rather than sliding into a
-description of the removal:
+One correction to the author's stated reasoning, which does not change the
+outcome: the cover is the *amendment* item, not the "replacing the two prose
+claims" item. That item enumerates its two claims explicitly — the fully-folded
+versus unfinalized rule, and the cascade's roadmap line — and neither is about
+the merge attribute. The residue is still inside the boundary; it just enters
+through a different door than the author named.
 
-> "An author running `/scope` alongside other agents on the same repository
+### 2. User Outcome contention claim — RESOLVED
+
+Current first paragraph:
+
+> An author running `/scope` alongside other agents on the same repository
 > finishes a fold without writing to a shared bookkeeping file. That write
 > surface is gone, so no fold has to be rebased, resolved, or re-run because a
-> sibling chain folded first."
+> sibling chain folded first.
 
-"That write surface is gone" is the closest the section comes to naming a
-deletion, and it functions as the *reason* for the outcome rather than as the
-outcome itself — the outcome is what the author no longer has to do. Correct
-side of the line.
+Current Journey 1 outcome shape:
 
-### 4. User Outcome matches the `outcome` frontmatter — PASS (revision-1 blocker resolved)
+> **Outcome shape:** neither branch has written to the shared record, so both
+> merge in either order with no rebase, no conflict marker, and no red check on
+> a correct record.
 
-Resolved. Prose now reads "without writing to a shared bookkeeping file" against
-the frontmatter's "no longer contend on a shared bookkeeping file" — the same
-claim at the same width. Journey 1's outcome shape was narrowed in step, from
-"neither branch touches a file the other wrote" to "neither branch has written to
-the shared record," which roots the no-conflict claim in the removed surface
-instead of asserting a general absence of shared writes the brief cannot support.
-The unsupported absolute is gone from both places.
+Both now scope the claim to the one file. The absolutes the first pass flagged
+("without touching any file another chain is also writing," "Nothing about the
+run contends," "neither branch touches a file the other wrote") are gone from
+both places.
 
-**On the shortened `problem` block (author asked me to check this pairing).** The
-4-line version:
+Against the frontmatter, the match is now exact rather than approximate —
+frontmatter "Parallel `/scope` runs no longer contend on **a shared bookkeeping
+file**" against prose "finishes a fold **without writing to a shared bookkeeping
+file**." Same noun, same scope.
 
-> "A `/scope` fold deletes a chain document, and the fact that it was absorbed
+I checked the consequent clauses for residual overshoot, since both sentences
+still end in a strong claim ("no fold has to be rebased…," "both merge in either
+order"). They hold, because each is grammatically bounded by the shared surface
+that precedes it ("That write surface is gone, **so**…"; "neither branch has
+written to the shared record, **so**…") and because the one other shared write
+surface the brief names — "the line the implementation cascade writes into a
+roadmap when a chain folds to nothing" — is written by the implementation
+cascade, not by a `/scope` fold. It cannot fire in the window either sentence
+describes. The narrowed claims are defensible as written.
+
+### 3. Two implementation prescriptions in the IN list — RESOLVED
+
+Both strings are absent. The bullets now read:
+
+> - Removing the citation-search exclusion that exists only to stop the record
+>   from poisoning the fold guard.
+
+> - Amending the four shipped documents whose requirements and decisions the
+>   record discharges.
+
+"along with its test case" and "in place, following the dated-amendment shape
+this corpus already uses" do not appear anywhere in the document.
+
+**No comparable slip remains in the IN list.** I read all seven bullets for
+altitude. The closest call is "Removing `docs/folds.md` and the append step that
+writes it" — but naming the step identifies *which surface* is inside the
+boundary, not how to change it, and a removal brief that named only the file
+would leave a downstream author guessing whether the writer stays. The last
+bullet is where a slip would have been easiest, and the draft avoids it:
+"Recording why a shared fold log was removed and which alternative carriers were
+measured and rejected, so the decision survives the branch" commits to the
+obligation without naming an artifact type, a location, or a format. That is
+brief altitude done correctly.
+
+### 4. Shortened frontmatter `problem` versus the Problem Statement body — MATCHES
+
+Frontmatter, 4 lines:
+
+> A /scope fold deletes a chain document, and the fact that it was absorbed
 > rather than never written has to survive. Today that fact is recorded in
-> `docs/folds.md`, a shared append-only file every parallel chain writes to, for
-> a guarantee the surviving document already carries."
+> docs/folds.md, a shared append-only file every parallel chain writes to, for a
+> guarantee the surviving document already carries.
 
-It still matches the body: "shared append-only file every parallel chain writes
-to" carries the contention sub-argument, and "for a guarantee the surviving
-document already carries" carries the recorded-twice sub-argument. The trim
-dropped the adopter-obligation clause. That is acceptable — a 4-line field cannot
-carry a 40-line section, the body states the adopter cost in full, and the format
-treats these fields as summaries with the body as the authority. Two notes, both
-non-blocking and recorded under Optional: the frontmatter now promises an adopter
-outcome whose corresponding problem it no longer names, and the trailing "for"
-clause attaches grammatically to "writes to," which reads as though chains write
-to the file *for* the guarantee.
+Every clause traces to the body. "The fact… has to survive" is the body's
+opening gap ("a document that was absorbed and a document that was never
+produced look identical on disk"). "A shared append-only file every parallel
+chain writes to" is the third sub-argument ("The file is one shared write point
+for every chain running in parallel"). "For a guarantee the surviving document
+already carries" is the second ("A surviving document already declares what it
+absorbed…"). Nothing in the summary is absent from the body, and — the check
+that matters more — nothing in the summary contradicts it.
 
-### 5. Each journey names a user, a trigger, and an outcome shape — PASS
+The compression drops the body's own carve-out ("What has no other carrier is
+narrower: the case where the last survivor is itself deleted after the chain
+finishes"), so the summary states flatly what the body states with an exception.
+Within a 2-4 line field whose contract is "same content the Problem Statement
+elaborates in prose," elaborating an exception is exactly what the body is for.
+Passes; noted under Optional.
 
-All four still carry all three after the journey-1 edit; the narrowing touched
-only the outcome-shape wording, not the structure.
+## Journey 4 ruling
 
-### 6. Journeys are distinct — PASS, including journey 4 specifically
+**Journey 4 clears the distinctness bar. It stays.**
 
-**Ruling on journey 4** ("A future contributor notices folds leave no central
-trace"), referred here by the structural reviewer. It clears the bar. This is a
-considered verdict on that journey, not a pass over the set.
+The structural reviewer's objection is that its outcome shape — "they find a
+durable record" — describes *reading an artifact this work produces* rather than
+exercising the feature from a distinct entry point. The objection is precisely
+stated, and it is the right question to ask, but it resolves in the journey's
+favor for three reasons.
 
-The objection is that its outcome shape — "they find a durable record" — has the
-user *reading an artifact this work produces* rather than exercising the feature.
-Two things defeat that objection.
+**Reading an artifact the feature produces is exercising the feature.** The
+format reference's own examples of distinct entry points include "a downstream
+consumer tracing upstream" and "a review-and-accept pass" — both are read paths,
+not invocations. A rule that required every journey to be a write path would
+fail half the examples the contract offers. What the rule actually forbids is
+the same path re-told, and consumption is not a lesser kind of path.
 
-First, the format's own examples of distinct entry points include "a downstream
-consumer tracing upstream" — a reading journey, where the user consumes an
-artifact rather than invoking anything. Read-side journeys are explicitly
-sanctioned as distinct entry points. Journey 2 is also a reading journey and
-raises no concern; journey 4 is the same species.
+**It is the only journey that exercises an IN-list deliverable no other journey
+touches.** The IN list commits to "Recording why a shared fold log was removed
+and which alternative carriers were measured and rejected, so the decision
+survives the branch," and the OUT list leans on that same artifact to discharge
+its own boundary ("A reader who wants to know why will find it in the record
+this work produces"). Journey 4 is the only place in the document where that
+deliverable is exercised by a person. Delete the journey and the brief commits
+to producing an artifact whose consumer it never describes.
 
-Second, and decisively: the record journey 4 consults is **inside the feature's
-scope boundary**, not incidental to it. The last IN item reads "Recording why a
-shared fold log was removed and which alternative carriers were measured and
-rejected, so the decision survives the branch." A journey that exercises an
-explicitly in-scope deliverable is exercising the feature by definition. Had the
-brief left that record out of scope, journey 4 would be promising an outcome the
-feature does not deliver, and that would be a genuine failure — but the brief
-scopes it in, and the OUT item on replacement carriers points at the same
-deliverable ("A reader who wants to know why will find it in the record this work
-produces"). The journey and the boundary agree.
+**Against each of the other three, the entry point differs in user, in trigger,
+and in artifact touched.** Journey 1's user is mid-run and never reads anything.
+Journey 3's user is in another repository and meets the feature through CI. The
+genuine risk of overlap is with journey 2, and the two come apart cleanly:
+journey 2's user holds a specific dead path and wants to know what happened to
+*that document*, and resolves it by reading the survivor — which this work does
+not produce and explicitly leaves untouched (OUT: "The survivor-side trace").
+Journey 4's user holds no path at all; they have noticed a structural absence
+and are deciding whether to build something, and they resolve it by reading the
+rationale record. Different question, different artifact, opposite direction —
+one looks backward at a document, the other forward at a proposal.
 
-Distinctness against the other three is clean. Journey 4's user intent (evaluate
-a proposed change to the corpus) differs from journey 2's (resolve one dangling
-reference); the trigger differs; the artifact consulted differs — the decision
-record versus the absorbing chain document; and the outcome differs — a proposed
-change forestalled versus one document's question answered.
+Its distinguishing merit is that it is the only journey whose user is not served
+by the removal but by the *record of* the removal, and it says out loud what
+fails without it: "Without that record the removal reads as an oversight and
+invites the mechanism back." That is a real failure mode for a deletion feature,
+and no other journey covers it.
 
-Journey 4 also does work no other journey does: it is the only one that names the
-failure mode of *omitting* an in-scope deliverable — "Without that record the
-removal reads as an oversight and invites the mechanism back." For a removal
-feature, the journey that defends against the removal being silently undone is
-arguably the most load-bearing of the four. Keep it.
+One honest weakness, non-blocking: the journey's outcome depends on an artifact
+whose form the brief never names. That is correct at this altitude — naming it
+would be the altitude slip flagged in finding 3 — but it does mean journey 4 is
+the brief's least verifiable until the downstream PRD picks the form.
 
-The set as a whole remains the draft's strongest section: concurrency, consumer
-tracing, downstream adopter, future re-litigation — four genuinely different
-entry points.
+## Rubric findings
 
-### 7. Scope Boundary has real IN and OUT lists — PASS
+**1. Problem Statement states a problem, not a smuggled solution — PASS.**
+Unchanged by the revision and still right. The section opens on the gap ("a
+document that was absorbed and a document that was never produced look identical
+on disk, and they mean opposite things"), and the three bolded sub-arguments are
+diagnoses of the current arrangement — "It was never argued for," "Most of what
+it records is recorded twice," "What it costs is contention, not size" — not
+descriptions of what gets deleted. The closing enumeration ("a merge driver, an
+append-only assertion, a cleanup carve-out, a citation-search exclusion, and
+four documents of rationale") maps onto the IN list, but it is framed as the
+cost surface being protected, and for a removal the cost surface and the
+deletion surface are necessarily the same set. Reading it as a deletion plan
+requires ignoring the sentence it sits in.
 
-The OUT list is unchanged and remains exemplary: six items, every one a boundary a
-downstream author could plausibly cross by accident, no filler. The two most
-valuable are "**The consolidation judgment itself** ... This work changes what a
-fold *records*, never what it *does*" and "**The survivor-side trace** ... They
-are the carrier the removal relies on, not collateral" — the second guards against
-an implementer deleting `absorbed:` alongside the fold bookkeeping.
+**Growth check — clean, and actively so.** The brief does not merely omit a
+growth argument; it forecloses one, in a bolded sub-heading: "**What it costs is
+contention, not size.**" The frontmatter `problem` block, which the revision
+rewrote, carries no size claim either — the closest phrase is "a shared
+append-only file every parallel chain writes to," which is a sharedness claim.
+The revision introduced nothing. Verified by reading the full text, not by
+searching for the word.
 
-The IN list is now free of the two altitude slips (see item 9) and reads as a
-boundary rather than a work breakdown.
+**2. Problem Statement stands alone — PASS.** A cold reader gets, without
+opening anything: what a fold is, why the deletion is ambiguous, why history
+does not rescue it (the squash-merge sentence), what the current answer is, and
+three specific defects in it. "All six underlying decisions" still leans on a
+decision list the reader has not seen; the sentence survives losing the number,
+so this stays a polish note.
 
-### 8. Open Questions defer framing details rather than blocking — PASS (revision-1 blocker resolved)
+**3. User Outcome is outcome-shaped and names its user — PASS.** Three
+paragraphs, three named users — an author running `/scope` in parallel, a reader
+holding a dead path, a maintainer of an adopting repository — and no feature
+list. `docs/folds.md` is never named in the section, which is the right
+discipline for a removal brief. The second paragraph describes a preserved
+rather than a changed outcome and says so honestly ("still learns"); for this
+feature, that preservation is the load-bearing claim.
 
-Resolved, and resolved the right way. The merge-attribute question is gone and the
-IN bullet stands alone ("Removing the merge attribute that exists only to serve
-the record"), so the brief no longer asserts and un-asserts the same decision. The
-author's rationale is sound: with the record gone the attribute serves nothing, so
-the choice is not genuinely open, and the prose-correction residue is already
-carried by the IN item on replacing prose claims.
+**4. User Outcome matches the `outcome` frontmatter — PASS.** Three frontmatter
+clauses against three prose paragraphs: contention → paragraph 1, adopters →
+paragraph 3, reader → paragraph 2. Order differs, which the contract does not
+constrain. Precision now matches too; see disposition 2.
 
-The single remaining question is a clean deferral:
+**5. Each journey names a concrete user, a trigger, and an outcome shape —
+PASS.** All four carry all three, and all four are concrete rather than generic
+("the grep for that path returns one hit," "no red check on a correct record,"
+"their first chain folds a document and opens a pull request").
 
-> "What the roadmap's downstream cell says when a chain folds to nothing, now
-> that it cannot point at the record. No roadmap carries that text today, so the
-> choice is unconstrained by existing content."
+**6. Journeys are distinct — PASS.** Four entry points: parallel execution, a
+consumer tracing a dead path, a downstream adopter meeting the feature through
+CI, and future re-litigation. See the journey 4 ruling above for the contested
+one.
 
-It defers wording, not existence — the IN list commits that the line gets
-replaced — and the second sentence tells the PRD author the choice is
-unconstrained, which is exactly the kind of context that makes a deferred
-question actionable downstream. Not a blocker that should have stopped the brief.
+**7. Scope Boundary IN and OUT are real — PASS.** The IN list bounds seven
+surfaces with enough specificity that a PRD author knows where to stop. The OUT
+list is the document's strongest section: every one of the six is something a
+downstream author could plausibly have taken as inside — the consolidation
+judgment (the likeliest over-reach), the survivor-side trace (an implementer
+deleting fold bookkeeping could absolutely take `absorbed:` with it),
+re-deciding the design-into-plan absorption, building a replacement carrier,
+fixing the check's defects as standalone work, and a migration path. None is
+filler. "A migration path for existing rows. The record has never held one" is
+one line, but a one-line answer to a question every downstream author will ask
+is efficiency, not emptiness.
 
-### 9. No drift into requirements, architecture, or implementation — PASS (revision-1 blocker resolved)
+**8. Open Questions genuinely defer framing details — PASS (section removed).**
+The section is gone, as `Draft -> Accepted` requires. Its one remaining question
+was relocated into the Status prose, where the format explicitly allows
+transition context and downstream ownership to live: "One framing question is
+deferred to that PRD rather than settled here: what a roadmap's downstream cell
+says when a chain folds to nothing… No roadmap carries that text today, so the
+choice is unconstrained by existing content." That is a deferred framing detail,
+not a blocker, and it stays compatible with the IN list, which commits to
+replacing the line without deciding its content.
 
-Both slips are gone. The citation-search bullet now ends at the exclusion itself
-with no mention of a test case, and the amendment bullet now reads "Amending the
-four shipped documents whose requirements and decisions the record discharges"
-with the "in place, following the dated-amendment shape" prescription removed.
-What remains in each is the boundary claim; the mechanism is left to the PRD,
-which is where the format's Content Boundaries put it.
-
-Nothing else in the document sits below brief altitude. No acceptance criteria,
-no interface shapes, no file-by-file breakdown, and the Problem Statement still
-names no line numbers or function names.
+**9. No drift into requirements, architecture, or implementation — PASS.** With
+both prescriptions removed, the document carries no acceptance criteria, no user
+stories, no interface shapes, and no file-by-file breakdown. The Problem
+Statement's mechanism detail ("a two-endpoint tree comparison cannot see a file
+created and deleted between those endpoints") is evidence for why the current
+check cannot work, not a design for what replaces it — it explains the gap,
+which is the section's job.
 
 ## Required changes
 
@@ -177,54 +268,33 @@ None.
 
 ## Optional improvements
 
-Carried forward from revision 1, none addressed and none blocking:
-
-- **Problem Statement ordering.** The three sub-arguments run
-  provenance → redundancy → cost. "It was never argued for" is a claim about how
-  the decision was made rather than about what a user experiences, and it is the
-  weakest of the three *as a problem*. Leading with the two user-facing costs and
-  closing on provenance would front-load the strongest material without changing
-  any content.
-
-- **"All six underlying decisions."** Six of what is never established for a cold
-  reader. Either name the decision set briefly or drop the count — "the underlying
-  decisions were made without author confirmation" loses nothing.
+- **"All six underlying decisions."** Six of what is never established for a
+  cold reader. "The underlying decisions were made without author confirmation"
+  loses nothing and stops the reader reaching for a list that is not there.
 
 - **"A hosted forge resolves merges without consulting a repository's merge
-  drivers."** The exploration verified this on GitHub specifically, with the
-  Kubernetes precedent. Generalizing to "a hosted forge" claims slightly more than
-  was measured; "the forge this repository merges on" would be exact.
+  drivers."** The exploration verified this on one forge, with one precedent.
+  "The forge this repository merges on" would be exactly as strong and exactly
+  as short.
+
+- **Frontmatter `problem`, last clause.** "For a guarantee the surviving
+  document already carries" states flatly what the body qualifies ("What has no
+  other carrier is narrower: the case where the last survivor is itself
+  deleted"). Within a 4-line summary this is acceptable compression, but the
+  carve-out is the one place a skeptical reader will push, and "in all but one
+  shape" costs five words.
+
+- **"That write surface is gone"** (User Outcome, paragraph 1). The section's
+  discipline is that it never names what got removed; this clause comes closest
+  to breaking it. "No shared file is written, so no fold has to be rebased…"
+  keeps the causal link without gesturing at the deletion.
 
 - **Trigger placement in journeys 1 and 2.** Both label a mid-path event as the
-  **Trigger:** — journey 2's actual trigger is following a citation and finding
-  nothing, not the grep that follows it. All three required elements are present
-  either way.
+  **Trigger:**. Journey 2's actual trigger is following a citation and finding
+  nothing; the labeled trigger is the grep that follows. All three required
+  elements are present, so this is craft, not compliance.
 
-- **"Four documents of rationale"** in the Problem Statement's closing line reads
-  as though it matches the four References entries, but one of those
-  (`skills/scope/references/phases/phase-2-chain-orchestration.md`) is a procedure
-  reference rather than a rationale document. If the two fours are the same set,
-  they are not; if they are different sets, the coincidence invites a misread.
-
-New in revision 2:
-
-- **Frontmatter `problem` dropped the adopter clause.** The `outcome` field still
-  promises "adopting repositories stop inheriting a check whose mitigation they
-  never received," but the trimmed `problem` field no longer names that cost, so
-  a reader scanning frontmatter alone meets an outcome without its problem. The
-  body carries it fully, so this is cosmetic. If it can be absorbed inside the
-  4-line budget, it would tighten the pairing.
-
-- **Grammar in the trimmed `problem` block.** "a shared append-only file every
-  parallel chain writes to, for a guarantee the surviving document already
-  carries" attaches the "for" clause to "writes to," reading as though chains
-  write to the file *for* the guarantee. The intended sense is that the file is
-  maintained for a guarantee the survivor already carries. Recasting the last
-  clause would fix it — e.g. "... a shared append-only file every parallel chain
-  writes to, kept for a guarantee the surviving document already carries."
-
-- **Journey 4's trigger is the weakest of the four.** "They consider adding one"
-  is a mental event rather than an observable one, where the other three triggers
-  are observable (branches open PRs, a grep returns a hit, a first chain folds).
-  An observable form — drafting the proposal, opening the issue — would match the
-  set. Does not affect the distinctness ruling above.
+- **"Four documents of rationale"** in the Problem Statement's closing line
+  reads as though it names the four References entries, but one of those
+  (`phase-2-chain-orchestration.md`) is a procedure reference rather than a
+  rationale document. Two different fours in one document invite a misread.
