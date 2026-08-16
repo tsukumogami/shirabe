@@ -126,15 +126,19 @@ Slot rules:
 ## Coarsest-Legal-Grouping Rule
 
 Per-repo implementation is grouped to the **coarsest legal unit**: by default,
-**one PR per repository**. A repo splits into more than one PR only on a
-recorded trigger:
+**one PR per repository**. A repo splits into more than one PR only on a named
+branch from the coordinated profile of
+[`${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`](split-triggers.md): the
+three shared branches (Hard Constraint, Incremental Value, Stated Preference)
+plus this altitude's own **Merge-Order Necessity** — a split required to break a
+contraction cycle in the merge-order DAG.
 
-- the slices are independently mergeable, or
-- the slices are independently rollback-able, or
-- a single PR would exceed the configured reviewability ceiling, or
-- a split is required to break a contraction cycle in the merge-order DAG.
+That file is the single source; this rule cites it rather than enumerating, so
+the two cannot drift. Three triggers this rule used to carry as free-standing
+bullets are retired into the shared branches there; see its Retired Triggers
+section for which and why.
 
-Absent a recorded trigger, do not split: the coarsest grouping minimizes the
+Absent a named branch, do not split: the coarsest grouping minimizes the
 number of merge-order nodes and the cross-repo coordination surface.
 
 ## Merge-Order Model: A Two-Node DAG
