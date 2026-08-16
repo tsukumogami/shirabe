@@ -202,7 +202,7 @@
       "expectations": [
         "Agent submits scrutiny_outcome: passed when panel reviewers all approve",
         "Agent does not submit blocking_retry or blocking_escalate when issues are found to be correctable",
-        "Agent checks scrutiny_results context-exists gate status before submitting evidence",
+        "Agent checks scrutiny_results context-matches gate status before submitting evidence, and writes a results artifact carrying \"passed\": true -- the value the gate's pattern reads",
         "Agent plans to run all three panel reviewers before submitting scrutiny outcome"
       ]
     },
@@ -213,10 +213,12 @@
       "mode": "execute",
       "scenario": "scrutiny-blocking-retry-entry",
       "prompt": "/work-on #42",
-      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Workflow returns to implementation state rather than done_blocked. Agent recognizes the retry path and prepares to address the blocking feedback.",
+      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Before submitting, the agent runs the Retry Loop block from phase-4a-scrutiny.md, which overwrites ALL THREE panel keys (scrutiny_results.json, review_results.json, qa_results.json) with the cleared sentinel and reads each back to confirm the write took. Workflow returns to implementation state rather than done_blocked. Agent recognizes the retry path and prepares to address the blocking feedback.",
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
+        "Agent invalidates all three panel artifacts before submitting, not only scrutiny's -- the retry re-enters every panel phase at or above the one that raised it, so leaving review's or qa's verdict in place would let a later phase advance on a verdict about code that is about to change",
+        "Agent uses koto context add to overwrite with the cleared sentinel, and reads each value back to compare, rather than branching on the command's exit status",
         "Workflow returns to implementation state (not done_blocked)",
         "Agent recognizes that blocking_retry loops back to implementation, not escalation",
         "Agent does NOT submit blocking_escalate for correctable issues"
@@ -229,12 +231,12 @@
       "mode": "execute",
       "scenario": "review-panel-escalate",
       "prompt": "/work-on #42",
-      "expected_output": "Panel emits blocking_escalate. Workflow routes to done_blocked with failure_reason written via context_assignments. Agent does not retry implementation.",
+      "expected_output": "Panel emits blocking_escalate. Workflow routes to done_blocked and the agent reports the failure_reason it submitted. Agent does not retry implementation.",
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_escalate with failure_reason",
         "Agent does not retry implementation after submitting blocking_escalate outcome",
-        "Agent includes failure_reason string in the evidence submitted to koto (required for context_assignments to propagate)",
+        "Agent includes failure_reason string in the evidence submitted to koto -- the state's accepts block declares it, and it is the only record of why the run stopped",
         "Agent reports the escalation reason to the user"
       ]
     },
