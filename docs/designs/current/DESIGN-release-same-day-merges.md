@@ -35,7 +35,7 @@ rationale: |
 Current
 
 Design for issue #321, written from
-[PRD-release-same-day-merges](../prds/PRD-release-same-day-merges.md). The PRD
+[PRD-release-same-day-merges](../../prds/PRD-release-same-day-merges.md). The PRD
 owns R1 through R7; this document owns which mechanism meets them.
 
 ## Context and Problem Statement
