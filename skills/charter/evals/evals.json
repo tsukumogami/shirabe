@@ -313,6 +313,19 @@
         "Plan suppresses the pre-authoring upstream notice when /vision is skipped because a settled VISION already exists at the published path",
         "Plan does not otherwise alter the chain-proposal output or its option line in either case"
       ]
+    },
+    {
+      "id": 22,
+      "name": "stale-validator-no-envelope-is-a-tool-error",
+      "prompt": "/charter payment-retries",
+      "expected_output": "The chain reaches the finalization Draft STRATEGY validation pass-through, but the shirabe on PATH is a stale build that does not recognize a flag the pass-through passes: it writes nothing to stdout, writes \"error: unexpected argument '--visibility' found\" to stderr, and exits 2. The pass-through parses stdout for the shirabe-validate/v1 envelope FIRST, finds none, and classifies the run as a tool-error despite the exit code being 2 -- the code that means violations only for a run that reached a verdict. Finalization halts with the state file's exit: field UNSET and the captured stderr surfaced verbatim as the diagnostic. The pass-through does NOT block finalization as a STRATEGY violation, does NOT name R8 or any other check code, and does NOT send the author to edit the Draft STRATEGY, which is not broken; the author is pointed at the validator invocation (a stale or wrong shirabe binary) instead.",
+      "files": [],
+      "expectations": [
+        "Plan parses stdout for the shirabe-validate/v1 envelope before consulting the exit code",
+        "Plan treats a run with no parseable envelope as a tool-error regardless of the exit code, including exit 2",
+        "Plan surfaces the captured stderr as the diagnostic rather than discarding it",
+        "Plan leaves the state file's exit: field UNSET and does NOT report the run as a STRATEGY content violation"
+      ]
     }
   ]
 }

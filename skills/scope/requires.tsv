@@ -1,0 +1,26 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 0 samples the workspace slug convention with `shirabe slug-prefix-detect
+# --docs-root`; the flag picks the docs root the sampler reads. Phase 2's
+# validator pass-through runs `shirabe validate --format json
+# --visibility=<repo-visibility>` after each intermediate artifact lands.
+#
+# git backs the child-doc blob-hash drift check, `git fetch`, `git ls-files`,
+# `git commit -m`, and the absorb path's `git rm`.
+#
+# The coordination surface fires only when coordination intent resolves on:
+# /scope authors the coordination PR body itself, checks it offline with
+# `shirabe validate --coordination-body`, posts it with `gh pr create`, keeps
+# it current with `gh pr edit`, and closes it with `gh pr close` on coordinated
+# abandonment. `--merge-gate` is the merge-last gate on the same path.
+#
+# The two mode:coordinated records are not checked at load. SKILL.md's
+# Coordination Intent section verifies them with `skill-preflight.sh scope
+# --mode coordinated`, the moment intent resolves and before the coordination
+# PR is authored.
+shirabe	slug-prefix-detect	--docs-root	always
+shirabe	validate	--format,--visibility	always
+git	-	-	always
+shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
+gh	-	-	mode:coordinated

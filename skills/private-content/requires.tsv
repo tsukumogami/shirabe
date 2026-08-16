@@ -1,0 +1,5 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Explicitly empty. /private-content is a single SKILL.md of content-governance
+# rules the model applies while writing. It invokes nothing.

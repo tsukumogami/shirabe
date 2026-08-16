@@ -1,0 +1,51 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# koto drives the plan-level loop: init lifts the execute template, next
+# submits the tasks array and the finalization evidence, context add/get carry
+# the settled branch and the per-child batch view, workflows inspects child
+# outcomes, status reports progress. `context add` takes `--from-file` on the
+# cross-issue-context path; the settled-branch write pipes on stdin instead and
+# needs no flag.
+#
+# scripts/run-cascade.sh owns the shirabe side. It probes and re-verifies the
+# chain with `validate --lifecycle-chain --format json --mode=ready`, adding
+# `--allow-untracked-acs` when WORK_ON_ALLOW_UNTRACKED_ACS=1 suppresses L06;
+# it then runs `finalize-chain` over the PLAN's upstream and falls back to
+# `transition <plan> Done`. SKILL.md's visibility boundary routes the
+# governance-aware checks with `--visibility`.
+#
+# The coordinated path adds the two coordination modes of the same subcommand:
+# `--coordination-body` for offline authoring feedback on the PR body, and
+# `--merge-gate` for the live merge-last gate. Neither runs on a single-pr
+# plan, which is why they are a mode record rather than part of the always one.
+# That record is not checked at load. SKILL.md's Input Modes section verifies
+# it with `skill-preflight.sh execute --mode coordinated`, right after the
+# execution_mode enum re-validates and before the loop dispatches a child.
+#
+# gh drives the home PR throughout (pr list, pr create, pr edit, pr ready, pr
+# checks, pr view, issue view); git creates and pushes the shared branch and
+# stages the cascade's transitions; jq builds the cascade report; python3 is
+# the portable realpath in run-cascade.sh.
+#
+# The `shirabe validate --lifecycle .` line in SKILL.md describes the reusable
+# CI workflow, and `--pr-body` names what CI enforces on the authored body.
+# /execute runs neither. Nothing mechanical separates a citation from a call
+# site, so the two are exempted by name for scripts/check-skill-requires.sh;
+# an exemption that stops matching its line fails as stale.
+#not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
+#not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
+koto	init	--template,--var	always
+koto	next	--with-data	always
+koto	context add	--from-file	always
+koto	context get	-	always
+koto	workflows	-	always
+koto	status	-	always
+shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
+shirabe	finalize-chain	-	always
+shirabe	transition	-	always
+gh	-	-	always
+git	-	-	always
+jq	-	-	always
+python3	-	-	always
+shirabe	validate	--coordination-body,--merge-gate	mode:coordinated

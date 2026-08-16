@@ -7,11 +7,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 preflight (scripts/preflight.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
+      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 check (scripts/assert-child-template.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: single-pr and re-validates it against {single-pr, coordinated, multi-pr} before path or branch interpolation",
-        "Agent runs the Step 1 preflight (scripts/preflight.sh) before spawning any child",
+        "Agent runs the Step 1 check (scripts/assert-child-template.sh) before spawning any child",
         "Agent runs koto init with skills/execute/koto-templates/execute.md and PLAN_DOC pointing at the fixture",
         "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one merged PR",
         "Agent does NOT edit or rewrite the PLAN doc to run it through /execute"
@@ -50,17 +50,17 @@
     },
     {
       "id": 4,
-      "name": "cross-skill-work-on-path-preflight",
+      "name": "cross-skill-work-on-path-assertion",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- describe the preflight before any child is spawned",
-      "expected_output": "Before spawning any per-issue child, the agent runs the Step 1 preflight (bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh), which asserts the cross-skill work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md (referenced relatively from the lifted template as ../../work-on/koto-templates/work-on.md). A non-zero exit halts the run with a clear message before any child is spawned. This is the Issue 1 preflight: the load-bearing cross-skill coupling guarded fail-closed.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- describe the Step 1 check before any child is spawned",
+      "expected_output": "Before spawning any per-issue child, the agent runs the Step 1 check (bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh), which asserts the cross-skill work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md (referenced relatively from the lifted template as ../../work-on/koto-templates/work-on.md). A non-zero exit halts the run with a clear message before any child is spawned. This is the load-bearing cross-skill coupling guarded fail-closed.",
       "files": [],
       "expectations": [
-        "Agent runs scripts/preflight.sh as the Step 1 cross-skill preflight before spawning any child",
+        "Agent runs scripts/assert-child-template.sh as the Step 1 cross-skill check before spawning any child",
         "Agent asserts the work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md",
-        "Agent halts the run on a non-zero preflight exit rather than proceeding to spawn children",
-        "Agent treats the cross-skill path resolution as fail-closed (preflight before any child dispatch)"
+        "Agent halts the run on a non-zero exit rather than proceeding to spawn children",
+        "Agent treats the cross-skill path resolution as fail-closed (checked before any child dispatch)"
       ]
     },
     {
@@ -583,6 +583,22 @@
         "The SKILL.md notes the workspace CLAUDE.md and dot-niwa-overlay mirror as out-of-repo cross-repo follow-up, not edited in this PR",
         "docs/guides/execute-friction.md documents mode-aware branch/PR targeting (single-pr adopt-the-scoping-PR; coordinated code-in-per-repo-worktrees, coordination-branch docs-only)",
         "docs/guides/execute-friction.md documents the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes, and the finalization guard (shirabe validate --lifecycle-chain --mode=ready, 0/2/1 exit codes, seed-doc rule)"
+      ]
+    },
+    {
+      "id": 35,
+      "name": "coordinated-plan-verifies-its-mode-scoped-record",
+      "tier": 2,
+      "mode": "plan_only",
+      "prompt": "/execute docs/plans/PLAN-multi-repo-rollout.md -- the PLAN's frontmatter carries execution_mode: coordinated.",
+      "expected_output": "The enum re-validates against {single-pr, coordinated, multi-pr} and resolves to coordinated, which is the moment /execute's one mode:coordinated record becomes live: shirabe validate's --coordination-body and --merge-gate modes, the two a single-pr plan never reaches. That record was not checked at load, because the load-time preflight evaluates always records only and the PLAN had not been read yet. So right after the re-validation passes and before the loop dispatches any child, the transcript runs bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present. Output means the merge-last gate cannot run as declared, and it is surfaced before the first child rather than at the gate, where a whole cascade has already landed. A single-pr PLAN makes no mode call, because there is no mode:single-pr record to evaluate.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the preflight entry point with --mode coordinated after the enum re-validation and before dispatching any child",
+        "Transcript keeps the 2>&1 || true guard on that call rather than running it bare",
+        "Transcript makes no mode call on a single-pr PLAN, and says the declaration has no mode:single-pr record",
+        "Transcript does NOT expect the load-time preflight to have already reported on the coordination validate modes",
+        "Transcript does NOT substitute its own shirabe validate --help probe for the check"
       ]
     }
   ]

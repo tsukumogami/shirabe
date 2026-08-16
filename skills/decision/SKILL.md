@@ -10,7 +10,10 @@ description: >-
   via status="escalated". Also invocable as a sub-operation by /design for parallel
   multi-decision orchestration.
 argument-hint: '<decision question or topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh decision 2>&1 || true`
 
 @.claude/shirabe-extensions/decision.md
 @.claude/shirabe-extensions/decision.local.md

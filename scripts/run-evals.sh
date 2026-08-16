@@ -43,6 +43,42 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
 
+# ---------------------------------------------------------------------------
+# Preflight kill switch
+#
+# Every skill body opens with the injected prerequisite check
+# (scripts/skill-preflight.sh). Two things about this harness make that check
+# fire here when it would not fire for a user:
+#
+#   Tier-2 fixtures put shim binaries in skills/<name>/evals/fixtures/bin and
+#   prepend that directory to PATH. Those shims resolve under $PWD, and the
+#   resolver refuses to execute a binary that resolves under the directory it
+#   was invoked from -- a correct refusal, and one that emits a "prerequisite
+#   not met, was not probed" block.
+#
+#   These evals are transcript-graded. Preflight text in front of the model is
+#   part of the input, so leaving it there silently changes the input to every
+#   existing scenario in the corpus.
+#
+# So the harness turns the check off for itself. The seam is
+# SHIRABE_PREFLIGHT_DISABLE, the same shape as PR_BODY_HOOK_DISABLE in
+# crates/shirabe/src/pr_body_hook.rs: set to anything other than empty, `0`, or
+# `false`, the check short-circuits to silence and exit 0. It is exported here
+# rather than injected per-eval so it reaches the `claude -p` process and every
+# agent that process spawns.
+#
+# Setting it means the check does not run. It does NOT relax the resolver: the
+# refusal rule that made the shims unprobeable is unchanged, and a scenario
+# that wants the check to run must clear the variable.
+#
+# The exception is the liveness eval, which exists to prove the injected line
+# still executes. An eval declaring "preflight": "live" is run with this
+# variable cleared -- disabling the check there would make the eval assert
+# nothing at all. See the per-eval instructions built below.
+# ---------------------------------------------------------------------------
+SHIRABE_PREFLIGHT_DISABLE=1
+export SHIRABE_PREFLIGHT_DISABLE
+
 # Prerequisite checks
 command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
@@ -298,8 +334,10 @@ ISOBLOCK
   # copy of the fixtures so the agent's PATH shim and working directory stay
   # consistent inside the sandbox.
   local fixtures_bin="$skill_dir/evals/fixtures/bin"
+  local preflight_fixture="$skill_dir/evals/fixtures/preflight-liveness"
   if [ -n "$tier2_checkout" ]; then
     fixtures_bin="$tier2_checkout/skills/$skill_name/evals/fixtures/bin"
+    preflight_fixture="$tier2_checkout/skills/$skill_name/evals/fixtures/preflight-liveness"
   fi
   local tier_instructions
   tier_instructions=$(python3 << PYEOF
@@ -312,6 +350,25 @@ lines = []
 for ev in data["evals"]:
     tier = ev.get("tier", 1)
     name = ev.get("name", f"eval-{ev['id']}")
+    # The liveness eval is the one scenario that must run with the injected
+    # preflight check ENABLED. The harness exports SHIRABE_PREFLIGHT_DISABLE=1
+    # for everything else (see the header block); clearing it here is what
+    # keeps this eval from asserting against a check that was switched off.
+    if ev.get("preflight") == "live":
+        target = ev.get("preflight_skill", "")
+        lines.append(f"- {name}: TIER 2 (execute) — PREFLIGHT LIVENESS. "
+                     f"Run every command for this eval with SHIRABE_PREFLIGHT_DISABLE CLEARED "
+                     f"(prefix with 'env -u SHIRABE_PREFLIGHT_DISABLE'). Do not set it, do not "
+                     f"re-export it: this eval exists to prove the injected line still runs, and "
+                     f"with the variable set it would assert nothing. "
+                     f"A self-contained fixture plugin is at $preflight_fixture. "
+                     f"Instruct agent: 'Load that fixture plugin in a nested non-interactive claude "
+                     f"run (claude --plugin-dir <fixture-path> -p ...), invoke the skill /{target} "
+                     f"in that run, and report VERBATIM everything the nested run put in front of "
+                     f"the model before the skill body, plus a byte count. Do not call "
+                     f"scripts/skill-preflight.sh yourself — the point is the skill load, not the "
+                     f"script.'")
+        continue
     if tier == 2:
         scenario = ev.get("scenario", "")
         lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH. "
@@ -353,6 +410,16 @@ For tier 2 evals, before spawning the with-skill agent:
 2. Prepend $fixtures_bin to PATH so the agent uses shimmed gh and koto binaries.
 These environment variables must be passed to the spawned agent process.
 $tier2_isolation_block
+
+PREFLIGHT CHECK (applies to every eval):
+This harness runs with SHIRABE_PREFLIGHT_DISABLE=1 exported, which turns off the
+prerequisite check that every shirabe skill body injects at load. It is off because
+tier-2 fixtures put shim binaries under the working directory and the check
+correctly refuses to probe those, which would otherwise put a "prerequisite not
+met" block in front of the model in every transcript-graded scenario. Keep it set
+for every agent you spawn, and do not unset it — EXCEPT for an eval whose tier
+instruction above says PREFLIGHT LIVENESS. That one eval must run with the variable
+cleared, because its subject is whether the injected line still executes.
 
 For tier 1 evals, the agent must NOT execute any commands. It should only read the
 skill file and describe its planned execution sequence.

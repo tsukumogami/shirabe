@@ -1,0 +1,12 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# `--reason` is mandatory on the Sunset transition (SKILL.md and
+# references/strategy-format.md both carry it on the call line), so the call's
+# behaviour depends on it.
+#
+# Phase 0 tests upstream durability with `git ls-files`, Phase 5 removes a
+# rejected draft with `git rm` and opens the PR with `gh pr create`.
+shirabe	transition	--reason	always
+git	-	-	always
+gh	-	-	always

@@ -29,9 +29,9 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/run-cascade_test.sh
 
-      - name: Run preflight tests (Linux)
+      - name: Run assert-child-template tests (Linux)
         if: runner.os == 'Linux'
-        run: bash skills/execute/scripts/preflight_test.sh
+        run: bash skills/execute/scripts/assert-child-template_test.sh
 
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch

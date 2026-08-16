@@ -167,9 +167,24 @@ Procedure:
    `docs/strategies/STRATEGY-<topic>.md`, substituting the
    lowercased visibility value (`public` or `private`) into the
    flag.
-4. Parse the `shirabe-validate/v1` JSON envelope from stdout and
-   branch on the validator's multi-level exit code (the contract
-   shared with `transition` and `finalize-chain`; see
+4. Capture BOTH stdout and stderr from the sub-process. stderr is
+   never discarded: in the no-envelope case below it is the entire
+   diagnostic payload.
+5. **Precedence: the envelope decides before the exit code does.**
+   Parse stdout for the `shirabe-validate/v1` envelope FIRST.
+   Absence of a parseable envelope means the validator never
+   reached a verdict, whatever the exit code: treat the run as a
+   tool-error, surface the captured stderr verbatim, and halt
+   without reporting a STRATEGY violation (the `exit:` field stays
+   UNSET). This rule is load-bearing for a stale binary: a
+   `shirabe` too old to recognize a flag `/charter` passes rejects
+   it as a usage error and exits 2, which without this rule reads
+   as "violations" and blocks finalization over a document defect
+   that does not exist. The branch list below applies ONLY once
+   the envelope has parsed.
+6. With a parsed envelope, branch on the validator's multi-level
+   exit code (the contract shared with `transition` and
+   `finalize-chain`; see
    `docs/guides/multi-consumer-cli-contract.md`):
    - **0 (clean)** — proceed to write the Exit 1 state-field
      assignments and declare full-run success.
@@ -188,13 +203,16 @@ Procedure:
      `exit:` field stays UNSET) and the author addresses the
      violation in the Draft STRATEGY before re-invoking `/charter`
      to retry finalization.
-   - **1 (tool-error)** — the validator could not run (bad
-     invocation, an unreadable or unparseable file, an envelope
-     that does not parse). This is a tool failure DISTINCT from a
-     content violation, not a verdict on the Draft. Halt and
-     surface it as a tool failure (do NOT report it as a STRATEGY
-     violation); the `exit:` field stays UNSET and the author
-     resolves the invocation problem before retrying finalization.
+   - **1 (tool-error)** — the validator ran but could not
+     complete (an unreadable or unparseable file, an unknown
+     `--check` code, a bad invocation). This is a tool failure
+     DISTINCT from a content violation, not a verdict on the
+     Draft. Halt and surface it as a tool failure with the
+     captured stderr (do NOT report it as a STRATEGY violation);
+     the `exit:` field stays UNSET and the author resolves the
+     invocation problem before retrying finalization. A run with
+     no parseable envelope lands here too, via step 5, whatever
+     its exit code.
    - **4 (incomplete)** — the validator accepted the file and then
      did not check it: the filename prefix routed it to a format
      but its `schema:` field is missing or out of range. This is
@@ -208,9 +226,10 @@ The pass-through is NOT a re-implementation of `shirabe validate`.
 `/charter` does not duplicate the validator's checks, does not
 parse the Draft STRATEGY structurally, and does not maintain its
 own visibility-rule list. Only the consumption mechanism changed —
-`/charter` reads the JSON envelope and branches on the multi-level
-exit code rather than the old "exit 0 vs non-zero, surface stdout
-verbatim" shape — not the division of responsibility. The validator
+`/charter` tests for the JSON envelope first and branches on the
+multi-level exit code only once it parses, rather than the old
+"exit 0 vs non-zero, surface stdout verbatim" shape — not the
+division of responsibility. The validator
 remains the single source of truth for visibility-gated content
 rules; `/charter` only invokes it at chain-level, parses its
 envelope, and respects its verdict.

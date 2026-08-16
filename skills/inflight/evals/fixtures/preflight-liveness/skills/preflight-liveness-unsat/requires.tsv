@@ -1,0 +1,15 @@
+#schema	skill-requires/v1
+#
+# Deliberately unsatisfiable. `preflight-absent-tool` is routed in this
+# fixture's own tool-routes.tsv and installed on no host, so the check
+# resolves it as absent and renders a block on every runner, every platform,
+# every time. That determinism is the point: the eval asserts a NON-EMPTY
+# report, and a declaration that could be satisfied would make the assertion
+# a coin flip.
+#
+# Field two is `-` because the tool has no subcommand surface to probe. The
+# check never gets that far -- an absent tool is reported without the binary
+# ever being executed -- and a fixture that implied otherwise would be
+# describing a code path it does not reach.
+#
+preflight-absent-tool	-	-	always

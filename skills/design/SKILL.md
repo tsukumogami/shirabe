@@ -8,7 +8,10 @@ description: Create technical design documents. Use when deciding how to impleme
   "I need to decide between A and B". Do NOT use for quick opinions without a formal
   document, open-ended exploration (/explore), or requirements definition (/prd).
 argument-hint: '<PRD path or topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh design 2>&1 || true`
 
 @.claude/shirabe-extensions/design.md
 @.claude/shirabe-extensions/design.local.md

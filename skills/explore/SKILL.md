@@ -9,7 +9,10 @@ description: Structured exploration workflow and artifact-type routing advisor. 
   Does NOT apply when the user already knows their artifact type -- use /prd, /design,
   or /plan directly instead.
 argument-hint: '<topic or issue number>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh explore 2>&1 || true`
 
 @.claude/shirabe-extensions/explore.md
 @.claude/shirabe-extensions/explore.local.md

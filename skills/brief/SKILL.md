@@ -17,7 +17,10 @@ description: >-
   workflow: conversational scoping, structured drafting, structural
   fill, a two-reviewer jury, and finalization.
 argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb> [--upstream <path>]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh brief 2>&1 || true`
 
 @.claude/shirabe-extensions/brief.md
 @.claude/shirabe-extensions/brief.local.md

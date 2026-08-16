@@ -8,7 +8,10 @@ description: >-
   (3) the user mentions AI-sounding writing, robotic phrasing, or wants
   writing to sound more human. Apply proactively when writing prose; don't
   wait for an explicit invocation.
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh writing-style 2>&1 || true`
 
 When invoked directly with a draft: identify patterns below, revise, return the revised text. When producing prose: apply these patterns from the start rather than producing and then revising.
 
