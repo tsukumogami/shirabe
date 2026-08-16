@@ -148,9 +148,10 @@ The rewind lands on `analysis`, whose `plan_artifact` gate holds the `plan.md` t
 
 ```bash
 koto context remove <WF> plan.md >/dev/null 2>&1
-if koto context exists <WF> plan.md >/dev/null 2>&1; then
-  echo "plan.md is still in context after koto context remove."
-  echo "The superseded plan is in place and the plan_artifact gate will accept it."
+REMOVE_STATUS=$?
+if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> plan.md >/dev/null 2>&1; then
+  echo "plan.md was not confirmed cleared from context."
+  echo "The superseded plan may still be in place, and the plan_artifact gate may accept it."
   echo "Do NOT submit plan_outcome: plan_ready from analysis on the next pass."
   echo "To stop the run, submit implementation_status: partial_tests_failing_escalate."
   exit 1
@@ -160,6 +161,10 @@ koto next <WF> --with-data '{"implementation_status": "scope_expanded_retry", "r
 
 The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.
 
-The check after the removal is not optional: a failed removal leaves the key present and the gate satisfied, which looks exactly like success. Do not guard the removal with `koto context exists` first — `remove` is idempotent, and `exists` reports absent for an unreadable store as well as a missing key.
+The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
+
+That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
+
+The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
 `analysis` clears the same key on its own `scope_changed_retry` self-loop; see `phase-3-analysis.md`. Two edges, one gate, and each needs its own clearing step.

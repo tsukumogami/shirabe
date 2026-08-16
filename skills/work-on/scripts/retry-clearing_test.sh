@@ -533,6 +533,83 @@ else
     chmod u+w "$CTX_DIR" 2>/dev/null
 fi
 
+# --- Case 14c — the store unreadable, not merely unwritable --------------------
+#
+# The cases above lock the ctx directory against WRITES, where `exists` can still
+# read it and reports the key PRESENT, so the check fires. Unreadable is the other
+# half, and it is the case that killed an earlier version of this block.
+#
+# `ctx_exists` collapses "absent" and "unreadable" into false, so on an unreadable
+# store `exists` reports ABSENT while the key is still on disk. A block that
+# trusted `exists` alone would exit 0 believing the removal worked. The refusal
+# that follows is real but NOT durable: koto buffers the refused evidence and
+# re-evaluates it, so the moment the permission problem clears, the gate reads the
+# surviving key and the workflow advances on the previous round's artifact. The
+# defect this whole change exists to close, reachable through a transient outage.
+#
+# That is why the block stops on EITHER signal -- `remove` reporting failure, or
+# `exists` still reporting present. `exists` catches a remove that lied about
+# succeeding; `remove`'s status catches an `exists` blinded by an unreadable
+# store. Neither alone is enough, which is the point of the assertions below.
+
+echo "--- Case 14c: an unreadable store is caught, and the refusal is durable"
+
+to_scrutiny unreadable
+seed unreadable scrutiny_results.json
+
+UCTX=$(find "$HOME" -type d -path '*unreadable*' -name ctx 2>/dev/null | head -1)
+if [ -z "$UCTX" ] || [ ! -d "$UCTX" ]; then
+    fail "could not locate the ctx directory for session 'unreadable' -- case 14c did not run"
+else
+    LOCKED_DIR="$UCTX"
+    chmod a-rx "$UCTX"
+    out=$(render "$SCRUTINY_BLOCK" unreadable 2>/dev/null | bash 2>/dev/null)
+    block_rc=$?
+    chmod u+rwx "$UCTX" 2>/dev/null
+
+    if [ -f "$UCTX/scrutiny_results.json" ]; then
+        pass "unreadable store: the key really is still on disk, so the case tests what it claims"
+    else
+        fail "unreadable store: expected the key to survive; the case proves nothing without it"
+    fi
+
+    # The load-bearing assertion. `exists` reports absent here, so a block
+    # trusting it alone exits 0 and lets the agent submit the advancing outcome.
+    if [ "$block_rc" -ne 0 ]; then
+        pass "unreadable store: the block exits non-zero ($block_rc) on remove's status, not exists'"
+    else
+        fail "unreadable store: block exited 0 -- it trusted exists, which cannot see the surviving key"
+    fi
+
+    if printf '%s' "$out" | grep -q 'scrutiny_results.json'; then
+        pass "unreadable store: the diagnostic reaches stdout and names the key"
+    else
+        fail "unreadable store: expected a diagnostic naming the key; got: [$out]"
+    fi
+
+    # And the reason it must be caught here: prove the refusal would NOT have
+    # held on its own. Submit the advancing outcome while unreadable, restore
+    # permissions, and make no further submission. If the workflow has moved on,
+    # the gate alone was never a durable defence.
+    to_scrutiny buffered
+    seed buffered scrutiny_results.json
+    BCTX=$(find "$HOME" -type d -path '*buffered*' -name ctx 2>/dev/null | head -1)
+    if [ -n "$BCTX" ] && [ -d "$BCTX" ]; then
+        LOCKED_DIR="$BCTX"
+        chmod a-rx "$BCTX"
+        koto next buffered --with-data '{"scrutiny_outcome":"passed"}' >/dev/null 2>&1
+        chmod u+rwx "$BCTX" 2>/dev/null
+        settled=$(koto next buffered 2>/dev/null | grep -o '"state":"[^"]*"' | tail -1 | cut -d'"' -f4)
+        if [ "$settled" = "review" ]; then
+            pass "the gate alone is not a durable defence: buffered evidence advances to review once readable (which is why the block must catch this itself)"
+        else
+            fail "expected the buffered submission to advance to review once readable, got [$settled] -- if koto changed, revisit why the block checks remove's status"
+        fi
+    else
+        fail "could not locate the ctx directory for session 'buffered'"
+    fi
+fi
+
 # The other three escalate exits, on a store that is writable -- the transitions
 # carry no gate reference, and this is the check that keeps that true.
 echo "--- Case 14b: the remaining escalate exits stay reachable"

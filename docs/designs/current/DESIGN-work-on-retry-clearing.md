@@ -88,26 +88,40 @@ so the block goes in `phase-4-implementation.md` as well as
 `phase-3-analysis.md`. Covering one and not the other leaves the gate stale on
 the uncovered edge, which is the defect this design exists to close.
 
-**2. Verification with the gate's own predicate.** After removing, the block
-runs `koto context exists` and requires it to report absent. This is the part
-worth reading closely, because it is not the obvious choice and it is stronger
-than the obvious choice:
+**2. Verification on two signals, because neither alone is sufficient.** After
+removing, the block stops if **either** `remove` reported failure **or**
+`koto context exists` still reports the key present. That belt-and-braces shape
+is not caution; each signal covers a blind spot the other has, and both blind
+spots were reached by probing koto 0.11.5 rather than reasoned about.
 
-- `koto context exists` calls `store.ctx_exists(session, key)`.
-- The `context-exists` gate evaluator calls `store.ctx_exists(sess, &gate.key)`
-  (`koto/src/gate.rs:135`).
+*Why `exists` is needed.* It is the gate's own predicate rather than a proxy for
+it: `koto context exists` calls `store.ctx_exists(session, key)`, and the
+`context-exists` gate evaluator calls `store.ctx_exists(sess, &gate.key)`
+(`koto/src/gate.rs:135`) — the same function over the same state. It catches a
+removal that returns success without the key going away. `remove`'s status
+cannot: it deletes the content file, then the lock file, then updates the
+manifest under lock, so it can report non-zero on a removal whose gate-relevant
+effect already landed.
 
-They are the same function over the same state. So "exists reports absent" is
-not evidence that the gate will fail; it *is* the gate's predicate, evaluated
-the same way. The removal's own exit status is the weaker signal: `remove`
-deletes the content file, then the lock file, then updates the manifest under
-lock, so a failure after the content is gone reports non-zero on a removal whose
-gate-relevant effect already landed.
+*Why `exists` is not enough.* `ctx_exists` collapses "absent" and "unreadable"
+into `false`. With the ctx directory unreadable, `remove` exits 3 and the key
+survives on disk, but `exists` reports **absent** — so a block trusting `exists`
+alone exits 0 believing it succeeded.
 
-The verification is not optional. Probed against koto 0.11.5: with the ctx
-directory unwritable, `remove` exits 3, the key survives, and submitting the
-phase's advancing outcome then advances the workflow on the stale artifact. A
-failed removal is silently fatal without the check.
+The refusal that follows looks like it saves us and does not. The gate makes the
+same blind read, so the advancing outcome is refused at the moment it is
+submitted. But koto buffers that evidence and re-evaluates it: restore the
+permissions, make no further submission, and the workflow advances to the next
+state on the previous round's artifact. Probed directly, with a control showing
+a lock/unlock cycle and no submission leaves the state untouched — so the
+advance is caused by the buffered evidence, not by the permission change.
+
+That is the defect this whole design exists to close, reachable through a
+transient outage, and it is why `remove`'s exit status is checked rather than
+treated as the weaker signal. An earlier draft of this design asserted the
+collapse "runs in the safe direction because the gate makes the same read." The
+first half is true and the conclusion does not follow: a refusal that is undone
+by a later re-evaluation is not a defence.
 
 **3. A stdout diagnostic that names the way out.** On a failed verification the
 block prints the key, says which outcome not to submit, and names the escalate
@@ -186,9 +200,10 @@ fixtures.
 OUTCOME_FIELD=scrutiny_outcome   # review_outcome / qa_outcome in the other two
 for KEY in scrutiny_results.json review_results.json qa_results.json; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
-  if koto context exists <WF> "$KEY" >/dev/null 2>&1; then
-    echo "$KEY is still in context after koto context remove."
-    echo "The stale verdict is in place and the gate will accept it."
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale verdict may still be in place, and the gate may accept it."
     echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
@@ -318,14 +333,24 @@ stale. It does not touch the repository, the worktree, or any artifact under
 `docs/`. The `ContextRemoved` event koto appends leaves the removal auditable in
 the session log.
 
-**The failure mode is fail-closed, with one qualification.** A removal that does
-not take is caught by the verification and stops the run before the advancing
-outcome is submitted. The qualification is that the verification uses
-`ctx_exists`, which reports `false` for an unreadable store as well as an absent
-key — but here the collapse runs in the safe direction, because the gate uses
-the same call and also reports absent, so the phase refuses to advance either
-way. The ambiguity bites a caller that uses `exists` to decide whether to *skip*
-work, which is exactly why this design has no `exists` guard.
+**The failure mode is fail-closed, and the two-signal check is what makes it
+so.** A removal that does not take stops the run before the advancing outcome is
+submitted, whether the store was unwritable (`exists` sees the surviving key) or
+unreadable (`exists` is blinded, but `remove` reports failure).
+
+The unreadable case is worth restating here because it is the one that looks
+handled and is not. `ctx_exists` reports `false` for a store it cannot read as
+well as for a key that is not there. The gate makes the same blind read, so an
+advancing outcome submitted in that window is refused — and that refusal does
+not hold. koto re-evaluates the buffered evidence, so once the permission
+problem clears the run advances on the surviving artifact with no further
+submission. Checking `remove`'s exit status is what closes it; the gate agreeing
+with `exists` is not a defence, only a delay.
+
+The same ambiguity is why this design has no `exists` guard *before* removing: a
+caller using `exists` to decide whether to **skip** work will skip a key that is
+really there. The rule that falls out is narrow and worth keeping: `ctx_exists`
+may be used to detect a key that is present, never to conclude one is absent.
 
 **`koto overrides record` remains an escape hatch.** It advances past a failing
 gate whether or not the gate declares `override_default`. That is correct and

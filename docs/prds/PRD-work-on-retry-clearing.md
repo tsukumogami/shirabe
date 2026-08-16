@@ -118,11 +118,14 @@ am about to write is impossible.
   raising phase's.** A retry raised at `qa_validation` re-enters `scrutiny` and
   `review`, and the code both reviewed is about to change, so their verdicts are
   stale too.
-- **R3. The clearing step verifies its own effect.** After removing, the step
-  confirms the key is absent via `koto context exists` and stops if it is not.
-  A failed removal leaves the key present and the gate satisfied, so an
-  unverified removal is indistinguishable from a successful one at the point it
-  matters.
+- **R3. The clearing step verifies its own effect, on both available signals.**
+  After removing, the step stops if `koto context remove` reported failure **or**
+  `koto context exists` still reports the key present. An unverified removal is
+  indistinguishable from a successful one at the point it matters, and neither
+  signal alone is a sufficient verification: `remove` can report failure after
+  the gate-relevant effect landed, and `ctx_exists` reports absent for a store it
+  cannot read as well as for a key that is gone. Requiring both is what makes the
+  step fail closed against an unreadable store as well as an unwritable one.
 - **R4. A failed clearing step announces itself on stdout**, names the key, says
   which outcome not to submit, and names the escalate outcome that still reaches
   a terminal state. stderr is the stream operators redirect away from koto's
@@ -198,8 +201,18 @@ am about to write is impossible.
 - [ ] With the context store unwritable, the clearing step exits non-zero,
       prints a diagnostic naming the key on **stdout** with stderr redirected to
       `/dev/null`, and says which outcome not to submit.
-- [ ] The step's verification is `koto context exists` returning absent, not the
-      removal's exit status alone, checked by extracting the shipped block.
+- [ ] The step's verification requires both `koto context remove` succeeding and
+      `koto context exists` reporting absent, checked by extracting the shipped
+      block.
+- [ ] **With the context store unreadable rather than unwritable**, the step
+      still exits non-zero. `exists` reports absent in that state while the key
+      survives on disk, so a step verifying on `exists` alone would exit 0 on a
+      removal that never happened.
+- [ ] The gate alone is demonstrated NOT to be a durable defence in that state:
+      submitting the advancing outcome with the store unreadable and then
+      restoring access advances the workflow on the stale artifact, with no
+      further submission. This is why R3 requires both signals rather than
+      relying on the gate to catch what the step missed.
 - [ ] **A broken store still reaches a terminal state (R6).** With the context
       store unwritable so the clearing step fails, submitting the phase's
       escalate outcome still advances: `blocking_escalate` reaches `done_blocked`

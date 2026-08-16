@@ -48,9 +48,10 @@ When a blocking finding sends the work back, clear the panel verdicts before sub
 OUTCOME_FIELD=scrutiny_outcome
 for KEY in scrutiny_results.json review_results.json qa_results.json; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
-  if koto context exists <WF> "$KEY" >/dev/null 2>&1; then
-    echo "$KEY is still in context after koto context remove."
-    echo "The stale verdict is in place and the gate will accept it."
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale verdict may still be in place, and the gate may accept it."
     echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
@@ -63,9 +64,11 @@ Why removal rather than leaving the old verdict to be overwritten: the `scrutiny
 
 All three keys go, not only this panel's. A `blocking_retry` returns to `implementation` and the run walks forward from there into every panel at or above this one, so the fixes invalidate the verdicts the other panels recorded even though they passed and raised nothing.
 
-Do not guard the removals with `koto context exists`. `koto context remove` is idempotent — removing a key no phase has written yet exits 0 — so there is nothing for a guard to protect against, and `exists` reports absent for a store it cannot read as well as for a key that is not there. A guard would skip a key whose verdict is really still in place, which is the failure this block exists to prevent.
+The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
 
-The check after each removal is the part that must not be dropped. A removal that fails leaves the key present and the gate satisfied, which is indistinguishable from a successful one at the point it matters. `koto context exists` and the `context-exists` gate evaluator call the same function, so "exists reports absent" is the gate's own condition rather than a proxy for it.
+That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
+
+The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
 Then spawn all three reviewers again. When the fresh round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
 
