@@ -80,6 +80,30 @@
         "Leaves the other two treatments available so the user can override",
         "Does NOT ask the user how to handle the PR with no stated preference"
       ]
+    },
+    {
+      "id": 8,
+      "name": "same-day-merge-reaches-the-notes",
+      "prompt": "/release 0.19.0 (the previous tag v0.18.0 was created at 14:02 today; PR #401 merged at 22:47 the same day, several hours after the tag)",
+      "expected_output": "Phase 1 derives the release's pull request set from the commit range between the previous tag and HEAD, parsing the (#N) suffix squash-merge writes into commit subjects. #401 merged after the tag but before the end of the tag's calendar day, so it is in that set and is credited in the release notes. No date-bounded GitHub search is used, because a bare merged:>YYYY-MM-DD bound means 'after the end of that day' and would drop #401 silently.",
+      "assertions": [
+        "Derives the pull request set from the commit range between the previous tag and HEAD, not from a `gh pr list --search \"merged:>...\"` query",
+        "Credits #401 in the release notes even though it merged on the same calendar day as the previous tag",
+        "Does not use a bare date (YYYY-MM-DD) as a merge boundary anywhere",
+        "Reports the commits in the range that carry no pull request reference, without stopping the release"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "same-day-security-pr-reaches-the-decision",
+      "prompt": "/release 0.19.0 (the previous tag v0.18.0 was created at 14:02 today; PR #402 carries the security label and merged at 23:10 the same day)",
+      "expected_output": "Phase 2's security precondition reads labels for the pull requests Phase 1 derived from the commit range, so #402 is found despite merging on the tag's own calendar day, and it reaches the AskUserQuestion that decides whether its fix is described normally, redacted, or excluded. The precondition and the release notes read the same set, so a pull request cannot reach the notes without also reaching this check.",
+      "assertions": [
+        "Reads labels for the pull requests derived from the commit range rather than running a `label:security merged:>...` date-bounded search",
+        "Finds #402 even though it merged on the same calendar day as the previous tag",
+        "Reads the pull request before asking, and recommends one of standard/redacted/excluded rather than listing them unranked",
+        "Does NOT pass the precondition silently: the security-labeled PR is put to the user before the release proceeds"
+      ]
     }
   ]
 }
