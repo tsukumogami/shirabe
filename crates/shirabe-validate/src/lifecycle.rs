@@ -1231,6 +1231,7 @@ fn emit_chain_findings(scope: &[&Chain], idx: &DocIndex, cfg: &Config) -> Vec<Va
     let mut errors: Vec<ValidationError> = Vec::new();
     for chain in scope {
         errors.extend(check_l06_outline_acs(chain, idx, cfg));
+        errors.extend(check_l09_split_rationale(chain, idx));
     }
     errors
 }
@@ -1522,6 +1523,125 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
         }
     }
     errors
+}
+
+/// The three branches a `split_rationale` may name, defined once in
+/// `references/split-triggers.md`. Matching is case-insensitive on the
+/// branch name only; the justification after it is free text this check
+/// deliberately does not inspect.
+const SPLIT_BRANCHES: [&str; 3] = ["hard constraint", "incremental value", "stated preference"];
+
+/// L09: a PLAN whose delivery shape is not the obvious one records why.
+///
+/// The field is required when EITHER disjunct holds:
+///
+/// - `execution_mode` is not `single-pr`; or
+/// - `execution_mode` is `single-pr` and the repository's resolved
+///   Delivery Preference is `atomic` — the plan departed from what the
+///   preference would have produced.
+///
+/// The ordering below is load-bearing rather than incidental. The first
+/// disjunct is answerable from the document alone, so a non-single-pr
+/// PLAN — the common case — short-circuits before any filesystem read.
+/// Only a `single-pr` PLAN reaches the CLAUDE.md walk, and that is
+/// exactly the case whose answer cannot be derived from the document.
+///
+/// This lives in the `L` family rather than the `FC` family on purpose.
+/// `validate.rs` documents "the entire FC-family" as `AlwaysEnforced`, so
+/// an `FC` code in the draft-tolerable set would cost an invariant
+/// rewrite. `L06` is the precedent: a single-document property that is a
+/// legitimate intermediate state while a plan is in flight and must
+/// resolve before ready.
+fn check_l09_split_rationale(chain: &Chain, idx: &DocIndex) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for member in &chain.members {
+        if member.role != ChainRole::Plan {
+            continue;
+        }
+        let indexed = match idx.get(&member.path) {
+            Some(d) => d,
+            None => continue,
+        };
+
+        let required = if indexed.execution_mode != "single-pr" {
+            // First disjunct. Answerable from the document; no I/O.
+            true
+        } else {
+            // Second disjunct only. This is the one case that needs the
+            // repository's stated preference, so it is the only case that
+            // pays for a CLAUDE.md walk.
+            resolve_delivery_preference(&member.path).as_deref() == Some("atomic")
+        };
+        if !required {
+            continue;
+        }
+
+        let doc = match parse_doc(&member.path) {
+            Ok(d) => d,
+            // A frontmatter parse failure is already surfaced as L05 by
+            // `index_doc`; L09 has nothing to add on a doc it cannot read.
+            Err(_) => continue,
+        };
+        let value = doc
+            .fields
+            .get("split_rationale")
+            .map(|f| f.value.trim().to_string())
+            .unwrap_or_default();
+
+        if value.is_empty() {
+            errors.push(error_path(
+                member.path.clone(),
+                "L09",
+                "PLAN is not single-pr, or departs from the repository's atomic \
+                 Delivery Preference, but carries no split_rationale naming why \
+                 (see references/split-triggers.md)",
+            ));
+            continue;
+        }
+
+        let lowered = value.to_lowercase();
+        if !SPLIT_BRANCHES.iter().any(|b| lowered.contains(b)) {
+            errors.push(error_path(
+                member.path.clone(),
+                "L09",
+                "split_rationale names none of the three branches \
+                 (Hard Constraint, Incremental Value, Stated Preference) \
+                 defined in references/split-triggers.md",
+            ));
+        }
+    }
+    errors
+}
+
+/// Resolve the repository's `## Delivery Preference:` convention header
+/// for the repo owning `doc_path`, lowercased.
+///
+/// Returns `None` when no header is declared, which is the
+/// `consolidated` default — and also when the declared value is outside
+/// the closed set, so an unrecognized value falls through to the default
+/// rather than being used. That is the same treatment
+/// `parse_visibility_header` gives an unrecognized visibility.
+fn resolve_delivery_preference(doc_path: &Path) -> Option<String> {
+    crate::visibility::resolve_claude_md_header(
+        doc_path,
+        |contents| {
+            for line in contents.lines() {
+                let trimmed = line.trim();
+                if !trimmed.to_lowercase().starts_with("## delivery preference:") {
+                    continue;
+                }
+                let value = trimmed[trimmed.find(':')? + 1..].trim().to_lowercase();
+                return match value.as_str() {
+                    "consolidated" | "atomic" => Some(value),
+                    // Outside the closed set: fall through to the
+                    // default rather than using an unrecognized value.
+                    _ => None,
+                };
+            }
+            None
+        },
+        true,
+    )
 }
 
 // ---------- chain-targeted entry point ----------
@@ -1885,6 +2005,13 @@ mod tests {
             "schema: plan/v1\nstatus: {}\nexecution_mode: {}\nmilestone: \"m\"\nissue_count: 1\n",
             status, execution_mode
         );
+        // A non-single-pr PLAN owes a split_rationale naming its branch
+        // (L09). Fixtures carry one so they model a well-formed plan;
+        // the tests that exercise L09 itself build their frontmatter
+        // directly rather than through this helper.
+        if execution_mode != "single-pr" {
+            fm.push_str("split_rationale: |\n  Hard Constraint. Fixture plan.\n");
+        }
         if !upstream.is_empty() {
             fm.push_str(&format!("upstream: {}\n", upstream));
         }
@@ -1931,6 +2058,132 @@ mod tests {
             "# ROADMAP: t\n\n## Status\n\n{}\n\n## Theme\n\nT.\n\n## Scope\n\nS.\n",
             status
         )
+    }
+
+    // ---- L09: split-rationale presence ----
+
+    /// Build a chain whose PLAN frontmatter is supplied verbatim, so an
+    /// L09 test can omit or malform `split_rationale` independently of
+    /// `make_plan`'s well-formed default.
+    fn l09_tree(plan_fm: &str) -> PathBuf {
+        build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            ("docs/plans/PLAN-foo.md", plan_fm, &plan_body("Active")),
+        ])
+    }
+
+    fn l09_plan_fm(execution_mode: &str, rationale: Option<&str>) -> String {
+        let mut fm = format!(
+            "schema: plan/v1\nstatus: Active\nexecution_mode: {}\nmilestone: \"m\"\nissue_count: 1\nupstream: docs/designs/current/DESIGN-foo.md\n",
+            execution_mode
+        );
+        if let Some(r) = rationale {
+            fm.push_str(&format!("split_rationale: |\n  {}\n", r));
+        }
+        fm
+    }
+
+    #[test]
+    fn l09_fires_on_multi_pr_without_rationale() {
+        let root = l09_tree(&l09_plan_fm("multi-pr", None));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            errors.iter().any(|e| e.code == "L09"),
+            "expected L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_passes_on_multi_pr_naming_a_branch() {
+        let root = l09_tree(&l09_plan_fm(
+            "multi-pr",
+            Some("Hard Constraint. The workflow must reach main first."),
+        ));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_fires_when_rationale_names_no_branch() {
+        let root = l09_tree(&l09_plan_fm("multi-pr", Some("Because I said so.")));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let hit = errors.iter().find(|e| e.code == "L09");
+        assert!(hit.is_some(), "expected L09, got {:?}", errors);
+        assert!(
+            hit.unwrap()
+                .message
+                .contains("names none of the three branches"),
+            "expected the branch-naming message, got {:?}",
+            hit
+        );
+    }
+
+    #[test]
+    fn l09_silent_on_single_pr_with_no_stated_preference() {
+        // The common case: one PR in a repository that stated nothing.
+        // It owes no record, and the check must not invent one.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_fires_on_single_pr_departing_from_atomic_preference() {
+        // The departure branch: single-pr IS the departure when the
+        // repository asked for atomic delivery, so it owes a reason.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "## Repo Visibility: Public\n\n## Delivery Preference: atomic\n",
+        )
+        .unwrap();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            errors.iter().any(|e| e.code == "L09"),
+            "expected L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_unrecognized_preference_falls_through_to_default() {
+        // An unrecognized header value is not used; it falls through to
+        // the consolidated default, so single-pr stays silent.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "## Repo Visibility: Public\n\n## Delivery Preference: nonsense\n",
+        )
+        .unwrap();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
     }
 
     // ---- the 11 PRD-R10 scenarios + cycle + missing + malformed ----
