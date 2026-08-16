@@ -213,17 +213,16 @@
       "mode": "execute",
       "scenario": "scrutiny-blocking-retry-entry",
       "prompt": "/work-on #42",
-      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Before submitting, the agent removes all three panel result keys from koto context and confirms each is gone. Workflow returns to implementation state rather than done_blocked.",
+      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Before submitting, the agent clears every artifact the return trip invalidates -- all three panel result keys and summary.md -- and confirms each removal took. The retry routes to implementation rather than done_blocked.",
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
-        "Agent runs koto context remove on scrutiny_results.json, review_results.json and qa_results.json before submitting the retry",
-        "Agent clears all three panel keys, not only scrutiny's, because the retry re-enters every panel at or above the raiser",
-        "Agent confirms each removal with koto context exists rather than trusting the removal's exit status",
+        "Agent runs koto context remove on scrutiny_results.json, review_results.json, qa_results.json and summary.md before submitting the retry",
+        "Agent clears all four keys, not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
+        "Agent does not clear plan.md, which a code change does not invalidate",
+        "Agent treats the clearing as failed if either koto context remove reports failure or koto context exists still reports the key present",
         "Agent does not run koto context exists as a guard before removing",
-        "Workflow returns to implementation state (not done_blocked)",
-        "Agent recognizes that blocking_retry loops back to implementation, not escalation",
-        "Agent does NOT submit blocking_escalate for correctable issues"
+        "Agent recognizes that blocking_retry routes to implementation rather than self-looping on this phase, and does not escalate for correctable issues"
       ]
     },
     {

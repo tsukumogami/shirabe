@@ -21,6 +21,11 @@ fi
 # Normalize args for pattern matching
 ARGS="$*"
 
+# Where the stateful `context` verbs keep their markers. Scenario-scoped so two
+# scenarios in one run cannot see each other's keys. The runner may pin it; the
+# fallback is a per-scenario temp directory.
+CTX_STATE="${KOTO_SHIM_CTX_STATE:-${TMPDIR:-/tmp}/koto-shim-ctx/$EVAL_SCENARIO}"
+
 case "$ARGS" in
   "version"|*"--version"*)
     echo '{"version":"0.2.1"}'
@@ -77,6 +82,42 @@ case "$ARGS" in
     fi
     # Default: empty batch view
     echo '{"children":[]}'
+    exit 0
+    ;;
+  # `context add` / `remove` / `exists` are stateful rather than canned, because
+  # the retry clearing block reads `remove`'s exit status and then `exists`'s.
+  # A canned reply cannot express "the key is gone now", and a fall-through to
+  # the no-match exit 1 below would abort the block at its first key -- so an
+  # agent that did exactly the right thing would look like it had failed.
+  #
+  # State is a marker file per key, under a scenario-scoped directory. Presence
+  # starts empty: an eval that needs a key present writes it with `context add`
+  # first, the same way a real run does.
+  *"context add"*)
+    cat >/dev/null 2>&1 || true   # drain the heredoc the caller pipes in
+    set -- $ARGS                  # context add <WF> <KEY> [--from-file ...]
+    mkdir -p "$CTX_STATE"
+    [ -n "${4:-}" ] && : > "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+    exit 0
+    ;;
+  *"context remove"*)
+    set -- $ARGS                  # context remove <WF> <KEY>
+    mkdir -p "$CTX_STATE"
+    # Idempotent, matching koto: removing a key that was never written exits 0.
+    [ -n "${4:-}" ] && rm -f "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+    exit 0
+    ;;
+  *"context exists"*)
+    set -- $ARGS                  # context exists <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')" ]; then
+      exit 0                      # present
+    fi
+    exit 1                        # absent
+    ;;
+  *"context list"*)
+    if [ -d "$CTX_STATE" ]; then
+      ls -1 "$CTX_STATE" 2>/dev/null || true
+    fi
     exit 0
     ;;
 esac

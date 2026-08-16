@@ -17,7 +17,7 @@ written to context. Panel states carry `override_default` so skipping is auditab
 the next panel pass must emit `blocking_escalate`. `blocking_escalate` requires a `failure_reason`
 field; omitting it prevents koto context_assignments from propagating the reason downstream.
 
-## A retry invalidates all three verdicts
+## A retry invalidates every verdict, and the summary
 
 A `blocking_retry` from any panel clears `scrutiny_results.json`, `review_results.json` and
 `qa_results.json` — every panel's key, not only the raising panel's. Each phase file carries the

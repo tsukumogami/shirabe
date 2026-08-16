@@ -59,7 +59,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
 
 The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All three keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists.
+All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. `summary.md` goes too, since the traversal continues through `verification` into `finalization`.
 
 The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
 
