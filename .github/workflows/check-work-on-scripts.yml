@@ -1,0 +1,61 @@
+name: Check work-on scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/work-on/scripts/**'
+      # The harness extracts the gate pattern from the template and the clearing
+      # block from the phase files at run time, so an edit to either is an edit
+      # to what this suite asserts against.
+      - 'skills/work-on/koto-templates/work-on.md'
+      - 'skills/work-on/references/phases/phase-4a-scrutiny.md'
+      - 'skills/work-on/references/phases/phase-4b-review.md'
+      - 'skills/work-on/references/phases/phase-4c-qa.md'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+
+jobs:
+  test-work-on-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # retry-clearing_test.sh drives real koto sessions -- it asserts that a
+      # blocking_retry leaves every panel phase unable to advance on the previous
+      # round's verdict, which cannot be checked without the engine that
+      # evaluates the gate. koto arrives through the project tool manifest, the
+      # same way check-execute-scripts.yml gets it.
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      # Invoked directly, with no continue-on-error and nothing swallowing the
+      # exit status: a failing assertion has to turn this job red. The harness
+      # is mutation-tested -- drifting the sentinel, loosening the gate pattern,
+      # or reintroducing the exists guard each make it exit non-zero -- so a
+      # green run here is evidence rather than decoration.
+      - name: Run retry-clearing tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/retry-clearing_test.sh
+
+      # The macOS leg is the bash 3.2 floor check. It goes through the runner
+      # rather than calling /bin/bash directly so the whole process tree stays on
+      # the floor, matching check-execute-scripts.yml. koto is absent here, so
+      # the harness exits 0 with a loud SKIP and this leg checks the portability
+      # of the shell itself.
+      - name: Run work-on suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system work-on

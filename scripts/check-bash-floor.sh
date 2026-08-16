@@ -100,7 +100,7 @@ mktempdir() {
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
 
-SUITES="plan execute templates template-consistency"
+SUITES="plan execute work-on templates template-consistency"
 
 suite_scripts() {
     case "$1" in
@@ -114,6 +114,14 @@ suite_scripts() {
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
             echo "skills/execute/scripts/settled-branch-record_test.sh"
+            ;;
+        work-on)
+            # Same shape as execute's settled-branch harness: it drives real
+            # koto and skips cleanly when koto is absent, which it is on the
+            # macOS runner. It is here for the floor's own sake -- a developer
+            # running this suite on macOS has koto, so the cases execute on 3.2
+            # there.
+            echo "skills/work-on/scripts/retry-clearing_test.sh"
             ;;
         templates)
             echo "scripts/check-template-interpolation_test.sh"
@@ -141,6 +149,7 @@ suite_workflow() {
     case "$1" in
         plan)                 echo ".github/workflows/check-plan-scripts.yml" ;;
         execute)              echo ".github/workflows/check-execute-scripts.yml" ;;
+        work-on)              echo ".github/workflows/check-work-on-scripts.yml" ;;
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;

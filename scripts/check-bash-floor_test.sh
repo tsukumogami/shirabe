@@ -121,7 +121,7 @@ test_list_names_every_suite() {
         fail "$name" "expected exit 0, got $rc"
         return
     fi
-    for suite in plan execute templates template-consistency; do
+    for suite in plan execute work-on templates template-consistency; do
         case "$out" in
             *"$suite"*) ;;
             *) fail "$name" "suite $suite missing from --list"; return ;;
