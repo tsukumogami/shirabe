@@ -1,0 +1,129 @@
+name: Repository safety check
+description: >-
+  Fails the job if a test step moved HEAD or modified the checkout. Call it
+  once with mode=snapshot before the tests and once with mode=verify after.
+
+# Example caller (in a downstream repo's test workflow, around the step that
+# runs its test suite):
+#
+#   - name: Snapshot repository state
+#     uses: tsukumogami/shirabe/.github/actions/repo-safety@main
+#     with:
+#       mode: snapshot
+#
+#   - name: Tests
+#     run: make test
+#
+#   - name: Verify the tests left the checkout alone
+#     if: always()
+#     uses: tsukumogami/shirabe/.github/actions/repo-safety@main
+#     with:
+#       mode: verify
+#
+# The tsukumogami adopters pin `@main` so the gate always runs the current
+# engine without per-release pin bumps, matching the pr-body.yml and
+# validate-docs.yml adoption. A consumer outside the org that wants a
+# reproducible pin can use a release tag (`@vX.Y.Z`) instead.
+#
+# This is a composite action rather than a reusable workflow on purpose. The
+# check has to run in the same job as the tests, because it is that job's
+# checkout it is watching; a `workflow_call` workflow runs as its own job and
+# would have to re-install the caller's whole toolchain to run the tests
+# itself.
+#
+# What it is for: a test suite that builds fixture repositories can, if it
+# loses track of where its sandbox is, end up running git against the checkout
+# it was built from rather than against its fixture. That is not hypothetical
+# — see tsukumogami/niwa#249, where a suite committed a developer's working
+# tree onto main and pushed it. The specific defect there is fixed, but this
+# check does not depend on knowing how a suite goes wrong. It only asks
+# whether the checkout changed, so it also covers the test nobody has written
+# yet.
+#
+# It detects rather than prevents: it fires after the damage, so it turns a
+# silent success into a loud failure rather than stopping the command. Keeping
+# a suite's sandbox outside the working tree is the prevention half, and this
+# does not replace it.
+
+inputs:
+  mode:
+    description: '"snapshot" before the tests, "verify" after.'
+    required: true
+  allow-dirty:
+    description: >-
+      Newline-separated list of paths that are allowed to appear or change,
+      matched as prefixes against git status output. For a suite that
+      legitimately writes a build artifact into the working tree. Prefer
+      gitignoring such a path instead; this is an escape hatch, not the
+      normal case.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Snapshot
+      if: inputs.mode == 'snapshot'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # rev-parse, not symbolic-ref: actions/checkout leaves a detached
+        # HEAD, so a symbolic-ref probe fails on a perfectly normal checkout
+        # and the guard would be red on every run.
+        git rev-parse HEAD > "${RUNNER_TEMP}/repo-safety-head.txt"
+        git status --porcelain > "${RUNNER_TEMP}/repo-safety-status.txt"
+        echo "Recorded HEAD $(cat "${RUNNER_TEMP}/repo-safety-head.txt")"
+
+    - name: Verify
+      if: inputs.mode == 'verify'
+      shell: bash
+      env:
+        ALLOW_DIRTY: ${{ inputs.allow-dirty }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f "${RUNNER_TEMP}/repo-safety-head.txt" ]; then
+          echo "::error::repo-safety: no snapshot found. Call this action with mode=snapshot before the step you want to guard."
+          exit 1
+        fi
+
+        before_head=$(cat "${RUNNER_TEMP}/repo-safety-head.txt")
+        after_head=$(git rev-parse HEAD)
+        if [ "$after_head" != "$before_head" ]; then
+          echo "::error::repo-safety: HEAD moved from ${before_head} to ${after_head} during the guarded step. Something ran git against this checkout instead of against its own fixture."
+          exit 1
+        fi
+
+        git status --porcelain > "${RUNNER_TEMP}/repo-safety-status-after.txt"
+
+        # Drop allowed prefixes from both sides before comparing, so an
+        # expected build artifact does not read as an escape.
+        filter() {
+          if [ -z "${ALLOW_DIRTY//[[:space:]]/}" ]; then
+            cat "$1"
+            return
+          fi
+          local line keep entry
+          while IFS= read -r line; do
+            keep=yes
+            # git status --porcelain is "XY <path>"; compare against the path.
+            local path="${line:3}"
+            while IFS= read -r entry; do
+              [ -z "$entry" ] && continue
+              case "$path" in
+                "$entry"*) keep=no ;;
+              esac
+            done <<< "$ALLOW_DIRTY"
+            [ "$keep" = yes ] && printf '%s\n' "$line"
+          done < "$1"
+        }
+
+        filter "${RUNNER_TEMP}/repo-safety-status.txt" > "${RUNNER_TEMP}/repo-safety-before-filtered.txt"
+        filter "${RUNNER_TEMP}/repo-safety-status-after.txt" > "${RUNNER_TEMP}/repo-safety-after-filtered.txt"
+
+        if ! diff -u "${RUNNER_TEMP}/repo-safety-before-filtered.txt" "${RUNNER_TEMP}/repo-safety-after-filtered.txt"; then
+          echo "::error::repo-safety: the guarded step modified the checkout. A test wrote outside its sandbox. The diff above is what changed; gitignore it or add it to allow-dirty if it is deliberate."
+          exit 1
+        fi
+
+        echo "OK: HEAD unchanged and the working tree is as the guarded step found it."

@@ -1,0 +1,104 @@
+name: Repo-safety action
+
+# Self-test for .github/actions/repo-safety. A guard nobody tests is a guard
+# that quietly stops guarding, and this one is easy to break invisibly: if the
+# verify step stopped comparing anything it would pass forever and read as a
+# healthy green check.
+#
+# So this exercises both directions. The clean case proves it stays green when
+# a step leaves the checkout alone. The planted case proves it actually goes
+# red — first for a dirtied working tree, then for a moved HEAD, which are the
+# two shapes it exists to catch.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/repo-safety/**'
+      - '.github/workflows/check-repo-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/repo-safety/**'
+      - '.github/workflows/check-repo-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  clean-run-stays-green:
+    name: Passes when the checkout is untouched
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/repo-safety
+        with:
+          mode: snapshot
+
+      - name: A well-behaved step
+        run: echo "writes nothing into the checkout"
+
+      - uses: ./.github/actions/repo-safety
+        with:
+          mode: verify
+
+  dirty-checkout-goes-red:
+    name: Fails when a step dirties the checkout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/repo-safety
+        with:
+          mode: snapshot
+
+      - name: A badly-behaved step
+        run: echo "a test wrote this" > planted-by-a-runaway-test.txt
+
+      - id: verify
+        continue-on-error: true
+        uses: ./.github/actions/repo-safety
+        with:
+          mode: verify
+
+      - name: The guard must have failed
+        run: |
+          if [ "${{ steps.verify.outcome }}" != "failure" ]; then
+            echo "::error::repo-safety passed a dirtied checkout. The guard is not guarding."
+            exit 1
+          fi
+          echo "OK: the guard caught the planted file"
+
+  moved-head-goes-red:
+    name: Fails when a step moves HEAD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - uses: ./.github/actions/repo-safety
+        with:
+          mode: snapshot
+
+      - name: A step that moves HEAD, the way the incident did
+        run: git checkout --quiet HEAD~1
+
+      - id: verify
+        continue-on-error: true
+        uses: ./.github/actions/repo-safety
+        with:
+          mode: verify
+
+      - name: The guard must have failed
+        run: |
+          if [ "${{ steps.verify.outcome }}" != "failure" ]; then
+            echo "::error::repo-safety passed a moved HEAD. The guard is not guarding."
+            exit 1
+          fi
+          echo "OK: the guard caught the moved HEAD"
