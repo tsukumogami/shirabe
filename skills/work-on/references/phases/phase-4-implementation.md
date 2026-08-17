@@ -141,3 +141,35 @@ implementation — e.g., the user asks to configure behaviour that was previousl
 hard-coded, or a referenced file turns out to need parallel changes. Explain
 the change in `rationale`; the transition rewinds to `analysis` so the plan can
 absorb it cleanly.
+
+## Retry Loop: scope_expanded_retry
+
+The rewind lands on `analysis`, whose `plan_artifact` gate holds the `plan.md` the rewind exists to replace. Clear it before submitting:
+
+```bash
+OUTCOME_FIELD=implementation_status
+for KEY in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale artifact may still be in place, and its gate may accept it."
+    echo "Do NOT submit plan_outcome: plan_ready from analysis on the next pass."
+    echo "To stop the run, submit implementation_status: partial_tests_failing_escalate."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}"
+```
+
+The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.
+
+The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
+
+That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
+
+The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
+
+`analysis` clears the same keys on its own `scope_changed_retry` self-loop; see `phase-3-analysis.md`. Two edges, one gate, and each needs its own clearing step.
+
+A note on the escalate outcome named above. `partial_tests_failing_escalate` is the exit this state has that reaches a terminal state, and it does reach `done_blocked` — but its name describes failing tests, not a context store that cannot be written. If you take it because the clearing step failed, say so in `rationale`: the outcome name will otherwise read as a lie in the audit trail, and the next person to read the run will look for a test failure that never happened.
