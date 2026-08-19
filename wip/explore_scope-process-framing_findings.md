@@ -574,3 +574,30 @@ The framing content survives the reframe intact and is not superseded by it.
 koto governs when a directive arrives, never what it says. A koto-driven
 `/scope` whose first state delivers the current `## Why the Artifact Set
 Shrinks` reproduces #331 with better plumbing.
+
+## Decision: Superseded
+
+This exploration terminated by supersession, not by crystallization. There is
+deliberately no `## Decision: Crystallize` marker and no
+`wip/explore_scope-process-framing_crystallize.md`.
+
+Phases 0 through 3 ran, including two full discover-converge rounds (six leads
+in round 1, five in round 2, all returned). The loop did not exit to Phase 4
+because the author redirected the line of work during round 2: the subject is
+adopting `koto` for `/scope` in a way that resolves the incident, and that wants
+its own exploration scoped to the right question rather than a crystallize step
+forced onto the prose-and-framing framing this run carried.
+
+Crystallizing here would have produced an outcome against a framing the author
+had already set aside. The research is complete and stands on its own; it is the
+input to the reframed exploration.
+
+**Successor:** `.niwa/dispatch-briefs/scope-koto-adoption.md`, which carries this
+run's findings forward -- including the two premises the research falsified
+(koto buys instruction sequencing and gating, not isolation; the sourcing
+property is unreachable under either dispatch binding) and the framing content
+that survives the reframe because koto governs when a directive arrives, never
+what it says.
+
+**Do not resume this exploration.** A resume would read the artifacts above and
+route to Phase 3 or Phase 4 on a framing that no longer applies.
