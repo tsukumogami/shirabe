@@ -577,27 +577,34 @@ Shrinks` reproduces #331 with better plumbing.
 
 ## Decision: Crystallize
 
-This exploration terminated by supersession, not by crystallization. There is
-deliberately no `## Decision: Crystallize` marker and no
+Phases 0 through 4 ran, including two full discover-converge rounds (six leads
+in round 1, five in round 2, all returned). The crystallize evaluation is at
 `wip/explore_scope-process-framing_crystallize.md`.
 
-Phases 0 through 3 ran, including two full discover-converge rounds (six leads
-in round 1, five in round 2, all returned). The loop did not exit to Phase 4
-because the author redirected the line of work during round 2: the subject is
-adopting `koto` for `/scope` in a way that resolves the incident, and that wants
-its own exploration scoped to the right question rather than a crystallize step
-forced onto the prose-and-framing framing this run carried.
+**Outcome: a chain, entering at `/scope`.** Stage 1 scored a chain at 5 with no
+anti-signals, ahead of a Rejection Record at 3; stage 2 scored `/scope` at 9
+with no anti-signals, ahead of `/charter` at -2 and file-an-issue at -3.
+`/execute` failed its candidacy precondition (the only PLAN on disk is
+`multi-pr` and off-topic) and competitive analysis failed on Public visibility.
 
-Crystallizing here would have produced an outcome against a framing the author
-had already set aside. The research is complete and stands on its own; it is the
-input to the reframed exploration.
+**The author elected to re-explore under a corrected framing before scoping.**
+During round 2 the author redirected the line of work: the subject is adopting
+`koto` for `/scope` in a way that resolves the incident. That election is
+compatible with the ranking rather than in tension with it -- the framework names
+where this exploration's work enters, and the answer is `/scope`; the author's
+choice is that the scoping conversation should happen under the corrected
+framing, which this run reached only at its end and only after falsifying two
+premises the reframe was stated with.
 
 **Successor:** `.niwa/dispatch-briefs/scope-koto-adoption.md`, which carries this
-run's findings forward -- including the two premises the research falsified
-(koto buys instruction sequencing and gating, not isolation; the sourcing
-property is unreachable under either dispatch binding) and the framing content
-that survives the reframe because koto governs when a directive arrives, never
-what it says.
+run's findings forward -- including the two falsified premises (koto buys
+instruction sequencing and gating, not isolation; the sourcing property is
+unreachable under either dispatch binding), the defer-verdicts/front-load-premises
+disclosure rule, the established koto costs, and the framing content that
+survives the reframe because koto governs when a directive arrives, never what it
+says.
 
-**Do not resume this exploration.** A resume would read the artifacts above and
-route to Phase 3 or Phase 4 on a framing that no longer applies.
+**Do not resume this exploration.** It is complete through Phase 4. Phase 5
+(Produce) is deliberately not run here: the successor exploration receives the
+work, and producing a handoff into `/scope` on the superseded framing would
+route the author into a scoping conversation they have already set aside.
