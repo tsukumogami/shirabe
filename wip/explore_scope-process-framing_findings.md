@@ -575,7 +575,7 @@ koto governs when a directive arrives, never what it says. A koto-driven
 `/scope` whose first state delivers the current `## Why the Artifact Set
 Shrinks` reproduces #331 with better plumbing.
 
-## Decision: Superseded
+## Decision: Crystallize
 
 This exploration terminated by supersession, not by crystallization. There is
 deliberately no `## Decision: Crystallize` marker and no
