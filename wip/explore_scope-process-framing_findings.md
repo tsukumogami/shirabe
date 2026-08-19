@@ -329,3 +329,248 @@ purpose statement lives once in the lede or per-hop at each child, whether
 `## Consolidation Judgment` is rewritten into a bounding statement or removed,
 and how a corpus that tells agents to "default to the lowest ceremony" is
 reconciled with a chain whose steps are mandatory.
+
+## Round 2
+
+Five leads dispatched, five returned. No agent failed. Round 2 was scoped to the
+gaps round 1 opened rather than to new territory, plus one lead added from the
+author's question about whether `/scope` uses koto.
+
+### Key Insights
+
+**P2 is not in conflict with a mandatory chain.** (p2-ceremony)
+`references/workflow-principles.md:3` scopes the whole principle set to "the
+roadmap and plan workflows", and all three of P2's derived rules (`:48-53`)
+choose between output *forms* for work already decided.
+`docs/prds/PRD-roadmap-plan-standardization.md:637` bounds it outright:
+"Lowest-ceremony governs artifact ceremony (one PR or many; a PLAN doc or GitHub
+issues)." A citation census finds five live skill-surface citations, all in
+`/plan` and `/roadmap`, and zero from `/scope`, `/charter`, `/execute`, or
+`parent-skill-pattern.md`. Round 1's flag was an overstatement: it is a reading
+risk, not a contradiction.
+
+**The corpus already carries the answer, unnamed, in a file `/scope` loads at
+Phase 0.** (p2-ceremony) `references/pipeline-model.md:32-35` and `:84-89` put
+the ceremony decision at entry-point selection -- `/work-on` versus `/scope`
+versus `/charter` -- and then state "there is no transition that bypasses a
+diamond's steps." Nothing connects that to P2.
+
+**A sharper seam than P2.** (p2-ceremony) #280's "front door for tactical work
+of any size" paired with a lowest-ceremony default reads as "the front door
+should be cheap for small work". That pairing, not P2 alone, is what the prose
+has to answer.
+
+**Deleting the two reduction sections breaks no eval.** (eval-suite) Round 1's
+flag on eval 17 was wrong: all four of its expectations are satisfied by
+`SKILL.md:435-445` (`## Chain-Proposal Output`), above the deletion range. No CI
+job greps `SKILL.md` section headings. The only forced edit anywhere is the
+by-title citation at `skills/brief/references/phases/phase-0-setup.md:315`.
+
+**No eval could catch the incident.** (eval-suite) All 30 `/scope` evals are
+plan-only, so an agent that describes the chain correctly and then writes only a
+PLAN passes every one. Three harness defects compound it: `expectations` is read
+as `assertions` at `scripts/run-evals.sh:186` so graded criteria never reach the
+metadata, `files:` preconditions are never materialized, and the suite runs on a
+weekly cron rather than on PRs. Recorded as a coverage gap, not as an argument
+for mechanism.
+
+**The design paperwork is one paragraph.** (design-sync) The convention is an
+appended `## Amendment -- <date>` section (em dash, ISO date) that leaves the
+original text unedited, keeps `status: Current`, runs no `shirabe transition`,
+and writes no superseding design or DECISION record. Codified as
+`PRD-fold-record-removal.md` R10/AC15 and used three times on this document
+family. Nothing in `shirabe validate --lifecycle` mechanically checks a Current
+design's claims against the skill it describes.
+
+**For this change specifically:** one amendment on
+`DESIGN-scope-consolidation-over-skipping.md`. Its Decision Outcome (`:414-418`)
+names `SKILL.md` conjunctively with the phase references, so deleting
+`## Why the Artifact Set Shrinks` withdraws a named deliverable -- but "at the
+layer that now performs the reduction" contrasts `/scope` with `/brief`, not
+phase-2 with `SKILL.md`, so the decision holds and only a deliverable narrows.
+The `## Consolidation Judgment` rewrite needs no separate paperwork. Against the
+other Current designs the change is neutral-to-supported. (design-sync)
+
+**The replacement prose exists in draft.** (replacement-prose) All five items
+drafted as literal candidate text: a three-paragraph lede that lifts the
+per-type contribution declarations (WHY/WHAT/HOW/WHEN) out of the four format
+references and finally defines "contribution"; four per-hop passages naming each
+child's real machinery and ending on what skipping strands downstream; a
+`## Consolidation Judgment` cut from 47 lines of rationale to 34 lines of bound;
+replacements for all three licensing sentences; and a `## The Chain Is a
+Constant` section promoting `planned_chain:`'s constancy into `SKILL.md`.
+
+**Defer verdicts, disclose premises.** (replacement-prose) The lead recommends
+putting the purpose statements in `SKILL.md` rather than deferring them to the
+hop, on the grounds that deferred material only governs an agent that reaches
+the hop -- the exact failure in #331 -- and that the placement defect does not
+apply, because "what this hop buys" is a *premise* rather than a *verdict* an
+agent can aim at. This is the round's most transferable finding: progressive
+disclosure should defer the outcome of a decision the agent has not earned,
+while premises must arrive early, because an agent cannot optimize against a
+reason to do the work.
+
+**`SKILL.md:43-46` should be rewritten, not removed.** (replacement-prose) The
+pattern's seven required structural elements do not include the asymmetry
+enumeration, so removal breaks no conformance narrative, but it strands four
+forward references. Changing "is the only thing reducing the artifact set" to
+"can remove a document only after both documents exist" turns a stated purpose
+into a stated bound and keeps the slot.
+
+**koto does not create a context boundary.** (koto-dispatch) `koto-user/SKILL.md`
+states it flatly: "koto tracks the relationship but doesn't launch child agents
+-- you do that yourself." It creates a state file and a context namespace and
+gates the parent until states go terminal. The isolation commonly attributed to
+materialized dispatch is not koto's to give.
+
+**The materialized binding passes children more context, not less.**
+(koto-dispatch) `cross-issue-context.md` exists specifically so each `/execute`
+child sees what its predecessors found, and instructs "Don't skip this step even
+when only one prior child has completed."
+
+**Neither binding was ever artifact-carrying.** (koto-dispatch) The pattern's
+Layer-1 mechanism is "a parent hands a child a name and a topic key"
+(`parent-skill-pattern.md:495-497`). A materialized `/work-on` child receives
+four strings -- an issue number or artifact prefix, a source enum, an optional
+type hint, a branch name (`plan-to-tasks.sh:373/721/728`, `execute.md:474`) --
+and sources its own upstream by fetching it. The pattern states isolation is
+*equal* under both bindings (`:521-528`), not greater under the second. So the
+sourcing property is not reachable by changing the binding.
+
+**What the binding would buy is gating, not starvation.** (koto-dispatch) A
+`context-exists` gate could make the *parent* unable to skip a hop and still
+finish. That is an enforcement-hardness upgrade on `/scope`'s existing R20
+check, which today is a prose check the agent performs on itself. It is weaker
+than the sourcing property and stronger than anything available now.
+
+**The deciding objection is shape, not cost.** (koto-dispatch) `/execute` drives
+a script-computed issue list with no author in the loop; its `--auto` mandate is
+explicitly "do NOT pause between children" (`execute.md:424-432`). `/scope`
+drives a 563-line author conversation whose unwritten content reaches children
+only because the inline binding runs them in the parent's agent context
+(`parent-skill-pattern.md:502-503`). Under materialization that content would
+have to be serialized into koto context at each hop. In the lead's words: "That
+is not a porting cost; it is a change to what `/scope` is."
+
+**Cost, if someone decided to do it anyway.** (koto-dispatch) Dominated by four
+new koto templates for children that have none -- koto's E9/F5 compile rules
+require one each, authored over skills that are 900-2700 lines of conversational
+prose. Then: re-expressing the eight-step per-child loop including the ~270-line
+consolidation judgment as states; dual state (a koto session alongside the
+255-line `wip/` schema, which `/execute` already lives with); reconciling a koto
+session against a 360-line artifact-status resume ladder, where `/execute`'s
+home-PR-keyed solution does not transfer because `/scope` has no PR mid-Phase-2;
+a koto eval fixture apparatus built from scratch; and four cross-skill
+template-path assertions. Pattern text is cheaper than feared --
+`parent-skill-pattern.md:519-522` already anticipated a second parent adopting
+binding two; only the Observability Surface (`:570-590`) would need widening.
+
+### Tensions
+
+**The reframe's premise splits.** The author proposed redirecting this work to
+adopting koto for `/scope`, on the grounds that koto allows progressive
+disclosure and therefore keeps an agent inside the workflow rather than handing
+it everything up front. The research supports the mechanism and refutes the
+isolation reading. koto delivers a state's directive when the agent reaches that
+state, which is the one thing prose cannot fix, because the structural defect
+round 1 identified is that `SKILL.md` loads whole at invocation and never
+unloads. It does not deprive a child of anything -- children source their own
+upstream under both bindings, and the materialized binding deliberately gives
+them more. So the adoption case rests on instruction sequencing and gating, not
+on starving the agent of what it would rationalize with.
+
+**Progressive disclosure is not uniformly good, and a koto design could get this
+backwards.** Pairing the koto finding with the prose lead's premise/verdict
+distinction: a workflow that defers every instruction until its state is reached
+would withhold purpose from the early states, which is precisely the condition
+that produced #331. The sequencing has to defer verdicts while front-loading
+premises.
+
+**Enforcement hardness is available without the sourcing property.** R20 already
+checks that the previous hop's artifact exists before the next begins. It is
+prose the agent runs against itself. koto's `context-exists` gate is the same
+check with a substrate that does not depend on the checker's good faith. That is
+a real and modest gain, and it should not be oversold as the sourcing property.
+
+### Gaps
+
+- **Whether a conversational parent can be a koto workflow at all.** This is the
+  live question the reframe raises and round 2 could only bound, not settle.
+  `/execute`'s precedent does not transfer, because it has no author in the
+  loop and `/scope`'s Phase 1 is 563 lines of author dialogue.
+- **Who ticks a child session.** Nothing in `skills/execute/` names it: two
+  `koto next` calls ship, both on the parent's own session, and no Agent-tool
+  call or `unassigned_children` handling appears anywhere. The "fresh child"
+  property asserted at `execute.md:428-430` is not visibly implemented.
+- **The `/scope` eval suite cannot express the failure.** Plan-only scenarios
+  grade what an agent says, not what it wrote. Any future work that wants
+  evidence of adherence has to reckon with this.
+
+### Findings that bear on other work
+
+- **Three eval-harness defects**, independent of this issue: `expectations` read
+  as `assertions` (`scripts/run-evals.sh:186`), `files:` preconditions never
+  materialized, and the suite on a weekly cron rather than on PRs.
+  (eval-suite)
+
+## Accumulated Understanding
+
+*Rewritten after round 2. Supersedes the round-1 statement above.*
+
+The incident's cause is settled and is prose-shaped. `/scope`'s `SKILL.md`
+states exactly one thing as worth wanting, and that thing is a smaller artifact
+set; the sections describing what the chain does give no reason to run it; the
+vocabulary of step-output is used without being defined; and the only genuine
+statement of step-value in the tactical chain sits inside a child the skipping
+agent never invokes. An agent reading for intent found one motivated purpose and
+acted on it.
+
+Both remedies the issue proposes fail on evidence, and both failures point the
+same way. The persistence justification is already delivered at the hop, in
+better words, so that half is a deletion rather than a relocation. The
+write-target enumeration is not the disclosure channel -- the terminal address
+appears in the Overview's second paragraph and five other places in the same
+file, and the shared security contract requires the set to be stated in
+`SKILL.md` with concrete paths. And the sourcing property cannot hold, because
+`/scope` dispatches children inline in its own agent context and because neither
+dispatch binding was ever artifact-carrying: the pattern hands a child "a name
+and a topic key", and children source their own upstream. Changing the binding
+does not repair that; it was never in scope for the contract at either layer.
+
+What remains after the prose fix is structural, and it is a single thing:
+`SKILL.md` loads whole at invocation and never unloads. Every phase reference is
+already correctly bound to its phase. Prose can shrink the parent file, delete
+its duplicated argument, define "contribution", convert six passages of
+withdrawn-design narration into live instruction, and fix the two sentences that
+handed over the licence. Prose cannot make that file arrive in pieces. That is
+the residue, and it is what the koto question is really about.
+
+On koto, the honest position is narrower than the enthusiasm and still worth
+acting on. koto does not isolate a child and does not withhold anything from
+one; the boundary people attribute to materialized dispatch is not koto's to
+give, and the shipped materialized binding passes children more context on
+purpose. What koto does give is a state machine whose directives arrive when
+their state is reached, and gates that a parent cannot satisfy by asserting it
+satisfied them. Applied to `/scope`, that addresses exactly the residue prose
+leaves, and it upgrades R20 from a self-administered prose check to a substrate
+gate. The obstacle is not effort but shape: `/execute` materializes a
+script-computed issue list with no author in it, while `/scope` is a
+conversation, and the unwritten parts of that conversation reach children today
+only because the child runs in the parent's context. Whether a conversational
+parent can be expressed as a koto workflow without losing the conversation is
+the open design question, and it is a better question than whether `/scope`
+should adopt koto.
+
+Two constraints should travel with any koto work. It buys instruction
+sequencing and gating, not isolation -- a design that assumes a boundary will
+build toward one that does not exist. And disclosure should defer verdicts while
+front-loading premises: "the artifact set can shrink" is a verdict an agent can
+aim at and must not precede the work it judges, while "what this hop buys" is a
+premise an agent cannot optimize against and can only act on. A workflow that
+defers uniformly would withhold purpose from its earliest states, which is the
+condition that produced this incident in the first place.
+
+The framing content survives the reframe intact and is not superseded by it.
+koto governs when a directive arrives, never what it says. A koto-driven
+`/scope` whose first state delivers the current `## Why the Artifact Set
+Shrinks` reproduces #331 with better plumbing.
