@@ -129,3 +129,45 @@ Author decisions taken during scoping:
    an agent that skipped a step holds nothing to pass along. Establish what
    actually feeds each child its invocation argument today and whether that
    property is real or aspirational.
+
+## Research Leads -- Round 2
+
+Round 1 answered all six leads and opened five things nobody has done. These are
+investigative rather than decision-dependent: they narrow the author's open
+questions rather than presupposing answers to them.
+
+7. **How is `P2: Default to the lowest ceremony` reconciled with a chain whose
+   steps are mandatory?**
+   `references/workflow-principles.md:41` states the framework's own principle
+   that reaching for less machinery is the default. `/scope` cites that file
+   zero times, so P2 did not cause this incident -- but it is the argument a
+   future agent finds once `SKILL.md`'s reduction argument is removed. Establish
+   what P2 actually governs, whether the corpus already carves the chain out of
+   it, and what the smallest honest reconciliation looks like.
+
+8. **Does the eval suite load phase references, or only `SKILL.md`?**
+   Eval 17 (`chain-shape-is-constant`) grades this exact failure and presumably
+   passes while the live failure occurred. Establish how `scripts/run-evals.sh`
+   executes a scenario, what an eval agent has in context, and which evals would
+   break if the two reduction sections were deleted.
+
+9. **How does a skill change that diverges from a status-Current DESIGN get
+   recorded?**
+   `docs/designs/current/DESIGN-scope-consolidation-over-skipping.md` named both
+   `SKILL.md` sections as deliverables and is status Current. It already carries
+   two amendments. Establish the convention, find precedent, and say what this
+   change would need.
+
+10. **What does the replacement prose actually say?**
+    Every round-1 lead converged on what to remove; none produced candidate
+    text. Draft it, in both shapes the author is choosing between, using
+    `/charter`'s "Why /roadmap Is Unconditional" as the register model.
+
+11. **Would koto dispatch actually create the boundary the sourcing property
+    needs?**
+    `parent-skill-pattern.md:495-510` carries a second, already-ratified
+    dispatch binding: materialized runs through a koto session, used by
+    `/execute`. `/scope` has no koto surface at all. Establish whether moving
+    `/scope` to that binding would genuinely withhold the next hop's argument,
+    or whether the child would receive the topic slug anyway and the boundary
+    would buy nothing. Cost it; do not propose it.
