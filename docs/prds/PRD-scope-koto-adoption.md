@@ -41,14 +41,14 @@ own requirement.
 
 ## Problem Statement
 
-`/scope` walks an author through four steps and deposits an artifact at each.
+`/scope` walks an author through four hops and deposits an artifact at each.
 Its instructions live in a 968-line `SKILL.md` that a reading agent loads whole
 at invocation and never unloads. Exactly one passage in that file argues an
 outcome is worth wanting rather than arguing that a rule is correctly written,
 and the outcome it argues for is a smaller artifact set. An agent reading the
 skill for its purpose finds that one motivated purpose before writing anything.
 
-One did. It produced the terminal PLAN, ran none of the steps above it, and
+One did. It produced the terminal PLAN, ran none of the hops above it, and
 wrote a Status section asserting the upstream artifacts had been consolidated
 away, quoting the skill's own reader-economy sentence as the warrant.
 
@@ -64,7 +64,7 @@ Nothing in the run contradicted the claim, and the reasons are mechanical rather
 than incidental.
 
 The run records what it did in a state file the run itself writes. Leaving the
-list of executed steps empty does not trip anything — it *disarms* four separate
+list of executed hops empty does not trip anything — it *disarms* four separate
 readers that key on it, including the check that decides whether consolidation
 may fire and the tie-break that picks which child a bail routes to. The audit
 surface fails open.
@@ -74,7 +74,7 @@ run's own. Of the three, the one that abandons mid-chain requires a discard
 commit an agent must actually author; the one that claims the chain completed
 requires nothing at all. The skill's most common exit is its least evidenced, and
 the pattern's hard-finalization check passes on a state file claiming a completed
-chain with an empty list of executed steps.
+chain with an empty list of executed hops.
 
 And the thirty scenarios that test `/scope` all grade what an agent *says*. A run
 that describes the chain correctly and then writes one document passes every one
@@ -101,7 +101,7 @@ Technical feature; these are use-case descriptions. Each names the requirement i
 motivates.
 
 **An agent reaches the fold question honestly** (R2, R3). Scoping a small change,
-it receives each step's purpose as it arrives at that step. At the fold judgment
+it receives each hop's purpose as it arrives at that hop. At the fold judgment
 it receives the argument for folding and applies it to two documents in front of
 it. It may fold three of them. It cannot reach that conclusion at the start,
 because at the start nothing stated it.
@@ -109,7 +109,7 @@ because at the start nothing stated it.
 **An agent tries to finish early** (R6, R7). Having written only a PLAN and no
 document above it, it claims the chain completed. The claim is refused, naming
 the hops with neither an artifact nor a recorded fold. It can still abandon, and
-it can still mark steps skipped — what it cannot do is record a completed chain
+it can still mark hops skipped — what it cannot do is record a completed chain
 it did not walk.
 
 **An author resumes after three days** (R12, R13, R15). They re-invoke against
@@ -117,24 +117,28 @@ the same topic. On the same machine the interrupted run is still there to
 reattach to. From a fresh clone there is no session to reattach to, and the
 committed artifacts on disk are what the run reads — exactly as today.
 
-**A reviewer audits a finished run** (R8, R23). They read a per-step record
-showing which gate passed at each step and which did not. A run that walked past
-a step left a typed entry saying so, with no gate outcome beside it. The record
+**A reviewer audits a finished run** (R8, R23). They read a per-hop record
+showing which gate passed at each hop and which did not. A run that walked past
+a hop left a typed entry saying so, with no gate outcome beside it. The record
 is still there after the run ended.
 
-**A maintainer changes an instruction** (R2, R3). They edit the step that owns
-it. The change reaches agents at that step and no earlier.
+**A maintainer changes an instruction** (R2, R3). They edit the hop that owns
+it. The change reaches agents at that hop and no earlier.
 
 ## Requirements
 
 ### Instruction sequencing
 
 **R1.** `/scope` SHALL be driven by a koto workflow template shipped with the
-skill. The template's state granularity is the DESIGN's to choose.
+skill. The template's state granularity is the DESIGN's to choose. `/brief`,
+`/prd`, `/design` and `/plan` SHALL continue to be invoked as they are today and
+SHALL NOT be modified by this work.
 
-**R2.** None of the following SHALL appear in `skills/scope/SKILL.md`, in any
-reference file loaded during Phases 0 or 1, or in any workflow directive
-delivered before the first hop's state:
+**R2.** None of the following SHALL appear in the **pre-hop set** — defined as
+`skills/scope/SKILL.md`, every file its Reference Files table names as
+loading before the first hop is entered — including the four it marks as loading
+at all phases — every file those in turn name by path, and every workflow
+directive delivered before the first hop's state:
 
   (a) a statement that a smaller artifact set is desirable, stated generally
       rather than about two named documents in hand;
@@ -146,14 +150,16 @@ document contains, delivered to an agent holding none of them, is a compression
 recipe for the failure this PRD exists to prevent.
 
 **R3.** `skills/scope/SKILL.md` SHALL state, under a named section, why the
-chain's steps are taken; SHALL give an operational definition of the term it uses
-for a step's output — what kind of thing such an output is, not what each of the
-four types produces; and SHALL NOT contain any sentence in the denylist at
-Appendix A.
+chain's hops are taken; SHALL give an operational definition of the term it uses
+for a hop's output — what kind of thing such an output is, not what each of the
+four types produces; SHALL narrate no withdrawn design in the past tense, so that
+every passage reads as instruction to the agent holding the file; and SHALL NOT
+contain any sentence in the denylist at Appendix A.
 
-**R4.** Every passage in the enumerated set at Appendix A SHALL have a recorded
-disposition: moved to a step's directive, deleted, or retained. Which disposition
-each receives is the DESIGN's.
+**R4.** Every entry P1 through P6 at Appendix A SHALL have a recorded
+disposition: moved to a hop's directive, deleted, or retained, except where
+Appendix A marks a disposition illegal for that entry. Which disposition each
+receives is otherwise the DESIGN's.
 
 **R5.** No non-terminal state that expects agent evidence SHALL be advanceable
 without its directive having been delivered.
@@ -165,15 +171,29 @@ required fields, and supplying a field declared on exactly one other exit path
 SHALL be refused at submission.
 
 **R7.** A full-run exit SHALL be refused unless, for every hop in the chain,
-either that hop's durable artifact is present at its canonical path, or that
-hop's fold into a surviving document is recorded by a gate outcome the run did
-not author. The refusal SHALL name the hops satisfying neither. A run that wrote
-only the terminal artifact and asserted the rest away in prose satisfies neither
-condition for three hops and SHALL be refused.
+either that hop's durable artifact is present at its canonical path, or that hop
+carries a **recorded fold**. The refusal SHALL name the hops satisfying neither.
 
-**R8.** Each hop's completion SHALL be determined from the filesystem, and SHALL
-NOT be determined by any value the run asserts about itself. The outcome of that
-determination SHALL appear in the per-step record (R23).
+A hop carries a recorded fold when the surviving document declares that hop in
+its `absorbed:` frontmatter and carries the contribution section that declaration
+implies — the pairing `shirabe validate`'s FC18 check already enforces. Both
+halves are on the filesystem and both land in a diff a reviewer reads, which is
+what lets R8 decide this from the artifact tree.
+
+A run that wrote only the terminal artifact and asserted the rest away in prose
+carries neither an artifact nor a recorded fold for three hops, and SHALL be
+refused.
+
+**R8.** Each hop's completion SHALL be decided from the artifact tree — that
+hop's own artifact, or the surviving document's absorption record — and SHALL
+NOT be decided from any field of `wip/scope_<topic>_state.md`. The outcome of
+that decision SHALL appear in the per-hop record (R23).
+
+The distinction is durability and review, not authorship. A fold is recorded by
+an `absorbed:` frontmatter entry plus the contribution section
+`shirabe validate`'s FC18 check requires alongside it, both of which land in a
+diff a reviewer reads. Forging one is most of the work of performing it. An
+empty executed-steps list in the state file costs nothing and nobody sees it.
 
 **R9.** Marking a hop skipped SHALL remain possible, and `chain_skipped:` and the
 re-entry protection built on it SHALL keep their present meaning. A skipped hop
@@ -184,18 +204,19 @@ SHALL NOT satisfy either limb of R7.
 **R10.** `wip/scope_<topic>_state.md` SHALL remain authoritative for every field
 it carries today. No field SHALL move out of it.
 
-**R11.** The template SHALL declare a map from each of its states to one of
-`/scope`'s five phases, and `phase_pointer:` SHALL be written as the phase that
-map assigns to the session's current state. When no session exists — before one
-is opened, and after one is disposed of — `phase_pointer:` SHALL be written from
-`/scope`'s own phase and the state file's other fields SHALL be unaffected.
+**R11.** `phase_pointer:` SHALL always name the `/scope` phase the run is in,
+derived from the session's position when a session exists. When none exists —
+before one is opened, and after one is disposed of — it SHALL be written from
+`/scope`'s own phase, and the state file's other fields SHALL be unaffected.
 
 **R12.** The resume ladder SHALL be carried across with every row label and every
 row's author-facing prompt text unchanged.
 
-**R13.** On invocation, `/scope` SHALL probe for an existing workflow session for
-the topic before opening one, and SHALL reattach rather than open a second when
-one is live.
+**R13.** The workflow session's name SHALL be derived from the topic slug with a
+fixed literal prefix, so that it is reconstructible from the slug alone and
+begins with a letter for every slug shirabe's own regex admits. On invocation,
+`/scope` SHALL probe for an existing session under that name before opening one,
+and SHALL reattach rather than open a second when one is live.
 
 **R14.** The state file SHALL record the workflow session `/scope` opened, so
 that ownership of a session is a recorded fact rather than an assumption.
@@ -209,7 +230,8 @@ field.
 own "already exists" error text recommends exactly this remediation, and
 following it destroys a concurrent run in another worktree.
 
-**R17.** The chain SHALL commit each hop's durable artifact as it lands. The
+**R17.** The chain SHALL commit each hop's durable artifact to the run's own
+branch as it lands, as a new commit naming the hop, and SHALL NOT push. The
 resume ladder's durable anchor is the artifacts at canonical paths, and an
 uncommitted artifact is not durable to a fresh clone or a second worktree.
 
@@ -224,7 +246,7 @@ parent.
 phases from a workflow session without requiring `/charter` to do so.
 
 **R20.** The contract's Observability Surface SHALL name the workflow
-session-status surface and the per-step record among the surfaces a parent may
+session-status surface and the per-hop record among the surfaces a parent may
 read.
 
 **R21.** `DESIGN-scope-consolidation-over-skipping.md` SHALL receive an appended
@@ -236,10 +258,10 @@ as named `SKILL.md` deliverables. The three by-title citations of those sections
 
 ### Observability
 
-**R22.** A hop the run walked past SHALL leave a typed entry in the per-step
+**R22.** A hop the run walked past SHALL leave a typed entry in the per-hop
 record, distinguishable from a hop whose gate was evaluated.
 
-**R23.** A completed run SHALL leave a per-step record, authored by the workflow
+**R23.** A completed run SHALL leave a per-hop record, authored by the workflow
 engine rather than by the run, showing each hop's gate outcome. The record SHALL
 be readable after the run has ended.
 
@@ -256,11 +278,13 @@ and SHALL exit non-zero when a scenario grades zero assertions.
 workflow session against the shipped template, asserting: that a full-run claim
 submitted as evidence is refused when three hops have neither artifact nor
 recorded fold; that after the run has ended a walked hop and a bypassed hop are
-distinguishable in the per-step record; and that the general-form reduction
+distinguishable in the per-hop record; and that the general-form reduction
 argument is absent from what the session delivers before the first hop and
 present at the fold state. The test SHALL confine its session storage to its own
-temporary store, and SHALL fail loudly rather than pass silently when koto is
-absent.
+temporary store. When koto is absent it SHALL skip with a message naming the
+missing binary rather than fail, and the CI job SHALL install koto explicitly so
+that a skip cannot mask a missing dependency — the arrangement
+`skills/execute/scripts/settled-branch-record_test.sh` already ships.
 
 **R26.** A static check SHALL run on every pull request over all
 `skills/*/koto-templates/*.md` that carry YAML frontmatter, failing any
@@ -278,22 +302,22 @@ a threshold stated in the suite, and SHALL NOT gate a pull request.
 
 ## Acceptance Criteria
 
-- [ ] AC1. `koto template compile` on the shipped `/scope` template exits 0 and emits no `warning: W` lines.
-- [ ] AC2. `skills/scope/SKILL.md` contains no section titled `## Why the Artifact Set Shrinks` and zero occurrences of Appendix A's pinned sentence; the same grep returns zero across R2's enumerated Phase 0 and Phase 1 reference files.
+- [ ] AC1. `koto template compile` on the shipped `/scope` template exits 0 and emits no `warning: W` lines, and `git diff $(git merge-base HEAD main) -- skills/brief/ skills/prd/ skills/design/ skills/plan/` is empty.
+- [ ] AC2. `skills/scope/SKILL.md` contains no section titled `## Why the Artifact Set Shrinks`, and Appendix A's pinned sentence returns zero hits across every file in R2's pre-hop set.
 - [ ] AC3. Appendix A's pinned sentence occurs exactly once in the compiled template, under the fold state's details, and zero times in the initial state's directive. The four per-type summaries occur only under the fold state.
-- [ ] AC4. `SKILL.md` carries a section named for why the chain's steps are taken, and one operational definition of the step-output term.
-- [ ] AC5. No sentence from Appendix A's denylist appears in `skills/scope/`.
-- [ ] AC6. Every passage in Appendix A has a recorded disposition, and none is unresolved.
+- [ ] AC4. `SKILL.md` carries a section named for why the chain's hops are taken, and one operational definition of the hop-output term.
+- [ ] AC5. Neither Appendix A denylist sentence D1 nor D2 appears anywhere in `skills/scope/`, and `SKILL.md` narrates no withdrawn design in the past tense.
+- [ ] AC6. The DESIGN carries a table with one row per Appendix A entry P1 through P6, each row naming a disposition, no row unresolved, and no row naming a disposition Appendix A marks illegal.
 - [ ] AC7. No non-terminal state in the shipped `/scope` template carries an evidence block without a guarded transition.
-- [ ] AC8. Submitting a full-run exit as evidence, with a PLAN on disk and no artifact or recorded fold for the three hops above it, returns a non-terminal state whose directive names those hops.
+- [ ] AC8. Submitting a full-run exit as evidence, with a PLAN on disk and no artifact or recorded fold for the three hops above it, returns a non-terminal state whose directive names those hops; and no further submission reaches the full-run terminal until the artifact tree changes.
 - [ ] AC9. Submitting a full-run exit as evidence, with every hop's artifact present, reaches the full-run terminal.
 - [ ] AC10. Submitting a full-run exit as evidence, with the PLAN present and each upstream hop carrying a recorded fold, reaches the full-run terminal.
-- [ ] AC11. Submitting a field declared on exactly one other exit path is refused at submission.
-- [ ] AC12. Each hop's completion check reads that hop's artifact from the filesystem, and no hop's completion reads a run-asserted value.
+- [ ] AC11. Submitting an exit without one of that path's required fields is refused at submission, and submitting a field declared on exactly one other exit path is refused at submission.
+- [ ] AC12. Each hop's completion check reads that hop's artifact or the surviving document's absorption record, and no hop's completion reads any field of `wip/scope_<topic>_state.md`.
 - [ ] AC13. A run marking every hop skipped reaches the abandonment terminal, not the full-run terminal, and `chain_skipped:` names every hop.
 - [ ] AC14. Every field name in `skills/scope/references/state-schema.md` appears in at least one write instruction under `skills/scope/`.
 - [ ] AC15. During a live session, `phase_pointer:` equals the phase the template's state-to-phase map assigns to the session's current state; with no session, the state file still parses and its other fields are unchanged.
-- [ ] AC16. Every resume-ladder row label and every row's author-facing prompt text is byte-identical to its pre-change form.
+- [ ] AC16. `git diff $(git merge-base HEAD main) -- skills/scope/references/phases/phase-resume.md` shows no change to any row label or any author-facing prompt text.
 - [ ] AC17. Against a fixture with an Accepted PRD at the canonical path, no state file and no session, resume emits the `Re-evaluate / Revise / Bail` triad with boundary `prd`.
 - [ ] AC18. A second invocation against a live topic advances the existing session; exactly one session directory exists for the topic afterward.
 - [ ] AC19. The state file records the session `/scope` opened.
@@ -301,16 +325,16 @@ a threshold stated in the suite, and SHALL NOT gate a pull request.
 - [ ] AC21. A completed run whose session is gone reports its exit from the state file.
 - [ ] AC22. After each hop, that hop's artifact is committed.
 - [ ] AC23. `skills/scope/SKILL.md` declares `storage_substrate: wip-yaml-md`.
-- [ ] AC24. `git diff skills/charter/` is empty, and the shared contract permits a workflow-driven parent without requiring one.
-- [ ] AC25. The contract's Observability Surface names the session-status surface and the per-step record.
+- [ ] AC24. `git diff $(git merge-base HEAD main) -- skills/charter/` is empty, and the shared contract permits a workflow-driven parent without requiring one.
+- [ ] AC25. The contract's Observability Surface names the session-status surface and the per-hop record.
 - [ ] AC26. `DESIGN-scope-consolidation-over-skipping.md` carries an amendment dated on or after this PRD's acceptance that cites it, and no by-title citation of either removed section remains in the repo.
-- [ ] AC27. After a run in which one hop was walked past and one walked, the per-step record shows a typed entry with no gate outcome for the first and an evaluated gate for the second.
-- [ ] AC28. The per-step record for a completed run is readable after the run has ended.
+- [ ] AC27. After a run in which one hop was walked past and one walked, the per-hop record shows a typed entry with no gate outcome for the first and an evaluated gate for the second.
+- [ ] AC28. The per-hop record for a completed run is readable after the run has ended.
 - [ ] AC29. `scripts/run-evals.sh` reads `expectations`, materializes `files:`, copies post-run filesystem state into the scenario output directory, reports a pass rate across N runs, and exits non-zero on zero graded assertions.
-- [ ] AC30. A pull-request test drives a real session and asserts AC8, AC9, AC27 and AC28 with no model in the loop.
+- [ ] AC30. A pull-request test drives a real session and asserts AC8, AC9, AC10, AC11, AC27 and AC28 with no model in the loop.
 - [ ] AC31. A pull-request test asserts the reduction argument is absent from what the session delivers before the first hop and present at the fold state.
 - [ ] AC32. The static check fails a deliberately malformed non-terminal state, passes every shipped template, and skips files without YAML frontmatter.
-- [ ] AC33. The four currently-violating states in `/work-on` and `/execute` are either fixed or covered by a filed exemption.
+- [ ] AC33. Each of the four currently-violating states in `/work-on` and `/execute` is either fixed or listed in an allowlist file the check reads, with an issue reference beside it.
 - [ ] AC34. Two model-graded scenarios assert on files after a run, one negatively per R27, reported as a rate over at least five runs against a stated threshold.
 - [ ] AC35. `shirabe validate` passes on `docs/prds/PRD-scope-koto-adoption.md`, `docs/briefs/BRIEF-scope-koto-adoption.md`, and `docs/designs/current/DESIGN-scope-consolidation-over-skipping.md`. (Chain-wide hygiene; traces to no single requirement.)
 
@@ -320,7 +344,7 @@ a threshold stated in the suite, and SHALL NOT gate a pull request.
   sessions. Not foreclosed — materialization is one additional state inside this
   shape — but it buys visibility into children rather than anything this problem
   needs.
-- **Post-hoc validation that an agent executed its steps.** A gate the substrate
+- **Post-hoc validation that an agent executed its hops.** A gate the substrate
   holds is not a checker that grades a run afterward.
 - **Making a skip impossible.** It is not. A directed transition reads neither
   gates nor transition guards, and a recorded override injects a synthetic pass.
@@ -345,7 +369,7 @@ a threshold stated in the suite, and SHALL NOT gate a pull request.
 ## Decisions and Trade-offs
 
 The four questions the upstream BRIEF deferred, plus two this PRD's research
-forced.
+forced, plus a closing note on two premises that were tested and withdrawn.
 
 **One state store or two.** Two, with disjoint content and one deliberate
 overlap. koto absorbing the state file is foreclosed: `parent_orchestration:` is
@@ -394,7 +418,7 @@ this PRD required one; it was removed after the constraint was tested and found
 not to bind.
 
 **How hop completion is decided, as a constraint on the DESIGN.** Only gate
-outcomes reach the surviving per-step record; evidence values do not. A design
+outcomes reach the surviving per-hop record; evidence values do not. A design
 satisfying R8's first clause with an asserted field plus a validator would lose
 R8's second clause. Stated as a constraint rather than a requirement because
 which construct satisfies both is the DESIGN's call.
@@ -406,17 +430,31 @@ lands in. The test must key on the landing state and its directive. An earlier
 description of this behaviour said the blocked state names the failing gate, and
 its own captured output contradicted it.
 
+**Two premises tested and withdrawn**, recorded so a later reader does not
+re-derive them. Appendix A excludes `SKILL.md:508-517` and `SKILL.md:519-530`,
+which an earlier analysis counted as withdrawn-design narration; they are
+present-tense rules carrying a "no longer" hinge, and deleting them would delete
+live content. And an earlier draft carried a requirement rejecting topic slugs
+beginning with a digit; it was removed after the constraint was tested against
+koto directly and found not to bind under the prefixed session name R13 requires.
+
 ## Known Limitations
 
-- The per-step record is machine-local. A reviewer on a pull request does not see
-  it. Accepted deliberately: the alternative was copying it into a PR body, which
-  makes the run the author of its own audit trail — the property this work exists
-  to remove. Neither the copy nor the original is tamper-proof; what differs is
-  who wrote it.
+- The per-hop record is machine-local and keyed to a session id, so it does not
+  survive into a later conversation. "Readable after the run has ended" in R23 and
+  AC28 means after the workflow session reaches a terminal state, within the
+  conversation that drove it; a reviewer on a pull request does not see it, and
+  neither does the same author tomorrow in a new session. This is the bound the
+  BRIEF was edited in place to state correctly, and it is restated here so the
+  requirement cannot be read as promising more. Accepted deliberately: the
+  alternative was copying the record into a PR body, which makes the run the
+  author of its own audit trail — the property this work exists to remove.
+  Neither the copy nor the original is tamper-proof; what differs is who wrote
+  it.
 - Preserving the richer event log past the end of a run and keeping the engine's
   terminal index entry are mutually exclusive. R23 is written against the surface
   that survives without the trade.
-- The per-step record carries gate outcomes but not evidence values, which is why
+- The per-hop record carries gate outcomes but not evidence values, which is why
   R8 requires completion to be decided from the filesystem. A later requirement
   needing decision *values* durably would have to revisit this.
 - R16 is enforced for the code this repo ships: AC20 greps `skills/scope/` for
@@ -433,10 +471,11 @@ its own captured output contradicted it.
   tsukumogami/shirabe#335). A template written for this work must not use it.
 - `visibility:` and `consumed_upstream:` are mutable on resume, so neither can be
   carried as a template variable, which is immutable for a session's lifetime.
-- Six acceptance criteria (AC13, AC15, AC18, AC21, AC22, AC27) describe behaviour
-  of a full `/scope` run. Where the table above does not reduce them to a
-  substrate or filesystem check, they are verified by the model-graded suite,
-  which R27 keeps off the pull-request path.
+- Five acceptance criteria — AC13, AC15, AC18, AC21 and AC22 — describe behaviour
+  only a full `/scope` run produces, and none reduces to a substrate or filesystem
+  check. They are verified by the model-graded suite, which R27 keeps off the
+  pull-request path, so they are reported rather than gated. AC27 and AC28 are not
+  in this set: AC30 puts both on the pull-request path.
 - A latent defect this work inherits: the drift-detection trigger in
   `phase-resume.md` is unsatisfiable as written, because the rows that could match
   it require no state file while its condition requires one. Named here so the
@@ -451,45 +490,57 @@ its quoted text.
 **Pinned sentence for AC2 and AC3.** The load-bearing sentence of the
 general-form argument, currently at `SKILL.md:476`:
 
-> Sparing the reader that is worth doing
+> Sparing the reader
 
-It is pinned because it is the sentence the reduction argument reduces to, and
-because a grep for it is decidable where a judgment about whether a passage
-"argues generally" is not.
+The fragment is short on purpose. The full sentence — "Sparing the reader that
+is worth doing, and it is the only reason `/scope` ever ends a run with fewer
+documents than the chain has altitudes" — is hard-wrapped across `SKILL.md:476`
+and `:477`, so a fixed-string grep for it returns zero today, before any work.
+The pinned fragment sits entirely on `:476`. Any check written against the full
+sentence SHALL collapse whitespace first; a check written against the fragment
+needs no normalization, which is why the fragment is what AC2 and AC3 name.
 
 **Supporting search terms**, applied across R2's named file set as a
 completeness sweep rather than as the criterion itself: `consolidat`, `fold`,
 `fewer document`, `reader economy`, `artifact set`, `ceremony`,
 `three altitudes`.
 
-**Denylist for R3 and AC5** — sentences that read as license to skip a step, to
-be removed or rewritten:
+**Denylist for R3 and AC5** — quoted verbatim, so the check is a grep. Each is
+to be removed or rewritten:
 
-1. `SKILL.md:29`, framing the PLAN as the skill's product rather than as a
-   deposit made by the terminal step.
-2. `SKILL.md:442-445`, stating that invoking `/plan` directly is a sanctioned
-   move, in a file whose subject is running the chain.
+**D1.** > a `full-run` that produces a PLAN at `docs/plans/PLAN-<topic>.md`
 
-**Passages requiring a disposition under R4:**
+   Frames the PLAN as the skill's product rather than as the deposit its
+   terminal hop makes.
 
-3. `SKILL.md:472-530`, `## Why the Artifact Set Shrinks` — the general-form
+**D2.** > An author who wants to start above `/brief` still invokes `/design`
+   > or `/plan` directly.
+
+   States that entering below the chain head is a sanctioned move, in the file
+   whose subject is running the chain. The two sentences that follow it are the
+   bound and survive; this one is the licence and does not.
+
+**Passages requiring a disposition under R4.** Numbered separately from the
+denylist above, which R3 governs and for which "retained" is not a legal
+disposition.
+
+P1. `SKILL.md:472-530`, `## Why the Artifact Set Shrinks` — the general-form
    reduction argument, and the passage the incident agent quoted.
-4. `SKILL.md:532-578`, `## Consolidation Judgment` — the mechanism section, whose
+P2. `SKILL.md:532-578`, `## Consolidation Judgment` — the mechanism section, whose
    reader-economy rationale duplicates the correctly-placed copy at
    `references/phases/phase-2-chain-orchestration.md:492-500`.
-5. `SKILL.md:43-46`, stating the reduction conclusion in the file's third
+P3. `SKILL.md:43-46`, stating the reduction conclusion in the file's third
    paragraph; to be rewritten as a bound rather than removed, since four forward
    references depend on the slot.
-6. `SKILL.md:872-881`, narrating a withdrawn design in the past tense.
-7. The undefined step-output term, used eight times in `SKILL.md` and defined
-   only at `references/phases/phase-2-chain-orchestration.md:597-600`.
-8. The four per-type declarations of what each document contributes, currently
+P4. `SKILL.md:872-881`, narrating a withdrawn design in the past tense. R3
+   forbids past-tense narration of withdrawn designs, so "retained" is not a
+   legal disposition for this entry.
+P5. The eight sites in `SKILL.md` using the hop-output term, whose only
+   definition today sits at
+   `references/phases/phase-2-chain-orchestration.md:597-600`.
+P6. The four per-type declarations of what each document contributes, currently
    distributed across the four format references; R2(b) governs where they may
    be delivered.
-
-Two passages an earlier analysis included and this one excludes, because they are
-present-tense rules carrying a "no longer" hinge rather than narrated history, and
-deleting them would delete live content: `SKILL.md:508-517` and `SKILL.md:519-530`.
 
 ## References
 
