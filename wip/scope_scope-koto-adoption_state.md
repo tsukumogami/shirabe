@@ -48,6 +48,13 @@ worktree_rebases:
   - child: prd
     behind: 0
     impact: None
+  - child: design
+    behind: 0
+    impact: None
+parent_orchestration:
+  invoking_child: design
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 shape_predicates:
   p1_architectural_alternatives: fires
   p2_new_components: does-not-fire
