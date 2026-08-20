@@ -221,12 +221,14 @@ weaknesses -- but the practical benefit lands near the ruled-out line.
 not author is different in kind from a checker that grades the agent.**
 
 **Deferring the reduction argument to Phase 2 does not cover the decision where
-#331 actually happened.** (disclosure-mechanics) Removing
-`## Why the Artifact Set Shrinks` from context until the consolidation state
-removes it from the *chain-proposal* decision. The fabricated Status section was
-written at *exit finalization*. No round-1 lead examined exit finalization, and
-the disclosure story has an unexamined hole at the exact site of the reported
-incident. This is round 2's subject.
+#331 actually happened.** (disclosure-mechanics) **FALSIFIED IN ROUND 2 -- see
+below.** The claim was that the fabricated Status section was written at exit
+finalization. It was not: it is a Phase 2 write, at the `/plan` hop.
+`phase-3-exit-finalization.md:384` says outright "Phase 3 does not delete and
+does not write the PLAN", and the `## Status` absorption line is written at
+`phase-2-chain-orchestration.md:650`. The issue itself says so in its second
+paragraph. The tension dissolves and the disclosure case is aimed at the right
+site after all.
 
 **The phase substrate addresses roughly a fifth of total resident context.**
 (substrate-shape) It fixes `/scope`'s own 968-line footprint and does nothing
@@ -353,56 +355,297 @@ Live defects found this round, none of them this effort's to fix.
   naming `/plan <topic>` as a routing destination, three eval-harness defects,
   and all 30 `/scope` evals being plan-only so none can catch the #331 failure.
 
+
+## Round 2
+
+Three leads dispatched, three returned. No agent failed. Round 2 was scoped to
+one thing: the exit-finalization hole round 1 opened.
+
+The hole was not real. Round 1's disclosure lead asserted that #331's fabricated
+Status section was written at exit finalization; two independent round-2 leads
+established it was a Phase 2 write, at the `/plan` hop. The round therefore
+answered a different and more useful question than the one it was commissioned
+for, and it closes the exploration.
+
+### Key Insights
+
+**The founding premise of the round is falsified, and the correction runs in the
+adoption's favour.** (exit-finalization, resident-at-exit -- independently)
+`phase-3-exit-finalization.md:384` says outright "Phase 3 does not delete and
+does not write the PLAN", and the `## Status` absorption line is written at
+`phase-2-chain-orchestration.md:650` with a pinned shape #331's prose does not
+match. Issue #331 says the same thing in its own second paragraph: the agent
+"authored a Status section in the PLAN". So making the reader-economy argument
+physically absent until both artifacts exist puts it out of context at the
+moment the incident agent quoted it. The tension recorded in round 1 dissolves.
+
+**The accumulation objection, correctly scoped, does not weaken the case.**
+(exit-finalization) A single agent carrying its own reasoning across four hops
+can restate an argument that disclosure later removes -- but that failure mode
+requires *running* the hops. #331's agent skipped them and quoted the source
+text nearly verbatim at hop zero. Disclosure is strongest against exactly the
+reported shape. The accumulation risk applies to future runs that do the work
+and then rationalize a fold, which is a different and less-evidenced concern.
+
+**The sharpest statement of what disclosure buys.** (resident-at-exit) The
+reduction argument is unremovable from a transcript once delivered, and it must
+be delivered at the judgment, which a full run enters three times. What
+disclosure can do is ensure the **general** form never enters the transcript at
+all, so what an agent can restate at the end is a scoped claim about two
+documents that exist rather than a general claim about artifact sets. #331's
+agent quoted the general form. There is no general form to quote if it is never
+written down.
+
+**Phase 3 is the wrong place for any fix, and that is a clean result.**
+(exit-finalization) Phase 3 contains no argument, reads no filesystem on the
+exit path the incident took, writes nothing into the PLAN, and its check is a
+pure state-file consistency pass. A koto terminal state there would sequence a
+transcription.
+
+**A koto terminal state can require nothing, refuse nothing, and say nothing.**
+(terminal-binding) The terminal check fires at step 3 of the advance loop before
+gates ever run (`koto:src/engine/advance.rs:243-250`); gates on a terminal are a
+D5 compile error; `accepts` on a terminal compiles silently as dead config;
+evidence submission there is refused outright (`koto:src/cli/mod.rs:3581-3592`);
+and a terminal's directive never crosses the wire. Every terminal body section
+in every shipped shirabe template is documentation for template readers, not
+instruction for agents.
+
+**The binding is entirely the pre-terminal state's, and the workable shape is
+"agent proposes, koto vetoes."** (terminal-binding) A `finalize` state can force
+the agent to stop and submit a typed `exit:` enum and a `status_section:`
+string, provided every route out carries an agent field, and koto can then
+refuse the exit path the agent proposed against what is on disk. **Verified: a
+`full-run` claim submitted with the plan gate failing returned
+`advanced: false`.** koto cannot judge the claim, and cannot stop
+`koto next --to done_full` -- but that leaves a trace.
+
+**The answer to round 1's "who reads the log" exists and nobody had found it.**
+(terminal-binding) Claude Code's `/workflows` render does, natively, with no
+skill and no reader (`koto:.../workflows_surface/mod.rs:1-5`). It is on by
+default via `CLAUDE_CODE_SESSION_ID` self-discovery, and it rendered the #331
+signature as `Brief: FAIL / Prd: FAIL / Plan: PASS / Finalize: PASS` under a
+completed `full-run` exit. Four lines, machine-authored.
+
+**Round 1's gating conclusion needs amending on durability, not substance.**
+(terminal-binding) "A typed event in a log the agent does not author" is true
+about the writer and false about the artifact. The event log is deleted by
+`fs::remove_dir_all` on the terminal tick by default (`koto:src/cli/mod.rs:2586`,
+`koto:src/session/local.rs:76-83`), leaving one index line that says only
+`"completed"` and does not name which terminal was reached -- and it is trivially
+rewritable by `sed -i` while it lives. `--no-cleanup` preserves it and forfeits
+the index entry; the two durability modes are mutually exclusive. The
+`/workflows` render survives the deletion. **Any design that repeats round 1's
+wording without the `--no-cleanup` requirement ships a `/scope` whose audit
+trail evaporates at exit.**
+
+**The context-economy case does not survive measurement.** (resident-at-exit)
+`/scope`'s own `SKILL.md` is 7.5% of documented end-of-run load, and the
+genuinely bindable slice is 3.7%. Against that, koto adds 20,000-32,000
+characters of directive traffic over a 25-40 tick run. The net delta at exit
+finalization is approximately zero and plausibly negative. **Any claim that koto
+reduces total resident context over a `/scope` run is false as measured.** The
+adoption is argued on physical absence *at the moment of judgment*, and that
+qualifier is load-bearing rather than decorative.
+
+**The largest number in the stack is `/plan`, at 180,985 characters, and no
+proposal on the table touches it.** (resident-at-exit) If total resident context
+is the concern, `/plan` is 3.5x the lever `/scope`'s `SKILL.md` is. If the
+concern is what is in context at a specific decision, the total is the wrong
+measure and should stop being cited.
+
+**A compliant `/scope` run may not fit a 200k window.** (resident-at-exit)
+115,500 tokens at the floor, 172,000 as documented, before a single word of
+conversation or a single artifact draft. The path that follows the skill's
+instructions is the expensive one; the path #331 took is cheap. That is a
+structural pressure toward the shortcut that no prose placement addresses, and
+it is the most uncomfortable finding in the exploration.
+
+**R9 provably does not catch #331, and `chain_ran: []` fails open.**
+(resident-at-exit) `exit: full-run` + `chain_ran: []` + omitted
+`plan_execution_mode:` + `exit_artifacts:` naming the PLAN passes all five R9
+conditions, because `plan_execution_mode:` is gated on chain membership
+(`state-schema.md:176`) and nothing gates `exit: full-run` on `/plan` being in
+`chain_ran:`. Worse, four downstream readers key on `chain_ran:` -- the
+consolidation judgment's firing condition, the R8 tie-break, the PR-body record,
+and `plan_execution_mode:`'s presence condition -- so an empty list makes all
+four vacuous. The audit surface disarms rather than trips.
+
+**`accepts` is not a stop condition; a state stops iff nothing resolves.**
+(terminal-binding) A `required: true` field on a state with two conditional
+transitions was skipped entirely because gate output resolved one of them. Round
+1's "`accepts` plus a single unconditional transition" is a corollary of the
+general rule, and the general rule is documented nowhere in koto's
+template-format reference. koto and shirabe have each already shipped a template
+with the narrower version of the bug. A `/scope` template needs the review rule
+stated in the template's own description, the way `/work-on`'s line 11 states
+the self-loop rule.
+
+**Real subagent boundaries do exist in the stack.** (resident-at-exit) `/prd`
+Phase 2, `/design` Phase 6, and `/plan` Phase 4 all use the Agent tool, which
+needs no `requires.tsv` declaration
+(`references/tool-declaration-policy.md:11-27` scopes it to CLI tools). Round
+1's "no fresh-child boundary" holds for chain hops, but the mechanism is
+present, used, and cheap. `references/fixes/sub-agent-dispatch.md:52-58`
+documents a serial-self-jury fallback that collapses those boundaries back into
+one process under a parent chain.
+
+**Every filesystem-touching validator check in the corpus is gated on a
+self-declared frontmatter field.** (resident-at-exit) FC18 on `absorbed:`, R6
+and the lifecycle walk on `upstream:`, FC20 on a surviving basename. Nothing
+anywhere asks "what should exist here" without first being told by the document.
+That is a structural property, not four coincidences. And `upstream:` is not a
+required field on a PLAN (`crates/shirabe-validate/src/formats.rs:405`), so the
+sourcing property #331 proposes as its cheapest fix has no validator that could
+notice its absence.
+
+### Tensions
+
+**The design's largest exposure is an authoring error, not an agent.**
+(terminal-binding) A `finalize` state whose routes resolve without the agent is
+silent, ships once, and holds forever -- and it is the exact #331 reproduction.
+The rule that prevents it is undocumented, and both koto and shirabe have
+already shipped the narrower version of the bug. This argues that the adoption's
+risk is concentrated in template review rather than in runtime behaviour, which
+is a different risk profile than the exploration has been assuming.
+
+**The audit surface's durability and its discoverability are mutually
+exclusive.** (terminal-binding) `--no-cleanup` preserves the rich event log and
+forfeits the terminal index line. The `/workflows` render survives either way
+but lives under `~/.claude/projects/<projectDir>/<sessionId>/workflows/`, keyed
+to a Claude Code session id, outside git and outside any PR. In an ephemeral
+instance the home directory may not outlive the run. Either `/scope` copies
+something into the PR body at finalize -- which reintroduces the agent as the
+copier, and forgeability with it -- or the author accepts a machine-local audit
+surface.
+
+**The cheap path and the compliant path diverge by roughly 150,000 tokens.**
+(resident-at-exit) Nothing in the adoption changes that, and the adoption adds
+directive traffic on the compliant side. A design that argues koto makes
+compliance cheaper is arguing against the measurement.
+
+### Gaps
+
+- **Does a `/scope` run on the single-pr path have a PR at all?**
+  (exit-finalization) Phase 3 writes its durable record into "the run's
+  pull-request body", and `requires.tsv` declares `gh` only for
+  `mode:coordinated`. Either the author is expected to have opened one, the
+  record is written by whatever later opens one, or it is dead text. Changes
+  whether the durable-record contract is broken or merely under-specified.
+- **Whether the `/workflows` render is durable enough to be the answer**, or
+  whether `/scope` must drive its terminal tick with `--no-cleanup` and copy the
+  log into the PR body itself.
+- **Whether `/scope`'s hop states carry an ungated skip route.** With one, the
+  #331 reproduction stays possible with no bypass at all -- legible in the trace,
+  but possible. Without one, `/scope` loses `chain_skipped:` semantics and its
+  re-entry protection has nowhere to go. A scoping call, not a research finding,
+  and the sharpest thing round 2 hands the author.
+- Round 1's gaps on two state stores, where koto session state lives relative to
+  git, and child-level dashboard legibility all stand unchanged.
+
+### Decisions
+
+Recorded in `wip/explore_scope-koto-adoption_decisions.md`.
+
+### Findings that bear on other work
+
+Added to round 1's list.
+
+- **Phase 3's durable record has no sink on a `single-pr` full run.**
+  (exit-finalization) It is written into a PR body that only the coordinated
+  path has. Phase 4 then deletes the state file. The audit trail is removed with
+  nowhere to have gone.
+- **`exit: full-run` has no predicate anywhere in the skill.**
+  (exit-finalization) The pattern layer defines the entitlement -- every required
+  child produced its durable doc (`parent-skill-pattern.md:86-88`) -- and nothing
+  converts it into a condition. `re-evaluation` is determined by a git commit and
+  `full-run` by nothing, so the skill's most common exit is its least evidenced.
+  A one-line R9 condition 6 (`exit: full-run` requires `/plan` in `chain_ran:`)
+  would have caught #331 at finalization using only fields already in the state
+  file. Recorded rather than proposed: whether that is a checker under the
+  author's exclusion is the author's call, and the lead's read is that it is the
+  same class of self-consistency rule R9 already applies four times.
+- **Three koto terminal-region hazards**, all independent of this effort:
+  `accepts` on a terminal compiles silently as dead config; a completed
+  workflow's terminal phase renders `"in progress"`
+  (`koto:.../materialize.rs:136-143`, cosmetic); and the template-format
+  reference documents neither the "a state stops iff nothing resolves" rule nor
+  that a terminal state's directive is never delivered.
+- **`expects.options` hands the agent the routing table**, including which exit
+  route is ungated. (terminal-binding)
+- **The koto event log is trivially forgeable** -- no seq-chain hash, despite
+  `audit.rs` being otherwise adversarially designed. (terminal-binding)
+- **The override bypass renders as FAIL**, because `advance.rs:363` emits no
+  `GateEvaluated` for an overridden gate so the render keeps the stale failing
+  evaluation. Accidentally the most legible of the three bypasses.
+  (terminal-binding)
+
 ## Accumulated Understanding
 
-The koto adoption is worth doing, at a strength materially lower than the
-reframe assumed and for a reason the reframe did not name.
+*Rewritten after round 2. Supersedes the round-1 statement.*
 
-Three of the four premises the exploration opened with are falsified. The
-deciding obstacle -- that `/scope` is a conversation and `/execute` is not --
-does not survive contact with `/scope`'s own `--auto` mode, with `/prd`'s
-statement that `/scope` pre-populates nothing for it, or with `/charter`
-already serializing parent conversation into a child under the inline binding.
-The gating guarantee does not survive `koto next --to` and
-`koto overrides record`, which together let a parent walk its own declared
-edges to a terminal state having produced nothing. And the fresh-child context
-boundary does not exist anywhere in the repo to adopt, which matters because
-#331's mechanism is precisely a single agent accumulating its own reasoning
-across four hops in one window -- the runtime as designed, not a deviation.
+Adopt koto for `/scope`, as a phase substrate, for one reason stated narrowly:
+so that the general form of the artifact-reduction argument never enters a run's
+transcript. Everything else the reframe was launched with has been falsified or
+cut down, and the surviving case is better evidenced than the one it replaces.
 
-What replaces them is narrower and better evidenced. The phase-substrate shape
-is not an untested alternative to materialization; it is the base case that
-materialization extends by one state, and `/execute` already demonstrates the
-composition. It costs one template rather than four, leaves the Dispatch
-Contract untouched, and gives up only child-level dashboard legibility. Its
-payoff is specific: the reader-economy sentence the incident agent quoted back
-at the skill can be physically absent from context until both artifacts exist.
-Prose can relocate that sentence too, and cheaply -- so the honest case for the
-dependency is the conjunction of physical absence with a state machine that must
-be bypassed by a named command rather than merely disregarded, and the author
-has accepted that trace as a substrate property rather than a checker.
+Four premises went in and three came out changed. The deciding obstacle -- that
+`/scope` is a conversation and cannot be a workflow -- does not survive `/scope`'s
+own `--auto` mode, `/prd`'s statement that `/scope` pre-populates nothing for it,
+or `/charter` already serializing parent conversation into a child under the
+inline binding. The gating guarantee does not survive `koto next --to` and
+`koto overrides record`, which let a parent walk its own declared edges to a
+terminal having produced nothing. The fresh-child boundary does not exist to
+adopt, and #331's mechanism is precisely a single agent accumulating its own
+reasoning across four hops in one window. And the exit-finalization hole that
+round 2 was commissioned to investigate was a factual error: the fabricated
+Status section is a Phase 2 write at the `/plan` hop, which the issue itself
+says.
 
-Two things about disclosure need saying plainly, because the enthusiasm runs
-past them. `/scope` already does progressive disclosure through six per-phase
-reference files, and koto's measured delta on the one precedent was about a
-thousand characters, with both shipped adopters converging on pointing their
-directives back into a resident `SKILL.md` and neither using the
-`<!-- details -->` mechanism built for the job. The disclosure win is an
-authoring discipline that koto makes expressible and does not confer; a
-koto-driven `/scope` authored the way `/work-on` and `/execute` were authored
-would reproduce #331 with better plumbing, exactly as the prior run warned.
+What survives is specific. The phase-substrate shape is legal, supported, and is
+the base case that materialization extends by one state -- `/execute` is twelve
+phase states plus one materialization state -- so it costs one template rather
+than four, leaves the Dispatch Contract untouched, and forecloses nothing. Its
+payoff is that `## Why the Artifact Set Shrinks` lives in a state's details,
+physically absent until both artifacts exist. The reduction argument cannot be
+removed from a transcript once delivered, and it has to be delivered at the
+judgment; what disclosure prevents is the *general* form ever being written
+down, so the most an agent can restate at the end is a scoped claim about two
+documents in hand. #331's agent quoted the general form at hop zero, having run
+nothing. That is the failure the adoption addresses, and it addresses it at the
+site where it happened.
 
-The framing content therefore rides inside this effort and is where most of the
-value is. The premise/verdict cut needs two more categories -- bounds and
-obituaries -- and under them the bootstrap that survives is roughly eight short
-passages of purpose and bound, with no machinery inventory and no reader-economy
-argument, which is close to the inverse of what `SKILL.md` front-loads today.
-Three corrections to the drafted prose are recorded above; the sharpest is that
-lifting four per-type contribution declarations into the lede would hand an
-agent holding none of the four documents a compression recipe for the exact
-Status section the incident produced.
+Alongside that, koto can force the exit to be a state the agent must stop at and
+account for, and can veto the exit path the agent proposes against what is on
+disk -- verified, a `full-run` claim with the plan gate failing returns
+`advanced: false`. It cannot judge the claim, and `koto next --to done_full`
+still reaches the terminal. But the bypass leaves a trace, and the trace has a
+reader that already exists: Claude Code's `/workflows` render, on by default,
+which showed the #331 signature as four lines of `FAIL / FAIL / PASS / PASS`.
+That closes round 1's open question about who reads the log, and it is why the
+author's ruling -- that a trace the agent did not author is a substrate property
+rather than a checker -- has something concrete behind it. The durability
+caveat is load-bearing: the rich event log is deleted at the terminal tick by
+default and needs `--no-cleanup`, and the render is machine-local under
+`~/.claude/projects/`.
 
-What is not yet established is whether any of this reaches the decision where
-#331 actually failed. The fabricated Status section was written at exit
-finalization, and every disclosure argument so far concerns the chain-proposal
-decision at Phase 1 and the judgment at Phase 2. Round 2 is scoped to that hole.
+Three things should be said plainly in whatever is authored next, because the
+enthusiasm runs past them. Context economy is not a reason to do this: `/scope`'s
+own `SKILL.md` is 7.5% of end-of-run load, koto adds 20,000-32,000 characters of
+directive traffic over a run, and the net delta at exit is about zero. A
+compliant run is 115,500-172,000 tokens of instruction before any conversation,
+so the path that follows the instructions is the expensive one and the path #331
+took is cheap -- a structural pressure toward the shortcut that no placement
+fixes. And the adoption's real risk is an authoring error rather than a
+motivated agent: a state whose routes resolve without the agent is silently
+skipped, the rule is undocumented, and koto and shirabe have each already
+shipped a template with it.
+
+The framing content is where most of the value is and it rides inside this
+effort, because koto governs when a directive arrives and never what it says.
+The premise/verdict cut needs four categories -- premise, verdict, bound,
+obituary -- and under them the bootstrap that survives is roughly eight short
+passages of purpose and bound, with no machinery inventory, no reader-economy
+argument, and no obituaries. That is close to the inverse of what `SKILL.md`
+front-loads today, and the file should end meaningfully shorter rather than
+longer.
