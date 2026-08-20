@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   /scope's SKILL.md arrives whole at invocation, so the one passage in it that
   argues an outcome is worth wanting -- a smaller artifact set -- reaches an
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framing only. The requirements this brief feeds are the downstream PRD's, and
 the architecture is the DESIGN's. Written under `/scope`'s chain; the parent
@@ -170,23 +170,6 @@ no longer means adding it to what every agent reads at the door.
   contract has no reported failure driving it, and the contract permits the two
   to differ. Whether it follows is a later question. This is single-repo work in
   the tactical chain.
-
-## Open Questions
-
-Each defers a framing detail the downstream PRD owns; none blocks this brief.
-
-- Does `/scope` keep the state file it writes today alongside what a koto
-  session tracks, or does one absorb the other? Both hold the run's position,
-  and keeping both means keeping them in agreement.
-- What does a run anchor its resumability to, given that `/scope` has no pull
-  request open while its chain is in flight and a koto session's own record
-  lives on one machine?
-- Does the existing resume behaviour get carried across as-is, or replaced by
-  what koto already does? The answer reaches the shared parent-skill contract,
-  and through it the other parent.
-- What does a test that can catch this failure actually assert? It has to grade
-  what a run produced rather than what it said, and nothing in the current suite
-  does that.
 
 ## References
 
