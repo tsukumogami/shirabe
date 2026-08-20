@@ -137,12 +137,20 @@ one criterion the exit binding exists for harder to assert against.
 
 ### Session lifecycle
 
-**Chosen: probe with `koto status scope-<topic>` and branch on its exit code**,
-reattaching on 0 and opening a session on 2.
+**Chosen: probe for the session, then reattach only when its recorded origin
+worktree matches this invocation's.** The probe distinguishes no-session from
+live-session, and the origin check distinguishes this worktree's run from
+another's. On a mismatch the run reports the collision and stops.
+
+**Rejected: branching on the probe's exit code alone.** This was chosen first and
+is wrong in exactly the case it was meant to handle. A cross-worktree collision is
+the case where the probe succeeds, so an exit-code-only branch reattaches to
+another worktree's live run and ticks its position forward against a different
+artifact tree — replacing a loud refusal with a silent adoption.
 
 **Rejected: `koto init` first, treating the collision error as the signal.** It
-reaches a destructive remediation path in koto's own error text and distinguishes
-a live session from a stale one only after the fact.
+reaches a destructive remediation path in koto's own error text, and the error is
+raised only after the fact.
 
 **Rejected: discriminating the session name by worktree.** It removes the
 collision at the cost of the name's derivability from the topic, which the probe
@@ -204,7 +212,64 @@ away does not, and the difference is a gate outcome the engine wrote.
 
 ### The state graph
 
-Twenty-one states. Five structural rules hold across all of them, and each exists
+Twenty-one states, carried here rather than referenced, because the working
+notes that produced them are non-durable and this table is the specification
+the implementation builds from.
+
+`outcome` is the per-hop evidence enum; `verdict` is the fold's. Guards combine a
+gate's exit code with an evidence field, never a gate alone.
+
+| State | Terminal | Accepts | Gates | Routes on | Phase |
+|---|---|---|---|---|---|
+| `setup` | no | `setup_result: [ready, blocked]` | — | ready → `discovery`; blocked → `bail` | 0 |
+| `discovery` | no | `discovery_result: [proposed, blocked]` | — | proposed → `chain_proposal`; blocked → `bail` | 1 |
+| `chain_proposal` | no | `author_decision: [proceed, adjust, bail]` | — | proceed → `hop_brief`; adjust → `discovery`; bail → `bail` | 1 |
+| `hop_brief` | no | `outcome: [landed, skipped, bail]` | `brief_complete` | landed → `hop_prd`; skipped → `hop_prd`; bail → `bail` | 2 |
+| `hop_prd` | no | `outcome: [landed, skipped, rejected, bail]` | `prd_complete` | landed → `fold`; skipped → `hop_design`; rejected → `exit_re_evaluation`; bail → `bail` | 2 |
+| `hop_design` | no | `outcome: [landed, skipped, rejected, bail]` | `design_complete` | landed → `fold`; skipped → `hop_plan`; rejected → `exit_re_evaluation`; bail → `bail` | 2 |
+| `hop_plan` | no | `outcome: [landed, skipped, bail]` | `plan_complete` | landed → `fold`; skipped → `finalize`; bail → `bail` | 2 |
+| `fold` | no | `verdict: [keep, absorb]` | `plan_present`, `design_present` | routes back to the next unrun hop, or forward to `finalize` when none remains | 2 |
+| `finalize` | no | `exit: [full-run, re-evaluation, abandonment-forced]` | — | one route per exit value | 3 |
+| `exit_full_run` | no | `exit_artifacts`, `plan_execution_mode` (both required) | `chain_complete` | pass → `cleanup_full_run`; fail → `full_run_blocked` | 3 |
+| `full_run_blocked` | no | `next_move: [recheck, abandon]` | `chain_complete` (re-declared) | recheck+pass → `cleanup_full_run`; recheck+fail → self; abandon → `exit_abandonment` | 3 |
+| `exit_re_evaluation` | no | `boundary`, `decision_record_sub_shape`, `exit_artifacts` (required) | `decision_record_present` | pass → `cleanup_re_evaluation`; fail+retry → self; fail+abandon → `exit_abandonment` | 3 |
+| `exit_abandonment` | no | `triggering_child`, `exit_artifacts` (required) | `forced_artifact_present` | pass → `cleanup_abandonment`; fail+retry → self; fail+cancel → `done_cancelled` | 3 |
+| `bail` | no | `bail_ack: [cancel, force_materialize]` | `child_intermediate_present` | force_materialize → `exit_abandonment`; cancel → `done_cancelled` | 3 |
+| `cleanup_full_run` | no | `cleanup_result: [done]` | — | → `done_full_run` | 4 |
+| `cleanup_re_evaluation` | no | `cleanup_result: [done]` | — | → `done_re_evaluation` | 4 |
+| `cleanup_abandonment` | no | `cleanup_result: [done]` | — | → `done_abandonment` | 4 |
+| `done_full_run` | **yes** | — | — | — | 4 |
+| `done_re_evaluation` | **yes** | — | — | — | 4 |
+| `done_abandonment` | **yes** | — | — | — | 4 |
+| `done_cancelled` | **yes** | — | — | — | 4 |
+
+Four properties of this table are load-bearing and were each corrected after a
+run of an earlier version exposed the alternative.
+
+**`rejected` appears only on `hop_prd` and `hop_design`.** Those are the two
+children with a Phase-N reject, and a reject is not a bail: it sets a
+re-evaluation exit with a `boundary` of `prd` or `design`. Offering the value on
+`hop_brief` or `hop_plan` would route to an exit state whose required `boundary`
+enum has no legal value for it.
+
+**Every gate that decides a design hop reads both DESIGN locations.** An earlier
+version had `fold`'s `design_present` test only `docs/designs/current/`, which is
+reached by a lifecycle transition long after a `/scope` run ends, so the gate was
+false on every run and `hop_design ↔ fold` livelocked with `hop_plan` unreachable.
+The canonical DESIGN path is the pair, stated once and read identically by
+`design_complete`, `design_present` and the completion predicate.
+
+**Every gate-failing state has an escape.** `exit_re_evaluation` and
+`exit_abandonment` retry on their own evidence and also offer a route out, so an
+agent that cannot produce the required artifact is not stuck permanently.
+
+**`bail` can reach abandonment.** Its evidence is a two-value choice rather than
+an acknowledgement, so the resume ladder's Force-materialize option has a route
+regardless of what the child-intermediate gate finds. An earlier version made
+that option's destination depend on unrelated files, so the same author choice
+silently cancelled or force-materialized.
+
+Five structural rules hold across all twenty-one states, and each exists
 because something breaks without it.
 
 **Every non-terminal state carries at least one guarded transition keyed on an
@@ -229,6 +294,35 @@ submission before any write.
 
 **Cleanup is a pre-terminal state.** A terminal's directive never crosses the
 wire, so the cleanup phase has to be instructed somewhere the agent still ticks.
+
+### The completion predicate
+
+One script decides a hop under both limbs, and the per-hop and chain-wide gates
+share it so two gates cannot disagree about the same file.
+
+**Limb (a) — the artifact is present.** Not `test -f`. The path must be a regular
+file, not a symlink, non-empty, opening with a frontmatter delimiter and carrying
+a `schema:` key. `test -f` alone accepts `touch` and follows a symlink to any file
+on the machine, and under the per-hop commit either would then be committed as a
+completed hop.
+
+**Limb (b) — the hop is declared absorbed.** The predicate parses the survivor's
+`absorbed:` key specifically and matches whole entries. It does **not** grep the
+frontmatter block for the artifact's basename. An earlier version did, and the
+consequence was decisive: the `upstream:` line that a hundred documents in this
+repository already carry as ordinary convention satisfied the check, so the
+reported incident plus three lines of routine YAML made all four hops pass and
+reached the full-run terminal carrying an engine-authored gate outcome vouching
+for a chain it never walked. That version made the incident easier to get away
+with than it is today.
+
+Having found a declaration, the predicate runs `shirabe validate` on the survivor
+and credits the fold only if it comes back clean, so this gate and FC18 cannot
+drift apart.
+
+**Cascading folds need no recursion**, because a survivor carries and declares
+every absorbed ancestor, so a flat scan over downstream survivors finds a
+twice-folded hop.
 
 ### Data flow at a hop
 
@@ -270,6 +364,37 @@ reader-economy clause. `phase-1-discovery.md` names that file by path, so it is
 inside the pre-hop set by transitive closure, and deleting only the `SKILL.md`
 copy would satisfy a fixed-string grep while leaving the requirement violated.
 Its desirability clause moves to the fold state's details with the rest.
+
+### State, resume and the record
+
+Three behaviours the requirements name that the graph alone does not show.
+
+**A finished run stays distinguishable from one that never started.** The state
+file's `exit:` field is written at the exit state and survives the session, so a
+run whose session is gone still reports how it ended. This is the one resume-ladder
+row the substrate genuinely breaks — the row keying on the exit field being set —
+and keeping `exit:` in the state file is what repairs it.
+
+**`phase_pointer:` is written after the tick, not before.** It names the `/scope`
+phase the run is in, derived from the session's position through the template's
+declared `phase:` map when a session exists, and written from `/scope`'s own phase
+when none does. Ordering it after the tick that advances the session is what keeps
+the durable resume decision from depending on a value that could be half-updated:
+on reattach the session's position overwrites the recorded pointer before the
+ladder evaluates it.
+
+**A skipped hop is recorded and satisfies nothing.** `chain_skipped:` keeps its
+present meaning and its re-entry protection, and the completion predicate has no
+skip limb — so a skipped hop cannot be laundered into a completed one at the exit.
+
+**Four resume rows interact with the session** and the rest do not. The row that
+offers Discard on a malformed state file removes the ownership record, so the
+probe must treat an orphaned session as a collision rather than as its own. The
+row that resumes at the recorded pointer is covered by the ordering rule above.
+The row offering Force-materialize needs a route to abandonment regardless of what
+the child-intermediate gate finds, which is why the bail state's evidence is a
+choice rather than an acknowledgement. And the row keying on the exit field is
+covered by the first paragraph here.
 
 ### Conformance changes
 
@@ -328,40 +453,115 @@ model-graded scenarios.
 
 ## Security Considerations
 
-**The closed write-target set does not widen.** The template writes no durable
-artifact; the children write theirs at the paths `/scope`'s security section
-already enumerates, and the commit in R17 commits files already inside the set.
-The predicate reads only, and the session store is outside the repository.
+**The closed write-target set widens, and the widening is declared.** An earlier
+version of this section claimed it did not, which was false three ways. Three
+groups are added to `skills/scope/SKILL.md`'s enumeration. First,
+`docs/designs/current/DESIGN-<topic>.md` joins the Mutations group and the
+`abandonment-forced` group, because Phase 2 already treats it as a canonical
+design path and both the completion predicate and the per-hop commit reach it;
+the same edit adds `docs/plans/` to the `abandonment-forced` group, closing a
+pre-existing inconsistency with the Mutations group. That inconsistency is inert
+today and stops being inert here: the per-hop commit turns the enumeration into
+one that governs commits, at which point every omitted path is a live write at an
+undeclared target. Second, a Commits group names the four canonical artifact
+paths plus the design fallback and confines the resulting `.git/` writes to `git
+add` and `git commit` restricted to those pathspecs. Third, an out-of-repo
+ephemeral group names the koto session store and koto's template compile cache.
+Neither is version-controlled and neither is referenced from a committed
+artifact; naming them is what keeps the set enumerable rather than repo-scoped.
 
-**No untrusted input reaches a command.** The gate command's only interpolated
-value is the topic slug, which Phase 0 validates against `^[a-z0-9-]+$` before
-any state exists and re-validates on resume. The slug also composes the session
-name, so the same validation bounds what reaches `koto init`.
+**The per-hop commit carries four preconditions.** HEAD must be a named branch;
+that branch must not be the repository's default branch; the recovered name is
+validated before it reaches any emitted shell. `/execute`'s own template records
+why the second one cannot be skipped — `main` is a well-formed branch name that no
+pattern check rejects, so the precondition has to be positional. Staging is `git
+add --` on the one canonical path, never `-A` and never `commit -a`, so a hop
+commit cannot sweep the run's own `wip/` intermediates into the tree. The message
+is composed only from the hop enum and the validated slug; any future rationale
+text goes through `git commit -F -` rather than `-m`, per the pattern's
+interpolation surface, which this is the first parent action to touch.
 
-**A machine-global namespace is a new surface, and it is the sharpest risk here.**
-Session names are topic-keyed and resolve from any working directory on the
-machine, so two worktrees scoping the same topic collide. koto's own collision
-error recommends `koto session cleanup` and `koto cancel --cleanup`, either of
-which destroys the other worktree's live run. The design forbids `/scope` from
-running either against a session it did not open, records the session it did open
-in the state file so ownership is a fact rather than an assumption, and reports
-the collision rather than remediating it. The residual risk is that the
-prohibition is prose an agent could compose around at runtime after reading
-koto's suggestion; the mitigation is a grep over the shipped skill, which bounds
-the code this repository ships and not what an agent invents.
+**The topic slug is the only value interpolated into a gate command, and koto
+does not check it.** Phase 0 validates it and the resume ladder re-validates any
+slug recovered from a path on disk before interpolation, which bounds the session
+name too. koto's own variable validation is not a second line here: its pattern
+rejects shell metacharacters but permits dots and slashes, so a traversal-shaped
+topic renders into a gate command intact. Path traversal is closed by shirabe's
+regex alone, and the predicate re-asserts the slug pattern before composing any
+path. `--upstream` never reaches a gate.
 
-**The evidence the exit gate trusts is partly run-authored.** Limb (b) reads an
-`absorbed:` declaration the run wrote. The mitigation is that FC18 requires the
-declaration and its contribution section as a pair and `/scope`'s validator
-pass-through halts the chain on violations, so forging a fold costs most of the
-work of performing one, and both halves land in a diff a reviewer reads. The
-honest bound: this raises the cost of a false claim, it does not make one
-impossible.
+**Two values now live in the session, and both are re-validated coming back.**
+The recorded session name is never interpolated: the name is recomputed from the
+validated slug at every use and the stored value is compared to it for equality,
+which is all the ownership test needs. Every other value recovered from the
+session is re-validated at the resume entry under the rule the pattern states for
+state-file fields — enums against their enum, path-valued fields against the
+anchored pattern for their type. This extends the existing rule rather than
+restating it, because koto does not constrain a string-typed evidence field at
+all, and several exit-path required fields are path-valued strings.
 
-**Bypasses remain, by design.** A directed transition and a recorded override
-both reach a terminal past a failing gate. Each leaves a typed entry in the
-per-hop record, which is the property claimed. Nothing here should be read as
-preventing a determined skip.
+**The session namespace is the sharpest risk, and reattach is where it bites.**
+Session names resolve from any working directory sharing a session store, so the
+same name is one session across every worktree using that store. A probe that
+reattaches on a successful status alone is therefore wrong in exactly the case it
+was meant to handle: in a cross-worktree collision the status succeeds, so the
+probe would silently adopt another worktree's live run and tick its position
+forward against a different artifact tree — a failure the collision error at
+least refuses out loud. So the probe reattaches only when the session's own record
+of its origin worktree matches this invocation's, and reports the collision
+otherwise. The session store location is an environment input rather than a
+constant, so the ownership record carries the store path alongside the name; two
+invocations against one topic under different stores would otherwise each find
+nothing and open a second session.
+
+`/scope` never runs a cleanup or cancel verb against a session it did not open —
+which is what koto's collision text recommends and what would destroy the other
+run. The residual is stated plainly: the prohibition is prose an agent can
+compose around, and the grep over the shipped skill bounds this repository's code
+rather than what an agent invents. One live prompt for that behaviour is worth
+naming because it fires on every tick rather than only on a collision — koto emits
+discovery warnings about unrelated corrupted sessions regardless of which store
+is configured, and "state file corrupted" reads as an invitation to clean up. The
+template's own directive says to ignore them.
+
+**The evidence the exit gate trusts is run-authored, and forging it is cheap.**
+Limb (b) reads an `absorbed:` declaration the run wrote. FC18 enforces the
+declaration and its contribution headings as a pair, but it checks structure
+only: the path pattern, chain position, heading adjacency, and one well-formed
+status line per entry. It never inspects a section's body. A document declaring
+three absorptions whose contribution sections each contain a single character
+validates clean. An earlier version of this section claimed forging a fold costs
+most of the work of performing one; that is false, and the honest bound is about
+ten lines of boilerplate. What the pairing buys is that the forgery is structural
+and on the filesystem, so it lands in a diff a reviewer reads, where an empty
+executed-hops list in a state file does not. That is the whole of the claim: the
+evidence moves from a place nobody looks to a place someone might.
+
+**Bypasses remain, and the mark they leave has to be retained deliberately.** A
+directed transition reaches a terminal past a failing gate without evaluating it,
+and a recorded override injects a synthetic pass whose log entry does not even
+preserve what the gate would have said. Each leaves a distinguishable typed entry.
+But reaching a terminal deletes the session by default — the run then returns not
+found, and disappears from the workflow listing — so every terminal transition
+passes `--no-cleanup`. An earlier decision here ruled the opposite, on the ground
+that retaining the session forfeits the terminal index entry; that was measured
+and is false, and without the flag the per-hop record is destroyed at the exact
+moment a run finishes and an author would go looking. The record is machine-local
+and outside the repository. It is read, never copied into a committed artifact or
+a pull-request body — both because copying makes the run the author of its own
+audit trail, and because the record carries absolute filesystem paths that can
+name private repositories.
+
+**The deterministic test drives a real session, in an isolated store.** It points
+the session store at a temporary directory, names its session outside the
+production prefix, and calls no cleanup verb against a name it did not create
+there. Given the shared namespace, a test skipping any of the three could destroy
+a live run on a developer machine or in CI.
+
+**The prohibition on reading the state file covers the scripts gates invoke, not
+only the gate command strings.** The template lint sees the strings; a later
+`wip/scope_` read added inside the predicate would be invisible to it, so the
+lint reads both.
 
 **No secrets, tokens or credentials are named, and no external URL is fetched or
 executed.**
