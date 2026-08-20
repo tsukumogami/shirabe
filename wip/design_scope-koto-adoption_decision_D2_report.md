@@ -144,3 +144,76 @@ something real, bounded by FC18's silence when no declaration exists. One
 correction to D1's graph falls out: an in-chain Phase-N reject is not a bail and
 needs a `rejected` outcome routing to the re-evaluation exit rather than through
 `bail` to abandonment.
+
+---
+
+## Correction after review: the predicate was defeated, and how
+
+The architecture reviewer defeated the predicate as first written, and the defeat
+was reproduced here before anything was changed.
+
+**The defect.** Limb (b) ran a fixed-string grep over the survivor's entire
+frontmatter block looking for the upstream artifact's basename. Any frontmatter
+key naming that path satisfied it — including `upstream:`, which is ordinary
+convention and which roughly a hundred documents in this repository already
+carry.
+
+**The defeat.** The reported incident — a PLAN alone on disk, the three upstream
+hops asserted away in a Status sentence — plus three lines of routine YAML:
+
+```yaml
+upstream: docs/designs/DESIGN-demo.md
+supersedes: docs/prds/PRD-demo.md
+related: docs/briefs/BRIEF-demo.md
+```
+
+Reproduced verbatim:
+
+```
+brief  exit=0  complete: absorbed into docs/plans/PLAN-demo.md
+prd    exit=0  complete: absorbed into docs/plans/PLAN-demo.md
+design exit=0  complete: absorbed into docs/plans/PLAN-demo.md
+plan   exit=0  complete: artifact present at docs/plans/PLAN-demo.md
+```
+
+All four hops pass, the chain-wide gate succeeds, and the run reaches the
+full-run terminal holding an engine-authored gate outcome vouching for a chain it
+never walked. FC18 offers nothing here, because it is silent unless `absorbed:`
+is present and this shape never writes one. **That version made the incident
+easier to get away with than it is today.**
+
+The five fixtures originally run against this predicate all passed and could not
+have caught it: none of them put an unrelated path in a survivor's frontmatter,
+which is the single most common thing a real document does.
+
+**The fix.** Limb (b) parses the `absorbed:` key specifically — scalar, block
+sequence, or inline list — and matches whole entries. Limb (a) requires a regular,
+non-symlink, non-empty file opening with a frontmatter delimiter and carrying a
+`schema:` key, because `test -f` accepts both `touch` and a symlink to any file on
+the machine. Having found a declaration, the predicate runs `shirabe validate` on
+the survivor and credits the fold only on a clean result.
+
+**Second attack round, after the fix.** Nine attacks, all correctly refused, and
+the legitimate case still passes:
+
+```
+B1 symlink at canonical path               exit=1  OK
+B2 zero-byte artifact                      exit=1  OK
+B3 no frontmatter                          exit=1  OK
+B4 absorbed in a YAML comment              exit=1  OK
+B5 absorbed: block in the body             exit=1  OK
+B6 substring path under absorbed:          exit=1  OK
+B7 absorbed_by lookalike key               exit=1  OK
+B8 frontmatter name-drop (the defeat)      exit=1  OK  (brief, prd, design)
+B9 legitimate artifact                     exit=0  OK
+```
+
+**What is still true, and must not be overstated.** The security reviewer forged
+a fold that validates clean: three declared absorptions whose contribution
+sections each contain a single character. FC18 checks structure — path pattern,
+chain position, heading adjacency, one status line per entry — and never inspects
+a section's body. So the `shirabe validate` call raises the forgery cost from
+three lines to about ten. It does not raise it to "most of the work of performing
+one", and that claim, made in the first version of this report, is withdrawn.
+What the pairing buys is that a forgery is structural and lands in a diff a
+reviewer reads, where an empty executed-hops list in a state file does not.
