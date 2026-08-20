@@ -457,9 +457,16 @@ koto directly and found not to bind under the prefixed session name R13 requires
   author of its own audit trail — the property this work exists to remove.
   Neither the copy nor the original is tamper-proof; what differs is who wrote
   it.
-- Preserving the richer event log past the end of a run and keeping the engine's
-  terminal index entry are mutually exclusive. R23 is written against the surface
-  that survives without the trade.
+- The per-hop record does not survive a run by default: reaching a terminal state
+  disposes of the session, after which the run reports as not found and is absent
+  from the workflow listing. Retention is a flag on the terminal transition, and
+  R23 requires it. **Corrected after acceptance.** This bullet previously said
+  that retaining the record and keeping the engine's terminal index entry were
+  mutually exclusive, and that R23 was written against a surface surviving without
+  the trade. Two independent measurements against koto 0.11.6 during design found
+  no such trade: retention keeps both the record and the listing. The earlier text
+  would have led a design to decline retention and lose the record at the moment a
+  run finishes, which is when an author looks.
 - The per-hop record carries gate outcomes but not evidence values, which is why
   R8 requires completion to be decided from the filesystem. A later requirement
   needing decision *values* durably would have to revisit this.
