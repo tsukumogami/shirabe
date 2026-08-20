@@ -21,8 +21,8 @@ decision: |
 rationale: |
   The reduction argument cannot be withdrawn from a transcript once delivered, so
   the only available property is that its general form is never delivered. A
-  state machine is what makes delivery conditional on arrival. The exit gate is
-  what makes the two runs distinguishable, and grounding it in `absorbed:`
+  state machine is what makes delivery conditional on arrival. Distinguishing the
+  two runs falls to the exit gate, and grounding it in `absorbed:`
   frontmatter plus the contribution section FC18 enforces keeps the evidence on
   the filesystem where a reviewer sees it, rather than in a state file the run
   writes and nobody reads.
