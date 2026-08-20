@@ -97,3 +97,24 @@
 - Terminal states are ruled out as a binding surface. They can require nothing,
   refuse nothing, and say nothing. Any binding `/scope` wants belongs on the
   pre-terminal `finalize` state, in an agent-proposes / koto-vetoes shape.
+- **The author ruled that hop states carry an ungated skip route, and the
+  binding goes on the exit instead.** `chain_skipped:` semantics and the
+  re-entry protection built on them survive, and abandonment-forced keeps its
+  home. A run that skipped every hop can still reach `finalize`; what it cannot
+  do is claim `full-run` there, because koto vetoes the exit path against what
+  is on disk. This blocks the incident without changing what `/scope` is.
+- **The author ruled the machine-local `/workflows` render is the audit
+  surface**, declining both `--no-cleanup`-plus-PR-body copying and an upstream
+  koto export command. The reasoning that decided it: copying reintroduces the
+  agent as the copier, so the copy is forgeable even though the original was
+  not, and a forgeable durable artifact is worse than an unforgeable local one.
+  The render is native, on by default, needs no new machinery, and already
+  displays the failure signature. Accepted cost: the trace does not leave the
+  machine, so a PR reviewer does not see it and an ephemeral instance may lose
+  it.
+
+## Terminal
+
+- The exploration crystallizes after two rounds and eleven leads, all returned.
+  What remains open are scoping calls better answered with an artifact in front
+  of the author than by a third research fan-out.

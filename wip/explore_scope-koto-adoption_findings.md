@@ -649,3 +649,7 @@ passages of purpose and bound, with no machinery inventory, no reader-economy
 argument, and no obituaries. That is close to the inverse of what `SKILL.md`
 front-loads today, and the file should end meaningfully shorter rather than
 longer.
+
+## Decision: Crystallize
+
+The author elected to crystallize after round 2.
