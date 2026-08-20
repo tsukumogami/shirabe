@@ -25,7 +25,15 @@ Accepted
 
 Framing only. The requirements this brief feeds are the downstream PRD's, and
 the architecture is the DESIGN's. Written under `/scope`'s chain; the parent
-owns the approval gate.
+owns the approval gate. Two-reviewer jury all-PASS, and the four Open Questions
+were carried into the downstream PRD's Decisions and Trade-offs before the
+section was cleared for this transition.
+
+Edited in place after acceptance: journey two originally promised the resuming
+author a view of which steps had passed their checks. PRD research established
+that the per-step render is keyed to a session id and so does not survive into a
+later conversation, which would have made the promise false. The journey now
+states what actually holds.
 
 ## Problem Statement
 
@@ -100,9 +108,8 @@ because at that point nothing had told it the conclusion existed.
 
 An author starts a `/scope` run, gets pulled away, and comes back on Thursday.
 They re-invoke against the same topic. The run resumes at the step it was on,
-and the author is told which step that is and what it's waiting for. They can
-also see which steps have already passed their checks, so picking the thread
-back up doesn't start with reconstructing what Monday's session got done.
+tells them which steps are already done and which one it's waiting on, and
+picks up there. Nothing about the interruption costs them the run.
 
 ### Someone checks what a finished run did
 
