@@ -11,6 +11,8 @@ chain_ran:
     started_at: 2026-08-20T22:14:07Z
   - child: prd
     started_at: 2026-08-20T22:26:00Z
+  - child: design
+    started_at: 2026-08-20T23:06:00Z
 chain_skipped: []
 consolidation_judgments:
   - hop: brief->prd
@@ -27,6 +29,17 @@ consolidation_judgments:
       work the PRD deliberately does not carry. Compressing the BRIEF into a
       contribution section would lose it. Decided against the two bodies; no
       type contract was read.
+  - hop: prd->design
+    upstream: docs/prds/PRD-scope-koto-adoption.md
+    survivor: docs/designs/DESIGN-scope-koto-adoption.md
+    preflight: refused
+    verdict: keep
+    finding: >-
+      Stage 1's citation preflight exited 1 -- a path citation to the PRD
+      remains, at PRD-scope-koto-adoption.md:352 where AC35 names artifact
+      paths for the chain-wide validation criterion. The preflight's ceiling
+      is keep, so the judgment stops there and Stage 2 does not run. Both
+      artifacts stay.
 visibility: Public
 consumed_handoff: wip/scope_scope-koto-adoption_handoff.md
 child_snapshots:
@@ -41,6 +54,13 @@ child_snapshots:
     content_hash: 0e1000010a098fc06f1beffc0474136cc46c5835
     jury: all-pass
     jury_rounds: 3
+  design:
+    path: docs/designs/DESIGN-scope-koto-adoption.md
+    status: Accepted
+    content_hash: 47851d54fbb4016133989c9343ca646070893d5b
+    jury: all-pass
+    jury_rounds: 3
+    decision_provenance: inline-resolved
 worktree_rebases:
   - child: brief
     behind: 0
@@ -51,10 +71,6 @@ worktree_rebases:
   - child: design
     behind: 0
     impact: None
-parent_orchestration:
-  invoking_child: design
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
 shape_predicates:
   p1_architectural_alternatives: fires
   p2_new_components: does-not-fire

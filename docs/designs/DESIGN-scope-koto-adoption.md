@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 complexity: Complex
 upstream: docs/prds/PRD-scope-koto-adoption.md
 decision_provenance: inline-resolved
@@ -32,7 +32,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 Authored under `/scope`'s chain; the parent owns the approval gate. Six decisions
 were evaluated. Two ran as delegated evaluations with empirical verification
@@ -353,10 +353,19 @@ reason, which sends an author to the wrong file.
 limbs answer to `shirabe validate`, so a missing binary would silently reduce
 this check to bare existence — which four `cp` commands defeat, copying one
 artifact onto every canonical path and walking the whole chain past the gate with
-a passing outcome recorded at each hop. It exits with a diagnostic naming the
+a passing outcome recorded at each hop. It exits 2 with a diagnostic naming the
 missing binary instead, and the environment running the gate carries the
 validator explicitly, the same arrangement the deterministic test requires for
 koto.
+
+Exit 2 is deliberate rather than incidental, because the hop guards enumerate 0
+and 1. No transition matches it, so the run holds position: the gate is reported
+in the state's blocking conditions as agent-actionable, carrying the exit code,
+and the directive is re-delivered. That is the right semantics for a missing
+dependency and it is better than exit 1, which advances the hop with a recorded
+failure and so conflates "this hop is not done" with "I cannot tell whether it is
+done." The author is not trapped — the `skipped` and `bail` routes do not
+reference the gate and still resolve.
 
 **One bound, wider than the requirement it serves.** Crediting only on a clean
 whole-document result is stricter than the FC18 pairing: an unrelated lint error
