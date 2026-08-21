@@ -365,6 +365,88 @@ test_scope_invoked_script_read_fails() {
     teardown
 }
 
+# A whole-line comment in an invoked script is not a read. The first real
+# script this check ever followed was flagged for the line documenting that it
+# never reads the state file, so the rule fired on a script's own statement that
+# it complies. The pair below is the point: the comment must pass and a real
+# read in the same file must still fail, or the fix traded one silent wrong
+# answer for another.
+write_clean_scope_fixture() {
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+description: Fixture whose only gate invokes a script.
+initial_state: design_hop
+
+variables:
+  TOPIC_SLUG:
+    description: The topic slug
+    required: true
+
+states:
+  design_hop:
+    gates:
+      design_complete:
+        type: command
+        command: "skills/scope/scripts/fixture-hop-complete.sh design {{TOPIC_SLUG}}"
+    accepts:
+      outcome:
+        type: enum
+        values: [landed, folded]
+        required: true
+    transitions:
+      - target: done
+        when:
+          outcome: landed
+          gates.design_complete.exit_code: 0
+
+  done:
+    terminal: true
+---
+
+# Scope fixture
+EOF
+    mkdir -p "$TEST_DIR/skills/scope/scripts"
+}
+
+test_scope_invoked_script_comment_passes() {
+    local name="a wip/scope_ mention in an invoked script's comment is not a read"
+    setup
+    write_clean_scope_fixture
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
+#!/usr/bin/env bash
+# Reads only the artifact tree. Never reads wip/scope_<topic>_state.md.
+set -euo pipefail
+hop="$1"
+slug="$2"
+test -f "docs/${hop}s/${slug}.md"
+EOF
+    chmod +x "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh"
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The other half. A trailing comment is NOT stripped, because finding where code
+# ends needs a shell parser, so a real read keeps its finding even with a `#`
+# later on the line.
+test_scope_invoked_script_trailing_comment_still_read() {
+    local name="a read with a trailing comment is still a read"
+    setup
+    write_clean_scope_fixture
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+hop="$1"
+slug="$2"
+grep -q "^${hop}: landed" "wip/scope_${slug}_state.md"  # deliberate
+EOF
+    chmod +x "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh"
+    assert_fails "$name" "invoked script reads the run's own state file" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
 # A gate command written as a block scalar puts the command on the following
 # lines. Skipping those the way a directive is skipped would hide the read.
 test_scope_block_scalar_command_is_read() {
@@ -730,6 +812,8 @@ test_no_frontmatter_is_skipped
 test_scope_gate_reading_state_file_fails
 test_scope_gate_reading_evidence_fails
 test_scope_invoked_script_read_fails
+test_scope_invoked_script_comment_passes
+test_scope_invoked_script_trailing_comment_still_read
 test_scope_block_scalar_command_is_read
 test_template_variable_is_not_evidence
 test_malformed_interpolation_terminates

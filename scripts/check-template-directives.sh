@@ -473,6 +473,26 @@ scan_invoked_script() {
     INVOKED_TOKENS=""
     while IFS= read -r line || [ -n "$line" ]; do
         lineno=$((lineno + 1))
+
+        # A whole-line comment is not a read. This is not a convenience: the
+        # first script this check ever followed was flagged for the line
+        # documenting that it never reads the state file, so the rule fired on
+        # a script's statement that it complies. Any script that documents this
+        # property would trip the same way, and rewording each one teaches the
+        # wrong lesson.
+        #
+        # Whole-line comments only. A trailing comment after code is left in,
+        # because deciding where code ends needs a shell parser -- a `#` inside
+        # a quoted string is not a comment -- and cutting at the first `#`
+        # would blind the scan to real reads on the same line.
+        case "$line" in
+            [[:space:]]*\#*|\#*)
+                case "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')" in
+                    \#*) continue ;;
+                esac
+                ;;
+        esac
+
         stripped=$(strip_interpolation "$line")
 
         if reads_state_file "$stripped"; then
