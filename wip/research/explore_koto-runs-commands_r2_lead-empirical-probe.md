@@ -54,6 +54,29 @@ more than 64KB. The same exposure applies to any future gate wrapping a build,
 a linter, or a verbose CI query. This bug is live in production templates and is
 independent of whether anyone ever adopts `default_action`.
 
+**Severity refinement** (from the `r2-map-work-on` lead, recorded here next to
+the mechanism): `run_shell_command` captures only the top-level `sh -c`
+process's pipes, so a command wrapped in `$(...)` has its output consumed by the
+shell internally and never reaches the buffer. That shields most existing gates.
+Of the eight in `/work-on`, only `tests_passing` is a clear exposure — and it is
+the worst case, because Go dumps full per-subtest output on failure, so the gate
+breaks on exactly the run where the real output matters. `staleness_fresh` is
+unverified (`check-staleness.sh` is not in shirabe's tree). `ci_passing`
+collapses through `--jq` and `grep -q` before the top-level capture. The three
+branch checks and `has_commits` are negligible — `has_commits` looks risky
+(`git log | wc -l`) but sits entirely inside a `$(...)` substitution.
+
+### P12a. Nested `koto next` corrupts the outer invocation's view (found by the r2-map-work-on lead)
+
+Separate from the pipe problem and not fixed by redirecting output. A nested
+`koto next --with-data` run inside an action performs a real transition and
+genuinely advances its session to terminal. The outer `koto next` that spawned
+it then returns `{"state":"s","advanced":false,"action":"evidence_required"}` —
+reporting the workflow still waiting in its original state while the session has
+already ended. A follow-up `koto status` reports the session as not found. So
+nested `koto next` remains unsafe on its own merits even with clean output;
+nested `koto context` reads and writes do not share this defect.
+
 ### P13. Nested koto calls hang for this reason, not because of a lock
 
 The first version of this probe concluded that koto could not call itself from
