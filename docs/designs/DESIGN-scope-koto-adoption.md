@@ -232,9 +232,9 @@ gate's exit code with an evidence field, never a gate alone.
 | `finalize` | no | `exit: [full-run, re-evaluation, abandonment-forced]` | — | one route per exit value | 3 |
 | `exit_full_run` | no | `exit_artifacts`, `plan_execution_mode` (both required) | `chain_complete` | pass → `cleanup_full_run`; fail → `full_run_blocked` | 3 |
 | `full_run_blocked` | no | `next_move: [recheck, abandon]` | `chain_complete` (re-declared) | recheck+pass → `cleanup_full_run`; recheck+fail → self; abandon → `exit_abandonment` | 3 |
-| `exit_re_evaluation` | no | `boundary`, `decision_record_sub_shape`, `exit_artifacts` (required) | `decision_record_present` | pass → `cleanup_re_evaluation`; fail+retry → self; fail+abandon → `exit_abandonment` | 3 |
-| `exit_abandonment` | no | `triggering_child`, `exit_artifacts` (required) | `forced_artifact_present` | pass → `cleanup_abandonment`; fail+retry → self; fail+cancel → `done_cancelled` | 3 |
-| `bail` | no | `bail_ack: [cancel, force_materialize]` | `child_intermediate_present` | force_materialize → `exit_abandonment`; cancel → `done_cancelled` | 3 |
+| `exit_re_evaluation` | no | `boundary`, `decision_record_sub_shape`, `exit_artifacts`, `retry_or_abandon` (required) | `decision_record_present` | every arm carries `retry_or_abandon`: pass+retry → `cleanup_re_evaluation`; fail+retry → self; abandon → `exit_abandonment` | 3 |
+| `exit_abandonment` | no | `triggering_child`, `exit_artifacts`, `retry_or_cancel` (required) | `forced_artifact_present` | every arm carries `retry_or_cancel`: pass+retry → `cleanup_abandonment`; fail+retry → self; cancel → `done_cancelled` | 3 |
+| `bail` | no | `bail_ack: [cancel, force_materialize]` | `child_intermediate_present` | force_materialize routes to `exit_abandonment` on both gate outcomes; cancel → `done_cancelled` | 3 |
 | `cleanup_full_run` | no | `cleanup_result: [done]` | — | → `done_full_run` | 4 |
 | `cleanup_re_evaluation` | no | `cleanup_result: [done]` | — | → `done_re_evaluation` | 4 |
 | `cleanup_abandonment` | no | `cleanup_result: [done]` | — | → `done_abandonment` | 4 |
@@ -268,6 +268,15 @@ an acknowledgement, so the resume ladder's Force-materialize option has a route
 regardless of what the child-intermediate gate finds. An earlier version made
 that option's destination depend on unrelated files, so the same author choice
 silently cancelled or force-materialized.
+
+Two compile-level rules bind the routing and were established by compiling the
+graph rather than reasoning about it. A state that declares a gate must route on
+that gate somewhere, so `force_materialize` names the gate on both outcomes
+rather than ignoring it — a state whose evidence routes past its own gate is
+rejected. And every branch out of a state must be distinguishable by a shared
+field, so the discriminating value appears on the passing arm too, not only on
+the escapes; transitions that share no field are rejected as not mutually
+exclusive.
 
 Five structural rules hold across all twenty-one states, and each exists
 because something breaks without it.
@@ -331,9 +340,31 @@ with than it is today.
 Having found a declaration, the predicate checks the FC18 pairing itself — the
 `## Status` absorption line and the contribution heading each entry implies — and
 then requires `shirabe validate` to come back clean as a second condition. The
-order is deliberate. A clean validation means no violation was found, not that an
-absorption was verified, so relying on it alone would let a declaration the
-validator cannot see pass unexamined.
+order is deliberate twice over. A clean validation means no violation was found,
+not that an absorption was verified, so relying on it alone would let a
+declaration the validator cannot see pass unexamined. And matching the
+declaration before validating is what makes the refusal accurate: validating
+first skips a survivor that declares the fold and fails to validate, and the run
+is then told no declaration exists when one does — a true refusal with a false
+reason, which sends an author to the wrong file.
+
+**The predicate refuses rather than degrades when the validator is absent.** Both
+limbs answer to `shirabe validate`, so a missing binary would silently reduce
+this check to bare existence — which four `cp` commands defeat, copying one
+artifact onto every canonical path and walking the whole chain past the gate with
+a passing outcome recorded at each hop. It exits with a diagnostic naming the
+missing binary instead, and the environment running the gate carries the
+validator explicitly, the same arrangement the deterministic test requires for
+koto.
+
+**One bound, wider than the requirement it serves.** Crediting only on a clean
+whole-document result is stricter than the FC18 pairing: an unrelated lint error
+anywhere in a survivor, or in a hop's own artifact, fails that hop's gate. Phase
+2's validator pass-through halts the chain on such violations first, so this is
+expected to be redundant rather than restrictive — but it couples hop completion
+to whole-document lint, which is wider than "that hop's durable artifact is
+present at its canonical path", and a narrower implementation may filter to the
+FC18 and FC04 codes.
 
 **Cascading folds need no recursion**, because a survivor carries and declares
 every absorbed ancestor, so a flat scan over downstream survivors finds a
