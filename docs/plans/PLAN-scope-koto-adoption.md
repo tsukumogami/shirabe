@@ -88,7 +88,7 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 - [ ] With `shirabe` absent the predicate exits 2 naming the missing binary, and does not fall back to a weaker check.
 - [ ] The refusal names each hop that satisfied neither limb; a survivor that declares a fold and fails validation is reported as such rather than as no declaration.
 - [ ] A fixture suite covers: artifact present, legitimate fold, cascading fold, the reported incident, a body-prose claim, a frontmatter name-drop, a body code-block declaration, a three-line stub, an artifact copied onto another type's path, a symlink, a zero-byte file, an `absorbed:` entry that is a substring of a longer path, an `absorbed_by:` lookalike key, an inline backticked `---` inside a block scalar, and a missing validator.
-- [ ] Three further fixtures pin behaviour the acceptance criteria above assert and the list would otherwise leave untested: a survivor that declares a fold and fails validation, which must report that rather than reporting no declaration; the design artifact at each of its two canonical locations, both crediting the hop; and a hop marked skipped, which must satisfy neither limb.
+- [ ] Three further fixtures pin behaviour the acceptance criteria above assert and the list would otherwise leave untested: a survivor that declares a fold and fails validation, which must report that rather than reporting no declaration, and which is also the only fixture covering a declaration whose contribution section is absent; the design artifact at each of its two canonical locations, both crediting the hop; and a hop marked skipped, which must satisfy neither limb.
 
 **Dependencies**: None
 
@@ -102,7 +102,7 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 **Acceptance Criteria**:
 - [ ] The check runs on every pull request over all `skills/*/koto-templates/*.md` that carry YAML frontmatter, skipping files without it.
 - [ ] Any non-terminal state carrying an evidence block with no guarded transition fails.
-- [ ] Any hop-completion check reading `wip/scope_` or an agent-submitted evidence field fails, and the rule covers scripts the gates invoke rather than only gate command strings.
+- [ ] Over `/scope`'s template, any hop-completion check reading `wip/scope_` or an agent-submitted evidence field fails, and the rule covers scripts the gates invoke rather than only gate command strings. A template variable is not an evidence field: `/work-on`'s template interpolates one into a gate command today, and an implementation that flags any interpolation makes the shipped-templates criterion unsatisfiable.
 - [ ] That rule is exercised against a synthetic fixture carrying one gate reading `wip/scope_` and one reading an evidence field, both of which must fail, so it is falsifiable before the real template exists.
 - [ ] A deliberately malformed fixture fails and the shipped templates pass.
 - [ ] The four states violating the universal rule today are fixed, or listed in an allowlist the check reads with an issue reference beside each.
@@ -120,7 +120,11 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 - [ ] `koto template compile` exits 0 and emits no warning lines.
 - [ ] Every non-terminal state carries at least one guarded transition keyed on an agent evidence field.
 - [ ] Every gate is co-routed with an evidence field, so no branch resolves without the agent.
-- [ ] Every hop gate decides completion through the predicate from Issue 2.
+- [ ] Every hop gate and the chain-wide exit gate decide completion through the predicate from Issue 2, the exit gate running it once per hop in the planned chain.
+- [ ] A failing chain-wide exit gate routes to a blocked state that re-declares that gate, so the failing check is named in that state's own blocking conditions.
+- [ ] Every gate deciding a design hop reads both canonical DESIGN locations. Testing only the current-design path makes the gate false on every run and livelocks the design hop against the fold state, leaving the terminal hop unreachable.
+- [ ] Both gate-failing exit states carry an escape route as well as a retry, so an agent that cannot produce the required artifact is not stuck permanently.
+- [ ] The bail state's evidence is a two-value choice, and its force-materialize value names the gate on both gate outcomes, so the resume ladder's force-materialize option has a route regardless of what the child-intermediate gate finds.
 - [ ] Each exit path's required fields are declared on that path's own state.
 - [ ] The `rejected` outcome appears only on the two hops that can produce it and routes to the re-evaluation exit.
 - [ ] Every state declares its `phase:`.
@@ -263,7 +267,7 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 
 **Acceptance Criteria**:
 - [ ] A deterministic test drives a real session against the shipped template on every pull request.
-- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them — read from the landing state's identity and directive, and from the re-declared gate's blocking conditions on the blocked state, never from the blocked state's own empty conditions.
+- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them. The fixture is the reported incident's realistic shape — a terminal artifact carrying ordinary `upstream:` frontmatter — since a sanitized one would not exercise the defeat that broke an earlier version of the predicate — read from the landing state's identity and directive, and from the blocked state's own blocking conditions, which are non-empty only because the design re-declares the chain-wide gate there.
 - [ ] It asserts that a full-run claim with every hop's artifact present reaches the full-run terminal.
 - [ ] It asserts that a full-run claim with the terminal artifact present and each upstream hop carrying a recorded fold reaches the full-run terminal. This is the legitimate-fold path, and without it every other assertion here is satisfied by a gate that refuses unconditionally.
 - [ ] It asserts that an exit submitted without one of its path's required fields is refused, and that a field declared on exactly one other exit path is refused.
@@ -299,9 +303,19 @@ sites out of the skill's own files, and issue 6 is what writes them, so issue 5'
 criteria are unevaluable until it lands and the checker fails if 6 arrives
 second.
 
-**One shared file.** Issues 7 and 9 both edit
+**Two shared files.** Issues 7 and 9 both edit
 `phase-2-chain-orchestration.md` — issue 7 for the commit behaviour, issue 9 for
-the desirability clause. Sequence 9 after 7 to keep two writers off one file.
+the desirability clause. Sequence 9 after 7. And issues 6, 7 and 8 all edit
+`skills/scope/SKILL.md`, which is 51KB: the session wiring and substrate
+declaration, the write-target set, and the prose rewrite. Sequence them 6, 7, 8.
+Neither ordering is a dependency in the correctness sense; both keep two writers
+off one file.
+
+**One loose edge, stated rather than left looking accidental.** Issue 12's
+model-graded scenarios drive full `/scope` runs, which exercise issue 9's file.
+They are reported rather than gating, so the edge is not declared as a blocker —
+a scenario running before issue 9 lands grades a rate against a chain that is one
+prose fix short, which is a softer failure than a blocked issue.
 
 **The tail.** Issues 9 and 10 follow the prose rewrite and are small. Issue 12 is
 last by construction, because it asserts against the shipped template and against
