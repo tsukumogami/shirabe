@@ -209,6 +209,7 @@ away does not, and the difference is a gate outcome the engine wrote.
 | Deterministic test | `skills/scope/scripts/scope-substrate_test.sh` | Drives a real session; asserts the refusal, the record contrast, and disclosure |
 | Template lint | `scripts/check-template-directives.sh` | Both static predicates over every shipped template |
 | Rewritten prose | `skills/scope/SKILL.md` | Purpose stated, terms defined, licence sentences bounded, argument removed |
+| Tool declarations | `skills/scope/requires.tsv` | The koto verbs `/scope` now invokes, and the flags each carries |
 
 ### The state graph
 
@@ -487,9 +488,16 @@ suite, and the template lint with its allowlist. The lint's allowlist carries th
 four known violations with issue references so it can land without failing on its
 own introduction.
 
-**Phase 3 — the template.** The 21 states, their directives, the `phase:` map.
-This is where the fold state's details payload lands, so the content work in
-Phase 4 has a destination.
+**Phase 3 — the template and the tool declarations.** The 21 states, their
+directives, the `phase:` map. This is where the fold state's details payload
+lands, so the content work in Phase 4 has a destination.
+
+`skills/scope/requires.tsv` gains a record per koto verb the skill now invokes —
+`init` with its template and variable flags, `next` with its evidence and
+retention flags, `status`, and the context verbs the origin-worktree record uses.
+`/scope` declares none today, and a checker enforces that declarations match call
+sites, so the template and the declarations land together or CI fails on the
+template alone. `/execute`'s file is the shape to follow.
 
 **Phase 4 — the prose.** The `SKILL.md` rewrite, the phase-2 twin's desirability
 clause, the design amendment and the three by-title citations.
