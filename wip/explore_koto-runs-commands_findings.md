@@ -204,3 +204,61 @@ The ordering follows from that: koto's three gaps are the enabling work, and
 shirabe's template rewrite is the payoff. A narrow shirabe-only adoption of the
 safe subset is possible first, but the bulk of the inventory stays with the
 agent until koto can route output, react to failure, and pin a directory.
+
+## Round 2
+
+### Key Insights
+
+**The target design is reachable today, and I verified it running.** (lead-template-patterns, r2 probe P15) A state carrying a `default_action`, a command gate that independently checks the outcome, and a transition keyed on `gates.<gate>.exit_code: 0` auto-advances silently on success — koto created the branch, the agent never saw the state or its directive. On failure the same state returns `action: "evidence_required"` with the directive written as manual-recovery prose, the gate's exit code in `blocking_conditions`, and an `expects` schema for the override. Three paths, one state, zero koto changes.
+
+One correction to the pattern as first proposed: it does not compile if one transition is keyed on a gate and another on `status`. The compiler rejects `when` blocks that share no fields ("transitions share no fields, so both could match the same evidence"), which is why `work-on.md`'s real states repeat `status` in every branch. The working form repeats the gate field instead: `{gates.X.exit_code: 0}`, `{gates.X.exit_code: 1, status: override}`, `{gates.X.exit_code: 1, status: blocked}`.
+
+**A related safety property already exists.** (lead-template-patterns) The action closure skips execution entirely when the agent submits evidence in the same call (`has_evidence` → `ActionResult::Skipped`). So koto will not re-run `git checkout -b` on top of an agent's manual fix. Override safety is automatic, not something the author engineers.
+
+**There is a live deadlock in the layer both gates and actions share.** (r2 probe P11-P13) `run_shell_command` spawns with piped stdout/stderr, calls `wait_timeout`, and only then reads the pipes. Any command writing more than the 64KB pipe buffer blocks forever and dies at the timeout with its output discarded. Measured with plain `tr`: 60KB captured, 70KB stalled 30 seconds and returned exit -1 and empty output. Stderr triggers it as readily as stdout.
+
+This is not a `default_action` problem. Gates have it too, verified: a gate command that exits 0 but emits 200KB was reported as `{"status":"timed_out","output":{"exit_code":-1}}` after a 30-second stall — a passing check turned into a false failure. `/work-on` ships `tests_passing: [ ! -f go.mod ] || go test ./...`, and `go test ./...` clears 64KB on any repository with a meaningful number of packages. The bug is in shirabe's shipped templates today.
+
+**koto cannot call koto, for the same reason.** (r2 probe P13) Every session-touching koto command emits about 106KB of `migration skipped` warnings on stderr in this workspace — one line per session, roughly 1,250 of them — so it deadlocks itself inside an action. `koto version`, which emits nothing, runs in 0.06 seconds. This corrects an earlier reading of the same evidence as a lock: redirecting the nested command's output to files makes it work. Two defects stacked, both worth fixing: the un-drained pipe, and koto's warning volume.
+
+**`context_assignments` is silently discarded, and shirabe's templates use it 28 times.** (lead-transition-hooks, verified by probe) A transition declaring `context_assignments: {failure_reason: "..."}` writes nothing — the key is absent afterward. `work-on.md` uses it 19 times, `execute.md` 9. Every blocked and escalation path that was supposed to record why it stopped records nothing, `/execute`'s `done_blocked` state tells the agent to read a key that will never exist (`execute.md:649`), and the batch view's per-child reason falls back to the state name. koto's own W5 compiler warning fires on those states anyway and its remedy text recommends the mechanism that does not work. Filed as koto issue #204 on 2026-08-20.
+
+**Output routing has a clear smallest answer.** (lead-output-routing) A `capture_stdout_as:` field on `ActionDecl`, emitting an additive `VariableCaptured` event folded into the existing `Variables::from_events` path, satisfies the motivating case — a later state's directive text interpolating the captured branch name — while touching no response field, no hand-rolled `Serialize` arm, and none of the exhaustive-match combinators that make contract changes expensive. It needs one care point: `Variables` must be rebuilt after the advance loop rather than before, or it silently misses exactly the auto-advance-in-one-call case it exists for. Populating `action_output` on every stop reason looks smaller and is not — once auto-advance chains through several states, the acting state and the stopping state diverge, forcing the field through five variants and three combinators.
+
+**Failure semantics need plumbing, not schema.** (lead-failure-semantics) The design never intended non-zero exit to halt; gates are the arbiter, which the only real example (`touch` then `test -f`) demonstrates. So no `on_failure:` field is needed. The genuine gaps are that `GateBlocked` and `EvidenceRequired` never carry the action's output, and that a state with an action and no gates has no failure detection at all — which is what the round-1 `exit 3` probe actually exposed. Two additive changes cover it: thread `action_output` through those two variants, and synthesize a fail-on-nonzero result only for the gate-less case.
+
+**Anchoring has a concrete design, and the worktree fear was unfounded.** (lead-anchoring) `koto next` recomputes `std::env::current_dir()` fresh every tick and feeds it unchecked to both closures at one choke point in `handle_next`; `template_source_dir` is the template file's directory, not the working tree. Despite its name, `worktree_discipline_check` does an in-place fetch and rebase — shirabe never relocates a running session between worktrees. So the design does not need to tolerate cwd drift as normal, only refuse it: record a canonicalized `execution_root` at `koto init`, refuse to run any gate or action when the live cwd does not canonicalize to it, resolve `working_dir` by joining and canonicalizing under that root (which closes the `..` escape and the unescaped-substitution asymmetry of koto issue #186 in one change), and add an explicit `koto session bind` verb for the legitimate re-anchor case.
+
+**The retry bookkeeping needs epoch-scoped context.** (lead-transition-hooks) The eight blocks are one shell template copied seven times, and they exist because the context store is the only per-state artifact that is not epoch-scoped — evidence, gate overrides, and gate output all are, using an `epoch_slice` mechanism koto already has, and the event log already carries the `ContextAdded`/`ContextRemoved` events needed to apply it here.
+
+**Yields are smaller than the inventories implied.** (lead-map-execute, lead-map-work-on) `/execute`: of 12 states, five have nothing to convert and one should have a duplicate read deleted rather than converted; roughly 19-20 commands convert today, another 8-10 after the koto changes. The design's ~42% claim holds for both waves combined, overstates the first wave alone, and has a practical ceiling nearer 79% because 11 of the 53 commands live in SKILL.md, outside any state's reach. `/work-on`: of 24 states, three sites convert today at low risk.
+
+### Tensions
+
+- **The central disagreement of the exploration.** The template-patterns lead says the target design works today and is cheap. The counter-case lead says it is right for exactly one state (`ci_monitor` polling) and wrong nearly everywhere else. Both are well-evidenced and they are arguing about different things: the pattern is available, and the *candidates* are worse than the inventories suggested. The two maps land between them and closer to the counter-case.
+
+- **The permission-bypass argument is the strongest objection raised, and it goes straight at the user's own stated concern.** A `default_action` runs `sh -c` from the koto binary, not through the agent's Bash tool. So a user's allow/deny/ask rules for `git push` or `gh pr create` never see it — the command is an opaque side effect of one `koto next` call. The only valve is `requires_confirmation`, which the design itself says the template author is responsible for setting correctly, and which round 1 showed fires *after* execution. A user who asked for hard guards against unintended side effects would likely count "moves the decision from my permission config to a template author's judgment" as a step backwards.
+
+- **The states the design targeted are the wrong ones.** `DESIGN-default-action-execution.md:41` names `setup_issue_backed` and `setup_free_form`. Their branch step is a decision tree (reuse `SHARED_BRANCH`, reuse the current feature branch, or create), and their baseline step says outright to use project-specific commands from CLAUDE.md or the language skill. Neither is a fixed string.
+
+- **The one gate that already does what actions promise is already broken across environments.** `tests_passing`'s `[ ! -f go.mod ] ||` guard reports pass for every repo without a root `go.mod` — Rust, JS, a Go monorepo with nested modules, anything using `make test`. "Tests passing" can be true when no test ran. This is what a compiled command string does when the plugin ships to many repos, and actions inherit it exactly.
+
+- **The strongest pro-conversion case argues against the mechanism.** `ci_monitor` polling is the cleanest candidate, and koto's own design says the right long-term home for CI monitoring is a typed integration rather than `default_action`, because an action's output is just a shell string to parse.
+
+- **A prior incident cuts both ways.** `BRIEF-skill-preflight-checks.md` records twelve child workflows dispatched against a branch nobody created, because a koto subcommand that does not exist had its error filtered away. That happened with the *agent* running the command in prose — so agent visibility is no guarantee. But the recovery came from the prose paper trail, which is exactly what a conversion deletes.
+
+### Gaps
+
+- No one has swept the 64KB deadlock across all 11 existing gates to rank real exposure, or sized the fix.
+- The counter-case's middle path — restrict actions to read-only, side-effect-free commands and leave side-effecting work to scripts and prose — is proposed but not evaluated against the two maps.
+- Whether any mechanism could keep a user's permission layer in the loop for engine-run commands is unexamined.
+- Rounds 1 and 2 inventoried `/execute` and `/work-on`. Nothing has checked for instruction surfaces elsewhere: the repo-root `koto-templates/` directory named in shirabe's CLAUDE.md, `plan-to-tasks.sh`, other skills' scripts.
+- No dependency-ordered, sized work list exists across the two repos.
+
+### Decisions
+
+Appended to `wip/explore_koto-runs-commands_decisions.md`.
+
+### User Focus
+
+Unchanged and standing: map every hardcoded command, determine what is needed and what is possible, insist the happy paths run automatically and that the guards be strong enough that a command never runs against the wrong tree.
