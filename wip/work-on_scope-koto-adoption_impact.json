@@ -1,8 +1,0 @@
-{
-  "impact": "none",
-  "base": "origin/main",
-  "base_sha": "14b7770",
-  "commits_behind": 0,
-  "rationale": "main has not advanced since this branch was created. The branch is zero commits behind origin/main, so no upstream change exists that could touch the PLAN's intent or the files it names.",
-  "classified_at": "2026-08-21T01:30:00Z"
-}

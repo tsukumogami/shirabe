@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   /scope's SKILL.md arrives whole at invocation, so the one passage in it that
   argues an outcome is worth wanting -- a smaller artifact set -- reaches an
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Requirements only. The architecture is the downstream DESIGN's, including the
 template's state granularity, the shape of the finalization states, and the

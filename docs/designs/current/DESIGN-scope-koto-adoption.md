@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 complexity: Complex
 upstream: docs/prds/PRD-scope-koto-adoption.md
 decision_provenance: inline-resolved
@@ -32,7 +32,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Authored under `/scope`'s chain; the parent owns the approval gate. Six decisions
 were evaluated. Two ran as delegated evaluations with empirical verification

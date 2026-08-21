@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   /scope's SKILL.md arrives whole at invocation, so the one passage in it that
   argues an outcome is worth wanting -- a smaller artifact set -- reaches an
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing only. The requirements this brief feeds are the downstream PRD's, and
 the architecture is the DESIGN's. Written under `/scope`'s chain; the parent
