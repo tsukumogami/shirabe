@@ -115,6 +115,8 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] The `rejected` outcome appears only on the two hops that can produce it and routes to the re-evaluation exit.
 - [ ] Every state declares its `phase:`.
 - [ ] The template's description states the two authoring rules a reviewer checks before reading the states.
+- [ ] A hop can still be marked skipped, and a skipped hop satisfies neither limb of the exit rule.
+- [ ] A diff against the merge base shows no change under `skills/brief/`, `skills/prd/`, `skills/design/` or `skills/plan/`.
 
 **Dependencies**: Blocked by <<ISSUE:2>>
 
@@ -149,11 +151,15 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] `phase_pointer:` names the `/scope` phase the run is in, is written after the tick that advances the session, and is written from `/scope`'s own phase when no session exists.
 - [ ] A run whose session no longer exists still reports its exit from the state file.
 - [ ] Every field in the state schema is still written.
+- [ ] Every resume-ladder row label and every row's author-facing prompt text is unchanged against the merge base.
+- [ ] A resume from a fresh clone, with artifacts on disk and no session, reaches the same handler it reaches today.
+- [ ] `skills/scope/SKILL.md` still declares its existing storage substrate.
+- [ ] The state file records the session `/scope` opened.
 
 **Dependencies**: Blocked by <<ISSUE:4>>
 
 **Type**: code
-**Files**: `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/state-schema.md`
+**Files**: `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/phases/phase-resume.md`, `skills/scope/references/state-schema.md`
 
 ### Issue 7: Commit each hop's artifact
 
