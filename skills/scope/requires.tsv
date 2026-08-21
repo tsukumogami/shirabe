@@ -27,6 +27,17 @@
 # Coordination Intent section verifies them with `skill-preflight.sh scope
 # --mode coordinated`, the moment intent resolves and before the coordination
 # PR is authored.
+# The workflow session. /scope probes for an existing session with `koto status`
+# before opening one, opens it with `koto init` against its own template, writes
+# and reads the origin-worktree record through the context verbs, and advances
+# it with `koto next`. The retention flag on the terminal-reaching ticks is what
+# keeps the per-hop record readable after the run ends, so it is a call site
+# rather than a debugging convenience.
+koto	init	--template,--var	always
+koto	next	--with-data,--no-cleanup	always
+koto	status	-	always
+koto	session	-	always
+koto	context	-	always
 shirabe	slug-prefix-detect	--docs-root	always
 shirabe	validate	--format,--visibility,--check	always
 git	-	-	always
