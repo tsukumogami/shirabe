@@ -367,14 +367,32 @@ failure and so conflates "this hop is not done" with "I cannot tell whether it i
 done." The author is not trapped — the `skipped` and `bail` routes do not
 reference the gate and still resolve.
 
-**One bound, wider than the requirement it serves.** Crediting only on a clean
-whole-document result is stricter than the FC18 pairing: an unrelated lint error
-anywhere in a survivor, or in a hop's own artifact, fails that hop's gate. Phase
-2's validator pass-through halts the chain on such violations first, so this is
-expected to be redundant rather than restrictive — but it couples hop completion
-to whole-document lint, which is wider than "that hop's durable artifact is
-present at its canonical path", and a narrower implementation may filter to the
-FC18 and FC04 codes.
+**Narrowed during implementation, from whole-document to named checks.** An
+earlier version of this design credited a hop only on a clean whole-document
+validation, and flagged that as wider than the requirement it serves. Building it
+showed the width is not merely untidy but wrong: `R6` resolves a document's
+`upstream:` against the filesystem *and* against git, so whole-document validation
+couples this hop's completion to the presence and tracking of a **different**
+document — and would refuse a legitimate fold whose survivor names an upstream
+that was absorbed away.
+
+So limb (a) checks `FC01`, `FC03` and `FC04`, which answer the question it
+actually asks: is the file at this path a well-formed artifact. Limb (b) adds
+`FC18`, the absorption pairing. Two consequences fell out of building it, both
+worth stating because neither is guessable from the check names.
+
+The structure checks are **type-agnostic** — a well-formed PLAN passes them
+sitting at a BRIEF's path — so the predicate checks the declared schema against
+the hop's own type directly rather than leaving it to validation to imply. One
+copy of the terminal artifact onto the three upstream paths defeated a version
+that did not.
+
+And `FC04`'s required-section list is **dynamic**: declaring `absorbed:` makes the
+contribution section a required section, so a survivor that declares without
+carrying fails the structure check as well as `FC18`. The survivor scan therefore
+guards on shape and type only, matches the declaration, and validates after —
+guarding on validation would skip such a survivor before its declaration is seen,
+and report that no declaration exists when one does.
 
 **Cascading folds need no recursion**, because a survivor carries and declares
 every absorbed ancestor, so a flat scan over downstream survivors finds a
