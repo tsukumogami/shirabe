@@ -165,6 +165,28 @@ check asserting every state has one.
 encodes the map in identifiers, so a rename silently changes the reported phase
 and there is nothing for a check to assert.
 
+**Amended during implementation: the engine rejects the chosen form.** koto
+applies `deny_unknown_fields` to the state surface, so a `phase:` key under a
+state fails compilation outright — a two-state probe carrying one returns
+`invalid YAML: failed to parse front-matter`, and the same probe without it
+compiles. The option was chosen against an engine that will not accept it.
+
+What ships is a `# phase: N` comment as the first line of every state block,
+asserted by a check that requires the comment on the line immediately after each
+state key. This keeps both properties the rejected alternative lacked — the map
+stays adjacent to its state, and it stays out of state identifiers, so a rename
+cannot silently change the reported phase — and it keeps the map assertable,
+which was the reason for preferring a declared key. What it gives up is
+enforcement by the engine: a missing comment fails our check rather than koto's
+compile, so the guarantee is only as good as the check.
+
+A root-level `phases:` map also compiles, but by tolerance rather than by
+contract — koto discards unknown root keys, and the compiled artifact is
+byte-identical with and without it. Relying on an undocumented discard, and
+detaching the map from the states it describes, is worse than a comment that is
+honest about being one. A first-class `phase:` key is worth asking koto for; the
+comment is what the engine allows today.
+
 ### Passage placement
 
 **Chosen: delete the general-form argument from `SKILL.md` and deliver it, with
@@ -616,7 +638,35 @@ exit_full_run
                                 names the failing check)
               recheck  -> re-evaluate the same gate
               abandon  -> exit_abandonment
+  exit 2 -> no transition; the run holds position (see below)
 ```
+
+**A cannot-tell holds position, and that is deliberate.** The predicate has three
+exit statuses, not two: 0 complete, 1 not complete, 2 could not decide — a
+validator that is absent, broken, or handed a document it cannot parse. koto
+matches `exit_code` exactly, so a 2 satisfies neither arm and the state does not
+advance, with the gate and its code reported in the state's blocking conditions.
+Verified end to end rather than reasoned about: a single hop returns 2 with the
+validator hidden, and the gate's full `&&` chain returns 2 rather than collapsing
+to 1.
+
+Holding position is the property worth having. Routing a 2 as a 1 would report a
+chain as incomplete on the strength of a check that never ran, which is the exact
+conflation the third status exists to prevent, and routing it as a 0 is
+unthinkable. The author still gets the diagnosis, because the blocking condition
+names the gate and its status.
+
+The cost is that `full_run_blocked`'s `abandon` arm is unreachable while the
+predicate cannot decide, so a run whose validator is broken has no route to a
+terminal and must be cancelled. That is a genuine ergonomic gap, and it is
+accepted rather than overlooked: the alternative is an arm that lets a run exit
+on the basis of a check that did not run, and cancelling a stuck run is a smaller
+harm than that. If it proves annoying in practice, the fix is a distinct
+`chain_undecidable` state, not an extra arm on the existing one.
+
+One further limitation of the gate's shape: the four hops are chained with `&&`,
+so it short-circuits and the exit status names no hop. `full_run_blocked`'s
+details carry the per-hop enumeration for that reason.
 
 ## Implementation Approach
 
