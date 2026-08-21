@@ -1,5 +1,21 @@
 # Lead: Which of these hardcoded commands should stay with the agent, and why? Where does moving execution into koto destroy value or create new failure modes?
 
+> **AUTHOR RULING (2026-08-20, post-exploration): the permission-bypass finding
+> below is OVERTURNED as an objection.** Finding 5 of this file argues that
+> `default_action` bypasses the user's permission layer, and treats that as a
+> real reduction in what a user can catch. The mechanism is accurate and the
+> code citations hold. The conclusion does not: the author has ruled that this
+> is exactly the intended behavior. Loading a skill that drives koto is itself
+> the broad grant — invoking a koto-backed workflow authorizes every command
+> that workflow bakes in, with the risk acknowledged and accepted. Consent moves
+> from per-command prompting to the decision to run the workflow at all, and
+> that relocation is the feature. Do not cite finding 5 as a reason to keep any
+> command with the agent, and do not re-derive it. The rest of this file — the
+> environment-brittleness argument, the incident, the observability cost, the
+> secret-leak-into-the-event-log risk, and the script-per-state comparison —
+> stands unchanged. See `wip/explore_koto-runs-commands_findings.md`, section
+> "Author Ruling", for the full statement and its consequences.
+
 ## Findings
 
 **1. Observability: the danger is real and koto's own design doc admits it.** `default_action` output is captured into a `DefaultActionExecuted` event in the JSONL state file, not shown to the agent, unless `requires_confirmation: true` halts the loop (`koto/docs/designs/current/DESIGN-default-action-execution.md:290-306`). The design's own Consequences section flags a risk nobody has fully closed: "action stdout/stderr is persisted in the state file, which is committed to feature branches. If an action command's output contains secrets... those secrets end up in the event log. Mitigation: document that action commands should not produce sensitive output. Truncation at 64KB limits exposure" (`DESIGN-default-action-execution.md:433-438`). That's a documentation-only mitigation for a real leak surface, and it exists precisely because output now lands somewhere nobody routinely reads.

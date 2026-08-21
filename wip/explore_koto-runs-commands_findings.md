@@ -1,5 +1,48 @@
 # Exploration Findings: koto-runs-commands
 
+## Author Ruling: engine-run commands are the intent, not a defect
+
+**Read this before acting on anything below.** Recorded 2026-08-20, after the
+exploration concluded, in response to the author's direct correction.
+
+Rounds 2 and 3 treated one finding as the strongest objection to the whole
+direction: a `default_action` runs `sh -c` from the koto binary rather than
+through the agent's tool layer, so a user's allow/deny/ask rules for `git push`
+or `gh pr create` never see it. The mechanism is accurately described. The
+conclusion drawn from it was wrong.
+
+The author's ruling: **that is the point.** Loading a skill that drives koto is
+itself the broad grant. An agent that invokes a koto-backed workflow is
+authorizing every command that workflow bakes in, deliberately and by design,
+and the risk is acknowledged and accepted. The permission surface moves from
+per-command prompting to the decision to run the workflow at all, and that
+relocation is the feature — it is what lets koto carry mechanical work without
+interrupting the agent for each step.
+
+What this changes downstream:
+
+- The permission argument is **struck** as a reason to keep any command with the
+  agent. It no longer constrains scope, and it must not be re-derived as an
+  objection by a later reader. Anywhere the artifacts still describe it as a
+  constraint, this ruling supersedes them.
+- The carve-out for remote mutations survives on **narrower grounds**:
+  irreversibility, and the fact that failure diagnosis is currently blind. A
+  `gh pr create` that fires wrongly cannot be undone by rerunning the state, and
+  today the agent cannot see why an action failed. Both are fixable — the second
+  by the plumbing this exploration already scoped — and neither is a permanent
+  reason to keep the command in prose.
+- **Conversion scope widens accordingly.** The middle-path lead's principle was
+  built partly on permission visibility; with that leg removed, more of the
+  writes-remote bucket becomes eligible once failure output reaches the agent.
+  Treat its yield figures as floors.
+- `requires_confirmation` becomes **more** important, not less: it is the only
+  in-band checkpoint left. Its after-the-fact firing (round 1) is therefore a
+  defect worth fixing on its own merits, not a curiosity.
+- One adjacent risk is untouched by this ruling and still stands: action output
+  is persisted into an event log that is committed to feature branches, so a
+  command whose output contains a secret leaks it. That is about what gets
+  written down, not about who authorized the command.
+
 ## Core Question
 
 The koto-backed workflows shipped by shirabe (`/execute` and the `/work-on`
@@ -166,45 +209,6 @@ determine what is needed and what is possible; insist that happy paths run
 automatically and that guards be strong enough that a command never runs against
 the wrong tree.
 
-## Accumulated Understanding
-
-The problem the user noticed is real, and it is not primarily a shirabe
-authoring failure. It splits cleanly in two.
-
-**The adoption half is shirabe's.** koto can run commands today, shirabe's
-templates run none, and no one ever decided against it. A meaningful slice of
-the inventory — the mechanical git/gh plumbing in `/execute`, the
-`extract-context.sh` invocation in `/work-on` phase 0, the branch and slug
-derivation repeated five times in one template — could be converted with
-today's primitives and would remove agent turns from the happy path immediately.
-
-**The enabling half is koto's, and it is what the user's stated target design
-actually requires.** Three specific things are missing, and each one blocks a
-distinct part of the goal:
-
-1. *Output routing.* koto captures the command's stdout and discards it. Until
-   an action's result can reach the agent, a later state, or a gate, every
-   command whose value is its output — which is most of the interesting ones —
-   has to stay with the agent. `action_output` already exists in the response
-   schema, populated on exactly one stop reason, which makes this the cheapest
-   of the three to fix.
-2. *Failure propagation.* An action's exit code influences nothing. The user's
-   design ("fall back to the agent only when the command fails") cannot be
-   expressed at all: today a template author must pair every action with a gate
-   that independently re-checks the same condition, which doubles the command
-   count and still hides the reason for failure, since gates keep only exit
-   codes.
-3. *Execution anchoring.* The action runs wherever `koto next` was called from.
-   For read-only commands that is a correctness annoyance; for
-   `git checkout -b`, `git push`, `gh pr create`, and the finalization cascade
-   it is the exact hazard the user named. The session already records
-   `template_source_dir` and simply does not use it for this.
-
-The ordering follows from that: koto's three gaps are the enabling work, and
-shirabe's template rewrite is the payoff. A narrow shirabe-only adoption of the
-safe subset is possible first, but the bulk of the inventory stays with the
-agent until koto can route output, react to failure, and pin a directory.
-
 ## Round 2
 
 ### Key Insights
@@ -239,7 +243,7 @@ This is not a `default_action` problem. Gates have it too, verified: a gate comm
 
 - **The central disagreement of the exploration.** The template-patterns lead says the target design works today and is cheap. The counter-case lead says it is right for exactly one state (`ci_monitor` polling) and wrong nearly everywhere else. Both are well-evidenced and they are arguing about different things: the pattern is available, and the *candidates* are worse than the inventories suggested. The two maps land between them and closer to the counter-case.
 
-- **The permission-bypass argument is the strongest objection raised, and it goes straight at the user's own stated concern.** A `default_action` runs `sh -c` from the koto binary, not through the agent's Bash tool. So a user's allow/deny/ask rules for `git push` or `gh pr create` never see it — the command is an opaque side effect of one `koto next` call. The only valve is `requires_confirmation`, which the design itself says the template author is responsible for setting correctly, and which round 1 showed fires *after* execution. A user who asked for hard guards against unintended side effects would likely count "moves the decision from my permission config to a template author's judgment" as a step backwards.
+- **The permission-bypass argument looked like the strongest objection raised, and the author has since ruled that it is the intent.** See the Author Ruling at the top of this file; what follows is the finding as round 2 recorded it, retained because the mechanism is accurate. A `default_action` runs `sh -c` from the koto binary, not through the agent's Bash tool. So a user's allow/deny/ask rules for `git push` or `gh pr create` never see it — the command is an opaque side effect of one `koto next` call. The only valve is `requires_confirmation`, which the design itself says the template author is responsible for setting correctly, and which round 1 showed fires *after* execution. Round 2 read this as a step backwards from the author's stated wish for hard guards. It is not: the guard the author wants is against running in the wrong place, not against running at all, and the decision to invoke a koto-backed skill is where consent is given.
 
 - **The states the design targeted are the wrong ones.** `DESIGN-default-action-execution.md:41` names `setup_issue_backed` and `setup_free_form`. Their branch step is a decision tree (reuse `SHARED_BRANCH`, reuse the current feature branch, or create), and their baseline step says outright to use project-specific commands from CLAUDE.md or the language skill. Neither is a fixed string.
 
@@ -281,14 +285,17 @@ true. The primitive works; today's states are the wrong unit. Conversion has to
 happen at isolated sub-step granularity, which means splitting states, not
 annotating them.
 
-**The permission-bypass objection holds, and there is no mitigation inside
-koto.** (lead-middle-path) Verified: `default_action` runs `sh -c` as a direct
-child of the koto binary, never through the agent's tool layer, so a user's
-allow/deny rules never see it. `requires_confirmation` fires only after the
-command has run and been logged. No preview-before-execution mechanism exists
-anywhere in koto, and building one would reproduce shirabe's current
-prose-plus-Bash-plus-gate pattern under a new name. This is a real constraint,
-not a hypothetical.
+**The permission-bypass mechanism is confirmed — and the author has ruled it is
+the intended behavior.** (lead-middle-path, superseded in part by the Author
+Ruling above) Verified: `default_action` runs `sh -c` as a direct child of the
+koto binary, never through the agent's tool layer, so a user's allow/deny rules
+never see it. `requires_confirmation` fires only after the command has run and
+been logged. No preview-before-execution mechanism exists anywhere in koto, and
+building one would reproduce shirabe's current prose-plus-Bash-plus-gate pattern
+under a new name — which is now an argument *for* the current design rather than
+against it. Invoking a koto-backed skill is the grant; per-command prompting is
+what the design deliberately trades away. Treat this as settled, not as an open
+risk to re-litigate.
 
 **The read-only restriction is too blunt.** (lead-middle-path) Applied line by
 line, it zeroes out `/execute`'s entire current Wave A — both candidates are
@@ -296,13 +303,24 @@ writes-remote — and cuts `/work-on`'s to between one and three sites depending
 on whether koto-store writes count as side effects. It is also unenforceable at
 compile time; only convention or a lint could carry it.
 
-**A usable principle came out of it.** (lead-middle-path) Run a mechanical step
-through koto when it is isolated to its own state, gate-verifiable independent
-of the action's own exit code, and either read-only or a repo-local mutation
-that is safe to reach twice. Anything that mutates a remote — push, PR create or
-edit, the finalization cascade — or needs project-specific configuration to know
-what to run stays agent-run, because that is the surface where both the user's
-permission layer and a developer's judgment still get to see it first.
+**A usable principle came out of it, amended by the Author Ruling.** As
+originally stated by lead-middle-path: run a mechanical step through koto when
+it is isolated to its own state, gate-verifiable independent of the action's own
+exit code, and either read-only or a repo-local mutation safe to reach twice;
+anything mutating a remote or needing project-specific configuration stays
+agent-run, because that is where the user's permission layer and a developer's
+judgment still see it first.
+
+The second half rested on two legs and one has been struck. Permission
+visibility is no longer a reason to withhold anything. **The amended principle:**
+koto runs a step when it is isolated to its own state and gate-verifiable
+independent of the action's own exit code. Reversible and repo-local steps
+convert now. Irreversible outward-facing steps — PR creation, comments, pushes
+to shared branches — wait for failure output to reach the agent, then convert
+too; they are deferred on diagnosability and irreversibility, not on
+authorization. Only commands that need per-repo knowledge to know what to run
+stay with the agent indefinitely, and even those shrink once a `TEST_COMMAND`
+style variable carries the answer.
 
 **The brittleness objection is half-solvable today, in shirabe alone.**
 (lead-middle-path) `koto init --var` already exists and both templates already
@@ -420,12 +438,13 @@ present as the default rather than as an edge case.
 suggested. The states the original design named bundle mechanical work with
 genuine judgment — which branch to reuse, which test command this repo uses — so
 conversion means splitting states rather than annotating them. Outward-facing
-commands carry a further cost the user would care about: an engine-run `git push`
-or `gh pr create` never passes the agent's tool layer, so the user's own
-permission rules never see it. The defensible line is that koto runs a step when
-it is isolated, independently checkable, and either read-only or a repo-local
-mutation safe to run twice; everything that touches a remote or needs per-repo
-configuration stays with the agent.
+commands were initially judged to carry a further cost — an engine-run
+`git push` never passes the agent's tool layer, so the user's permission rules
+never see it — and the author has since ruled that this is the intended design,
+not a cost. The defensible line is therefore that koto runs a step when it is
+isolated and independently checkable; reversible repo-local steps convert now,
+irreversible outward-facing ones convert once failure output reaches the agent,
+and only commands needing per-repo knowledge stay with the agent.
 
 **On what turned up along the way.** Two defects that have nothing to do with
 this decision. `run_shell_command`, shared by gates and actions, waits on the

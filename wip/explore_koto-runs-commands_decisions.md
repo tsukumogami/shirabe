@@ -81,11 +81,11 @@ frame, gather from evidence already in hand, decide, record. Status is
   the deadlock is real and environment-dependent, not structural.
 
 - **The permission-bypass objection is carried forward as a first-class design
-  constraint, not a footnote.** (confirmed) The user asked for hard guards
-  against unintended side effects. A mechanism that removes outward-facing
-  commands from the user's own allow/deny surface works against that goal, so
-  round 3 asks explicitly whether it can be mitigated and what the answer implies
-  for side-effecting conversions.
+  constraint, not a footnote.** (confirmed at the time; **OVERTURNED** by the
+  author ruling in Round 4 below) Round 2 read a mechanism that removes
+  outward-facing commands from the user's allow/deny surface as working against
+  the stated wish for hard guards. The author has since ruled that the
+  relocation of consent is the intent.
 
 - **`context_assignments` being inert is logged as a separate defect, not folded
   into the main thread.** (confirmed) 28 uses across the two shipped templates,
@@ -109,9 +109,10 @@ frame, gather from evidence already in hand, decide, record. Status is
   the agent — without discarding repo-local automation.
 
 - **The permission-bypass problem is accepted as unfixable inside koto.**
-  (confirmed) No preview-before-execution mechanism exists and building one
-  reproduces the current prose-plus-gate pattern. So it becomes a scoping
-  constraint rather than a feature request.
+  (confirmed as to mechanism; **its scoping consequence is OVERTURNED** by the
+  author ruling in Round 4 below) No preview-before-execution mechanism exists
+  and building one reproduces the current prose-plus-gate pattern. Round 3 turned
+  that into a scoping constraint. It is not one — it is the design.
 
 - **Deadlock severity is stated as latent, not active.** (confirmed) Round 3
   measured `go test ./...` at 3,793 bytes across 63 packages on the tsuku
@@ -134,3 +135,46 @@ frame, gather from evidence already in hand, decide, record. Status is
   orchestrator probe rounds. What remains open are choices belonging to the
   author — whether koto-store writes count as side effects, who revisits the
   retry-clearing design — not questions more research would answer.
+
+## Round 4 — Author Ruling (2026-08-20, post-exploration)
+
+- **Engine-run commands bypassing the agent's permission layer is the intended
+  behavior.** (confirmed by the author, directly) Loading a skill that drives
+  koto is itself the broad grant: invoking a koto-backed workflow authorizes
+  every command that workflow bakes in. The risk is acknowledged and accepted.
+  Consent moves from per-command prompting to the decision to run the workflow,
+  and that relocation is the feature — it is what lets koto carry mechanical
+  work without interrupting the agent at each step. **Why this is recorded
+  prominently:** two separate leads independently derived the objection from the
+  code and one of them made it the centerpiece of its recommendation. Left
+  standing in the research, it would keep resurfacing and would sap a future
+  agent's confidence in a direction the author has already chosen.
+
+- **The permission argument is struck as a scoping input.** (confirmed) It no
+  longer justifies keeping any command with the agent, and must not be
+  re-derived as an objection. Where the artifacts still describe it as a
+  constraint, the Author Ruling section at the top of the findings file
+  supersedes them.
+
+- **The conversion principle is amended.** (confirmed) koto runs a step when it
+  is isolated to its own state and gate-verifiable independent of the action's
+  own exit code. Reversible, repo-local steps convert now. Irreversible
+  outward-facing steps convert once failure output reaches the agent — deferred
+  on diagnosability and irreversibility, never on authorization. Only commands
+  needing per-repo knowledge to know what to run stay with the agent, and that
+  set shrinks once a `TEST_COMMAND` style variable carries the answer.
+
+- **Published conversion yields become floors, not estimates.** (assumed) The
+  round-2 and round-3 figures were computed with the permission constraint
+  applied to the writes-remote bucket. With it removed, the reachable set is
+  larger than any number recorded in this exploration.
+
+- **`requires_confirmation`'s after-the-fact firing is promoted to a real
+  defect.** (confirmed) It is now the only in-band checkpoint in the design, so
+  a flag that runs the irreversible thing before asking is worth fixing on its
+  own merits rather than noting as a curiosity.
+
+- **One adjacent risk survives untouched.** (confirmed) Action output is
+  persisted into an event log committed to feature branches, so a command whose
+  output contains a secret leaks it. That concerns what gets written down, not
+  who authorized the command, and the ruling does not reach it.

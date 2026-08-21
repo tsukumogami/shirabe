@@ -1,5 +1,21 @@
 # Lead: Should koto-executed commands be restricted to read-only ones, and can a user's permission layer stay in the loop for the rest?
 
+> **AUTHOR RULING (2026-08-20, post-exploration): the permission leg of this
+> lead's recommendation is OVERTURNED.** Finding 1 below confirms that
+> `default_action` runs outside the agent's tool layer, and the recommendation
+> rests partly on that being a reason to keep remote mutations agent-run. The
+> author has ruled that the bypass is the intended design: loading a skill that
+> drives koto is the broad grant, and consent belongs at the decision to invoke
+> the workflow rather than at each command. The recommended principle is
+> therefore amended — koto runs a step when it is isolated to its own state and
+> gate-verifiable independent of the action's own exit code; reversible
+> repo-local steps convert now; irreversible outward-facing steps convert once
+> failure output reaches the agent, deferred on diagnosability and
+> irreversibility rather than on authorization. The granularity finding
+> (finding 3), the var-plumbing finding (finding 4), and the read-only analysis
+> all stand. Treat the yields cited here as floors. See
+> `wip/explore_koto-runs-commands_findings.md`, section "Author Ruling".
+
 ## Findings
 
 **1. The permission-bypass claim is accurate at the code level, and no preview/approval mechanism exists to fix it.**
