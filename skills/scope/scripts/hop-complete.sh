@@ -52,13 +52,29 @@ fi
 # so the diagnostic is kept and the no-verdict case exits 2 (cannot tell)
 # rather than 1 (not done) -- the status a missing binary already gets.
 VALIDATOR_OUT=""
+verdict_is() {
+  printf '%s' "$VALIDATOR_OUT" | grep -q "\"outcome\": *\"$1\""
+}
+
+# The validator reports one of five outcome labels. Three -- clean, incomplete,
+# violations -- are verdicts about the document, and answer this limb's question
+# either way. The other two are not: `tool-error` and `io` are the validator
+# saying it never examined the document at all. An unreadable file returns
+# `"outcome": "io"` inside `"outcome": "tool-error"` JSON with a non-zero exit,
+# and reading that as a failed validation is a confident "not done" about a file
+# that is fine.
+#
+# So the three verdicts are matched by name and everything else falls through to
+# cannot-tell. Testing for the `outcome` key alone cannot separate them, and an
+# allowlist is the direction that fails safe: a sixth label added upstream reads
+# as cannot-tell rather than silently joining the not-done pile.
 run_validator() {
   local status
   VALIDATOR_OUT=$(shirabe validate "$1" --check "$2" --format json 2>&1)
   status=$?
-  case "$VALIDATOR_OUT" in
-    *'"outcome"'*) return 0 ;;
-  esac
+  if verdict_is clean || verdict_is incomplete || verdict_is violations; then
+    return 0
+  fi
   echo "cannot decide hop completion: shirabe validate reached no verdict on $1 (exit $status)" >&2
   if [ -n "$VALIDATOR_OUT" ]; then printf '%s\n' "$VALIDATOR_OUT" >&2; fi
   return 1
@@ -72,7 +88,14 @@ is_clean() {
   printf '%s' "$VALIDATOR_OUT" | grep -q '"outcome": *"clean"'
 }
 
-validates_structure() { is_clean "$1" FC01,FC03,FC04; }
+# SCHEMA is selected deliberately, and dropping it reopens a defeat. `--check`
+# selection drives the outcome exactly as it drives reporting, so a run that
+# deselected SCHEMA "has not been told to care about the skip and stays clean"
+# (crates/shirabe/src/main.rs, the SCHEMA_SKIP_CODE branch). That is the rung a
+# document reaches when the schema gate fires -- routed to a format and then
+# checked against nothing. Without SCHEMA in this list, such a document reports
+# clean here while the validator checked none of it.
+validates_structure() { is_clean "$1" SCHEMA,FC01,FC03,FC04; }
 
 # The absorption pairing specifically: FC18 requires the `absorbed:` declaration
 # and the contribution section it implies to appear together, so a survivor that
@@ -80,7 +103,11 @@ validates_structure() { is_clean "$1" FC01,FC03,FC04; }
 # One call rather than two consecutive ones on the same file: both must be clean
 # for the fold to be credited, so the combined check is the same question asked
 # once.
-validates_fold() { is_clean "$1" FC01,FC03,FC04,FC18; }
+# This list must stay a superset of validates_structure's. A fold is credited
+# only where the survivor is both a well-formed document and carries what it
+# declares; dropping a check from here but not from there would credit a fold on
+# a document the other limb would have refused.
+validates_fold() { is_clean "$1" SCHEMA,FC01,FC03,FC04,FC18; }
 
 case "$HOP" in
   brief|prd|design|plan) ;;
@@ -108,7 +135,10 @@ is_document() {
   [ -f "$f" ] || return 1
   [ -L "$f" ] && return 1
   [ -s "$f" ] || return 1
-  head -n 1 "$f" | tr -d '\r' | grep -qx -- '---' || return 1
+  # No `head -n 1 == ---` test. The validator skips leading blank lines before
+  # the opening delimiter, so requiring `---` on line 1 refused a document that
+  # validates clean. Whether the frontmatter opens at all is frontmatter()'s
+  # question, and it answers it the way the validator does.
   frontmatter "$f" | grep -Eq '^schema:[[:space:]]*[a-z]+/v[0-9]+' || return 1
   return 0
 }
@@ -138,19 +168,41 @@ is_artifact() {
   return 0
 }
 
-# The leading CR strip is load-bearing, not tidiness. The validator's frontmatter
-# splitter removes a trailing carriage return before comparing a line to the
-# delimiter. Without the same strip here, a closing `---\r` ends the frontmatter
-# for the validator and not for this scan, which then runs on into the body -- so
-# `absorbed:` lines placed just below that delimiter read as frontmatter here and
-# as body there. FC18 is silent on a declaration it never saw, so the validator
-# backstop passes vacuously and every hop credits. Two parsers of one rule drift;
-# this keeps them agreeing.
+# A reimplementation of the validator's frontmatter splitter
+# (crates/shirabe-validate/src/frontmatter.rs, `split_frontmatter`). Every rule
+# below exists because the two parsers disagreeing on one input is a defeat, not
+# a cosmetic difference: whatever this reads as frontmatter and the validator
+# reads as body carries an `absorbed:` declaration that FC18 never sees, and a
+# check that never saw a declaration cannot fail on it -- so the backstop passes
+# vacuously and every hop credits a fold that never happened. That has now
+# happened twice, on two different inputs.
+#
+# Three rules, each mirroring a named site in that file, and each with a defeat
+# behind it rather than a style preference:
+#
+#   Trailing CR is stripped before any comparison, as `split_lines` does.
+#   Otherwise a closing `---\r` ends the frontmatter there and not here.
+#
+#   Blank lines BEFORE the opener are skipped, and a non-blank line before it
+#   means no frontmatter. This is the pre-opener loop.
+#
+#   A blank line immediately AFTER the opener means no frontmatter at all: a
+#   `---` followed by a blank is a thematic break, not a YAML opener, because
+#   frontmatter always has a key on the next line. This is the rule that was
+#   missing, and one blank line was enough to credit all four hops.
+#
+# Keep this function and that file in step. If the splitter grows a fourth rule
+# and this does not, the seam reopens in whichever direction the new rule runs.
 frontmatter() {
   awk '{ sub(/\r$/, "") }
-       NR==1 && $0 != "---" { exit }
-       NR>1 && $0 == "---" { exit }
-       NR>1 { print }' "$1" 2>/dev/null
+       !opened {
+         if ($0 == "---") { opened = 1; next }
+         if ($0 ~ /^[[:space:]]*$/) next
+         exit
+       }
+       opened && !seen && $0 ~ /^[[:space:]]*$/ { exit }
+       opened && $0 == "---" { exit }
+       opened { seen = 1; print }' "$1" 2>/dev/null
 }
 
 # Whole entries under the `absorbed:` key only. A scalar on the key's own line,

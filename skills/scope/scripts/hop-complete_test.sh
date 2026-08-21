@@ -295,6 +295,66 @@ else
   FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "validator absent" "$rc" "$out"
 fi
 
+# The seventh defeat. A blank line immediately after the opening delimiter is a
+# thematic break to the validator and frontmatter to a naive scan. With SCHEMA
+# deselected, a document the validator never checked against its format still
+# reports clean, so FC18 is silent about a declaration it never saw and every
+# hop credits a fold that never happened. One blank line restored the original
+# incident; both halves of the fix are needed, and each is pinned here.
+C="$BASE/c3"; mkdir -p "$C/docs/plans"
+{
+  echo '---'
+  echo ''
+  echo 'schema: plan/v1'
+  echo 'status: Active'
+  echo 'title: demo'
+  echo 'absorbed:'
+  echo "  - docs/briefs/BRIEF-$T.md"
+  echo "  - docs/prds/PRD-$T.md"
+  echo "  - docs/designs/DESIGN-$T.md"
+  echo '---'
+  echo ''
+  echo '## Status'
+  echo ''
+  echo 'Active'
+} > "$C/docs/plans/PLAN-$T.md"
+for h in brief prd design plan; do
+  run "thematic break credits nothing" "$C" "$h" 1
+done
+
+# The mirror. Blank lines BEFORE the opener are skipped by the validator, so a
+# document carrying them validates clean and must be credited. An earlier
+# version tested line 1 for the delimiter and refused it -- a false refusal
+# about a document that is fine, which is the same class of wrong answer in the
+# other direction.
+C="$BASE/c4"; seed "$C" brief
+printf '\n\n%s' "$(cat "$C/docs/briefs/BRIEF-$T.md")" > "$C/docs/briefs/BRIEF-$T.md.tmp"
+mv "$C/docs/briefs/BRIEF-$T.md.tmp" "$C/docs/briefs/BRIEF-$T.md"
+run "leading blank lines still credit" "$C" brief 0
+
+# Unclosed frontmatter is the reachable tool-error path: the file is readable
+# and opens with a delimiter, so the validator IS consulted, and it answers that
+# it could not parse the document. That is a cannot-tell, not a not-done.
+C="$BASE/c5"; mkdir -p "$C/docs/prds"
+{
+  echo '---'
+  echo 'schema: prd/v1'
+  echo 'status: Accepted'
+  echo 'title: demo'
+  echo ''
+  echo '## Status'
+} > "$C/docs/prds/PRD-$T.md"
+run "unclosed frontmatter is cannot-tell" "$C" prd 2
+
+# The slug composes every path below it, so it is re-asserted here even though
+# Phase 0 validated it. An explicit acceptance criterion.
+out="$(bash "$S" --hop brief --topic '../../etc' --root "$BASE" 2>&1)"; rc=$?
+if [ "$rc" = 2 ]; then
+  PASS=$((PASS+1)); printf 'ok   %-46s exit=2 (refuses)\n' "traversal slug refused"
+else
+  FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "traversal slug refused" "$rc" "$out"
+fi
+
 # A validator that is present but reaches no verdict -- a check renamed out
 # from under us, a build that rejects an argument -- has answered nothing. The
 # hop must read as cannot-tell, not as not-done: collapsing the two would make

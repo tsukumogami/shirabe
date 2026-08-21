@@ -6,6 +6,14 @@
 # validator pass-through runs `shirabe validate --format json
 # --visibility=<repo-visibility>` after each intermediate artifact lands.
 #
+# The hop-completion predicate (skills/scope/scripts/hop-complete.sh) runs
+# `shirabe validate --check <codes> --format json` at every hop gate and at the
+# chain-wide exit gate. `--check` names the codes rather than validating whole:
+# R6 resolves a document's `upstream:` against the filesystem and against git,
+# so a whole-document run would couple one hop's completion to a different
+# document's presence. SCHEMA is in every list it passes, because a run that
+# deselects it reports clean on a document the validator checked nothing of.
+#
 # git backs the child-doc blob-hash drift check, `git fetch`, `git ls-files`,
 # `git commit -m`, and the absorb path's `git rm`.
 #
@@ -20,7 +28,7 @@
 # --mode coordinated`, the moment intent resolves and before the coordination
 # PR is authored.
 shirabe	slug-prefix-detect	--docs-root	always
-shirabe	validate	--format,--visibility	always
+shirabe	validate	--format,--visibility,--check	always
 git	-	-	always
 shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
 gh	-	-	mode:coordinated

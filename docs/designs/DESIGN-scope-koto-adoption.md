@@ -341,6 +341,26 @@ never saw, so it passes vacuously, and every hop credits. That is the reported
 incident restored by a single invisible byte. Two implementations of one rule
 drift; this is the seam where they must agree.
 
+The seam then reopened on a second input, which is the more useful finding: the
+carriage return was one divergence, not the divergence. The validator treats a
+`---` followed by a blank line as a thematic break rather than a frontmatter
+opener, because frontmatter always carries a key on the next line. A scan that
+does not implement that rule reads such a file as having frontmatter, so a
+declaration below the blank line is again frontmatter to the gate and body to the
+backstop — the same defeat, reached by one blank line instead of one carriage
+return, and it credited all four hops on a document that folded nothing. It also
+runs the other way: blank lines *before* the opener are skipped by the validator,
+so a document that validates clean was refused by a scan requiring the delimiter
+on line one.
+
+The fix is a reimplementation of the splitter's three rules rather than a patch
+per input, and the durable lesson is about the shape rather than the bytes.
+Whenever a check reimplements a rule that a tool also implements, the copy is
+correct only against the inputs someone thought to try, and each divergence found
+is evidence of the next one rather than of the last. That is why the fixtures run
+against the real binary in CI: they ask whether the two parsers still agree, not
+whether the copy still matches its own author's expectations.
+
 *The `absorbed:` key specifically, matched as whole entries.* Not a grep over the
 frontmatter block for the artifact's basename. An earlier version did that, and
 the consequence was decisive: the `upstream:` line that a hundred documents in
@@ -390,8 +410,14 @@ that was absorbed away.
 
 So limb (a) checks `FC01`, `FC03` and `FC04`, which answer the question it
 actually asks: is the file at this path a well-formed artifact. Limb (b) adds
-`FC18`, the absorption pairing. Two consequences fell out of building it, both
-worth stating because neither is guessable from the check names.
+`FC18`, the absorption pairing. Both lists also carry `SCHEMA`, for a reason that
+belongs with the selection rather than with the checks: **`--check` selection
+drives the outcome exactly as it drives reporting**, so a run that deselects
+`SCHEMA` has not been told to care when the schema gate fires and reports clean
+on a document routed to a format and then checked against nothing. Selecting a
+narrow list is what makes the narrowing safe, and forgetting one code turns the
+whole validation into a formality. Three consequences fell out of building it,
+none guessable from the check names.
 
 The structure checks are **type-agnostic** — a well-formed PLAN passes them
 sitting at a BRIEF's path — so the predicate checks the declared schema against
