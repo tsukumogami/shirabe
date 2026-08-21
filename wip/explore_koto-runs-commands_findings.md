@@ -364,12 +364,18 @@ converted.
   independent of `default_action` entirely. The conversion project the question
   implied is real but is neither the largest nor the most urgent thing found.
 
-- **The conversion yield is modest and the estimates moved a lot.** The
-  design's original ~42% claim does not survive contact with the maps. Yields
-  shifted twice during round 2 as the nested-koto diagnosis changed, and the
-  honest statement is a range rather than a number: a handful of states convert
-  today, more after the plumbing fixes, and 11 of `/execute`'s 53 commands live
-  in SKILL.md where no per-state action can reach them.
+- **The conversion yield swings on one defect fix, not on new capability.**
+  The `/execute` estimate moved three times as the nested-koto diagnosis was
+  corrected, settling on a range: 15% (8 of 53 commands) convert today with no
+  koto change; **62% (33 of 53) once the pipe-drain and migration-warning
+  defects are fixed**, because that single fix reopens the 25 commands whose
+  whole purpose is a koto context read or write; 70% with a further
+  evidence-consumption capability `pr_finalization` needs; and a ceiling near
+  79%, since 11 of the 53 live in SKILL.md where no per-state action reaches
+  them. So the design's original ~42% claim fails today and is comfortably
+  exceeded after a defect fix rather than after a feature. The counter-case's
+  candidate-quality objections still apply on top of these numbers — reachable
+  is not the same as advisable.
 
 - **Converting before the plumbing lands makes things worse, not better.**
   Without `action_output` on the failure path, a converted state trades a
@@ -441,7 +447,10 @@ repeated slug derivation. Then anchor execution, which is the direct answer to
 the user's guarding requirement and is worth doing whether or not anything is
 ever converted. Then the small plumbing that makes a converted step diagnosable:
 action output on the failure path, and failure detection for a gate-less action.
-Then, and only then, convert the narrow set of steps that pass the principle,
-starting with the ones that need no new capability. `capture_stdout_as` and the
+Then, and only then, convert the set of steps that pass the principle, starting
+with the ones that need no new capability. Note what the numbers say about
+ordering: the drain fix is worth more to conversion reach than any feature on
+the list, because most of what looked unreachable was only unreachable through
+it. `capture_stdout_as` and the
 retry-clearing question come after, the latter behind a shirabe design decision
 that has to argue against a doc already marked Current.
