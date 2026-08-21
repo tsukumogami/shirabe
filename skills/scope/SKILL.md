@@ -294,7 +294,7 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation; visibility detection; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
+| 0. Setup | Slug validation; visibility detection; session probe, open-or-reattach and origin record; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; R6 shape-predicate evaluation for `/design`'s roster size; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
 | 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
@@ -318,6 +318,117 @@ record the rebase in `worktree_rebases:`; Intent-changing
 classifications halt and route to the team-lead for an intent
 judgment, which may resolve in-place or escalate to the author for
 a re-author / proceed-against-original-intent / bail decision.
+
+## Workflow Session
+
+`/scope` drives its phases from a koto workflow session over
+`skills/scope/koto-templates/scope.md`. Each state delivers its own
+directive when the run arrives at it, and each hop carries a gate
+deciding completion from the artifact tree through
+`skills/scope/scripts/hop-complete.sh`. The session holds the run's
+position and nothing else. The state file stays authoritative for
+every field it carries, and the two stores are reconciled by that
+one rule rather than by a procedure.
+
+**The session name is `scope-<topic>`** — a fixed literal prefix and
+the validated topic slug, with nothing else in it. The probe below
+is what tells a fresh topic from a live run, so the name has to be
+recomputable from the slug alone. Discriminating it by worktree
+would remove the collision at the cost of that derivability, and
+the probe is what depends on it.
+
+**Probe before opening.** Phase 0 probes with `koto status` before
+it opens anything, and the probe has three outcomes rather than
+two. A session that answers to the name goes to the reattach check;
+a `not found` error opens one; any other failure is reported and
+stops the run, because a probe that could not answer is not the same
+finding as a topic having no session, and opening one on the
+strength of it is how a second session gets created against a live
+run.
+
+**The run records where it came from, and reattaches only on a
+match.** Opening a session is followed immediately, before the first
+tick, by an origin record written into the session's own context
+store: the name, the worktree `git rev-parse --show-toplevel`
+reports, and the store the session resolves under. A later
+invocation reattaches only when both the worktree and the store
+match what it computes for itself, and otherwise reports the
+collision — naming the recorded worktree and this one — and stops.
+The same refusal covers an absent record and one that cannot be
+read. An orphaned session is a collision rather than this run's own:
+the ladder's Discard row removes the state file, which is where a
+run records the session it opened, so a session with no record on
+either side is one this invocation cannot prove it owns.
+
+Session names resolve from any working directory sharing a session
+store, so one name is one session across every worktree using that
+store. Reattaching on the probe's exit code alone would therefore be
+wrong in exactly the case the probe exists for: a cross-worktree
+collision is a case where the probe succeeds, so an exit-code-only
+branch adopts another worktree's live run and ticks its position
+forward against a different artifact tree. The store is half the
+check because it is an environment input rather than a constant —
+two invocations against one topic under different stores would each
+find nothing and open a session of their own.
+
+The recorded name is never interpolated. It is recomputed from the
+validated slug at every use and the stored value is compared to it
+for equality, which is all the ownership test needs.
+
+The exact sequence — the probe, the `koto init` that follows a `not
+found`, the origin write and its read-back — is in the Workflow
+Session section of
+`skills/scope/references/phases/phase-0-setup.md`. It lives there
+rather than here because Phase 0 is where it runs.
+
+**A session this run did not open is left alone.** `/scope` runs no
+verb that removes a session or cancels another run — not against a
+colliding session, and not against its own. koto's collision message
+recommends exactly the removal that would destroy the other
+worktree's run, and koto emits discovery warnings about unrelated
+corrupted sessions on every tick whose "state file corrupted" text
+reads as an invitation to tidy up. Both are ignored. The prohibition
+is prose an agent can compose around at runtime; what it bounds is
+the code this skill ships, and no path under `skills/scope/` invokes
+such a verb.
+
+**Every tick that can reach a terminal carries `--no-cleanup`.**
+Reaching a terminal state disposes of the session by default, which
+destroys the per-hop record at the moment a run finishes and an
+author would go looking for it. That covers the three cleanup states
+and both routes into the cancelled terminal:
+
+```bash
+koto next scope-<topic> --with-data '{"cleanup_result":"done"}' --no-cleanup
+```
+
+The retained record is machine-local and outside the repository. It
+is read where it lives and never copied into a committed artifact or
+a pull-request body — copying it would make the run the author of
+its own audit trail, and it carries absolute filesystem paths that
+can name private repositories.
+
+**`phase_pointer:` is written after the tick, not before.** It names
+the `/scope` phase the run is in, derived from the session's
+position through the `# phase: N` comment on that state when a
+session exists, and written from `/scope`'s own phase when none
+does. Ordering it after the tick that advances the session keeps the
+durable resume decision off a value that could be half-updated: on
+reattach the session's position overwrites the recorded pointer
+before the ladder evaluates it.
+
+**Everything recovered from the session is re-validated.** koto does
+not constrain a string-typed evidence field at all, so a value read
+back out of the session is treated exactly as a state-file field is
+— enums against their enum, path-valued fields against the anchored
+pattern for their type. The per-value rule lives in the
+Session-Recovered Value Re-Validation section of
+`skills/scope/references/phases/phase-resume.md`.
+
+**A run whose session is gone still reports its exit.** `exit:` is
+written to the state file at the exit state and survives the
+session, so the ladder row keying on the exit field being set fires
+whether or not a session still answers to this topic's name.
 
 ## Resume Logic
 
@@ -363,8 +474,9 @@ pre-loaded.
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup** — slug validation, visibility detection, state-file
-   creation, stale `parent_orchestration:` self-heal.
+0. **Setup** — slug validation, visibility detection, the session
+   probe and its open-or-reattach decision, state-file creation,
+   stale `parent_orchestration:` self-heal.
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
 1. **Discover + Chain Proposal** — topic-related child-doc
@@ -410,12 +522,12 @@ Execute phases sequentially by reading the corresponding phase file:
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
 | `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` | All phases — six pattern-level security contract surfaces (slug re-validation, closed write-target set, enum re-validation, self-heal, visibility, no-untrusted-input-interpolation) |
-| `skills/scope/references/phases/phase-0-setup.md` | Phase 0 |
+| `skills/scope/references/phases/phase-0-setup.md` | Phase 0 — includes the workflow session's probe, open-or-reattach and origin record |
 | `skills/scope/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/scope/references/phases/phase-2-chain-orchestration.md` | Phase 2 — includes Phase-N Reject in-chain mechanism |
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
-| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), Drift Detection (Re-run / Accept / Proceed-without) |
+| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
 | `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
 
 ## Chain-Proposal Output
@@ -617,7 +729,8 @@ minimum (`topic`, `last_updated`, `phase_pointer`, `exit`,
 `exit_artifacts` — see
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`)
 with `/scope`-specific fields. The full field enumeration —
-including the exit-conditioned discriminators (`boundary:`,
+including `session:`, which records the workflow session this run
+opened, the exit-conditioned discriminators (`boundary:`,
 `decision_record_sub_shape:`), the invocation-conditioned
 `consumed_upstream:`, the resume-conditioned `consumed_handoff:`,
 the Drift-Detection audit field
@@ -627,6 +740,10 @@ the Drift-Detection audit field
 `skills/scope/references/state-schema.md`. Every conditional field
 is absent from the state file when its triggering condition does
 not hold (invariant I-5).
+
+The workflow session moves no field out of this file. It holds the
+run's position and the state file holds everything else, which is
+the whole of the rule reconciling the two.
 
 ## Visibility Detection
 
@@ -831,6 +948,7 @@ outside `/scope`.
 **Mutations**, by Phase 2's absorb — the survivor, at whichever hop:
 
 - `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
+- `docs/designs/current/DESIGN-<topic>.md`
 
 `docs/plans/` belongs in that list precisely because the PLAN is the
 survivor at the terminal hop and takes four writes there: the
@@ -839,10 +957,53 @@ line, and the contribution section. Phase 3 still does not *write*
 the PLAN — `/plan` produces it — and Phase 2's absorb does; naming
 the phase is what makes both true at once.
 
-**Phase 3 and Phase 4**, unchanged: Decision Records under
+`docs/designs/current/` belongs there for a plainer reason: the
+canonical DESIGN path is a pair, Phase 2 already treats it as one,
+and a survivor sitting at the second location takes the same four
+writes as one sitting at the first.
+
+**Phase 3 and Phase 4**: Decision Records under
 `docs/decisions/`, force-materialized partials under
-`docs/{briefs,prds,designs}/` on `abandonment-forced`, and
-state-file plus child-wip cleanup under `wip/`.
+`docs/{briefs,prds,designs,plans}/` and
+`docs/designs/current/` on `abandonment-forced`, and state-file
+plus child-wip cleanup under `wip/`.
+
+The `abandonment-forced` group names both DESIGN locations for the
+reason above, and `docs/plans/` because the terminal child's
+intermediate force-materializes there like every other child's. That
+last one was omitted while the Mutations group carried it, an
+inconsistency that was inert only because nothing in the enumeration
+governed commits. The Commits group below is what ends that: every
+path left out of an enumeration governing commits is a live write at
+an undeclared target.
+
+**Commits**, by Phase 2's per-hop commit and by the absorb's own:
+
+- `docs/briefs/BRIEF-<topic>.md`
+- `docs/prds/PRD-<topic>.md`
+- `docs/designs/DESIGN-<topic>.md`
+- `docs/designs/current/DESIGN-<topic>.md`
+- `docs/plans/PLAN-<topic>.md`
+
+The resulting `.git/` writes are confined to `git add` and `git
+commit` restricted to those pathspecs — no `-A`, no `commit -a`,
+nothing staged that the pathspec does not name. The preconditions
+each commit carries, and the branch checks that come before any of
+them, are in the Per-Hop Commit section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`.
+Nothing pushes.
+
+**Out-of-repo ephemera**, by the workflow session:
+
+- the koto session store — `~/.koto/sessions/` under koto's default
+  local backend, and wherever a configured backend puts it otherwise
+- koto's template compile cache — `$XDG_CACHE_HOME/koto`, or
+  `~/.cache/koto` when that variable is unset
+
+Neither is version-controlled and neither is referenced from a
+committed artifact. They are named because the set is enumerable
+rather than repo-scoped, and an unnamed write target is one nobody
+audits.
 
 **Deletion**, by R8's clean cancel:
 
@@ -855,18 +1016,22 @@ state-file plus child-wip cleanup under `wip/`.
   Enumerated here and carved out of the clean cancel, so it is a
   known target that a bail never sweeps.
 
-Every path above is composed from the validated topic slug or is a
-fixed constant, never from author-supplied text, so the set stays
-closed and enumerable. The `--upstream`
+Every path inside the repository is composed from the validated
+topic slug or is a fixed constant, never from author-supplied text,
+so the set stays closed and enumerable. The two out-of-repo
+locations are resolved by koto from its own configuration and this
+skill composes neither. The `--upstream`
 value does not widen the set: it is a read target only —
 validated, recorded, handed to a child — and is never written to.
 Future cross-visibility extension MUST re-state placement
 discipline in its own PR with explicit public-vs-private
 content-governance review.
 
-Two of the six surfaces need `/scope`-specific statements, because
-`--upstream` is the first author-supplied value this skill accepts
-that is not derived from a validated slug.
+Three of the six surfaces need `/scope`-specific statements. Two are
+about `--upstream`, the first author-supplied value this skill
+accepts that is not derived from a validated slug. The third is the
+enum re-validation surface, which the workflow session extends to a
+second class of recovered value.
 
 **Interpolation discipline.** The pattern reference binds parents
 to a metadata-read surface and requires that a parent adding direct
@@ -907,6 +1072,29 @@ advisory: rejecting them would be safe and would also make the flag
 unable to express the case that motivates it, a tactical chain run
 in one repo underneath a roadmap that lives in another.
 
+**Two values now live in the session, and both are re-validated
+coming back.** The recorded session name is compared rather than
+parsed — recomputed from the validated slug at every use, with the
+stored value tested for equality — and the origin record's worktree
+and store are compared against what this invocation computes. Every
+other value recovered from the session is re-validated at the resume
+entry under the rule the pattern states for state-file fields: enums
+against their enum, path-valued fields against the anchored pattern
+for their type. This extends the existing surface rather than
+restating it, because koto does not constrain a string-typed
+evidence field at all and several exit-path required fields are
+path-valued strings that reach a write path. The per-value list is
+in the Session-Recovered Value Re-Validation section of
+`skills/scope/references/phases/phase-resume.md`.
+
+The session namespace is the sharpest risk this adds, and the
+Workflow Session section above is where it is handled: a name
+resolves to one session across every worktree sharing a store, the
+origin record is what distinguishes this worktree's run from
+another's, and the record lives in the session's own context store
+rather than the state file — the state file is per-worktree and
+absent in the colliding worktree, which is the whole failing case.
+
 ## Binding Notes
 
 `/scope` v1 binds the parent-skill pattern's two-substitution
@@ -916,7 +1104,14 @@ surface at the v1 core-layer values:
   `wip/scope_<topic>_state.md` as YAML-in-`.md`. The substrate
   does NOT satisfy invariant I-6 (cross-branch resume); resume
   on a different branch starts a fresh chain. Closing the I-6
-  gap is the amplifier-layer substrate's mandate.
+  gap is the amplifier-layer substrate's mandate. Driving the
+  phases from a workflow session does not change this value: a
+  session holds position within one run and is disposed of at its
+  terminal state, while the substitution surface names how a
+  parent persists state between invocations. The contract admits
+  both — see the Named Substitution Surfaces section of
+  `parent-skill-pattern.md` — and `/scope` declares the v1 value
+  and writes the same state file it always has.
 - **`team_primitive: single-team-per-leader-no-nested`** — no
   nested teams; inline decision walks within `/scope`-itself
   (Phase 1's R6 shape-predicate evaluation walks the predicates
@@ -930,14 +1125,23 @@ Substitution Surfaces section). The values above are where
 `/scope`'s v1 implementation sits on that surface; alternate
 values are the amplifier-layer's mandate.
 
-Same-topic concurrent invocations on the same working tree are
-an explicit no-go pattern: the state file is topic-keyed
-(`wip/scope_<topic>_state.md`), so two concurrent `/scope foo`
-invocations would race on the same state file. Two-topic
-concurrent invocations (`/scope foo` and `/scope bar`) are safe
-because their state files do not contend.
+Same-topic concurrent invocations are an explicit no-go pattern,
+and the prohibition now spans every worktree sharing a session
+store rather than one working tree. Both stores are topic-keyed:
+the state file at `wip/scope_<topic>_state.md`, which two
+invocations in one worktree would race on, and the session named
+`scope-<topic>`, which resolves to one session from any worktree
+using that store. The failure mode improves and the blast radius
+grows — a second invocation against a live topic is refused by
+the origin check above, loudly and before anything is written,
+where the state-file race was silent. Two-topic concurrent
+invocations (`/scope foo` and `/scope bar`) are safe in both
+stores, because neither their state files nor their session names
+contend.
 
-No runtime dependencies are added by this skill; references only
-existing pattern files in this repo. No external URL is cited for
-download or execution. No secrets, tokens, or credentials are
-named.
+The one runtime dependency this skill adds is koto, which drives
+the phases and evaluates the hop gates; the verbs and flags
+`/scope` invokes are declared in `skills/scope/requires.tsv`.
+Everything else it references is an existing pattern file in this
+repo. No external URL is cited for download or execution. No
+secrets, tokens, or credentials are named.

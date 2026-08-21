@@ -358,8 +358,14 @@ Phase 3's own writes:
 
 - `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
   — Decision Records on `re-evaluation` exit.
-- `docs/{briefs,prds,designs}/{BRIEF,PRD,DESIGN}-<topic>.md` —
-  force-materialization only, on `abandonment-forced` exit.
+- `docs/{briefs,prds,designs,plans}/{BRIEF,PRD,DESIGN,PLAN}-<topic>.md`
+  and `docs/designs/current/DESIGN-<topic>.md` —
+  force-materialization only, on `abandonment-forced` exit. Both
+  DESIGN locations are named because the canonical DESIGN path is
+  the pair; `docs/plans/` is named because the terminal child's
+  intermediate force-materializes there like every other child's,
+  and its omission from this group while the Mutations group
+  carried it was an inconsistency rather than a boundary.
 - `wip/scope_<topic>_*` — state file and ancillary scratch under
   the same prefix.
 
@@ -370,8 +376,31 @@ enumeration is closed across the skill rather than per phase:
   `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`.
   The PLAN is never a deletion target of a fold.
 - **Mutations:** `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
-  — the survivor, at whichever hop. `docs/plans/` is included
-  because the PLAN is the survivor at the terminal hop.
+  and `docs/designs/current/DESIGN-<topic>.md` — the survivor, at
+  whichever hop and at whichever of the two DESIGN locations it
+  sits. `docs/plans/` is included because the PLAN is the survivor
+  at the terminal hop.
+
+Phase 2's per-hop commit and the absorb's own commit add a third,
+which is the group that makes the omissions above matter: every
+path an enumeration governing commits leaves out is a live write at
+an undeclared target.
+
+- **Commits:** `docs/briefs/BRIEF-<topic>.md`,
+  `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`,
+  `docs/designs/current/DESIGN-<topic>.md`,
+  `docs/plans/PLAN-<topic>.md`. The `.git/` writes are confined to
+  `git add` and `git commit` restricted to those pathspecs. Nothing
+  pushes.
+
+The workflow session adds an out-of-repo group, neither member of
+which is version-controlled or referenced from a committed
+artifact:
+
+- **Out-of-repo ephemera:** the koto session store (`~/.koto/sessions/`
+  by default) and koto's template compile cache
+  (`$XDG_CACHE_HOME/koto`, or `~/.cache/koto` when that variable is
+  unset).
 
 R8's clean cancel adds one deletion, enumerated for the same
 reason:
@@ -381,16 +410,24 @@ reason:
   carved out of that deletion; it is enumerated here and never
   swept by a bail.
 
-Phase 3 does not delete and does not write the PLAN; it records
-the deletion Phase 2 already performed and lists the terminal
-artifact's path in `exit_artifacts:`. Both of those remain true —
-what changed is that the phase performing each write is now named,
-which is what lets "Phase 3 does not write the PLAN" and "Phase 2's
-absorb writes it" both stand.
+Phase 3 does not delete, and on the paths that produce one it does
+not write the PLAN: it records the deletion Phase 2 already
+performed and lists the terminal artifact's path in
+`exit_artifacts:`. Both of those remain true — what changed is that
+the phase performing each write is now named, which is what lets
+"Phase 3 does not write the PLAN" and "Phase 2's absorb writes it"
+both stand. The one exception is the exit that produces no PLAN of
+its own: on `abandonment-forced` with `/plan` as the triggering
+child, Phase 3 force-materializes that child's intermediate at
+`docs/plans/PLAN-<topic>.md`, which is why the path is in the
+abandonment group above and why leaving it out was an oversight
+rather than a bound.
 
-Every path is composed from the validated topic slug or is a fixed
-constant, never from author-supplied text, so the set stays closed
-and enumerable.
+Every path inside the repository is composed from the validated
+topic slug or is a fixed constant, never from author-supplied text,
+so the set stays closed and enumerable. The two out-of-repo
+locations are resolved by koto from its own configuration; this
+skill composes neither.
 
 ## State-File Enum Re-Validation Before Path Interpolation
 
