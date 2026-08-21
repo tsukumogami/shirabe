@@ -97,3 +97,45 @@ guarded-fallback design would need.
    templates in the wild that use `default_action`, and any examples. Tells us
    whether the shirabe rewrite is a documentation-following exercise or a
    trailblazing one.
+
+## Research Leads — Round 2
+
+Round 1 established what exists. Round 2 asks what to do about it: the shape and
+size of each koto-side change, the template patterns that express the target
+design, the concrete per-state map, and the case against automating.
+
+9. **What is the smallest koto change that routes an action's output somewhere
+   usable, and what does it cost?**
+   `action_output` already exists in the response contract but is populated on
+   one stop reason. Enumerate concrete options against the output contract's
+   compatibility rules, size each, recommend one.
+
+10. **What should happen when an action fails, and what is the smallest change
+    that expresses it?**
+    Today the exit code influences nothing. Options, interactions with gates and
+    polling, backward-compatibility surface (zero production users today).
+
+11. **How should command execution be anchored to a directory?**
+    The action runs in the caller's cwd. Options for binding a session to a
+    tree, including the complication that shirabe's own workflow creates and
+    moves between worktrees mid-run.
+
+12. **Can the three-path model be expressed with today's primitives?**
+    koto has no conditional instruction text. Whether an extra state plus gate
+    routing gives the same effect — koto tries, agent takes over on failure —
+    and what the template pattern looks like concretely.
+
+13. **Per-state conversion map for `/execute`.**
+    Which state gets which action, what each conversion depends on, and its risk.
+
+14. **Per-state conversion map for `/work-on`.**
+    Same, for the template `/execute` delegates to.
+
+15. **Which of these commands should stay with the agent, and why?**
+    The counter-case: where agent execution carries value that engine execution
+    destroys, and which conversions would make failures harder to diagnose.
+
+16. **Is there a mechanism, or a plan for one, that removes koto's own retry
+    bookkeeping from the agent's hands?**
+    The eight identical context-clearing blocks are koto talking to koto through
+    the agent. Transition hooks, state-scoped context, TTL, or nothing.
