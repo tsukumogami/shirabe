@@ -262,3 +262,186 @@ Appended to `wip/explore_koto-runs-commands_decisions.md`.
 ### User Focus
 
 Unchanged and standing: map every hardcoded command, determine what is needed and what is possible, insist the happy paths run automatically and that the guards be strong enough that a command never runs against the wrong tree.
+
+## Round 3
+
+### Key Insights
+
+**The disagreement dissolved, and the answer is granularity.** (lead-middle-path)
+The two round-2 leads were never testing the same claim. Template-patterns
+proved a mechanism works, using a synthetic `create_branch` state. The
+counter-case argued about the states the design actually names, and its
+citations check out: `phase-1-setup.md`'s "Create Feature Branch" is a decision
+tree (reuse `SHARED_BRANCH`, reuse if the user said to continue, reuse if
+already on a feature branch, create otherwise), and "Establish Baseline" says to
+use project-specific commands from CLAUDE.md or the language skill. Both are
+true. The primitive works; today's states are the wrong unit. Conversion has to
+happen at isolated sub-step granularity, which means splitting states, not
+annotating them.
+
+**The permission-bypass objection holds, and there is no mitigation inside
+koto.** (lead-middle-path) Verified: `default_action` runs `sh -c` as a direct
+child of the koto binary, never through the agent's tool layer, so a user's
+allow/deny rules never see it. `requires_confirmation` fires only after the
+command has run and been logged. No preview-before-execution mechanism exists
+anywhere in koto, and building one would reproduce shirabe's current
+prose-plus-Bash-plus-gate pattern under a new name. This is a real constraint,
+not a hypothetical.
+
+**The read-only restriction is too blunt.** (lead-middle-path) Applied line by
+line, it zeroes out `/execute`'s entire current Wave A — both candidates are
+writes-remote — and cuts `/work-on`'s to between one and three sites depending
+on whether koto-store writes count as side effects. It is also unenforceable at
+compile time; only convention or a lint could carry it.
+
+**A usable principle came out of it.** (lead-middle-path) Run a mechanical step
+through koto when it is isolated to its own state, gate-verifiable independent
+of the action's own exit code, and either read-only or a repo-local mutation
+that is safe to reach twice. Anything that mutates a remote — push, PR create or
+edit, the finalization cascade — or needs project-specific configuration to know
+what to run stays agent-run, because that is the surface where both the user's
+permission layer and a developer's judgment still get to see it first.
+
+**The brittleness objection is half-solvable today, in shirabe alone.**
+(lead-middle-path) `koto init --var` already exists and both templates already
+use `{{VAR}}` substitution throughout. A `TEST_COMMAND` variable, resolved once
+by the agent at session start from CLAUDE.md or the language skill, would replace
+the per-state re-derivation that happens at least twice per `/work-on` run. What
+it does not fix is the shipped `tests_passing` gate, which hardcodes
+`[ ! -f go.mod ] || go test ./...` with no variable at all — a live false-pass
+for every repo without a root `go.mod`.
+
+**The inventory was complete for the koto question and incomplete for the user's
+literal one.** (lead-completeness) `/execute` and `/work-on` are the only two
+koto-backed skills in the workspace, so `default_action` is structurally inert
+everywhere else — rounds 1 and 2 covered the whole surface that matters for it.
+But eighteen other skills carry real hardcoded-command surface nobody opened:
+`/inflight` (missed entirely, instructs `shirabe work-summary track <pr-url>`),
+`/release`'s four non-koto shell blocks, `/roadmap`'s two `shirabe roadmap
+populate` forms, `/plan`'s `gh issue list`, `/explore`'s own `gh issue view`, and
+a `shirabe transition` / `shirabe validate` pattern copy-pasted independently
+into eight artifact-lifecycle skills — 23 files carry `shirabe transition`, 48
+carry `shirabe validate`. None of that is reachable by koto automation; the
+duplication is worth flagging on its own terms.
+
+**shirabe's own linter already knows about `default_action`.**
+(lead-completeness) `scripts/check-template-interpolation.sh` explicitly checks
+shell-interpolation defects "in a gate command or a default_action command", and
+its test file carries a `default_action:` fixture. The validation infrastructure
+for adoption exists and is dormant.
+
+**There is one documented decision after all, and it is narrow.**
+(lead-sequencing) `docs/designs/current/DESIGN-work-on-retry-clearing.md`, status
+Current, is the design authority for the eight retry-clearing blocks. It chose
+manual clear-and-verify deliberately, reasoning that a uniform superset-clearing
+rule beats a per-edge mechanism, at a time when `context_assignments` was
+unimplemented. No round-1 or round-2 lead cited it. This does not contradict
+round 1's finding that nobody decided against `default_action` — it is about the
+retry blocks specifically — but it turns "koto should just do this" into a
+shirabe design reversal that has to be argued, not assumed.
+
+**The migration spam has a five-line root cause.** (lead-sequencing)
+`src/session/local.rs:657-719`: when a session's flat-layout copy already exists,
+the old-layout entry is never moved out, so `old_dir` stays non-empty, so
+`fs::remove_dir(&old_dir)` at line 717 fails silently behind `let _ =`, so the
+same ~1,250 warnings print again on the next invocation, forever.
+
+**Anchoring is the item that most directly answers the user and depends on
+nothing.** (lead-sequencing) The guard belongs at one choke point in
+`handle_next`, before `current_dir` feeds either the gate or the action closure —
+structurally clean for a large-sounding feature. Its size is in the design
+questions (default behavior, pre-existing sessions, equality versus containment),
+not the blast radius. And it guards gates too, which run against the same
+unguarded cwd today, so it pays off whether or not a single state is ever
+converted.
+
+### Tensions
+
+- **The strongest work is not the work the exploration set out to find.** The
+  two highest-priority items — the pipe-buffer deadlock and the migration spam —
+  are live defects in mechanisms shirabe already ships, and the item that most
+  directly answers the user's stated concern is execution anchoring, which is
+  independent of `default_action` entirely. The conversion project the question
+  implied is real but is neither the largest nor the most urgent thing found.
+
+- **The conversion yield is modest and the estimates moved a lot.** The
+  design's original ~42% claim does not survive contact with the maps. Yields
+  shifted twice during round 2 as the nested-koto diagnosis changed, and the
+  honest statement is a range rather than a number: a handful of states convert
+  today, more after the plumbing fixes, and 11 of `/execute`'s 53 commands live
+  in SKILL.md where no per-state action can reach them.
+
+- **Converting before the plumbing lands makes things worse, not better.**
+  Without `action_output` on the failure path, a converted state trades a
+  debuggable agent-run command for an opaque gate exit code. That is the exact
+  silent-failure shape that already cost twelve misdirected child workflows once.
+
+### Gaps
+
+- The `koto next` outer-invocation staleness defect found by the map lead is
+  reproduced but not filed anywhere.
+- Whether koto-store writes count as side effects under the recommended
+  principle is unresolved, and it is the hinge for `/work-on`'s remaining yield.
+- Who owns revisiting `DESIGN-work-on-retry-clearing.md` is an open question the
+  exploration cannot answer for the author.
+
+## Accumulated Understanding
+
+The question was whether this is a missing koto feature or poor koto use in
+shirabe. The answer is neither, exactly, and the exploration turned up something
+more urgent than the thing it was sent to look at.
+
+**On the original question.** koto's `default_action` has shipped since March
+and shirabe has never used it, with no decision recorded anywhere. The shape the
+problem statement describes — koto runs the command, the agent is handed prose
+only when it fails — works today, verified running: an action, a gate that
+independently checks the outcome, and a transition keyed on the gate's exit code
+auto-advances silently on success and returns `evidence_required` with the
+fallback directive on failure. So the mechanism is not missing.
+
+What is missing is everything around the command. koto captures the output and
+discards it, so the specific example that prompted this — running
+`git rev-parse --abbrev-ref HEAD` to get the branch — is blocked not by
+execution but by the fact that the value has nowhere to go. A failing action
+changes nothing at all; only a separately declared gate can stop the loop, and
+gates keep exit codes and drop the text. And the command runs in whatever
+directory `koto next` was called from, which is the hazard the user named,
+present as the default rather than as an edge case.
+
+**On what should actually be converted.** Less than the inventory first
+suggested. The states the original design named bundle mechanical work with
+genuine judgment — which branch to reuse, which test command this repo uses — so
+conversion means splitting states rather than annotating them. Outward-facing
+commands carry a further cost the user would care about: an engine-run `git push`
+or `gh pr create` never passes the agent's tool layer, so the user's own
+permission rules never see it. The defensible line is that koto runs a step when
+it is isolated, independently checkable, and either read-only or a repo-local
+mutation safe to run twice; everything that touches a remote or needs per-repo
+configuration stays with the agent.
+
+**On what turned up along the way.** Two defects that have nothing to do with
+this decision and outrank it. `run_shell_command`, shared by gates and actions,
+waits on the child before draining its pipes, so any command emitting more than
+64KB deadlocks and is killed at the timeout with its output discarded — a
+passing check reported as a failure, evidence gone. `/work-on`'s `tests_passing`
+gate runs `go test ./...`, which clears that on a real failure dump, meaning the
+gate breaks precisely when its output matters most. Separately, koto emits
+roughly 106KB of migration warnings per session-touching command because a
+cleanup step fails silently on the skip branch, which is what makes koto unable
+to call itself. Both are one-file fixes. Both are live today.
+
+Alongside those: `context_assignments` is silently discarded while shirabe
+declares it 28 times, so every blocked path that was supposed to record why it
+stopped records nothing, and koto's own compiler warning recommends the broken
+mechanism.
+
+**Where that leaves the work.** Fix what is already broken first — the pipe
+drain, the migration spam, the inert declarations, the duplicate CI read, the
+repeated slug derivation. Then anchor execution, which is the direct answer to
+the user's guarding requirement and is worth doing whether or not anything is
+ever converted. Then the small plumbing that makes a converted step diagnosable:
+action output on the failure path, and failure detection for a gate-less action.
+Then, and only then, convert the narrow set of steps that pass the principle,
+starting with the ones that need no new capability. `capture_stdout_as` and the
+retry-clearing question come after, the latter behind a shirabe design decision
+that has to argue against a doc already marked Current.
