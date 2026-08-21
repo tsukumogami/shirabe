@@ -654,6 +654,14 @@ validated. Submit `setup_result: blocked` with `detail` when setup cannot
 complete -- a slug that fails its pattern, a state file that cannot be written,
 or a session collision reported against another worktree.
 
+**Ignore koto's discovery warnings about other sessions, on this tick and every
+later one.** koto reports `migration skipped` and `state file corrupted` for
+sessions unrelated to this run, on every tick and whatever store is configured.
+"State file corrupted" reads as an invitation to tidy up, and acting on it would
+destroy another run's session. Nothing in this workflow ever runs a cleanup or
+cancel verb against a session it did not open -- not to clear a warning, not on
+a collision, not when koto's own text recommends it.
+
 Evidence schema:
 - `setup_result`: `ready` or `blocked`
 - `detail`: what blocked setup
@@ -1045,7 +1053,9 @@ sits at the same path and means something else.
 
 `retry_or_cancel: retry` is the ordinary submission. `retry_or_cancel: cancel`
 ends the run at the cancelled terminal, so an agent that cannot materialize the
-artifact is not stuck here.
+artifact is not stuck here. Advance with `--no-cleanup` on that tick as well:
+the route to the cancelled terminal retains the per-hop record for the same
+reason the cleanup states do.
 
 Evidence schema:
 - `triggering_child`: `brief`, `prd`, `design`, or `plan`
@@ -1079,6 +1089,11 @@ no `triggering_child:`, and one deletion -- `wip/scope_<topic>_state.md`. The
 deletion is that single path, not the prefix: `wip/scope_<topic>_handoff.md`
 belongs to the router and is left in place so a later invocation can resume
 against it.
+
+Advance with `--no-cleanup` on the `koto next` that reaches the terminal. This
+applies to the cancel route as much as to the three cleanup states: a cancelled
+run is the one whose per-hop record a reader is most likely to want, because
+the question after a cancel is what the run had done before it stopped.
 
 Evidence schema:
 - `bail_ack`: `cancel` or `force_materialize`
