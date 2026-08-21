@@ -585,15 +585,20 @@ the Commits group enumerated in SKILL.md's Security Considerations.
 
 Step 8 is where the artifact set shrinks.
 
-**Why it exists.** Three documents restating one problem at three
-altitudes cost a reader three reads for one idea, and an obvious
-concept articulated three times reads as ceremony. Reducing the
-set is worth doing for the reader. It is only honest to do it
-*here* — against two bodies that exist, where the question "does
-the upstream do work the downstream does not?" has an answer. The
-same question asked at Phase 1, before either document is
-written, has no answer, and answering it anyway is how content
-gets lost.
+**Why it is here.** "Does the upstream do work the downstream does
+not?" has an answer only against two bodies that exist. Asked at
+Phase 1, before either document is written, it has none, and
+answering it anyway is how content gets lost. That is what fixes
+the judgment at this point in the run rather than earlier.
+
+**The argument for reducing at all is not stated here.** It is
+delivered at the fold state, scoped to the pair in hand, where the
+agent weighing it is holding both documents. This file is read
+before the hops run, and a general case for ending with fewer
+documents, read by an agent holding none of them, is a case for not
+writing them — which is the substitution that produced the incident
+this whole contract exists to prevent. The narrow form is the only
+form, and the fold state is the only place it appears.
 
 ### Firing condition
 
