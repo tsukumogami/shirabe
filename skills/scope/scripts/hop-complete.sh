@@ -51,10 +51,18 @@ validates_structure() {
 # The absorption pairing specifically: FC18 requires the `absorbed:` declaration
 # and the contribution section it implies to appear together, so a survivor that
 # declares without carrying fails here.
-validates_absorption() {
-  shirabe validate "$1" --check FC18 --format json 2>/dev/null \
+# One call rather than two consecutive ones on the same file: both must be clean
+# for the fold to be credited, so the combined check is the same question asked
+# once.
+validates_fold() {
+  shirabe validate "$1" --check FC01,FC03,FC04,FC18 --format json 2>/dev/null \
     | grep -q '"outcome": *"clean"'
 }
+
+case "$HOP" in
+  brief|prd|design|plan) ;;
+  *) echo "unknown hop: $HOP (expected brief, prd, design or plan)" >&2; exit 2 ;;
+esac
 
 canonical() {
   case "$1" in
@@ -77,7 +85,7 @@ is_document() {
   [ -f "$f" ] || return 1
   [ -L "$f" ] && return 1
   [ -s "$f" ] || return 1
-  head -n 1 "$f" | grep -qx -- '---' || return 1
+  head -n 1 "$f" | tr -d '\r' | grep -qx -- '---' || return 1
   frontmatter "$f" | grep -Eq '^schema:[[:space:]]*[a-z]+/v[0-9]+' || return 1
   return 0
 }
@@ -107,8 +115,17 @@ is_artifact() {
   return 0
 }
 
+# The leading CR strip is load-bearing, not tidiness. The validator's frontmatter
+# splitter removes a trailing carriage return before comparing a line to the
+# delimiter. Without the same strip here, a closing `---\r` ends the frontmatter
+# for the validator and not for this scan, which then runs on into the body -- so
+# `absorbed:` lines placed just below that delimiter read as frontmatter here and
+# as body there. FC18 is silent on a declaration it never saw, so the validator
+# backstop passes vacuously and every hop credits. Two parsers of one rule drift;
+# this keeps them agreeing.
 frontmatter() {
-  awk 'NR==1 && $0 != "---" { exit }
+  awk '{ sub(/\r$/, "") }
+       NR==1 && $0 != "---" { exit }
        NR>1 && $0 == "---" { exit }
        NR>1 { print }' "$1" 2>/dev/null
 }
@@ -127,11 +144,14 @@ absorbed_entries() {
                                                               if(parts[i]!="") print parts[i] }
                                            next }
     /^absorbed:[[:space:]]*[^[:space:]]/ { line=$0; sub(/^absorbed:[[:space:]]*/,"",line);
+                                           sub(/[[:space:]]+$/,"",line);
                                            gsub(/^["'"'"']+|["'"'"']+$/,"",line);
+                                           sub(/[[:space:]]+$/,"",line);
                                            if(line!="") print line; next }
     inblk && /^[[:space:]]*-[[:space:]]+/ { line=$0; sub(/^[[:space:]]*-[[:space:]]+/,"",line);
-                                            gsub(/^["'"'"']+|["'"'"']+$/,"",line);
                                             sub(/[[:space:]]+#.*$/,"",line);
+                                            gsub(/^["'"'"']+|["'"'"']+$/,"",line);
+                                            sub(/[[:space:]]+$/,"",line);
                                             if(line!="") print line; next }
     inblk && /^[^[:space:]-]/            { inblk=0 }
   '
@@ -175,7 +195,7 @@ for d in $DOWNSTREAM; do
     is_document "$ROOT/$sp" || continue
     frontmatter "$ROOT/$sp" | grep -Eq "^schema:[[:space:]]*$(schema_for "$d")\$" || continue
     if absorbed_entries "$ROOT/$sp" | grep -Fxq -- "$WANT"; then
-      if ! validates_absorption "$ROOT/$sp" || ! validates_structure "$ROOT/$sp"; then
+      if ! validates_fold "$ROOT/$sp"; then
         echo "incomplete: $sp declares $WANT absorbed but does not validate"
         exit 1
       fi

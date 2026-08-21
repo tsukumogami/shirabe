@@ -219,6 +219,69 @@ run "inline backticked --- in block scalar" "$C" brief 0
 C="$BASE/b9"; seed "$C" prd
 run "skipped hop satisfies neither limb" "$C" brief 1
 
+# A cascading fold: brief and prd folded onward into the design, then all three
+# declared by the plan. The design claims this needs no recursion because a
+# survivor carries and declares every absorbed ancestor -- this is the fixture
+# that holds it to that.
+C="$BASE/b10"; seed "$C" plan
+python3 - "$C/docs/plans/PLAN-$T.md" "$T" <<'PY'
+import sys
+p, topic = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s = s.replace("---\nschema: plan/v1\n",
+              "---\nschema: plan/v1\nabsorbed:\n"
+              "  - docs/briefs/BRIEF-%s.md\n"
+              "  - docs/prds/PRD-%s.md\n"
+              "  - docs/designs/DESIGN-%s.md\n" % (topic, topic, topic), 1)
+s = s.replace("## Status\n\nActive\n",
+              "## Status\n\nActive\n\n"
+              "Absorbed [BRIEF](docs/briefs/BRIEF-%s.md); carried in Absorbed Brief.\n"
+              "Absorbed [PRD](docs/prds/PRD-%s.md); carried in Absorbed PRD.\n"
+              "Absorbed [DESIGN](docs/designs/DESIGN-%s.md); carried in Absorbed Design.\n\n"
+              "## Absorbed Brief\n\nThe problem, the outcome, the journeys, the scope boundary.\n\n"
+              "## Absorbed PRD\n\nThe requirements and the criteria that decide it is done.\n\n"
+              "## Absorbed Design\n\nThe approach, the alternatives weighed, and why this one.\n"
+              % (topic, topic, topic), 1)
+open(p, "w").write(s)
+PY
+run "cascading fold, all three declared" "$C" brief 0
+run "cascading fold, all three declared" "$C" prd 0
+run "cascading fold, all three declared" "$C" design 0
+
+# A CR-terminated closing delimiter ends the frontmatter for the validator and
+# not for a scan that compares the raw line. `absorbed:` placed just below it
+# then reads as frontmatter here and as body there -- and FC18, silent on a
+# declaration it never saw, passes vacuously. One invisible byte, every hop
+# credited. This is the sixth defeat review found.
+C="$BASE/b11"; seed "$C" plan
+python3 - "$C/docs/plans/PLAN-$T.md" "$T" <<'PY'
+import sys
+p, topic = sys.argv[1], sys.argv[2]
+lines = open(p).read().split("\n")
+idx = [i for i, l in enumerate(lines) if l == "---"][1]
+lines[idx] = "---\r"
+lines[idx+1:idx+1] = ["absorbed:",
+                      "  - docs/briefs/BRIEF-%s.md" % topic,
+                      "  - docs/prds/PRD-%s.md" % topic]
+open(p, "w").write("\n".join(lines))
+PY
+run "CR delimiter, absorbed: below it" "$C" brief 1
+run "CR delimiter, absorbed: below it" "$C" prd 1
+
+# A trailing space on an entry is invisible in an editor and the validator does
+# not care. Refusing it would be a true refusal with a false reason, on an
+# authoring accident.
+C="$BASE/b12"; fold_into_prd "$C"
+python3 - "$C/docs/prds/PRD-$T.md" "$T" <<'PY'
+import sys
+p, topic = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s = s.replace("absorbed: docs/briefs/BRIEF-%s.md\n" % topic,
+              "absorbed: docs/briefs/BRIEF-%s.md  \n" % topic, 1)
+open(p, "w").write(s)
+PY
+run "trailing space on entry (must credit)" "$C" brief 0
+
 # --- the validator is not optional -----------------------------------------
 
 # Both limbs answer to the validator, so a missing binary must refuse rather
