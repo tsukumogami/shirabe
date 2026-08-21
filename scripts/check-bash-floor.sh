@@ -135,6 +135,8 @@ suite_scripts() {
         templates)
             echo "scripts/check-template-interpolation_test.sh"
             echo "scripts/check-template-interpolation.sh"
+            echo "scripts/check-template-directives_test.sh"
+            echo "scripts/check-template-directives.sh"
             ;;
         template-consistency)
             echo "scripts/validate-template-mermaid.sh"

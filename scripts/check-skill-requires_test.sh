@@ -392,6 +392,40 @@ scan_fixture
 expect_fail "an exemption is scoped to the file it names" "references/phase-1.md"
 
 # ===========================================================================
+# 10b. Placeholders do not hide the flags that follow them
+#
+# These are instruction files, so `cmd <topic> --flag` is how a call site is
+# normally written. Cutting the line at the `<` of `<topic>` -- which the
+# redirect handling used to do -- discarded every flag after it, and the check
+# passed one-sidedly: the flag was invisible with a placeholder before it and
+# caught without one. It hid real call sites across this repository, not just
+# one skill's.
+#
+# The pair is the assertion. Either case alone can be satisfied by a scan that
+# is simply wrong in the other direction.
+# ===========================================================================
+
+new_fixture placeholder-before-flag
+record koto init --template always
+add_file SKILL.md 'Open the session:' '```bash' 'koto init scope-<topic> --undeclared-flag' '```'
+scan_fixture
+expect_fail "a flag after a <placeholder> is still extracted" "--undeclared-flag"
+
+new_fixture placeholder-no-flag
+record koto init --template always
+add_file SKILL.md 'Open the session:' '```bash' 'koto init scope-<topic> --template x' '```'
+scan_fixture
+expect_ok "a declared flag after a <placeholder> does not become a finding"
+
+# A genuine stdin redirect still ends the segment: what follows it is a
+# filename, not a flag of this command.
+new_fixture redirect-still-cuts
+record koto context - always
+add_file SKILL.md 'Write it:' '```bash' 'koto context add origin < --notaflag' '```'
+scan_fixture
+expect_ok "a real stdin redirect still ends the command segment"
+
+# ===========================================================================
 # 11. Usage errors
 # ===========================================================================
 

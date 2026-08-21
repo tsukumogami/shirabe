@@ -10,8 +10,35 @@ absent from the state file when its triggering condition does not
 hold (invariant I-5; see Parent-specific conditional fields in the
 state-schema reference).
 
+Driving the phases from a workflow session moves no field out of
+this file. The session holds the run's position within one run; the
+state file remains authoritative for every field enumerated below,
+and each is written at the site it was already written at.
+
 ## Field Enumeration
 
+- **`session`** — the workflow session this run opened or
+  reattached to, as `scope-<topic>`: the fixed prefix and the
+  validated topic slug. Written at Phase 0 in the initial state-file
+  write, after the probe's open-or-reattach decision settles. It
+  records where the run's per-hop record lives, and it is the state
+  file's half of the ownership pair — the other half is the origin
+  record in the session's own context store, which is what a
+  colliding worktree can read and this file is not. The value is
+  never read back for interpolation: every use recomputes the name
+  from the validated slug and compares the recorded value to it for
+  equality.
+- **`phase_pointer`** — the pattern-level pointer, with one
+  `/scope`-specific derivation rule. When a session exists the value
+  is the phase of the state the session now occupies, read off that
+  state's `# phase: N` comment in
+  `skills/scope/koto-templates/scope.md`, and it is written AFTER
+  the tick that advanced the session — never before, since a pointer
+  written first records a position the session might not reach. When
+  no session exists the value is `/scope`'s own phase, which is the
+  case Phase 0's initial write lands in. On reattach the session's
+  position overwrites the recorded pointer before the resume ladder
+  evaluates it, so a half-updated value cannot decide a resume.
 - **`chain_started`** — ISO-8601 timestamp recorded at Phase 0; used
   for the abandonment-forced marker substitution.
 - **`chain_completed`** — ISO-8601 timestamp recorded at Phase 3
@@ -230,6 +257,13 @@ state-schema reference).
   prompt boolean, and the rationale (`fresh-chain | revise`) per
   the L13 amendment in `parent-skill-pattern.md`.
 
+`exit:` is written at the exit state and outlives the session
+whatever becomes of it. That is what keeps a finished run
+distinguishable from one that never started: the resume row keying
+on the exit field being set reads this file, so a run whose session
+is gone still reports how it ended. It is the one resume decision a
+session could otherwise have taken with it.
+
 Phase 3 copies `chain_ran`, `chain_skipped`, and
 `consolidation_judgments` into the run's PR body before Phase 4
 removes the state file. The `wip/` copy is scratch; the PR body
@@ -252,4 +286,10 @@ identically regardless of which parent invoked them.
   pattern-level parent-orchestration primitive.
 - `skills/scope/references/phases/phase-resume.md` — the drift-
   detection contract that writes `drift_acknowledged:` and the
-  per-row Slot 5/6 prompts that read `child_snapshots:`.
+  per-row Slot 5/6 prompts that read `child_snapshots:`; also the
+  re-validation rule for values recovered from the session.
+- `skills/scope/references/phases/phase-0-setup.md` — the probe and
+  open-or-reattach decision that settles `session:` before this
+  file's initial write.
+- `skills/scope/koto-templates/scope.md` — the `# phase: N`
+  comments `phase_pointer:` is derived through.
