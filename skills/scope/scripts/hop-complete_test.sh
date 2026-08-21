@@ -33,27 +33,39 @@ run() {
   fi
 }
 
-# A real artifact of each type, derived from this repository's own documents so
-# it validates clean. A hand-written stub does not: the predicate requires a
-# clean validation, which is what stops a three-line file counting as a hop.
+# A real artifact of each type, so it validates clean. A hand-written stub does
+# not: the predicate requires a clean validation, which is what stops a
+# three-line file counting as a hop.
+#
+# Frozen copies under testdata/ rather than this repository's live documents.
+# The live ones were the obvious source and it was wrong: completing the very
+# PLAN this feature came from moves the DESIGN into docs/designs/current/ and
+# deletes the PLAN outright, so every fixture reading them broke the moment the
+# work succeeded. A test that fails when its subject ships is a test someone
+# deletes rather than fixes.
+#
+# The .fixture extension keeps them out of any *.md scan. They are inputs to a
+# test, not artifacts of this repository, and a whole-tree lifecycle scan would
+# otherwise try to resolve an upstream chain they are not part of.
+FIXTURES="$HERE/testdata"
 seed() {
   local root="$1" kind="$2"
   case "$kind" in
     brief)  mkdir -p "$root/docs/briefs"
-            sed "s/scope-koto-adoption/$T/g" "$REPO/docs/briefs/BRIEF-scope-koto-adoption.md" \
+            sed "s/scope-koto-adoption/$T/g" "$FIXTURES/brief.md.fixture" \
               > "$root/docs/briefs/BRIEF-$T.md" ;;
     prd)    mkdir -p "$root/docs/prds"
-            sed "s/scope-koto-adoption/$T/g" "$REPO/docs/prds/PRD-scope-koto-adoption.md" \
+            sed "s/scope-koto-adoption/$T/g" "$FIXTURES/prd.md.fixture" \
               > "$root/docs/prds/PRD-$T.md" ;;
     design) mkdir -p "$root/docs/designs"
-            sed "s/scope-koto-adoption/$T/g" "$REPO/docs/designs/DESIGN-scope-koto-adoption.md" \
+            sed "s/scope-koto-adoption/$T/g" "$FIXTURES/design.md.fixture" \
               > "$root/docs/designs/DESIGN-$T.md" ;;
     design-current)
             mkdir -p "$root/docs/designs/current"
-            sed "s/scope-koto-adoption/$T/g" "$REPO/docs/designs/DESIGN-scope-koto-adoption.md" \
+            sed "s/scope-koto-adoption/$T/g" "$FIXTURES/design.md.fixture" \
               > "$root/docs/designs/current/DESIGN-$T.md" ;;
     plan)   mkdir -p "$root/docs/plans"
-            sed "s/scope-koto-adoption/$T/g" "$REPO/docs/plans/PLAN-scope-koto-adoption.md" \
+            sed "s/scope-koto-adoption/$T/g" "$FIXTURES/plan.md.fixture" \
               > "$root/docs/plans/PLAN-$T.md" ;;
   esac
 }

@@ -25,6 +25,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 TEMPLATE="$REPO/skills/scope/koto-templates/scope.md"
 
+# Frozen artifact fixtures, not this repository's live documents. Completing the
+# PLAN this feature came from moves the DESIGN into docs/designs/current/ and
+# deletes the PLAN, so a suite reading the live paths breaks at exactly the
+# moment its subject succeeds. The .fixture extension keeps them out of any
+# *.md scan: they are test inputs, not artifacts of this repository.
+FIXTURES="$HERE/testdata"
+
 for bin in koto shirabe; do
     if ! command -v "$bin" >/dev/null 2>&1; then
         echo "SKIP: $bin is not on PATH; this suite drives real sessions and cannot run without it"
@@ -181,7 +188,7 @@ seed_plan_only() {
     local root="$1" topic="$2"
     make_tree "$root"
     mkdir -p "$root/docs/plans"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/plans/PLAN-scope-koto-adoption.md" \
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/plan.md.fixture" \
         > "$root/docs/plans/PLAN-$topic.md"
     python3 - "$root/docs/plans/PLAN-$topic.md" "$topic" <<'PY'
 import sys
@@ -198,10 +205,10 @@ seed_every_hop() {
     local root="$1" topic="$2"
     make_tree "$root"
     mkdir -p "$root/docs/briefs" "$root/docs/prds" "$root/docs/designs" "$root/docs/plans"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/briefs/BRIEF-scope-koto-adoption.md"   > "$root/docs/briefs/BRIEF-$topic.md"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/prds/PRD-scope-koto-adoption.md"       > "$root/docs/prds/PRD-$topic.md"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/designs/DESIGN-scope-koto-adoption.md" > "$root/docs/designs/DESIGN-$topic.md"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/plans/PLAN-scope-koto-adoption.md"     > "$root/docs/plans/PLAN-$topic.md"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/brief.md.fixture"   > "$root/docs/briefs/BRIEF-$topic.md"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/prd.md.fixture"       > "$root/docs/prds/PRD-$topic.md"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/design.md.fixture" > "$root/docs/designs/DESIGN-$topic.md"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/plan.md.fixture"     > "$root/docs/plans/PLAN-$topic.md"
 }
 
 # The legitimate fold: only the terminal artifact survives, and it declares each
@@ -213,7 +220,7 @@ seed_recorded_fold() {
     local root="$1" topic="$2"
     make_tree "$root"
     mkdir -p "$root/docs/plans"
-    sed "s/scope-koto-adoption/$topic/g" "$REPO/docs/plans/PLAN-scope-koto-adoption.md" \
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/plan.md.fixture" \
         > "$root/docs/plans/PLAN-$topic.md"
     python3 - "$root/docs/plans/PLAN-$topic.md" "$topic" <<'PY'
 import sys
