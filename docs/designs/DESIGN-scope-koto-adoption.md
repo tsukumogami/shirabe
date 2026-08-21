@@ -756,6 +756,47 @@ The template's description states the two structural rules a future author must
 follow, the way `/work-on`'s template states its self-loop rule, so the traps are
 documented at the point of authoring rather than discovered at runtime.
 
+### Direction: a chain with no filesystem state
+
+This design keeps `wip/scope_<topic>_state.md` authoritative and leaves each
+child's own scratch on disk. That is a deliberate stopping point rather than the
+intended end state, and the end state is worth writing down because the next
+person to touch this will otherwise read the two stores as the design's opinion.
+
+**The northstar is the full chain running with no filesystem state dependency** —
+`/scope`'s own position and every child's working state held in workflow context,
+with nothing in `wip/` for the chain to depend on. That is also what this
+repository's own conventions already say: koto context replaces `wip/` for
+koto-driven workflows, and `wip/` is not a koto-driven-workflow location. Measured
+against that rule, a koto-driven `/scope` that keeps a state file is an exception,
+and this design is where the exception is recorded rather than left implicit.
+
+Three things hold it in place today, and only the first is structural. The state
+file is a parent-to-child interface, not bookkeeping: each of the four children
+reads an orchestration sentinel at that literal path, and the shared contract
+defines it as the pattern-level primitive both parents use, so moving it edits
+four children and amends a contract serving two chains. Beyond that, a session is
+disposed of at its terminal state while cleanup runs after, and a session lives
+outside the repository while a state file travels with the branch — so anything a
+reviewer, a fresh clone, or a second machine needs has to survive somewhere else.
+
+**Child workflows are the shape that dissolves the first constraint, and the
+primitive already exists.** koto ships parent-child lineage and a
+`children-complete` gate. Running each hop as its own workflow gives a child
+context of its own to read and write, which removes the reason the interface has
+to be a file at a known path — the parent stops needing to leave a note where the
+child will find it, because the child has a session to be told through. What is
+missing is not the primitive but its consumers: none of the four children ships a
+template, and nothing in this repository currently drives a child session at all,
+which the exploration behind this work established by exhaustion. Those are the
+two things a follow-on effort has to build, and they are the reason this design
+stops short rather than a reason the destination is wrong.
+
+The second and third constraints survive that move and want their own answers —
+what a run leaves for a reviewer once no state file is committed, and what
+outlives a session that deletes itself. Neither is a blocker for the direction;
+both are unbuilt.
+
 ## References
 
 - `docs/prds/PRD-scope-koto-adoption.md` — the requirements this design serves.
