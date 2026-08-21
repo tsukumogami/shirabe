@@ -322,12 +322,24 @@ being satisfied by something limb (b) would refuse.
 **Limb (b) — the hop is declared absorbed.** Two scoping rules, and dropping
 either one defeats the limb.
 
-*Frontmatter only.* The scan stops at the closing `---`, so a mention anywhere in
-the body cannot satisfy the gate — including a fenced YAML block that looks like a
+*Frontmatter only, and normalised the way the validator normalises.* The scan
+stops at the closing `---`, so a mention anywhere in the body cannot satisfy the
+gate — including a fenced YAML block that looks like a
 declaration. This matters more than it appears: `shirabe validate` returns clean
 on such a document, because FC18 is gated on `absorbed:` being present as the
 validator's own frontmatter parser sees it, so a body-block declaration is
 invisible to the backstop as well as to the reader.
+
+The normalisation is load-bearing rather than tidiness, and it was found by
+attacking the shipped script rather than by reading it. `shirabe validate`'s
+frontmatter splitter strips a trailing carriage return before comparing a line to
+the delimiter. A scan that compares the raw line does not, so a closing `---`
+written with a carriage return ends the frontmatter for the validator and not for
+the gate — and `absorbed:` entries placed in the body just below it read as
+frontmatter to one and as body to the other. FC18 is silent on a declaration it
+never saw, so it passes vacuously, and every hop credits. That is the reported
+incident restored by a single invisible byte. Two implementations of one rule
+drift; this is the seam where they must agree.
 
 *The `absorbed:` key specifically, matched as whole entries.* Not a grep over the
 frontmatter block for the artifact's basename. An earlier version did that, and
