@@ -5,9 +5,17 @@ on:
     branches: [main]
     paths:
       - 'skills/*/koto-templates/**'
+      # The directives check reads the scripts a gate invokes, so a change to
+      # one of those changes what the check sees without touching a template.
+      # These two roots cover every file that can: the skill scripts a /scope
+      # gate calls, and scripts/ -- which also holds the check, its test and
+      # its allowlist, where an edit is an edit to what passes.
+      - 'skills/*/scripts/**'
+      - 'scripts/**'
+      - '.github/workflows/check-templates.yml'
 
-# This job runs the interpolation suite under the ubuntu runner's bash, which
-# is 5.x. The bash 3.2 floor for the same suite is enforced by
+# These jobs run the templates suite under the ubuntu runner's bash, which is
+# 5.x. The bash 3.2 floor for the same suite is enforced by
 # check-bash-floor.yml, which runs it in a bash:3.2 container; the two together
 # are the cross-version check. Run it yourself with
 # `scripts/check-bash-floor.sh templates`.
@@ -33,3 +41,21 @@ jobs:
 
       - name: Check koto templates for shell-style interpolation
         run: bash scripts/check-template-interpolation.sh
+
+  # Two authoring shapes koto compiles cleanly and then punishes silently: a
+  # non-terminal state whose evidence block has no guarded transition (the
+  # engine advances through it without delivering the directive), and, in
+  # /scope's template, a hop-completion check decided from the run's own state
+  # file or from the run's own evidence rather than from the artifact tree.
+  # Neither is visible to `koto template compile`, and neither raises at
+  # runtime -- the run does the wrong thing and reports success.
+  directives:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run check-template-directives tests
+        run: bash scripts/check-template-directives_test.sh
+
+      - name: Check koto template directives
+        run: bash scripts/check-template-directives.sh
