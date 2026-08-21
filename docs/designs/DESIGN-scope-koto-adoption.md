@@ -301,24 +301,39 @@ One script decides a hop under both limbs, and the per-hop and chain-wide gates
 share it so two gates cannot disagree about the same file.
 
 **Limb (a) — the artifact is present.** Not `test -f`. The path must be a regular
-file, not a symlink, non-empty, opening with a frontmatter delimiter and carrying
-a `schema:` key. `test -f` alone accepts `touch` and follows a symlink to any file
-on the machine, and under the per-hop commit either would then be committed as a
-completed hop.
+file, not a symlink, non-empty, and it must pass `shirabe validate` clean. `test
+-f` alone accepts `touch` and follows a symlink to any file on the machine, and
+under the per-hop commit either would then be committed as a completed hop. The
+validator requirement is what stops a three-line stub — a frontmatter delimiter
+and a `schema:` key and nothing else — from counting as a landed hop; the
+validator rejects such a file with eight errors, and limb (a) has no business
+being satisfied by something limb (b) would refuse.
 
-**Limb (b) — the hop is declared absorbed.** The predicate parses the survivor's
-`absorbed:` key specifically and matches whole entries. It does **not** grep the
-frontmatter block for the artifact's basename. An earlier version did, and the
-consequence was decisive: the `upstream:` line that a hundred documents in this
-repository already carry as ordinary convention satisfied the check, so the
+**Limb (b) — the hop is declared absorbed.** Two scoping rules, and dropping
+either one defeats the limb.
+
+*Frontmatter only.* The scan stops at the closing `---`, so a mention anywhere in
+the body cannot satisfy the gate — including a fenced YAML block that looks like a
+declaration. This matters more than it appears: `shirabe validate` returns clean
+on such a document, because FC18 is gated on `absorbed:` being present as the
+validator's own frontmatter parser sees it, so a body-block declaration is
+invisible to the backstop as well as to the reader.
+
+*The `absorbed:` key specifically, matched as whole entries.* Not a grep over the
+frontmatter block for the artifact's basename. An earlier version did that, and
+the consequence was decisive: the `upstream:` line that a hundred documents in
+this repository already carry as ordinary convention satisfied the check, so the
 reported incident plus three lines of routine YAML made all four hops pass and
 reached the full-run terminal carrying an engine-authored gate outcome vouching
 for a chain it never walked. That version made the incident easier to get away
 with than it is today.
 
-Having found a declaration, the predicate runs `shirabe validate` on the survivor
-and credits the fold only if it comes back clean, so this gate and FC18 cannot
-drift apart.
+Having found a declaration, the predicate checks the FC18 pairing itself — the
+`## Status` absorption line and the contribution heading each entry implies — and
+then requires `shirabe validate` to come back clean as a second condition. The
+order is deliberate. A clean validation means no violation was found, not that an
+absorption was verified, so relying on it alone would let a declaration the
+validator cannot see pass unexamined.
 
 **Cascading folds need no recursion**, because a survivor carries and declares
 every absorbed ancestor, so a flat scan over downstream survivors finds a
@@ -509,8 +524,13 @@ probe would silently adopt another worktree's live run and tick its position
 forward against a different artifact tree — a failure the collision error at
 least refuses out loud. So the probe reattaches only when the session's own record
 of its origin worktree matches this invocation's, and reports the collision
-otherwise. The session store location is an environment input rather than a
-constant, so the ownership record carries the store path alongside the name; two
+otherwise. That record lives in the **session's context store**, not in the
+state file: the state file is per-worktree and absent in the colliding worktree,
+which is the whole failing case, so putting the origin there makes the check
+inert. Reading an identity another run wrote is a different use of that store
+than a run attesting to its own completion, which is why this does not reopen the
+rejected `context-exists` gate above. The store location is itself an environment
+input rather than a constant, so the record carries it alongside the name; two
 invocations against one topic under different stores would otherwise each find
 nothing and open a second session.
 
@@ -589,7 +609,8 @@ repository, not just this one.
 Two state stores, reconciled by one rule rather than a procedure: the session is
 authoritative for position, the state file for everything else.
 
-The concurrency prohibition widens from same-worktree to same-machine. The
+The concurrency prohibition widens from one worktree to every worktree sharing a
+session store. The
 failure mode improves — a loud error before anything is written, where today it
 is a silent race on one file — and the blast radius grows.
 

@@ -194,8 +194,16 @@ that decision SHALL appear in the per-hop record (R23).
 The distinction is durability and review, not authorship. A fold is recorded by
 an `absorbed:` frontmatter entry plus the contribution section
 `shirabe validate`'s FC18 check requires alongside it, both of which land in a
-diff a reviewer reads. Forging one is most of the work of performing it. An
-empty list of executed hops in the state file costs nothing and nobody sees it.
+diff a reviewer reads. An empty list of executed hops in the state file costs
+nothing and nobody sees it.
+
+**Corrected after acceptance.** This paragraph previously closed "Forging one is
+most of the work of performing it." The downstream design disproved it: FC18
+checks structure and never inspects a contribution section's body, so a document
+declaring three absorptions whose sections each hold a single character validates
+clean. Forging a fold costs about ten lines. What the pairing buys is that the
+forgery is structural and lands in a diff, not that it is expensive — and the
+requirement stands on that narrower ground.
 
 **R9.** Marking a hop skipped SHALL remain possible, and `chain_skipped:` and the
 re-entry protection built on it SHALL keep their present meaning. A skipped hop
