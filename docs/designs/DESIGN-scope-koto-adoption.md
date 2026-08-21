@@ -452,6 +452,55 @@ the child-intermediate gate finds, which is why the bail state's evidence is a
 choice rather than an acknowledgement. And the row keying on the exit field is
 covered by the first paragraph here.
 
+### The fold state's payload
+
+The text the fold state delivers, carried here because it is the destination the
+prose rewrite moves content to and the working notes that drafted it are not
+durable. It is scoped to the pair in hand by construction: it never names a
+document type as *the* upstream, because the pair differs per visit and a
+directive is static text, and it tells the agent which two of the four rows are
+its question.
+
+> You are holding two documents: the one that just landed, and the one this hop
+> handed the child as its invocation argument. What follows is about those two
+> and about nothing else.
+>
+> Two documents that restate one problem at two altitudes cost a reader two reads
+> for one idea, and an obvious point articulated twice reads as ceremony. Sparing
+> the reader that is worth doing, and it is the only thing that ever removes a
+> document from a `/scope` run. It is worth doing here, about the pair in your
+> hands. It is not a reason to want fewer documents in general, and it decides
+> nothing about a document nobody has written.
+>
+> Applying it needs what each of your two documents declares it contributes. Each
+> type declares one contribution, quoted here from that type's own format
+> reference:
+>
+> - **BRIEF** — WHY: the problem the feature solves and the outcome a user should
+>   experience.
+> - **PRD** — WHAT: the requirements the feature must meet and the criteria that
+>   decide it is done.
+> - **DESIGN** — HOW: the technical approach, the alternatives weighed, and why
+>   this one.
+> - **PLAN** — WHEN: the order the work happens in, and what each unit depends on.
+>
+> Find the two rows that describe your edge. The other two are not your question.
+> Read the upstream you are holding against its own row and ask one thing: does it
+> hold anything beyond that contribution which compression into a single section
+> would lose?
+>
+> If it does, the verdict is `keep`, with a finding naming what the upstream holds
+> that the survivor would not. If it does not, the verdict is `absorb`, and the
+> carry check has to confirm every concern arrived before anything is deleted.
+
+Two properties of this text are the reason it reads the way it does. It states
+the reader-economy argument only about the pair in hand and explicitly refuses
+the general form, because the general form is what the incident quoted. And it
+delivers the four per-type contributions here rather than earlier, because four
+sentences summarizing what each document contains, handed to an agent holding
+none of them, is a compression recipe for the failure this work exists to
+prevent.
+
 ### The pre-hop set
 
 The requirement that the reduction argument reach no reader before the first hop

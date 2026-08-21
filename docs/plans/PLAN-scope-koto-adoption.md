@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-scope-koto-adoption.md
 milestone: "koto as /scope's instruction substrate"
@@ -11,7 +11,7 @@ issue_count: 12
 
 ## Status
 
-Draft
+Active
 
 Single-pr: twelve issues on one shared branch, no GitHub issues filed. The
 outlines below are what `/work-on` decomposes against.
@@ -225,8 +225,9 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 - [ ] The reader-economy clause in `phase-2-chain-orchestration.md` moves to the fold state's details.
 - [ ] A fixed-string search for the requirements' pinned fragment returns zero across every file in the pre-hop set the design enumerates.
 - [ ] The set searched is the design's sixteen-file enumeration, named in the issue's own commit message so the verification is reproducible, rather than re-derived at review time.
+- [ ] The sweep runs after every other issue that edits a file in the set, so a later edit cannot invalidate it. `references/parent-skill-pattern.md` is in the set and is issue 11's file, which is why issue 11 blocks this one.
 
-**Dependencies**: Blocked by <<ISSUE:8>>
+**Dependencies**: Blocked by <<ISSUE:8>>, <<ISSUE:11>>
 
 **Type**: docs
 **Files**: `skills/scope/references/phases/phase-2-chain-orchestration.md`
@@ -267,7 +268,8 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 
 **Acceptance Criteria**:
 - [ ] A deterministic test drives a real session against the shipped template on every pull request.
-- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them. The fixture is the reported incident's realistic shape — a terminal artifact carrying ordinary `upstream:` frontmatter — since a sanitized one would not exercise the defeat that broke an earlier version of the predicate — read from the landing state's identity and directive, and from the blocked state's own blocking conditions, which are non-empty only because the design re-declares the chain-wide gate there.
+- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them. The refusal is read from the landing state's identity and directive, and from the blocked state's own blocking conditions, which are non-empty only because the design re-declares the chain-wide gate there.
+- [ ] That assertion's fixture is the reported incident's realistic shape: a terminal artifact carrying ordinary `upstream:` frontmatter. A sanitized fixture would not exercise the defeat that broke an earlier version of the predicate.
 - [ ] It asserts that a full-run claim with every hop's artifact present reaches the full-run terminal.
 - [ ] It asserts that a full-run claim with the terminal artifact present and each upstream hop carrying a recorded fold reaches the full-run terminal. This is the legitimate-fold path, and without it every other assertion here is satisfied by a gate that refuses unconditionally.
 - [ ] It asserts that an exit submitted without one of its path's required fields is refused, and that a field declared on exactly one other exit path is refused.
