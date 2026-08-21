@@ -5,6 +5,13 @@ on:
     paths:
       - 'skills/scope/scripts/**'
       - 'crates/shirabe-validate/src/formats.rs'
+      # hop-complete.sh reimplements the validator's frontmatter splitter, and
+      # its notion of a clean run depends on how --check selection drives the
+      # outcome. Both rules live in the two files below, so a change to either
+      # has to run this suite: the two parsers disagreeing on one input is the
+      # defeat, and it has happened twice.
+      - 'crates/shirabe-validate/src/frontmatter.rs'
+      - 'crates/shirabe/src/main.rs'
       - '.github/workflows/check-scope-scripts.yml'
 
 jobs:
@@ -53,3 +60,49 @@ jobs:
             exit 1
           fi
           echo "path shape agrees"
+
+  # The hop-completion predicate decides whether a chain hop landed, and it is
+  # the only site that can stop a document being deleted as absorbed. Seven
+  # defeats have been found in it; each one is a fixture in this suite, so the
+  # suite regressing is the defeat returning.
+  #
+  # It runs on Linux only, and it needs the real binary rather than a stub. That
+  # is deliberate, and it is what makes this job a pin as well as a test: the
+  # predicate reimplements the validator's frontmatter splitter, so the fixtures
+  # ask "do these two parsers still agree" against whatever the validator does
+  # today. A stub would pin the copy to itself and agree forever.
+  test-hop-complete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install shirabe
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$HOME/.scope-bin"
+          install -m 0755 target/release/shirabe "$HOME/.scope-bin/shirabe"
+          echo "$HOME/.scope-bin" >> "$GITHUB_PATH"
+
+      # The predicate refuses when the validator is absent, so a missing binary
+      # surfaces as 37 refusals rather than a silent pass. Assert it is here
+      # anyway, so that failure reads as an environment problem rather than as
+      # the predicate having changed its mind.
+      - name: Assert the validator is on PATH
+        run: command -v shirabe
+
+      - name: Run hop-complete fixtures
+        run: bash skills/scope/scripts/hop-complete_test.sh
