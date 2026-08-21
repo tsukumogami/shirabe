@@ -43,10 +43,36 @@ fi
 # whose survivor names an upstream that was absorbed away. FC01, FC03 and FC04
 # are the checks that answer the question this limb actually asks: is the file
 # at this path a well-formed artifact of its type.
-validates_structure() {
-  shirabe validate "$1" --check FC01,FC03,FC04 --format json 2>/dev/null \
-    | grep -q '"outcome": *"clean"'
+# A validator that reaches a verdict answers this limb's question, either way.
+# A validator that reaches no verdict -- a check renamed out from under us, a
+# broken install, an argument this build does not accept -- has answered
+# nothing, and calling that "not clean" would make every fold in the repository
+# uncreditable while the gate went on printing a confident "incomplete".
+# Discarding stderr is precisely what would make those two indistinguishable,
+# so the diagnostic is kept and the no-verdict case exits 2 (cannot tell)
+# rather than 1 (not done) -- the status a missing binary already gets.
+VALIDATOR_OUT=""
+run_validator() {
+  local status
+  VALIDATOR_OUT=$(shirabe validate "$1" --check "$2" --format json 2>&1)
+  status=$?
+  case "$VALIDATOR_OUT" in
+    *'"outcome"'*) return 0 ;;
+  esac
+  echo "cannot decide hop completion: shirabe validate reached no verdict on $1 (exit $status)" >&2
+  if [ -n "$VALIDATOR_OUT" ]; then printf '%s\n' "$VALIDATOR_OUT" >&2; fi
+  return 1
 }
+
+# Both callers are plain `if`/`for` conditions in the main shell, never a
+# pipeline or a command substitution, so this exit leaves the script rather
+# than a subshell that would swallow it.
+is_clean() {
+  run_validator "$1" "$2" || exit 2
+  printf '%s' "$VALIDATOR_OUT" | grep -q '"outcome": *"clean"'
+}
+
+validates_structure() { is_clean "$1" FC01,FC03,FC04; }
 
 # The absorption pairing specifically: FC18 requires the `absorbed:` declaration
 # and the contribution section it implies to appear together, so a survivor that
@@ -54,10 +80,7 @@ validates_structure() {
 # One call rather than two consecutive ones on the same file: both must be clean
 # for the fold to be credited, so the combined check is the same question asked
 # once.
-validates_fold() {
-  shirabe validate "$1" --check FC01,FC03,FC04,FC18 --format json 2>/dev/null \
-    | grep -q '"outcome": *"clean"'
-}
+validates_fold() { is_clean "$1" FC01,FC03,FC04,FC18; }
 
 case "$HOP" in
   brief|prd|design|plan) ;;
@@ -182,10 +205,6 @@ esac
 
 for d in $DOWNSTREAM; do
   for sp in $(canonical "$d"); do
-    # Structural check only here. Validating first would skip a survivor that
-    # declares the absorption and fails to validate, and the run would then be
-    # told no declaration exists when one does -- a true refusal with a false
-    # reason, sending an author to the wrong file.
     # Guard on shape and type only, never on validation. FC04's required-section
     # list is dynamic: declaring `absorbed:` makes the contribution section
     # required, so a survivor that declares without carrying fails the structure

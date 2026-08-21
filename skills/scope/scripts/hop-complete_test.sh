@@ -295,6 +295,35 @@ else
   FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "validator absent" "$rc" "$out"
 fi
 
+# A validator that is present but reaches no verdict -- a check renamed out
+# from under us, a build that rejects an argument -- has answered nothing. The
+# hop must read as cannot-tell, not as not-done: collapsing the two would make
+# every fold uncreditable while the gate printed a confident "incomplete".
+C="$BASE/c2"; seed "$C" plan
+STUB="$BASE/stub"; mkdir -p "$STUB"
+{
+  echo '#!/bin/sh'
+  echo 'echo "error: unrecognised check name FC18" >&2'
+  echo 'exit 64'
+} > "$STUB/shirabe"
+chmod +x "$STUB/shirabe"
+out="$(PATH="$STUB:$PATH" bash "$S" --hop plan --topic "$T" --root "$C" 2>&1)"; rc=$?
+case "$rc:$out" in
+  2:*"reached no verdict"*)
+    PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=2 (cannot tell)\n' "validator present, no verdict" "plan" ;;
+  *)
+    FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "validator present, no verdict" "$rc" "$out" ;;
+esac
+
+# The same stub must not silence the diagnostic: the reason has to reach stderr,
+# or the refusal is unactionable.
+case "$out" in
+  *"unrecognised check name FC18"*)
+    PASS=$((PASS+1)); printf 'ok   %-46s %s\n' "no-verdict diagnostic is surfaced" "(validator stderr kept)" ;;
+  *)
+    FAIL=$((FAIL+1)); printf 'FAIL %-46s out=%s\n' "no-verdict diagnostic is surfaced" "$out" ;;
+esac
+
 echo
 echo "passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ]
