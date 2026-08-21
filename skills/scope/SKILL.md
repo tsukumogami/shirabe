@@ -25,9 +25,9 @@ ROADMAP). It walks an author through the four tactical-chain
 children as a single conversation, holds state across child
 boundaries, enforces the pattern-level invariants (state schema,
 resume ladder, three exit paths, child inspection, worktree
-discipline), and lands at one of three terminal exits: a `full-run`
-that produces a PLAN at `docs/plans/PLAN-<topic>.md`, a
-`re-evaluation` exit that writes a Decision Record at a settled-
+discipline), and lands at one of three terminal exits: a `full-run`,
+whose terminal hop deposits a PLAN at `docs/plans/PLAN-<topic>.md`,
+a `re-evaluation` exit that writes a Decision Record at a settled-
 upstream boundary (PRD or DESIGN), or an `abandonment-forced` exit
 that force-materializes the most-recently-running child's
 intermediate as a Draft artifact.
@@ -40,9 +40,9 @@ section-by-section with the pattern's required structural elements,
 and the prose contracts after them bind the `/scope`-specific
 asymmetries the tactical chain introduces (two settled-upstream
 boundaries, Mandatory-with-auto-skip re-entry protection on every
-child, a post-hoc consolidation judgment that is the only thing
-reducing the artifact set and runs only after the artifacts
-exist, a refuse-and-redirect Slot 5 shape for PLAN's
+child, a consolidation judgment that is the only thing permitted to
+remove a document from a run and that cannot run before the
+documents exist, a refuse-and-redirect Slot 5 shape for PLAN's
 downstream-owned lifecycle states, and a terminal child with two
 output modes).
 
@@ -432,16 +432,16 @@ Complex classification). The output ends with a confirmation prompt
 containing the literal substrings **Proceed**, **Adjust**, and
 **Bail** (case-insensitive) in the offered options.
 
-The proposal never offers a shorter chain. The reason is not that
-`/scope` cannot end a run with fewer documents than the chain has
-altitudes; the consolidation judgment does exactly that in Phase 2.
-The reason is that Phase 1 has no artifact to decide against. A
-shorter chain offered here would be a verdict on documents nobody
+The proposal never offers a shorter chain. Not because a run always
+ends with four documents — the consolidation judgment removes some
+in Phase 2 — but because Phase 1 has no artifact to decide against.
+A shorter chain offered here would be a verdict on documents nobody
 has written, which is the one call the chain does not make.
 
-An author who wants to start above `/brief` still invokes `/design`
-or `/plan` directly. That buys a shorter conversation, not a
-smaller artifact set: inside `/scope`, the set is settled per hop
+Invoking `/design` or `/plan` directly costs the hops it skips:
+their questions go unasked rather than answered, and no later hop
+recovers them. What it buys is a shorter conversation, not a
+smaller artifact set — inside `/scope`, the set is settled per hop
 after the artifacts land.
 
 The three branch behaviors:
@@ -469,67 +469,53 @@ surfaced verbatim so the author sees the predicate verdicts
 behind the chain shape rather than an opaque "Complex" or
 "Simple" label.
 
-## Why the Artifact Set Shrinks
+## Why Each Hop Is Taken
 
-Three documents that restate one problem at three altitudes cost a
-reader three reads for one idea, and an obvious concept articulated
-three times reads as ceremony. Sparing the reader that is worth
-doing, and it is the only reason `/scope` ever ends a run with
-fewer documents than the chain has altitudes.
+Each hop is taken because it settles something no earlier document
+settles and nothing available before it runs can settle on its
+behalf. Framing is settled by writing the framing; requirements by
+writing the requirements; an approach by choosing between
+alternatives on the page; an order by committing to one. A hop that
+does not run leaves its question open. It does not answer the
+question more cheaply.
 
-It is not a way to save the chain work. That distinction decides
-*when* the reduction can happen. A judgment about whether a
-document would have carried anything a later one does not is only
-answerable against a document that exists — so the reduction runs
-in Phase 2, after each artifact lands, never at Phase 1 against
-artifacts nobody has written. An earlier revision of this skill
-decided per hop, before each artifact existed, whether the child
-was worth invoking; the party making that call was the one that
-benefited from not doing the work, and nothing it read could tell
-it what was being lost.
+This is why the chain has four hops and why `/scope` walks all
+four. The decision a run makes per hop is what the hop produces,
+not whether the question gets asked.
 
-One mechanism follows from that, and only one. **The
-consolidation judgment** (Phase 2) reduces the set after the
-fact. It reads two written bodies and asks whether the upstream
-holds anything beyond its contribution that folding would lose.
-Where it does not, the upstream's contribution is carried into the
-survivor as one compact section and the upstream is removed.
-Nothing else in a `/scope` run removes a document.
+**A hop's contribution** is what its document holds that no other
+document in the chain holds — what a reader would have to
+reconstruct from scratch if it were gone. It is a property of the
+document in hand rather than of its type: read off the body in
+front of you, never inferred from what documents of that type
+usually carry. Each type's own format reference states the
+contribution that type declares, and this file does not restate
+them. Four sentences summarizing what each document contains,
+read by someone holding none of them, is a summary standing in for
+the documents rather than a way into them — which is the substitution
+this skill exists to prevent.
 
-A briefly-shipped revision of this skill also let Phase 1 choose
-an entry altitude for the chain. It was withdrawn. The question it
-asked the author was more answerable than the per-hop gates it
-replaced — which conversation are you having, rather than what
-would an unwritten document have said — but it was still a
-decision that shrank the artifact set before any artifact existed,
-and having two reduction mechanisms fire at different times meant
-neither read as the rule.
-
-**A shorter conversation is still reached by invoking a child
-directly.** `/design <topic>` and `/plan <topic>` enter the
-tactical chain above `/brief`, which is what CLAUDE.md tells
-authors to do when they know the altitude they want. All four
-children ship as standalone entry points, so the choice is real and
-it stays supported. What it no longer is, is the route to a smaller
-artifact set: that is consolidation's call, made per hop against
-documents that exist. Two rules, stated separately, because
-collapsing them puts the artifact-set decision back where no
-artifact exists. `/scope` means "walk the whole chain."
-
-What it no longer means is a fixed outcome. Every hop is
-decidable, so a run ends with all four artifacts, or some, or —
-once the PLAN is implemented and deleted — none. Which one is
-decided per hop against the two documents at that hop, not chosen
-in advance by the author and not fixed by the types involved.
-There is no durable-artifact floor; the prohibition on
-reintroducing one lives beside the judgment in Phase 2.
-
-Anything held back for any other reason is re-entry protection —
-a settled artifact is already on disk and re-running would clobber
-it — and it is recorded under its own name so the two never blur
-again.
+Anything held back is re-entry protection — a settled artifact is
+already on disk and re-running would clobber it — and it is
+recorded under its own name so that a hop not re-run is never
+confused with a hop not needed.
 
 ## Consolidation Judgment
+
+The consolidation judgment is the only thing in a `/scope` run that
+removes a document, and it runs in Phase 2, after each artifact
+lands — never at Phase 1, against artifacts nobody has written. The
+ordering is a bound, not a preference: whether a document holds
+anything a later one does not is only answerable against a document
+that exists, and the party deciding before it exists is the one that
+benefits from not writing it.
+
+A run therefore ends with all four artifacts, or fewer, or — once
+the PLAN is implemented and deleted — none, and which of those is
+decided per hop against two documents in hand rather than chosen in
+advance or fixed by the types involved. There is no
+durable-artifact floor; the prohibition on reintroducing one lives
+beside the judgment in Phase 2.
 
 After each child returns and its artifact validates, Phase 2
 judges the hop this run drew — the artifact that just landed
@@ -868,17 +854,6 @@ state-file plus child-wip cleanup under `wip/`.
   invocation resume against it instead of starting cold.
   Enumerated here and carved out of the clean cancel, so it is a
   known target that a bail never sweeps.
-
-Three corrections are folded into that enumeration, each a
-pre-existing defect rather than a consequence of this change. The
-deletion set named `docs/briefs/` alone, which was the type-level
-floor written into the security surface: an absorb removing a PRD
-or a DESIGN would have failed the hard-finalization check for a
-reason unrelated to safety. The `docs/{briefs,prds,designs}/` entry
-was gated on `abandonment-forced` only, so the existing `upstream:`
-re-point's mutation of the survivor was *already* outside the set.
-And this file and the Phase 3 reference disagreed about whether the
-PLAN was a Phase 3 write target.
 
 Every path above is composed from the validated topic slug or is a
 fixed constant, never from author-supplied text, so the set stays
