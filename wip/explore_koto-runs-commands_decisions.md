@@ -93,3 +93,44 @@ frame, gather from evidence already in hand, decide, record. Status is
   mechanism. koto issue #204 already exists. It is adjacent to this exploration
   rather than part of it, and the final artifact should hand it off rather than
   absorb it.
+
+## Round 3
+
+- **Conversion is scoped by a principle, not by a percentage.** (confirmed)
+  koto runs a step when it is isolated to its own state, gate-verifiable
+  independent of the action's own exit code, and either read-only or a
+  repo-local mutation safe to reach twice. Remote mutations and anything needing
+  per-repo configuration stay agent-run. This replaces "convert the mechanical
+  bucket" as the operative rule.
+
+- **The blanket read-only restriction is rejected.** (confirmed) Applied line by
+  line it collapses `/execute`'s yield to zero and is unenforceable at compile
+  time. The principle above keeps its safety intent — remote mutations stay with
+  the agent — without discarding repo-local automation.
+
+- **The permission-bypass problem is accepted as unfixable inside koto.**
+  (confirmed) No preview-before-execution mechanism exists and building one
+  reproduces the current prose-plus-gate pattern. So it becomes a scoping
+  constraint rather than a feature request.
+
+- **Deadlock severity is stated as latent, not active.** (confirmed) Round 3
+  measured `go test ./...` at 3,793 bytes across 63 packages on the tsuku
+  monorepo, and only one of eleven gates writes captured stdout at all. The
+  earlier framing overstated it; the corrected framing is that expansion, not
+  time, is what makes it fire.
+
+- **The eighteen non-koto skills are named but not absorbed.** (assumed) They are
+  real hardcoded-command surface under the user's literal question, and none of
+  it is reachable by koto automation. The right treatment is a pointer in the
+  final artifact — particularly the `shirabe transition` / `shirabe validate`
+  duplication across eight lifecycle skills — not an expansion of this topic.
+
+- **The retry-clearing item is deferred behind a decision, not sequenced.**
+  (confirmed) `DESIGN-work-on-retry-clearing.md` is Current and chose manual
+  clearing deliberately. Implementing koto issue #204 does not retire anything
+  in shirabe until that doc is revisited on its own terms.
+
+- **Exploration ends here.** (confirmed) Three rounds, twenty-one leads and two
+  orchestrator probe rounds. What remains open are choices belonging to the
+  author — whether koto-store writes count as side effects, who revisits the
+  retry-clearing design — not questions more research would answer.

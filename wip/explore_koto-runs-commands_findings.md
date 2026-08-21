@@ -463,3 +463,5 @@ the list, because most of what looked unreachable was only unreachable through
 it. `capture_stdout_as` and the
 retry-clearing question come after, the latter behind a shirabe design decision
 that has to argue against a doc already marked Current.
+
+## Decision: Crystallize
