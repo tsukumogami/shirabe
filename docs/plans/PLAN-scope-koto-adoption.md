@@ -219,8 +219,8 @@ construction. Issue 4's criterion carves out that single citation line, and issu
 
 **Acceptance Criteria**:
 - [ ] The reader-economy clause in `phase-2-chain-orchestration.md` moves to the fold state's details.
-- [ ] A fixed-string search for the design's pinned fragment returns zero across every file in the pre-hop set.
-- [ ] The set searched is the design's enumeration, named in the issue's own commit message so the verification is reproducible, rather than re-derived at review time.
+- [ ] A fixed-string search for the requirements' pinned fragment returns zero across every file in the pre-hop set the design enumerates.
+- [ ] The set searched is the design's sixteen-file enumeration, named in the issue's own commit message so the verification is reproducible, rather than re-derived at review time.
 
 **Dependencies**: Blocked by <<ISSUE:8>>
 

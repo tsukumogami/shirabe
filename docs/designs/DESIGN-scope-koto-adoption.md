@@ -452,6 +452,35 @@ the child-intermediate gate finds, which is why the bail state's evidence is a
 choice rather than an acknowledgement. And the row keying on the exit field is
 covered by the first paragraph here.
 
+### The pre-hop set
+
+The requirement that the reduction argument reach no reader before the first hop
+is only mechanizable against a named set of files. The set is a transitive
+closure: `skills/scope/SKILL.md`, every file its Reference Files table names as
+loading before the first hop is entered, and every file those in turn name by
+path. Enumerated it is sixteen files.
+
+| Level | Files |
+|---|---|
+| 0 | `skills/scope/SKILL.md` |
+| 1 | `references/parent-skill-pattern.md`, `references/parent-skill-state-schema.md`, `references/parent-skill-resume-ladder-template.md`, `references/parent-skill-security.md`, `skills/scope/references/state-schema.md`, `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/phases/phase-1-discovery.md`, `skills/scope/references/phases/phase-resume.md` |
+| 2 | `references/parent-skill-child-inspection.md`, `references/worktree-discipline.md`, `references/cross-repo-references.md`, `references/pipeline-model.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`, `skills/charter/references/phases/phase-finalization.md`, `docs/prds/PRD-shirabe-charter-skill.md` |
+
+Two things about this table are the reason it is carried here rather than
+re-derived. The closure pulls in files the Reference Files table marks as loading
+at Phase 2 — the child-inspection and worktree-discipline references, and the
+phase-2 orchestration file itself — because a Phase 0 or Phase 1 file names them
+by path. Treating the phase-2 file as a one-off catch rather than as an instance
+of the closure rule is how a later edit to either of the other two violates the
+requirement silently.
+
+And a sweep of all sixteen found exactly one violation beyond `SKILL.md`: the
+reader-economy clause in the phase-2 orchestration file. The other matches are
+bounds rather than desirability arguments — statements that Phase 1 decides
+nothing about the size of the artifact set, and that a parent may not decide an
+artifact is not worth producing before it exists — which are the opposite claim
+and stay.
+
 ### Conformance changes
 
 Two edits to the shared parent-skill contract, both additive.
