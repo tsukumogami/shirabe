@@ -50,6 +50,13 @@ Two issues are deliberately sequenced late for a reason worth stating: the
 deterministic test and the model-graded scenarios both assert against the shipped
 template, so writing them earlier means writing them against a moving target.
 
+One conflict is inherited from upstream and resolved here rather than left for an
+implementer to hit. The requirements say both that the four child skills are
+unmodified and that a by-title citation inside one of them is updated. Both are
+measured against the same merge base on one branch, so one would be false by
+construction. Issue 4's criterion carves out that single citation line, and issue
+10 owns the edit.
+
 ## Issue Outlines
 
 ### Issue 1: Fix the eval harness
@@ -77,9 +84,11 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] Limb (b) parses the `absorbed:` frontmatter key specifically, matches whole entries, and scans frontmatter only.
 - [ ] On a limb (b) match the predicate checks the FC18 pairing and requires a clean validation as a second condition.
 - [ ] No path under `wip/` is read.
+- [ ] The predicate re-asserts the topic slug's pattern before composing any path, since the workflow engine's own variable validation permits dots and slashes.
 - [ ] With `shirabe` absent the predicate exits 2 naming the missing binary, and does not fall back to a weaker check.
 - [ ] The refusal names each hop that satisfied neither limb; a survivor that declares a fold and fails validation is reported as such rather than as no declaration.
 - [ ] A fixture suite covers: artifact present, legitimate fold, cascading fold, the reported incident, a body-prose claim, a frontmatter name-drop, a body code-block declaration, a three-line stub, an artifact copied onto another type's path, a symlink, a zero-byte file, an `absorbed:` entry that is a substring of a longer path, an `absorbed_by:` lookalike key, an inline backticked `---` inside a block scalar, and a missing validator.
+- [ ] Three further fixtures pin behaviour the acceptance criteria above assert and the list would otherwise leave untested: a survivor that declares a fold and fails validation, which must report that rather than reporting no declaration; the design artifact at each of its two canonical locations, both crediting the hop; and a hop marked skipped, which must satisfy neither limb.
 
 **Dependencies**: None
 
@@ -93,7 +102,8 @@ template, so writing them earlier means writing them against a moving target.
 **Acceptance Criteria**:
 - [ ] The check runs on every pull request over all `skills/*/koto-templates/*.md` that carry YAML frontmatter, skipping files without it.
 - [ ] Any non-terminal state carrying an evidence block with no guarded transition fails.
-- [ ] Over `/scope`'s template, any hop-completion check reading `wip/scope_` or an agent-submitted evidence field fails, and the predicate covers scripts the gates invoke rather than only gate command strings.
+- [ ] Any hop-completion check reading `wip/scope_` or an agent-submitted evidence field fails, and the rule covers scripts the gates invoke rather than only gate command strings.
+- [ ] That rule is exercised against a synthetic fixture carrying one gate reading `wip/scope_` and one reading an evidence field, both of which must fail, so it is falsifiable before the real template exists.
 - [ ] A deliberately malformed fixture fails and the shipped templates pass.
 - [ ] The four states violating the universal rule today are fixed, or listed in an allowlist the check reads with an issue reference beside each.
 
@@ -116,7 +126,9 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] Every state declares its `phase:`.
 - [ ] The template's description states the two authoring rules a reviewer checks before reading the states.
 - [ ] A hop can still be marked skipped, and a skipped hop satisfies neither limb of the exit rule.
-- [ ] A diff against the merge base shows no change under `skills/brief/`, `skills/prd/`, `skills/design/` or `skills/plan/`.
+- [ ] The pinned fragment of the reduction argument occurs exactly once in the compiled template, under the fold state's details, and zero times in the initial state's directive.
+- [ ] The four per-type contribution summaries appear in the compiled template only under the fold state.
+- [ ] A diff against the merge base shows no change under `skills/brief/`, `skills/prd/`, `skills/design/` or `skills/plan/`, other than the single by-title citation line in `skills/brief/references/phases/phase-0-setup.md` that Issue 10 updates.
 
 **Dependencies**: Blocked by <<ISSUE:2>>
 
@@ -132,7 +144,7 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] The header comment explains what each record is for, in the shape `/execute`'s file uses.
 - [ ] `scripts/check-skill-requires.sh` passes.
 
-**Dependencies**: Blocked by <<ISSUE:4>>
+**Dependencies**: Blocked by <<ISSUE:6>>
 
 **Type**: code
 **Files**: `skills/scope/requires.tsv`
@@ -146,13 +158,15 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] On invocation `/scope` probes for an existing session before opening one.
 - [ ] Reattach happens only when the session's recorded origin worktree matches this invocation's; on a mismatch the collision is reported and the run stops.
 - [ ] The origin record lives in the session's context store and carries the store location alongside the name.
-- [ ] No cleanup or cancel verb is run against a session `/scope` did not open.
+- [ ] No path under `skills/scope/` invokes a workflow cleanup or cancel verb at all.
+- [ ] Every value recovered from the session is re-validated at the resume entry — enums against their enum, path-valued fields against the anchored pattern for their type.
 - [ ] Every terminal transition passes the retention flag, so the per-hop record survives the run.
 - [ ] `phase_pointer:` names the `/scope` phase the run is in, is written after the tick that advances the session, and is written from `/scope`'s own phase when no session exists.
 - [ ] A run whose session no longer exists still reports its exit from the state file.
 - [ ] Every field in the state schema is still written.
 - [ ] Every resume-ladder row label and every row's author-facing prompt text is unchanged against the merge base.
-- [ ] A resume from a fresh clone, with artifacts on disk and no session, reaches the same handler it reaches today.
+- [ ] Against a fixture carrying an Accepted PRD at the canonical path, no state file and no session, resume emits the `Re-evaluate / Revise / Bail` triad with boundary `prd`.
+- [ ] The drift-detection trigger in `phase-resume.md` is left as it stands, and a sentence records that this work preserves rather than fixes it.
 - [ ] `skills/scope/SKILL.md` still declares its existing storage substrate.
 - [ ] The state file records the session `/scope` opened.
 
@@ -172,11 +186,13 @@ template, so writing them earlier means writing them against a moving target.
 - [ ] Staging uses an explicit pathspec for the one canonical path; no `-A` and no `commit -a`.
 - [ ] The commit message is composed only from the hop name and the validated slug.
 - [ ] Nothing pushes.
+- [ ] `skills/scope/SKILL.md`'s closed write-target set gains the design's three groups: the current-design path joins the mutation and abandonment groups, the plans directory joins the abandonment group, a commits group names the four canonical paths plus the design fallback and confines git writes to those pathspecs, and an out-of-repo ephemeral group names the session store and the template compile cache.
+- [ ] The Phase 3 and Phase 4 references, which restate and read back that set, do not diverge from it.
 
 **Dependencies**: Blocked by <<ISSUE:4>>
 
 **Type**: code
-**Files**: `skills/scope/references/phases/phase-2-chain-orchestration.md`
+**Files**: `skills/scope/references/phases/phase-2-chain-orchestration.md`, `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-3-exit-finalization.md`, `skills/scope/references/phases/phase-4-cleanup.md`
 
 ### Issue 8: Rewrite the purpose-bearing prose
 
@@ -184,8 +200,8 @@ template, so writing them earlier means writing them against a moving target.
 
 **Acceptance Criteria**:
 - [ ] Every entry in the design's disposition table has its disposition applied.
-- [ ] The general-form reduction argument appears nowhere in the pre-hop set and is delivered at the fold state.
-- [ ] The four per-type contribution summaries appear nowhere in the pre-hop set and are delivered at the fold state.
+- [ ] The general-form reduction argument appears nowhere in `skills/scope/SKILL.md`.
+- [ ] The four per-type contribution summaries appear nowhere in `skills/scope/SKILL.md`.
 - [ ] `SKILL.md` carries a named section stating why the hops are taken.
 - [ ] `SKILL.md` carries exactly one operational definition of the hop-output term, saying what kind of thing such an output is rather than what each type produces.
 - [ ] Neither denylisted sentence survives; the protected path statement inside the first one does.
@@ -204,7 +220,7 @@ template, so writing them earlier means writing them against a moving target.
 **Acceptance Criteria**:
 - [ ] The reader-economy clause in `phase-2-chain-orchestration.md` moves to the fold state's details.
 - [ ] A fixed-string search for the design's pinned fragment returns zero across every file in the pre-hop set.
-- [ ] The pre-hop set used by the check is the enumerated one, not re-derived.
+- [ ] The set searched is the design's enumeration, named in the issue's own commit message so the verification is reproducible, rather than re-derived at review time.
 
 **Dependencies**: Blocked by <<ISSUE:8>>
 
@@ -247,20 +263,23 @@ template, so writing them earlier means writing them against a moving target.
 
 **Acceptance Criteria**:
 - [ ] A deterministic test drives a real session against the shipped template on every pull request.
-- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them.
+- [ ] It asserts that a full-run claim submitted as evidence is refused when hops have neither artifact nor recorded fold, and that the refusal names them — read from the landing state's identity and directive, and from the re-declared gate's blocking conditions on the blocked state, never from the blocked state's own empty conditions.
+- [ ] It asserts that a full-run claim with every hop's artifact present reaches the full-run terminal.
+- [ ] It asserts that a full-run claim with the terminal artifact present and each upstream hop carrying a recorded fold reaches the full-run terminal. This is the legitimate-fold path, and without it every other assertion here is satisfied by a gate that refuses unconditionally.
+- [ ] It asserts that an exit submitted without one of its path's required fields is refused, and that a field declared on exactly one other exit path is refused.
 - [ ] It asserts that after the run has ended a walked hop and a bypassed hop are distinguishable in the per-hop record.
 - [ ] It asserts that the reduction argument is absent from what the session delivers before the first hop and present at the fold state.
 - [ ] It confines its session storage to its own temporary store, names its session outside the production prefix, and calls no cleanup verb against a name it did not create there.
 - [ ] It skips with a message naming the missing binary when koto is absent, and the CI job installs koto explicitly so a skip cannot mask a missing dependency.
 - [ ] Two model-graded scenarios assert on files present after a run, one of them negatively: no document claims an artifact was folded away for a hop with neither that artifact nor a recorded fold behind it.
+- [ ] A scenario covers a run that marks every hop skipped: it reaches the abandonment terminal rather than the full-run terminal, and `chain_skipped:` names every hop.
+- [ ] A scenario covers a second invocation against a live topic: exactly one session directory exists for the topic afterward.
 - [ ] The model-graded scenarios run at least five times and report a rate against a threshold stated in the suite, and do not gate a pull request.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:4>>, <<ISSUE:6>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:4>>, <<ISSUE:6>>, <<ISSUE:8>>
 
 **Type**: code
 **Files**: `skills/scope/scripts/scope-substrate_test.sh`, `skills/scope/evals/evals.json`, `.github/workflows/check-scope-scripts.yml`
-
-## Dependency Graph
 
 ## Implementation Sequence
 
@@ -273,15 +292,25 @@ before them.
 harness fix, the predicate, the lint and the contract widening can proceed at
 once, and three of the four are self-contained enough to review independently.
 
-**Parallel after the template.** Issues 5, 6, 7 and 8 all depend only on issue 4
-and touch different files — the tool declarations, the session wiring, the commit
-behaviour and the prose. They can run together.
+**Parallel after the template.** Issues 6, 7 and 8 depend only on issue 4 and
+touch different concerns — the session wiring, the commit behaviour, the prose.
+Issue 5 follows 6 rather than joining them: the declaration checker reads call
+sites out of the skill's own files, and issue 6 is what writes them, so issue 5's
+criteria are unevaluable until it lands and the checker fails if 6 arrives
+second.
+
+**One shared file.** Issues 7 and 9 both edit
+`phase-2-chain-orchestration.md` — issue 7 for the commit behaviour, issue 9 for
+the desirability clause. Sequence 9 after 7 to keep two writers off one file.
 
 **The tail.** Issues 9 and 10 follow the prose rewrite and are small. Issue 12 is
-last by construction, because it asserts against the shipped template.
+last by construction, because it asserts against the shipped template and against
+the prose having moved.
 
 **Where to be careful about ordering within an issue.** Issue 1's zero-assertion
 exit comes before its other three changes, or the changes cannot be seen to work.
-Issue 2's attack corpus is written with the predicate rather than after it — five
-of its cases are defeats that review found in earlier versions, and a predicate
-written without them in front of you is likely to reproduce one.
+Issue 2's attack corpus is written with the predicate rather than after it. Five
+of its cases are defeats that review found in earlier versions of this work and a
+predicate written without them in front of you is likely to reproduce one; the
+rest are hardening of the two scoping rules, and three exist because an
+acceptance criterion asserts behaviour the original list left untested.
