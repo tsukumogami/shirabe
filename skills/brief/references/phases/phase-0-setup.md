@@ -311,8 +311,8 @@ reduction can actually be verified. `/scope`'s Phase 2 runs a consolidation
 judgment after each artifact lands: it reads the BRIEF and the PRD, checks
 section by section that the PRD carries the brief's problem, outcome, journeys,
 and boundary, and only then removes the brief. See the Consolidation Judgment
-section of `skills/scope/references/phases/phase-2-chain-orchestration.md` and the
-"Why the Artifact Set Shrinks" section of `skills/scope/SKILL.md`.
+section of `skills/scope/references/phases/phase-2-chain-orchestration.md`, which
+is where that judgment's bounds live.
 
 An author invoking `/brief` directly gets a brief and, at Phase 5, a
 recommendation to run `/prd <brief-path>` — one command away from the chain that
