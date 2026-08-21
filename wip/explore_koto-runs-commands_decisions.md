@@ -48,3 +48,48 @@ frame, gather from evidence already in hand, decide, record. Status is
   bulk of the eventual rewrite live in `public/shirabe`; koto-side work will be
   named explicitly as koto issues. Revisit at crystallize if the koto half turns
   out to dominate.
+
+## Round 2
+
+- **The three-path pattern is treated as available, not aspirational.** (confirmed)
+  Verified running against the shipped binary, including the compiler constraint
+  that every conditional transition must share a field. Round 3 stops asking
+  whether the shape works and starts asking which steps deserve it.
+
+- **`on_failure:` and similar schema additions are ruled out.** (confirmed)
+  Gates were always the intended arbiter of success, and the failure gaps are
+  plumbing — action output missing from the two failure response variants, and
+  no detection at all for a state with an action and no gates. Round 3 costs the
+  plumbing, not a new policy field.
+
+- **`capture_stdout_as:` is the working assumption for output routing.**
+  (assumed) It satisfies the motivating case, avoids the response-contract
+  surface that makes `action_output`-everywhere expensive, and reuses the
+  existing variable path. Not final — it carries a same-tick staleness trap that
+  a design doc would need to address.
+
+- **The 64KB deadlock is promoted above the whole conversion question.**
+  (confirmed) It is a live defect in the layer gates already use, it produces
+  false failures with the evidence destroyed, and it affects shipped shirabe
+  templates today. Whatever the exploration concludes about `default_action`,
+  this does not wait on it.
+
+- **The earlier "koto cannot call koto because of a lock" reading is retracted.**
+  (confirmed) The cause is the un-drained pipe plus koto's own 106KB of
+  migration warnings per session-touching command. Findings that built on the
+  lock framing — including part of the counter-case — are re-read accordingly:
+  the deadlock is real and environment-dependent, not structural.
+
+- **The permission-bypass objection is carried forward as a first-class design
+  constraint, not a footnote.** (confirmed) The user asked for hard guards
+  against unintended side effects. A mechanism that removes outward-facing
+  commands from the user's own allow/deny surface works against that goal, so
+  round 3 asks explicitly whether it can be mitigated and what the answer implies
+  for side-effecting conversions.
+
+- **`context_assignments` being inert is logged as a separate defect, not folded
+  into the main thread.** (confirmed) 28 uses across the two shipped templates,
+  all silently doing nothing, with a compiler warning that recommends the broken
+  mechanism. koto issue #204 already exists. It is adjacent to this exploration
+  rather than part of it, and the final artifact should hand it off rather than
+  absorb it.

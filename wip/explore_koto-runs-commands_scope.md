@@ -139,3 +139,27 @@ design, the concrete per-state map, and the case against automating.
     bookkeeping from the agent's hands?**
     The eight identical context-clearing blocks are koto talking to koto through
     the agent. Transition hooks, state-scoped context, TTL, or nothing.
+
+## Research Leads — Round 3
+
+Round 2 produced designs and maps and left the central question contested. Round
+3 closes the remaining gaps and adjudicates.
+
+17. **What did rounds 1 and 2 miss?**
+    A completeness pass over instruction surfaces neither inventory covered.
+
+18. **How exposed is shirabe to the 64KB deadlock today, and what does the fix
+    cost?**
+    A severity sweep across the eleven shipped gates and every other place koto
+    captures output, plus the size of the concurrent-drain fix and of the
+    migration-warning volume that triggers it.
+
+19. **Should engine-run commands be restricted to read-only, and can a user's
+    permission layer stay in the loop?**
+    The counter-case's middle path, evaluated against both conversion maps, and
+    the question of whether outward-facing commands can keep the user's own
+    allow/deny surface.
+
+20. **What is the dependency-ordered, sized work list across both repos?**
+    Everything the exploration has established, turned into a sequence someone
+    could act on, with what blocks what.
