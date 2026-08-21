@@ -375,6 +375,28 @@ case "$rc:$out" in
     FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "validator present, no verdict" "$rc" "$out" ;;
 esac
 
+# The same question down limb (b). The no-verdict exit reaches the main shell
+# through a different call path -- the survivor scan's `if ! validates_fold`
+# rather than the artifact loop's `if is_artifact` -- and a future edit that
+# puts either inside a pipeline would swallow the exit on that path alone. The
+# limb (a) case above cannot catch that, so both are driven.
+C="$BASE/c6"; seed "$C" plan
+python3 - "$C/docs/plans/PLAN-$T.md" "$T" <<'PY'
+import sys
+p, topic = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s = s.replace("---\nschema: plan/v1\n",
+              "---\nschema: plan/v1\nabsorbed:\n  - docs/briefs/BRIEF-%s.md\n" % topic, 1)
+open(p, "w").write(s)
+PY
+out="$(PATH="$STUB:$PATH" bash "$S" --hop brief --topic "$T" --root "$C" 2>&1)"; rc=$?
+case "$rc:$out" in
+  2:*"reached no verdict"*)
+    PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=2 (cannot tell)\n' "no verdict down the fold limb" "brief" ;;
+  *)
+    FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=2 out=%s\n' "no verdict down the fold limb" "$rc" "$out" ;;
+esac
+
 # The same stub must not silence the diagnostic: the reason has to reach stderr,
 # or the refusal is unactionable.
 case "$out" in

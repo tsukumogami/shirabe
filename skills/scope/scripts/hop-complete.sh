@@ -7,6 +7,18 @@
 #       frontmatter key, as a whole entry.
 #
 # Reads only the artifact tree. Never reads wip/scope_<topic>_state.md.
+#
+# Exit statuses are three, not two, and the third carries weight: 0 complete,
+# 1 not complete, 2 CANNOT TELL. Anything that stops this script deciding --
+# no validator, a validator that could not parse the document, an argument it
+# does not recognise -- is a 2. A caller that folds 2 into 1 turns every such
+# case into a confident "not done", which is the failure this file has been
+# defeated by more than once.
+#
+# ADDING A HOP means editing five `case` statements: the hop allowlist, the
+# canonical-path map, the schema map, the downstream-hop map, and the
+# FC18-entry map. A missed one fails OPEN for that hop rather than erroring,
+# so change them together and add a fixture for the new hop in each direction.
 set -uo pipefail
 HOP=""; TOPIC=""; ROOT="."
 while [ $# -gt 0 ]; do
@@ -68,6 +80,17 @@ verdict_is() {
 # cannot-tell. Testing for the `outcome` key alone cannot separate them, and an
 # allowlist is the direction that fails safe: a sixth label added upstream reads
 # as cannot-tell rather than silently joining the not-done pile.
+#
+# The classification reads the payload rather than the exit status, and that is
+# not a stylistic choice: `shirabe validate` exits 1 for both cases. An unknown
+# `--check` code exits 1 with plain text on stderr and no JSON; a document whose
+# frontmatter never closes exits 1 with a full JSON envelope carrying
+# `"outcome": "tool-error"`. An exit-status test cannot tell those apart, so
+# simplifying this to `if shirabe validate ...; then` reopens the hole silently.
+#
+# One consequence of the `2>&1` capture: VALIDATOR_OUT is no longer guaranteed
+# to be JSON -- a deprecation notice on stderr prepends to it. That is harmless
+# for the substring matching below and would not be for a `jq` pipeline.
 run_validator() {
   local status
   VALIDATOR_OUT=$(shirabe validate "$1" --check "$2" --format json 2>&1)
@@ -80,9 +103,20 @@ run_validator() {
   return 1
 }
 
-# Both callers are plain `if`/`for` conditions in the main shell, never a
-# pipeline or a command substitution, so this exit leaves the script rather
-# than a subshell that would swallow it.
+# This `exit 2` has to leave the script, and whether it does is decided three
+# frames away rather than here. The two sites that must stay out of a subshell
+# are the `for p in ...` / `if is_artifact` loop and the `if ! validates_fold`
+# branch in the survivor scan, both near the bottom of this file; `is_artifact`
+# sits between this function and the first of them and is the frame most likely
+# to be edited. Putting any of the three inside a pipeline or a `$(...)` --
+# `| head -1` on the loop is the tempting one -- is enough to break this.
+#
+# The failure is not that the exit is lost. There is no `set -e`, so a swallowed
+# `exit 2` returns 2 from the subshell, the caller reads that as "not an
+# artifact", the scan runs on, and the script prints `incomplete: no artifact at
+# ...` about a file it could not examine. That is the confident wrong answer the
+# whole cannot-tell distinction above exists to prevent, arriving by a different
+# road.
 is_clean() {
   run_validator "$1" "$2" || exit 2
   printf '%s' "$VALIDATOR_OUT" | grep -q '"outcome": *"clean"'
@@ -232,6 +266,12 @@ absorbed_entries() {
   '
 }
 
+# The `$(canonical ...)` below and in the survivor scan are deliberately
+# UNQUOTED. `canonical design` returns two paths separated by a space, and the
+# loop has to see two words. Quoting the substitution -- the reflex fix, and
+# what a linter will suggest -- collapses them into one path that exists nowhere,
+# so every design hop refuses and both limbs go with it. If the design hop ever
+# stops needing two locations, delete the second path rather than adding quotes.
 WANT_SCHEMA="$(schema_for "$HOP")"
 for p in $(canonical "$HOP"); do
   if is_artifact "$ROOT/$p" "$WANT_SCHEMA"; then
