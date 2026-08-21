@@ -217,9 +217,11 @@ One correction to the pattern as first proposed: it does not compile if one tran
 
 **There is a live deadlock in the layer both gates and actions share.** (r2 probe P11-P13) `run_shell_command` spawns with piped stdout/stderr, calls `wait_timeout`, and only then reads the pipes. Any command writing more than the 64KB pipe buffer blocks forever and dies at the timeout with its output discarded. Measured with plain `tr`: 60KB captured, 70KB stalled 30 seconds and returned exit -1 and empty output. Stderr triggers it as readily as stdout.
 
-This is not a `default_action` problem. Gates have it too, verified: a gate command that exits 0 but emits 200KB was reported as `{"status":"timed_out","output":{"exit_code":-1}}` after a 30-second stall — a passing check turned into a false failure. `/work-on` ships `tests_passing: [ ! -f go.mod ] || go test ./...`, and `go test ./...` clears 64KB on any repository with a meaningful number of packages. The bug is in shirabe's shipped templates today.
+This is not a `default_action` problem. Gates have it too, verified: a gate command that exits 0 but emits 200KB was reported as `{"status":"timed_out","output":{"exit_code":-1}}` after a 30-second stall — a passing check turned into a false failure.
 
-**koto cannot call koto, for the same reason.** (r2 probe P13) Every session-touching koto command emits about 106KB of `migration skipped` warnings on stderr in this workspace — one line per session, roughly 1,250 of them — so it deadlocks itself inside an action. `koto version`, which emits nothing, runs in 0.06 seconds. This corrects an earlier reading of the same evidence as a lock: redirecting the nested command's output to files makes it work. Two defects stacked, both worth fixing: the un-drained pipe, and koto's warning volume.
+**Severity, corrected in round 3.** My first reading called this a live bug in shipped templates. The accurate statement is narrower. Only one of shirabe's eleven gates (`tests_passing`) writes captured stdout at all — the other ten use `test`, `[`, `grep -q`, or `$(...)` substitution, which produce no top-level output; an accidental property of idiomatic gate-writing rather than a defense. And measured on the tsuku monorepo, `go test ./...` across 63 packages emits 3,793 bytes, far under the trigger. The defect is confirmed and real but is not firing at today's scale: latent, not an active outage. What makes it matter is expansion — a failure dump, a verbose linter, or any nested koto command crosses the threshold at once.
+
+**koto cannot call koto, for the same reason.** (r2 probe P13) Every session-touching koto command emits about 106KB of `migration skipped` warnings on stderr in this workspace — one line per session, roughly 1,250 of them — so it deadlocks itself inside an action. `koto version`, which emits nothing, runs in 0.06 seconds. This corrects an earlier reading of the same evidence as a lock: redirecting the nested command's output to files makes it work. Two defects stacked, both worth fixing: the un-drained pipe, and koto's warning volume. The noise half is already tracked as koto issue #193, filed from a different angle — log noise during direct CLI use — with no mention of the deadlock this exploration connects it to.
 
 **`context_assignments` is silently discarded, and shirabe's templates use it 28 times.** (lead-transition-hooks, verified by probe) A transition declaring `context_assignments: {failure_reason: "..."}` writes nothing — the key is absent afterward. `work-on.md` uses it 19 times, `execute.md` 9. Every blocked and escalation path that was supposed to record why it stopped records nothing, `/execute`'s `done_blocked` state tells the agent to read a key that will never exist (`execute.md:649`), and the batch view's per-child reason falls back to the state name. koto's own W5 compiler warning fires on those states anyway and its remedy text recommends the mechanism that does not work. Filed as koto issue #204 on 2026-08-20.
 
@@ -426,24 +428,31 @@ mutation safe to run twice; everything that touches a remote or needs per-repo
 configuration stays with the agent.
 
 **On what turned up along the way.** Two defects that have nothing to do with
-this decision and outrank it. `run_shell_command`, shared by gates and actions,
-waits on the child before draining its pipes, so any command emitting more than
-64KB deadlocks and is killed at the timeout with its output discarded — a
-passing check reported as a failure, evidence gone. `/work-on`'s `tests_passing`
-gate runs `go test ./...`, which clears that on a real failure dump, meaning the
-gate breaks precisely when its output matters most. Separately, koto emits
+this decision. `run_shell_command`, shared by gates and actions, waits on the
+child before draining its pipes, so any command emitting more than 64KB
+deadlocks and is killed at the timeout with its output discarded — a passing
+check reported as a failure, evidence gone. Measured honestly it is latent
+rather than firing: only `tests_passing` writes captured output at all, and
+`go test ./...` on the tsuku monorepo emits under 4KB. It trips on a failure
+dump, a verbose linter, or any nested koto command. Separately, koto emits
 roughly 106KB of migration warnings per session-touching command because a
-cleanup step fails silently on the skip branch, which is what makes koto unable
-to call itself. Both are one-file fixes. Both are live today.
+cleanup step fails silently on the skip branch — already filed as koto issue
+#193 — and that is what would make the deadlock self-inflicted the moment koto
+commands are nested inside koto-run gates or actions, which is exactly the
+expansion this exploration is weighing. Both fixes are contained: the drain is
+roughly 100-150 lines in one function plus tests, the migration cleanup a few
+lines.
 
 Alongside those: `context_assignments` is silently discarded while shirabe
 declares it 28 times, so every blocked path that was supposed to record why it
 stopped records nothing, and koto's own compiler warning recommends the broken
 mechanism.
 
-**Where that leaves the work.** Fix what is already broken first — the pipe
-drain, the migration spam, the inert declarations, the duplicate CI read, the
-repeated slug derivation. Then anchor execution, which is the direct answer to
+**Where that leaves the work.** Fix the defects first — the pipe drain, the migration spam, the inert
+declarations, the duplicate CI read, the repeated slug derivation. The first two
+come first not because they are burning today but because every expansion of
+what koto runs makes them load-bearing, and because the drain fix alone
+quadruples what is convertible. Then anchor execution, which is the direct answer to
 the user's guarding requirement and is worth doing whether or not anything is
 ever converted. Then the small plumbing that makes a converted step diagnosable:
 action output on the failure path, and failure detection for a gate-less action.
