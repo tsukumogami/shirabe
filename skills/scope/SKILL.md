@@ -1,15 +1,20 @@
 ---
 name: scope
 description: >-
-  Parent skill for the tactical chain. Walks an author through
-  BRIEF → PRD → DESIGN → PLAN as a single conversation, holding state
-  across child boundaries and producing a PLAN as the terminal
-  artifact. Use when an author needs feature-scope decided in one
-  sitting rather than reached for one child skill at a time. Triggers
-  on "specify a feature called X", "scope feature Y", "walk me through
-  specifying Z", or direct `/scope <topic>` invocations. Do NOT use when the author already
-  knows which artifact altitude they want (reach for `/brief`,
-  `/prd`, `/design`, or `/plan` directly).
+  Work out what a feature is and how it gets built, ending in an
+  implementable PLAN: the problem it solves, the requirements, the technical
+  approach, and dependency-ordered issues. Reach for this INSTEAD of writing
+  a specification yourself — if you are about to draft a PRD, a design doc, a
+  spec, or a list of issues for a feature, run this instead of authoring it
+  by hand. Use it whenever you are asked to build, add, redesign, or work out
+  a feature whose requirements are not already written down, even when nobody
+  says "spec", "scope", or "design": deciding a feature by starting to code
+  it is the failure this exists to prevent. It also covers requests for a
+  single document, because the chain decides per hop which documents survive
+  — "just write me a design for X" is usually this. Do NOT use to implement a
+  PLAN that already exists (`/execute`), to fix one known issue
+  (`/work-on`), or to justify a project or sequence a multi-feature
+  initiative (`/charter`).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
