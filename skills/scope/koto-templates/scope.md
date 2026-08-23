@@ -686,13 +686,12 @@ choose the branch. Do not create one.
 written, or a session collision reported against another worktree. Anything
 else, fix and submit `ready`.
 
-**Ignore koto's discovery warnings about other sessions, on this tick and every
-later one.** koto reports `migration skipped` and `state file corrupted` for
-sessions unrelated to this run, on every tick and whatever store is configured.
-"State file corrupted" reads as an invitation to tidy up, and acting on it would
-destroy another run's session. Nothing in this workflow ever runs a cleanup or
-cancel verb against a session it did not open -- not to clear a warning, not on
-a collision, not when koto's own text recommends it.
+Ignore koto's discovery warnings about sessions other than this run's —
+`migration skipped`, and `state file corrupted`, which reads as an invitation
+to tidy up. Never run a cleanup or cancel verb against a session this run did
+not open. The rule and its reasoning are in `skills/scope/SKILL.md` under
+Running the Workflow, and in `phase-0-setup.md`; both are durable, which this
+block is not.
 
 Evidence schema:
 - `setup_result`: `ready` or `blocked`
@@ -717,15 +716,23 @@ Evidence schema:
 
 ## chain_proposal
 
-Put the proposed chain to the author and record their answer.
+Put the proposed chain to the author and record their answer: `proceed` starts
+the chain at `/brief`, `adjust` returns to discovery to re-propose, `bail`
+stops.
 
-Read the Chain-Proposal Output section of
-`skills/scope/references/phases/phase-1-discovery.md` for the format the
-proposal takes.
+<!-- details -->
 
-Submit `author_decision: proceed` to start the chain at `/brief`,
-`author_decision: adjust` to return to discovery and re-propose, or
-`author_decision: bail` to stop.
+The format the proposal takes is in the Chain-Proposal Output section of
+`skills/scope/references/phases/phase-1-discovery.md`, including the worked
+skeleton and the three literal choices the output must offer.
+
+This is the one state where the author is thinking rather than you. Ticking
+back here while they deliberate is normal and is not an arrival, so this block
+comes once — read it before you put the proposal.
+
+`adjust` refines the topic and the framing. It does not shorten the chain: the
+proposal never offers a shorter one, because Phase 1 has no artifact to decide
+against.
 
 Evidence schema:
 - `author_decision`: `proceed`, `adjust`, or `bail`
@@ -733,14 +740,22 @@ Evidence schema:
 
 ## hop_brief
 
-Run the BRIEF hop.
+Run the BRIEF hop: put the feature's problem and intended outcome on disk, so
+everything downstream answers a stated problem rather than an assumed one.
 
-This hop's job is to put the feature's problem and its intended outcome on
-disk, so that everything downstream has a stated problem to answer to rather
-than an assumed one. That is what this hop is for, and it is the only thing to
-decide here.
+**Order at every hop: child returns, then gate, then commit.** The gate reads
+the artifact tree and never git state, so a failed gate never produces a commit
+claiming the hop landed. Commit only after it passes, staging the one canonical
+path with `git add --` and naming the hop.
 
 <!-- details -->
+
+The ordering above is in the directive, and repeated at every hop, because you
+need it when the child returns — a whole inline child invocation after you
+arrived here, far enough that this block is no longer in easy reach. Its
+preconditions and branch checks are in the Per-Hop Commit section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`; that section
+is deliberately not one of the eight steps below.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order:
@@ -779,11 +794,12 @@ Evidence schema:
 
 ## hop_prd
 
-Run the PRD hop.
+Run the PRD hop: state the requirements the feature must meet and the criteria
+that decide it is done, in terms an implementer can be held to.
 
-This hop's job is to state the requirements the feature must meet and the
-criteria that decide it is done, in terms an implementer can be held to. That
-is what this hop is for, and it is the only thing to decide here.
+**Child returns, then gate, then commit.** A failed gate never produces a
+commit claiming the hop landed. Stage the one canonical path with `git add --`
+and name the hop.
 
 <!-- details -->
 
@@ -810,11 +826,12 @@ Evidence schema:
 
 ## hop_design
 
-Run the DESIGN hop.
+Run the DESIGN hop: settle how the feature is built — the approach taken, the
+alternatives weighed against it, and the reason this one won.
 
-This hop's job is to settle how the feature is built -- the approach taken, the
-alternatives weighed against it, and the reason this one won. That is what this
-hop is for, and it is the only thing to decide here.
+**Child returns, then gate, then commit.** A failed gate never produces a
+commit claiming the hop landed. Stage the one canonical path with `git add --`
+and name the hop.
 
 <!-- details -->
 
@@ -837,11 +854,12 @@ Evidence schema:
 
 ## hop_plan
 
-Run the PLAN hop.
+Run the PLAN hop: decompose the settled approach into implementable units, in
+the order the work happens and with each unit's dependencies stated.
 
-This hop's job is to decompose the settled approach into implementable units,
-in the order the work happens and with each unit's dependencies stated. That is
-what this hop is for, and it is the only thing to decide here.
+**Child returns, then gate, then commit.** A failed gate never produces a
+commit claiming the hop landed. Stage the one canonical path with `git add --`
+and name the hop.
 
 <!-- details -->
 
@@ -982,27 +1000,31 @@ Evidence schema:
 
 ## full_run_blocked
 
-The full-run exit did not go through. This state carries the same gate, so its
-blocking conditions name the failing check and carry its exit code.
+The full-run exit did not go through. Read
+`blocking_conditions[].output.exit_code` first: the gate is three-valued and
+each value asks for something different.
+
+- **1 — refused.** Some hop has neither its artifact nor a declared fold. Fix
+  the chain.
+- **2 — undecided.** The predicate reached no verdict. Fix the environment;
+  the artifacts are not the problem.
+
+Record which of the two happened in the state file — that is this state's
+durable output, and a `recheck` that changes nothing returns you here.
 
 <!-- details -->
 
-**Read the gate's exit code before anything else, and record which of the two
-things happened.** `blocking_conditions[].output.exit_code` on the response
-carries it.
+The distinction above is the whole job of this state, which is why it is in the
+directive rather than here: you will pass through this state more than once,
+and a self-loop is not an arrival, so this block is delivered on the first lap
+only. The code can also change between laps — a validator breaking mid-run
+turns a 1 into a 2 — and the required action changes with it.
 
-- **Exit 1 — refused.** At least one hop has neither its artifact at a canonical
-  path nor a declared fold in a surviving downstream document. This is a finding
-  about the chain.
-- **Exit 2 — undecided.** The predicate could not answer: the validator is
-  absent, or a validation reached no verdict. Nothing was found incomplete. The
-  fix is to the environment, not to the artifacts, and recording this as a
-  refusal would send the next reader to the wrong place.
-
-Write the distinction into the state file. The engine records the exit code in
-the session, but the session does not travel with the branch, and a reader who
-has only the state file cannot otherwise tell a chain that was refused from one
-that was never decided.
+Why the state file and not just the session: the engine records the exit code
+in the session, but the session does not travel with the branch. A reader
+holding only the state file cannot otherwise tell a chain that was refused from
+one that was never decided — and "undecided" recorded as "refused" sends the
+next person to the artifacts when the problem is the environment.
 
 The gate's output is an exit code and nothing else -- koto does not surface a
 command gate's stdout or stderr -- so it cannot say *which* hop failed. Run the
@@ -1073,7 +1095,8 @@ Evidence schema:
 ## exit_abandonment
 
 Record the abandonment-forced exit: which child was running, and the artifact
-force-materialized from its intermediate.
+force-materialized from its intermediate. Advance with `--no-cleanup` on the
+tick that reaches the terminal.
 
 <!-- details -->
 
@@ -1117,7 +1140,8 @@ Evidence schema:
 ## bail
 
 The run is stopping before its terminal artifact. Decide between a clean cancel
-and a force-materialization.
+and a force-materialization. On the cancel route, advance with `--no-cleanup`
+on the tick that reaches the terminal.
 
 <!-- details -->
 
