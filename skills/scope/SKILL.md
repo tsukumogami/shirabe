@@ -1,15 +1,20 @@
 ---
 name: scope
 description: >-
-  Parent skill for the tactical chain. Walks an author through
-  BRIEF → PRD → DESIGN → PLAN as a single conversation, holding state
-  across child boundaries and producing a PLAN as the terminal
-  artifact. Use when an author needs feature-scope decided in one
-  sitting rather than reached for one child skill at a time. Triggers
-  on "specify a feature called X", "scope feature Y", "walk me through
-  specifying Z", or direct `/scope <topic>` invocations. Do NOT use when the author already
-  knows which artifact altitude they want (reach for `/brief`,
-  `/prd`, `/design`, or `/plan` directly).
+  Work out what a feature is and how it gets built, ending in an
+  implementable PLAN: the problem it solves, the requirements, the technical
+  approach, and dependency-ordered issues. Reach for this INSTEAD of writing
+  a specification yourself — if you are about to draft a PRD, a design doc, a
+  spec, or a list of issues for a feature, run this instead of authoring it
+  by hand. Use it whenever you are asked to build, add, redesign, or work out
+  a feature whose requirements are not already written down, even when nobody
+  says "spec", "scope", or "design": deciding a feature by starting to code
+  it is the failure this exists to prevent. It also covers requests for a
+  single document, because the chain decides per hop which documents survive
+  — "just write me a design for X" is usually this. Do NOT use to implement a
+  PLAN that already exists (`/execute`), to fix one known issue
+  (`/work-on`), or to justify a project or sequence a multi-feature
+  initiative (`/charter`).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
@@ -25,9 +30,9 @@ ROADMAP). It walks an author through the four tactical-chain
 children as a single conversation, holds state across child
 boundaries, enforces the pattern-level invariants (state schema,
 resume ladder, three exit paths, child inspection, worktree
-discipline), and lands at one of three terminal exits: a `full-run`
-that produces a PLAN at `docs/plans/PLAN-<topic>.md`, a
-`re-evaluation` exit that writes a Decision Record at a settled-
+discipline), and lands at one of three terminal exits: a `full-run`,
+whose terminal hop deposits a PLAN at `docs/plans/PLAN-<topic>.md`,
+a `re-evaluation` exit that writes a Decision Record at a settled-
 upstream boundary (PRD or DESIGN), or an `abandonment-forced` exit
 that force-materializes the most-recently-running child's
 intermediate as a Draft artifact.
@@ -40,36 +45,91 @@ section-by-section with the pattern's required structural elements,
 and the prose contracts after them bind the `/scope`-specific
 asymmetries the tactical chain introduces (two settled-upstream
 boundaries, Mandatory-with-auto-skip re-entry protection on every
-child, a post-hoc consolidation judgment that is the only thing
-reducing the artifact set and runs only after the artifacts
-exist, a refuse-and-redirect Slot 5 shape for PLAN's
+child, a consolidation judgment that is the only thing permitted to
+remove a document from a run and that cannot run before the
+documents exist, a refuse-and-redirect Slot 5 shape for PLAN's
 downstream-owned lifecycle states, and a terminal child with two
 output modes).
 
+## Why This Skill, and Why You Must Not Route Around It
+
+When `/scope` is invoked, run the workflow. Do not read ahead, decide what the
+answer probably is, and write the terminal document. That is not a caution
+about a hypothetical: it is what happened, and it is why this skill is built
+the way it is.
+
+Two properties are what the workflow buys, and neither survives working
+outside it. **The deterministic work is offloaded to scripts the engine runs
+itself.** Whether a hop is complete is decided by `hop-complete.sh` reading the
+artifact tree, not by your judgment and not by your report of what you did. You
+do not invoke that script; the gate on each state runs it and routes on its
+exit status. The same holds for the chain-wide check at the exit. So the parts
+of this job that can be settled mechanically are settled mechanically, and your
+judgment is spent on the parts that actually need it.
+
+**And the process is what makes the solutioning thorough and unbiased.** Each
+hop asks its question at the point where the answer is available, in an order
+where the earlier answers are already on the page. The one judgment that
+removes a document is made against two documents that exist, rather than by a
+party deciding in advance that a document would not have been worth writing --
+which is the same party that benefits from not writing it. An agent that skips
+ahead reproduces neither property: nothing checks its claims, and the decision
+to skip is made by whoever gains from the skip.
+
+The workflow does not stop you from skipping. It makes a skip leave a mark in a
+record you did not author.
+
+## Why Each Hop Is Taken
+
+Each hop is taken because it settles something no earlier document
+settles and nothing available before it runs can settle on its
+behalf. Framing is settled by writing the framing; requirements by
+writing the requirements; an approach by choosing between
+alternatives on the page; an order by committing to one. A hop that
+does not run leaves its question open. It does not answer the
+question more cheaply.
+
+This is why the chain has four hops and why `/scope` walks all
+four. The decision a run makes per hop is what the hop produces,
+not whether the question gets asked.
+
+Invoking `/design` or `/plan` directly costs the hops it skips:
+their questions go unasked rather than answered, and no later hop
+recovers them. What it buys is a shorter conversation, not a
+smaller artifact set — inside `/scope`, the set is settled per hop
+after the artifacts land.
+
+**A hop's contribution** is what its document holds that no other
+document in the chain holds — what a reader would have to
+reconstruct from scratch if it were gone. It is a property of the
+document in hand rather than of its type: read off the body in
+front of you, never inferred from what documents of that type
+usually carry. Each type's own format reference states the
+contribution that type declares, and this file does not restate
+them. Four sentences summarizing what each document contains,
+read by someone holding none of them, is a summary standing in for
+the documents rather than a way into them — which is the substitution
+this skill exists to prevent.
+
+Anything held back is re-entry protection — a settled artifact is
+already on disk and re-running would clobber it — and it is
+recorded under its own name so that a hop not re-run is never
+confused with a hop not needed.
+
 ## Team Shape
 
-`/scope` runs as a single-agent skill in the v1 core layer — no
-team is spawned at the `/scope`-itself layer. The parent-of-the-
-parent (the agent invoking the skill) calls `/scope` directly;
-there are no peer roles to materialize at team-creation time.
+**`/scope` spawns nothing.** It is a single-agent skill: you run every
+phase yourself, and each child — `/brief`, `/prd`, `/design`, `/plan` —
+is invoked **inline through the Skill tool, in your own context**. No
+subagent, no roster to materialize, nothing to poll or wait on. Each
+hop's directive says so again at the point of invocation.
 
-The team-shape declarator is prose per the pattern's v1 form (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` — Team-
-Shape Declarator section). When the amplifier-layer substrate
-ships, team-emitting parents declare their roster as structured
-metadata; single-agent parents like `/scope` keep the prose form.
-
-R19 (the Team-Lead Operating Discipline, semantic invariant I-7 in
-the pattern's invariants list) binds at the child-skill-dispatch
-layer rather than at the parent-itself layer: each `/brief`,
-`/prd`, `/design`, and `/plan` invocation is a dispatch in the
-discipline's sense, and `/scope` runs the implementation-pass task
-class (120-second window, 10-cycle patience budget) for each child
-invocation. At the `/scope`-itself layer the binding is vacuous in
-v1 — there are no peers dispatched whose terminal exits the team-
-lead drives.
-
-See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+The declarator is prose per the pattern's v1 form; see the Team-Shape
+Declarator and Dispatch Contract sections of
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md).
+R19's Team-Lead Operating Discipline binds at the child-dispatch layer
+and is vacuous here for the same reason: there are no peers whose
+terminal exits a team lead drives.
 
 ## Input Modes
 
@@ -122,144 +182,47 @@ absorbing the violation.
 
 ## Upstream Flag
 
-`/scope` accepts `--upstream <path>`, naming an existing ROADMAP
-this chain consumes rather than produces. It is the same flag
-token, with the same meaning, that `/prd`, `/roadmap`, and `/comp`
-already carry and that `/charter` carries on the strategic side.
+`--upstream <path>` names an existing ROADMAP this chain consumes rather than
+produces. It is parsed before the positional slug and is never tested against
+the topic-slug regex, so a path in the positional slot is still rejected.
 
-The flag is parsed at Phase 0 alongside the execution-mode flags,
-BEFORE the positional slug is read. The token following it is
-consumed as the flag's argument and is never tested against the
-topic-slug regex, which is what leaves the positional contract
-untouched: a path in the positional slot is still rejected.
-`--upstream` with no value is a Phase 0 rejection naming the
-missing argument, and it stops before any state file is written.
+The value is validated inbound -- canonicalized, confined to
+`<repo-root>/docs/roadmaps/`, basename starting with `ROADMAP-`, tracked by
+git, not under `wip/`, and not a private artifact named from a public repo --
+then recorded in `consumed_upstream:` and handed to `/brief` and to `/plan`.
+Neither records the roadmap the same way, and which one records it is a
+lifetime rule rather than a convenience: a ROADMAP is deleted when its features
+land, so no durable document may name one, and the PLAN goes first.
 
-A supplied upstream is validated inbound — canonicalized,
-bounds-checked, confined to `<repo-root>/docs/roadmaps/`, its
-basename required to start with `ROADMAP-`, and run through three
-ordered checks (not under `wip/`, tracked by git, and not a private
-artifact named from a public repo). It is then recorded in the state
-file's conditional `consumed_upstream:` field, re-validated on every
-resume, and handed to **two** children: to `/brief` as
-`/brief <topic-slug> --upstream <path>`, which grounds on it and
-records the roadmap's own durable ancestor instead, and to `/plan` as
-`/plan <design-path> --upstream <path>`, which records the roadmap
-itself. In both the slug stays the parent's and the upstream travels
-separately, and `/scope` resolves nothing — the walk up from an
-ephemeral document is the child's own contract.
-
-Which child records is the lifetime rule's answer, not a
-convenience. A ROADMAP is deleted when its features land, so no
-durable document may name one; the PLAN is deleted by the same
-cascade and goes first, so its link cannot outlive its target. See
-[`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`](${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md).
-
-An author who supplies no upstream is told the flag exists before a
-BRIEF is written for them. The chain proposal carries a fixed,
-non-blocking notice inside the `/brief` entry, naming no candidate
-and scanning no directory; its verbatim wording and its two firing
-conditions are in
-`skills/scope/references/phases/phase-1-discovery.md` under The
-Pre-Authoring Upstream Notice.
-
-Inbound validation enforces the basename deliberately, unlike an
-outbound hand-off, which does not: outbound, the parent hands over
-an artifact whose type it knows because it watched a child produce
-it; inbound, it is routing on a string the author typed, and a
-wrong type silently mis-frames the chain head. The full procedure
-is `skills/scope/references/phases/phase-0-setup.md`.
+The full procedure, the rejection wording, and the pre-authoring notice an
+author is owed when no upstream is supplied are in
+`skills/scope/references/phases/phase-0-setup.md` and
+`skills/scope/references/phases/phase-1-discovery.md`.
 
 ## Coordination Intent
 
-`/scope` is coordination-aware: when an effort spans more than one
-repository, `/scope` carries the multi-repo coordination contract
-instead of leaving it to the author to hand-supply each session.
-This capability is **additive**. When coordination intent is absent,
-`/scope` behaves exactly as documented everywhere else in this file —
-single-repo, no coordination PR, no new prompts (R3). Read the rest
-of this section only when intent is present.
+Additive, and absent unless intent resolves. When it is absent `/scope` behaves
+exactly as documented everywhere else in this file -- single-repo, no
+coordination PR, no new prompts. Read this section only when intent is present.
 
-Coordination intent resolves on the existing `flag >
-CLAUDE.md-header > default` stack:
+Intent resolves on `flag > CLAUDE.md-header > default`: `--coordinated` /
+`--no-coordinated`, then the `## PR Grouping Policy:` and `## Reviewability
+Ceiling:` headers, then single-repo.
 
-- `--coordinated` / `--no-coordinated` — the per-invocation flag
-  (highest precedence; `--no-coordinated` forces the single-repo
-  path even when a workspace default enables coordination).
-- `## PR Grouping Policy:` and `## Reviewability Ceiling:` headers in
-  CLAUDE.md — the durable workspace preferences that, when present,
-  signal coordinated defaults for routine efforts.
-- default — single-repo (intent absent).
-
-**The moment intent resolves to coordinated, verify the mode-scoped
-prerequisites.** `skills/scope/requires.tsv` declares two `mode:coordinated`
-records — `shirabe validate` with `--coordination-body` and `--merge-gate`,
-and `gh` — and neither was checked when this skill loaded. The load-time
-check evaluates `always` records only, because intent had not resolved yet
-and reporting on a record it never evaluated would be a claim it can't
-support; field four of the declaration is where the deferral is visible.
-Run, before the coordination PR is authored:
+The moment it resolves to coordinated, verify the mode-scoped prerequisites
+before authoring anything, because a missing `gh` here means an authored body
+with nowhere to go:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
 ```
 
-Silence means the coordinated surface is present and the run proceeds
-normally. Output names a prerequisite the coordinated path depends on and
-the single-repo path does not; surface it to the author before creating the
-PR, since a missing `gh` here means an authored body with nowhere to go.
-
-This is a command the skill runs mid-run through Bash, not a `!`-prefixed
-injected line at column 0, and it is not subject to
-`scripts/check-skill-injection.sh`, which reads only injected lines. It
-carries `2>&1 || true` anyway, for the same reason the injected line does:
-a missing script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an
-unguarded 127 mid-chain kills a run that has already written state. The
-contract for the `--mode` call is in
-[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
-
-When intent is present, `/scope` creates the coordination PR **up
-front**, before invoking any child. Like every other shirabe
-artifact, the coordination PR body is **authored by the skill**, not
-rendered by a CLI subcommand: `/scope` writes the body from the
-copy-pasteable template in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
-(the declaration marker, the artifact chain, the `owner/repo:path#number`
-ref index, and the fenced merge-order block) and posts it with `gh pr
-create` — the same way the skill already uses `gh`. Before posting,
-`shirabe validate --coordination-body <file>` gives authoring feedback
-(declaration marker present, every cross-repo ref passes F2, merge-order
-acyclic); `shirabe validate --merge-gate` is the merge-last gate later.
-This is the create-up-front phase of the coordinated
-lifecycle. The lifecycle, the coarsest-legal-grouping rule, the
-two-node merge-order model, the done-signal, and the load-bearing
-F1/F2/F4 rules are the canonical contract in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md);
-`/scope` binds to it and does not restate it — the same
-single-source discipline `parent-skill-pattern.md` enforces across
-`/scope` and `/charter`.
-
-Coordination-PR creation, artifact persistence on the PR, sequencing,
-and merge-order tracking are **smart defaults** (Decision F): they
-activate automatically when intent is present, **announce** in the
-invocation output naming the override, and accept a per-invocation
-override (R18). The PR-grouping policy and the reviewability ceiling
-are **durable workspace preferences** (the two CLAUDE.md headers
-above), not announce-on-activation defaults. Cross-repo references in
-the authored body use the `owner/repo:path` convention and respect each
-repo's visibility per
-[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md);
-a public coordination PR never embeds private-repo content (F1).
-
-The coordination PR body is skill-authored from the contract's
-template and posted/refreshed with `gh pr create` / `gh pr edit`;
-there is no `shirabe coordination` subcommand. `shirabe validate
---coordination-body <file>` checks the authored body offline (the
-authoring-feedback check `/scope` runs before posting), and `shirabe
-validate --merge-gate` is the merge-last gate `/work-on` drives later
-(it also folds in the upstream-terminal verification). The validate
-modes' args and fail-closed behavior are owned by the CLI, not by this
-skill.
+The coordination PR is created up front, before any child runs, and its body is
+authored by this skill rather than rendered by a subcommand. The lifecycle, the
+coarsest-legal-grouping rule, the merge-order model, the done-signal, and the
+F1/F2/F4 rules are canonical in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+This skill binds to that contract and does not restate it.
 
 ## Topic-Slug Constraint
 
@@ -294,30 +257,51 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation; visibility detection; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
+| 0. Setup | Slug validation; visibility detection; session probe, open-or-reattach and origin record; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; R6 shape-predicate evaluation for `/design`'s roster size; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
 | 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
-Phase 2 child invocation runs each of `/brief`, `/prd`, `/design`,
-`/plan` as a dispatch under the Team-Lead Operating Discipline
-documented in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`
-(invariant I-7). The discipline binds the sleep-check-nudge loop,
-the filesystem-evidence-first priority ordering, and the PASS /
-FAIL / ESCALATE terminal exits; the implementation-pass task
-class (120s window, 10-cycle patience budget) applies to each
-child invocation.
+Before each child invocation the loop runs a worktree-staleness check —
+the Rebase / Impact-analysis / Escalation flow in
+`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`. None and
+Informational classifications proceed silently; an Intent-changing one
+halts and puts the judgment to the author. The hop's own directive says
+so when it applies.
 
-The per-child worktree-staleness check before each invocation is
-the three-phase flow (Rebase phase → Impact-analysis phase →
-Escalation phase) defined in
-`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
-None and Informational impact classifications proceed silently and
-record the rebase in `worktree_rebases:`; Intent-changing
-classifications halt and route to the team-lead for an intent
-judgment, which may resolve in-place or escalate to the author for
-a re-author / proceed-against-original-intent / bail decision.
+## Running the Workflow
+
+**Start here.** Read
+`skills/scope/references/phases/phase-0-setup.md` and follow its Workflow
+Session section: it carries the probe that finds an existing session, the
+open-or-reattach decision, and the origin record. There is no session to tick
+until that has run, so this is the one procedure you need before the workflow
+can tell you anything. The session is named `scope-<topic>`, derived from the
+slug alone so the probe can find it.
+
+After that, every step comes from the workflow rather than from this file: call
+`koto next`, do what the directive says, submit the evidence it asks for,
+repeat.
+
+Two things about what you receive. Each state's `directive` arrives on every
+tick and is short. Longer procedure arrives once, as `details`, when you first
+reach a state -- a self-loop or a blocked retry is not a new arrival, so do not
+expect it again. If you lose it, `koto status scope-<topic>` returns the
+current state's directive, details and evidence schema without ticking the
+workflow.
+
+Directives name the reference file for the phase they belong to. Read it when
+the directive tells you to, or when you hit a corner case it does not cover.
+They are not required reading up front, and reading all of them before starting
+is the failure this arrangement exists to avoid.
+
+The state file at `wip/scope_<topic>_state.md` stays authoritative for
+`/scope`'s own position; the session carries the workflow's.
+
+Never run a workflow cleanup or cancel verb against a session this run did not
+open. koto reports `state file corrupted` for unrelated sessions on every tick,
+and acting on that text destroys another run.
 
 ## Resume Logic
 
@@ -361,10 +345,13 @@ pre-loaded.
 
 ## Phase Execution
 
-Execute phases sequentially by reading the corresponding phase file:
+The phases and the file each one's procedure lives in. The workflow names the
+right file at the right state, so this is a map rather than a reading list —
+do not read them all before starting:
 
-0. **Setup** — slug validation, visibility detection, state-file
-   creation, stale `parent_orchestration:` self-heal.
+0. **Setup** — slug validation, visibility detection, the session
+   probe and its open-or-reattach decision, state-file creation,
+   stale `parent_orchestration:` self-heal.
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
 1. **Discover + Chain Proposal** — topic-related child-doc
@@ -400,6 +387,131 @@ Execute phases sequentially by reading the corresponding phase file:
    artifacts under `docs/`.
    - Instructions: `skills/scope/references/phases/phase-4-cleanup.md`
 
+## Consolidation Judgment
+
+The consolidation judgment is the only thing in a `/scope` run that removes a
+document, and it runs in Phase 2, after each artifact lands -- never at Phase 1,
+against artifacts nobody has written. The ordering is a bound, not a
+preference: whether a document holds anything a later one does not is only
+answerable against a document that exists, and the party deciding before it
+exists is the one that benefits from not writing it.
+
+A run therefore ends with all four artifacts, or fewer, or -- once the PLAN is
+implemented and deleted -- none. Which of those is decided per hop against two
+documents in hand, not chosen in advance and not fixed by the types involved.
+There is no durable-artifact floor, and the prohibition on reintroducing one
+lives beside the judgment in Phase 2.
+
+Two verdicts: `keep` leaves both artifacts, `absorb` carries the upstream's
+contribution into the survivor and removes the upstream. The judgment fires
+only when both endpoints of the edge appear in `chain_ran:`. Its first stage, a
+citation preflight, can reach no outcome stronger than `keep`. No check in it
+may read either type's required-section list. And a carry check itemizes where
+every concern landed before any deletion -- anything that did not arrive aborts
+the absorb.
+
+The eight-step procedure, the rollback table, and the firing condition are in
+the Consolidation Judgment section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`.
+
+## Three Exit Paths
+
+Every run ends at exactly one, recorded in `exit:`:
+
+- **`full-run`** — the chain walked. Requires every hop to have either its own
+  artifact at a canonical path or a recorded fold in a surviving document. A
+  skipped hop satisfies neither, and the completion predicate has no skip limb.
+- **`re-evaluation`** — a settled upstream was rejected at a boundary (PRD or
+  DESIGN). Writes a Decision Record under `docs/decisions/`.
+- **`abandonment-forced`** — the run stopped with a child mid-flight. Force-
+  materializes that child's intermediate as a Draft artifact.
+
+The R9 hard-finalization check refuses a run that cannot record a valid exit,
+in `--auto` as much as interactively. The per-path required fields, the
+Decision Record templates, and the abandonment marker are in
+`skills/scope/references/phases/phase-3-exit-finalization.md`.
+
+## State File Schema
+
+`/scope` writes `wip/scope_<topic>_state.md`. The pattern-level schema and the
+conditional-field gating discipline are in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`; the
+`/scope`-specific field enumeration, including which fields the workflow
+session feeds and which it does not, is in
+`skills/scope/references/state-schema.md`.
+
+The substrate declaration stays `storage_substrate: wip-yaml-md`. A workflow
+session does not change it: the session carries the workflow's position, the
+state file carries `/scope`'s, and `exit:` lives in the file so a run whose
+session is gone still reports how it ended.
+
+## Security Considerations
+
+`/scope` binds the six pattern-level contract surfaces in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
+re-validation on resume, closed write-target set, state-file enum
+re-validation, stale `parent_orchestration:` self-heal, visibility boundary,
+and no untrusted-input interpolation. `/scope` v1 binds to public-repo tactical
+chains exclusively.
+
+This is the authoritative declaration of the closed write-target set. The Phase
+3 reference restates it and the Phase 4 reference reads it back; neither may
+diverge from it. Every path below is composed from the validated topic slug or
+is a fixed constant, never from author-supplied text. The `--upstream` value
+does not widen the set: it is a read target only.
+
+**Deletions**, by Phase 2's absorb:
+
+- `docs/briefs/BRIEF-<topic>.md`
+- `docs/prds/PRD-<topic>.md`
+- `docs/designs/DESIGN-<topic>.md`
+
+The PLAN is never a deletion target of a fold. At the terminal hop it is the
+survivor; the implementation cascade deletes it later, outside `/scope`.
+
+**Mutations**, by Phase 2's absorb — the survivor, at whichever hop:
+
+- `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
+- `docs/designs/current/DESIGN-<topic>.md`
+
+Both DESIGN locations appear because the canonical design path is a pair and a
+survivor at either takes the same writes. `docs/plans/` appears because the
+PLAN is the survivor at the terminal hop.
+
+**Phase 3 and Phase 4**: Decision Records under `docs/decisions/`,
+force-materialized partials under `docs/{briefs,prds,designs,plans}/` and
+`docs/designs/current/` on `abandonment-forced`, and state-file plus child-wip
+cleanup under `wip/`.
+
+**R8's clean cancel** deletes one further path, and carves one out:
+
+- deletes `wip/scope_<topic>_state.md` — that single path, not the prefix
+- never deletes `wip/scope_<topic>_handoff.md`, which sits under the same
+  prefix but belongs to the router rather than to this run, so a bail leaves
+  it for a later invocation to resume against
+
+The carve-out is enumerated here because an omission from a set that governs
+deletion is a live delete at an undeclared target — the same reason every
+other path in this section is named.
+
+**Commits**, by Phase 2's per-hop commit and by the absorb's own:
+
+- `docs/briefs/BRIEF-<topic>.md`
+- `docs/prds/PRD-<topic>.md`
+- `docs/designs/DESIGN-<topic>.md`
+- `docs/designs/current/DESIGN-<topic>.md`
+- `docs/plans/PLAN-<topic>.md`
+
+`.git/` writes are confined to `git add` and `git commit` restricted to those
+pathspecs — no `-A`, no `commit -a`, nothing staged the pathspec does not name.
+Nothing pushes. The preconditions and branch checks are in the Per-Hop Commit
+section of `skills/scope/references/phases/phase-2-chain-orchestration.md`.
+
+**Out-of-repo ephemera**, by the workflow session: the koto session store
+(`~/.koto/sessions/` under the default local backend) and koto's template
+compile cache (`$XDG_CACHE_HOME/koto`, or `~/.cache/koto` when unset). Neither
+is in the repository and neither is cleaned by this skill.
+
 ## Reference Files
 
 | File | When to load |
@@ -410,559 +522,10 @@ Execute phases sequentially by reading the corresponding phase file:
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
 | `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` | All phases — six pattern-level security contract surfaces (slug re-validation, closed write-target set, enum re-validation, self-heal, visibility, no-untrusted-input-interpolation) |
-| `skills/scope/references/phases/phase-0-setup.md` | Phase 0 |
+| `skills/scope/references/phases/phase-0-setup.md` | Phase 0 — includes the workflow session's probe, open-or-reattach and origin record |
 | `skills/scope/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/scope/references/phases/phase-2-chain-orchestration.md` | Phase 2 — includes Phase-N Reject in-chain mechanism |
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
-| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), Drift Detection (Re-run / Accept / Proceed-without) |
+| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
 | `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
-
-## Chain-Proposal Output
-
-At the end of Phase 1 discovery, `/scope` emits a chain-proposal
-output naming the children it intends to invoke — always the whole
-tactical chain, with any child held back by re-entry protection
-shown as held rather than dropped from the list — the re-entry
-verdict for each (per the Gate Vocabulary section of
-`parent-skill-pattern.md`), and the per-predicate reasons feeding
-R6's shape-dependent verdict for `/design`'s decision-roster shape
-(architectural-alternatives count, new-component references,
-Complex classification). The output ends with a confirmation prompt
-containing the literal substrings **Proceed**, **Adjust**, and
-**Bail** (case-insensitive) in the offered options.
-
-The proposal never offers a shorter chain. The reason is not that
-`/scope` cannot end a run with fewer documents than the chain has
-altitudes; the consolidation judgment does exactly that in Phase 2.
-The reason is that Phase 1 has no artifact to decide against. A
-shorter chain offered here would be a verdict on documents nobody
-has written, which is the one call the chain does not make.
-
-An author who wants to start above `/brief` still invokes `/design`
-or `/plan` directly. That buys a shorter conversation, not a
-smaller artifact set: inside `/scope`, the set is settled per hop
-after the artifacts land.
-
-The three branch behaviors:
-
-- **Proceed** — confirm the proposed chain; advance to Phase 2 and
-  begin invoking children in order.
-- **Adjust** — return to Phase 1 discovery with the author's
-  adjustment input; re-emit the proposal after re-running the R6
-  predicates against the adjusted scope. Adjust refines the topic
-  and the framing, not the list of children.
-- **Bail** — route to R8 bail-handling. The route turns on what a
-  child produced: a child intermediate under
-  `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
-  under `wip/research/{prd,design}_<topic>_*` records
-  `exit: abandonment-forced` and force-materializes the
-  most-recently-running child's intermediate. With neither on
-  disk the bail is a clean cancel — no terminal artifact, no
-  `exit:` recorded, and the state file disposed of. Nothing under
-  the parent's own `wip/scope_<topic>_*` prefix counts toward the
-  first branch, because nothing under that prefix is a child's
-  output.
-
-The per-predicate reasons feeding the shape-dependent verdict are
-surfaced verbatim so the author sees the predicate verdicts
-behind the chain shape rather than an opaque "Complex" or
-"Simple" label.
-
-## Why the Artifact Set Shrinks
-
-Three documents that restate one problem at three altitudes cost a
-reader three reads for one idea, and an obvious concept articulated
-three times reads as ceremony. Sparing the reader that is worth
-doing, and it is the only reason `/scope` ever ends a run with
-fewer documents than the chain has altitudes.
-
-It is not a way to save the chain work. That distinction decides
-*when* the reduction can happen. A judgment about whether a
-document would have carried anything a later one does not is only
-answerable against a document that exists — so the reduction runs
-in Phase 2, after each artifact lands, never at Phase 1 against
-artifacts nobody has written. An earlier revision of this skill
-decided per hop, before each artifact existed, whether the child
-was worth invoking; the party making that call was the one that
-benefited from not doing the work, and nothing it read could tell
-it what was being lost.
-
-One mechanism follows from that, and only one. **The
-consolidation judgment** (Phase 2) reduces the set after the
-fact. It reads two written bodies and asks whether the upstream
-holds anything beyond its contribution that folding would lose.
-Where it does not, the upstream's contribution is carried into the
-survivor as one compact section and the upstream is removed.
-Nothing else in a `/scope` run removes a document.
-
-A briefly-shipped revision of this skill also let Phase 1 choose
-an entry altitude for the chain. It was withdrawn. The question it
-asked the author was more answerable than the per-hop gates it
-replaced — which conversation are you having, rather than what
-would an unwritten document have said — but it was still a
-decision that shrank the artifact set before any artifact existed,
-and having two reduction mechanisms fire at different times meant
-neither read as the rule.
-
-**A shorter conversation is still reached by invoking a child
-directly.** `/design <topic>` and `/plan <topic>` enter the
-tactical chain above `/brief`, which is what CLAUDE.md tells
-authors to do when they know the altitude they want. All four
-children ship as standalone entry points, so the choice is real and
-it stays supported. What it no longer is, is the route to a smaller
-artifact set: that is consolidation's call, made per hop against
-documents that exist. Two rules, stated separately, because
-collapsing them puts the artifact-set decision back where no
-artifact exists. `/scope` means "walk the whole chain."
-
-What it no longer means is a fixed outcome. Every hop is
-decidable, so a run ends with all four artifacts, or some, or —
-once the PLAN is implemented and deleted — none. Which one is
-decided per hop against the two documents at that hop, not chosen
-in advance by the author and not fixed by the types involved.
-There is no durable-artifact floor; the prohibition on
-reintroducing one lives beside the judgment in Phase 2.
-
-Anything held back for any other reason is re-entry protection —
-a settled artifact is already on disk and re-running would clobber
-it — and it is recorded under its own name so the two never blur
-again.
-
-## Consolidation Judgment
-
-After each child returns and its artifact validates, Phase 2
-judges the hop this run drew — the artifact that just landed
-against the artifact this run handed it as its invocation
-argument — and reaches one of two verdicts:
-
-- **`keep`** — both artifacts stay. Either something else still
-  cites the upstream, or the upstream holds work the downstream
-  does not.
-- **`absorb`** — the upstream's contribution is carried into the
-  survivor, the upstream is removed, every link to it re-pointed,
-  and the survivor's own `absorbed:` declaration and `## Status`
-  absorption line record what it took in.
-
-The judgment fires only when both endpoints of that edge appear in
-`chain_ran:`. An artifact held back by re-entry protection was
-never a party to a judgment.
-
-Absorbability is decided against the two documents, never against
-their types. Each type declares one contribution to the chain, and
-a survivor carries each absorbed ancestor's contribution as one
-section immediately after `## Status`, in chain order, declared in
-its `absorbed:` frontmatter. So there is no hop the types make
-impossible: the question is only ever whether this upstream holds
-something beyond its contribution that folding would lose.
-
-Two things bound the judgment. Its first stage — a citation
-preflight that refuses a fold anything else still cites by path —
-can reach no outcome stronger than `keep`. And no check anywhere
-in the judgment may read either type's required-section list or
-compare the two types' section sets; the test for a violation is
-that a condition refusing one pair while permitting its structural
-twin under identical repository state is a type rule.
-
-Before any deletion, a carry check itemizes where each of the
-absorbed artifact's concerns landed, including every contribution
-the ancestor itself carried. Anything that did not arrive aborts
-the absorb and leaves both artifacts in place — the check is the
-receiving mechanism, and an absorb without one is a recommendation
-that nothing confirms.
-
-The full eight-step procedure, its rollback table, the firing
-condition, and the prohibition on reintroducing a
-durable-artifact floor live in the Consolidation Judgment section
-of `skills/scope/references/phases/phase-2-chain-orchestration.md`.
-
-## Three Exit Paths
-
-`/scope` terminates through one of the three pattern-level exit
-paths (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` Three
-Exit Paths section). Each binding below names the durable artifact
-the exit produces:
-
-- **`full-run`** — the chain completes through `/plan`. Terminal
-  artifact is `docs/plans/PLAN-<topic>.md` (status Draft when
-  `plan_execution_mode: single-pr`; status Active when
-  `plan_execution_mode: multi-pr` or `coordinated`, with an
-  accompanying GitHub milestone created by `/plan`). The `exit_artifacts:` list
-  records the PLAN doc's path.
-- **`re-evaluation`** — the chain ends at a settled-upstream
-  boundary with a Decision Record written at
-  `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`.
-  The four combinations are gated by the `boundary:` discriminator
-  (`prd` or `design`) and the `decision_record_sub_shape:`
-  discriminator (`re-evaluation` or `rejection`). R9 Part 2's
-  multi-discriminator rule requires both discriminators to be set
-  when `exit: re-evaluation` fires. Decision Record body templates
-  live at `skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`.
-- **`abandonment-forced`** — the chain cannot complete and
-  `/scope` force-materializes the most-recently-running child's
-  intermediate as a Draft artifact. The artifact's Status section
-  ends with the uniform single-line HTML-comment marker (see the
-  Abandonment-Forced HTML-Comment Marker section below).
-
-**R8 bail-handling.** A bail routes on what a child produced.
-The abandonment-forced branch is taken when a child intermediate
-under `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
-under `wip/research/{prd,design}_<topic>_*` exists for the topic;
-the tie-break then resolves `triggering_child` to whichever child
-holds the most-recent intermediate. Nothing under the parent's own
-`wip/scope_<topic>_*` prefix counts toward that branch, because
-nothing under that prefix is a child's output — which is what lets
-a bail at Phase 1, where the state file exists and no child has
-run, take the other branch.
-
-**Clean cancel.** That other branch produces no terminal artifact,
-records no `exit:` value, and never names a `triggering_child`.
-The bail handler removes `wip/scope_<topic>_state.md` on its way
-out, because Phase 4 does not run on a cancel. The full rule, the
-R9 interaction, and the handoff carve-out live in
-`skills/scope/references/phases/phase-3-exit-finalization.md`.
-
-## State File Schema
-
-The state file at `wip/scope_<topic>_state.md` is YAML-in-`.md`
-under the `wip-yaml-md` substrate, extending the pattern's 5-field
-minimum (`topic`, `last_updated`, `phase_pointer`, `exit`,
-`exit_artifacts` — see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`)
-with `/scope`-specific fields. The full field enumeration —
-including the exit-conditioned discriminators (`boundary:`,
-`decision_record_sub_shape:`), the invocation-conditioned
-`consumed_upstream:`, the resume-conditioned `consumed_handoff:`,
-the Drift-Detection audit field
-(`drift_acknowledged:`), the worktree-discipline audit fields
-(`worktree_rebases:`, `worktree_divergences:`), and the ephemeral
-`parent_orchestration:` sentinel — lives in
-`skills/scope/references/state-schema.md`. Every conditional field
-is absent from the state file when its triggering condition does
-not hold (invariant I-5).
-
-## Visibility Detection
-
-`/scope` reads repo visibility from CLAUDE.md's `## Repo Visibility:`
-header, inherited unchanged from the pattern doc's visibility
-mechanism (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`
-Conditional Feeder Invocation Shape section, condition 3). When
-the header is present and names `Public` or `Private`, that value
-is recorded in the state file and routes the visibility-gated
-behaviors.
-
-When the `## Repo Visibility:` header is ABSENT from CLAUDE.md,
-`/scope` defaults to **Private** and emits a warning containing
-the literal phrasing **Default to Private if unknown** naming the
-missing `## Repo Visibility:` header. The warning is informational;
-the run proceeds against the Private default. Authors who want a
-Public-visibility run against a repo without the header SHALL add
-the header to CLAUDE.md and re-invoke `/scope`.
-
-## Manual-Fallback Non-Interference
-
-A child invoked directly OUTSIDE `/scope` produces no `/scope`
-interference: `/scope` does NOT surface a warning, does NOT block,
-and does NOT modify state files when a child runs standalone. The
-contract is symmetric — `/scope`'s state is internal to `/scope`'s
-chain, and the child's standalone resume ladder does not consult
-`/scope`'s state file unless the `parent_orchestration:` sentinel
-is present (the L13 convention).
-
-The consequence for Phase-N Reject:
-
-- **In-chain Reject** — `/prd` Phase 4 Reject or `/design` Phase 6
-  Reject fired while `/scope`'s `parent_orchestration:` sentinel
-  was present. `/scope` writes a rejection-sub-shape Decision
-  Record at `docs/decisions/DECISION-{prd|design}-<topic>-rejection-<YYYY-MM-DD>.md`
-  immediately, observing the discard commit via `git log`. The
-  state file records `exit: re-evaluation`, `boundary: {prd|design}`,
-  `decision_record_sub_shape: rejection`, `discard_commit_sha`,
-  and `rejection_rationale`.
-- **Out-of-chain Reject** — `/prd` or `/design` Reject fired
-  outside any `/scope` invocation. The discard commit is the
-  durable trace; no retroactive Decision Record is written on a
-  later `/scope` resume. A later `/scope` invocation against the
-  same topic detects the discard commit but treats it as
-  external context — manual-fallback parity preserves the
-  contract that `/scope` does not modify state for runs it did
-  not orchestrate.
-
-The discard-commit observability mechanism is the same in both
-cases — `git log` reads commit metadata regardless of who
-invoked the child — so the manual-fallback parity is
-mechanically symmetric.
-
-## Validator Pass-Through
-
-Phase 2 runs `shirabe validate --format json
---visibility=<repo-visibility>` against each child's intermediate
-after the child returns and before invoking the next child. The
-validator is the same binary shirabe ships at `cmd/shirabe/`; the
-visibility flag inherits the visibility detection result (see
-Visibility Detection above). Phase 2 captures BOTH stdout and
-stderr from the sub-process; stderr is never discarded, because in
-the no-envelope case below it is the entire diagnostic.
-
-**Precedence: the envelope decides before the exit code does.**
-Phase 2 parses stdout for the `shirabe-validate/v1` envelope
-FIRST. Absence of a parseable envelope means the validator never
-reached a verdict, whatever the exit code: treat the run as a
-tool-error, surface the captured stderr verbatim as the
-diagnostic, and halt WITHOUT reporting a document violation. This
-rule is load-bearing for a stale binary: a `shirabe` too old to
-recognize a flag `/scope` passes rejects it as a usage error and
-exits 2, which without this rule reads as "violations" and sends
-the author to fix a document that is not broken. The exit-code
-branch below applies ONLY once the envelope has parsed.
-
-With a parsed envelope, Phase 2 branches on the multi-level exit
-code (see `docs/guides/multi-consumer-cli-contract.md`): **0
-(clean)** advances to
-the next child; **2 (violations)** halts the chain and routes via
-R8's bail-handling, surfacing each error-severity finding as
-`<message> (<file>:<line>)` (the `message` already embeds the
-check code, so it is not prepended again) so the author sees which
-check failed in plain terms; **1 (tool-error)** is a validator
-failure DISTINCT from a content violation (the validator could
-not run, or was invoked wrongly) and halts without reporting a
-document violation, surfacing the captured stderr;
-**4 (incomplete)** means the validator accepted the intermediate
-and then did not check it (its `schema:` is missing or out of
-range) and halts, surfacing the envelope's `skipped` entries —
-also not a content violation, because the content was never read.
-`/scope` does NOT auto-fix validator failures and does NOT
-re-implement the validator's checks — only the consumption
-mechanism changed (envelope-presence precedence, then the
-multi-level exit code). The
-author is the validator-failure resolver, and the chain remains
-halted until the author addresses the failure and re-invokes
-`/scope`. The per-phase mechanism (which validator flag, which
-intermediate path) lives in the Phase 2 reference at
-`skills/scope/references/phases/phase-2-chain-orchestration.md`.
-
-## Phase-N Reject In-Chain Integration
-
-The chain-level mechanism for observing `/prd`'s Phase 4 Reject and
-`/design`'s Phase 6 Reject — the `pre_invocation_sha` recording, the
-`git log <pre_invocation_sha>..HEAD` read for the discard commit,
-the in-chain Decision Record write vs out-of-chain context-only
-read — lives in
-`skills/scope/references/phases/phase-2-chain-orchestration.md`
-(Phase-N Reject Handling section). The asymmetry is solely whether
-a Decision Record gets written: in-chain yes, out-of-chain no; the
-discard commit itself is the durable signal in both cases.
-
-## Abandonment-Forced HTML-Comment Marker
-
-When `exit: abandonment-forced` fires, `/scope` force-materializes
-the most-recently-running child's intermediate as a Draft artifact
-at the child's canonical durable path under
-`docs/{briefs,prds,designs/current,designs,plans}/<TYPE>-<topic>.md`
-(`docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`,
-`docs/designs/DESIGN-<topic>.md` or `docs/designs/current/DESIGN-<topic>.md`,
-or `docs/plans/PLAN-<topic>.md`). The artifact's existing Status
-section ends with the uniform single-line HTML-comment marker:
-
-```
-<!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->
-```
-
-Four contract rules bind the marker:
-
-- **(a) Placement.** The marker is placed at the END of the
-  artifact's existing Status section. `/scope` does NOT add a
-  new required section to host the marker; existing artifact
-  structure is preserved.
-- **(b) Whitespace and field order significance.** The marker's
-  whitespace and field order are significant. `scope-status-block:`
-  is the lead identifier; the four field-value pairs appear in
-  the order shown; the closing `-->` follows immediately.
-- **(c) Substitution sources.** The four `<...>` substitutions
-  are populated from the state file: `<name>` from
-  `triggering_child`, `<phase>` from `partial_phase_reached`,
-  and `<ISO-8601 timestamp>` from `chain_started`.
-- **(d) Enum constraint on `<name>`.** `<name>` MUST be one of
-  `brief | prd | design | plan`, resolved by R8's tie-break
-  rule.
-
-The marker is the abandonment-forced exit's machine-readable
-audit trail. Reviewers and future-`/scope`-resume logic grep
-against the literal substring `scope-status-block: abandonment-forced`
-to detect a force-materialized partial.
-
-### Coordinated Abandonment (R20)
-
-When `exit: abandonment-forced` fires on a **coordinated** effort —
-one for which `/scope` created a coordination PR up front — the
-force-materialize step above still runs (the in-flight child's
-intermediate is written as a Draft and carries the marker), and the
-coordination PR is **closed without merging**. Abandonment never
-merges the coordination PR and never silently orphans the
-coordination state: the partial planning artifacts are
-force-materialized so the closed PR's durable body and the on-disk
-Draft together record the partial state a reviewer can audit. The
-close-without-merge action is the coordinated mirror of the
-single-repo force-materialize — the coordination PR is the durable
-home of the chain, so abandoning the chain closes that home rather
-than leaving it open and merge-eligible.
-
-The skill closes the coordination PR with `gh pr close` (the same
-`gh` surface it used to author and post the body); the lifecycle this
-abandonment short-cuts — create-up-front, track, finalize, merge-last —
-is the canonical contract in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
-`/scope` binds to that contract and does not restate it: the binding
-is that abandonment closes the coordination PR unmerged and
-documents the partial state, not a re-derivation of how the PR was
-created or tracked.
-
-## Security Considerations
-
-`/scope`'s security envelope binds the six pattern-level contract
-surfaces enumerated in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
-re-validation on resume, closed write-target set, state-file enum
-re-validation, stale `parent_orchestration:` self-heal, visibility
-boundary, and no untrusted-input interpolation. `/scope` v1 binds
-to public-repo tactical chains exclusively. This is the
-authoritative declaration of the closed write-target set; the
-Phase 3 reference restates it and the Phase 4 reference reads it
-back, and neither may diverge from it.
-
-**Deletions**, by Phase 2's absorb:
-
-- `docs/briefs/BRIEF-<topic>.md`
-- `docs/prds/PRD-<topic>.md`
-- `docs/designs/DESIGN-<topic>.md`
-
-The PLAN is never a deletion target of a fold. At the terminal hop
-it is the *survivor*; the implementation cascade deletes it later,
-outside `/scope`.
-
-**Mutations**, by Phase 2's absorb — the survivor, at whichever hop:
-
-- `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
-
-`docs/plans/` belongs in that list precisely because the PLAN is the
-survivor at the terminal hop and takes four writes there: the
-`upstream:` splice, the `absorbed:` declaration, the `## Status`
-line, and the contribution section. Phase 3 still does not *write*
-the PLAN — `/plan` produces it — and Phase 2's absorb does; naming
-the phase is what makes both true at once.
-
-**Phase 3 and Phase 4**, unchanged: Decision Records under
-`docs/decisions/`, force-materialized partials under
-`docs/{briefs,prds,designs}/` on `abandonment-forced`, and
-state-file plus child-wip cleanup under `wip/`.
-
-**Deletion**, by R8's clean cancel:
-
-- `wip/scope_<topic>_state.md` — one path, not the prefix. The
-  bail handler owns it because Phase 4 does not run on a cancel,
-  and naming it here is what keeps the deletion inside the set. `wip/scope_<topic>_handoff.md` sits under the same prefix
-  and is NOT removed by a bail: it belongs to the router rather
-  than to the parent, and leaving it is what lets a later
-  invocation resume against it instead of starting cold.
-  Enumerated here and carved out of the clean cancel, so it is a
-  known target that a bail never sweeps.
-
-Three corrections are folded into that enumeration, each a
-pre-existing defect rather than a consequence of this change. The
-deletion set named `docs/briefs/` alone, which was the type-level
-floor written into the security surface: an absorb removing a PRD
-or a DESIGN would have failed the hard-finalization check for a
-reason unrelated to safety. The `docs/{briefs,prds,designs}/` entry
-was gated on `abandonment-forced` only, so the existing `upstream:`
-re-point's mutation of the survivor was *already* outside the set.
-And this file and the Phase 3 reference disagreed about whether the
-PLAN was a Phase 3 write target.
-
-Every path above is composed from the validated topic slug or is a
-fixed constant, never from author-supplied text, so the set stays
-closed and enumerable. The `--upstream`
-value does not widen the set: it is a read target only —
-validated, recorded, handed to a child — and is never written to.
-Future cross-visibility extension MUST re-state placement
-discipline in its own PR with explicit public-vs-private
-content-governance review.
-
-Two of the six surfaces need `/scope`-specific statements, because
-`--upstream` is the first author-supplied value this skill accepts
-that is not derived from a validated slug.
-
-**Interpolation discipline.** The pattern reference binds parents
-to a metadata-read surface and requires that a parent adding direct
-author-input handling re-state the interpolation contract
-explicitly rather than silently broaden the surface. Stated in this
-repository's own terms: the `--upstream` value is canonicalized to
-an absolute path and rejected if it resolves outside the working
-tree, then quoted and passed after `--` in every command `/scope`
-emits with it (`git ls-files -- <path>`) and in the `/brief
-<topic-slug> --upstream <path>` invocation it feeds. So neither a
-leading dash nor a shell metacharacter in a filename can change
-what runs. Validation alone is not the guarantee — the argument
-boundary is. The same discipline binds the re-validation the resume
-ladder performs against `consumed_upstream:`, which is a second
-interpolation site rather than a repeat of the first (see
-`skills/scope/references/phases/phase-resume.md`).
-
-**The flag's value reaches a committed field.** Nothing about a
-flag suggests its value ends up in a committed file, and this one
-does: `/plan` writes it into the produced PLAN's `upstream:`
-frontmatter, and that document is committed. The path itself does
-**not** reach the BRIEF — the brief grounds on the roadmap and records
-the roadmap's own ancestor, which `/brief` resolves and visibility-
-checks for itself — so the committed surface this check protects is the
-PLAN's. Public documents must not reference private ones, and no
-tooling enforces that rule for a cross-repo value — `shirabe
-validate`'s resolution check returns nothing for one, so a public
-PLAN carrying a private cross-repo upstream validates clean and
-always will. The three ordered checks in
-`skills/scope/references/phases/phase-0-setup.md` are where that gap
-is closed: reject a path into the non-durable `wip/` directory,
-confirm the target is tracked by git, and — when this repo is
-Public and the upstream is private — stop and omit the field rather
-than write it. `/plan` states the same rule in its own contract, so a
-standalone invocation runs the check the chain-driven path performs. Cross-repo values are accepted rather than rejected
-outright, which is what makes the third check mandatory rather than
-advisory: rejecting them would be safe and would also make the flag
-unable to express the case that motivates it, a tactical chain run
-in one repo underneath a roadmap that lives in another.
-
-## Binding Notes
-
-`/scope` v1 binds the parent-skill pattern's two-substitution
-surface at the v1 core-layer values:
-
-- **`storage_substrate: wip-yaml-md`** — state file at
-  `wip/scope_<topic>_state.md` as YAML-in-`.md`. The substrate
-  does NOT satisfy invariant I-6 (cross-branch resume); resume
-  on a different branch starts a fresh chain. Closing the I-6
-  gap is the amplifier-layer substrate's mandate.
-- **`team_primitive: single-team-per-leader-no-nested`** — no
-  nested teams; inline decision walks within `/scope`-itself
-  (Phase 1's R6 shape-predicate evaluation walks the predicates
-  inline rather than spawning per-predicate validators); upfront
-  upper-bound roster declared in the Team Shape section above
-  (single-agent in v1).
-
-The substitution surface is documented in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` (Named
-Substitution Surfaces section). The values above are where
-`/scope`'s v1 implementation sits on that surface; alternate
-values are the amplifier-layer's mandate.
-
-Same-topic concurrent invocations on the same working tree are
-an explicit no-go pattern: the state file is topic-keyed
-(`wip/scope_<topic>_state.md`), so two concurrent `/scope foo`
-invocations would race on the same state file. Two-topic
-concurrent invocations (`/scope foo` and `/scope bar`) are safe
-because their state files do not contend.
-
-No runtime dependencies are added by this skill; references only
-existing pattern files in this repo. No external URL is cited for
-download or execution. No secrets, tokens, or credentials are
-named.

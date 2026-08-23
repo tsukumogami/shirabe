@@ -5,9 +5,10 @@
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`.
 This reference enumerates the per-row prompts, the refuse-and-
 redirect shape for PLAN's downstream-owned lifecycle states, the
-Slot 7 clause consuming an `/explore` handoff, and the dual-check
-drift-detection contract `/scope` runs against `child_snapshots:`
-on every ladder match.
+Slot 7 clause consuming an `/explore` handoff, the re-validation
+every value recovered from the workflow session passes at the
+resume entry, and the dual-check drift-detection contract `/scope`
+runs against `child_snapshots:` on every ladder match.
 
 ## Slot 5 — Status-Aware Re-Entry (9 rows, most-downstream-first)
 
@@ -283,6 +284,54 @@ moved into a private repo — and the outcome is the same as Phase
 0's: the field is removed rather than carried, and the chain
 continues without it.
 
+## Session-Recovered Value Re-Validation
+
+Every value this ladder recovers from the workflow session is
+re-validated before it is used, on the same grounds the recorded
+upstream is: koto does not constrain a string-typed evidence field
+at all, so a value coming back out of a session is untrusted input
+exactly as a state-file field read from disk is. The rule is the one
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` states
+for state-file fields, applied at a second site rather than a new
+rule — enums against their enum, path-valued fields against the
+anchored pattern for their type.
+
+- **The session's position** — the state name reported by the probe
+  — is matched against the state set in
+  `skills/scope/koto-templates/scope.md`. A name that is not one of
+  them yields no `phase_pointer:` derivation; the ladder reports it
+  and falls back to the recorded pointer rather than guessing a
+  phase from a string.
+- **Enum-valued evidence** (`exit`, `boundary`,
+  `decision_record_sub_shape`, `plan_execution_mode`,
+  `triggering_child`, each hop's `outcome`, the fold's `verdict`)
+  is re-validated against the values that state's `accepts` block
+  declares, before the value reaches a state-file write or a
+  constructed path.
+- **Path-valued evidence** (`exit_artifacts`, and any recovered
+  field naming a document) is re-validated against the anchored
+  canonical path for its type, composed from the validated slug.
+  Several exit-path required fields are path-valued strings and
+  several of them reach a write path, which is what makes this limb
+  load-bearing rather than defensive.
+- **The origin record** is not parsed and not interpolated. Its
+  session name is recomputed from the validated slug and compared
+  for equality; its worktree and store are compared against the
+  values this invocation computes for itself.
+
+Out-of-pattern values are refused with a diagnostic naming the field
+and route to R8 bail-handling, which is what the equivalent
+state-file check does.
+
+**The ladder evaluates without a session, and that is the ordinary
+case.** Its rows key on artifact status, child intermediates, the
+handoff and the branch — none of which the session holds. A topic
+with an Accepted PRD at `docs/prds/PRD-<topic>.md`, no state file
+and no session still reaches row 5.6 and offers that row's triad at
+the PRD boundary, because nothing above it matched and the row's
+condition is a file on disk. The probe's finding changes what the
+run reattaches to, never which row fires.
+
 ## Drift Detection
 
 When `/scope` re-enters a chain (any Slot 5 or Slot 6 ladder match
@@ -303,6 +352,21 @@ blob hash. It does NOT read child internals, does NOT read
 child-private state per the R14-widened isolation rule. The drift
 check uses the same externally-visible surface the initial snapshot
 capture used in Phase 2, so the comparison is symmetric.
+
+**This trigger is preserved as it stands, not repaired here.** It is
+unsatisfiable as written: its condition wants an existing state
+file, and the rows that could match it are reached only when the
+universal rows above them did not fire — which, for every shape of
+state file, is a case those upper rows take. So no Slot 5 or Slot 6
+match arrives carrying the state file this condition asks for, and
+the walk below it never runs. Moving `/scope` onto a workflow
+session touches none of that: the session holds position and the
+snapshots stay where they are, so the defect is neither introduced
+nor worsened by this work, and it is left exactly as found rather
+than fixed on a branch that changes the substrate underneath it.
+Repairing it means deciding what a drift check should compare
+against when there is no state file to hold the frozen pair, which
+is its own question and its own change.
 
 When drift is detected, `/scope` surfaces a three-option staleness
 prompt and the author chooses the path. `/scope` does NOT act on
@@ -353,7 +417,11 @@ walks its own `child_snapshots:` — the state file is internal to
   — R14-widened isolation rule and the dual-check inspection
   surface.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` —
-  Slug re-validation on resume; State-file enum re-validation.
+  Slug re-validation on resume; State-file enum re-validation, the
+  rule the session-recovered values above are validated under.
+- `skills/scope/references/phases/phase-0-setup.md` — the Workflow
+  Session section, which states the probe, the origin check and the
+  naming rule this ladder's re-validation assumes.
 - `skills/scope/references/state-schema.md` — the
   `child_snapshots:`, `drift_acknowledged:`, and `worktree_rebases:`
   fields the drift-detection prompt writes against, and the

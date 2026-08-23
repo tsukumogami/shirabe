@@ -1,11 +1,12 @@
 # Phase 0 — Setup
 
-Phase 0 binds four contracts: flag parsing ahead of the positional
+Phase 0 binds five contracts: flag parsing ahead of the positional
 argument, topic-slug validation against the pattern's regex,
-visibility detection from `CLAUDE.md`, and the unconditional
-self-heal of any stale `parent_orchestration:` block found at
-session start. Phase 0 ends with the initial state-file written and
-the phase pointer advanced to Phase 1.
+visibility detection from `CLAUDE.md`, the workflow session's
+open-or-reattach decision, and the unconditional self-heal of any
+stale `parent_orchestration:` block found at invocation. Phase 0
+ends with the initial state-file written and the phase pointer
+advanced to Phase 1.
 
 ## Flag Parsing Before the Positional Slug Is Read
 
@@ -269,6 +270,99 @@ prompt-on-clear. The block is removed from the state file
 silently, the rest of the state file is left untouched, and the
 resume ladder proceeds against the cleaned state.
 
+## Workflow Session: Probe, Open or Reattach
+
+Runs after every check above that can reject the invocation, and
+before the initial state-file write below. The ordering is what
+keeps a rejected run from leaving a session behind: a bare
+`--upstream`, a slug that fails its pattern, or an upstream that is
+untracked all stop the run, and none of them should have opened
+anything first.
+
+The session name is `scope-<topic>`, composed from the fixed prefix
+and the validated slug and from nothing else. It is recomputed at
+every use rather than read back from anywhere.
+
+**Probe.**
+
+```bash
+koto status scope-<topic>
+```
+
+Three outcomes, and the third is not the second:
+
+- **Exit 0** — a session answers to this name. Run the reattach
+  check below.
+- **Non-zero carrying `"error":"workflow 'scope-<topic>' not
+  found"`** — no session exists for this topic. Open one.
+- **Any other non-zero** — the probe could not answer. Report what
+  it said and stop. Treating it as "no session" opens a second
+  session against a run that may be live, which is the outcome the
+  probe exists to prevent.
+
+**Open.** Initialize the session, then record its origin before the
+first tick:
+
+```bash
+koto init scope-<topic> \
+  --template ${CLAUDE_PLUGIN_ROOT}/skills/scope/koto-templates/scope.md \
+  --var TOPIC=<topic>
+
+SESSION_DIR=$(koto session dir scope-<topic>)
+printf 'session=%s\nworktree=%s\nstore=%s\n' \
+  "scope-<topic>" "$(git rev-parse --show-toplevel)" "$(dirname "$SESSION_DIR")" \
+  | koto context add scope-<topic> origin
+koto context get scope-<topic> origin
+```
+
+`TOPIC` is the same validated slug, passed again as a template
+variable because every hop gate interpolates it into a command koto
+runs itself. koto resolves `{{KEY}}` references and validates them
+against the template's `variables:` block at compile time, so a
+shell-style `${TOPIC}` in a gate command would reach `sh -c`
+untouched and expand to nothing.
+
+The origin record is three keyed lines, written with `printf` and
+piped rather than passed as an argument: `context add` stores what
+it receives verbatim, and the newline `echo` appends would become
+part of the value. Read it back and compare it to what was written.
+A session whose origin record did not land is a session no later
+invocation can claim as its own, so an unverified write stops the
+run here — where the fix is to retry the write — rather than at the
+next invocation, where the only remaining reading is a collision.
+
+The record carries the store alongside the name because the store is
+an environment input rather than a constant. Two invocations against
+one topic under different stores would each probe, each find
+nothing, and each open a session.
+
+**Reattach.** On a probe that found a session, read its origin
+record and compare both halves against this invocation:
+
+- `worktree=` against `git rev-parse --show-toplevel`
+- `store=` against the parent of `koto session dir scope-<topic>`
+
+Reattach only when both match. Otherwise report the collision,
+naming the recorded worktree and this one, and stop. The same
+refusal covers an absent key and a record that cannot be read: an
+orphaned session is a collision rather than this run's own, because
+nothing proves this invocation opened it. The ladder's Discard row
+removes the state file, which is where a run records the session it
+opened, so the absent-record case is reachable in ordinary use and
+not only under tampering.
+
+`/scope` does not remove or cancel the colliding session. koto's own
+message recommends that remedy and it would destroy the other
+worktree's live run. The same holds for the discovery warnings koto
+prints about unrelated corrupted sessions on every tick: they are
+noise from other sessions, and "state file corrupted" is not an
+instruction to this run.
+
+The recorded name is never interpolated into anything. Recompute it
+from the validated slug and compare the stored value to it for
+equality; equality is the whole ownership test, and comparing beats
+parsing a value another run wrote.
+
 ## Initial State-File Shape
 
 After validation passes and the self-heal completes, Phase 0
@@ -277,6 +371,7 @@ with the initial shape:
 
 ```yaml
 topic: <slug>
+session: scope-<topic>
 chain_started: <ISO-8601 timestamp>
 last_updated: <ISO-8601 timestamp>
 phase_pointer: phase-0
@@ -288,10 +383,16 @@ consumed_upstream: <canonical upstream path>   # only when validation passed
 
 The 5-field minimum (`topic`, `last_updated`, `phase_pointer`,
 `exit`, `exit_artifacts`) is filled with their initial values;
-the `/scope`-specific extensions (`chain_started`,
+the `/scope`-specific extensions (`session`, `chain_started`,
 `planned_chain`) are also written. Other `/scope`-specific
 fields are absent at Phase 0 per invariant I-5; they appear only
 when their triggering condition fires later in the chain.
+
+`session:` records the session this run opened or reattached to. It
+is the name recomputed from the validated slug, written here so a
+reader of the state file can find the run's per-hop record, and it
+is never read back for interpolation: a use recomputes the name and
+compares.
 
 `consumed_upstream:` is the one conditional field Phase 0 can
 write, because its trigger — an author supplying `--upstream` —
@@ -306,7 +407,18 @@ the pushed feature branch.
 
 Phase 0 advances the `phase_pointer:` to `phase-1` immediately
 before returning control to Phase 1, so a resume against the
-written state enters at Phase 1's discovery prompts.
+written state enters at Phase 1's discovery prompts. The write
+follows the tick that advanced the session out of `setup`, never
+precedes it: the pointer names the phase of the state the session
+is now in, read off that state's `# phase: N` comment in
+`skills/scope/koto-templates/scope.md`. Writing it first would
+record a position the session might not reach, and the pointer is
+what a resume with no session to consult has to trust.
+
+The initial write above is the one exception, and it is the case the
+rule already covers: no session exists yet when Phase 0 writes
+`phase_pointer: phase-0`, so the value comes from `/scope`'s own
+phase.
 
 ## Worktree-Discipline Trigger Is Not in Phase 0
 
@@ -331,3 +443,11 @@ to those.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase flow Phase 2 invokes before each child
   invocation (not Phase 0).
+- `skills/scope/koto-templates/scope.md` — the template this phase
+  initializes the session from, and the `# phase: N` comments the
+  pointer is derived through.
+- `skills/scope/SKILL.md` — the Running the Workflow section, which
+  points here for the session procedure and carries the
+  directive-versus-details contract the rest of the run depends on.
+  The naming rule, the probe and the origin check are stated in this
+  file's own Workflow Session section, not there.

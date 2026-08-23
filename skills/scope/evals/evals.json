@@ -473,6 +473,66 @@
         "Plan accepts the handoff's estimates for predicates P1 and P3 but recomputes P2 against the worktree's directory structure",
         "Plan does NOT delete the handoff on consumption; Phase 4's sweep owns its removal"
       ]
+    },
+    {
+      "id": 31,
+      "name": "substrate-no-document-claims-an-unbacked-fold",
+      "prompt": "/scope payments-retry",
+      "expected_output": "The run walks the tactical chain through the koto session. Whatever set of documents it ends with, no surviving document declares an ancestor absorbed unless that fold actually happened: an `absorbed:` entry appears only alongside the contribution section it implies and the `## Status` absorption line that records it. A hop that was skipped rather than folded leaves no absorption claim anywhere -- it is recorded under `chain_skipped:` and satisfies no completion check. The run does not reach the full-run terminal on the strength of a declaration nothing performed.",
+      "files": [
+        "skills/scope/SKILL.md",
+        "skills/scope/koto-templates/scope.md",
+        "skills/scope/scripts/hop-complete.sh"
+      ],
+      "expectations": [
+        "No document present after the run carries an `absorbed:` entry naming a hop for which neither that hop's artifact nor a recorded fold exists",
+        "Every `absorbed:` entry that IS present is paired with the contribution section it implies and with a `## Status` absorption line naming the same path",
+        "A hop the run skipped is recorded under `chain_skipped:` and is not described anywhere as having been absorbed, consolidated, or folded",
+        "The run does not describe the artifact set as having been reduced for reasons of reader economy, brevity, or avoiding ceremony",
+        "If the run reaches a full-run exit, every hop has either its own artifact at a canonical path or a recorded fold in a surviving document"
+      ]
+    },
+    {
+      "id": 32,
+      "name": "substrate-every-hop-skipped-reaches-abandonment",
+      "prompt": "/scope legacy-import --auto",
+      "expected_output": "A run that marks every hop skipped does not reach the full-run terminal. It reaches the abandonment terminal, because a full-run exit requires every hop to have either its artifact or a recorded fold and a skipped hop has neither -- the completion predicate has no skip limb, so a skip cannot be laundered into a completion at the exit. `chain_skipped:` names every one of the four hops.",
+      "files": [
+        "skills/scope/SKILL.md",
+        "skills/scope/koto-templates/scope.md",
+        "skills/scope/scripts/hop-complete.sh"
+      ],
+      "expectations": [
+        "The run reaches the abandonment terminal, not the full-run terminal",
+        "`chain_skipped:` names all four hops: brief, prd, design, plan",
+        "The run does not record a full-run exit, and does not claim the chain was walked",
+        "The refusal is attributed to hops lacking both an artifact and a recorded fold, rather than to a missing PLAN alone",
+        "No document is deleted or declared absorbed as a consequence of the hops being skipped"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "substrate-second-invocation-reattaches-not-forks",
+      "prompt": "/scope payments-retry",
+      "expected_output": "A second invocation against a topic that already has a live session reattaches to it rather than opening a second one. The session name is reconstructible from the topic slug alone, so the probe finds the existing session before opening anything. Reattachment happens only when the session's recorded origin worktree matches this invocation's; on a mismatch the collision is reported and the run stops rather than proceeding against another worktree's session. Exactly one session directory exists for the topic afterward.",
+      "files": [
+        "skills/scope/SKILL.md",
+        "skills/scope/references/phases/phase-0-setup.md",
+        "skills/scope/references/phases/phase-resume.md"
+      ],
+      "expectations": [
+        "Exactly one session directory exists for the topic after the second invocation",
+        "The second invocation probes for an existing session before opening one, rather than opening one unconditionally",
+        "Reattachment is conditioned on the recorded origin worktree matching this invocation's",
+        "A worktree mismatch is reported as a collision and stops the run, rather than reattaching or opening a second session",
+        "The run does not invoke any workflow cleanup or cancel verb against the existing session"
+      ]
     }
-  ]
+  ],
+  "substrate_scenarios": {
+    "min_runs": 5,
+    "pass_rate_threshold": 0.8,
+    "gating": false,
+    "note": "Scenarios 31-33 drive the koto substrate and are reported against pass_rate_threshold over at least min_runs runs (scripts/run-evals.sh --scenario <name> --runs 5 scope). They do not gate a pull request. The deterministic assertions about the same substrate live in skills/scope/scripts/scope-substrate_test.sh, which does gate."
+  }
 }

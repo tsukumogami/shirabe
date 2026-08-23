@@ -8,7 +8,9 @@ and clears the `parent_orchestration:` sentinel; after each
 invocation Phase 2 runs the R20 structural file-existence check,
 captures the child snapshot, routes through the validator
 pass-through, and runs the consolidation judgment against the
-nearest surviving artifact above the one that just landed.
+nearest surviving artifact above the one that just landed. Once the
+hop's gate has passed, the artifact is committed to the run's own
+branch in a commit naming the hop.
 Phase-N Reject from `/prd` or `/design` is observed via
 `git log` against the discard commit.
 
@@ -30,6 +32,7 @@ before any of them do.
 - [Child-Snapshot Capture](#child-snapshot-capture)
 - [Phase-N Reject Handling](#phase-n-reject-handling)
 - [Validator Pass-Through](#validator-pass-through)
+- [Per-Hop Commit](#per-hop-commit)
 - [Consolidation Judgment](#consolidation-judgment)
 - [Per-Child Gates from `planned_chain:`, Not Re-Walked](#per-child-gates-from-planned_chain-not-re-walked)
 - [State-File Enum Re-Validation](#state-file-enum-re-validation)
@@ -48,7 +51,11 @@ eight steps in sequence:
    to the state file immediately before invoking the child.
 3. **Child invocation.** Invoke the child via its existing
    input mode: the topic slug for `/brief`, the nearest produced
-   upstream artifact's path for every later child.
+   upstream artifact's path for every later child. When the state
+   file carries `consumed_upstream:`, `/brief` and `/plan` also
+   take `--upstream <that path>` — see the per-child invocation
+   forms below. The summary form omitted it and the flag was
+   silently dropped at the only site that could pass it.
 4. **R20 structural file-existence check.** Confirm the child's
    canonical durable artifact exists after the child returns.
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
@@ -485,19 +492,117 @@ remains halted until the author addresses the failure (typically
 by re-running the child with corrections, or by re-invoking
 `/scope` from the beginning with a re-framed topic).
 
+## Per-Hop Commit
+
+Each hop's artifact is committed as it lands, on the branch the run
+is already standing on, in a commit naming the hop. An uncommitted
+artifact is a worthless resume anchor: a later invocation cannot
+tell it from a hand edit, and a reviewer reading the branch sees
+four documents arrive at once with no record of the order they were
+settled in.
+
+**This is not a ninth step in the loop above.** It fires after the
+tick that advanced the hop, so the hop's gate has already passed.
+That ordering is the point — the gate reads the artifact tree and
+never git state, so its verdict cannot be manufactured by
+committing, and a failed gate never produces a commit claiming a
+hop landed.
+
+**Four preconditions, all of them before anything is staged.**
+
+1. **HEAD is on a named branch.** A detached HEAD commits to
+   nothing a later invocation can find.
+2. **That branch is not the repository's default branch.** This
+   check has to be positional rather than a pattern: `main` is a
+   well-formed branch name that no character check rejects, which
+   is the point `/execute`'s own template makes about the one wrong
+   value nothing malformed-looking can catch.
+3. **The recovered branch name validates** against
+   `^[A-Za-z0-9._/-]+$` before it reaches any emitted shell
+   command. It is read back out of git rather than typed by anyone,
+   which is exactly the shape of input that gets trusted by
+   accident.
+4. **The artifact is at the hop's canonical path**, which the gate
+   has already established.
+
+Any of the four failing stops the run with a diagnostic naming what
+failed. None of them prompts, and none of them repairs: creating a
+branch on the author's behalf mid-chain is a bigger surprise than
+refusing.
+
+```bash
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || {
+  echo "refusing to commit the <hop> hop: HEAD is not on a named branch"; exit 1; }
+case "$BRANCH" in
+  *[!A-Za-z0-9._/-]*|"")
+    echo "refusing to commit the <hop> hop: unsafe branch name [$BRANCH]"; exit 1 ;;
+esac
+DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD)
+DEFAULT=${DEFAULT#origin/}
+case "$BRANCH" in
+  "${DEFAULT:-main}"|main|master)
+    echo "refusing to commit the <hop> hop on the default branch [$BRANCH]"; exit 1 ;;
+esac
+git add -- "<artifact-path>"
+git commit -m "docs(scope): <hop> hop for <topic>" -- "<artifact-path>"
+```
+
+`main` and `master` are checked alongside the resolved default
+because `refs/remotes/origin/HEAD` is absent in a clone that never
+fetched it, and a fallback that resolves to nothing would leave the
+precondition satisfied by every branch. `--quiet` is what makes the
+absent ref silent — the command exits 1 and prints nothing, so no
+diagnostic is discarded to reach the fallback.
+
+**One pathspec, and it is this hop's own artifact.**
+
+| Hop | Pathspec |
+|---|---|
+| `brief` | `docs/briefs/BRIEF-<topic>.md` |
+| `prd` | `docs/prds/PRD-<topic>.md` |
+| `design` | `docs/designs/DESIGN-<topic>.md`, or `docs/designs/current/DESIGN-<topic>.md` when that is where the artifact is |
+| `plan` | `docs/plans/PLAN-<topic>.md` |
+
+Staging is `git add --` on that one path. Never `-A`, never `-a` on
+the commit, and the pathspec is repeated on `git commit` so a change
+staged by something else does not ride along. A sweeping stage would
+put the run's own `wip/` intermediates into the tree, and the
+wip-hygiene rule is not the only reason that is wrong: a commit
+naming a hop should contain the hop.
+
+**The message is composed from the hop and the validated slug and
+from nothing else.** Both are closed values — the hop is one of
+four, the slug has passed its regex — which is what makes `-m` safe
+here. Any rationale text, now or later, goes through `git commit -F
+-` instead, per the `git commit -F` discipline in
+`skills/scope/references/phases/phase-3-exit-finalization.md`.
+
+**Nothing pushes.** The commits stay local; a branch reaches a
+remote when the author or a downstream skill puts it there.
+
+The absorb's own commit (step 8 of Stage 3 below) is a different
+commit with its own pathspecs, carrying the deletion, the re-point
+and the survivor's edits together. Both commits write only inside
+the Commits group enumerated in SKILL.md's Security Considerations.
+
 ## Consolidation Judgment
 
 Step 8 is where the artifact set shrinks.
 
-**Why it exists.** Three documents restating one problem at three
-altitudes cost a reader three reads for one idea, and an obvious
-concept articulated three times reads as ceremony. Reducing the
-set is worth doing for the reader. It is only honest to do it
-*here* — against two bodies that exist, where the question "does
-the upstream do work the downstream does not?" has an answer. The
-same question asked at Phase 1, before either document is
-written, has no answer, and answering it anyway is how content
-gets lost.
+**Why it is here.** "Does the upstream do work the downstream does
+not?" has an answer only against two bodies that exist. Asked at
+Phase 1, before either document is written, it has none, and
+answering it anyway is how content gets lost. That is what fixes
+the judgment at this point in the run rather than earlier.
+
+**The argument for reducing at all is not stated here.** It is
+delivered at the fold state, scoped to the pair in hand, where the
+agent weighing it is holding both documents. This file is read
+before the hops run, and a general case for ending with fewer
+documents, read by an agent holding none of them, is a case for not
+writing them — which is the substitution that produced the incident
+this whole contract exists to prevent. The narrow form is the only
+form, and the fold state is the only place it appears.
 
 ### Firing condition
 
@@ -849,9 +954,12 @@ and route to R8 bail-handling.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   Gate Vocabulary; L13 amendment defining the
   `parent_orchestration:` sentinel as the pattern-level parent-
-  orchestration primitive; semantic invariant I-7 (Team-Lead
-  Operating Discipline) for the child-invocation task class
-  (120s window, 10-cycle patience budget).
+  orchestration primitive; the Dispatch Contract, whose Layer-2
+  binding for `/scope` is inline Skill-tool invocation — the child
+  runs in this agent's own context. There is no subagent to poll,
+  so semantic invariant I-7 (Team-Lead Operating Discipline) and
+  its window and patience budget do not apply to a `/scope` child
+  invocation.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase Rebase / Impact-analysis / Escalation flow
   the per-child loop runs before each invocation, the

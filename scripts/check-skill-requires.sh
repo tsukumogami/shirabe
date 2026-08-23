@@ -273,6 +273,24 @@ segment_flags() {
     esac
 
     cut="$rest"
+
+    # Placeholder spans go first, before the redirect cuts below. These files
+    # are instructions, so `cmd <topic> --flag` is the normal way a call site is
+    # written -- and cutting at the `<` of `<topic>` discards every flag after
+    # it. That made the check silently one-sided: `koto init scope-<topic>
+    # --undeclared` passed while the same flag without the placeholder failed.
+    # The same shape hides real call sites elsewhere in this repository
+    # (`shirabe roadmap populate <roadmap-path> --issues`,
+    # `shirabe slug-prefix-detect <slug> --docs-root`), so the blind spot was
+    # not specific to one skill.
+    #
+    # `<word>` with no whitespace inside is a placeholder, never a redirect: a
+    # redirect's target is a path preceded by whitespace and is not closed by
+    # `>`. Removing those spans leaves any genuine `<` for the cut below.
+    case "$cut" in
+      *'<'*'>'*) cut=$(printf '%s' "$cut" | sed 's/<[^<> ]*>//g') ;;
+    esac
+
     # Cut at the first shell separator or closing delimiter.
     cut="${cut%%|*}"
     cut="${cut%%;*}"

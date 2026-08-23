@@ -34,17 +34,32 @@ Evals are co-located with their skill, not in a central directory:
 skills/<name>/
   SKILL.md
   evals/
-    evals.json                # This skill's eval scenarios + assertions
+    evals.json                # This skill's eval scenarios + expectations
+    fixtures/                 # Optional. <eval-name>/<path> supplies the content
+                              # for a path that eval declares under files:;
+                              # files/<path> supplies it for the whole suite.
     workspace/                # gitignored; created by run-evals.sh
       iteration-N/
         <eval-name>/
-          with_skill/outputs/   # Agent outputs with skill loaded
+          workspace/            # This scenario's working tree. Paths declared
+                                # under files: are materialized here before the run.
+          with_skill/outputs/   # Agent outputs with skill loaded, plus
+                                # post_run_tree/ and post_run_tree_manifest.txt:
+                                # the scenario working tree as the run left it
           without_skill/outputs/ # Baseline outputs without skill
-          eval_metadata.json    # Prompt + assertions for this eval
+          eval_metadata.json    # Prompt + resolved criteria for this eval
           grading.json          # Pass/fail per assertion
           timing.json           # Token count and duration
         benchmark.json          # Aggregated results for this iteration
+        validation_summary.json # Machine-readable tally for this iteration
 ```
+
+A scenario's graded criteria come from its `expectations` key, falling back to
+`assertions` where a suite still uses the older name. A scenario that grades
+zero criteria fails the run: a suite reporting green having graded nothing is
+the failure this harness exists to prevent. Assertions about files a run was
+supposed to produce are graded against `post_run_tree/`, not against the
+agent's account of what it did.
 
 ## Running Evals
 
@@ -64,7 +79,14 @@ scripts/run-evals.sh --all
 
 # Re-validate the latest iteration without re-running
 scripts/run-evals.sh --validate decision
+
+# Run one scenario five times and report how often it passed
+scripts/run-evals.sh --scenario standalone-decision-simple --runs 5 decision
 ```
+
+Exit status: 0 all graded and passing, 1 an assertion failed, 2 something graded
+nothing (no results, a missing grading.json, or a scenario with an empty criteria
+list), 3 a missing prerequisite.
 
 ### Interactive (Claude Code with /skill-creator)
 

@@ -108,6 +108,21 @@ deletion is enumerated in the same closed set for that reason;
 Phase 4 reads it back here so a reader checking the set against
 this file's sweeps does not find an unaccounted removal.
 
+**Two groups in that set are outside Phase 4's reach, and the
+reader checking the enumeration against this file should not go
+looking for them here.** The Commits group — the four canonical
+artifact paths plus the second DESIGN location — is written by
+Phase 2's per-hop commit and by the absorb's own commit, and Phase
+4 neither adds to it nor unwinds it: a hop's commit is history by
+the time cleanup runs. The out-of-repo ephemera are the koto
+session store and koto's template compile cache, and Phase 4
+removes neither. The session in particular is retained
+deliberately: the `koto next` that reaches the terminal carries
+`--no-cleanup`, because the per-hop record is what an author reads
+after a run ends and disposing of the session destroys it at
+exactly that moment. The record is read where it lives and never
+copied into a committed artifact or a pull-request body.
+
 The read-back is documentation discipline: Phase 4's removals
 land inside Phase 3's enumerated set per the exit-path matrix
 above; an implementation that removes anything outside this

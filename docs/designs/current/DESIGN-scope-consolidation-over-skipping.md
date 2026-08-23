@@ -426,6 +426,9 @@ fails mechanically.
 skills/scope/SKILL.md
     # New "## Why the Artifact Set Shrinks" section — the reader-facing
     #   rationale, stated here rather than cited from /brief
+    #   (RENAMED: this slot is now "## Why Each Hop Is Taken", and the
+    #    rationale moved to the fold state's directive. See the
+    #    2026-08-20 amendment at the end of this document.)
     # New "## Consolidation Judgment" section — verdicts, absorbability
     #   rule, carry check, per-hop placement
 
@@ -899,3 +902,36 @@ trail Option D trades away, and the trade is now smaller than the record made it
 look — the *why* survives in the code, and the *what* survives wherever a
 document does. No durable-artifact floor follows from it, and the prohibition
 against a guard that forces `keep` to manufacture one is unaffected.
+
+## Amendment — 2026-08-20
+
+Amended in part by `DESIGN-scope-koto-adoption.md`, which moves the
+reader-economy argument out of `skills/scope/SKILL.md`. The original text above
+is left unedited except for the one citation named below; this section records
+what no longer holds and why.
+
+**The `## Why the Artifact Set Shrinks` section named in Component changes no
+longer exists.** Its slot in `SKILL.md` is now `## Why Each Hop Is Taken`, which
+states why a hop is taken rather than why the set gets smaller. The Component
+changes block above is updated in place, because a design that points at a
+section nobody can open is worse for a reader than one that admits the rename.
+
+The reason is not presentational. This design placed the reader-economy
+rationale in `SKILL.md` deliberately — "stated here rather than cited from
+`/brief`" — so that the argument would have a reader on the receiving side. The
+placement turned out to be the defect. `SKILL.md` is read before any artifact
+exists, and an argument for ending a run with fewer documents, read by an agent
+holding none of them, is an argument for not writing them. An agent quoted that
+passage while skipping three hops and writing a PLAN directly.
+
+What replaces it keeps the argument and moves the reader. The general form is
+gone from every file read before the hops run; the narrow form — scoped to the
+two documents in hand — is delivered in the fold state's directive, at the point
+where both documents exist and the judgment is actually being made. The
+conclusion this design reached, that the reduction is only decidable against
+documents that exist, is unchanged and is what forced the move: an argument that
+can only be evaluated against two artifacts should not be delivered to a reader
+holding zero.
+
+The consolidation judgment itself, its bounds, and the prohibition on
+reintroducing a durable-artifact floor are unaffected.

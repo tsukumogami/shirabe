@@ -383,6 +383,19 @@ itself is the freeze line, not the v1 value.
   multi-leader coordination primitive. The amplifier-layer implementation
   SHALL satisfy I-6.
 
+A parent MAY drive its phases from a workflow session while declaring
+`storage_substrate: wip-yaml-md`. A session holds position within a single
+run and is disposed of at its terminal state; this substitution surface
+names how a parent persists state between invocations. The two axes are
+independent, so a parent that runs its phases as a workflow session still
+declares the v1 value and still writes its state file at
+`wip/<parent>_<topic>_state.md`.
+
+This is a widening rather than a variance: it names a second thing a parent
+may do, and `/charter` is not required to do it. The precedent is the
+Dispatch Mechanism below, whose Layer-1 statement carries two Layer-2
+bindings rather than admitting the second as a named exception.
+
 **`team_primitive`.** How a parent's team is spawned and how nested teams
 are handled.
 
@@ -587,6 +600,20 @@ the child's inbox, the child's `wip/` state, or any sub-team the
 child constructs. R14 child-isolation is the binding constraint:
 the parent's observability surface is the durable artifact path
 plus the parent's own worktree state, and nothing else.
+
+**The parent's own workflow session.** A parent that drives its
+phases from a workflow session also reads two surfaces belonging to
+that session: the session-status surface, which reports the state
+the run currently occupies and what it is blocked on, and the
+per-hop record, which reports what each hop did once the run has
+ended. Both are the parent observing its own session. The
+enumeration above governs a parent's view of an in-flight child and
+is unchanged by this item, as is the child-isolation limb that
+closes it: a parent still inspects no child's internal team
+coordination, inbox, `wip/` state, or sub-team, and reading one's
+own session confers no view into a child's. Whether a child is ever
+materialized as a session of its own is a separate question this
+item neither settles nor forecloses.
 
 ### Hand-Back Contract
 
