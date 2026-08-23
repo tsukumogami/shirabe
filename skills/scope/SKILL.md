@@ -113,28 +113,18 @@ confused with a hop not needed.
 
 ## Team Shape
 
-`/scope` runs as a single-agent skill in the v1 core layer — no
-team is spawned at the `/scope`-itself layer. The parent-of-the-
-parent (the agent invoking the skill) calls `/scope` directly;
-there are no peer roles to materialize at team-creation time.
+**`/scope` spawns nothing.** It is a single-agent skill: you run every
+phase yourself, and each child — `/brief`, `/prd`, `/design`, `/plan` —
+is invoked **inline through the Skill tool, in your own context**. No
+subagent, no roster to materialize, nothing to poll or wait on. Each
+hop's directive says so again at the point of invocation.
 
-The team-shape declarator is prose per the pattern's v1 form (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` — Team-
-Shape Declarator section). When the amplifier-layer substrate
-ships, team-emitting parents declare their roster as structured
-metadata; single-agent parents like `/scope` keep the prose form.
-
-R19 (the Team-Lead Operating Discipline, semantic invariant I-7 in
-the pattern's invariants list) binds at the child-skill-dispatch
-layer rather than at the parent-itself layer: each `/brief`,
-`/prd`, `/design`, and `/plan` invocation is a dispatch in the
-discipline's sense, and `/scope` runs the implementation-pass task
-class (120-second window, 10-cycle patience budget) for each child
-invocation. At the `/scope`-itself layer the binding is vacuous in
-v1 — there are no peers dispatched whose terminal exits the team-
-lead drives.
-
-See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+The declarator is prose per the pattern's v1 form; see the Team-Shape
+Declarator and Dispatch Contract sections of
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md).
+R19's Team-Lead Operating Discipline binds at the child-dispatch layer
+and is vacuous here for the same reason: there are no peers whose
+terminal exits a team lead drives.
 
 ## Input Modes
 
@@ -268,15 +258,6 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
-Phase 2 child invocation runs each of `/brief`, `/prd`, `/design`,
-`/plan` as a dispatch under the Team-Lead Operating Discipline
-documented in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`
-(invariant I-7). The discipline binds the sleep-check-nudge loop,
-the filesystem-evidence-first priority ordering, and the PASS /
-FAIL / ESCALATE terminal exits; the implementation-pass task
-class (120s window, 10-cycle patience budget) applies to each
-child invocation.
-
 The per-child worktree-staleness check before each invocation is
 the three-phase flow (Rebase phase → Impact-analysis phase →
 Escalation phase) defined in
@@ -289,9 +270,17 @@ a re-author / proceed-against-original-intent / bail decision.
 
 ## Running the Workflow
 
-Phase 0 opens or reattaches a koto session named `scope-<topic>`, then every
-subsequent step comes from the workflow rather than from this file: call `koto
-next`, do what the directive says, submit the evidence it asks for, repeat.
+**Start here.** Read
+`skills/scope/references/phases/phase-0-setup.md` and follow its Workflow
+Session section: it carries the probe that finds an existing session, the
+open-or-reattach decision, and the origin record. There is no session to tick
+until that has run, so this is the one procedure you need before the workflow
+can tell you anything. The session is named `scope-<topic>`, derived from the
+slug alone so the probe can find it.
+
+After that, every step comes from the workflow rather than from this file: call
+`koto next`, do what the directive says, submit the evidence it asks for,
+repeat.
 
 Two things about what you receive. Each state's `directive` arrives on every
 tick and is short. Longer procedure arrives once, as `details`, when you first
@@ -305,11 +294,8 @@ the directive tells you to, or when you hit a corner case it does not cover.
 They are not required reading up front, and reading all of them before starting
 is the failure this arrangement exists to avoid.
 
-The procedure for the session probe, the open-or-reattach decision and the
-origin-worktree record is in
-`skills/scope/references/phases/phase-0-setup.md`. The state file at
-`wip/scope_<topic>_state.md` stays authoritative for `/scope`'s own position;
-the session carries the workflow's.
+The state file at `wip/scope_<topic>_state.md` stays authoritative for
+`/scope`'s own position; the session carries the workflow's.
 
 Never run a workflow cleanup or cancel verb against a session this run did not
 open. koto reports `state file corrupted` for unrelated sessions on every tick,

@@ -642,7 +642,8 @@ states:
 
 ## setup
 
-Establish the run: validate the topic slug, write the state file, confirm the
+Establish the run: validate the topic slug, confirm HEAD is on a named branch
+that is not the repository's default, write the state file, and confirm the
 worktree is the one this run owns. Submit `setup_result: ready`, or `blocked`
 with `detail`.
 
@@ -652,7 +653,24 @@ Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
 
-`blocked` is for a slug that fails its pattern, a state file that cannot be
+**The branch check belongs here rather than at the first commit.** Each hop's
+artifact is committed as it lands, and that commit refuses a detached HEAD and
+refuses the repository's default branch -- deliberately, because creating a
+branch mid-chain on the author's behalf is a bigger surprise than stopping. But
+the first commit happens after `/brief` has already run and produced a
+document. A run that starts on the default branch therefore does a hop's work
+and then cannot keep it. Checking at setup costs one command and turns that into
+a refusal before anything is written:
+
+```bash
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || {
+  echo "not on a named branch"; }
+```
+
+Submit `blocked` with `detail` when HEAD is detached or on the default branch,
+and let the author choose the branch. Do not create one.
+
+`blocked` also covers a slug that fails its pattern, a state file that cannot be
 written, or a session collision reported against another worktree. Anything
 else, fix and submit `ready`.
 
