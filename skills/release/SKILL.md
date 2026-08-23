@@ -1,10 +1,18 @@
 ---
 name: release
 description: >-
-  Release workflow. Analyzes commits to recommend a version, generates
-  release notes for review, creates a draft GitHub release, dispatches
-  the reusable workflow, and monitors progress. Falls back to draft +
-  manual tag when no workflow is detected.
+  Cut a release properly: work out the version from what actually landed,
+  derive the change set from the commit range, check for blockers, write notes
+  someone would want to read, and drive the release out. Use it whenever a
+  version is about to move -- "cut a release", "ship 0.19", "tag a new
+  version", "publish the new version", "bump the version", "write the
+  changelog", "what's changed since the last release?", "is this ready to
+  release?". Do NOT do any of it by hand instead: hand-tagging, editing a
+  version string directly, writing notes off `git log`, or calling `gh release
+  create` yourself skips the blocker check and gets the contents wrong,
+  because a search for merged pull requests returns work the release does not
+  contain and only the commit range is correct. This is releasing a version,
+  not merging a change -- shipping one piece of work is `/work-on`.
 argument-hint: '[version] [--dry-run]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

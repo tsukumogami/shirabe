@@ -1,19 +1,19 @@
 ---
 name: comp
 description: >-
-  Structured workflow for creating COMP (competitive-analysis) documents
-  — a private-only artifact that surveys the competitive landscape a
-  feature or product sits in and turns that survey into implications for
-  our own choices. Use when you need to compare competitors along
-  explicit dimensions, find concrete gaps, and connect those findings to
-  decisions, before or alongside writing requirements. Triggers on
-  "competitive analysis for X", "how do competitors handle Y", "survey
-  the market for Z", "what's the competitive landscape", or "COMP-<name>".
-  Do NOT use for feature requirements (/prd), technical architecture
-  (/design), feature framing (/brief), or open-ended exploration
-  (/explore). COMP is private-only: in a public repo the skill warns,
-  names the alternatives, and lets the author decide whether to
-  continue.
+  Survey what already exists in the space and turn it into implications for
+  what you build: who the alternatives are, on which dimensions they differ,
+  where the real gaps sit, and what that means for your own choices. Use it
+  when the answer would otherwise be a chat reply nobody can find again --
+  "how does Cursor handle this?", "is there anything out there that already
+  does X?", "should we build this or buy it?", "why would someone pick us over
+  them?", "what's the state of the art here?", "has someone already solved
+  this?". Build-versus-buy is this skill: the comparison is the work. The
+  result is private-only, so in a public repo it cannot be finalized and you
+  want a different artifact. Do NOT use it when the question is not yet about
+  named alternatives at all (`/explore`), when you are choosing between
+  options already on the table (`/decision`), or when the case being made is
+  for your own project rather than against theirs (`/vision`).
 argument-hint: <topic-slug> [--upstream <path>]
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

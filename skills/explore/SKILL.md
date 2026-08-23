@@ -1,13 +1,19 @@
 ---
 name: explore
-description: Structured exploration workflow and routing advisor. Use when the user
-  isn't sure what to build, doesn't know which workflow fits their situation, or wants to research
-  before committing to a chain. Triggers on "should I write a PRD or a design
-  doc?", "I don't know where to start", "what should I do next?", "how do I start this?", "I'm
-  stuck", or explicit /explore invocations. Helps figure out whether the work enters at /scope or
-  /charter, is one issue, or is a spike, decision, or landscape write-up, through a
-  discover-converge loop with research agents. Does NOT apply when the user already knows the
-  altitude -- use /scope, /charter, or /execute directly instead.
+description: >-
+  Investigate something open-ended before anyone commits to it, then say where
+  the work actually starts. Use it for feasibility -- "is this even
+  possible?", "can we do X with our current stack?", "what would it take to
+  support Y?", "spike this" -- and for the stuck case: "I don't know where to
+  start", "what should I do next?", "how do I start this?", "I'm stuck", "I
+  want to understand how Z works before we commit", "research whether we
+  should...". It fans out research and lands either a written spike report or
+  a decision about which entry point the work belongs to. Guessing instead
+  means committing to an approach nobody checked was possible. Do NOT use it
+  once you already know what comes next: working out one feature is `/scope`,
+  framing a whole initiative is `/charter`, running a finished plan is
+  `/execute`, picking between options already named is `/decision`, and
+  surveying named competitors is `/comp`.
 argument-hint: '<topic or issue number>'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
