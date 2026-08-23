@@ -1,14 +1,19 @@
 ---
 name: vision
 description: >-
-  Structured workflow for creating Vision documents that capture project thesis,
-  strategic justification, and org fit. Use when defining WHY a project should
-  exist before writing requirements. Triggers on "why should we build X",
-  "define the vision for Y", "justify project Z", "I need a vision doc", or any
-  request to articulate project thesis or strategic positioning. Do NOT use for
-  feature requirements (/prd), technical architecture (/design), or open-ended
-  exploration (/explore). Drives a multi-phase workflow: conversational scoping,
-  parallel research agents, structured drafting, and jury review.
+  Work out why a project should exist at all and write the case down: who it
+  is for, what it is for, what it displaces, and whether it belongs in this
+  org. Use it when the thing in front of you is not yet a project -- "should
+  this be its own project?", "who is this even for?", "convince me this is
+  worth doing", "what's the north star here?", "write the pitch", "we're
+  starting something new" -- including when someone asks for a README intro or
+  the elevator version and the justification underneath has never been argued
+  anywhere. Write it and the reasoning survives; answer in chat and the next
+  person relitigates it. Do NOT use it when the thesis is settled and what is
+  missing is the medium-term bet under it (`/strategy`) or the order things
+  get built (`/roadmap`). A vision with nothing under it is rarely what
+  someone wants: if the conversation is going to run down into the bet and the
+  sequence anyway, `/charter` walks all three in one sitting.
 argument-hint: '<project or org topic>'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

@@ -1,18 +1,19 @@
 ---
 name: roadmap
 description: >-
-  Structured workflow for creating Roadmap documents that sequence a
-  strategy's features into a coordinated initiative and serve as the
-  progress ledger for its execution. Use when planning work that needs
-  dependency tracking, sequencing rationale, and progress monitoring, or
-  when a strategy needs a bridge into the tactical chain. Triggers on
-  "create a roadmap for X", "plan the rollout of Y", "sequence these
-  features", or any request to turn a strategy's work into an ordered,
-  tracked plan. Do NOT use for a single feature's requirements (/prd) or
-  framing (/brief), strategic justification (/vision), technical
-  architecture (/design), or open-ended exploration (/explore). Drives a
-  multi-phase workflow: conversational scoping, parallel research agents,
-  structured drafting, and jury review.
+  Put an initiative's features in the order they can actually be built, and
+  keep that order as the one place anyone can read how far along the work is.
+  Use it when the question is order -- "what should we do first?", "what's the
+  order here?", "sequence these features", "we have five features, plan the
+  rollout" -- and equally when the question is progress: "how far along are we
+  on the plugin work?", "where are we on this?", "track this initiative". One
+  feature is enough; there is no two-feature floor, so "there's only one thing
+  here, a roadmap is overkill" is the wrong call and leaves the bet above it
+  with nothing carrying it. Without one, progress lives scattered across PRs
+  and issue states and nobody can answer the question at all. Do NOT use it to
+  break a single feature into implementation issues (`/plan`), to work out
+  that feature's requirements (`/scope`), or to make the case for the bet the
+  sequence serves (`/strategy`, or `/charter` for both at once).
 argument-hint: '<initiative topic>'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
