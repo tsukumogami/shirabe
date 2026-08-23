@@ -33,7 +33,7 @@ in one sitting, plus the child skills you can also reach for directly.
 | `/scope` | Parent skill: walks BRIEF -> PRD -> DESIGN -> PLAN in one sitting; produces PLAN as the terminal artifact |
 | `/brief` | Frame a single feature's problem, outcome, user journeys, and scope boundary before requirements are written |
 | `/prd` | Capture product requirements with numbered criteria through conversational scoping and parallel research |
-| `/design` | Produce a technical design document by decomposing the problem into decision questions and evaluating trade-offs |
+| `/design` | Produce a technical design document by decomposing the problem into decision questions and evaluating trade-offs; for a feature whose requirements are already settled |
 | `/plan` | Decompose a design doc, PRD, or roadmap into atomic, sequenced issues with dependency graphs and complexity labels |
 
 ### Execute chain -- implementation altitude (plan to merged code)
@@ -41,16 +41,16 @@ in one sitting, plus the child skills you can also reach for directly.
 | Skill | What it does |
 |-------|-------------|
 | `/execute` | Parent skill: drives a finished PLAN to merged code, delegating each issue to `/work-on`; owns single-pr and coordinated multi-repo plans (a multi-pr plan runs under `/work-on` instead) |
-| `/work-on` | Implement a GitHub issue, milestone, or full plan end-to-end: branch, analysis, code, three-panel review, tests, and pull request |
+| `/work-on` | Implement a GitHub issue, the next unblocked issue on a milestone, or a task stated plainly, end-to-end: branch, analysis, code, three-panel review, tests, and pull request. Also runs a `multi-pr` plan, one issue at a time, each landing its own PR |
 
 ### Standalone skills
 
 | Skill | What it does |
 |-------|-------------|
-| `/explore` | Fan out research agents to investigate options, then route you to where the work starts: an issue, `/charter`, `/scope`, or an existing plan |
+| `/explore` | Fan out research agents on an open question -- feasibility included -- then route you to where the work starts: an issue, `/charter`, `/scope`, or an existing plan |
 | `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing (runs automatically inside `/plan`, so you don't need to invoke it directly; still callable on an existing plan) |
-| `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis (also callable from inside `/design`) |
-| `/release` | Recommend a version, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
+| `/decision` | Settle one contested choice on the record -- three or more live options, evidence pointing both ways, or a call that is expensive to undo (also callable from inside `/design`) |
+| `/release` | Recommend a version from what landed, check for blockers, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
 | `/inflight` | Report this session's in-flight PRs across repos: number, state, CI and review status |
 
 `/writing-style` runs automatically whenever shirabe drafts prose, so you don't

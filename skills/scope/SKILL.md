@@ -138,10 +138,10 @@ Execution-Mode Flags and Upstream Flag below); the input modes
 classify what remains.
 
 1. **Empty** — surface a cold-start prompt asking the author what
-   feature scope they want to settle. The cold-start prompt names
-   the three trigger phrases from CLAUDE.md ("specify a feature
-   called X", "scope feature Y", "walk me through specifying Z") and
-   asks the author
+   feature scope they want to settle. The cold-start prompt says
+   what reaches this entry point, in the terms CLAUDE.md uses — a
+   feature to be built, added, or redesigned whose requirements are
+   not already written down — and asks the author
    to re-invoke `/scope <topic-slug>` with a slug that matches the
    topic-slug regex. Phase 0 then stops; there is no auto-retry
    loop.

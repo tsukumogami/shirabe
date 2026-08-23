@@ -74,9 +74,9 @@ Upstream Flag below); the input modes classify what remains.
 
 1. **Empty** — surface a cold-start prompt asking the author what
    strategic conversation they want to have. The cold-start prompt
-   names the three trigger phrases from CLAUDE.md ("start a strategic
-   conversation about X", "open a charter for Y", "I need to think
-   through the bet on Z") and asks the author to re-invoke
+   says what reaches this entry point, in the terms CLAUDE.md uses —
+   a question bigger than one feature, with nothing above it written
+   down — and asks the author to re-invoke
    `/charter <topic-slug>` with a slug that matches the topic-slug
    regex. Phase 0 then stops; there is no auto-retry loop.
 2. **Non-empty `$ARGUMENTS`** — treated as a freeform topic string

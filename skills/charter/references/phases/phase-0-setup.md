@@ -85,11 +85,13 @@ last occurrence would hide which upstream the chain consumed.
 If `$ARGUMENTS` is empty or whitespace-only after step 0.1's flag
 removal, surface the cold-start prompt:
 
-> *"What strategic conversation do you want to have? Common framings:
-> 'start a strategic conversation about X', 'open a charter for Y',
-> or 'I need to think through the bet on Z'. Re-invoke `/charter
-> <topic-slug>` where the slug matches `^[a-z0-9-]+$` — for example,
-> `/charter pricing-model-rebuild` or `/charter ingest-pipeline`."*
+> *"What strategic conversation do you want to have? This entry point
+> is for a question bigger than one feature with nothing above it
+> written down — whether a body of work is worth doing at all, which
+> candidates come first, or what the bet behind them is. Re-invoke
+> `/charter <topic-slug>` where the slug matches `^[a-z0-9-]+$` — for
+> example, `/charter pricing-model-rebuild` or
+> `/charter ingest-pipeline`."*
 
 Phase 0 then stops. The author re-invokes `/charter
 <conforming-slug>` after composing the slug; the cold-start path
