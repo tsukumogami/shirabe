@@ -159,6 +159,23 @@ exit_artifacts:
     status: Draft
 ```
 
+#### Coordinated abandonment closes the coordination PR
+
+On a run where coordination intent resolved, abandonment **closes the
+coordination PR without merging it** — `gh pr close`, the same `gh`
+surface that authored and posted the body.
+
+This has an external side effect and is the one part of abandonment
+that reaches outside the repository, which is why it is stated rather
+than left to follow from the exit name. Abandonment never merges the
+coordination PR, and never leaves it open either: an open coordination
+PR is merge-eligible, and merging it lands the plan the run just
+abandoned. Closing it unmerged leaves the partial state auditable —
+the closed PR's durable body records what was coordinated, and the
+force-materialized Draft records how far the chain got.
+
+A single-repo run has no coordination PR and skips this.
+
 ## R8 Bail Route
 
 A bail routes on what a child produced. The abandonment-forced

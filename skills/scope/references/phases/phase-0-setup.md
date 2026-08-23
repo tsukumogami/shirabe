@@ -446,6 +446,8 @@ to those.
 - `skills/scope/koto-templates/scope.md` — the template this phase
   initializes the session from, and the `# phase: N` comments the
   pointer is derived through.
-- `skills/scope/SKILL.md` — the Workflow Session section, which is
-  the authoritative statement of the naming rule, the origin check
-  and the retention flag this phase implements.
+- `skills/scope/SKILL.md` — the Running the Workflow section, which
+  points here for the session procedure and carries the
+  directive-versus-details contract the rest of the run depends on.
+  The naming rule, the probe and the origin check are stated in this
+  file's own Workflow Session section, not there.

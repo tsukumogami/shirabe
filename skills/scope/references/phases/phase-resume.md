@@ -419,9 +419,9 @@ walks its own `child_snapshots:` — the state file is internal to
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` —
   Slug re-validation on resume; State-file enum re-validation, the
   rule the session-recovered values above are validated under.
-- `skills/scope/SKILL.md` — the Workflow Session section, which
-  states the probe, the origin check and the naming rule this
-  ladder's re-validation assumes.
+- `skills/scope/references/phases/phase-0-setup.md` — the Workflow
+  Session section, which states the probe, the origin check and the
+  naming rule this ladder's re-validation assumes.
 - `skills/scope/references/state-schema.md` — the
   `child_snapshots:`, `drift_acknowledged:`, and `worktree_rebases:`
   fields the drift-detection prompt writes against, and the

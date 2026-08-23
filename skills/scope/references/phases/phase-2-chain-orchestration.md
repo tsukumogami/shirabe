@@ -51,7 +51,11 @@ eight steps in sequence:
    to the state file immediately before invoking the child.
 3. **Child invocation.** Invoke the child via its existing
    input mode: the topic slug for `/brief`, the nearest produced
-   upstream artifact's path for every later child.
+   upstream artifact's path for every later child. When the state
+   file carries `consumed_upstream:`, `/brief` and `/plan` also
+   take `--upstream <that path>` — see the per-child invocation
+   forms below. The summary form omitted it and the flag was
+   silently dropped at the only site that could pass it.
 4. **R20 structural file-existence check.** Confirm the child's
    canonical durable artifact exists after the child returns.
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
@@ -950,9 +954,12 @@ and route to R8 bail-handling.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   Gate Vocabulary; L13 amendment defining the
   `parent_orchestration:` sentinel as the pattern-level parent-
-  orchestration primitive; semantic invariant I-7 (Team-Lead
-  Operating Discipline) for the child-invocation task class
-  (120s window, 10-cycle patience budget).
+  orchestration primitive; the Dispatch Contract, whose Layer-2
+  binding for `/scope` is inline Skill-tool invocation — the child
+  runs in this agent's own context. There is no subagent to poll,
+  so semantic invariant I-7 (Team-Lead Operating Discipline) and
+  its window and patience budget do not apply to a `/scope` child
+  invocation.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase Rebase / Impact-analysis / Escalation flow
   the per-child loop runs before each invocation, the

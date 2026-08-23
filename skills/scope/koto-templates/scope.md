@@ -580,6 +580,16 @@ states:
         when:
           bail_ack: force_materialize
           gates.child_intermediate_present.exit_code: 1
+      # `find | grep -q` can exit non-zero for a reason that is neither "found"
+      # nor "not found" -- an unreadable directory, say. Without this arm that
+      # status matches nothing, and the run stalls in a state whose details are
+      # never redelivered. force_materialize routes to abandonment on ANY gate
+      # outcome by design: the author already chose it, and the gate only
+      # informs how much there is to materialize.
+      - target: exit_abandonment
+        when:
+          bail_ack: force_materialize
+          gates.child_intermediate_present.exit_code: 2
       - target: done_cancelled
         when:
           bail_ack: cancel
@@ -659,16 +669,18 @@ refuses the repository's default branch -- deliberately, because creating a
 branch mid-chain on the author's behalf is a bigger surprise than stopping. But
 the first commit happens after `/brief` has already run and produced a
 document. A run that starts on the default branch therefore does a hop's work
-and then cannot keep it. Checking at setup costs one command and turns that into
-a refusal before anything is written:
+and then cannot keep it. Checking here turns that into a refusal before
+anything is written.
 
-```bash
-BRANCH=$(git symbolic-ref --quiet --short HEAD) || {
-  echo "not on a named branch"; }
-```
+Both halves must hold: HEAD is on a named branch (not detached), and that
+branch is not the repository's default. The exact preconditions, and the
+default-branch resolution that handles a clone which never fetched
+`origin/HEAD`, are in the Per-Hop Commit section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md` — run the same
+check it does, rather than a partial one.
 
-Submit `blocked` with `detail` when HEAD is detached or on the default branch,
-and let the author choose the branch. Do not create one.
+Submit `blocked` with `detail` when either half fails, and let the author
+choose the branch. Do not create one.
 
 `blocked` also covers a slug that fails its pattern, a state file that cannot be
 written, or a session collision reported against another worktree. Anything
@@ -738,7 +750,12 @@ cleanup, the child-snapshot capture, and the validator pass-through. The eighth
 step, the consolidation judgment, does not run at this hop: it compares two
 documents and only one exists.
 
-Invoke `/brief` inline via the Skill tool with the topic slug.
+Invoke `/brief` inline via the Skill tool with the topic slug — and, when the
+state file carries `consumed_upstream:`, with `--upstream <that path>` as well.
+Phase 0 validated that value and recorded it precisely so this invocation can
+pass it; dropping it here discards the roadmap the chain was told to consume.
+Quote it and pass it after `--`: validation is not the guarantee, the argument
+boundary is.
 
 The `brief_complete` gate runs after the child returns and before the artifact
 is committed, so its result is independent of git state and a failed gate never
@@ -831,7 +848,11 @@ what this hop is for, and it is the only thing to decide here.
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
 Invoke `/plan` inline via the Skill tool, passing the nearest produced upstream
-artifact's path. Keep that path for the fold state.
+artifact's path — and, when the state file carries `consumed_upstream:`, also
+`--upstream <that path>`. `/plan` is the child that records the roadmap itself,
+because a ROADMAP is deleted when its features land and the PLAN the cascade
+deletes first is the only document whose link cannot outlive its target. Quote
+it and pass it after `--`. Keep the artifact path for the fold state.
 
 Record the execution mode `/plan` settled on -- `single-pr`, `multi-pr`, or
 `coordinated`. The full-run exit requires it.
@@ -1068,6 +1089,14 @@ artifact's existing Status section, on one line, with the field order shown:
 `skills/scope/references/phases/phase-3-exit-finalization.md`: the child whose
 Phase 2 invocation began most recently, ties broken by position in the planned
 chain, later winning. The tie-break is mechanical and prompts nobody.
+
+**On a coordinated run, close the coordination PR without merging** — `gh pr
+close`, the same `gh` surface that authored and posted its body. Abandonment
+never merges that PR and never leaves it open: an open coordination PR is
+merge-eligible, and merging it would land a plan the run just abandoned. The
+closed PR's durable body and the force-materialized Draft together record the
+partial state for a reviewer to audit. Skip this on a single-repo run, where
+there is no coordination PR to close.
 
 The `forced_artifact_present` gate looks for that marker in the five canonical
 artifact paths, both DESIGN locations included. It is the marker rather than the

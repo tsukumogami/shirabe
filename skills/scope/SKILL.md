@@ -258,15 +258,12 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
-The per-child worktree-staleness check before each invocation is
-the three-phase flow (Rebase phase → Impact-analysis phase →
-Escalation phase) defined in
-`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
-None and Informational impact classifications proceed silently and
-record the rebase in `worktree_rebases:`; Intent-changing
-classifications halt and route to the team-lead for an intent
-judgment, which may resolve in-place or escalate to the author for
-a re-author / proceed-against-original-intent / bail decision.
+Before each child invocation the loop runs a worktree-staleness check —
+the Rebase / Impact-analysis / Escalation flow in
+`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`. None and
+Informational classifications proceed silently; an Intent-changing one
+halts and puts the judgment to the author. The hop's own directive says
+so when it applies.
 
 ## Running the Workflow
 
@@ -343,7 +340,9 @@ pre-loaded.
 
 ## Phase Execution
 
-Execute phases sequentially by reading the corresponding phase file:
+The phases and the file each one's procedure lives in. The workflow names the
+right file at the right state, so this is a map rather than a reading list —
+do not read them all before starting:
 
 0. **Setup** — slug validation, visibility detection, the session
    probe and its open-or-reattach decision, state-file creation,
@@ -478,6 +477,17 @@ PLAN is the survivor at the terminal hop.
 force-materialized partials under `docs/{briefs,prds,designs,plans}/` and
 `docs/designs/current/` on `abandonment-forced`, and state-file plus child-wip
 cleanup under `wip/`.
+
+**R8's clean cancel** deletes one further path, and carves one out:
+
+- deletes `wip/scope_<topic>_state.md` — that single path, not the prefix
+- never deletes `wip/scope_<topic>_handoff.md`, which sits under the same
+  prefix but belongs to the router rather than to this run, so a bail leaves
+  it for a later invocation to resume against
+
+The carve-out is enumerated here because an omission from a set that governs
+deletion is a live delete at an undeclared target — the same reason every
+other path in this section is named.
 
 **Commits**, by Phase 2's per-hop commit and by the absorb's own:
 
