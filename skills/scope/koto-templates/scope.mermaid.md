@@ -4,6 +4,7 @@ stateDiagram-v2
     [*] --> setup
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 0
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 1
+    bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 2
     bail --> done_cancelled : bail_ack: cancel
     chain_proposal --> hop_brief : author_decision: proceed
     chain_proposal --> discovery : author_decision: adjust
