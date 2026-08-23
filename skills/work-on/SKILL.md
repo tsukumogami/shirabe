@@ -1,6 +1,17 @@
 ---
 name: work-on
-description: Implement work end-to-end with branch creation, analysis, coding, tests, and a pull request with CI monitoring. Accepts a GitHub issue (number or URL), a milestone (selects the next unblocked issue), a PLAN document path (drives multiple issues through one shared branch and PR), or a free-form task description. Use when asked to work on, implement, fix, build, tackle, pick up, close, or ship work — at any size, from a single issue to a whole plan.
+description: >-
+  Take one known piece of work from where it stands now to a merged pull
+  request: branch, read the surrounding code, implement, test, open the PR,
+  watch CI. Use it when asked to work on, implement, fix, build, tackle, pick
+  up, close, or ship something that is already specified -- a GitHub issue by
+  number or URL, the next unblocked issue on a milestone, a red CI run or a
+  failing test on an open PR, or a task stated plainly enough to just do. It
+  also runs a `multi-pr` PLAN, one issue at a time, each landing its own pull
+  request; every other plan mode belongs to `/execute`, which calls back into
+  this skill per issue. Do NOT use it for a feature whose requirements are not
+  written down anywhere -- starting to code is how that feature gets decided
+  by accident, and `/scope` is what settles it first.
 argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description">'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
