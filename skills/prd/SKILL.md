@@ -1,13 +1,19 @@
 ---
 name: prd
 description: >-
-  Structured workflow for creating Product Requirements Documents (PRDs).
-  Use when writing new PRDs or defining WHAT to build and WHY before implementation.
-  Triggers on "write requirements for X", "define scope for Y", "draft a spec",
-  "what should we build for Z", "I need a PRD", or any request to capture requirements.
-  Do NOT use for technical architecture decisions (/design) or open-ended exploration
-  (/explore). Drives a multi-phase workflow: conversational scoping, parallel research
-  agents, structured drafting, and a 3-agent jury review.
+  Settle what a feature must do and how anyone will know it is done -- the
+  behaviour, the numbered acceptance criteria, the cases that are deliberately
+  out. Use it when the problem is already framed and the open question is the
+  substance: "what should this actually do?", "what does done look like for
+  this feature?", "list the acceptance criteria", "the stakeholders disagree
+  about what we're building", "write up what we agreed in that meeting", or a
+  settled BRIEF whose next step is requirements. Without it an agent invents
+  the requirements as it codes and nothing written down can contradict it
+  later. Do NOT use it when neither the requirements nor the technical
+  approach are written down anywhere -- that whole run is `/scope`, which
+  calls this as one hop. Do NOT use it to work out the problem and the scope
+  boundary in the first place (`/brief`), to choose the technical approach
+  (`/design`), or to investigate an open question (`/explore`).
 argument-hint: '<topic or feature name>'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

@@ -1,12 +1,19 @@
 ---
 name: plan
-description: Implementation planning skill. Decomposes a design doc, PRD, roadmap, or directly-stated
-  topic into atomic, sequenced issues with dependency graphs and complexity classifications.
-  Use when given a DESIGN-*.md, PRD-*.md, or ROADMAP-*.md to plan, or when the user says "break
-  this into issues", "plan the implementation", "create issues for this", "decompose this",
-  "what tasks do we need", or "make a plan for X". Also use for direct topic planning without
-  a source document. Produces either a self-contained PLAN doc (single-pr) or GitHub milestone
-  and issues (multi-pr).
+description: >-
+  Break work that is already decided into atomic issues someone can pick up in
+  whatever order the dependencies allow, with the sequencing reasoning
+  attached. Use it when the approach is settled and the open question is
+  execution shape: "break this into issues", "file issues for this design",
+  "what order should we do these in?", "this is too big for one PR, split it
+  up", "what tasks do we need?", "how many issues is this?", or an accepted
+  design handed over with "let's start building" -- an agent that picks its
+  own starting point ships the pieces in an order that does not build. Do NOT
+  use it when the feature itself is not worked out and the requirements and
+  approach are still open; that whole run is `/scope`, which calls this as its
+  last hop. Do NOT use it to sequence FEATURES across an initiative rather
+  than issues inside one (`/roadmap`), or to run the resulting plan
+  (`/execute`).
 argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

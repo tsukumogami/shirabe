@@ -1,13 +1,19 @@
 ---
 name: review-plan
 description: >-
-  Adversarial plan review skill. Challenges a complete plan artifact across
-  four categories before issues are created: Scope Gate (A), Design Fidelity
-  (B), AC Discriminability (C), and Sequencing/Priority Integrity (D).
-  Produces a structured verdict artifact consumed by /plan or returned to the
-  user when called standalone. Use when called as a sub-operation by /plan
-  Phase 6, or when the user runs /review-plan directly to review an existing
-  plan.
+  Attack a finished plan before anyone files issues from it: whether it covers
+  the design it claims to, whether its acceptance criteria would catch a wrong
+  implementation, whether the scope drifted, and whether the order holds. Use
+  it when someone hands you a plan and wants to know if it is any good -- "is
+  this broken down right?", "does this plan actually cover the design?",
+  "these acceptance criteria feel weak", "did we miss anything?", "is this too
+  many issues?" -- or when you are about to turn a plan into issues and nobody
+  has challenged it yet. The question it asks is not "does the plan cover the
+  design?" but "would this plan catch the wrong implementation?", and criteria
+  that pass either way are the failure it exists to find. `/plan` already runs
+  it on plans it writes, so the case for reaching for it deliberately is a
+  plan you did not just author. Do NOT use it to write or decompose a plan
+  (`/plan`, `/scope`) or to review code.
 argument-hint: '<plan-artifact-or-topic> [--adversarial]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---

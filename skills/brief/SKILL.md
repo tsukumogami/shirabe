@@ -1,21 +1,19 @@
 ---
 name: brief
 description: >-
-  Structured workflow for creating BRIEF documents — the framing step
-  between a sequenced ROADMAP feature and a PRD's requirements. Use to
-  capture a feature's problem, intended outcome, user journeys, and
-  scope boundary as durable artifacts before requirements are written —
-  including when an issue or conversation already states the problem,
-  since the skill's job is to persist that framing (into the BRIEF, or
-  a downstream PRD/design when a standalone brief is too heavy), not
-  merely to supply framing that is missing. Triggers on "frame this
-  feature", "write a brief for X", "what problem does Y solve before we
-  write the PRD", "we need the framing step between the roadmap and the
-  PRD", or "BRIEF-<name>". Do NOT use for feature sequencing
-  (/roadmap), requirements articulation (/prd), technical architecture
-  (/design), or open-ended exploration (/explore). Drives a six-phase
-  workflow: conversational scoping, structured drafting, structural
-  fill, a two-reviewer jury, and finalization.
+  Work out what problem a feature actually solves, who it is for, and where
+  its edges are, and write that down where it survives. Use it when you are
+  handed a feature and cannot say in one sentence what would be worse without
+  it -- "what are we actually solving here?", "the issue says add SSO but
+  never says why anyone wants it", "we keep arguing about what's in and out of
+  the export" -- and use it even when an issue or a conversation already
+  states the problem, because the issue is ephemeral and this framing is the
+  record a future reader traces the feature back to. Skipping it means writing
+  acceptance criteria for a feature whose problem nobody ever stated. Do NOT
+  use it to write the requirements themselves (`/prd`), to settle a whole
+  feature end to end from framing to issues (`/scope`, which runs this as its
+  first hop), to order a set of features (`/roadmap`), or when the question is
+  still open-ended (`/explore`).
 argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb> [--upstream <path>]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
