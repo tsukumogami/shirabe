@@ -642,17 +642,19 @@ states:
 
 ## setup
 
-Establish the run: validate the topic slug, write the state file, and confirm
-the worktree is the one this run owns.
+Establish the run: validate the topic slug, write the state file, confirm the
+worktree is the one this run owns. Submit `setup_result: ready`, or `blocked`
+with `detail`.
 
-Read `skills/scope/references/phases/phase-0-setup.md` for the full procedure
-and `skills/scope/references/state-schema.md` for the fields the state file
-carries.
+<!-- details -->
 
-Submit `setup_result: ready` once the state file is written and the slug is
-validated. Submit `setup_result: blocked` with `detail` when setup cannot
-complete -- a slug that fails its pattern, a state file that cannot be written,
-or a session collision reported against another worktree.
+Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
+state file carries: `skills/scope/references/state-schema.md`. Read them now;
+the rest of this run assumes setup happened as they describe.
+
+`blocked` is for a slug that fails its pattern, a state file that cannot be
+written, or a session collision reported against another worktree. Anything
+else, fix and submit `ready`.
 
 **Ignore koto's discovery warnings about other sessions, on this tick and every
 later one.** koto reports `migration skipped` and `state file corrupted` for
@@ -668,16 +670,16 @@ Evidence schema:
 
 ## discovery
 
-Establish what the author wants scoped, and propose the chain that would scope
-it.
+Establish what the author wants scoped and propose the chain that would scope
+it. Submit `discovery_result: proposed`, or `blocked` with `detail`.
 
-Read `skills/scope/references/phases/phase-1-discovery.md`. Discovery decides
-which hops the run proposes and in what order. It decides nothing about whether
-any artifact is worth producing: that question has no answer here, because none
-of the documents exist yet.
+<!-- details -->
 
-Submit `discovery_result: proposed` once you have a chain to put to the author.
-Submit `blocked` with `detail` when discovery cannot reach one.
+Procedure: `skills/scope/references/phases/phase-1-discovery.md`.
+
+Discovery decides which hops the run proposes and in what order. It decides
+nothing about whether any artifact is worth producing: that question has no
+answer here, because none of the documents exist yet.
 
 Evidence schema:
 - `discovery_result`: `proposed` or `blocked`
@@ -889,10 +891,12 @@ Evidence schema:
 
 ## finalize
 
-Choose the exit path this run takes.
+Choose the exit path this run takes. Submit the exit value alone -- each path's
+required fields belong to that path's own state and are refused here.
 
-Read `skills/scope/references/phases/phase-3-exit-finalization.md` for the three
-paths and what each one binds.
+<!-- details -->
+
+Procedure: `skills/scope/references/phases/phase-3-exit-finalization.md`.
 
 - `full-run` -- the chain completed through `/plan`.
 - `re-evaluation` -- the chain ended at a settled-upstream boundary and a
@@ -900,8 +904,9 @@ paths and what each one binds.
 - `abandonment-forced` -- the chain cannot complete its terminal artifact and a
   child's intermediate is force-materialized instead.
 
-Submit the exit value alone. Each path's required fields belong to that path's
-own state and are refused here as unknown fields.
+The fields each path needs are declared on its own state, so submitting them
+here is an unknown-field error rather than a shortcut. That separation is what
+stops one path's evidence satisfying another's.
 
 Evidence schema:
 - `exit`: `full-run`, `re-evaluation`, or `abandonment-forced`
@@ -1101,51 +1106,54 @@ Evidence schema:
 
 ## cleanup_full_run
 
-Run Phase 4 cleanup for a full-run exit.
+Run Phase 4 cleanup for a full-run exit, then submit `cleanup_result: done`.
+Advance with `--no-cleanup`.
 
-Read `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's `wip/`
-intermediates, including the state file, and confirm no committed artifact
-references a `wip/` path.
+<!-- details -->
 
-Advance with `--no-cleanup` on the `koto next` that reaches the terminal. The
-per-hop record is destroyed with the session otherwise, at the exact moment the
-run finishes and an author would go looking for it. The record is read where it
-lives; it is never copied into a committed artifact or a pull-request body.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
+`wip/` intermediates, including the state file, and confirm no committed
+artifact references a `wip/` path.
 
-Submit `cleanup_result: done` when cleanup has run.
+`--no-cleanup` on the `koto next` that reaches the terminal is not optional
+here. Without it the per-hop record is destroyed with the session at the exact
+moment the run finishes and an author would go looking for it. The record is
+read where it lives; it is never copied into a committed artifact or a
+pull-request body.
 
 Evidence schema:
 - `cleanup_result`: `done`
 
 ## cleanup_re_evaluation
 
-Run Phase 4 cleanup for a re-evaluation exit.
+Run Phase 4 cleanup for a re-evaluation exit, then submit `cleanup_result:
+done`. Advance with `--no-cleanup`.
 
-Read `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's `wip/`
-intermediates, including the state file, and confirm no committed artifact --
-the Decision Record in particular -- references a `wip/` path.
+<!-- details -->
 
-Advance with `--no-cleanup` on the `koto next` that reaches the terminal, for
-the reason given at every cleanup state: the per-hop record does not survive the
-session otherwise.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
+`wip/` intermediates, including the state file, and confirm no committed
+artifact -- the Decision Record in particular -- references a `wip/` path.
 
-Submit `cleanup_result: done` when cleanup has run.
+`--no-cleanup` for the reason it carries at every cleanup state: the per-hop
+record does not survive the session otherwise.
 
 Evidence schema:
 - `cleanup_result`: `done`
 
 ## cleanup_abandonment
 
-Run Phase 4 cleanup for an abandonment-forced exit.
+Run Phase 4 cleanup for an abandonment-forced exit, then submit
+`cleanup_result: done`. Advance with `--no-cleanup`.
 
-Read `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's `wip/`
-intermediates, including the state file, and confirm no committed artifact
-references a `wip/` path. The force-materialized artifact keeps its marker;
-cleanup does not touch it.
+<!-- details -->
 
-Advance with `--no-cleanup` on the `koto next` that reaches the terminal.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
+`wip/` intermediates, including the state file, and confirm no committed
+artifact references a `wip/` path.
 
-Submit `cleanup_result: done` when cleanup has run.
+The force-materialized artifact keeps its marker; cleanup does not touch it.
+`--no-cleanup` for the reason it carries at every cleanup state.
 
 Evidence schema:
 - `cleanup_result`: `done`

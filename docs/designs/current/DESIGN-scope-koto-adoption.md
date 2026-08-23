@@ -484,7 +484,7 @@ foreclosed by the PRD itself and are marked; the rest were decided here.
 | Entry | Disposition | Destination |
 |---|---|---|
 | D1 — the PLAN-as-product framing | Rewritten in place | `SKILL.md` Overview. The framing goes; the protected path statement stays, since the exit enumeration loses a limb without it. |
-| D2 — the direct-entry licence | Licence deleted, bound kept | `SKILL.md` Chain-Proposal Output. The replacement leads with what direct entry costs and keeps the following bound, given an antecedent the deleted sentence used to supply. |
+| D2 — the direct-entry licence | Licence deleted, bound kept | `SKILL.md` Why Each Hop Is Taken. The replacement leads with what direct entry costs and keeps the following bound, given an antecedent the deleted sentence used to supply. (Originally the Chain-Proposal Output section; that section moved to `phase-1-discovery.md` when `SKILL.md` was reduced to an entry point, and the bound moved with the hop-purpose prose rather than with the phase mechanics.) |
 | P1 — `## Why the Artifact Set Shrinks` | Deleted; general form moved | The fold state's details. Its slot takes `## Why Each Hop Is Taken`. |
 | P2 — `## Consolidation Judgment` | Retained, rewritten as bounds | Same slot in `SKILL.md`. The notice that files get deleted stays; every sentence arguing the reduction is worth making goes. |
 | P3 — the reduction conclusion in the lede | Retained, rewritten as a bound | `SKILL.md` Overview. Four forward references depend on the slot, so the slot survives with a bound in place of a purpose. |
