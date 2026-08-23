@@ -42,15 +42,18 @@ When a user isn't sure where to start, use this table to recommend a command.
 Every destination is something the author runs. None of them is a step inside a
 chain that a parent skill already sequences: a BRIEF, a PRD, a DESIGN, and a
 PLAN are hops inside `/scope`, and picking one of them as an entry point is the
-choice this skill stopped making.
+choice this skill stopped making. Those hops stay directly invocable once their
+own upstream is settled -- `/design` on an accepted PRD, `/plan` on an accepted
+DESIGN -- but an author in that position is not asking where to start, so no row
+below points at them.
 
 | Situation | Route To | Why |
 |-----------|----------|-----|
 | "I want to build X but don't know where to start" | `/explore <topic>` | Open-ended; what the work turns out to be isn't clear yet |
 | "I have one feature to specify, from its framing through its issues" | `/scope <topic>` | The tactical chain runs whole and reduces per hop; its terminal artifact is a PLAN |
 | "I need to justify this project" or "I have a multi-feature initiative" | `/charter <topic>` | The strategic chain: thesis, bet, and a sequenced roadmap |
-| "I have a PLAN and want it built" | `/execute <plan-path>` | Plan-level execution; it accepts a PLAN path and nothing else |
-| "This is simple, just do it" | `/work-on <issue>` | No document needed, go straight to implementation |
+| "I have a PLAN and want it built" | `/execute <plan-path>` | Plan-level execution, including resuming a run already in flight; a `multi-pr` PLAN is the exception and runs through `/work-on` |
+| "This is one known piece of work, just do it" | `/work-on <issue>` | Already specified, so nothing is missing; go straight to implementation |
 | "I have one choice between named options" | `/decision <question>` | A single decision with a durable record and no work attached |
 | "What exists in this space?" | `/comp <topic>` | Competitive landscape, with a jury and a lifecycle transition; private repos only |
 
@@ -58,13 +61,13 @@ choice this skill stopped making.
 
 | Core Question | Best Fit | Alternative |
 |---------------|----------|-------------|
-| "Do I need any document at all?" | File an issue, then `/work-on` | `/scope` if the scope is likely to grow |
+| "Do I need any document at all?" | File an issue, then `/work-on` | `/scope` if the feature's requirements aren't written down anywhere |
 | "What should we build, and how?" | `/scope` | `/explore` if even the question is unclear |
 | "Can we build this?" (feasibility) | `/explore`, which authors the spike report | File an issue and try |
 | "What exists already?" (landscape) | `/explore`, which routes to `/comp` in a private repo | File an issue and write the findings into it |
 | "Which option, and why?" | `/decision` | `/explore` if the options aren't identified yet |
 | "Should this project exist?" or "Which features should we build?" | `/charter` | `/explore` if the scope is unclear |
-| "Should we start building the PLAN we have?" | `/execute <plan-path>` | `/work-on <issue>` if only one issue out of it is in play |
+| "Should we start building the PLAN we have?" | `/execute <plan-path>` | `/work-on <issue>` if only one issue out of it is in play, or if the PLAN is `multi-pr` |
 
 Three distinctions are gone from these two tables rather than re-pointed:
 "should I write a PRD or a design doc?", the pair that split "what should we
