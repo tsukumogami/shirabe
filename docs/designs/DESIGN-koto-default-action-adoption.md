@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-koto-default-action-adoption.md
 problem: |
   shirabe's three koto-backed templates hand the agent every mechanical shell
@@ -26,7 +26,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
