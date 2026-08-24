@@ -4,7 +4,7 @@ description: >-
   Survey what already exists in the space and turn it into implications for
   what you build: who the alternatives are, on which dimensions they differ,
   where the real gaps sit, and what that means for your own choices. Use it
-  when the answer would otherwise be a chat reply nobody can find again --
+  when the answer would otherwise be a chat reply nobody can find again —
   "how does Cursor handle this?", "is there anything out there that already
   does X?", "should we build this or buy it?", "why would someone pick us over
   them?", "what's the state of the art here?", "has someone already solved

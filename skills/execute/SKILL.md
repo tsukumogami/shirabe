@@ -4,8 +4,8 @@ description: >-
   Drive a finished plan all the way to merged code without stopping between
   issues: take the next unblocked one, hand it to `/work-on`, land it, repeat,
   across one repo or several. Use it when the plan exists and the next thing
-  is doing it -- "we have the plan, go", "build everything in the plan", "ship
-  the whole milestone", "start on the plugin-system work" -- and for "pick up
+  is doing it — "we have the plan, go", "build everything in the plan", "ship
+  the whole milestone", "start on the plugin-system work" — and for "pick up
   where we left off", since a run already in flight resumes from its own
   recorded state rather than from wherever the working tree happens to sit. An
   agent that opens a PLAN and starts implementing issue one by hand is the

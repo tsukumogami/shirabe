@@ -4,14 +4,14 @@ description: >-
   Choose how something gets built and write the reasoning down: decompose it
   into the questions that actually have to be answered, weigh the options for
   each, and land a technical approach on a page. Reach for it when the
-  requirements are already settled -- an accepted PRD exists, or the feature
+  requirements are already settled — an accepted PRD exists, or the feature
   is specified and the open question is pure architecture: "how should this
   talk to the existing cache?", "what's the migration path off the old
   schema?", "we have the PRD, now what?", "refactor the auth layer", "why is
   this slow and what do we do about it?". An agent that starts editing files
   instead has picked an approach without anyone seeing what it was picked
   over. Do NOT use it when the requirements are NOT settled and the feature
-  still has to be worked out -- that is `/scope`, which runs this as one hop
+  still has to be worked out — that is `/scope`, which runs this as one hop
   and decides per feature whether a separate design survives. Do NOT use it
   for one named either-or choice (`/decision`), for requirements (`/prd`), or
   for a question with no options on the table yet (`/explore`).

@@ -3,9 +3,9 @@ name: roadmap
 description: >-
   Put an initiative's features in the order they can actually be built, and
   keep that order as the one place anyone can read how far along the work is.
-  Use it when the question is order -- "what should we do first?", "what's the
+  Use it when the question is order — "what should we do first?", "what's the
   order here?", "sequence these features", "we have five features, plan the
-  rollout" -- and equally when the question is progress: "how far along are we
+  rollout" — and equally when the question is progress: "how far along are we
   on the plugin work?", "where are we on this?", "track this initiative". One
   feature is enough; there is no two-feature floor, so "there's only one thing
   here, a roadmap is overkill" is the wrong call and leaves the bet above it

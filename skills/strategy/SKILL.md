@@ -4,10 +4,10 @@ description: >-
   Work out what you are betting on over the next few quarters and what would
   prove it wrong: the angle, the pieces that have to land for it to hold, who
   else has to move, and the signal that would say it was the wrong call. Use
-  it when the direction matters more than the feature list -- "what's our
+  it when the direction matters more than the feature list — "what's our
   angle here?", "what are we actually betting on?", "what has to be true for
   this to work?", "how would we know if this was the wrong call?", "how do we
-  avoid getting commoditized?", "why would this still matter in a year?" --
+  avoid getting commoditized?", "why would this still matter in a year?" —
   and also when you are holding a settled feature spec and the real question
   is the bet behind it. Left unwritten, the bet lives in one person's head and
   nothing can falsify it. Do NOT use it to argue why the project should exist

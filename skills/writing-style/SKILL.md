@@ -8,7 +8,7 @@ description: >-
   design-doc prose, and the summary or explanation you are about to write back
   to the user. Also use it when someone asks to improve, humanize, clean up,
   tighten, or revise a draft, or says something sounds robotic or AI-written.
-  Apply it proactively -- the drafts that need it most are the ones nobody
+  Apply it proactively — the drafts that need it most are the ones nobody
   thought to ask about, and a repo can declare its own terms of art that
   generic advice would strip out. It is about how the prose reads, not what it
   says: it does not decide a document's content or supply what the document is

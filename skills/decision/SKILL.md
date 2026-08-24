@@ -4,13 +4,13 @@ description: >-
   Settle one contested choice on the record: name the alternatives that are
   really live, put the evidence for each next to it, and land a call with the
   reasoning attached. Use it when three or more options are viable, when the
-  evidence points both ways, or when the choice is expensive to undo --
+  evidence points both ways, or when the choice is expensive to undo —
   "Postgres or DynamoDB for this?", "should we roll our own or use library
   X?", "is it worth migrating off Y?", "the team can't agree on A versus B",
   "we tried this before and it didn't work, what now?". The one most often
   missed is "what do you think we should use for the queue?": phrased as an
   opinion, so the agent just answers, and months later nobody can reconstruct
-  why. There is a floor -- a cheaply reversible choice with an obvious answer
+  why. There is a floor — a cheaply reversible choice with an obvious answer
   does not need this. Do NOT use it for a document's worth of connected
   choices (`/design`), for options nobody has named yet (`/explore`), or for
   surveying a field of vendors before choosing among them (`/comp`).

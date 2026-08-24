@@ -4,10 +4,10 @@ description: >-
   Attack a finished plan before anyone files issues from it: whether it covers
   the design it claims to, whether its acceptance criteria would catch a wrong
   implementation, whether the scope drifted, and whether the order holds. Use
-  it when someone hands you a plan and wants to know if it is any good -- "is
+  it when someone hands you a plan and wants to know if it is any good — "is
   this broken down right?", "does this plan actually cover the design?",
   "these acceptance criteria feel weak", "did we miss anything?", "is this too
-  many issues?" -- or when you are about to turn a plan into issues and nobody
+  many issues?" — or when you are about to turn a plan into issues and nobody
   has challenged it yet. The question it asks is not "does the plan cover the
   design?" but "would this plan catch the wrong implementation?", and criteria
   that pass either way are the failure it exists to find. `/plan` already runs

@@ -3,10 +3,10 @@ name: vision
 description: >-
   Work out why a project should exist at all and write the case down: who it
   is for, what it is for, what it displaces, and whether it belongs in this
-  org. Use it when the thing in front of you is not yet a project -- "should
+  org. Use it when the thing in front of you is not yet a project — "should
   this be its own project?", "who is this even for?", "convince me this is
   worth doing", "what's the north star here?", "write the pitch", "we're
-  starting something new" -- including when someone asks for a README intro or
+  starting something new" — including when someone asks for a README intro or
   the elevator version and the justification underneath has never been argued
   anywhere. Write it and the reasoning survives; answer in chat and the next
   person relitigates it. Do NOT use it when the thesis is settled and what is

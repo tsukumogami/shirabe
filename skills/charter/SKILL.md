@@ -5,14 +5,14 @@ description: >-
   ending with the bet written down and a sequenced set of features under it:
   why this should exist, what we are actually betting on, and what gets built
   first. Use it when the question is bigger than one feature and nothing above
-  it is written down -- "should we build a plugin system at all?", "we have
+  it is written down — "should we build a plugin system at all?", "we have
   five things we could do next quarter, which ones and in what order?",
   "what's our story for the next year on X", "I need to pitch this to the
   team", or a request for a rollout order where nobody has said why the work
   matters, which otherwise produces a sequence with no bet behind it. Do NOT
   use it for one feature whose requirements need working out; that is
   `/scope`. `/vision`, `/strategy`, and `/roadmap` each run alone when you
-  want only the thesis, only the bet, or only the sequence -- but reaching for
+  want only the thesis, only the bet, or only the sequence — but reaching for
   one of them because a conversation "sounds strategic" usually lands you here
   instead.
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'

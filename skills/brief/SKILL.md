@@ -4,9 +4,9 @@ description: >-
   Work out what problem a feature actually solves, who it is for, and where
   its edges are, and write that down where it survives. Use it when you are
   handed a feature and cannot say in one sentence what would be worse without
-  it -- "what are we actually solving here?", "the issue says add SSO but
+  it — "what are we actually solving here?", "the issue says add SSO but
   never says why anyone wants it", "we keep arguing about what's in and out of
-  the export" -- and use it even when an issue or a conversation already
+  the export" — and use it even when an issue or a conversation already
   states the problem, because the issue is ephemeral and this framing is the
   record a future reader traces the feature back to. Skipping it means writing
   acceptance criteria for a feature whose problem nobody ever stated. Do NOT

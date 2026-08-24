@@ -2,9 +2,9 @@
 name: explore
 description: >-
   Investigate something open-ended before anyone commits to it, then say where
-  the work actually starts. Use it for feasibility -- "is this even
+  the work actually starts. Use it for feasibility — "is this even
   possible?", "can we do X with our current stack?", "what would it take to
-  support Y?", "spike this" -- and for the stuck case: "I don't know where to
+  support Y?", "spike this" — and for the stuck case: "I don't know where to
   start", "what should I do next?", "how do I start this?", "I'm stuck", "I
   want to understand how Z works before we commit", "research whether we
   should...". It fans out research and lands either a written spike report or

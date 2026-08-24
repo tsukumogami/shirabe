@@ -7,7 +7,7 @@ description: >-
   execution shape: "break this into issues", "file issues for this design",
   "what order should we do these in?", "this is too big for one PR, split it
   up", "what tasks do we need?", "how many issues is this?", or an accepted
-  design handed over with "let's start building" -- an agent that picks its
+  design handed over with "let's start building" — an agent that picks its
   own starting point ships the pieces in an order that does not build. Do NOT
   use it when the feature itself is not worked out and the requirements and
   approach are still open; that whole run is `/scope`, which calls this as its

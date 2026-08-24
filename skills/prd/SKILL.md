@@ -1,7 +1,7 @@
 ---
 name: prd
 description: >-
-  Settle what a feature must do and how anyone will know it is done -- the
+  Settle what a feature must do and how anyone will know it is done — the
   behaviour, the numbered acceptance criteria, the cases that are deliberately
   out. Use it when the problem is already framed and the open question is the
   substance: "what should this actually do?", "what does done look like for
@@ -10,7 +10,7 @@ description: >-
   settled BRIEF whose next step is requirements. Without it an agent invents
   the requirements as it codes and nothing written down can contradict it
   later. Do NOT use it when neither the requirements nor the technical
-  approach are written down anywhere -- that whole run is `/scope`, which
+  approach are written down anywhere — that whole run is `/scope`, which
   calls this as one hop. Do NOT use it to work out the problem and the scope
   boundary in the first place (`/brief`), to choose the technical approach
   (`/design`), or to investigate an open question (`/explore`).
