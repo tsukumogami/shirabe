@@ -144,7 +144,7 @@ states:
         type: string
         description: Why the branch could not be recorded.
     transitions:
-      - target: worktree_discipline_check
+      - target: worktree_sync
         when:
           gates.settled_branch_recorded.matches: true
       # The gate is named on this edge too, and it has to be: koto rejects a
@@ -159,6 +159,69 @@ states:
           status: blocked
         context_assignments:
           failure_reason: "settled_branch_record blocked: ${evidence.detail}"
+
+  worktree_sync:
+    # The mechanical half of what worktree_discipline_check used to do in one
+    # state: fetch origin and rebase the shared branch on main. The other half,
+    # classifying the upstream impact against the PLAN's intent, is judgment and
+    # stays where it was.
+    #
+    # The gate asks the question the rebase was FOR -- is origin/main an
+    # ancestor of HEAD -- rather than asking whether the rebase command
+    # succeeded. A rebase that exits 0 without achieving it fails the gate, and
+    # a rebase that was unnecessary passes without one having run. That is what
+    # makes this an independent check rather than a restatement of the action's
+    # exit code.
+    #
+    # The two rebase-in-progress tests are not belt-and-braces. Measured: during
+    # a CONFLICTED rebase the ancestor check PASSES on its own, because git has
+    # already replayed part of the branch and HEAD does contain origin/main. The
+    # ancestor test alone would therefore advance the run with a rebase halted
+    # mid-flight and a conflicted worktree. `git rev-parse --git-path` is used
+    # rather than a literal .git/ path so this holds in a worktree, where the
+    # rebase state lives outside the main .git directory.
+    #
+    # Re-running is safe in the two ways that matter. On an already-rebased
+    # branch the rebase is a no-op. Mid-conflict, git itself refuses -- "It
+    # seems that there is already a rebase-merge directory" -- so the retry
+    # reports the conflict again instead of compounding it.
+    default_action:
+      command: git fetch --quiet origin && git rebase origin/main
+      fallback: >-
+        koto could not rebase the shared branch onto origin/main. Read git's own
+        output above. A conflict leaves the rebase in progress: resolve it and
+        run `git rebase --continue`, or run `git rebase --abort` and rebase by
+        hand, then tick again -- the sync re-runs on entry, so nothing needs
+        submitting. Submit `sync_status: override` if the branch is deliberately
+        not on top of main, or `blocked` with `detail` if it cannot be resolved.
+    gates:
+      rebased_on_main:
+        type: command
+        command: 'git merge-base --is-ancestor origin/main HEAD && test ! -d "$(git rev-parse --git-path rebase-merge)" && test ! -d "$(git rev-parse --git-path rebase-apply)"'
+    accepts:
+      sync_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the branch could not be brought onto main.
+    transitions:
+      - target: worktree_discipline_check
+        when:
+          gates.rebased_on_main.exit_code: 0
+      - target: worktree_discipline_check
+        when:
+          gates.rebased_on_main.exit_code: 1
+          sync_status: override
+      - target: done_blocked
+        when:
+          gates.rebased_on_main.exit_code: 1
+          sync_status: blocked
+        context_assignments:
+          failure_reason: "worktree_sync blocked: ${evidence.detail}"
 
   worktree_discipline_check:
     gates:
@@ -470,9 +533,27 @@ Evidence schema (optional; the passing path submits neither):
 - `status`: `blocked`
 - `detail`: why the branch could not be recorded
 
+## worktree_sync
+
+Bringing the shared branch onto the current `origin/main`. koto fetches and rebases itself on entry; you only see this state if it could not.
+
+<!-- details -->
+
+The command is `git fetch --quiet origin && git rebase origin/main`. The gate beside it asks the question the rebase existed to answer -- is `origin/main` an ancestor of HEAD -- independently of whether the rebase command succeeded, and additionally requires that no rebase is in progress.
+
+That second half is load-bearing. During a conflicted rebase the ancestor check passes on its own, because git has already replayed part of the branch, so HEAD genuinely does contain `origin/main`. Without the in-progress tests the gate would wave a halted rebase and a conflicted worktree straight through.
+
+On the passing path the run advances to `worktree_discipline_check` with no evidence and you never read this. A branch already on top of main passes without a rebase having done anything.
+
+You are here because the rebase failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the rebase in progress: resolve it and `git rebase --continue`, or `git rebase --abort` and rebase by hand, then tick again. Re-entering re-runs the sync, and git refuses to start a second rebase while one is in progress, so a retry reports the conflict rather than compounding it.
+
+`sync_status: override` proceeds without the rebase, for the deliberate case where the shared branch should not be on top of main. `blocked` with `detail` stops the run.
+
+This state does not classify anything. Judging what the upstream changes mean for the PLAN is the next state's job.
+
 ## worktree_discipline_check
 
-Per-child worktree-discipline check (#162). Before dispatching children, fetch origin, rebase the shared branch on main, classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+Per-child worktree-discipline check (#162). The fetch and rebase already happened in `worktree_sync`, and its gate confirmed the branch sits on top of `origin/main`. What is left is the judgment: classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
 
 The `impact_classified` gate tests exactly that path: `wip/work-on_{{PLAN_SLUG}}_impact.json`. koto reports a failed command gate as an exit code with no message and discards the command's own output, so if this state will not advance, check that file first -- the gate has no other way to tell you what it wanted.
 
