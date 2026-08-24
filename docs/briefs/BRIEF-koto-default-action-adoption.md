@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's koto-backed workflows ask the agent, in prose, to run commands
   that have exactly one correct answer. koto can run a command itself when a
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing stops at what moves and why. Which specific steps convert, and
 where the state boundaries end up, belong to the downstream PRD and DESIGN.

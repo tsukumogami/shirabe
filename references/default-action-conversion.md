@@ -176,7 +176,7 @@ Read one of these next to your own state; they are the worked examples.
 | `worktree_sync` | `skills/execute/koto-templates/execute.md` | A local mutation, gated on whether the mutation's goal holds |
 | `pr_precheck` | `skills/work-on/koto-templates/work-on.md` | A read, captured, gated ahead of the step it feeds |
 
-`docs/designs/DESIGN-koto-default-action-adoption.md` records why each of those
+`docs/designs/current/DESIGN-koto-default-action-adoption.md` records why each of those
 converted, and -- more useful when you are deciding about a new step -- the
 thirteen candidates that were examined and stayed with the agent, each with its
 reason.
