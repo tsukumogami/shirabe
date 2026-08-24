@@ -24,7 +24,7 @@ description: >
   Each state also carries a `# phase: N` comment naming the /scope phase it
   belongs to, so a run can report its phase from its position. koto rejects an
   undeclared state field, so the map is a comment rather than a `phase:` key.
-initial_state: setup
+initial_state: branch_check
 
 variables:
   TOPIC:
@@ -40,6 +40,61 @@ variables:
     required: true
 
 states:
+  branch_check:
+    # phase: 0
+    # The branch this run commits its hops to, read once and delivered to every
+    # later state. `setup` used to ask the agent, in prose, to "confirm HEAD is
+    # on a named branch that is not the repository's default", and nothing
+    # enforced it -- the state declared no gates at all, and the same check was
+    # restated as a shell block in the per-hop commit procedure. The gate below
+    # is that check, made structural.
+    #
+    # `main` and `master` are named literally alongside the emptiness test.
+    # Resolving the real default would be better, but
+    # `refs/remotes/origin/HEAD` is absent in a clone that never fetched it, and
+    # a fallback resolving to nothing leaves the check satisfied by every
+    # branch. The repo's own per-hop commit procedure makes the same trade.
+    #
+    # The emptiness test is not redundant: on a detached HEAD `git symbolic-ref
+    # --quiet` prints nothing and exits 1, and a `grep -v` form of this check
+    # passes on empty input.
+    default_action:
+      command: git symbolic-ref --quiet --short HEAD
+      capture_stdout_as: BRANCH
+      fallback: >-
+        koto could not read a branch name, which usually means HEAD is
+        detached. Read the command's own output above, then run `git
+        symbolic-ref --quiet --short HEAD` yourself. Check out a named branch
+        that is not the repository's default and tick again -- the check re-runs
+        on entry. Submit `branch_status: blocked` with `detail` only if you
+        cannot get onto one.
+    gates:
+      on_named_non_default_branch:
+        type: command
+        command: 'test -n "$(git symbolic-ref --quiet --short HEAD)" && test "$(git symbolic-ref --quiet --short HEAD)" != "main" && test "$(git symbolic-ref --quiet --short HEAD)" != "master"'
+    accepts:
+      branch_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the branch could not be settled, when blocked.
+    transitions:
+      - target: setup
+        when:
+          gates.on_named_non_default_branch.exit_code: 0
+      - target: setup
+        when:
+          gates.on_named_non_default_branch.exit_code: 1
+          branch_status: override
+      - target: bail
+        when:
+          gates.on_named_non_default_branch.exit_code: 1
+          branch_status: blocked
+
   setup:
     # phase: 0
     accepts:
@@ -650,12 +705,43 @@ states:
     terminal: true
 ---
 
+## branch_check
+
+Confirming the run is on a branch it can commit hops to. koto reads the branch
+name itself on entry; you only see this state if it could not.
+
+<!-- details -->
+
+The command is `git symbolic-ref --quiet --short HEAD`, and the gate beside it
+requires a named branch that is neither `main` nor `master`. On the passing
+path the run advances to `setup` with no evidence and you never read this.
+
+You are here because one of the two failed. Either HEAD is detached and the
+command itself failed -- in which case the response above carries git's own
+output -- or HEAD is on the default branch and the gate did. Check out a named
+non-default branch and tick again; the check re-runs on entry, so nothing needs
+submitting.
+
+Two escapes exist and neither is the normal path. `branch_status: override`
+proceeds anyway, for the author who knows the branch is right and the gate is
+wrong about this repository. `branch_status: blocked` with `detail` stops the
+run. Do not create a branch on the author's behalf: choosing one mid-chain is a
+bigger surprise than refusing, which is the same reason the per-hop commit
+refuses rather than repairs.
+
+The branch name this state reads is delivered to every later state as
+`{{BRANCH}}`, so nothing downstream recovers it again.
+
+Evidence schema (both optional; the passing path submits neither):
+- `branch_status`: `override` or `blocked`
+- `detail`: why the branch could not be settled
+
 ## setup
 
-Establish the run: validate the topic slug, confirm HEAD is on a named branch
-that is not the repository's default, write the state file, and confirm the
-worktree is the one this run owns. Submit `setup_result: ready`, or `blocked`
-with `detail`.
+Establish the run: validate the topic slug, write the state file, and confirm
+the worktree is the one this run owns. The branch is already settled and
+available as `{{BRANCH}}`. Submit `setup_result: ready`, or `blocked` with
+`detail`.
 
 <!-- details -->
 
@@ -663,26 +749,14 @@ Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
 
-**The branch check belongs here rather than at the first commit.** Each hop's
-artifact is committed as it lands, and that commit refuses a detached HEAD and
-refuses the repository's default branch -- deliberately, because creating a
-branch mid-chain on the author's behalf is a bigger surprise than stopping. But
-the first commit happens after `/brief` has already run and produced a
-document. A run that starts on the default branch therefore does a hop's work
-and then cannot keep it. Checking here turns that into a refusal before
-anything is written.
+**The branch check ran before this state.** `branch_check` reads HEAD and gates
+on a named non-default branch, so a run that reaches `setup` is already on a
+branch it can commit to, and the name is available as `{{BRANCH}}`. The check
+used to live here as an instruction with nothing enforcing it, which meant a
+run that started on the default branch did `/brief`'s whole hop and then could
+not keep it -- the first commit happens after a document exists.
 
-Both halves must hold: HEAD is on a named branch (not detached), and that
-branch is not the repository's default. The exact preconditions, and the
-default-branch resolution that handles a clone which never fetched
-`origin/HEAD`, are in the Per-Hop Commit section of
-`skills/scope/references/phases/phase-2-chain-orchestration.md` — run the same
-check it does, rather than a partial one.
-
-Submit `blocked` with `detail` when either half fails, and let the author
-choose the branch. Do not create one.
-
-`blocked` also covers a slug that fails its pattern, a state file that cannot be
+`blocked` here no longer covers the branch. It covers a slug that fails its pattern, a state file that cannot be
 written, or a session collision reported against another worktree. Anything
 else, fix and submit `ready`.
 

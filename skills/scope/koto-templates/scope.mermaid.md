@@ -1,7 +1,10 @@
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> setup
+    [*] --> branch_check
+    branch_check --> setup : gates.on_named_non_default_branch.exit_code: 0
+    branch_check --> setup : gates.on_named_non_default_branch.exit_code: 1, branch_status: override
+    branch_check --> bail : gates.on_named_non_default_branch.exit_code: 1, branch_status: blocked
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 0
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 1
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 2
