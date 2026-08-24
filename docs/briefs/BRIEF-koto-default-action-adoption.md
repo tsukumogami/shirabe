@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe's koto-backed workflows ask the agent, in prose, to run commands
   that have exactly one correct answer. koto can run a command itself when a
@@ -23,10 +23,15 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing stops at what moves and why. Which specific steps convert, and
 where the state boundaries end up, belong to the downstream PRD and DESIGN.
+
+Two questions this brief deferred are closed in the downstream PRD's Decisions
+and Trade-offs section: where the state boundaries land once mechanical steps
+are pulled out, and whether a template variable carrying the per-repo
+verification command belongs in this feature.
 
 ## Problem Statement
 
@@ -161,17 +166,6 @@ the outcome is a boundary they can check rather than infer.
 - **A general mechanism for conditional instruction text.** A state's directive
   is one string rendered the same way on every stop reason. Fallback prose
   covers the failure path; anything more is a koto concern.
-
-## Open Questions
-
-- Where the state boundaries land once mechanical steps are pulled out of the
-  states that currently bundle them. The downstream DESIGN owns this; it is the
-  reason this work starts at design rather than at investigation.
-- Whether a template variable carrying the per-repo verification command earns
-  its place. Several commands stay with the agent only because they need
-  repo-specific knowledge to know what to run; a variable resolved once at
-  session start would shrink that set, and the PRD decides whether that is in
-  this feature or adjacent to it.
 
 ## References
 
