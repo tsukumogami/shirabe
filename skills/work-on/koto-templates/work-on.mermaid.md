@@ -15,14 +15,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pr_creation : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> pr_precheck : approval_decision: approved, gates.summary_exists.exists: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
+    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
     implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
@@ -45,6 +45,9 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pr_creation --> ci_monitor : pr_status: created
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
@@ -88,6 +91,10 @@ stateDiagram-v2
     validation_exit --> [*]
     note left of analysis
         gate: plan_artifact
+    end note
+    note left of pr_precheck
+        action: git rev-parse --abbrev-ref HEAD (capture BRANCH)
+        gate: on_feature_branch_pr
     end note
     note left of ci_monitor
         gate: ci_passing
