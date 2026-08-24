@@ -112,7 +112,9 @@ happy path free of them.
 
 Each of these cost a debugging round when the first conversions were written.
 
-**`{{SESSION_NAME}}` is not substituted inside a `default_action` command.** A
+**`{{SESSION_NAME}}` is not substituted inside a `default_action` command.**
+Filed upstream as [koto#220](https://github.com/tsukumogami/koto/issues/220); the
+workaround below is what shirabe does until it lands. A
 declared variable in the same string resolves; `{{SESSION_NAME}}` reaches
 `sh -c` as the literal token, so a command that passes it to `koto context add`
 writes into a session named `{{SESSION_NAME}}` and the state's own gate then

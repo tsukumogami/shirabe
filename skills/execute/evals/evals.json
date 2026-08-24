@@ -355,7 +355,7 @@
       "mode": "execute",
       "scenario": "e2e-cascade-full",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic \u2014 the validator gained the opinion, not finalize-chain \u2014 so the cascade must behave exactly as it did before the rule landed. Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
+      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic — the validator gained the opinion, not finalize-chain — so the cascade must behave exactly as it did before the rule landed. Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
@@ -373,7 +373,7 @@
         "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
         "cascade_status is completed",
-        "Plan does NOT propose removing the BRIEF's upstream: field \u2014 the old shape is the evidence this scenario exists to preserve"
+        "Plan does NOT propose removing the BRIEF's upstream: field — the old shape is the evidence this scenario exists to preserve"
       ]
     },
     {
@@ -468,10 +468,10 @@
       "expectations": [
         "Agent detects the non-main branch with an open PR and submits status: override (not the impl/<slug> creation path)",
         "Agent ADOPTS the existing docs/<topic> PR as the home PR and does NOT open or link a second PR",
-        "Agent records the settled branch (HEAD, the scoping branch, NOT impl/<slug>) into a koto context key",
-        "Agent re-validates the recovered branch name against a safe ref pattern before storing/interpolating it into emitted shell",
-        "Both spawn_and_await ticks read the settled branch and inject it as SHARED_BRANCH so children land on the adopted branch, not impl/<slug>",
-        "Agent verifies the record took (reads it back and compares) and, if it did not, submits status: blocked rather than completed or override -- the settled_branch_recorded gate is referenced by both success transitions, so a run that could not record its branch cannot reach spawn_and_await"
+        "The settled branch (HEAD, the scoping branch, NOT impl/<slug>) is recorded into a koto context key by settled_branch_record's default_action, not by the agent -- the agent submits no evidence for the record on the passing path",
+        "The recorded branch name is refused unless it matches ^[A-Za-z0-9._/-]+$ AND is not the repository's default branch; the default-branch refusal is the one no pattern match can catch, and record-settled-branch.sh exits 66 on it",
+        "Both spawn_and_await ticks inject the settled branch as SHARED_BRANCH from the {{SETTLED_BRANCH}} capture, with no impl/<slug> fallback left in the block, so children land on the adopted branch",
+        "The record is verified by the settled_branch_recorded gate reading the key back through koto's own evaluator rather than by the command comparing against itself; the gate is named in both of settled_branch_record's transitions, so a run that could not record its branch reaches done_blocked instead of spawn_and_await"
       ]
     },
     {
