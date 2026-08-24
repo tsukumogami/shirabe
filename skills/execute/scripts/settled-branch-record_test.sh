@@ -272,12 +272,17 @@ done
 # the gate reads the value back through koto's own evaluator, and the run
 # advances without the agent submitting anything for the record.
 
+# The assertion is "past settled_branch_record", not the name of the state after
+# it. What follows this one is worktree_sync today and was
+# worktree_discipline_check yesterday; either way the fixture has no remote, so
+# the run stops there. Naming the successor would make this case fail whenever a
+# state is inserted downstream, which says nothing about the record.
 new_session happy-path
 submit execute-happy-path '{"status":"override"}'
-if [ "$NEXT_STATE" = "worktree_discipline_check" ]; then
-    pass "one submission at orchestrator_setup lands at worktree_discipline_check"
+if [ -n "$NEXT_STATE" ] && [ "$NEXT_STATE" != "settled_branch_record" ] && [ "$NEXT_STATE" != "orchestrator_setup" ]; then
+    pass "one submission at orchestrator_setup advances past settled_branch_record (reached [$NEXT_STATE])"
 else
-    fail "expected worktree_discipline_check, got [$NEXT_STATE]"
+    fail "expected to advance past settled_branch_record, got [$NEXT_STATE]"
 fi
 recorded=$(koto context get execute-happy-path settled_branch 2>/dev/null)
 if [ "$recorded" = "$ADOPT_BRANCH" ]; then
