@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe's koto-backed workflow templates hand the agent mechanical shell
   commands inside prose instructions. koto has been able to run a command
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-koto-default-action-adoption.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
