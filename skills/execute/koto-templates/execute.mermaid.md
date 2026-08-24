@@ -9,9 +9,11 @@ stateDiagram-v2
     escalate --> done_blocked
     escalate_dirty_merge_state --> done_blocked
     escalate_upstream_drift --> done_blocked
-    orchestrator_setup --> worktree_discipline_check : gates.settled_branch_recorded.matches: true, status: completed
-    orchestrator_setup --> worktree_discipline_check : gates.settled_branch_recorded.matches: true, status: override
+    orchestrator_setup --> settled_branch_record : status: completed
+    orchestrator_setup --> settled_branch_record : status: override
     orchestrator_setup --> done_blocked : status: blocked
+    settled_branch_record --> worktree_discipline_check : gates.settled_branch_recorded.matches: true
+    settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
     plan_completion --> ci_monitor : cascade_status: completed
     plan_completion --> ci_monitor : cascade_status: partial
     plan_completion --> ci_monitor : cascade_status: skipped
@@ -32,7 +34,8 @@ stateDiagram-v2
     note left of ci_monitor
         gate: merge_state_clean
     end note
-    note left of orchestrator_setup
+    note left of settled_branch_record
+        action: record-settled-branch.sh (capture SETTLED_BRANCH)
         gate: settled_branch_recorded
     end note
     note left of spawn_and_await

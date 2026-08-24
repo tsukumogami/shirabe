@@ -142,11 +142,13 @@ suite_scripts() {
             echo "scripts/validate-template-mermaid.sh"
             echo "scripts/validate-template-mermaid_test.sh"
             echo "scripts/ci-gate-expression_test.sh"
-            # Extracts and runs the settled-branch read straight out of
-            # skills/execute/koto-templates/execute.md, which is what makes it a
-            # template-consistency check rather than a preflight one -- and it is
-            # check-template-consistency.yml that runs it in CI.
-            echo "scripts/settled-branch-read_test.sh"
+            # The settled-branch read used to be listed here, because it
+            # extracted twenty-five lines of shell straight out of
+            # skills/execute/koto-templates/execute.md. That read is gone: the
+            # branch now arrives in spawn_and_await as a capture from
+            # settled_branch_record, whose gate has already verified it. What is
+            # left to check lives with the script that does the recording, in
+            # the `execute` suite.
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is

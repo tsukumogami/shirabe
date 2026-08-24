@@ -108,6 +108,40 @@ it. On the failing path the response carries the gate's exit code and the full
 `expects` schema. Keep the `accepts` fields optional -- that is what keeps the
 happy path free of them.
 
+## Three things measured against koto 0.12.1 that the guide does not say
+
+Each of these cost a debugging round when the first conversions were written.
+
+**`{{SESSION_NAME}}` is not substituted inside a `default_action` command.** A
+declared variable in the same string resolves; `{{SESSION_NAME}}` reaches
+`sh -c` as the literal token, so a command that passes it to `koto context add`
+writes into a session named `{{SESSION_NAME}}` and the state's own gate then
+reports the real session's key as absent -- a failure that looks like a broken
+gate rather than a broken command. Prose elsewhere in a template uses
+`{{SESSION_NAME}}` safely because the agent, not koto, resolves it there.
+
+Rebuild the name from a declared variable instead. `/execute` passes
+`"execute-{{PLAN_SLUG}}"`, which is exactly the name its own `koto init` uses,
+and which the compiler checks. `$KOTO_TICK_SESSION` is also set in the command's
+environment and holds the right value, but the interpolation linter rejects any
+`$NAME` in a command field, so it is only reachable from inside a script.
+
+**Do not write a capture's name in braces in the prose of the state that
+produces it.** A `{{...}}` reference is substituted wherever it appears,
+including in the producing state's own directive and details. On the failure
+path the capture does not exist yet, so a braced mention there stops the tick
+with `capture_unset` -- and it stops it *instead of* showing the agent the
+failure it came to read. Name it without braces in that state; brace it only in
+states every path reaches through the producer.
+
+**A `--var` value must satisfy koto's allowlist,
+`^[a-zA-Z0-9._/:@ \-]*$`, and a filesystem path need not.** A `+` in a
+directory name is legal on disk and outside the pattern, so a plugin root
+containing one is refused at `koto init` with a message naming the variable.
+The refusal is loud and lands before any work, which is the right failure; it is
+worth knowing about because a canonical install under `~/.claude/plugins/cache/`
+is clean and a developer's checkout may not be.
+
 ## One check before converting anything
 
 **Would the command's output write a secret into the session log?** Every run
