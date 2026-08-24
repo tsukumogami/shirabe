@@ -86,7 +86,15 @@ esac
 # `printf '%s'`, not `echo`, and piped rather than passed as an argument: koto
 # stores what it receives verbatim, so the newline echo appends would become
 # part of the branch name.
-printf '%s' "$BRANCH" | koto context add "$SESSION" settled_branch >/dev/null 2>&1 || {
+#
+# Only stdout is redirected. koto's stderr is left intact deliberately: this
+# script's stdout is the capture stream and must carry nothing but the branch
+# name, but koto's own diagnostic is the thing a reader needs when the write
+# fails, and koto delivers an action's stderr to the agent on the failure path.
+# The `2>/dev/null` that used to sit here was the routine response to koto's
+# migration-warning volume, which is fixed as of 0.12.1 -- so the redirect now
+# suppresses only real errors.
+printf '%s' "$BRANCH" | koto context add "$SESSION" settled_branch >/dev/null || {
     RC=$?
     echo "record-settled-branch: koto context add failed (exit $RC) for session [$SESSION]" >&2
     exit "$RC"
