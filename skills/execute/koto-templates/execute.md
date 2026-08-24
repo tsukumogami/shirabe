@@ -40,7 +40,7 @@ states:
       # not derivable from the PLAN's name. This gate is what makes that a
       # guarantee rather than an instruction: with the key absent or its value
       # malformed, neither success transition below resolves and the run cannot
-      # reach spawn_and_await, whose `|| impl/$PLAN_SLUG` fallback would
+      # reach spawn_and_await, whose `|| impl/{{PLAN_SLUG}}` fallback would
       # otherwise hand every child a branch the adopt path never created.
       #
       # Two details are not stylistic:
@@ -350,11 +350,11 @@ states:
 
 ## orchestrator_setup
 
-Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
+Before running the script, check the current branch context. The PLAN slug is already available as `{{PLAN_SLUG}}` -- a declared, compile-time-validated template variable -- so do not re-derive it. Run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
 On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell).
 
-**Run this block LAST, whichever path you took.** It reads HEAD, so it has to run once HEAD is already the branch the run settled on: on the override path that is true the moment you decide to override, but on the create path it is only true after the creation script below has checked out `impl/$PLAN_SLUG`. Recording before that checkout stores `main`, and `main` is a perfectly well-formed branch name — the gate accepts it and every child then commits to `main`. That is the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it.
+**Run this block LAST, whichever path you took.** It reads HEAD, so it has to run once HEAD is already the branch the run settled on: on the override path that is true the moment you decide to override, but on the create path it is only true after the creation script below has checked out `impl/{{PLAN_SLUG}}`. Recording before that checkout stores `main`, and `main` is a perfectly well-formed branch name — the gate accepts it and every child then commits to `main`. That is the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it.
 
 ```bash
 SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -385,16 +385,15 @@ If the verification fails, submit `status: blocked` with the diagnostic as `deta
 
 Unlike the command gate on `worktree_discipline_check`, this one says what it wanted. A submission the gate holds comes back with `"advanced": false` and a `blocking_conditions` entry naming `settled_branch_recorded` with `"matches": false`, so if this state will not advance, read the submission response before anything else — then `koto context get {{SESSION_NAME}} settled_branch` to see what is actually stored.
 
-On the create path this records `impl/$PLAN_SLUG` — the branch the script below checks out, which is why the block runs after it — preserving today's value byte-for-byte; on the override path it records the settled branch you are already standing on.
+On the create path this records `impl/{{PLAN_SLUG}}` — the branch the script below checks out, which is why the block runs after it — preserving today's value byte-for-byte; on the override path it records the settled branch you are already standing on.
 
 Create the shared branch and draft PR. This runs once before children are spawned, and on the create path it runs BEFORE the recording block above.
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
-git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
-git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
-gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
-  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename {{PLAN_DOC}})."
+git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}}
+git push -u origin impl/{{PLAN_SLUG}} 2>/dev/null || true
+gh pr list --head impl/{{PLAN_SLUG}} --json number --jq '.[0].number' | grep -q . || \
+  gh pr create --draft --title "impl: {{PLAN_SLUG}}" --body "Implements {{PLAN_DOC}}."
 ```
 
 The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
@@ -437,11 +436,10 @@ existing approval behavior is unchanged.
 **Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # Route children to the branch orchestrator_setup settled on (the adopted/override
-# branch), falling back byte-identically to impl/$PLAN_SLUG on the fresh path (R7).
+# branch), falling back byte-identically to impl/{{PLAN_SLUG}} on the fresh path (R7).
 # `koto context get` writes its "key absent" JSON to stdout, not stderr, so the old
 # `2>/dev/null || echo` shape spliced that blob into the variable next to the
 # fallback. Branch on exit status instead: 0 is a stored value, 3 is an absent key
@@ -453,7 +451,7 @@ SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
 SETTLED_RC=$?
 case "$SETTLED_RC" in
   0) ;;
-  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
+  3) SETTLED_OUT="impl/{{PLAN_SLUG}}" ;;
   *)
     echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
     if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
@@ -468,7 +466,7 @@ SETTLED_BRANCH="$SETTLED_OUT"
 # guarantees this is either koto's stored value or the fallback, never an error
 # blob. Kept so a malformed stored value still cannot reach a branch name.
 case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/{{PLAN_SLUG}}" ;;
 esac
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
@@ -481,7 +479,6 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # Same settled-branch read as Tick 1 — the dedup re-submit must inject the same
@@ -492,7 +489,7 @@ SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
 SETTLED_RC=$?
 case "$SETTLED_RC" in
   0) ;;
-  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
+  3) SETTLED_OUT="impl/{{PLAN_SLUG}}" ;;
   *)
     echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
     if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
@@ -507,7 +504,7 @@ SETTLED_BRANCH="$SETTLED_OUT"
 # guarantees this is either koto's stored value or the fallback, never an error
 # blob. Kept so a malformed stored value still cannot reach a branch name.
 case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/{{PLAN_SLUG}}" ;;
 esac
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
@@ -527,11 +524,11 @@ Author a template-conformant PR — a conventional-commit **title** and the proj
 
 The **mechanical** title/body rule is single-sourced in `references/pr-body-conformance.md` (conventional `<type>[scope]: <description>` title with no issue-number scope; a two-part body with exactly one `---` separator where Part 1 becomes the squash commit body and everything from `---` down is deleted at merge; no AI-attribution footer). That rule is what `shirabe validate --pr-body` enforces in CI, so authoring to it here means a clean run is conformant in one pass. Apply it inline — an autonomous `/execute` run authors its own conformant PR rather than producing a malformed one and repairing it afterward, and does **not** shell out to another plugin's skill at runtime. (Subjective Part 2 section selection is reasoning-based; for `/execute` Part 2 is the per-child outcome table below.)
 
-**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** — `PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')`, which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
+**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** `{{PLAN_SLUG}}`, which koto validates against the template's `variables:` block at compile time and which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
 
    - `<type>` defaults to **`feat`** (a PLAN normally lands feature work). Use `fix` only when the PLAN is purely remediation, or `docs`/`chore` when every child change is docs/chore. A reasonable default is not a blocker — take `feat` and move on.
    - `<scope>` is optional: omit unless an obvious subsystem applies; NEVER an issue-number scope (`references/pr-body-conformance.md`, PB1).
-   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: $PLAN_SLUG` title set at creation.
+   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: {{PLAN_SLUG}}` title set at creation.
 
 **2. Assemble the two-part body.** Read `koto context get {{SESSION_NAME}} batch_final_view` for per-child outcome data, then build:
 
@@ -543,7 +540,6 @@ The **mechanical** title/body rule is single-sourced in `references/pr-body-conf
 
 ```bash
 PR_NUMBER=$(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 BODY_FILE=$(mktemp)
 cat > "$BODY_FILE" <<'BODY'
 <Part 1: factual change paragraph>
@@ -552,7 +548,7 @@ cat > "$BODY_FILE" <<'BODY'
 
 <Part 2: per-child outcome table; Fixes #N only for GitHub-issue children>
 BODY
-gh pr edit "$PR_NUMBER" --title "feat: $PLAN_SLUG" --body-file "$BODY_FILE"
+gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
 rm -f "$BODY_FILE"
 ```
 
