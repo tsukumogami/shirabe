@@ -189,8 +189,15 @@ koto init execute-<plan-slug> \
   --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/execute.md \
   --var PLAN_DOC=<path-to-plan> \
   --var PLAN_SLUG=<plan-slug> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
   --var PAUSE_BEFORE_FINALIZE=<true|false>
 ```
+
+`PLUGIN_ROOT` is passed for the same reason `PLAN_SLUG` is, one step further
+on: `settled_branch_record`'s action invokes a script that ships in the plugin,
+and a koto-run command cannot carry `${CLAUDE_PLUGIN_ROOT}` -- koto does not
+resolve shell variables, and `scripts/check-template-interpolation.sh` rejects
+the field for exactly that reason. The agent's own shell expands it once, here.
 
 `PLAN_SLUG` is the same slug already derived for the session name, passed
 again as a template variable because the `worktree_discipline_check` gate
@@ -220,17 +227,22 @@ now). The states and their tick mechanics:
   on an author or `/scope` branch that already has an open PR — including a
   `docs/<topic>` scoping PR — that existing-PR context is **ADOPTED** as the home PR
   (no second PR is opened and no distinct one is linked), the run stays on that
-  **settled branch**, and the settled branch (HEAD) is recorded into a koto context
-  key for `spawn_and_await`. The recovered branch is re-validated against a safe
-  ref pattern before it is stored or interpolated into emitted shell, and the
-  `settled_branch_recorded` gate holds this state until that record verifies, so a
-  run that could not record its branch reaches `done_blocked` rather than
-  dispatching children against a branch it never settled on.
+  **settled branch**. Recording it is the next state's job, not this one's.
+- `settled_branch_record` — koto runs
+  `skills/execute/scripts/record-settled-branch.sh` itself on entry: it reads
+  HEAD, refuses a detached HEAD, a name outside `^[A-Za-z0-9._/-]+$`, and the
+  repository's default branch, writes the value to the `settled_branch` context
+  key, and prints it. The `settled_branch_recorded` gate then reads that key back
+  through koto's own evaluator, so a run that could not record its branch reaches
+  `done_blocked` rather than dispatching children against a branch it never
+  settled on. The captured name reaches `spawn_and_await` as
+  `{{SETTLED_BRANCH}}`. On the passing path the state advances with no evidence
+  and the agent never sees it.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
-  into each task — read from the recorded settled branch with an
-  `|| impl/<slug>` fallback, so the adopt/override path routes children to the settled
-  branch while a fresh run lands byte-identically on `impl/<slug>` (R7) — submit
-  `tasks`; koto materializes one child per issue using the cross-skill `work-on.md`
+  into each task from `{{SETTLED_BRANCH}}`, the capture the previous state
+  delivered — no read-back, no exit-status branching, and no `impl/<slug>`
+  fallback, because the gate on `settled_branch_record` is what makes the value
+  present — submit `tasks`; koto materializes one child per issue using the cross-skill `work-on.md`
   (`default_template` in the lifted template).
 - cross-issue context assembly between children (see
   `references/cross-issue-context.md`); escalation on blocked/skipped.
@@ -766,6 +778,8 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 |------|------|
 | `skills/execute/koto-templates/execute.md` | the lifted `execute` orchestrator template |
 | `skills/execute/scripts/assert-child-template.sh` | Step 1 cross-skill child-template assertion |
+| `skills/execute/scripts/record-settled-branch.sh` | `settled_branch_record`'s action: reads, validates and records the settled branch, and prints it for capture |
+| `references/default-action-conversion.md` | the rule deciding which of this skill's steps koto runs and which stay with the agent |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |

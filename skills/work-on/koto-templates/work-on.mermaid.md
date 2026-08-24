@@ -15,14 +15,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pr_creation : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> pr_precheck : approval_decision: approved, gates.summary_exists.exists: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
+    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
     implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
@@ -49,6 +49,9 @@ stateDiagram-v2
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry
     qa_validation --> done_blocked : qa_outcome: blocking_escalate
@@ -115,6 +118,9 @@ stateDiagram-v2
     end note
     note left of plan_context_injection
         gate: context_artifact
+    end note
+    note left of pr_precheck
+        gate: on_feature_branch_pr
     end note
     note left of qa_validation
         gate: qa_results

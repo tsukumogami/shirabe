@@ -21,6 +21,19 @@ variables:
       sh -c untouched and expands to the empty string, which is the defect this
       declaration closes.
     required: true
+  PLUGIN_ROOT:
+    description: >-
+      Absolute path to the shirabe plugin root, passed at koto init as
+      --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} where the agent's own shell
+      expands it. Declared as a template variable because settled_branch_record
+      interpolates it into a command koto runs itself, and koto resolves only
+      {{KEY}} references -- a shell-style ${CLAUDE_PLUGIN_ROOT} there reaches
+      sh -c untouched and expands to the empty string, which
+      scripts/check-template-interpolation.sh rejects for exactly that reason.
+      A repo-relative path is not the alternative: it resolves against the
+      session's execution anchor and therefore only in a checkout of shirabe
+      itself.
+    required: true
   PAUSE_BEFORE_FINALIZE:
     description: >
       Whether to stop at the paused_for_review terminal after pr_finalization
@@ -34,33 +47,6 @@ variables:
 
 states:
   orchestrator_setup:
-    gates:
-      # The settled branch this state records is the ONLY thing that knows
-      # which branch children commit to on the adopt path, where the branch is
-      # not derivable from the PLAN's name. This gate is what makes that a
-      # guarantee rather than an instruction: with the key absent or its value
-      # malformed, neither success transition below resolves and the run cannot
-      # reach spawn_and_await, whose `|| impl/$PLAN_SLUG` fallback would
-      # otherwise hand every child a branch the adopt path never created.
-      #
-      # Two details are not stylistic:
-      #
-      #   The pattern is anchored at BOTH ends. context-matches evaluates
-      #   Regex::is_match, a substring test, so an unanchored
-      #   [A-Za-z0-9._/-]+ would pass "main; rm -rf /" because "main" matches.
-      #   The anchors are what make this a validator instead of a formality.
-      #
-      #   The gate must be referenced in a when clause to bind. A failed gate
-      #   on a state that has an `accepts` block does NOT block on its own --
-      #   it falls through to transition resolution, and a conditional
-      #   transition matching on agent evidence alone still fires. The two
-      #   `gates.settled_branch_recorded.matches` keys below are what make the
-      #   gate load-bearing; deleting them leaves a gate that is evaluated,
-      #   reported, and ignored.
-      settled_branch_recorded:
-        type: context-matches
-        key: settled_branch
-        pattern: '^[A-Za-z0-9._/-]+$'
     accepts:
       status:
         type: enum
@@ -70,22 +56,172 @@ states:
         type: string
         description: Failure reason if blocked
     transitions:
-      - target: worktree_discipline_check
+      - target: settled_branch_record
         when:
           status: completed
-          gates.settled_branch_recorded.matches: true
-      - target: worktree_discipline_check
+      - target: settled_branch_record
         when:
           status: override
-          gates.settled_branch_recorded.matches: true
-      # No gate reference here, deliberately. The failure exit must stay
-      # reachable when the context store is exactly what is broken; a run that
-      # cannot record its branch has to be able to reach a terminal state.
       - target: done_blocked
         when:
           status: blocked
         context_assignments:
           failure_reason: "orchestrator_setup blocked: ${evidence.detail}"
+
+  settled_branch_record:
+    # The settled branch this state records is the ONLY thing that knows which
+    # branch children commit to on the adopt path, where the branch is not
+    # derivable from the PLAN's name. The gate is what makes that a guarantee
+    # rather than an instruction: with the key absent or its value malformed,
+    # the success transition does not resolve and the run cannot reach
+    # spawn_and_await.
+    #
+    # Three details are not stylistic:
+    #
+    #   The pattern is anchored at BOTH ends. context-matches evaluates
+    #   Regex::is_match, a substring test, so an unanchored [A-Za-z0-9._/-]+
+    #   would pass "main; rm -rf /" because "main" matches. The anchors are
+    #   what make this a validator instead of a formality.
+    #
+    #   The gate must be referenced in a when clause to bind. A failed gate on
+    #   a state that has an `accepts` block does NOT block on its own -- it
+    #   falls through to transition resolution, and a conditional transition
+    #   matching on agent evidence alone still fires. Both transitions below
+    #   name the gate; deleting either reference leaves a gate that is
+    #   evaluated, reported, and ignored.
+    #
+    #   There is deliberately no `override` edge. Every other converted state
+    #   in shirabe offers one, because an author who knows better than the gate
+    #   should be able to proceed. Not here: the recorded branch is where every
+    #   child's commits land, so a run that cannot record it must reach a
+    #   terminal rather than wave the gate through.
+    #
+    # This state exists because the recording used to be a block of shell in
+    # orchestrator_setup's directive, under five paragraphs explaining that it
+    # had to run LAST -- recording before the creation script checked out
+    # impl/<slug> stored `main`. A state boundary is what that ordering
+    # constraint actually is, and the script the action runs refuses the
+    # default branch outright, which the old block could not.
+    default_action:
+      # The session argument is rebuilt from {{PLAN_SLUG}} rather than written
+      # as {{SESSION_NAME}}, and that is not a style choice: koto does NOT
+      # substitute {{SESSION_NAME}} inside a default_action command. Measured
+      # against koto 0.12.1 -- a declared variable in the same string resolves
+      # and {{SESSION_NAME}} reaches sh -c as the literal seven-character
+      # token, so the script writes its key into a session named
+      # "{{SESSION_NAME}}" and the gate on this state then reports the real
+      # session's key as absent. Prose elsewhere in this template uses
+      # {{SESSION_NAME}} safely because the agent, not koto, resolves it there.
+      #
+      # `execute-<plan-slug>` is the session name /execute's own SKILL.md
+      # initializes, and PLAN_SLUG is the same slug it derives it from, so this
+      # reconstruction is exact and is checked at compile time -- a typo in the
+      # reference is a template error rather than a wrong session.
+      command: '{{PLUGIN_ROOT}}/skills/execute/scripts/record-settled-branch.sh "execute-{{PLAN_SLUG}}"'
+      capture_stdout_as: SETTLED_BRANCH
+      fallback: >-
+        koto could not record the settled branch. Read the command's own output
+        above: the script refuses a detached HEAD (64), a branch name outside
+        ^[A-Za-z0-9._/-]+$ (65), and the repository's default branch (66), and
+        it says which one it hit. Check out the branch this run should settle
+        on and tick again -- the record re-runs on entry, so nothing needs
+        submitting. Submit `status: blocked` with `detail` only if it cannot be
+        fixed; there is no override here, because the recorded branch is where
+        every child commits.
+    gates:
+      settled_branch_recorded:
+        type: context-matches
+        key: settled_branch
+        pattern: '^[A-Za-z0-9._/-]+$'
+    accepts:
+      status:
+        type: enum
+        values: [blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the branch could not be recorded.
+    transitions:
+      - target: worktree_sync
+        when:
+          gates.settled_branch_recorded.matches: true
+      # The gate is named on this edge too, and it has to be: koto rejects a
+      # state whose `when` blocks share no fields, so a blocked edge keyed on
+      # evidence alone beside a success edge keyed on the gate alone does not
+      # compile. Naming `matches: false` is also the more accurate condition --
+      # the failure exit exists for the run whose record did not land, which is
+      # exactly what a false match means.
+      - target: done_blocked
+        when:
+          gates.settled_branch_recorded.matches: false
+          status: blocked
+        context_assignments:
+          failure_reason: "settled_branch_record blocked: ${evidence.detail}"
+
+  worktree_sync:
+    # The mechanical half of what worktree_discipline_check used to do in one
+    # state: fetch origin and rebase the shared branch on main. The other half,
+    # classifying the upstream impact against the PLAN's intent, is judgment and
+    # stays where it was.
+    #
+    # The gate asks the question the rebase was FOR -- is origin/main an
+    # ancestor of HEAD -- rather than asking whether the rebase command
+    # succeeded. A rebase that exits 0 without achieving it fails the gate, and
+    # a rebase that was unnecessary passes without one having run. That is what
+    # makes this an independent check rather than a restatement of the action's
+    # exit code.
+    #
+    # The two rebase-in-progress tests are not belt-and-braces. Measured: during
+    # a CONFLICTED rebase the ancestor check PASSES on its own, because git has
+    # already replayed part of the branch and HEAD does contain origin/main. The
+    # ancestor test alone would therefore advance the run with a rebase halted
+    # mid-flight and a conflicted worktree. `git rev-parse --git-path` is used
+    # rather than a literal .git/ path so this holds in a worktree, where the
+    # rebase state lives outside the main .git directory.
+    #
+    # Re-running is safe in the two ways that matter. On an already-rebased
+    # branch the rebase is a no-op. Mid-conflict, git itself refuses -- "It
+    # seems that there is already a rebase-merge directory" -- so the retry
+    # reports the conflict again instead of compounding it.
+    default_action:
+      command: git fetch --quiet origin && git rebase origin/main
+      fallback: >-
+        koto could not rebase the shared branch onto origin/main. Read git's own
+        output above. A conflict leaves the rebase in progress: resolve it and
+        run `git rebase --continue`, or run `git rebase --abort` and rebase by
+        hand, then tick again -- the sync re-runs on entry, so nothing needs
+        submitting. Submit `sync_status: override` if the branch is deliberately
+        not on top of main, or `blocked` with `detail` if it cannot be resolved.
+    gates:
+      rebased_on_main:
+        type: command
+        command: 'git merge-base --is-ancestor origin/main HEAD && test ! -d "$(git rev-parse --git-path rebase-merge)" && test ! -d "$(git rev-parse --git-path rebase-apply)"'
+    accepts:
+      sync_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the branch could not be brought onto main.
+    transitions:
+      - target: worktree_discipline_check
+        when:
+          gates.rebased_on_main.exit_code: 0
+      - target: worktree_discipline_check
+        when:
+          gates.rebased_on_main.exit_code: 1
+          sync_status: override
+      - target: done_blocked
+        when:
+          gates.rebased_on_main.exit_code: 1
+          sync_status: blocked
+        context_assignments:
+          failure_reason: "worktree_sync blocked: ${evidence.detail}"
 
   worktree_discipline_check:
     gates:
@@ -350,60 +486,74 @@ states:
 
 ## orchestrator_setup
 
-Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
+Before running the script, check the current branch context. The PLAN slug is already available as `{{PLAN_SLUG}}` -- a declared, compile-time-validated template variable -- so do not re-derive it. Run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
-On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell).
+On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one.
 
-**Run this block LAST, whichever path you took.** It reads HEAD, so it has to run once HEAD is already the branch the run settled on: on the override path that is true the moment you decide to override, but on the create path it is only true after the creation script below has checked out `impl/$PLAN_SLUG`. Recording before that checkout stores `main`, and `main` is a perfectly well-formed branch name — the gate accepts it and every child then commits to `main`. That is the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it.
-
-```bash
-SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH"; exit 1 ;;
-esac
-printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch 2>/dev/null
-RECORDED=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null)
-if [ "$RECORDED" != "$SETTLED_BRANCH" ]; then
-  echo "settled_branch NOT recorded: read back [$RECORDED], expected [$SETTLED_BRANCH]"
-  echo "submit status: blocked -- do NOT submit completed or override"
-  exit 1
-fi
-echo "settled_branch recorded and verified: $SETTLED_BRANCH"
-```
-
-Four details in that block are load-bearing, and each one is a way the previous version of this step failed silently.
-
-**`koto context add`, not `koto context set`.** There is no `context set`; koto's context group is `add`, `get`, `exists`, `list`. The old line failed on every run since it was written.
-
-**`printf '%s'`, not `echo`, and a pipe rather than a positional argument.** `add` takes its value from stdin (or `--from-file`), and it stores what it receives verbatim. `echo` would append a newline that becomes part of the branch name.
-
-**The read-back is a comparison, not an emptiness test.** `koto context get` on a missing key writes its error as JSON to **stdout** and exits 3, so `RECORDED` on failure holds an error payload rather than nothing. Comparing against `$SETTLED_BRANCH` catches that case and every other; testing `-z "$RECORDED"` would not.
-
-**Both diagnostics go to stdout, not stderr.** koto emits a large volume of `migration skipped` lines on stderr in any workspace with accumulated sessions, so appending `2>/dev/null` to a koto call is the routine operator response — and it is what hid the original `unrecognized subcommand` error. A failure message this step writes to stderr would be swallowed by exactly the reflex that made the original defect invisible. The `2>/dev/null` on the two koto calls above is safe only because the comparison, and not the absence of an error message, is what decides whether the record took.
-
-If the verification fails, submit `status: blocked` with the diagnostic as `detail`. Do not submit `completed` or `override`: the `settled_branch_recorded` gate on this state (see the template's frontmatter) references the recorded value from both success transitions, so neither will resolve and the run will sit in `orchestrator_setup` without advancing.
-
-Unlike the command gate on `worktree_discipline_check`, this one says what it wanted. A submission the gate holds comes back with `"advanced": false` and a `blocking_conditions` entry naming `settled_branch_recorded` with `"matches": false`, so if this state will not advance, read the submission response before anything else — then `koto context get {{SESSION_NAME}} settled_branch` to see what is actually stored.
-
-On the create path this records `impl/$PLAN_SLUG` — the branch the script below checks out, which is why the block runs after it — preserving today's value byte-for-byte; on the override path it records the settled branch you are already standing on.
-
-Create the shared branch and draft PR. This runs once before children are spawned, and on the create path it runs BEFORE the recording block above.
+Create the shared branch and draft PR. This runs once before children are spawned.
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
-git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
-git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
-gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
-  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename {{PLAN_DOC}})."
+git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}}
+git push -u origin impl/{{PLAN_SLUG}} 2>/dev/null || true
+gh pr list --head impl/{{PLAN_SLUG}} --json number --jq '.[0].number' | grep -q . || \
+  gh pr create --draft --title "impl: {{PLAN_SLUG}}" --body "Implements {{PLAN_DOC}}."
 ```
 
 The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
 
-Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails. Record the settled branch (above) before submitting `completed` or `override` so `spawn_and_await` can read it.
+`gh pr create` stays here rather than moving into an action, permanently: its successful exit is the externally visible event. Reviewers are notified, a number is allocated, and subscribed automation reacts, and closing the pull request afterwards undoes its state and not the notifications. The same holds for the `git push` above. See `references/default-action-conversion.md`.
+
+**You do not record the settled branch.** That was part of this state and is now `settled_branch_record`, the next state, which koto drives itself. Submit `status: completed` after branch and draft PR exist, `status: override` if you are already on an appropriate branch with an existing PR, or `status: blocked` with `detail` if either step fails.
+
+## settled_branch_record
+
+Recording the branch this run settled on, so `spawn_and_await` can route every child to it. koto runs the script itself on entry; you only see this state if it could not.
+
+<!-- details -->
+
+The command is `skills/execute/scripts/record-settled-branch.sh`, which reads HEAD, refuses a detached HEAD, refuses a name outside `^[A-Za-z0-9._/-]+$`, refuses the repository's default branch, writes the value to the `settled_branch` context key, and prints it. The `settled_branch_recorded` gate then reads that key back through koto's own evaluator — a check the action cannot influence — and the captured name is delivered to `spawn_and_await` under the name
+`SETTLED_BRANCH`.
+
+That name is written without braces here on purpose. A `{{...}}` reference is
+substituted wherever it appears, including in this state's own text, and on the
+failure path the capture does not exist yet -- so a braced mention in the prose
+of the state that produces it stops the tick with `capture_unset` instead of
+showing you the failure you came here to read. Only `spawn_and_await`, which
+every path reaches through this state, references it with braces.
+
+On the passing path the run advances to `worktree_discipline_check` with no evidence and you never read this.
+
+You are here because the script failed, and the response above carries its exit code and its own stderr. Exit 64 is a detached HEAD, 65 a branch name the pattern rejects, 66 the default branch. Fix the branch and tick again; the record re-runs on entry.
+
+`status: blocked` with `detail` is the only evidence this state takes, and it routes to `done_blocked`. There is no override, and that asymmetry is deliberate: every child of this run commits to whatever is recorded here, so a run that cannot record its branch must stop rather than proceed on an unrecorded one.
+
+The default-branch refusal is the interesting one. This used to be a block of shell in `orchestrator_setup` under a paragraph explaining that `main` was "the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it." The ordering is now a state boundary, and the script refuses the value outright.
+
+Evidence schema (optional; the passing path submits neither):
+- `status`: `blocked`
+- `detail`: why the branch could not be recorded
+
+## worktree_sync
+
+Bringing the shared branch onto the current `origin/main`. koto fetches and rebases itself on entry; you only see this state if it could not.
+
+<!-- details -->
+
+The command is `git fetch --quiet origin && git rebase origin/main`. The gate beside it asks the question the rebase existed to answer -- is `origin/main` an ancestor of HEAD -- independently of whether the rebase command succeeded, and additionally requires that no rebase is in progress.
+
+That second half is load-bearing. During a conflicted rebase the ancestor check passes on its own, because git has already replayed part of the branch, so HEAD genuinely does contain `origin/main`. Without the in-progress tests the gate would wave a halted rebase and a conflicted worktree straight through.
+
+On the passing path the run advances to `worktree_discipline_check` with no evidence and you never read this. A branch already on top of main passes without a rebase having done anything.
+
+You are here because the rebase failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the rebase in progress: resolve it and `git rebase --continue`, or `git rebase --abort` and rebase by hand, then tick again. Re-entering re-runs the sync, and git refuses to start a second rebase while one is in progress, so a retry reports the conflict rather than compounding it.
+
+`sync_status: override` proceeds without the rebase, for the deliberate case where the shared branch should not be on top of main. `blocked` with `detail` stops the run.
+
+This state does not classify anything. Judging what the upstream changes mean for the PLAN is the next state's job.
 
 ## worktree_discipline_check
 
-Per-child worktree-discipline check (#162). Before dispatching children, fetch origin, rebase the shared branch on main, classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+Per-child worktree-discipline check (#162). The fetch and rebase already happened in `worktree_sync`, and its gate confirmed the branch sits on top of `origin/main`. What is left is the judgment: classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
 
 The `impact_classified` gate tests exactly that path: `wip/work-on_{{PLAN_SLUG}}_impact.json`. koto reports a failed command gate as an exit code with no message and discards the command's own output, so if this state will not advance, check that file first -- the gate has no other way to tell you what it wanted.
 
@@ -437,39 +587,15 @@ existing approval behavior is unchanged.
 **Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-# Route children to the branch orchestrator_setup settled on (the adopted/override
-# branch), falling back byte-identically to impl/$PLAN_SLUG on the fresh path (R7).
-# `koto context get` writes its "key absent" JSON to stdout, not stderr, so the old
-# `2>/dev/null || echo` shape spliced that blob into the variable next to the
-# fallback. Branch on exit status instead: 0 is a stored value, 3 is an absent key
-# or session (the fresh path), and anything else -- 2 for a usage error, 127 for a
-# missing binary -- is a real failure that must surface rather than be replaced by
-# a fabricated branch name that flows onward as though the read succeeded.
-SETTLED_ERR=$(mktemp)
-SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
-SETTLED_RC=$?
-case "$SETTLED_RC" in
-  0) ;;
-  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
-  *)
-    echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
-    if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
-    if [ -n "$SETTLED_OUT" ]; then printf '%s\n' "$SETTLED_OUT" >&2; fi
-    rm -f "$SETTLED_ERR"
-    exit "$SETTLED_RC"
-    ;;
-esac
-rm -f "$SETTLED_ERR"
-SETTLED_BRANCH="$SETTLED_OUT"
-# Defence in depth, no longer load-bearing: the exit-status branch above already
-# guarantees this is either koto's stored value or the fallback, never an error
-# blob. Kept so a malformed stored value still cannot reach a branch name.
-case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
-esac
+# The settled branch arrives as a capture from settled_branch_record, which
+# every path into this state passes through, and whose gate has already
+# verified the stored value against ^[A-Za-z0-9._/-]+$. There is nothing to
+# read back, no exit status to branch on, and no impl/<slug> fallback: the
+# fallback existed because the key might be absent, and the gate is what
+# makes it present.
+SETTLED_BRANCH="{{SETTLED_BRANCH}}"
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP"
@@ -481,34 +607,15 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
 
 ```bash
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-# Same settled-branch read as Tick 1 — the dedup re-submit must inject the same
-# branch, so it branches on exit status the same way. 3 is an absent key and takes
-# the fallback; 2 and 127 stop the step instead of fabricating a branch name.
-SETTLED_ERR=$(mktemp)
-SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
-SETTLED_RC=$?
-case "$SETTLED_RC" in
-  0) ;;
-  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
-  *)
-    echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
-    if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
-    if [ -n "$SETTLED_OUT" ]; then printf '%s\n' "$SETTLED_OUT" >&2; fi
-    rm -f "$SETTLED_ERR"
-    exit "$SETTLED_RC"
-    ;;
-esac
-rm -f "$SETTLED_ERR"
-SETTLED_BRANCH="$SETTLED_OUT"
-# Defence in depth, no longer load-bearing: the exit-status branch above already
-# guarantees this is either koto's stored value or the fallback, never an error
-# blob. Kept so a malformed stored value still cannot reach a branch name.
-case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
-esac
+# The settled branch arrives as a capture from settled_branch_record, which
+# every path into this state passes through, and whose gate has already
+# verified the stored value against ^[A-Za-z0-9._/-]+$. There is nothing to
+# read back, no exit status to branch on, and no impl/<slug> fallback: the
+# fallback existed because the key might be absent, and the gate is what
+# makes it present.
+SETTLED_BRANCH="{{SETTLED_BRANCH}}"
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
@@ -527,11 +634,11 @@ Author a template-conformant PR — a conventional-commit **title** and the proj
 
 The **mechanical** title/body rule is single-sourced in `references/pr-body-conformance.md` (conventional `<type>[scope]: <description>` title with no issue-number scope; a two-part body with exactly one `---` separator where Part 1 becomes the squash commit body and everything from `---` down is deleted at merge; no AI-attribution footer). That rule is what `shirabe validate --pr-body` enforces in CI, so authoring to it here means a clean run is conformant in one pass. Apply it inline — an autonomous `/execute` run authors its own conformant PR rather than producing a malformed one and repairing it afterward, and does **not** shell out to another plugin's skill at runtime. (Subjective Part 2 section selection is reasoning-based; for `/execute` Part 2 is the per-child outcome table below.)
 
-**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** — `PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')`, which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
+**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** `{{PLAN_SLUG}}`, which koto validates against the template's `variables:` block at compile time and which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
 
    - `<type>` defaults to **`feat`** (a PLAN normally lands feature work). Use `fix` only when the PLAN is purely remediation, or `docs`/`chore` when every child change is docs/chore. A reasonable default is not a blocker — take `feat` and move on.
    - `<scope>` is optional: omit unless an obvious subsystem applies; NEVER an issue-number scope (`references/pr-body-conformance.md`, PB1).
-   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: $PLAN_SLUG` title set at creation.
+   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: {{PLAN_SLUG}}` title set at creation.
 
 **2. Assemble the two-part body.** Read `koto context get {{SESSION_NAME}} batch_final_view` for per-child outcome data, then build:
 
@@ -543,7 +650,6 @@ The **mechanical** title/body rule is single-sourced in `references/pr-body-conf
 
 ```bash
 PR_NUMBER=$(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 BODY_FILE=$(mktemp)
 cat > "$BODY_FILE" <<'BODY'
 <Part 1: factual change paragraph>
@@ -552,7 +658,7 @@ cat > "$BODY_FILE" <<'BODY'
 
 <Part 2: per-child outcome table; Fixes #N only for GitHub-issue children>
 BODY
-gh pr edit "$PR_NUMBER" --title "feat: $PLAN_SLUG" --body-file "$BODY_FILE"
+gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
 rm -f "$BODY_FILE"
 ```
 

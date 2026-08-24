@@ -61,6 +61,25 @@ was `--upstream <path>` lands here: the flag is not a topic, and
 the cold-start prompt fires rather than a slug being derived from
 the upstream's filename.
 
+## The Branch Check Is a State, Not a Step Here
+
+The run's branch is settled before Phase 0's own work begins. `branch_check` is
+the template's initial state: koto reads `git symbolic-ref --quiet --short HEAD`
+on entry, delivers it to every later state as `{{BRANCH}}`, and gates on a named
+branch that is neither `main` nor `master`. A run that reaches `setup` is
+already on a branch it can commit hops to.
+
+This used to be a sentence in `setup`'s directive with nothing enforcing it,
+which meant a run started on the default branch did `/brief`'s whole hop before
+the first per-hop commit refused it. Phase 0 therefore does not check the
+branch, and `setup_result: blocked` no longer covers it.
+
+The Per-Hop Commit preconditions in
+`skills/scope/references/phases/phase-2-chain-orchestration.md` still recover
+and re-check the branch for themselves. That is deliberate: they run as agent
+shell in a reference file, where the template's `{{BRANCH}}` substitution does
+not reach, and a commit that verifies its own target is worth the second read.
+
 ## Topic-Slug Validation
 
 The topic-slug regex `^[a-z0-9-]+$` is cited from

@@ -651,7 +651,7 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
-      - target: pr_creation
+      - target: pr_precheck
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
@@ -682,7 +682,7 @@ states:
           The unmet acceptance criterion and the human's rationale. On approved, this is
           the deferral recorded via `koto decisions record` and surfaced in the PR body.
     transitions:
-      - target: pr_creation
+      - target: pr_precheck
         when:
           approval_decision: approved
           gates.summary_exists.exists: true
@@ -691,6 +691,63 @@ states:
           approval_decision: rejected
         context_assignments:
           failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
+
+  pr_precheck:
+    # The single edge into pr_creation, so the branch is read once here instead
+    # of being recovered by command substitution in the prose of the state that
+    # opens the pull request. Both predecessors -- finalization and
+    # deferral_approval -- route through this state, which is also what makes
+    # {{BRANCH}} safe to read in pr_creation and ci_monitor: every path into
+    # them passes through this one.
+    #
+    # The gate is the template's only structural guarantee that a pull request
+    # is not opened from the default branch, at the point where opening one
+    # happens. `implementation` checks the same thing earlier, but a task-typed
+    # issue reaches finalization through verification without re-checking, and
+    # nothing re-checks after a rewind.
+    #
+    # The name differs from `on_feature_branch` deliberately.
+    # scripts/validate-template-mermaid.sh check 4 requires a gate name shared
+    # across templates to carry an identical command, and reusing a name inside
+    # one template for a check with a different job is what that check exists to
+    # notice.
+    default_action:
+      command: git rev-parse --abbrev-ref HEAD
+      capture_stdout_as: BRANCH
+      fallback: >-
+        koto could not read the branch name. Read the command's own output
+        above, then run `git rev-parse --abbrev-ref HEAD` yourself and carry on
+        with what it prints. Check out the feature branch this work belongs on
+        and tick again -- the read re-runs on entry. Submit
+        `precheck_status: blocked` with `detail` only if you cannot.
+    gates:
+      on_feature_branch_pr:
+        type: command
+        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+    accepts:
+      precheck_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the branch could not be settled.
+    transitions:
+      - target: pr_creation
+        when:
+          gates.on_feature_branch_pr.exit_code: 0
+      - target: pr_creation
+        when:
+          gates.on_feature_branch_pr.exit_code: 1
+          precheck_status: override
+      - target: done_blocked
+        when:
+          gates.on_feature_branch_pr.exit_code: 1
+          precheck_status: blocked
+        context_assignments:
+          failure_reason: "pr_precheck blocked: ${evidence.detail}"
 
   pr_creation:
     accepts:
@@ -1104,6 +1161,16 @@ Evidence schema:
 - `approval_decision`: `approved` or `rejected`
 - `deferral_detail`: the unmet criterion and the human's rationale
 
+## pr_precheck
+
+Reading the branch this work is on, before the pull request is opened. koto runs the read itself on entry; you only see this state if it could not.
+
+The gate beside it refuses the default branch. It is the last check before a pull request exists, and the only one at that point.
+
+The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
+
+Submit `precheck_status: override` to proceed anyway, or `blocked` with `detail` to stop. On the passing path submit nothing -- the run advances on its own.
+
 ## pr_creation
 
 If `SHARED_BRANCH` is set, this child is running on the orchestrator's shared
@@ -1113,7 +1180,11 @@ creation step is needed here.
 Otherwise, read `references/phases/phase-6-pr.md` for PR format, pre-PR
 verification, and push instructions.
 
-Check if a PR already exists: `gh pr list --head $(git rev-parse --abbrev-ref HEAD)`
+Check if a PR already exists: `gh pr list --head {{BRANCH}}`
+
+Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
+
+`gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications. See `references/default-action-conversion.md`.
 
 Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
 `creation_failed_escalate`.

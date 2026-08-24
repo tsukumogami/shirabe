@@ -248,6 +248,14 @@ shirabe-side mistakes (over-eager on-disk staging; assumptions about
 which env vars are auto-set in the plugin loader) would have been
 avoided by checking these references first.
 
+Deciding whether koto should run a command itself, rather than asking the
+agent to run it in prose, is a separate question with its own answer:
+`references/default-action-conversion.md` carries shirabe's rule, the
+authoring constraints this repo's own linter and templates impose, and
+pointers to the states that are already converted. Read it before adding a
+`default_action` to any template, and before writing a new mechanical step
+into one.
+
 ## Skill Evals
 
 Whenever a skill is created or updated, create or update its evals at
