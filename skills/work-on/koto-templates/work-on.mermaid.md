@@ -45,13 +45,13 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
-    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
-    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
-    pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pr_creation --> ci_monitor : pr_status: created
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
+    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry
     qa_validation --> done_blocked : qa_outcome: blocking_escalate
@@ -92,10 +92,6 @@ stateDiagram-v2
     note left of analysis
         gate: plan_artifact
     end note
-    note left of pr_precheck
-        action: git rev-parse --abbrev-ref HEAD (capture BRANCH)
-        gate: on_feature_branch_pr
-    end note
     note left of ci_monitor
         gate: ci_passing
     end note
@@ -122,6 +118,9 @@ stateDiagram-v2
     end note
     note left of plan_context_injection
         gate: context_artifact
+    end note
+    note left of pr_precheck
+        gate: on_feature_branch_pr
     end note
     note left of qa_validation
         gate: qa_results

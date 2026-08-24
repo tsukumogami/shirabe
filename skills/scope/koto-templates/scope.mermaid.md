@@ -2,13 +2,13 @@
 stateDiagram-v2
     direction LR
     [*] --> branch_check
-    branch_check --> setup : gates.on_named_non_default_branch.exit_code: 0
-    branch_check --> setup : gates.on_named_non_default_branch.exit_code: 1, branch_status: override
-    branch_check --> bail : gates.on_named_non_default_branch.exit_code: 1, branch_status: blocked
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 0
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 1
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 2
     bail --> done_cancelled : bail_ack: cancel
+    branch_check --> setup : gates.on_named_non_default_branch.exit_code: 0
+    branch_check --> setup : branch_status: override, gates.on_named_non_default_branch.exit_code: 1
+    branch_check --> bail : branch_status: blocked, gates.on_named_non_default_branch.exit_code: 1
     chain_proposal --> hop_brief : author_decision: proceed
     chain_proposal --> discovery : author_decision: adjust
     chain_proposal --> bail : author_decision: bail
@@ -69,6 +69,9 @@ stateDiagram-v2
     done_re_evaluation --> [*]
     note left of bail
         gate: child_intermediate_present
+    end note
+    note left of branch_check
+        gate: on_named_non_default_branch
     end note
     note left of exit_abandonment
         gate: forced_artifact_present
