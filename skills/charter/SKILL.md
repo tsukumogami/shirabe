@@ -1,16 +1,20 @@
 ---
 name: charter
 description: >-
-  Parent skill for the strategic chain. Walks an author through
-  VISION → STRATEGY → ROADMAP as a single conversation, holding state
-  across child boundaries and producing a durable STRATEGY plus a
-  working ROADMAP. Use when an author needs strategic framing decided in one
-  sitting rather than reached for one child skill at a time. Triggers
-  on "start a strategic conversation about X", "open a charter for
-  Y", "I need to think through the bet on Z", or direct
-  `/charter <topic>` invocations. Do NOT use when the author already
-  knows which artifact altitude they want (reach for `/vision`,
-  `/strategy`, or `/roadmap` directly).
+  Work out whether a body of work is worth doing and what order it happens in,
+  ending with the bet written down and a sequenced set of features under it:
+  why this should exist, what we are actually betting on, and what gets built
+  first. Use it when the question is bigger than one feature and nothing above
+  it is written down — "should we build a plugin system at all?", "we have
+  five things we could do next quarter, which ones and in what order?",
+  "what's our story for the next year on X", "I need to pitch this to the
+  team", or a request for a rollout order where nobody has said why the work
+  matters, which otherwise produces a sequence with no bet behind it. Do NOT
+  use it for one feature whose requirements need working out; that is
+  `/scope`. `/vision`, `/strategy`, and `/roadmap` each run alone when you
+  want only the thesis, only the bet, or only the sequence — but reaching for
+  one of them because a conversation "sounds strategic" usually lands you here
+  instead.
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
@@ -70,9 +74,9 @@ Upstream Flag below); the input modes classify what remains.
 
 1. **Empty** — surface a cold-start prompt asking the author what
    strategic conversation they want to have. The cold-start prompt
-   names the three trigger phrases from CLAUDE.md ("start a strategic
-   conversation about X", "open a charter for Y", "I need to think
-   through the bet on Z") and asks the author to re-invoke
+   says what reaches this entry point, in the terms CLAUDE.md uses —
+   a question bigger than one feature, with nothing above it written
+   down — and asks the author to re-invoke
    `/charter <topic-slug>` with a slug that matches the topic-slug
    regex. Phase 0 then stops; there is no auto-retry loop.
 2. **Non-empty `$ARGUMENTS`** — treated as a freeform topic string

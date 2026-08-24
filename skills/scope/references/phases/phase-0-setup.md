@@ -50,9 +50,10 @@ last occurrence would hide which upstream the chain consumed.
 ## Cold-Start Path
 
 When `$ARGUMENTS` is empty after flag removal, Phase 0 surfaces a
-cold-start prompt naming the three trigger phrases from CLAUDE.md
-("specify a feature called X", "scope feature Y", "walk me through
-specifying Z") and asks the author to re-invoke
+cold-start prompt saying what reaches this entry point, in the terms
+CLAUDE.md uses — a feature to be built, added, or redesigned whose
+requirements are not already written down — and asks the author to
+re-invoke
 `/scope <topic-slug>` with a slug that matches the topic-slug
 regex. Phase 0 then stops; there is no auto-derivation of a slug
 from prior context and no looping retry. A run whose only content

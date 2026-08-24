@@ -90,23 +90,29 @@ Reach for the one whose altitude matches your conversation:
   should exist — thesis, audience, value proposition, org fit. Use
   when defining or revising a project's long-term identity.
 - **STRATEGY** (medium-term defensibility, quarters to a year or
-  two). Operationalizes a piece of an upstream VISION. Captures the
-  falsifiable bet, the Building Blocks decomposition, coordination
-  dependencies, and per-direction invalidation conditions. Use when
-  the work needs medium-term framing without re-justifying the
-  long-term thesis (VISION) and isn't ready for sequenced feature
-  decomposition (ROADMAP).
+  two). Operationalizes a piece of an upstream VISION. Captures what
+  we are betting on, the pieces that have to land for the bet to
+  hold, who else has to move, and what would say it was the wrong
+  call. Use when the work needs medium-term framing without
+  re-justifying the long-term thesis (VISION) and isn't ready for
+  sequenced feature decomposition (ROADMAP).
 - **ROADMAP** (sequenced features). Lists what gets built and in
-  what order, with dependencies between features.
+  what order, with dependencies between features, and stands as the
+  place anyone reads how far along the work is. One feature is
+  enough; there is no two-feature floor.
 - **BRIEF** (feature framing). Captures a single feature's problem,
   outcome, user journeys, and scope boundary before requirements
-  exist. Use when a feature is named but its framing hasn't been
-  written down; reach for a PRD once the framing is settled and you
-  need to capture requirements.
+  exist. Use when a feature is named and its framing has not been
+  written down anywhere durable — including when an issue or a
+  conversation already states the problem, since that source is
+  ephemeral and the BRIEF is the record. Reach for a PRD once the
+  framing is settled and you need to capture requirements.
 - **PRD** (requirements). Captures WHAT a feature does and WHY,
   user-facing.
 - **DESIGN** (architecture). Captures HOW a feature is built — the
-  technical approach, trade-offs, components.
+  technical approach, trade-offs, components. Use when the
+  requirements are already settled; a feature that still has to be
+  worked out from scratch enters at `/scope`.
 - **PLAN** (execution). Decomposes a design into atomic
   implementable issues with a dependency graph.
 
@@ -142,16 +148,20 @@ the one the chain is named for. Use it when the conversation needs
 strategic framing decided in one sitting rather than reached for
 child-skill at a time.
 
-Reach for `/charter` when an author says any of:
-
-- "start a strategic conversation about X"
-- "open a charter for Y"
-- "I need to think through the bet on Z"
+Reach for `/charter` when the question in front of the author is
+bigger than one feature and nothing above it is written down:
+whether a body of work is worth doing at all, which of several
+candidates come first and in what order, or what the bet behind a
+quarter's work actually is. A request for a rollout order where
+nobody has said why the work matters lands here too — sequencing
+on its own produces an order with no bet behind it.
 
 Direct invocation is `/charter <topic-slug>` (the topic slug
 matches the pattern `^[a-z0-9-]+$`). The child skills `/vision`,
-`/strategy`, and `/roadmap` remain directly invocable on their own
-for authors who already know which altitude they want.
+`/strategy`, and `/roadmap` remain directly invocable for an author
+who wants only the thesis, only the bet, or only the sequence — but
+reaching for one of them because a conversation sounds strategic
+usually lands back here.
 
 ## Tactical Chain Entry: /scope
 
@@ -162,11 +172,12 @@ a PLAN as its terminal artifact. Use it when the conversation
 needs feature scope decided in one sitting rather than reached
 for child-skill at a time.
 
-Reach for `/scope` when an author says any of:
-
-- "specify a feature called X"
-- "scope feature Y"
-- "walk me through specifying Z"
+Reach for `/scope` whenever a feature has to be built, added, or
+redesigned and its requirements are not already written down —
+including when nobody uses the word "scope", and including a
+request for a single document, since the chain decides per hop
+which documents survive. Deciding a feature by starting to code it
+is the failure this entry point exists to prevent.
 
 Direct invocation is `/scope <topic-slug>` (the topic slug
 matches the pattern `^[a-z0-9-]+$`). The child skills `/brief`,

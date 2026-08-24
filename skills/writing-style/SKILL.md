@@ -1,13 +1,18 @@
 ---
 name: writing-style
 description: >-
-  Revise prose to remove AI tells and produce natural, direct writing. Use
-  this skill whenever: (1) the user asks to improve, humanize, clean up, or
-  revise a draft; (2) prose output is about to be produced — PR descriptions,
-  issue bodies, README sections, documentation, explanations, or summaries;
-  (3) the user mentions AI-sounding writing, robotic phrasing, or wants
-  writing to sound more human. Apply proactively when writing prose; don't
-  wait for an explicit invocation.
+  Revise prose so it reads as though a person wrote it, without the tells that
+  give an AI draft away. Use it whenever prose is about to leave your hands,
+  not only when someone asks for it: PR descriptions and PR review comments,
+  issue bodies, commit message bodies, README and documentation sections,
+  design-doc prose, and the summary or explanation you are about to write back
+  to the user. Also use it when someone asks to improve, humanize, clean up,
+  tighten, or revise a draft, or says something sounds robotic or AI-written.
+  Apply it proactively — the drafts that need it most are the ones nobody
+  thought to ask about, and a repo can declare its own terms of art that
+  generic advice would strip out. It is about how the prose reads, not what it
+  says: it does not decide a document's content or supply what the document is
+  missing.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 

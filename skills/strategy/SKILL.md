@@ -1,20 +1,19 @@
 ---
 name: strategy
 description: >-
-  Structured workflow for creating STRATEGY documents — medium-term
-  defensibility bets that operationalize a piece of an upstream VISION
-  without re-justifying the long-term thesis. Use when the work in
-  front of the team needs a falsifiable bet, building-block
-  decomposition, coordination dependencies, and per-direction
-  invalidation conditions — but doesn't pivot the upstream VISION and
-  isn't ready to commit to a ROADMAP's sequenced feature list.
-  Triggers on "draft a strategy for X", "what's our bet on Y",
-  "operationalize the VISION", "we need a strategic doc between vision
-  and roadmap", or "STRATEGY-<name>". Do NOT use for long-term thesis
-  articulation (/vision), feature sequencing (/roadmap), feature
-  requirements (/prd), or open-ended exploration (/explore). Drives a
-  six-phase workflow: conversational scoping, structured drafting,
-  Building Blocks decomposition, three-reviewer jury, finalization.
+  Work out what you are betting on over the next few quarters and what would
+  prove it wrong: the angle, the pieces that have to land for it to hold, who
+  else has to move, and the signal that would say it was the wrong call. Use
+  it when the direction matters more than the feature list — "what's our
+  angle here?", "what are we actually betting on?", "what has to be true for
+  this to work?", "how would we know if this was the wrong call?", "how do we
+  avoid getting commoditized?", "why would this still matter in a year?" —
+  and also when you are holding a settled feature spec and the real question
+  is the bet behind it. Left unwritten, the bet lives in one person's head and
+  nothing can falsify it. Do NOT use it to argue why the project should exist
+  at all (`/vision`), to order the features that carry the bet (`/roadmap`),
+  or to pick between options already named (`/decision`). When more than one
+  of those is open at once, `/charter` runs them together.
 argument-hint: '<project or org topic, optional VISION or PRD path, or STRATEGY path + lifecycle verb> [--upstream <path>]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
