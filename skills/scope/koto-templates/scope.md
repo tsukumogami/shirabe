@@ -38,6 +38,24 @@ variables:
       dots and slashes, so the slug is validated at Phase 0, re-validated on
       resume, and re-asserted by the predicate before it composes any path.
     required: true
+  PLUGIN_ROOT:
+    description: >-
+      Absolute path to the shirabe plugin root, passed at koto init as
+      --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} where the agent's own shell
+      expands it once. Every gate below invokes hop-complete.sh, which ships in
+      the plugin, and koto runs a gate command with the working directory of the
+      `koto next` process -- for /scope that is the repository being scoped, not
+      this checkout. A repo-relative path therefore resolves only when /scope
+      runs against shirabe itself; anywhere else the shell exits 127, and koto
+      reports a failed command gate as an exit code with the command's own
+      output discarded, so the run holds at its first hop with no diagnostic.
+      Declared as a template variable rather than written as a shell-style
+      ${CLAUDE_PLUGIN_ROOT} because koto resolves only {{KEY}} references: the
+      shell form reaches sh -c untouched and expands to the empty string, which
+      scripts/check-template-interpolation.sh rejects for exactly that reason.
+      settled_branch_record in skills/execute/koto-templates/execute.md carries
+      the same variable for the same reason.
+    required: true
 
 states:
   branch_check:
@@ -168,7 +186,7 @@ states:
       # not done" with "I cannot tell whether it is done".
       brief_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -197,7 +215,7 @@ states:
     gates:
       prd_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -231,7 +249,7 @@ states:
       # unreachable.
       design_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -260,7 +278,7 @@ states:
     gates:
       plan_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -292,10 +310,10 @@ states:
       # design_complete does.
       plan_present:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
       design_present:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
     accepts:
       verdict:
         type: enum
@@ -443,7 +461,7 @@ states:
       # be credited for walking it.
       chain_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
     accepts:
       exit_artifacts:
         type: string
@@ -487,7 +505,7 @@ states:
       # refusal is this state's whole reason to exist, so it carries the gate.
       chain_complete:
         type: command
-        command: 'skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
     accepts:
       next_move:
         type: enum
@@ -1106,7 +1124,7 @@ predicate once per hop yourself to get that:
 
 ```bash
 for HOP in brief prd design plan; do
-  skills/scope/scripts/hop-complete.sh --hop "$HOP" --topic "<topic>"
+  {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop "$HOP" --topic "<topic>"
 done
 ```
 

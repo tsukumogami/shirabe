@@ -40,6 +40,22 @@ for bin in koto shirabe; do
 done
 [ -f "$TEMPLATE" ] || { echo "FAIL: no template at $TEMPLATE" >&2; exit 1; }
 
+# Every session below passes this checkout as PLUGIN_ROOT, and koto validates a
+# --var value against ^[a-zA-Z0-9._/:@ \-]*$ before it stores anything. A
+# checkout under a path holding a character outside that set -- a `+`, a `~`, a
+# comma -- is refused at `koto init`, and every assertion downstream then reads
+# `state=` for a reason that has nothing to do with the substrate. Say so here
+# instead, and fail rather than skip: this is the environment being wrong, not
+# the suite being inapplicable.
+case "$REPO" in
+    *[!a-zA-Z0-9._/:@\ -]*)
+        echo "FAIL: koto rejects a --var value outside ^[a-zA-Z0-9._/:@ \\-]*\$," >&2
+        echo "      and this checkout's path carries a character outside it:" >&2
+        echo "      $REPO" >&2
+        echo "      Move or symlink the checkout somewhere the pattern admits." >&2
+        exit 1 ;;
+esac
+
 PASS=0
 FAIL=0
 SANDBOX="$(mktemp -d)"
@@ -60,12 +76,27 @@ k() {
     HOME="$home" koto "$@" 2>&1
 }
 
-# new_run <tag> -- fresh store plus fresh session, echoes "<home> <name>".
+# new_run <tag> <tree> -- fresh store plus fresh session, echoes "<home> <name>".
+#
+# PLUGIN_ROOT is this checkout, which is where hop-complete.sh lives. It is what
+# every gate command resolves the script through, and it is the whole reason a
+# walk can run from a fixture tree carrying no skills/ of its own.
+#
+# The init runs INSIDE the fixture tree. koto binds a session to the directory it
+# was initialized in and refuses a later `koto next` from anywhere else with
+# `execution_anchor_mismatch`, so initializing here and ticking there leaves every
+# assertion reading `state=branch_check` with the reason buried in a discarded
+# error. It is also what a real run does: /scope opens its session in the
+# repository being scoped.
 new_run() {
-    local tag="$1"
+    local tag="$1" tree="$2"
     local home="$SANDBOX/$tag"
     mkdir -p "$home"
-    k "$home" init "$PFX-$tag" --template "$TEMPLATE" --var TOPIC="$tag" >/dev/null 2>&1
+    (
+        cd "$tree" || exit 1
+        HOME="$home" koto init "$PFX-$tag" --template "$TEMPLATE" \
+            --var TOPIC="$tag" --var PLUGIN_ROOT="$REPO" >/dev/null 2>&1
+    )
     printf '%s %s-%s' "$home" "$PFX" "$tag"
 }
 
@@ -83,19 +114,35 @@ except ValueError:
 print(d.get("current_state", ""))' 2>/dev/null
 }
 
-# The gate commands name hop-complete.sh by a repository-relative path and pass
-# no --root, so they resolve against the process working directory. A fixture
-# tree therefore has to BE a working directory that carries both the script at
-# that relative path and its own docs/. Running the walk from anywhere else
-# makes every gate exit 127 -- which the graph treats as neither complete nor
-# incomplete, so the run holds position and the test sees an empty state rather
-# than a refusal. That is correct behaviour and a confusing failure to read,
-# which is why the layout is built explicitly here.
+# A fixture tree carries only its own docs/. It deliberately does NOT carry a
+# copy of hop-complete.sh, and that absence is an assertion rather than an
+# omission.
+#
+# The gate commands pass no --root, so the predicate reads the docs/ tree of the
+# process working directory -- which is what the walk cd's into, and which is
+# right. What the gates must NOT do is resolve the script itself that way: koto
+# runs a gate command with the working directory of the `koto next` process, so
+# for a real /scope run that is the repository being scoped rather than this
+# checkout. The gates therefore name the script through {{PLUGIN_ROOT}}, bound
+# at koto init to $REPO in new_run.
+#
+# So every walk below runs from a temporary directory that has no skills/ in it
+# at all. If a gate ever goes back to a repo-relative path it exits 127 there --
+# which the graph treats as neither complete nor incomplete, so the run holds
+# position and the assertions see the run stuck at its first hop rather than a
+# refusal. That is the failure this layout is built to produce.
+#
+# The tree is a git repository on a named non-default branch because
+# `branch_check`, the template's initial state, gates on exactly that: outside a
+# repository `git symbolic-ref` prints nothing, the gate fails, and the walk never
+# reaches the first hop. A bare `mkdir` here is a suite that asserts nothing.
 make_tree() {
     local root="$1"
-    mkdir -p "$root/skills/scope/scripts"
-    cp "$HERE/hop-complete.sh" "$root/skills/scope/scripts/hop-complete.sh"
-    chmod +x "$root/skills/scope/scripts/hop-complete.sh"
+    mkdir -p "$root/docs"
+    git -C "$root" init --quiet
+    git -C "$root" -c user.email=t@example.invalid -c user.name=t \
+        commit --quiet --allow-empty -m "fixture"
+    git -C "$root" checkout --quiet -b scope-fixture
 }
 
 # advance <home> <name> <json> -- submit evidence, echo the response.
@@ -257,10 +304,10 @@ echo "== the claim a run cannot make good on by asserting it =="
 # gate on the spot -- a stronger property, and one that keeps the run from ever
 # getting near the exit. What the exit gate exists for is the run that skips
 # honestly and then claims a full walk anyway.
-read -r H N <<<"$(new_run incident)"
 seed_plan_only "$SANDBOX/incident-tree" incident
+read -r H N <<<"$(new_run incident "$SANDBOX/incident-tree")"
 drive "$H" "$N" "$SANDBOX/incident-tree" skipped incident
-advance "$H" "$N" '{"exit":"full-run"}' >/dev/null
+(cd "$SANDBOX/incident-tree" && advance "$H" "$N" '{"exit":"full-run"}') >/dev/null
 resp=$(cd "$SANDBOX/incident-tree" && advance "$H" "$N" \
     '{"exit_artifacts":"docs/plans/PLAN-incident.md: Active","plan_execution_mode":"single-pr"}')
 st=$(state_of "$H" "$N")
@@ -290,8 +337,8 @@ esac
 echo
 echo "== the two ways a run legitimately reaches the terminal =="
 
-read -r H N <<<"$(new_run allhops)"
 seed_every_hop "$SANDBOX/allhops-tree" allhops
+read -r H N <<<"$(new_run allhops "$SANDBOX/allhops-tree")"
 drive "$H" "$N" "$SANDBOX/allhops-tree" landed allhops
 st=$(state_of "$H" "$N")
 case "$st" in
@@ -299,8 +346,8 @@ case "$st" in
     *) bad "every hop's artifact present did not reach the full-run path" "state=$st" ;;
 esac
 
-read -r H N <<<"$(new_run folded)"
 seed_recorded_fold "$SANDBOX/folded-tree" folded
+read -r H N <<<"$(new_run folded "$SANDBOX/folded-tree")"
 drive "$H" "$N" "$SANDBOX/folded-tree" landed folded
 st=$(state_of "$H" "$N")
 case "$st" in
@@ -311,10 +358,10 @@ esac
 echo
 echo "== exit evidence is checked against its own path =="
 
-read -r H N <<<"$(new_run missingfield)"
 seed_every_hop "$SANDBOX/missingfield-tree" missingfield
+read -r H N <<<"$(new_run missingfield "$SANDBOX/missingfield-tree")"
 walk_to_finalize "$H" "$N" landed "$SANDBOX/missingfield-tree"
-advance "$H" "$N" '{"exit":"full-run"}' >/dev/null
+(cd "$SANDBOX/missingfield-tree" && advance "$H" "$N" '{"exit":"full-run"}') >/dev/null
 resp=$(cd "$SANDBOX/missingfield-tree" && advance "$H" "$N" '{"exit_artifacts":"docs/plans/PLAN-missingfield.md: Active"}')
 case "$resp" in
     *error*|*required*|*invalid*)
@@ -331,10 +378,10 @@ esac
 # A field belonging to exactly one OTHER exit path must not be accepted here.
 # Each exit path's required fields live on its own state, and that separation is
 # what stops one path's evidence satisfying another's.
-read -r H N <<<"$(new_run foreignfield)"
 seed_every_hop "$SANDBOX/foreignfield-tree" foreignfield
+read -r H N <<<"$(new_run foreignfield "$SANDBOX/foreignfield-tree")"
 walk_to_finalize "$H" "$N" landed "$SANDBOX/foreignfield-tree"
-advance "$H" "$N" '{"exit":"full-run"}' >/dev/null
+(cd "$SANDBOX/foreignfield-tree" && advance "$H" "$N" '{"exit":"full-run"}') >/dev/null
 resp=$(cd "$SANDBOX/foreignfield-tree" && advance "$H" "$N" \
     '{"exit_artifacts":"x","plan_execution_mode":"single-pr","boundary":"prd"}')
 case "$resp" in
@@ -347,7 +394,9 @@ esac
 echo
 echo "== where the reduction argument is delivered =="
 
-read -r H N <<<"$(new_run payload)"
+seed_every_hop "$SANDBOX/payload-tree" payload
+read -r H N <<<"$(new_run payload "$SANDBOX/payload-tree")"
+cd "$SANDBOX/payload-tree" || exit 1
 setup_directive=$(k "$H" next "$N")
 case "$setup_directive" in
     *"Sparing the reader"*|*"reads as ceremony"*)
@@ -361,6 +410,7 @@ advance "$H" "$N" '{"discovery_result":"proposed"}' >/dev/null
 advance "$H" "$N" '{"author_decision":"proceed"}'   >/dev/null
 advance "$H" "$N" '{"outcome":"landed"}'            >/dev/null
 fold_directive=$(k "$H" next "$N" --full)
+cd "$REPO" || exit 1
 case "$fold_directive" in
     *"Sparing the reader"*)
         ok "the reduction argument is delivered at the fold state" ;;
