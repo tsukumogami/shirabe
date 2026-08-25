@@ -108,21 +108,25 @@ it. On the failing path the response carries the gate's exit code and the full
 `expects` schema. Keep the `accepts` fields optional -- that is what keeps the
 happy path free of them.
 
-## Three things measured against koto 0.12.1 that the guide does not say
+## Three things the guide does not say
 
 Each of these cost a debugging round when the first conversions were written.
+All three were measured against koto 0.12.1 and re-checked against 0.12.2; the
+first has since been fixed upstream and the other two still hold.
 
-**`{{SESSION_NAME}}` is not substituted inside a `default_action` command.**
-Filed upstream as [koto#220](https://github.com/tsukumogami/koto/issues/220); the
-workaround below is what shirabe does until it lands. A
-declared variable in the same string resolves; `{{SESSION_NAME}}` reaches
-`sh -c` as the literal token, so a command that passes it to `koto context add`
-writes into a session named `{{SESSION_NAME}}` and the state's own gate then
-reports the real session's key as absent -- a failure that looks like a broken
-gate rather than a broken command. Prose elsewhere in a template uses
-`{{SESSION_NAME}}` safely because the agent, not koto, resolves it there.
+**`{{SESSION_NAME}}` was not substituted inside a `default_action` command
+through koto 0.12.1.** Filed upstream as
+[koto#220](https://github.com/tsukumogami/koto/issues/220), which koto 0.12.2
+closed with koto#223. On 0.12.1 and earlier a declared variable in the same
+string resolved while `{{SESSION_NAME}}` reached `sh -c` as the literal token,
+so a command that passed it to `koto context add` wrote into a session named
+`{{SESSION_NAME}}` and the state's own gate then reported the real session's key
+as absent -- a failure that looks like a broken gate rather than a broken
+command.
 
-Rebuild the name from a declared variable instead. `/execute` passes
+Rebuild the name from a declared variable anyway. A template runs under whatever
+koto the user has installed and cannot declare a minimum version, so on an older
+koto the literal token is still what a command would get. `/execute` passes
 `"execute-{{PLAN_SLUG}}"`, which is exactly the name its own `koto init` uses,
 and which the compiler checks. `$KOTO_TICK_SESSION` is also set in the command's
 environment and holds the right value, but the interpolation linter rejects any

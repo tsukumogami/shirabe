@@ -104,14 +104,21 @@ states:
     # default branch outright, which the old block could not.
     default_action:
       # The session argument is rebuilt from {{PLAN_SLUG}} rather than written
-      # as {{SESSION_NAME}}, and that is not a style choice: koto does NOT
-      # substitute {{SESSION_NAME}} inside a default_action command. Measured
-      # against koto 0.12.1 -- a declared variable in the same string resolves
-      # and {{SESSION_NAME}} reaches sh -c as the literal seven-character
-      # token, so the script writes its key into a session named
-      # "{{SESSION_NAME}}" and the gate on this state then reports the real
-      # session's key as absent. Prose elsewhere in this template uses
-      # {{SESSION_NAME}} safely because the agent, not koto, resolves it there.
+      # as {{SESSION_NAME}}, and that is not a style choice. Through koto
+      # 0.12.1 a default_action command was the one position where
+      # {{SESSION_NAME}} did not resolve: a declared variable in the same
+      # string resolved, and {{SESSION_NAME}} reached sh -c as the literal
+      # seven-character token, so the script wrote its key into a session named
+      # "{{SESSION_NAME}}" and the gate on this state then reported the real
+      # session's key as absent. koto 0.12.2 fixed that (koto#223, closing
+      # koto#220), so on 0.12.2 or later either form works.
+      #
+      # The reconstruction stays anyway. This template runs under whatever koto
+      # the user has installed, and nothing in a template can require a minimum
+      # version, so on 0.12.1 or earlier {{SESSION_NAME}} would still reach the
+      # shell literally and misrecord the branch in a way that presents as a
+      # gate that will not pass. Keeping the rebuilt name is what makes the
+      # state correct on every koto that can run it.
       #
       # `execute-<plan-slug>` is the session name /execute's own SKILL.md
       # initializes, and PLAN_SLUG is the same slug it derives it from, so this
