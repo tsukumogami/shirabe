@@ -111,10 +111,13 @@ esac
 # repo. That is also what makes the state's action see the right branch.
 #
 # The session is named `execute-<slug>` and PLAN_SLUG is that same slug, because
-# the state's action rebuilds the session name as `execute-{{PLAN_SLUG}}` --
-# koto does not substitute {{SESSION_NAME}} inside a default_action command. A
-# harness that named its sessions freely would test a session the action never
-# writes to, which is exactly the failure that finding produced.
+# the state's action rebuilds the session name as `execute-{{PLAN_SLUG}}`. That
+# reconstruction dates from koto 0.12.1, where {{SESSION_NAME}} did not resolve
+# inside a default_action command; koto 0.12.2 fixed that (koto#223, closing
+# koto#220) but the template keeps the rebuilt name so it still works on older
+# koto. Either way the action writes to `execute-<slug>`, so a harness that
+# named its sessions freely would test a session the action never writes to --
+# exactly the failure that finding produced.
 new_session() {
     (cd "${2:-$REPO}" && koto init "execute-$1" --template "$TEMPLATE" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
