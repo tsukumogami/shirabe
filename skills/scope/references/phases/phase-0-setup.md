@@ -326,7 +326,8 @@ first tick:
 ```bash
 koto init scope-<topic> \
   --template ${CLAUDE_PLUGIN_ROOT}/skills/scope/koto-templates/scope.md \
-  --var TOPIC=<topic>
+  --var TOPIC=<topic> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 
 SESSION_DIR=$(koto session dir scope-<topic>)
 printf 'session=%s\nworktree=%s\nstore=%s\n' \
@@ -341,6 +342,19 @@ runs itself. koto resolves `{{KEY}}` references and validates them
 against the template's `variables:` block at compile time, so a
 shell-style `${TOPIC}` in a gate command would reach `sh -c`
 untouched and expand to nothing.
+
+`PLUGIN_ROOT` is passed for the same reason, one step further on.
+Every hop gate invokes `hop-complete.sh`, which ships in the plugin,
+and koto runs a gate command with the working directory of the `koto
+next` process — the repository being scoped, not the shirabe
+checkout. A repo-relative path there resolves only when `/scope` is
+run against shirabe itself; anywhere else the shell exits 127, and
+koto reports a failed command gate as an exit code with the
+command's own output discarded, so the run holds at `hop_brief` with
+no diagnostic. The shell expands `${CLAUDE_PLUGIN_ROOT}` here, once,
+because koto resolves nothing but `{{KEY}}`. `/execute`'s
+`settled_branch_record` carries the same variable for the same
+reason.
 
 The origin record is three keyed lines, written with `printf` and
 piped rather than passed as an argument: `context add` stores what

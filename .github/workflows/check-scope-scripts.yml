@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'skills/scope/scripts/**'
+      # test-scope-substrate drives real sessions against the shipped template,
+      # so a change to the template is a change to what that job asserts. The
+      # filter omitted it once and #340 added the branch_check state without the
+      # suite ever running: the walk then stopped at the initial state, and the
+      # breakage surfaced only on the next PR that happened to touch a script.
+      - 'skills/scope/koto-templates/**'
       - 'crates/shirabe-validate/src/formats.rs'
       # hop-complete.sh reimplements the validator's frontmatter splitter, and
       # its notion of a clean run depends on how --check selection drives the
