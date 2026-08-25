@@ -418,6 +418,45 @@ commit_all() {
     git commit -m "test fixtures" > /dev/null 2>&1
 }
 
+# Commit the fixtures and give the branch an upstream.
+#
+# setup_test_repo creates a file-based bare origin but never sets a tracking
+# branch, and the cascade's `--push` path runs a bare `git push`. Without an
+# upstream that exits 128, `set -e` kills run-cascade.sh before emit_result, and
+# the scenario captures an empty string rather than a report. HEAD rather than
+# `main` because setup_test_repo's fallback path can leave the branch on
+# `master`.
+commit_and_push_all() {
+    commit_all
+    git push -u origin HEAD > /dev/null 2>&1
+}
+
+# A stub that logs every shirabe argv line and then execs the real binary.
+#
+# The two existing stub variants cannot host an argv assertion on a run that
+# reaches the post-cascade verification: setup_shirabe_stub pins the validate
+# exit code from a file, and the scenario-9b/9c variant exits 0 on any
+# --lifecycle-chain call, which short-circuits the cascade at the pre-probe. This
+# one observes without deciding, so the run proceeds normally and both probe
+# invocations land in the log.
+setup_passthrough_logging_stub() {
+    local repo_dir="$1"
+    local stub="$repo_dir/.cascade-stub/shirabe"
+    mkdir -p "$(dirname "$stub")"
+
+    cat > "$stub" <<EOF
+#!/usr/bin/env bash
+set -uo pipefail
+REAL_BIN="$SHIRABE_BIN_PATH"
+STUB_DIR="\$(dirname "\$0")"
+printf '%s\n' "\$*" >> "\$STUB_DIR/argv.log"
+exec "\$REAL_BIN" "\$@"
+EOF
+    chmod +x "$stub"
+    SHIRABE_STUB="$stub"
+    : > "$repo_dir/.cascade-stub/argv.log"
+}
+
 # ── Scenario 1: DESIGN → ROADMAP (short chain, no PRD) ───────────────────────
 # ── PLAN → ROADMAP with no DESIGN (the chain folded everything away) ─────────
 scenario_plan_roadmap_no_design() {
@@ -1493,6 +1532,447 @@ EOF
     cd "$SCRIPT_DIR"
 }
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# --push scenarios: the post-cascade verification
+#
+# Everything above this line is a dry run. The post-cascade verification is
+# gated on PUSH == true with a non-empty STAGED_FILES, so before these scenarios
+# existed not one line of it had ever been executed by the suite -- which is why
+# a deterministic defect in it survived ten weeks and three filings.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Post-verify: surviving DESIGN is the anchor ───────────────────────────────
+scenario_push_anchor_design() {
+    local scenario="Scenario 16: --push post-verify anchors on the surviving DESIGN"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target == "docs/designs/current/DESIGN-cascade-test-short.md"' \
+        "post-verify target is the DESIGN's post-move path" || ok=false
+
+    # The defect this suite exists to catch: the old code seeded on the deleted
+    # PLAN and recorded the validator's L05 text.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.detail != null and (.detail | test("not found or not resolvable")))] | length == 0' \
+        "no step reports a missing seed path" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: L06 suppression detail survives the ok arm ───────────────────
+scenario_push_anchor_design_l06() {
+    local scenario="Scenario 16b: --push post-verify preserves the L06 detail"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    # No scenario has ever reached the post-verify block, so the two
+    # allow_untracked_acs scenarios do not guard the L06 detail composition
+    # there. This one does.
+    local output
+    output=$(WORK_ON_ALLOW_UNTRACKED_ACS=1 run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].detail | test("l06_suppressed=1")' \
+        "post-verify detail carries the l06_suppressed marker" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: nothing survived, so the chain folded ────────────────────────
+scenario_push_no_survivor() {
+    local scenario="Scenario 17: --push post-verify skips when no document survived"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # A PLAN whose only upstream is a ROADMAP that the deletion branch removes.
+    # No issue URLs, so all_closed stays true and check_issue_closed -- and gh
+    # with it -- is never reached. The bash-floor image ships no gh.
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-test.md" \
+        "PLAN-cascade-deletion.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-deletion.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-deletion.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "skipped")] | length == 1' \
+        "lifecycle_post_verify skipped" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].detail | test("no recorded chain document survived to verify against")' \
+        "post-verify detail names the fold" || ok=false
+
+    # The target must be a JSON null, not the string "null". `.target == "null"`
+    # is the matcher that would pass against the pre---argjson build, so the
+    # type check is what makes this assertion discriminate.
+    assert_json "$scenario" "$output" \
+        '([.steps[] | select(.action == "lifecycle_post_verify")][0].target | type) == "null"' \
+        "post-verify target is a JSON null" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target != "null"' \
+        "post-verify target is not the STRING null" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: no DESIGN, so a tactical PRD is the anchor ───────────────────
+scenario_push_anchor_prd() {
+    local scenario="Scenario 18: --push post-verify anchors on the PRD when no DESIGN survives"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # BRIEF at the head (no upstream), then PRD, then PLAN. No ROADMAP and no
+    # DESIGN: this is the chain shape a DESIGN-only anchor implementation gets
+    # wrong, reporting "no document survived" while a PRD and BRIEF stand.
+    write_brief "$repo/docs/briefs/BRIEF-cascade-test.md" ""
+    write_prd "$repo/docs/prds/PRD-cascade-test.md" \
+        "docs/briefs/BRIEF-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-noda.md" \
+        "docs/prds/PRD-cascade-test.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-noda.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify ok, not skipped" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target == "docs/prds/PRD-cascade-test.md"' \
+        "post-verify target is the PRD, per the precedence order" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: a surviving ROADMAP is still an anchor ───────────────────────
+scenario_push_anchor_roadmap() {
+    local scenario="Scenario 19: --push post-verify anchors on a surviving ROADMAP"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # write_roadmap leaves Feature 2 at Planned, so the deletion branch never
+    # fires and the ROADMAP is rewritten and staged rather than removed. The
+    # PLAN's only upstream is that ROADMAP: no tactical member exists, so the
+    # last rung of the precedence order is the only one that can answer.
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+
+    local ok=true
+
+    # An anchor filter that keeps BRIEF-/PRD-/DESIGN- and drops ROADMAP- passes
+    # every other scenario in this file and fails here.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify ok, not skipped" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target == "docs/roadmaps/ROADMAP-cascade-test.md"' \
+        "post-verify target is the surviving ROADMAP" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: tactical members outrank a surviving ROADMAP ─────────────────
+scenario_push_anchor_order() {
+    local scenario="Scenario 20: --push post-verify prefers a tactical member over the ROADMAP"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # BRIEF and PRD survive alongside the ROADMAP. Seeding on the ROADMAP would
+    # pull in its other features' in-flight work; seeding on the PRD does not.
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_brief "$repo/docs/briefs/BRIEF-cascade-test.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_prd "$repo/docs/prds/PRD-cascade-test.md" \
+        "docs/briefs/BRIEF-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-full.md" \
+        "docs/prds/PRD-cascade-test.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-full.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target == "docs/prds/PRD-cascade-test.md"' \
+        "post-verify target is the PRD, not the ROADMAP" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].target != "docs/roadmaps/ROADMAP-cascade-test.md"' \
+        "post-verify did not anchor on the ROADMAP" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: a blocked DESIGN still fails the run ─────────────────────────
+scenario_push_blocked_design() {
+    local scenario="Scenario 21: --push post-verify fails a blocked DESIGN"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # Two single-pr PLANs naming one DESIGN. Cascading the first leaves the
+    # second still pointing at the DESIGN, so finalize-chain's retirement guard
+    # blocks the node: it comes back action transition_design with blocked true
+    # and no new_path, the script records the step as "ok" because it reads
+    # neither field, and the DESIGN stays at Planned in docs/designs/.
+    #
+    # This is the case the guard exists for, and the case a post-verify seeded
+    # on the deleted PLAN could never catch: the un-moved DESIGN survives, so an
+    # anchored check finds it at the wrong status.
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-sibling.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "failed")] | length == 1' \
+        "lifecycle_post_verify failed" || ok=false
+
+    # Pinned to the DESIGN-specific finding. This fixture also produces an L01
+    # for the sibling PLAN, so matching on "[L01]" alone would pass an
+    # implementation that noticed only the sibling.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].detail | test("DESIGN at status .Planned. \\(expected status .Current.")' \
+        "detail names the un-transitioned DESIGN" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].detail | test("not found or not resolvable") | not' \
+        "detail is not a missing-seed report" || ok=false
+
+    # Filesystem: the DESIGN really did not move.
+    if [[ -d "$repo/docs/designs/current" ]]; then
+        fail "$scenario: docs/designs/current/ exists but the DESIGN was blocked"
+        ok=false
+    fi
+    if ! grep -q "^status: Planned" "$repo/docs/designs/DESIGN-cascade-test-short.md" 2>/dev/null; then
+        fail "$scenario: blocked DESIGN is not still at status Planned"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: an earlier failure is not rescued by a clean check ───────────
+scenario_push_earlier_failure_not_rescued() {
+    local scenario="Scenario 22: --push earlier failure survives a passing post-verify"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # PLAN -> DESIGN -> a note with an unrecognized artifact prefix. The DESIGN
+    # transitions and stages, so the commit and the post-verify both run; the
+    # note comes back action "error" and sets ANY_FAILED. The post-verify then
+    # passes against the surviving DESIGN, and the run must still be partial.
+    #
+    # The error node has to sit ABOVE a node that staged successfully. A fixture
+    # whose failure empties STAGED_FILES never reaches the post-verify at all,
+    # and the assertion below would be vacuous.
+    mkdir -p "$repo/docs/notes"
+    cat > "$repo/docs/notes/NOTE-cascade-test.md" <<'NOTEEOF'
+---
+status: Active
+---
+
+# Note
+
+Not a chain artifact type.
+NOTEEOF
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/notes/NOTE-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+
+    local ok=true
+
+    # An implementation that clears ANY_FAILED on a passing post-verify -- the
+    # tempting "clear the false failure this fix is about" edit -- passes every
+    # other scenario in this file and fails here.
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status stays partial despite a clean post-verify" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify itself passed" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Post-verify: the pre-probe still seeds on the PLAN ────────────────────────
+scenario_push_probe_seeds() {
+    local scenario="Scenario 23: --push pre-probe seeds the PLAN, post-probe does not"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    setup_passthrough_logging_stub "$repo"
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+
+    run_cascade "docs/plans/PLAN-cascade-test-short.md" --push > /dev/null
+
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+    local log="$repo/.cascade-stub/argv.log"
+
+    # Two --lifecycle-chain calls: the pre-probe and the post-verify, in order.
+    local chain_calls
+    chain_calls=$(grep -c -- "--lifecycle-chain" "$log" 2>/dev/null || echo 0)
+    if [[ "$chain_calls" -ne 2 ]]; then
+        fail "$scenario: expected 2 --lifecycle-chain calls, saw $chain_calls"
+        ok=false
+    else
+        local first second
+        first=$(grep -- "--lifecycle-chain" "$log" | sed -n '1p')
+        second=$(grep -- "--lifecycle-chain" "$log" | sed -n '2p')
+
+        case "$first" in
+            *docs/plans/PLAN-cascade-test-short.md*) ;;
+            *) fail "$scenario: pre-probe did not seed on the PLAN: $first"; ok=false ;;
+        esac
+
+        # A refactor that threads one anchor through both calls passes every
+        # other assertion in this file and fails this one.
+        case "$second" in
+            *docs/plans/PLAN-cascade-test-short.md*)
+                fail "$scenario: post-verify still seeds on the PLAN: $second"; ok=false ;;
+            *docs/designs/current/DESIGN-cascade-test-short.md*) ;;
+            *) fail "$scenario: post-verify seeded on an unexpected path: $second"; ok=false ;;
+        esac
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -1570,6 +2050,36 @@ cd "$ORIG_DIR"
 scenario_fail_open_note_surfaced
 
 scenario_plan_roadmap_no_design
+cd "$ORIG_DIR"
+
+# --push scenarios. Registration is manual: a scenario function without a call
+# line here is silently a no-op, which is worth remembering given that the
+# branch these exercise went eighteen scenarios without being reached at all.
+scenario_push_anchor_design
+cd "$ORIG_DIR"
+
+scenario_push_anchor_design_l06
+cd "$ORIG_DIR"
+
+scenario_push_no_survivor
+cd "$ORIG_DIR"
+
+scenario_push_anchor_prd
+cd "$ORIG_DIR"
+
+scenario_push_anchor_roadmap
+cd "$ORIG_DIR"
+
+scenario_push_anchor_order
+cd "$ORIG_DIR"
+
+scenario_push_blocked_design
+cd "$ORIG_DIR"
+
+scenario_push_earlier_failure_not_rescued
+cd "$ORIG_DIR"
+
+scenario_push_probe_seeds
 cd "$ORIG_DIR"
 
 echo ""
