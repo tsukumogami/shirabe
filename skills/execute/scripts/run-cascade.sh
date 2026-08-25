@@ -66,6 +66,7 @@ fi
 STEPS_JSON=""      # accumulates JSON step objects, comma-separated
 ANY_FAILED=false
 STAGED_FILES=()    # files staged for commit
+POST_VERIFY_ANCHOR=""   # the surviving document the post-cascade check seeds on
 CASCADE_DESIGN_PATH=""     # post-transition path to the DESIGN doc (from the report's new_path), used by handle_roadmap for the Downstream rewrite
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -261,8 +262,11 @@ lifecycle_findings_summary() {
 }
 
 # ── Inline utility: lifecycle_probe ──────────────────────────────────────────
-# Run the chain-targeted lifecycle check in ready posture against the cascade's
-# PLAN doc. Two modes:
+# Run the chain-targeted lifecycle check in ready posture against the seed the
+# caller supplies. The seed differs by mode and that is the whole point: `pre`
+# seeds on the PLAN, which is still on disk then, and `post` seeds on whatever
+# resolve_anchor returned, because by then the cascade has deleted the PLAN.
+# Two modes:
 #
 #   pre:  expects exit code non-zero (chain at single-pr-Active mid-PR;
 #         --mode=ready forces a failure naming the present PLAN at Active).
@@ -272,29 +276,86 @@ lifecycle_findings_summary() {
 #         no-op.
 #
 #   post: expects exit code 0 (cascade has finalized the chain). Returns 0
-#         on the expected clean pass; returns 1 on cascade-bug failure.
-#         On failure, the validator's findings are logged for diagnosis.
+#         on the expected clean pass; returns 1 when the chain did not reach
+#         its terminal state. On failure, the validator's findings are logged
+#         for diagnosis.
 #
 # The probe runs the validator in `--format json` and captures its combined
 # output so log_lifecycle_findings can surface the structured L-code findings
 # on an unexpected outcome. Control flow still follows the exit code only —
 # the JSON is consumed for diagnostic logging, never for branching.
 #
-# Usage: lifecycle_probe <pre|post>
+# Usage: lifecycle_probe <pre|post> <seed-path>
+# Both arguments are required. Under `set -u` a one-argument call dies at
+# `local seed="$2"` before emit_result runs, so the caller gets no JSON at all.
 # Side effect: sets LIFECYCLE_PROBE_OUTPUT to the validator's combined output
 # (the JSON envelope on stdout; any stderr noise is included too).
 
 LIFECYCLE_PROBE_OUTPUT=""
 
+# Choose the document the post-cascade verification seeds on.
+#
+# The pre-cascade probe seeds on the PLAN, which is correct: the PLAN is still on
+# disk then. By the time the post-cascade check runs the cascade has `git rm`'d
+# it, so the seed has to be something that survived the finalization commit.
+# STAGED_FILES is the record of what the cascade touched; an entry survives when
+# it is still on disk here, which is after the commit.
+#
+# Two entry classes make the existence test load-bearing rather than defensive.
+# A ROADMAP the deletion branch removed is in the record and does not survive. A
+# DESIGN whose node the retirement guard blocked is in the record at its
+# un-moved path and DOES survive -- that is the case an anchored check catches
+# and a check seeded on the deleted PLAN never could.
+#
+# The prefix test orders survivors; it never disqualifies one. Tactical members
+# rank above the ROADMAP because a ROADMAP sits above the chain and can carry
+# sibling features whose own in-flight PLANs would surface as L01 against it.
+# The four rungs are exhaustive over the five append sites by construction, so
+# there is no default arm; a sixth append site must add a rung rather than fall
+# through, because falling through would drop a survivor.
+#
+# Writes the chosen path to stdout and returns 0; writes nothing and returns 1
+# when no entry survives. bash 3.2: four scalars rather than an associative
+# array, and the `${arr[@]:+...}` guard for the empty-array spread under `set -u`.
+resolve_anchor() {
+    local f base
+    local a_design="" a_prd="" a_brief="" a_roadmap=""
+
+    for f in ${STAGED_FILES[@]:+"${STAGED_FILES[@]}"}; do
+        # Regular files only, and not a symlink: validate_upstream_path takes
+        # the same posture on the PLAN, and nothing that reaches STAGED_FILES
+        # can be a symlink today. Matching that posture keeps the file
+        # consistent rather than leaving one path more permissive than the rest.
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        base=$(basename "$f")
+        case "$base" in
+            DESIGN-*)  a_design="$f" ;;
+            PRD-*)     a_prd="$f" ;;
+            BRIEF-*)   a_brief="$f" ;;
+            ROADMAP-*) a_roadmap="$f" ;;
+        esac
+    done
+
+    for f in "$a_design" "$a_prd" "$a_brief" "$a_roadmap"; do
+        if [[ -n "$f" ]]; then
+            printf '%s\n' "$f"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 lifecycle_probe() {
     local mode="$1"
+    local seed="$2"
     local exit_code=0
     # bash 3.2 (macOS) errors on `"${arr[@]}"` when arr is empty under
     # `set -u`; the `${arr[@]:+...}` guard expands to nothing when the
     # array is empty and to the spread otherwise. Safe across bash 3.2+
     # and bash 5.x.
     LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
-        --lifecycle-chain "$PLAN_DOC" \
+        --lifecycle-chain "$seed" \
         --format json \
         --mode=ready \
         ${ALLOW_UNTRACKED_ACS_ARGS[@]:+"${ALLOW_UNTRACKED_ACS_ARGS[@]}"} 2>&1) || exit_code=$?
@@ -308,11 +369,11 @@ lifecycle_probe() {
         return 0
     elif [[ "$mode" == "post" ]]; then
         if [[ "$exit_code" -ne 0 ]]; then
-            log_warn "Post-cascade verification failed (cascade bug):"
+            log_warn "Post-cascade verification failed against $seed:"
             log_lifecycle_findings "$LIFECYCLE_PROBE_OUTPUT"
             return 1
         fi
-        log_info "Post-cascade verification: chain at ready-posture passing state"
+        log_info "Post-cascade verification: chain at ready-posture passing state (anchor: $seed)"
         return 0
     else
         log_warn "lifecycle_probe called with unknown mode: $mode"
@@ -330,7 +391,17 @@ add_step() {
     local status="$4"
     local detail="$5"     # pass "" for no detail
 
-    local found_in_json detail_json
+    local target_json found_in_json detail_json
+    # `target` takes the literal token `null` for a step that names no document —
+    # the post-cascade verification records one when no chain document survived to
+    # check against. It goes through --argjson so the field is a JSON null rather
+    # than the string "null", the same treatment found_in gets below.
+    if [[ "$target" == "null" ]]; then
+        target_json="null"
+    else
+        target_json=$(jq -n --arg v "$target" '$v')
+    fi
+
     if [[ "$found_in" == "null" ]]; then
         found_in_json="null"
     else
@@ -346,7 +417,7 @@ add_step() {
     local step
     step=$(jq -n \
         --arg action "$action" \
-        --arg target "$target" \
+        --argjson target "$target_json" \
         --argjson found_in "$found_in_json" \
         --arg status "$status" \
         --argjson detail "$detail_json" \
@@ -694,7 +765,7 @@ fi
 # the pre/post pair pins the cascade's behavior end to end without the
 # agent having to interpret the validator's output.
 
-if ! lifecycle_probe "pre"; then
+if ! lifecycle_probe "pre" "$PLAN_DOC"; then
     add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "skipped" \
         "chain at ready-posture passing state — cascade is a no-op${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     emit_result "skipped"
@@ -882,7 +953,10 @@ fi
 
 if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Committing and pushing staged changes"
-    git commit -m "chore(cascade): post-implementation artifact transitions"
+    # -q keeps git's commit summary off stdout. This script's contract is a JSON
+    # report on stdout, and without -q the summary lands ahead of emit_result, so
+    # a --push run's output does not parse as JSON at all.
+    git commit -q -m "chore(cascade): post-implementation artifact transitions"
     git push
 elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Staged (dry run — pass --push to commit):"
@@ -904,12 +978,22 @@ fi
 # verification.
 
 if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
-    if ! lifecycle_probe "post"; then
-        ANY_FAILED=true
-        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "failed" \
-            "post-cascade lifecycle check failed in ready posture (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
+    if POST_VERIFY_ANCHOR=$(resolve_anchor); then
+        if ! lifecycle_probe "post" "$POST_VERIFY_ANCHOR"; then
+            ANY_FAILED=true
+            add_step "lifecycle_post_verify" "$POST_VERIFY_ANCHOR" "null" "failed" \
+                "post-cascade lifecycle check failed in ready posture against $POST_VERIFY_ANCHOR: $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
+        else
+            add_step "lifecycle_post_verify" "$POST_VERIFY_ANCHOR" "null" "ok" "$L06_SUPPRESSED_DETAIL"
+        fi
     else
-        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" "$L06_SUPPRESSED_DETAIL"
+        # Nothing the cascade recorded survived its own commit. That is a chain
+        # /scope folded all the way down, not a failure: every path that did not
+        # finalize either set ANY_FAILED before this block or left STAGED_FILES
+        # empty, in which case this block never runs at all. ANY_FAILED is left
+        # alone, so a run that already failed still reports partial.
+        add_step "lifecycle_post_verify" "null" "null" "skipped" \
+            "no recorded chain document survived to verify against${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     fi
 fi
 
