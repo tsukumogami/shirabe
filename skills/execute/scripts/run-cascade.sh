@@ -330,7 +330,17 @@ add_step() {
     local status="$4"
     local detail="$5"     # pass "" for no detail
 
-    local found_in_json detail_json
+    local target_json found_in_json detail_json
+    # `target` takes the literal token `null` for a step that names no document —
+    # the post-cascade verification records one when no chain document survived to
+    # check against. It goes through --argjson so the field is a JSON null rather
+    # than the string "null", the same treatment found_in gets below.
+    if [[ "$target" == "null" ]]; then
+        target_json="null"
+    else
+        target_json=$(jq -n --arg v "$target" '$v')
+    fi
+
     if [[ "$found_in" == "null" ]]; then
         found_in_json="null"
     else
@@ -346,7 +356,7 @@ add_step() {
     local step
     step=$(jq -n \
         --arg action "$action" \
-        --arg target "$target" \
+        --argjson target "$target_json" \
         --argjson found_in "$found_in_json" \
         --arg status "$status" \
         --argjson detail "$detail_json" \
@@ -882,7 +892,10 @@ fi
 
 if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Committing and pushing staged changes"
-    git commit -m "chore(cascade): post-implementation artifact transitions"
+    # -q keeps git's commit summary off stdout. This script's contract is a JSON
+    # report on stdout, and without -q the summary lands ahead of emit_result, so
+    # a --push run's output does not parse as JSON at all.
+    git commit -q -m "chore(cascade): post-implementation artifact transitions"
     git push
 elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Staged (dry run — pass --push to commit):"
