@@ -1787,6 +1787,15 @@ scenario_push_anchor_order() {
         '[.steps[] | select(.action == "lifecycle_post_verify")][0].target != "docs/roadmaps/ROADMAP-cascade-test.md"' \
         "post-verify did not anchor on the ROADMAP" || ok=false
 
+    # The target field alone records which document was chosen, not whether the
+    # check against it ran or passed. Without these two the scenario survives a
+    # mutant that changes the seed while leaving the recorded target intact.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify ok" || ok=false
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
     [[ "$ok" == "true" ]] && pass "$scenario" || true
 
     rm -rf "$tmpdir"
