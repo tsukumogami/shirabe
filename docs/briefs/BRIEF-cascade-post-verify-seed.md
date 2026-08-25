@@ -41,6 +41,11 @@ Accepted under `/scope`'s non-interactive mode: this run was dispatched as a
 background worker with no interactive author, so the Phase 5 approval gate took
 the recommended default on an all-PASS jury rather than blocking.
 
+Edited after acceptance to correct the suite's scenario count from thirty-six to
+eighteen. The higher figure counts each `scenario_*` line twice — once at its
+definition and once at its call in the runner. The claim it supports is
+unaffected: `--push` still appears in no scenario at all.
+
 ## Problem Statement
 
 `/execute`'s finalization cascade does its work correctly and then reports that
@@ -76,7 +81,7 @@ report costs.
 The reason it survived is separate from the defect and is the second half of the
 problem. The self-verification only runs on a real push with staged files, and
 no scenario in the cascade's test suite exercises that path. The suite has
-thirty-six scenarios and passes `--push` in none of them; the only mention of
+eighteen scenarios and passes `--push` in none of them; the only mention of
 the flag is a comment noting its absence. CI runs the suite on every change and
 has been green throughout. A deterministic defect in a branch no test enters is
 invisible for as long as nobody runs the thing by hand and reads the output
