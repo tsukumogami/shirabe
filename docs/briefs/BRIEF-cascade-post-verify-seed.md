@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The finalization cascade verifies its own work by re-running the lifecycle
   chain check seeded on the PLAN it deleted moments earlier. The seed path is
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing stops at what the self-verification must decide and what evidence
 it is allowed to decide from. Both Phase 4 reviewers returned PASS.

@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   The finalization cascade's post-verification step seeds its lifecycle check
   on the PLAN the cascade deleted moments earlier, so the check returns L05 and
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Three jury rounds. Between them the reviewers constructed six wrong
 implementations that satisfied the criteria as then written, and each round's

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   `lifecycle_probe()` hardcodes `$PLAN_DOC` as the seed for both its
   invocations, so the post-cascade call validates a path the cascade deleted
@@ -32,7 +32,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
