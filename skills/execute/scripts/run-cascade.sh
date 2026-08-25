@@ -262,8 +262,11 @@ lifecycle_findings_summary() {
 }
 
 # ── Inline utility: lifecycle_probe ──────────────────────────────────────────
-# Run the chain-targeted lifecycle check in ready posture against the cascade's
-# PLAN doc. Two modes:
+# Run the chain-targeted lifecycle check in ready posture against the seed the
+# caller supplies. The seed differs by mode and that is the whole point: `pre`
+# seeds on the PLAN, which is still on disk then, and `post` seeds on whatever
+# resolve_anchor returned, because by then the cascade has deleted the PLAN.
+# Two modes:
 #
 #   pre:  expects exit code non-zero (chain at single-pr-Active mid-PR;
 #         --mode=ready forces a failure naming the present PLAN at Active).
@@ -273,15 +276,18 @@ lifecycle_findings_summary() {
 #         no-op.
 #
 #   post: expects exit code 0 (cascade has finalized the chain). Returns 0
-#         on the expected clean pass; returns 1 on cascade-bug failure.
-#         On failure, the validator's findings are logged for diagnosis.
+#         on the expected clean pass; returns 1 when the chain did not reach
+#         its terminal state. On failure, the validator's findings are logged
+#         for diagnosis.
 #
 # The probe runs the validator in `--format json` and captures its combined
 # output so log_lifecycle_findings can surface the structured L-code findings
 # on an unexpected outcome. Control flow still follows the exit code only —
 # the JSON is consumed for diagnostic logging, never for branching.
 #
-# Usage: lifecycle_probe <pre|post>
+# Usage: lifecycle_probe <pre|post> <seed-path>
+# Both arguments are required. Under `set -u` a one-argument call dies at
+# `local seed="$2"` before emit_result runs, so the caller gets no JSON at all.
 # Side effect: sets LIFECYCLE_PROBE_OUTPUT to the validator's combined output
 # (the JSON envelope on stdout; any stderr noise is included too).
 
@@ -316,7 +322,11 @@ resolve_anchor() {
     local a_design="" a_prd="" a_brief="" a_roadmap=""
 
     for f in ${STAGED_FILES[@]:+"${STAGED_FILES[@]}"}; do
-        [[ -f "$f" ]] || continue
+        # Regular files only, and not a symlink: validate_upstream_path takes
+        # the same posture on the PLAN, and nothing that reaches STAGED_FILES
+        # can be a symlink today. Matching that posture keeps the file
+        # consistent rather than leaving one path more permissive than the rest.
+        [[ -f "$f" && ! -L "$f" ]] || continue
         base=$(basename "$f")
         case "$base" in
             DESIGN-*)  a_design="$f" ;;
