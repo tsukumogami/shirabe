@@ -206,10 +206,14 @@ to stdout, returns 0. Writes nothing and returns 1 when no candidate survives.
 
 The bash 3.2 floor rules out an associative array keyed by type, so the helper
 holds four scalars — `_a_design`, `_a_prd`, `_a_brief`, `_a_roadmap` — and
-assigns each as it walks. The walk keeps the *last* match per type, which
-matters only for the ROADMAP: line 497 and line 577 can both append a roadmap
-path in one run, and the later one is the one that reflects what actually
-happened. Selection then tests the four scalars in precedence order.
+assigns each as it walks, keeping the last match per type. No current append
+site can produce two entries of one type in a single run — line 497 is guarded
+by `[[ -f "$path" ]]`, which is already false once line 577 has removed the
+file, and both would append the identical path anyway — so last-match versus
+first-match is not a live choice today. It is written as last-match because a
+later duplicate is the more recent statement of what happened, which is the
+safer default if a sixth append site ever appears. Selection then tests the four
+scalars in precedence order.
 
 Classification is on the basename prefix, using `case` rather than `[[ =~ ]]` —
 3.2's regex handling differs across versions when the pattern is inline, and a
