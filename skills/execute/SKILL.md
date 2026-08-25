@@ -604,7 +604,10 @@ seed depends on what you are checking:
   anchor**: the DESIGN at its terminal `docs/designs/current/DESIGN-<slug>.md`, or the
   BRIEF/PRD at Done — **never the deleted PLAN path** (which returns `L05` / exit 2 and
   reads as a false failure). The same invocation then returns exit 0 on a complete chain
-  and exit 2 on an incomplete one.
+  and exit 2 on an incomplete one. A surviving ROADMAP is a legal anchor too, and the
+  cascade's own `resolve_anchor` falls back to one when no tactical member survives —
+  but it ranks last, because a ROADMAP sits above the chain and can carry sibling
+  features whose own in-flight PLANs surface as `L01` against it.
 - **A finalized chain that folded every artifact away.** `/scope`'s consolidation
   judgment can absorb at any hop, so a chain can end with no durable artifact at all:
   the DESIGN folded into the PLAN, and the cascade then deleted the PLAN. There is no
