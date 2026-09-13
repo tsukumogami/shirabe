@@ -68,6 +68,17 @@ case "$ARGS" in
       cat "$SCENARIO_DIR/koto-status.json"
       exit 0
     fi
+    # The Resume guard (#360) reads is_terminal here before ticking a session it
+    # found, so every re-entry scenario now reaches this arm. Falling through to
+    # the no-match error would fail a path that worked before the guard existed.
+    # The default is a live session, which is what a resuming scenario means; a
+    # scenario wanting the retained-terminal case pins koto-status.json.
+    echo '{"current_state":"unknown","is_terminal":false}'
+    exit 0
+    ;;
+  *"session cleanup"*)
+    # The Resume guard's recovery, once a retained record has been read.
+    exit 0
     ;;
   "query"|"query "*)
     if [ -f "$SCENARIO_DIR/koto-query.json" ]; then

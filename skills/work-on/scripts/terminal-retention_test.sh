@@ -82,16 +82,36 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 # which is consumed per-run, and these cases keep a later edit from relocating
 # it.
 
-if grep -rn -- '--no-cleanup' "$TEMPLATE" >/dev/null 2>&1; then
-    fail "work-on.md carries --no-cleanup; a child reads this template and would wedge its parent"
+# A leading-`#` line is excluded: the frontmatter note that tells a template
+# editor WHY the flag must not be here has to be able to name it. koto renders
+# state prose into directives but never the YAML comments, so a `#` line cannot
+# reach a child. Anything else mentioning the flag is treated as a call site.
+template_flag_sites() {
+    grep -n -- '--no-cleanup' "$1" 2>/dev/null | grep -v '^[0-9]*: *#'
+}
+
+if [ -n "$(template_flag_sites "$TEMPLATE")" ]; then
+    fail "work-on.md carries --no-cleanup outside a YAML comment; a child reads this template and would wedge its parent:
+$(template_flag_sites "$TEMPLATE")"
 else
-    pass "work-on.md carries no --no-cleanup, so a child cannot pick it up from the template"
+    pass "work-on.md carries no --no-cleanup call site, so a child cannot pick it up from the template"
 fi
 
-if grep -rn -- '--no-cleanup' "$PHASES" >/dev/null 2>&1; then
-    fail "a references/phases file carries --no-cleanup; children read these too"
+PHASE_HITS=$(grep -rn -- '--no-cleanup' "$PHASES" 2>/dev/null | grep -v ': *#')
+if [ -n "$PHASE_HITS" ]; then
+    fail "a references/phases file carries --no-cleanup; children read these too:
+$PHASE_HITS"
 else
     pass "no references/phases file carries --no-cleanup"
+fi
+
+# The frontmatter note is itself required: without it a future editor has no
+# reason recorded for the flag's absence and re-adds it. This is the template
+# half of the issue's "say why the flag is there" criterion.
+if grep -q '^# *Terminal-tick retention' "$TEMPLATE"; then
+    pass "work-on.md's frontmatter records why the flag is absent here and where the rule lives"
+else
+    fail "work-on.md has no frontmatter note explaining why --no-cleanup must not be added to it"
 fi
 
 # The rule has to actually be stated somewhere a root run reads, and has to

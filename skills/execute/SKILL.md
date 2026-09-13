@@ -175,6 +175,13 @@ cross-skill reference: `/execute` spawns per-issue children with `/work-on`'s
 
 ### Step 2 — Initialize the plan-level orchestrator
 
+**First, if a session for this plan may already exist, apply the retained-session
+check in [**Resume**](#resume) before the `koto init` below.** A previous run that
+ended at `done_blocked` or `paused_for_review` left its session on disk so its
+record would survive, and `koto init` refuses a name already in use — so this is
+where a re-invocation lands, and the check is what tells you to read that record
+and clear it rather than reporting the plan already done.
+
 Derive the plan slug from the filename (`PLAN-foo-bar.md` → `foo-bar`) and
 initialize the lifted orchestrator template. Resolve `PAUSE_BEFORE_FINALIZE` from
 the **execution mode** (see **Execution-Mode Flags** and the mode-driven pause in the
@@ -524,9 +531,22 @@ koto status execute-<plan-slug>
 is not resumable and must not be ticked — a tick answers `action: "done"` and
 would report the plan complete on the strength of work this run did not do. It
 also blocks the `koto init` in **Single-PR Execution Path** Step 2, which refuses
-a name already in use. Clear it with `koto session cleanup execute-<plan-slug>`
-once its record has been read, or init under a different session name to keep the
-record, then proceed.
+a name already in use.
+
+**Read the record first, then clear it:** `koto context get execute-<plan-slug>
+<key>` for whatever the retained run left, then `koto session cleanup
+execute-<plan-slug>`, then init as normal. Reading before clearing is the whole
+procedure — there is no option that both keeps the old session and lets a new run
+proceed. Initializing under a different session name does NOT work:
+`settled_branch_record`'s action writes the settled branch into
+`execute-{{PLAN_SLUG}}` while its gate reads the *current* session, so a run
+under any other name blocks there with no override edge and routes to
+`done_blocked`.
+
+So retention here buys a record that can be read after the fact, not a session a
+later run resumes in place. That is worth having — `paused_for_review` otherwise
+leaves nothing at all — but do not read it as making a paused run restartable
+where it stands.
 
 This check exists because retention created the ambiguity: before the terminal
 tick carried `--no-cleanup`, a finished session was gone and a re-entry simply

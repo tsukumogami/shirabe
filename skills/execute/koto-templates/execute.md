@@ -1,4 +1,24 @@
 ---
+# Terminal-tick retention (#360): koto disposes of a session on the tick that
+# reaches a terminal state and takes its ctx/ with it, so a run ending at
+# done_blocked or paused_for_review loses its record -- and the pause is the
+# worse loss, since it is solicited. Every koto next on an orchestrator session
+# therefore carries --no-cleanup. The rule and its reasoning live in ../SKILL.md
+# (Step 3, Drive the orchestrator loop); it is stated there rather than here
+# because the ticks are the agent's, not koto's.
+#
+# Unconditional, unlike work-on.md, because an orchestrator session is always a
+# root: nothing names execute.md as a child template. If that ever changes, the
+# flag must be gated on ../../work-on/scripts/session-role.sh first -- on a child
+# it suppresses the events a parent's children-complete gate reads and blocks the
+# converge permanently. scripts/terminal-retention_test.sh asserts the premise
+# and goes red if it stops holding.
+#
+# A terminal-reaching koto next added here MUST carry the flag. The two in
+# spawn_and_await do not, because they route to pr_finalization or escalate and
+# both of those states accept evidence, so neither tick can chain into a
+# terminal. This note is a YAML comment so it reaches a template editor without
+# being rendered into any state's directive.
 name: execute
 version: "1.0"
 description: >

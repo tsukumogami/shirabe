@@ -1,4 +1,19 @@
 ---
+# Terminal-tick retention (#360): koto disposes of a session on the tick that
+# reaches a terminal state and takes its ctx/ with it, so a run ending at
+# done_blocked loses the record of why. The suppressing flag, --no-cleanup, is
+# DELIBERATELY ABSENT FROM THIS TEMPLATE and must stay absent. This file is also
+# the child template for /execute's spawn_and_await, and on a child the flag
+# additionally suppresses the request_store.result and ChildCompleted events the
+# parent's children-complete gate reads, blocking its converge permanently.
+#
+# The rule therefore lives in ../SKILL.md's Execution Loop, gated on
+# scripts/session-role.sh, which reports root or child from koto's own
+# parent_workflow field. Root runs pass the flag; children never do.
+# scripts/terminal-retention_test.sh greps this file to keep the flag out, and
+# pins the wedge it would cause. koto#240 is the platform fix that would let the
+# exception go. This note is a YAML comment so it reaches a template editor
+# without being rendered into any state's directive.
 name: work-on
 version: "1.0"
 description: >

@@ -224,14 +224,17 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   rather than inventing a second test, so two such behaviours cannot drift
   apart. Call it as
   `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, both
-  from here and from a `work-on.md` state directive — directive prose is text
-  the agent reads and the agent's own shell expands the variable, which is what
-  the existing `references/phases/` files already do. A `{{PLUGIN_ROOT}}` in
-  `work-on.md` would NOT work: koto validates `{{KEY}}` against the template's
-  `variables:` block at compile time and `work-on.md` declares no such variable,
-  so the reference fails the template outright. (The `{{KEY}}` form is for a
-  command koto itself runs, which is a different thing from prose it renders.)
-  Its first caller is the retention rule below.
+  from here and from a `work-on.md` state directive — the agent's own shell
+  expands the variable, which is what the existing `references/phases/` files
+  already do. A `{{PLUGIN_ROOT}}` in `work-on.md` would NOT work, and the reason
+  is *declared versus undeclared*, not prose versus command: koto interpolates
+  `{{KEY}}` in rendered prose perfectly well (`{{ISSUE_NUMBER}}` and
+  `{{BRANCH}}` both do it in this template), but it validates every reference
+  against the template's `variables:` block at compile time, and `work-on.md`
+  declares no `PLUGIN_ROOT`. A state that needs the discriminator in a command
+  **koto itself runs** — a `default_action`, where no agent shell exists to
+  expand anything — would have to declare `PLUGIN_ROOT` as a variable first, the
+  way `execute.md` does. Its first caller is the retention rule below.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh` — the
   two harnesses; see each file's header.
 
@@ -270,13 +273,14 @@ this workflow accumulates. `--no-cleanup` suppresses that, so the record of a
 run that ended at `done_blocked` survives for whoever has to read why.
 
 The flag is a no-op on any tick that does not terminate, which is why the rule
-is "every tick" rather than "the last one". `expects.options` does name the
-target each evidence value routes to, but it does not say which of those targets
-are terminal — deciding that means carrying the template's list of terminal
-states and checking every submission against it. A blanket rule costs nothing,
-since the flag is inert wherever it is not needed, and cannot miss; the
-selective version has to be got right on every tick, and the ticks it would get
-wrong are the failures whose record matters most.
+is "every tick" rather than "the last one". The response does not tell you which
+tick is the last one: `expects.options` lists only transitions that carry a
+`when`, so an unconditional transition's target is never shown and `options` is
+omitted altogether when a state's transitions are all unconditional — and even a
+listed target is a bare state name, with nothing marking it terminal. A blanket
+rule costs nothing, since the flag is inert wherever it is not needed, and cannot
+miss; the selective version has to be got right on every tick, and the ticks it
+would get wrong are the failures whose record matters most.
 
 A child must not carry it. On a child, `--no-cleanup` also suppresses the
 `request_store.result` and `ChildCompleted` events that `/execute`'s
@@ -292,23 +296,24 @@ must not be disturbed is the parent's converge gate and only koto knows whether
 there is a parent. In `multi-pr` dispatcher mode `/work-on` drives one session
 per issue, so resolve `ROLE` again for each.
 
-**Why the rule lives here and not in `work-on.md`, and when that reasoning does
-NOT transfer.** `work-on.md` is also the child template, so a `--no-cleanup`
-written into it is read by children as much as by roots, and a child that acts
-on it wedges its parent. Keeping the flag out of the template removes that
-whole failure mode; what makes a root still get retention is the `ROLE` gate
-above, not anything about where the sentence sits.
+**Why the rule lives here and not in `work-on.md`.** `work-on.md` is the child
+template, so a `--no-cleanup` written into it is read by children as much as by
+roots. Keeping the flag out of the template removes that exposure; what makes a
+root still get retention is the `ROLE` gate above.
+
+`ROLE` is the guarantee, not the placement. A koto-materialized child is seeded
+from the compiled template rather than by loading this file, but it still
+reaches `SKILL.md` wherever a state's prose sends it there — `work-on.md`'s
+`verification` state cites the **Definition of Done** section below exactly as
+it cites a `references/phases/` file. So a child can read this rule; what stops
+it acting on the rule is `session-role.sh`.
 
 Do not read the placement as a pattern. It is safe here **because omission is
-the correct child behaviour for this particular rule** — a child that never
-asks for retention is doing the right thing. A rule whose failure mode is
-omission is the opposite case: an obligation a child must discharge, left
-somewhere a child may not read, is skipped silently on exactly the path nobody
-watches. Such a rule belongs in the template, gated on `ROLE`.
-
-(Do not lean on "a child never loads `SKILL.md`" as the safety argument — it is
-not true. Plan-Backed Child Mode is documented only here, so a child that did
-not read this file could not run at all. `ROLE` is the guarantee.)
+the correct child behaviour for this particular rule** — a child that never asks
+for retention is doing the right thing. A rule whose failure mode is omission is
+the opposite case: an obligation a child must discharge, left somewhere a child
+may never be sent, is skipped silently on exactly the path nobody watches. Such
+a rule belongs in the template, gated on `ROLE`.
 
 `skills/work-on/scripts/terminal-retention_test.sh` pins both halves, including
 a tripwire that fails when a future koto makes the flag safe for children (see
@@ -402,9 +407,10 @@ those for project-specific quality and PR requirements.
 Then:
 1. `koto workflows` — if a workflow matches this issue, apply the **Resume** guard above before ticking it: `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not a resume. Never tick it and never report the issue complete on its strength. Otherwise resume with `koto next <WF>`.
 2. Otherwise, `koto init` with the template path and appropriate variables.
-3. Submit entry evidence:
-   - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}'`
-   - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}'`
+3. Resolve `ROLE` (see **Execution Loop**), then submit entry evidence — adding
+   `--no-cleanup` to these and to every later tick when `ROLE` is `root`:
+   - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
+   - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
 4. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill

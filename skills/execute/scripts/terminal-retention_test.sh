@@ -94,6 +94,16 @@ else
     fail "SKILL.md must state that the orchestrator's koto next carries --no-cleanup"
 fi
 
+# execute.md's own note. Unlike work-on.md the flag is not forbidden here, but a
+# terminal-reaching `koto next` added to this template must carry it, and the
+# only thing that will tell a future editor so is the note. This is the template
+# half of the issue's "say why the flag is there" criterion.
+if grep -q '^# *Terminal-tick retention' "$TEMPLATE"; then
+    pass "execute.md's frontmatter records why the flag rides every tick and what a new terminal-reaching tick must do"
+else
+    fail "execute.md has no frontmatter note explaining the retention rule to a template editor"
+fi
+
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
 skip_engine_cases() {
