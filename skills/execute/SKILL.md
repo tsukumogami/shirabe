@@ -214,6 +214,30 @@ operator approved). The home-PR resume lookup re-enters and advances
 
 ### Step 3 — Drive the orchestrator loop
 
+**Every `koto next` on the orchestrator session carries `--no-cleanup`.**
+
+koto deletes a session on the tick that reaches a terminal state, and the
+deletion takes the session's `ctx/` with it. Without the flag an orchestrator
+run that ends at `done_blocked` destroys the record of why, and one that ends at
+`paused_for_review` destroys what a resume needs — a pause is solicited, so
+losing its context is worse than losing a failure's. The flag is a no-op on any
+tick that does not terminate, which is why it rides every tick rather than a
+predicted last one: `ci_monitor` and `pr_finalization` both route to a clean or
+a blocked terminal off the same evidence field.
+
+Unconditional here, unlike `/work-on`, because an orchestrator session is always
+a root: nothing in the repo names `execute.md` as a `default_template`, so
+`execute.md` is never materialized as a koto child.
+`skills/execute/scripts/terminal-retention_test.sh` asserts that, and goes red if
+a future change makes `/execute` spawnable — at which point this rule has to
+route through `skills/work-on/scripts/session-role.sh` the way `/work-on`'s
+does, because on a child the flag also suppresses the events a parent's
+`children-complete` gate reads.
+
+The two `koto next` lines inside the lifted template's `spawn_and_await` section
+are the exception, and stay as written: they tick the orchestrator toward
+`pr_finalization` or `escalate`, never to a terminal.
+
 In autonomous mode, drive this loop continuously per the **Autonomy** section below —
 do not stop between issues to advise a checkpoint. The mandate is bound at the loop
 tick itself: the lifted template's `spawn_and_await` state carries an "Autonomy at
