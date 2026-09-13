@@ -16,10 +16,16 @@ chain_skipped: []
 chain_ran:
   - child: brief
     started_at: 2026-09-13T00:00:00Z
+  - child: prd
+    started_at: 2026-09-13T00:00:00Z
 child_snapshots:
   brief:
     status: Accepted
     content_hash: 55bc4d5432c769175a1590548b7cec9c4d14b5b3
+    captured_at: 2026-09-13T00:00:00Z
+  prd:
+    status: Accepted
+    content_hash: ca4f8a073f6afde09b8d0385f37df8fe8c17cbaa
     captured_at: 2026-09-13T00:00:00Z
 worktree_rebases:
   - phase: brief
@@ -216,3 +222,39 @@ consumed from exactly there.
 
 Stated plainly because copying the neighbouring pattern is the obvious move and
 would be wrong here.
+
+## Process deviation: the PRD hop's sentinel never landed (2026-09-13)
+
+Recorded rather than quietly corrected, because a reader auditing this run
+would otherwise find a hop that ran with no sentinel and no explanation.
+
+**What happened.** Phase 2 step 2 writes the `parent_orchestration:` block to
+this state file immediately before invoking each child. For the `/prd` hop that
+write silently failed: the edit was a text substitution whose pattern did not
+match (it assumed the brief's snapshot was the last frontmatter key, but
+`worktree_rebases:` follows it), and the script reported success regardless.
+So `/prd` ran with no sentinel present, and step 5's cleanup had nothing to
+clear.
+
+**Consequence.** `/prd`'s Resume Logic consults the sentinel to detect that it
+is running under a parent; absent it, the skill's documented behaviour is that
+of a direct invocation. The produced artifact is unaffected — `/prd` was driven
+through its own phases and its jury ran at full width across seven rounds — but
+the contract was not honoured for that hop, and the run should not claim
+otherwise.
+
+**Same root cause as a second failure.** An identical silent no-op dropped a
+correction to the PRD's R16a exclusion clause; the clarity reviewer caught it by
+reading the file rather than trusting the claim that it had been applied. Both
+came from using a substitution that does nothing when its pattern misses, paired
+with an unconditional success message.
+
+**Corrected practice for the rest of this run.** Every state-file and artifact
+edit either uses a tool that fails loudly on a non-match, or asserts the
+substring exists before replacing and asserts the result changed. The assertion
+is what surfaced this deviation, one hop after the one it should have caught.
+
+**Not re-run.** Re-invoking `/prd` with the sentinel present would re-author an
+accepted artifact that three reviewers have passed, to change a detection flag
+whose only effect is on resume routing that this run did not use. The deviation
+is recorded instead.
