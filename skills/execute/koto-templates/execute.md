@@ -430,11 +430,11 @@ states:
     # The completion cascade runs BEFORE gh pr ready so the chain is
     # at its strict-mode passing state when CI re-runs on the
     # ready_for_review event (#117 DRAFT-vs-READY discipline). The
-    # state runs: (1) strict-mode lifecycle check expecting failure
-    # that names PLAN+BRIEF+PRD as violators, (2) the run-cascade.sh
-    # script which performs the atomic finalization commit and
-    # pushes, (3) gh pr ready, (4) strict-mode lifecycle check
-    # expecting pass.
+    # state runs two steps: (1) run-cascade.sh, which performs the
+    # atomic finalization commit and pushes -- the strict-mode
+    # lifecycle checks either side of it are INSIDE the script, and
+    # the agent never invokes the validator itself; (2) gh pr ready,
+    # only on a completed or skipped verdict.
     accepts:
       cascade_status:
         type: enum
@@ -676,7 +676,7 @@ Submit `finalization_status: updated` with `pr_url` after the PR title and body 
 **4. Submit the mode-driven `pause_decision` (D2).** Alongside `finalization_status: updated`, set `pause_decision` from the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag.
 
 - If `{{PAUSE_BEFORE_FINALIZE}}` is `true`, submit `pause_decision: pause`. The PR body is now assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT. The workflow routes to the non-failure terminal `paused_for_review` and stops — the operator reviews the DRAFT PR and resumes to finalize.
-- If `{{PAUSE_BEFORE_FINALIZE}}` is `false` (the `--auto` path, and the default), submit `pause_decision: finalize` (or omit it — the fallback edge finalizes). The workflow routes to `plan_completion`, which runs the cascade and `gh pr ready`, driving straight through to a ready-to-merge, green PR.
+- If `{{PAUSE_BEFORE_FINALIZE}}` is `false` (the `--auto` path, and the default), submit `pause_decision: finalize` (or omit it — the fallback edge finalizes). The workflow routes to `plan_completion`, which runs the cascade and then `gh pr ready`, driving straight through to a ready-to-merge, green PR -- unless the cascade reports `partial`, which halts there instead.
 
 On a resume of a paused run, `/execute` re-enters with `PAUSE_BEFORE_FINALIZE=false` (resume is a finalize invocation), so this step submits `pause_decision: finalize` and the run advances into `plan_completion`. The PR body is already assembled, so this re-assert is cheap.
 
@@ -699,18 +699,46 @@ The PR's merge state is DIRTY (conflicts with the target branch); GitHub has sup
 
 ## plan_completion
 
-Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready. The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
+Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready -- unless the cascade reports `partial`, which halts the run instead (see below). The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
 
-The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --mode=ready` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
+The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain <seed> --mode=ready` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly. The two probes seed on different documents and that is deliberate: the pre-probe seeds on `{{PLAN_DOC}}`, which is still on disk, and the post-probe seeds on a chain document that survived the finalization commit, because by then the PLAN has been `git rm`'d. Seeding the post-probe on the deleted PLAN returns an L05 that looks like a real failure and is not.
 
 **Step 1: Run the cascade.** `run-cascade.sh --push` runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and runs the post-cascade verification (expects a clean pass). All three points are inside the script. The cascade also runs `handle_roadmap_deletion` which transitions the ROADMAP Active -> Done and `git rm`s the file in the same atomic finalization commit, gated by all-features-Done AND all-referenced-issues-closed.
 
 ```bash
 RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}})
-CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status')
+CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status // empty')
 ```
 
 If the pre-probe sees a clean pass — the chain is already at its strict-mode terminal — the script emits `cascade_status: skipped` with a single `lifecycle_pre_probe` step recording the no-op, exits 0, and the cascade proceeds directly to step 2 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`; halt and surface the failure.
+
+**A `partial` verdict halts the run. Do not proceed to step 2.** `partial` means at least one step failed, and the verdict alone does not say which shape you have -- some leave the chain unfinalized or never pushed, and marking such a PR ready puts it in review against a chain CI will reject. The halt is not free: a walk that stopped on an unrecognized node still commits, pushes and verifies the part it did walk, and a PR in that shape stalls for a human who reads the steps array and clears it.
+
+Match on the verdict captured in step 1, and surface every failed step:
+
+```bash
+case "$CASCADE_STATUS" in
+    completed|skipped)
+        : # the finalization is published; continue to step 2
+        ;;
+    *)
+        echo "$RESULT" | jq -r '.steps[]? | select(.status == "failed") | "\(.action): \(.detail)"'
+        exit 1  # partial, or no parseable verdict: stop, do NOT run step 2
+        ;;
+esac
+```
+
+Match the two good verdicts rather than testing for `partial`. The script exits non-zero on a setup or precondition failure with its JSON on stderr, so `$CASCADE_STATUS` can be the empty string -- which is not `partial`, and is certainly not a reason to mark a PR ready.
+
+Checking for a failed `commit` or `push` step is NOT sufficient either, because the most damaging shape emits neither. When the chain walk is refused outright, the script deliberately declines to commit anything -- the report carries a refused `transition_*` step, no `commit` step and no `push` step, and the remote is untouched. A check that looked only for failed publish steps would read that as success.
+
+Surface the failing step's `detail` and stop. The shapes differ in what recovery means, so name which one you hit:
+
+- A failed `push`: the finalization commit is in local history and the fix is to push it.
+- A failed `commit`: nothing landed, and the transitions are still staged in the working tree. Read the step's `detail` for what git refused, fix that, and re-run the cascade from a restored tree (`git reset --hard HEAD`) -- the PLAN has already been removed from the working tree, so the script will not start again without it.
+- A refused `transition_*` with NO `commit` step: the cascade published nothing on purpose. The full chain is still in HEAD, so `git reset --hard HEAD` restores the tree; fix the node that was refused and run the cascade again.
+- A refused `transition_*` WITH `commit` and `push` at `ok`: the walk stopped partway and published what it had reached. The remote already carries that commit, so recovery is a follow-up commit or a revert, not a reset.
+- A failed `lifecycle_post_verify`: the finalization was published but the chain did not reach its terminal state. Surface the validator findings in the step's `detail` rather than guessing at a cause -- it is often a cascade bug, but a node the retirement guard declined to transition because a live sibling still references it produces the same failure and is not one.
 
 **Step 2: Mark the PR ready for review.**
 
@@ -720,13 +748,13 @@ gh pr ready $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number
 
 The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain.
 
-Submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome).
+On a `completed` or `skipped` verdict, submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome). On a `partial`, submit nothing: the verdict routes to `ci_monitor` like the other two, whose gates can evaluate clean on a still-DRAFT PR and reach a non-failure terminal, so submitting would report a failed cascade as a successful run.
 
 - `cascade_status: completed` — pre-probe saw the expected mid-PR failure, all applicable transitions ran successfully, post-verify saw the expected clean pass
-- `cascade_status: partial` — some steps ran but at least one failed (a transition was skipped, an upstream was missing, or the post-verify failed); inspect the `steps` array for the failure detail
-- `cascade_status: skipped` — pre-probe saw a clean pass (chain already terminal) or the PLAN doc had no `upstream` field; no transitions were performed
+- `cascade_status: partial` — some steps ran but at least one failed (a transition was refused, an upstream was missing, the finalization commit or push failed, or the post-verify failed); halt and inspect the `steps` array for the failure detail. Do not mark the PR ready on a `partial`.
+- `cascade_status: skipped` — pre-probe saw a clean pass (chain already terminal) or the PLAN doc had no `upstream` field; no transitions were performed. Note that the second of those still commits and pushes: the PLAN's own deletion is part of the finalization, so a no-upstream chain publishes that one change and reports `skipped` about the chain walk it did not have to do.
 
-All three values route to `ci_monitor`, which waits for the strict-mode CI run to land green on the now-ready PR.
+All three values route to `ci_monitor` in the state machine, which waits for the strict-mode CI run to land green on the now-ready PR. There is no separate terminal for `partial`, so the halt is the agent's to observe rather than the machine's to enforce; rerouting it would be a behavioural change to this workflow with its own design. On a `partial`, the thing that must not happen is `gh pr ready` -- surface the failed steps to the human and stop there.
 
 ## escalate
 
@@ -747,7 +775,7 @@ Emit the operator hand-back:
 
 - **The DRAFT PR URL** — the assembled review surface (`pr_url` from `pr_finalization`).
 - **Confirmation the chain is intact** — the PLAN is still present on disk and BRIEF/PRD/DESIGN/ROADMAP are un-transitioned; `gh pr ready` has NOT fired, so the PR is still DRAFT.
-- **The resume instruction** — re-invoke `/execute <plan>` on the same topic to finalize. The existing topic-keyed home-PR lookup finds the still-open DRAFT PR, rebuilds the projection on that branch, and re-enters `pr_finalization` with `PAUSE_BEFORE_FINALIZE=false`; the run then advances into `plan_completion`, which runs the cascade DRAFT-before-READY, flips `gh pr ready`, and monitors CI to green.
+- **The resume instruction** — re-invoke `/execute <plan>` on the same topic to finalize. The existing topic-keyed home-PR lookup finds the still-open DRAFT PR, rebuilds the projection on that branch, and re-enters `pr_finalization` with `PAUSE_BEFORE_FINALIZE=false`; the run then advances into `plan_completion`, which runs the cascade DRAFT-before-READY, flips `gh pr ready` on a `completed` or `skipped` verdict, and monitors CI to green.
 
 At the `/execute` SKILL layer this terminal maps to a suspension: `exit:` stays UNSET with a resumable `paused_for_review` state marker, so the R9 hard-finalization check — which fires only at one of the three terminal exits — is not tripped. See `skills/execute/SKILL.md` (**Exit Paths**, suspension semantics).
 

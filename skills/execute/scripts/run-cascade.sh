@@ -16,16 +16,24 @@
 #             stages changes and prints a per-file status summary but does not
 #             commit or push. Use --push for automated cascade; omit for dry-run.
 #
-# Output: JSON to stdout (always, regardless of success or failure):
+# Output: JSON on stdout for every run that reaches the cascade -- success,
+# partial or skipped alike. Two classes of run do not reach it: a usage error
+# exits 1 from usage() with no JSON at all, and the exit-1 precondition failures
+# below emit their JSON on STDERR. A caller parsing stdout sees nothing in
+# either case and must treat a non-zero exit as its own signal. Those
+# precondition envelopes are not verdicts: they carry an extra `error` key and
+# reuse the token "skipped" for a run that never started.
 #   {
 #     "cascade_status": "completed | partial | skipped",
 #     "steps": [
 #       {
-#         "action": "delete_plan | transition_design | transition_prd |
-#                    transition_brief | update_roadmap_feature |
-#                    delete_roadmap",
-#         "target": "<path being acted on>",
-#         "found_in": "<path where reference was discovered>",
+#         "action": "lifecycle_pre_probe | delete_plan | transition_design |
+#                    transition_prd | transition_brief |
+#                    update_roadmap_feature | delete_roadmap | commit | push |
+#                    lifecycle_post_verify",
+#         "target": "<path being acted on, or null for a run-level step>",
+#         "found_in": "<path where the reference was discovered, or null --
+#                      more steps leave this null than fill it in>",
 #         "status": "ok | skipped | failed",
 #         "detail": "<required when status is skipped or failed>"
 #       }
@@ -34,8 +42,9 @@
 #
 # Exit codes:
 #   0 — cascade ran (completed, partial, or skipped)
-#   1 — PLAN doc not found, path validation failed, not a git repo, or the
-#       shirabe binary could not be resolved (setup/precondition failures only)
+#   1 — a usage error, or: PLAN doc not found, path validation failed, not a
+#       git repo, or the shirabe binary could not be resolved. Setup and
+#       precondition failures only -- never a failure of the cascade itself.
 
 set -euo pipefail
 
@@ -65,7 +74,11 @@ fi
 # deliberately NOT reset here, so an inherited value survives.
 STEPS_JSON=""      # accumulates JSON step objects, comma-separated
 ANY_FAILED=false
-STAGED_FILES=()    # files staged for commit
+STAGED_FILES=()    # what the cascade staged -- the record the commit gate and
+                   # resolve_anchor both read. Holds deleted paths too (the
+                   # ROADMAP the deletion branch removes, the PLAN), so it is
+                   # not a list of files that will exist after the commit.
+COMMIT_LANDED=false     # the finalization commit landed in local history
 POST_VERIFY_ANCHOR=""   # the surviving document the post-cascade check seeds on
 CASCADE_DESIGN_PATH=""     # post-transition path to the DESIGN doc (from the report's new_path), used by handle_roadmap for the Downstream rewrite
 
@@ -310,9 +323,16 @@ LIFECYCLE_PROBE_OUTPUT=""
 # The prefix test orders survivors; it never disqualifies one. Tactical members
 # rank above the ROADMAP because a ROADMAP sits above the chain and can carry
 # sibling features whose own in-flight PLANs would surface as L01 against it.
-# The four rungs are exhaustive over the five append sites by construction, so
-# there is no default arm; a sixth append site must add a rung rather than fall
-# through, because falling through would drop a survivor.
+# The four rungs are exhaustive over the append sites that can produce a
+# survivor, so there is no default arm. Six sites append today, and the test for
+# whether a site needs a rung is whether its path can still pass the `-f` check
+# at the top of the loop. The PLAN site is the one that cannot: its only
+# appending branch is the one `git rm -f` returned 0 on, which takes the path out
+# of the worktree, and nothing between there and here recreates it. The ROADMAP
+# deletion site is exempt by the same argument, but the ROADMAP still needs a
+# rung because its OTHER site appends a file that survives. A seventh append site
+# must either add a rung or carry that argument in a comment at the site; falling
+# through silently would drop a survivor.
 #
 # Writes the chosen path to stdout and returns 0; writes nothing and returns 1
 # when no entry survives. bash 3.2: four scalars rather than an associative
@@ -392,10 +412,13 @@ add_step() {
     local detail="$5"     # pass "" for no detail
 
     local target_json found_in_json detail_json
-    # `target` takes the literal token `null` for a step that names no document —
-    # the post-cascade verification records one when no chain document survived to
-    # check against. It goes through --argjson so the field is a JSON null rather
-    # than the string "null", the same treatment found_in gets below.
+    # `target` takes the literal token `null` for a step that names no document.
+    # Four kinds of step do, across six call sites: the post-cascade
+    # verification's two skipped arms (no chain document survived, and the
+    # finalization commit did not land), and the `commit` and `push` steps,
+    # which are run-level rather than about any one path. It goes through --argjson so the
+    # field is a JSON null rather than the string "null", the same treatment
+    # found_in gets below (which more steps leave null than fill in).
     if [[ "$target" == "null" ]]; then
         target_json="null"
     else
@@ -458,6 +481,17 @@ emit_result() {
 # guard full ROADMAP → Done transition. Runs on the roadmap node finalize-chain
 # hands off; external-state-dependent (gh) and out of finalize-chain's scope, so
 # it stays in bash.
+#
+# Not finding the feature entry is a FAILURE, not a skip, and the distinction is
+# load-bearing rather than cosmetic. The cascade was asked to bring the ROADMAP
+# to its terminal state and could not, so the chain does not reach the posture
+# the post-cascade check attests to -- DESIGN-completion-cascade.md lists
+# "ROADMAP feature not found" under Failures, with the detail text below.
+# Recording it as a skip left ANY_FAILED false, which reported `completed` for a
+# chain that had not finalized and, once the PLAN deletion began entering
+# STAGED_FILES, let that state publish to a tree the ready-mode lifecycle check
+# passes. scenario_roadmap_feature_not_found pins both halves.
+#
 # Usage: handle_roadmap <roadmap-path> <found-in> <plan-slug>
 
 handle_roadmap() {
@@ -472,7 +506,8 @@ handle_roadmap() {
     downstream_line=$(grep -n -F "$plan_slug" "$path" | grep -i "Downstream:" | head -1 | cut -d: -f1) || true
 
     if [[ -z "$downstream_line" ]]; then
-        add_step "update_roadmap_feature" "$path" "$found_in" "skipped" \
+        ANY_FAILED=true
+        add_step "update_roadmap_feature" "$path" "$found_in" "failed" \
             "searched $path for a feature whose Downstream: field references plan slug '$plan_slug' (from $found_in), but no matching feature entry was found — ROADMAP feature status was not updated"
         return 0
     fi
@@ -482,7 +517,8 @@ handle_roadmap() {
     feature_line=$(head -n "$downstream_line" "$path" | grep -n "^### " | tail -1 | cut -d: -f1) || true
 
     if [[ -z "$feature_line" ]]; then
-        add_step "update_roadmap_feature" "$path" "$found_in" "skipped" \
+        ANY_FAILED=true
+        add_step "update_roadmap_feature" "$path" "$found_in" "failed" \
             "searched $path for a feature whose Downstream: field references plan slug '$plan_slug' (from $found_in), but no matching feature entry was found — ROADMAP feature status was not updated"
         return 0
     fi
@@ -666,12 +702,14 @@ Options:
   --push    Commit and push all staged changes. Without this flag,
             changes are staged but not committed (dry-run-safe).
 
-Output: JSON to stdout describing each step and the overall cascade_status.
+Output: JSON describing each step and the overall cascade_status. It goes to
+stdout for any run that reaches the cascade; a precondition failure puts it on
+stderr instead, and a usage error (this message) emits none at all.
 
 Exit codes:
   0 — cascade ran (completed, partial, or skipped)
-  1 — setup/precondition failure (PLAN missing, path validation, not a git
-      repo, or shirabe binary unresolvable)
+  1 — usage error, or a setup/precondition failure (PLAN missing, path
+      validation, not a git repo, or shirabe binary unresolvable)
 EOF
     exit 1
 }
@@ -881,9 +919,10 @@ if [[ "$FINALIZE_RC" -eq 0 ]]; then
                 add_step "transition_brief" "$target" "$prev_path" "ok" "$note"
                 ;;
             roadmap_handoff)
-                # Defer the roadmap handler until after the design path is known
-                # (it is — the design precedes the roadmap in the chain). Run it
-                # now: CASCADE_DESIGN_PATH is set from any earlier design node.
+                # Record the node and run the handler AFTER the loop, not here.
+                # It needs CASCADE_DESIGN_PATH, which an earlier design node in
+                # this same loop sets; deferring past the loop is what makes the
+                # ordering safe no matter how the report is shaped.
                 ROADMAP_PATH="$target"
                 ROADMAP_FOUND_IN="$prev_path"
                 ;;
@@ -943,6 +982,23 @@ log_info "Deleting PLAN doc: $PLAN_DOC"
 # exists only in the commit that also deletes the file.
 if git rm -f "$PLAN_DOC" > /dev/null 2>&1; then
     add_step "delete_plan" "$PLAN_DOC" "null" "ok" ""
+    # The deletion is part of the finalization commit like every other staged
+    # path, and the commit block below is gated on STAGED_FILES being non-empty.
+    # Without this append a chain whose only action is the PLAN deletion stages
+    # the removal under --push and never commits it.
+    #
+    # Only on a run that has not failed, and that condition is load-bearing.
+    # `git commit` publishes the INDEX, not this array; the array only decides
+    # whether the commit happens at all. A chain walk that refused partway has
+    # already left its own half-applied work staged, and on that path nothing
+    # else reaches this array -- so an ungated append would let the PLAN
+    # deletion alone open the commit and publish that.
+    # scenario_refused_walk_publishes_nothing in run-cascade_test.sh has the
+    # full shape, what gets published without the gate, and the one refusal
+    # shape the gate does not cover.
+    if [[ "$ANY_FAILED" == "false" ]]; then
+        STAGED_FILES+=("$PLAN_DOC")
+    fi
 else
     ANY_FAILED=true
     add_step "delete_plan" "$PLAN_DOC" "null" "failed" \
@@ -953,11 +1009,55 @@ fi
 
 if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Committing and pushing staged changes"
-    # -q keeps git's commit summary off stdout. This script's contract is a JSON
-    # report on stdout, and without -q the summary lands ahead of emit_result, so
-    # a --push run's output does not parse as JSON at all.
-    git commit -q -m "chore(cascade): post-implementation artifact transitions"
-    git push
+    # Both calls are captured rather than left to run on the script's own
+    # streams, and both are guarded.
+    #
+    # The capture matters for `git commit`: `-q` silences its success summary
+    # but not the "nothing to commit, working tree clean" message, which goes to
+    # STDOUT and exits 1. Uncaptured, that would land ahead of emit_result and
+    # the run's output would not parse as JSON at all -- so the capture, not
+    # `-q`, is what actually holds the contract for this call. `git push` writes
+    # to stderr in every case measured, success and failure alike, so for it the
+    # capture is about getting the failure text into the step's detail rather
+    # than about protecting stdout. Both commands' output is logged below on the
+    # success arm too, so capturing it hides nothing an operator could see
+    # before.
+    #
+    # The guard is the other half — under `set -euo pipefail` with no trap an
+    # unguarded failure kills the script before emit_result and the caller gets
+    # git's own exit status with nothing to parse (128 for the rejected push
+    # that prompted this, 1 for a refused commit). A publish failure is neither a setup nor a
+    # precondition failure, so it belongs in the report as a failed step and a
+    # `partial` verdict, not in the exit code.
+    #
+    # `if ! var=$(cmd)` is exempt from `set -e`, and the assignment is at top
+    # level rather than in a function, so there is no `local` to mask the status.
+    #
+    # The `${git_out:-...}` fallbacks matter because git can fail silently: a
+    # pre-commit hook that exits 1 without printing leaves nothing captured, and
+    # the step's detail is the field execute.md sends the agent to read.
+    if ! git_out=$(git commit -q -m "chore(cascade): post-implementation artifact transitions" 2>&1); then
+        ANY_FAILED=true
+        log_warn "the finalization was not published; the transitions remain staged"
+        log_warn "git commit failed: $git_out"
+        add_step "commit" "null" "null" "failed" \
+            "the finalization commit did not land: $(printf '%s' "${git_out:-git printed no diagnostic; a pre-commit hook may have refused silently}" | tr '\n' ' ')"
+    else
+        COMMIT_LANDED=true
+        if [[ -n "$git_out" ]]; then log_info "git commit: $git_out"; fi
+        add_step "commit" "null" "null" "ok" ""
+        # Only attempted once the commit landed; there is nothing to publish
+        # otherwise, and a push here would report on whatever HEAD already was.
+        if ! git_out=$(git push 2>&1); then
+            ANY_FAILED=true
+            log_warn "git push failed: $git_out"
+            add_step "push" "null" "null" "failed" \
+                "the finalization commit landed locally but was not pushed: $(printf '%s' "${git_out:-git printed no diagnostic}" | tr '\n' ' ')"
+        else
+            if [[ -n "$git_out" ]]; then log_info "git push: $git_out"; fi
+            add_step "push" "null" "null" "ok" ""
+        fi
+    fi
 elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Staged (dry run — pass --push to commit):"
     for f in "${STAGED_FILES[@]}"; do
@@ -975,9 +1075,22 @@ fi
 #
 # In dry-run mode (PUSH=false), the transitions are staged but not
 # committed, so the chain has not actually finalized — skip the
-# verification.
+# verification. A --push run whose commit failed leaves the tree in exactly
+# that state, so it takes the same answer, recorded as a skipped step rather
+# than silently omitted. That is why the gate reads COMMIT_LANDED rather than
+# the commit block's own condition: a `lifecycle_post_verify` at ok is an
+# attestation that the chain reached its ready posture, and with no commit in
+# history the state it approved is gone at the next checkout.
+#
+# A failed PUSH is a different fact and does not suppress the verification: the
+# commit landed, so the chain IS finalized in local history and the check is
+# meaningful. Only publication failed, and the push step already records that.
+#
+# COMMIT_LANDED is true only inside the --push branch above, which itself
+# required a non-empty STAGED_FILES, so this gate implies both of the conditions
+# it replaced.
 
-if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
+if [[ "$COMMIT_LANDED" == "true" ]]; then
     if POST_VERIFY_ANCHOR=$(resolve_anchor); then
         if ! lifecycle_probe "post" "$POST_VERIFY_ANCHOR"; then
             ANY_FAILED=true
@@ -987,22 +1100,39 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
             add_step "lifecycle_post_verify" "$POST_VERIFY_ANCHOR" "null" "ok" "$L06_SUPPRESSED_DETAIL"
         fi
     else
-        # Nothing the cascade recorded survived its own commit. That is a chain
-        # /scope folded all the way down, not a failure: every path that did not
-        # finalize either set ANY_FAILED before this block or left STAGED_FILES
-        # empty, in which case this block never runs at all. ANY_FAILED is left
-        # alone, so a run that already failed still reports partial.
+        # Nothing the cascade recorded survived its own commit. Two shapes do
+        # that, and neither is itself a failure: a chain whose only upstream was
+        # a ROADMAP the deletion branch removed (Scenario 17), and a PLAN with no
+        # resolvable upstream whose only staged path is its own deletion
+        # (Scenario 24). Both put a path in the record and then delete it, so the
+        # commit happens and nothing is left to anchor on.
+        #
+        # ANY_FAILED is deliberately untouched: a run that failed for some other
+        # reason still reports partial, and a clean one-node run still reports
+        # skipped.
         add_step "lifecycle_post_verify" "null" "null" "skipped" \
             "no recorded chain document survived to verify against${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     fi
+elif [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
+    # Deliberately the commit block's own gate, repeated: reaching this arm means
+    # that block RAN and its commit did not land, which is a different fact from
+    # never having tried. A run that never reached the commit block records no
+    # verification step at all, because there was no finalization to verify.
+    # ANY_FAILED is already true from the failed commit step, so this arm only
+    # records that nothing was verified and why.
+    add_step "lifecycle_post_verify" "null" "null" "skipped" \
+        "the finalization commit did not land, so the chain was not verified${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
 fi
 
 # ── Emit result ────────────────────────────────────────────────────────────────
 #
 # cascade_status:
 #   skipped   — the PLAN had no upstream chain (only the delete step ran)
-#   partial   — a node failed (finalize-chain refused, an error node, or git rm
-#               failed); the cascade still RAN, so the script exits 0
+#   partial   — something failed: finalize-chain refused, an error node, git rm
+#               failed, the finalization commit or push failed, or the
+#               post-cascade verification failed. The cascade still RAN, so the
+#               script exits 0 -- a publish failure is neither a setup nor a
+#               precondition failure and does not belong in the exit code.
 #   completed — every node transitioned cleanly
 # The script exits 0 whenever the cascade ran; exit 1 is reserved for the
 # setup/precondition failures handled above (before this point).
