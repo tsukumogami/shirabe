@@ -18,8 +18,8 @@ absorbed:
   - docs/briefs/BRIEF-work-on-standalone-completeness.md
 source_issue: 361
 motivating_context: |
-  Three dispatched worker sessions ran the single-issue skill standalone on
-  2026-09-12 and 2026-09-13. Each ended looking complete and was not. The
+  The single-issue skill was run standalone three separate times on
+  2026-09-12 and 2026-09-13. Each run ended looking complete and was not. The
   tracking issue attributed this to five capabilities living in the wrong
   skill; an exploration established from the code that two of those five are
   not gaps at all, which is why this PRD's requirements are narrower and
@@ -62,7 +62,7 @@ fossils from the earlier split, and merging the pull request itself.
 
 A `/work-on` run invoked on a single issue opens a pull request and stops
 there. What it leaves behind looks finished and is not, so the person or
-session supervising it has to know the remaining steps and supply them. That
+person overseeing it has to know the remaining steps and supply them. That
 cost was paid three times in two days across three separate repositories: one
 run had to be told to open its pull request at all, to put the closing keyword
 in the body, and to watch CI; another had to be told that its document chain

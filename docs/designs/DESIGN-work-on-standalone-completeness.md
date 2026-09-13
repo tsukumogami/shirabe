@@ -36,8 +36,8 @@ Planned
 ## Context and Problem Statement
 
 `/work-on` invoked on one issue runs the work, opens a pull request, watches CI
-and stops. What it leaves looks finished and is not, and three dispatched worker
-sessions each needed a supervising session to supply the remainder by hand.
+and stops. What it leaves looks finished and is not, and in three separate
+runs someone had to supply the remaining steps by hand.
 
 The accepted PRD establishes that this is two defects rather than one, and that
 the tracking issue's original account is wrong about which.
@@ -53,31 +53,30 @@ directives cite the reference files that carry them, so a run receives the
 instruction; all three field runs received it and skipped it. What is missing is
 anything that catches the omission.
 
-A fourth run, observed live while this design was being written, corroborates
-the enforcement diagnosis from an angle the three earlier ones did not. A worker
-in another repository ran the tactical chain to completion — brief, PRD, design,
-plan, the fold verdict, the full-run exit, exit artifacts and cleanup — and then
-implemented the resulting plan's nine issues **by hand**, in dependency order,
-one commit per unit, invoking neither entry point. Its own account of why:
-implementation is not a hop it tracks. The supervising session then had to supply
-pull-request conventions, board completeness checking and per-step verification
-by hand, which is the same cost the three earlier runs imposed.
+A fourth case corroborates the enforcement diagnosis from a different angle,
+and is tracked as tsukumogami/shirabe#364. An agent ran the tactical chain to
+completion — brief, PRD, design, plan, the fold verdict, the full-run exit and
+cleanup — and then implemented the resulting plan's nine issues by hand, in
+dependency order, one commit per unit, invoking neither entry point. Nothing in
+the chain named what should pick up the finished plan. The pull-request
+conventions, completeness checking and per-step verification that `/execute`
+would have applied were supplied by hand instead, which is the same cost the
+three earlier runs imposed.
 
-Two things about that evidence are worth stating precisely, because it is
-tempting to make it carry more than it does. Part of the cause was a
-coordination gap rather than a skill gap: the brief that dispatched that worker
-named its entry point and never said what should pick up the finished plan. And
-what it demonstrates is that **the handoff at chain exit is undefined** — a
-completed plan sits with no driver attached, and a competent agent's fallback is
-to hand-run it without any of the finishing discipline this feature is about.
-That is a real defect and it is **not** one this design addresses; it is not in
-the accepted PRD's scope, and it argues for specifying the handoff rather than
-for any of the directions this feature chose between. It belongs in its own
-issue.
+Two things about that case are worth stating precisely, because it is tempting
+to make it carry more than it does. Part of the cause was in how the work was
+set up rather than in either skill: its instructions named an entry point and
+never said what should pick up the finished plan. And what it demonstrates is
+that **the handoff at chain exit is undefined** — a completed plan sits with no
+driver attached, and a competent agent's fallback is to hand-run it without any
+of the finishing discipline this feature is about. That is a real defect and it
+is **not** one this design addresses; it is outside the accepted PRD's scope,
+and it argues for specifying the handoff rather than for any of the directions
+this feature chose between. It is tracked separately in shirabe#364.
 
 What it does corroborate is the diagnosis underneath this feature: when the
 finishing discipline is not enforced where the work happens, capable agents
-reconstruct it by hand or skip it, and the cost lands on whoever is supervising.
+reconstruct it by hand or skip it, and the cost lands on whoever is overseeing the run.
 
 Two constraints decide where any fix may be written.
 
@@ -652,9 +651,9 @@ than left implicit:
   This design's evidence definition is written so that neither affects whether
   its own criteria hold.
 - The undefined handoff at chain exit — a completed plan with no driver
-  attached, evidenced by the fourth run described in the problem statement.
-  Outside the accepted PRD's scope, and it argues for specifying the handoff
-  rather than for anything this design chose. Proposed for its own issue.
+  attached (tsukumogami/shirabe#364). Outside the accepted PRD's scope, and it
+  argues for specifying the handoff rather than for anything this design
+  chose.
 - The finished-versus-resumable signal for retained sessions, which the
   terminal-record fix owns. This design commits to consuming it, not to its
   shape.
