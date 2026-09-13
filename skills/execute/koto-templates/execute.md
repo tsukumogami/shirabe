@@ -14,11 +14,27 @@
 # converge permanently. scripts/terminal-retention_test.sh asserts the premise
 # and goes red if it stops holding.
 #
-# A terminal-reaching koto next added here MUST carry the flag. The two in
-# spawn_and_await do not, because they route to pr_finalization or escalate and
-# both of those states accept evidence, so neither tick can chain into a
-# terminal. This note is a YAML comment so it reaches a template editor without
-# being rendered into any state's directive.
+# EVERY koto next in this template carries the flag, including the two in
+# spawn_and_await, and the reason is worth stating because an earlier version of
+# this note got it wrong and the mistake shipped.
+#
+# A tick does not stop at the state it routes to. koto keeps advancing while the
+# next transition needs no evidence to choose it, and what decides that is the
+# TRANSITION's `when`, not whether the state declares `accepts`. `escalate`
+# declares a required failure_reason and still has a single unconditional
+# transition to done_blocked, so submitting batch_outcome: needs_attention at
+# spawn_and_await chains spawn_and_await -> escalate -> done_blocked inside one
+# invocation. Bare, that tick returns action: "done" and deletes the session --
+# destroying the record of the batch that FAILED, which is the case #360 exists
+# for. Measured, both directions.
+#
+# So the rule for anyone editing this file: a koto next here carries the flag
+# unless you have checked that every state reachable from it without further
+# evidence is non-terminal. scripts/terminal-retention_test.sh pins the count and
+# the chain, so removing the flag fails rather than silently regressing.
+#
+# This note is a YAML comment so it reaches a template editor without being
+# rendered into any state's directive.
 name: execute
 version: "1.0"
 description: >
@@ -625,7 +641,7 @@ TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
-koto next {{SESSION_NAME}} --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
@@ -647,7 +663,7 @@ TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.S
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
-koto next {{SESSION_NAME}} --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 

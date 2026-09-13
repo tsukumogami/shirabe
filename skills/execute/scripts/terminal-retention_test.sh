@@ -104,19 +104,28 @@ else
     fail "execute.md has no frontmatter note explaining the retention rule to a template editor"
 fi
 
-# That note's central rule -- a terminal-reaching `koto next` added here must
-# carry the flag -- is worth enforcing rather than merely stating. Today the
-# only two command lines in this template are spawn_and_await's, which route to
-# pr_finalization and escalate, both of which accept evidence, so neither tick
-# can reach a terminal and neither carries the flag. Any THIRD command line is a
-# new tick nobody has classified: this fails until someone either adds the flag
-# or records why the new call cannot terminate.
+# Every koto next command line in this template must carry the flag. An earlier
+# version of this suite asserted the opposite for spawn_and_await's two ticks, on
+# the false premise that a state declaring `accepts` cannot be chained through.
 TEMPLATE_TICKS=$(grep -c '^koto next ' "$TEMPLATE" 2>/dev/null)
 TEMPLATE_TICKS_FLAGGED=$(grep '^koto next ' "$TEMPLATE" 2>/dev/null | grep -c -- '--no-cleanup')
-if [ "$TEMPLATE_TICKS" -eq 2 ] && [ "$TEMPLATE_TICKS_FLAGGED" -eq 0 ]; then
-    pass "execute.md's two koto next command lines are the known non-terminal pair in spawn_and_await"
+if [ "$TEMPLATE_TICKS" -gt 0 ] && [ "$TEMPLATE_TICKS" -eq "$TEMPLATE_TICKS_FLAGGED" ]; then
+    pass "every koto next command line in execute.md carries --no-cleanup ($TEMPLATE_TICKS of $TEMPLATE_TICKS)"
 else
-    fail "execute.md's koto next command lines changed ($TEMPLATE_TICKS lines, $TEMPLATE_TICKS_FLAGGED flagged; expected 2 and 0). A tick that can reach a terminal must carry --no-cleanup; if this one cannot, say why in the frontmatter note and update this count."
+    fail "execute.md has $TEMPLATE_TICKS koto next command lines but only $TEMPLATE_TICKS_FLAGGED carry --no-cleanup. A tick keeps advancing while the next transition needs no evidence, so a tick that looks non-terminal can still chain into one."
+fi
+
+# The mechanism behind that rule, pinned so nobody reinstates the carve-out on
+# the reasoning that was wrong the first time: a state can declare required
+# evidence AND still be chained straight through, because what stops a tick is a
+# `when` on the transition, not `accepts` on the state.
+ESCALATE_BLOCK=$(sed -n '/^  escalate:/,/^  [a-z_]*:$/p' "$TEMPLATE")
+if printf '%s' "$ESCALATE_BLOCK" | grep -q 'accepts:' \
+   && printf '%s' "$ESCALATE_BLOCK" | grep -q 'target: done_blocked' \
+   && ! printf '%s' "$ESCALATE_BLOCK" | grep -q 'when:'; then
+    pass "escalate still declares accepts and reaches done_blocked unconditionally -- the shape that chains, which is why spawn_and_await's ticks are flagged"
+else
+    fail "escalate's shape changed. Re-derive whether spawn_and_await's ticks can still chain into a terminal before trusting the flag count above; do NOT conclude from 'it accepts evidence' that it cannot."
 fi
 
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
@@ -267,6 +276,82 @@ if grep -q 'is_terminal' "$SKILL_MD"; then
     pass "SKILL.md's Resume step reads is_terminal (grep, not an executed agent run)"
 else
     fail "SKILL.md no longer reads is_terminal on re-entry -- the Resume guard has been dropped"
+fi
+
+# --- the chain is real, not just a shape in the template --------------------
+#
+# escalate's shape asserted above is only worth asserting if that shape actually
+# chains. This drives koto with a minimal template of exactly that shape -- a
+# state declaring required evidence whose single transition to a failure
+# terminal carries no `when` -- and shows one bare tick two states upstream
+# landing on the terminal and taking the record with it. A stand-in rather than
+# execute.md because reaching spawn_and_await for real means satisfying the
+# settled-branch capture and materializing children, none of which is what this
+# case is about.
+
+cat > "$WORKDIR/chain.md" <<'CHAIN_EOF'
+---
+name: retention-chain-probe
+version: "1.0"
+description: A state with required evidence and one unconditional edge to a terminal.
+initial_state: start
+states:
+  start:
+    accepts:
+      outcome:
+        type: enum
+        values: [ok, bad]
+        required: true
+    transitions:
+      - target: middle
+        when:
+          outcome: bad
+      - target: finished_ok
+        when:
+          outcome: ok
+  middle:
+    accepts:
+      reason:
+        type: string
+        required: true
+    transitions:
+      - target: dead_end
+  dead_end:
+    terminal: true
+    failure: true
+  finished_ok:
+    terminal: true
+---
+
+## start
+Submit outcome.
+
+## middle
+Submit reason.
+
+## dead_end
+Terminal.
+
+## finished_ok
+Terminal.
+CHAIN_EOF
+
+koto init chain_bare --template "$WORKDIR/chain.md" >/dev/null 2>&1
+printf 'the orchestrator record\n' | koto context add chain_bare summary.md >/dev/null 2>&1
+koto next chain_bare --with-data '{"outcome":"bad"}' >/dev/null 2>&1
+if koto context get chain_bare summary.md >/dev/null 2>&1; then
+    fail "a bare tick did not chain through the accepts-declaring state -- re-check whether spawn_and_await's ticks still need the flag"
+else
+    pass "a bare tick chains through a state that declares required evidence and destroys the record (the defect the flag closes)"
+fi
+
+koto init chain_flagged --template "$WORKDIR/chain.md" >/dev/null 2>&1
+printf 'the orchestrator record\n' | koto context add chain_flagged summary.md >/dev/null 2>&1
+koto next chain_flagged --with-data '{"outcome":"bad"}' --no-cleanup >/dev/null 2>&1
+if [ "$(koto context get chain_flagged summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+    pass "the same chained tick carrying --no-cleanup keeps the record"
+else
+    fail "the chained tick lost the record even with --no-cleanup"
 fi
 
 echo
