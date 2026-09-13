@@ -3,7 +3,7 @@
 Detect upstream main movement before dispatching the next child workflow and
 classify whether the movement invalidates the PLAN's intent. This phase runs
 inside the `worktree_discipline_check` koto state defined in
-`skills/work-on/koto-templates/work-on-plan.md`.
+`skills/execute/koto-templates/execute.md`.
 
 ## When This Phase Runs
 

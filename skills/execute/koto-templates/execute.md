@@ -704,7 +704,7 @@ On a resume of a paused run, `/execute` re-enters with `PAUSE_BEFORE_FINALIZE=fa
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Read `references/phases/phase-6-pr.md` for CI monitoring guidance.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-6-pr.md` for CI monitoring guidance.
 
 If the gate fails (CI not yet green), fix what you can and submit `ci_outcome: failing_fixed`.
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.

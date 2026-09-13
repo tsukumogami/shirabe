@@ -202,13 +202,18 @@ orchestrator_reachable() { # $1 candidate -> 0 if the walk may enter it
 WALK_QUEUE="skills/execute/koto-templates/execute.md skills/execute/SKILL.md"
 WALK_SEEN=""
 WALK_UNRESOLVED=""
+WALK_SHARED=" "
 while [ -n "$WALK_QUEUE" ]; do
     set -- $WALK_QUEUE; cur="$1"; shift; WALK_QUEUE="$*"
     case " $WALK_SEEN " in *" $cur "*) continue ;; esac
     WALK_SEEN="$WALK_SEEN $cur"
     for c in $(raw_cites "$REPO_ROOT/$cur"); do
         r=$(resolve "$c" "$cur")
-        if [ -z "$r" ]; then WALK_UNRESOLVED="$WALK_UNRESOLVED $c"; continue; fi
+        if [ -z "$r" ]; then WALK_UNRESOLVED="$WALK_UNRESOLVED
+  $cur -> $c"; continue; fi
+        # A file the orchestrator is sent to that is ALSO one of the child's phase
+        # files has two readers with opposite needs. Record it; it is checked below.
+        case "$CHILD_PHASES" in *" $r "*) WALK_SHARED="$WALK_SHARED$r " ;; esac
         orchestrator_reachable "$r" && WALK_QUEUE="$WALK_QUEUE $r"
     done
 done
@@ -234,7 +239,35 @@ case " $WALK_SEEN " in
         pass "the walk reaches phase-2.5, the orchestrator-only /work-on file" ;;
     *)  fail "the walk no longer reaches phase-2.5 -- citation resolution changed and the scan has shrunk" ;;
 esac
-[ -n "$WALK_UNRESOLVED" ] && echo "  note: citations not followed (resolve to no file):$WALK_UNRESOLVED"
+# An unresolved citation fails rather than being noted. A file the orchestrator
+# is told to read that the walk cannot find is a file it cannot scan -- exactly
+# the hole this whole scan exists to close. The case that proved it: execute.md
+# cited /work-on's phase-6-pr.md by a path relative to /work-on, inherited when
+# the orchestrator was lifted out of it, so the orchestrator was sent to a file
+# nothing checked.
+if [ -z "$WALK_UNRESOLVED" ]; then
+    pass "every citation in the orchestrator's files resolves, so nothing it is sent to escapes the scan"
+else
+    fail "a file the orchestrator reads cites a path that resolves to no file, so the scan cannot see it (write it repo-rooted):$WALK_UNRESOLVED"
+fi
+
+# A file read by BOTH the orchestrator and a child cannot carry a tick at all:
+# the orchestrator would need it flagged and a child needs it bare, and no one
+# line can be both. Resolving that by judgement fails the next person to add a
+# tick there, who will not know the file has two readers -- so it is a check.
+SHARED_TICKS=""
+for f in $WALK_SHARED; do
+    t=$(fenced_ticks "$REPO_ROOT/$f")
+    [ -n "$t" ] && SHARED_TICKS="$SHARED_TICKS
+$f:
+$t"
+done
+SHARED_COUNT=$(echo $WALK_SHARED | wc -w | tr -d ' ')
+if [ -z "$SHARED_TICKS" ]; then
+    pass "the $SHARED_COUNT file(s) read by both the orchestrator and a child carry no koto next tick"
+else
+    fail "a file read by both the orchestrator and a child carries a koto next tick, which cannot be right for both (flagged for the orchestrator, bare for a child). Move the command into a file only one of them reads:$SHARED_TICKS"
+fi
 
 # The mechanism behind that rule, pinned so nobody reinstates the carve-out on
 # the reasoning that was wrong the first time: a state halts an auto-advance
