@@ -82,12 +82,22 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 # which is consumed per-run, and these cases keep a later edit from relocating
 # it.
 
-# A leading-`#` line is excluded: the frontmatter note that tells a template
-# editor WHY the flag must not be here has to be able to name it. koto renders
-# state prose into directives but never the YAML comments, so a `#` line cannot
-# reach a child. Anything else mentioning the flag is treated as a call site.
+# The frontmatter note that tells a template editor WHY the flag must not be
+# here has to be able to name it, so YAML comments are excluded -- but ONLY
+# inside the frontmatter. A `#`-leading line in the markdown body is not a
+# comment at all: koto renders body prose into the state's directive verbatim,
+# so a child would read it. Scoping the exclusion by position rather than by the
+# `#` alone is what keeps that distinction; an earlier file-wide version of this
+# grep would have let a body line through.
 template_flag_sites() {
-    grep -n -- '--no-cleanup' "$1" 2>/dev/null | grep -v '^[0-9]*: *#'
+    awk '
+        NR == 1 && $0 == "---" { in_fm = 1; next }
+        in_fm && $0 == "---"   { in_fm = 0; next }
+        /--no-cleanup/ {
+            if (in_fm && $0 ~ /^[[:space:]]*#/) next
+            printf "%d: %s\n", NR, $0
+        }
+    ' "$1" 2>/dev/null
 }
 
 if [ -n "$(template_flag_sites "$TEMPLATE")" ]; then
@@ -97,7 +107,9 @@ else
     pass "work-on.md carries no --no-cleanup call site, so a child cannot pick it up from the template"
 fi
 
-PHASE_HITS=$(grep -rn -- '--no-cleanup' "$PHASES" 2>/dev/null | grep -v ': *#')
+# Phase files have no frontmatter, so every line of them is prose a child can be
+# sent to read. No comment exclusion applies here at all.
+PHASE_HITS=$(grep -rn -- '--no-cleanup' "$PHASES" 2>/dev/null)
 if [ -n "$PHASE_HITS" ]; then
     fail "a references/phases file carries --no-cleanup; children read these too:
 $PHASE_HITS"

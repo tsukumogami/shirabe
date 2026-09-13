@@ -116,9 +116,10 @@ else
 fi
 
 # The mechanism behind that rule, pinned so nobody reinstates the carve-out on
-# the reasoning that was wrong the first time: a state can declare required
-# evidence AND still be chained straight through, because what stops a tick is a
-# `when` on the transition, not `accepts` on the state.
+# the reasoning that was wrong the first time: a state halts an auto-advance
+# chain only if it declares at least one CONDITIONAL transition. Declaring
+# `accepts` halts nothing, so a state can require evidence and still be chained
+# straight through to a terminal.
 ESCALATE_BLOCK=$(sed -n '/^  escalate:/,/^  [a-z_]*:$/p' "$TEMPLATE")
 if printf '%s' "$ESCALATE_BLOCK" | grep -q 'accepts:' \
    && printf '%s' "$ESCALATE_BLOCK" | grep -q 'target: done_blocked' \

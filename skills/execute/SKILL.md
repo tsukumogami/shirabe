@@ -253,14 +253,14 @@ does, because on a child the flag also suppresses the events a parent's
 carved out the two `koto next` lines in that state on the grounds that they tick
 toward `pr_finalization` or `escalate` rather than to a terminal. That was wrong,
 and wrong in the case the retention exists for. A tick does not stop at the state
-it routes to: koto keeps advancing while the next transition needs no evidence to
-choose it, and what decides that is the transition's `when`, not whether the state
-declares `accepts`. `escalate` declares a required `failure_reason` and still has
-a single unconditional transition to `done_blocked`, so submitting
+it routes to. koto keeps auto-advancing, and a state halts the chain only if it
+declares **at least one conditional transition**; a state whose transitions are
+all unconditional fires straight through. Declaring `accepts` halts nothing.
+`escalate` is the second shape — a required `failure_reason` and one
+unconditional edge to `done_blocked` — so submitting
 `batch_outcome: needs_attention` chains `spawn_and_await` → `escalate` →
 `done_blocked` in one invocation. Bare, that call returns `action: "done"` and
-deletes the session — destroying the record of the batch that failed, which is
-exactly the run whose record anyone would want.
+deletes the session, destroying the record of the batch that failed.
 
 **This does not extend to the children.** A per-issue `/work-on` child must not
 carry the flag — on a child it also suppresses the `request_store.result` and

@@ -18,15 +18,32 @@
 # spawn_and_await, and the reason is worth stating because an earlier version of
 # this note got it wrong and the mistake shipped.
 #
-# A tick does not stop at the state it routes to. koto keeps advancing while the
-# next transition needs no evidence to choose it, and what decides that is the
-# TRANSITION's `when`, not whether the state declares `accepts`. `escalate`
-# declares a required failure_reason and still has a single unconditional
-# transition to done_blocked, so submitting batch_outcome: needs_attention at
-# spawn_and_await chains spawn_and_await -> escalate -> done_blocked inside one
-# invocation. Bare, that tick returns action: "done" and deletes the session --
-# destroying the record of the batch that FAILED, which is the case #360 exists
-# for. Measured, both directions.
+# A tick does not stop at the state it routes to. koto keeps auto-advancing, and
+# a state halts the chain only if it declares AT LEAST ONE CONDITIONAL
+# transition; a state whose transitions are all unconditional fires straight
+# through. Declaring `accepts` halts nothing.
+#
+# Check that rather than trusting it. Two templates, identical but for the
+# middle state's transitions, each ticked once from two states upstream:
+#
+#   middle: accepts {reason, required}          -> action "done", landed on the
+#           transitions: [ -> dead_end ]           terminal, context DESTROYED
+#
+#   middle: accepts {reason, required}          -> action "evidence_required",
+#           transitions: [ -> other when ...,      stopped AT middle,
+#                          -> dead_end ]           context intact
+#
+# The required evidence block is identical in both; only the conditional
+# transition differs. koto says the same at engine/advance.rs:571-575 -- fresh
+# evidence is re-granted to a state with no conditional transitions, so its
+# unconditional fallback fires during the same invocation.
+#
+# `escalate` is the first shape: a required failure_reason and one unconditional
+# edge to done_blocked, no `when` anywhere. So submitting batch_outcome:
+# needs_attention at spawn_and_await chains spawn_and_await -> escalate ->
+# done_blocked inside one invocation. Bare, that tick returns action: "done" and
+# deletes the session -- destroying the record of the batch that FAILED, which is
+# the case #360 exists for.
 #
 # So the rule for anyone editing this file: a koto next here carries the flag
 # unless you have checked that every state reachable from it without further
