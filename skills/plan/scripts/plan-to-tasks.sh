@@ -379,7 +379,7 @@ process_multi_pr() {
 
 # Resolve the shirabe binary that owns the `## Issue Outlines` parse.
 #
-# Precedence, matching skills/execute/scripts/run-cascade.sh so one behavior
+# Precedence, matching skills/work-on/scripts/run-cascade.sh so one behavior
 # covers both scripts:
 #   1. $SHIRABE_BIN if set and executable (the test harness injects a build)
 #   2. `shirabe` on PATH (the plugin-installed binary)

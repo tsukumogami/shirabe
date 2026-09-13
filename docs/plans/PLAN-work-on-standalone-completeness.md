@@ -124,8 +124,16 @@ invocation, and add a fail-closed existence assertion on the relocated path.
       mutates anything**, so an unresolved `${CLAUDE_PLUGIN_ROOT}` fails early
       rather than mid-cascade. Verified by pointing it at a tree without the
       script and observing the failure precedes any transition.
-- [ ] `skills/work-on/` contains no reference to any path under
-      `skills/execute/`.
+- [ ] Nothing `/work-on` executes — its template, its gates, or its non-test
+      scripts — invokes or sources a path under `skills/execute/`. This is R5a's
+      actual requirement, that the single-issue skill not *depend* on the plan
+      entry point. An earlier version of this criterion said "contains no
+      reference to any path under `skills/execute/`", which is broader than R5a
+      and cannot be met in this pull request: `SKILL.md` names where the
+      plan-level orchestrator lives, which is documentation rather than a
+      dependency, and two eval prompts point at a multi-pr fixture under
+      `skills/execute/evals/`, which belongs to the migration's scope. Neither is
+      a runtime dependency.
 - [ ] Both skills' `requires.tsv` reflect the move.
 
 **Dependencies**: None

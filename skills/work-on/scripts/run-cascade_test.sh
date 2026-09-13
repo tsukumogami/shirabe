@@ -22,7 +22,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CASCADE_SCRIPT="$SCRIPT_DIR/run-cascade.sh"
 
 # Repo root (the shirabe checkout) — used to locate the cargo workspace and the
-# built release binary. run-cascade_test.sh lives at skills/execute/scripts/.
+# built release binary. run-cascade_test.sh lives at skills/work-on/scripts/.
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 
 # Path to the REAL shirabe binary the cascade calls for finalize-chain and

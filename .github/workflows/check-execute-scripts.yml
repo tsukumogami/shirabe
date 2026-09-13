@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'skills/execute/scripts/**'
+      # The cascade script and its test moved under /work-on, which /execute
+      # reaches over a cross-skill path. This suite still runs them because it
+      # carries the Rust toolchain run-cascade_test.sh rebuilds the binary with,
+      # so a change to either file has to re-run it from its new location.
+      - 'skills/work-on/scripts/run-cascade.sh'
+      - 'skills/work-on/scripts/run-cascade_test.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -27,7 +33,7 @@ jobs:
 
       - name: Run cascade tests (Linux)
         if: runner.os == 'Linux'
-        run: bash skills/execute/scripts/run-cascade_test.sh
+        run: bash skills/work-on/scripts/run-cascade_test.sh
 
       - name: Run assert-child-template tests (Linux)
         if: runner.os == 'Linux'

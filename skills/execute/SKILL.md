@@ -254,8 +254,11 @@ now). The states and their tick mechanics:
   present, BRIEF/PRD/DESIGN un-transitioned), hands the DRAFT PR back to the operator
   for review, and is resumed to finalize. Under `--auto` this state is never reached.
 - `plan_completion` — run the finalization cascade
-  (`${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh`, relocated into
-  `/execute` along with its `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch), then
+  (`${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh`, reached over a
+  cross-skill path because the single-issue skill now runs the same cascade for
+  a standalone issue; `/work-on` is the depended-upon component, so the shared
+  script lives there and `/execute` reaches across, the same direction it already
+  reaches `work-on.md`), then
   `gh pr ready`; the cascade runs BEFORE the PR flips ready (DRAFT-before-READY)
   so CI re-runs strict on the now-ready PR against the finalized chain.
 
@@ -783,7 +786,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/assert-child-template.sh` | Step 1 cross-skill child-template assertion |
 | `skills/execute/scripts/record-settled-branch.sh` | `settled_branch_record`'s action: reads, validates and records the settled branch, and prints it for capture |
 | `references/default-action-conversion.md` | the rule deciding which of this skill's steps koto runs and which stay with the agent |
-| `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
+| `skills/work-on/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |
 | `docs/guides/execute-friction.md` | developer-facing guide to the mode-aware branch/PR targeting, the interactive pause vs `--auto` finalizes behavior, and the R5 finalization guard usage |

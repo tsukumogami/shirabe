@@ -31,9 +31,9 @@
 # Usage: cascade-chaining_test.sh
 #
 # Exit codes:
-#   0 — all cases pass
+#   0 — all cases pass, or koto is absent and the test skipped
 #   1 — one or more cases failed
-#   2 — preconditions unmet (koto missing, states not found)
+#   2 — preconditions unmet (states not found in the shipped template)
 
 set -euo pipefail
 
@@ -62,7 +62,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-command -v koto >/dev/null 2>&1 || { echo "koto not on PATH"; exit 2; }
+# Skip cleanly when koto is absent, matching retry-clearing_test.sh. The macOS
+# bash-floor leg has no koto, and this test cannot run without the engine whose
+# chaining it asserts. The Linux CI step is what stops that skip from hiding a
+# koto that vanished: it installs koto first, so a missing engine fails there.
+if ! command -v koto >/dev/null 2>&1; then
+    skip "koto not on PATH; cascade chaining cannot be exercised without the engine"
+    exit 0
+fi
 [[ -f "$TEMPLATE" ]] || { echo "template not found: $TEMPLATE"; exit 2; }
 
 # Extract a state's YAML block from the shipped template's frontmatter.

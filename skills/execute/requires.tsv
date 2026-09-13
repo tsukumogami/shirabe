@@ -8,7 +8,11 @@
 # cross-issue-context path; the settled-branch write pipes on stdin instead and
 # needs no flag.
 #
-# scripts/run-cascade.sh owns the shirabe side. It probes and re-verifies the
+# The completion cascade's script owns the shirabe side. It lives under /work-on
+# (skills/work-on/scripts/run-cascade.sh), which runs it for a standalone issue,
+# and plan_completion reaches it over a cross-skill path; these records stay
+# because /execute still runs it and its preflight must find the tools. It
+# probes and re-verifies the
 # chain with `validate --lifecycle-chain --format json --mode=ready`, adding
 # `--allow-untracked-acs` when WORK_ON_ALLOW_UNTRACKED_ACS=1 suppresses L06;
 # it then runs `finalize-chain` over the PLAN's upstream and falls back to

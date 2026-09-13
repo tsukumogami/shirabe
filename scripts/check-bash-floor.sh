@@ -108,7 +108,7 @@ suite_scripts() {
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
             ;;
         execute)
-            echo "skills/execute/scripts/run-cascade_test.sh"
+            echo "skills/work-on/scripts/run-cascade_test.sh"
             echo "skills/execute/scripts/assert-child-template_test.sh"
             # Skips cleanly when koto is absent, which it is on the macOS
             # runner. It is here for the floor's own sake: a developer running
@@ -123,6 +123,9 @@ suite_scripts() {
             # since a developer running it locally has koto and the cases
             # genuinely execute on 3.2 there.
             echo "skills/work-on/scripts/retry-clearing_test.sh"
+            # Also drives real koto sessions, and skips cleanly without them
+            # for the same reason retry-clearing_test.sh does.
+            echo "skills/work-on/scripts/cascade-chaining_test.sh"
             ;;
         preflight)
             echo "scripts/skill-preflight_test.sh"

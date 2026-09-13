@@ -49,6 +49,18 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/retry-clearing_test.sh
 
+      # Drives one koto tick across the cascade states and asserts what that
+      # single invocation did. koto chains through a state whose transitions are
+      # all unconditional even when it declares required evidence, so a
+      # state-by-state review cannot tell whether cascade_run is safe; only a
+      # driven tick can. The suite's middle case mutates the shipped template to
+      # all-unconditional and asserts the defect is detectable. It skips when
+      # koto is absent, which is why it runs here after the install step rather
+      # than relying on the skip.
+      - name: Run cascade chaining tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/cascade-chaining_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.

@@ -180,7 +180,7 @@ When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), omi
 
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
-The plan-level orchestrator — shared branch and draft PR, child spawning, cross-issue context assembly, escalation, PR finalization, and the completion cascade — now lives in `/execute` (`skills/execute/`). `/work-on` keeps only Plan-Backed Child Mode above, by which `/execute` delegates each single issue back to it.
+The plan-level orchestrator — shared branch and draft PR, child spawning, cross-issue context assembly, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
 
 ---
 

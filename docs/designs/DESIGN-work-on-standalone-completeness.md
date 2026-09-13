@@ -42,7 +42,7 @@ runs someone had to supply the remaining steps by hand.
 The accepted PRD establishes that this is two defects rather than one, and that
 the tracking issue's original account is wrong about which.
 
-**The cascade cannot be entered.** `skills/execute/scripts/run-cascade.sh` takes
+**The cascade cannot be entered.** The cascade script, `run-cascade.sh`, takes
 a plan-shaped document path as its sole positional argument and has no mode that
 accepts no document, so a run whose issue was filed on its own has nothing to
 hand it. The neighbouring case — an anchor that resolves to no upstream chain —

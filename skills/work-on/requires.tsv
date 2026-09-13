@@ -32,6 +32,24 @@
 # mentioned on comment lines that also name `koto context add`. The scan drops
 # `--session` mechanically, because a shell comment is not a command line; the
 # `--pr-body` citation has no mechanical tell and is exempted by name.
+#
+# scripts/run-cascade.sh owns the shirabe side of the completion cascade. It
+# lives here because /work-on runs the cascade for a standalone issue in its
+# cascade_run state, and /execute, which runs it in plan_completion, reaches it
+# over a cross-skill path. It probes and re-verifies the chain with
+# `validate --lifecycle-chain --format json --mode=ready`, adding
+# `--allow-untracked-acs` when WORK_ON_ALLOW_UNTRACKED_ACS=1 suppresses L06; it
+# then runs `finalize-chain` over the PLAN's upstream and falls back to
+# `transition <plan> Done`. python3 is its portable realpath. /execute declares
+# the same records, because it runs the same script and its preflight has to
+# find the same tools.
+#
+# The scan cannot confirm these from the script's text: run-cascade.sh invokes
+# the binary as "$SHIRABE_BIN" rather than as a literal `shirabe`, so a
+# line-level extractor never sees the call. These records are therefore the
+# description of a call the scan is blind to, which is exactly the omission the
+# tool-declaration policy says a declaration cannot catch on its own. Keep them
+# in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 koto	init	--template,--var	always
 koto	next	--with-data	always
@@ -40,6 +58,10 @@ koto	rewind	-	always
 koto	context add	--from-file	always
 koto	context get	-	always
 koto	decisions record	--with-data	always
+shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs	always
+shirabe	finalize-chain	-	always
+shirabe	transition	-	always
 gh	-	-	always
 git	-	-	always
 jq	-	-	always
+python3	-	-	always
