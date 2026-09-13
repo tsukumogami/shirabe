@@ -799,7 +799,7 @@ states:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
-      - target: done
+      - target: cascade_entry
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
@@ -816,6 +816,86 @@ states:
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
       - target: done
+
+  cascade_entry:
+    # Decides whether this run has a document chain to finalize, and routes past
+    # the cascade entirely when it does not. Both edges fire with NO evidence:
+    # an ordinary bug fix with nothing behind it must never learn that a cascade
+    # step exists (PRD R3).
+    #
+    # The `accepts:` block below is load-bearing despite every field being
+    # optional, and removing it breaks R3 rather than tidying the state. A
+    # failed gate on a state with NO accepts block returns GateBlocked; with one,
+    # it falls through to transition resolution, which is what lets the
+    # no-anchor edge fire silently. The rule is stated in execute.md's
+    # settled_branch_record (:87-91), which also carries the warning repeated
+    # here:
+    #
+    #   BOTH transitions must name the gate in their `when:` clause. A gate not
+    #   referenced by any transition is evaluated, reported, and ignored -- an
+    #   anchor check that runs and decides nothing.
+    #
+    # The gate's search pattern MUST be anchored. context-matches evaluates
+    # Regex::is_match, a substring test, so an unanchored pattern passes "main"
+    # inside "main; rm -rf /", and here an unanchored issue number would match
+    # as a substring of another and cascade the wrong chain. Nothing mechanical
+    # enforces this: check-template-interpolation.sh does not cover it.
+    gates:
+      anchor_present:
+        type: command
+        command: "test -n \"$(grep -rlE '^\\|[[:space:]]*\\[?#?{{ISSUE_NUMBER}}\\]?[[:space:]]*\\|' docs/plans/ 2>/dev/null | head -1)\""
+    accepts:
+      anchor_note:
+        type: string
+        description: >-
+          Absent on both normal paths. The state advances with no evidence
+          whichever way the gate resolves, so the agent never sees this field;
+          it exists so a failed gate falls through to transition resolution
+          instead of blocking.
+    transitions:
+      - target: cascade_run
+        when:
+          gates.anchor_present.exit_code: 0
+      - target: done
+        when:
+          gates.anchor_present.exit_code: 1
+
+  cascade_run:
+    # Runs the document-chain cascade and records what it actually did.
+    #
+    # The three conditional transitions below are load-bearing beyond their
+    # routing. koto's advance loop chains through a state whose transitions are
+    # ALL unconditional, even when the state declares required evidence -- the
+    # guard is keyed on having a conditional transition, not on having an
+    # `accepts:` block (advance.rs:571-575, :1229-1234). execute.md's `escalate`
+    # (:457-466) is the worked counter-example: required evidence, one
+    # unconditional edge, chained straight through.
+    #
+    # So collapsing these three edges into one unconditional transition -- a
+    # tempting simplification, since two of them share a target -- would let a
+    # tick run the cascade and land on a terminal in the same invocation, with
+    # the agent never seeing this state's directive. The `accepts:` block would
+    # still be here and would not save it.
+    accepts:
+      cascade_status:
+        type: enum
+        values: [completed, partial, skipped]
+        required: true
+      cascade_detail:
+        type: string
+        description: What the cascade did, or why steps were skipped.
+    transitions:
+      - target: done
+        when:
+          cascade_status: completed
+      - target: done
+        when:
+          cascade_status: skipped
+      - target: done_blocked
+        when:
+          cascade_status: partial
+        context_assignments:
+          failure_reason: "cascade_run: cascade reported partial: ${evidence.cascade_detail}"
 
   done:
     terminal: true
@@ -1195,6 +1275,42 @@ Read `references/phases/phase-6-pr.md` for CI monitoring.
 
 If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+## cascade_entry
+
+No action. This state decides whether the issue has a PLAN behind it and routes
+accordingly; both outcomes advance without evidence, so you will normally not
+see this state at all.
+
+If it stops here, the gate could not resolve. Read its output, fix what it
+names, and tick again.
+
+## cascade_run
+
+Run the document-chain cascade for the PLAN that sequences this issue, then
+report what it did.
+
+```bash
+RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push <PLAN-path>)
+```
+
+Submit `cascade_status` from the script's own verdict, with `cascade_detail`
+summarising which transitions ran.
+
+**Do not treat the script's step-level `ok` as evidence that the chain moved.**
+Several of its operations report `ok` having changed nothing, and its own
+post-cascade verification reads the working tree rather than the commit, so a
+document transitioned on disk but missing from the finalization commit satisfies
+every check it makes. Confirm the three facts yourself: the PLAN absent from
+disk, each upstream document at its expected status, and the finalization commit
+containing each of those documents — the last read from the commit's own paths
+(`git diff-tree --no-commit-id --name-only -r <sha>`), never from the tree.
+
+A `partial` verdict halts the run. The two shapes differ in what recovery means,
+and `execute.md:735-740` is the authority for both: a refused transition without
+`commit` and `push` at `ok` published nothing, so recovery is local; one with
+them published what it reached, so the remote carries that commit and recovery
+is a follow-up commit or a revert rather than a reset.
 
 ## done
 
