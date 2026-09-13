@@ -87,3 +87,35 @@
   Rationale: issueless multi-pr's missing driver, the two `status: Current`
   designs where one superseded the other, and the discriminator's scope are all
   questions for whoever takes the work.
+
+## Routing decision (author, 2026-09-13)
+
+- **Direction chosen: add gated cascade states to `/work-on`.** The author
+  selected this over folding `/work-on` into `/execute` and over relocating
+  `/execute`'s finishing states into `/work-on`. This differs from the
+  coordinator's leaning, which was relocation.
+
+- **The deciding argument was the author's own, and it is not in the record
+  anywhere.** The concern: `/execute` loops over many `/work-on` instances,
+  potentially across teams of agents, and none of those agents should have
+  finalization instructions in context when only the end of the `/execute` flow
+  uses them. Rationale confirmed mechanically: `koto next` returns only the
+  current state's `directive` and `details` (koto `src/cli/next.rs:50-64`), so
+  context arrives one state at a time, and a `/work-on` child under `/execute`
+  routes `pr_status: shared` straight to `done` and never reaches a post-CI
+  state. It is never handed the prose rather than reading and ignoring it.
+
+- **Corollary the author's argument produces: finalization must not live in
+  `skills/work-on/SKILL.md`.** That file is loaded wholesale on direct
+  invocation, so it is the one location where the context concern bites. Koto
+  states are loaded on demand; `SKILL.md` is not.
+
+- **The recorded rejection of a "shared library" does not bar a shared script.**
+  `DESIGN-execute-skill.md:98-104` rejected "a neutral or plan-hosted template
+  both skills reference" because it "muddies the single-issue legibility the
+  narrowing is meant to buy" -- a legibility argument about templates, not a
+  context-cost argument. A shared *script* is executed rather than read, costs no
+  context, and was not what was rejected. Both skills calling one
+  `run-cascade.sh` therefore duplicates the koto states without duplicating the
+  cascade logic, which removes most of the cost originally charged against this
+  direction.
