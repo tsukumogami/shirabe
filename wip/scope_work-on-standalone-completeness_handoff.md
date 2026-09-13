@@ -44,8 +44,9 @@ them.
 - A per-child "do not cascade" signal, replacing what would otherwise have been a
   last-issue discriminator (see below).
 - A clean skip path for runs with no document chain.
-- Keeping finalization out of `skills/work-on/SKILL.md`, which is loaded
-  wholesale on direct invocation.
+- Keeping finalization out of `skills/work-on/SKILL.md`. This is a correctness
+  constraint on the design, not a context-hygiene preference — see the section
+  below.
 
 ### Out of scope
 
@@ -72,6 +73,36 @@ them.
 - The naming fossils left by the earlier split (five "work-on cascade" references
   in `skills/roadmap/SKILL.md`, three Rust doc comments, one citing a path that
   has never existed). Worth fixing alongside, but not the point of the work.
+
+## Where a fix may be written: a hard constraint
+
+VERIFIED in koto's source. `init_child_core`
+(koto `src/cli/init_child.rs:481-628`) seeds a child session by writing
+`WorkflowInitialized` and `Transitioned` events straight from the compiled child
+template. It builds no prompt and spawns no process. Separately, `koto next`
+returns only the current state's `directive` and `details`
+(koto `src/cli/next.rs:50-64`).
+
+Two consequences the design hop must treat as constraints, not trivia:
+
+1. **A child session never loads `SKILL.md` at all.** An obligation written into
+   `skills/work-on/SKILL.md` is not merely skippable by a child — it is
+   unreachable. A fix placed there would appear to work under direct invocation
+   and silently not reach any `/execute` child, which is the hardest class of
+   bug to notice: it fails only on the path nobody watches.
+2. **Only `work-on.md` reaches both entry points** — its states, its gates, and
+   its per-state prose. Reference files reach an agent when a state's prose tells
+   it to read one, which is how the `Fixes #N` obligation reaches both paths
+   today: `work-on.md:1180` cites `references/phases/phase-6-pr.md` from the
+   `pr_creation` prose itself.
+
+That second point is also why the diagnosis behind this work is about enforcement
+and not about delivery. The `Fixes #N` instruction *was* delivered on both paths
+and was skipped anyway. Writing an obligation in a reachable place is necessary
+and not sufficient; what is missing is the evidence gate.
+
+The practical test for any proposed change: name the file it lands in, and say
+whether a `/work-on` child materialized by `/execute` would receive it.
 
 ## multi-pr moves into `/execute`
 
