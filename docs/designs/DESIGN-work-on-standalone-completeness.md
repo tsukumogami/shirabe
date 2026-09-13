@@ -327,6 +327,48 @@ would inherit the blind spot verified above, where a document transitioned on
 disk but missing from the commit satisfies every existing check and is still
 absent from the merge.
 
+**One tick can traverse several states, so the obligations here are per-tick
+rather than per-state.** This is stated explicitly because an implementer
+reading the template state by state will not derive it, and because reasoning
+from a state's `accepts:` block gets it wrong.
+
+VERIFIED in koto's source. `koto next` advances in a loop
+(`src/engine/advance.rs:592`), chaining onward while the next transition can be
+chosen without evidence. A state is an auto-advance candidate when it has no
+`accepts`, no integration and no blocking gate, and is not terminal
+(`src/cli/next.rs:107-118`). So the unit of reasoning is the chain a single tick
+traverses, not the state it nominally routes to.
+
+One guard qualifies that, and this design depends on it. `fresh_evidence` is
+set false after each auto-advance, so a state carrying *conditional*
+transitions will not fire its unconditional fallback when entered by chaining —
+it stops and asks (`advance.rs:571-575`, `:1229-1234`). Only pure-routing
+states, whose transitions are all unconditional, chain through unconditionally.
+
+Two consequences for the states this design adds:
+
+- `cascade_run` carries an `accepts:` block, so a tick cannot pass through it.
+  That is what stops a tick from running the cascade and landing on a terminal
+  in one invocation, and it is a load-bearing property rather than an incidental
+  one. An implementer who later removes its evidence block to simplify the graph
+  would silently reintroduce the chaining.
+- `cascade_entry` is deliberately zero-evidence and gate-routed, so a tick that
+  reaches it **can** continue into `done` on the no-anchor edge within the same
+  invocation. That is correct and desirable — it is what keeps the no-anchor
+  path silent — but it means the tick that lands on a terminal may be the same
+  tick that submitted `ci_monitor`'s evidence. The root-only retention
+  obligation is therefore a property of that tick, and cannot be satisfied by
+  reasoning about the terminal state in isolation.
+
+The failure this rules out is concrete and has already been observed elsewhere
+in this repository: a bare tick chaining through an escalation into a blocked
+terminal in one invocation, destroying the context record for the batch that had
+just failed. It was initially rejected by reasoning from `accepts:` and measuring
+a forced transition instead of a bare tick, and only overturned when someone
+applied the fix and watched the suite fail. That is why this design states the
+rule rather than assuming it will be re-derived, and why the PLAN carries a
+criterion written against a chain rather than a state.
+
 **A `partial` cascade halts and does not reach a success terminal.** This is
 PRD R5, and an earlier draft of this design omitted it entirely — a gap its own
 Consequences section pointed at by claiming four new states while naming three.

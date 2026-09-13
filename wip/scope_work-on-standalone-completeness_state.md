@@ -21,6 +21,18 @@ chain_ran:
   - child: design
     started_at: 2026-09-13T00:00:00Z
 consolidation_judgments:
+  - edge: prd->design
+    verdict: keep
+    preflight_exit: 0
+    finding: >-
+      The PRD holds the numbered requirements and the acceptance criteria, and
+      the DESIGN holds neither. The DESIGN cites eleven requirements by number
+      (R3, R5, R5a, R6, R9, R10, R13, R16b, R19, R19b, R22) and deliberately
+      does not restate them - citation rather than restatement is the format's
+      own rule. Absorbing the PRD would dangle every one of those citations and
+      delete the contract an implementation is held to, which is the whole of
+      what the acceptance criteria are for. Nothing in the DESIGN carries them.
+    decided_at: 2026-09-13T00:00:00Z
   - edge: brief->prd
     verdict: absorb
     preflight_exit: 0
@@ -353,3 +365,17 @@ validation must be read for `outcome`, not for `errors: 0`.
    notice) and the two silent edit no-ops earlier in this run. All four are
    reports or counts that look like evidence without being it, which is the
    theme this feature exists to address one level up.
+
+5. **At least one criterion written against a chain rather than a state.** koto
+   advances in a loop, so a single tick can traverse several states; a
+   wrongly-unconditional transition passes state-by-state review and only shows
+   up when a whole tick is exercised. The PLAN carries a criterion that drives a
+   tick from `ci_monitor` through to a terminal and asserts what that one
+   invocation did — in particular that a root run's terminal tick retained its
+   record and a child's did not, and that `cascade_run` was not passed through
+   without stopping.
+
+   The guard this leans on: `cascade_run` carries an `accepts:` block, which is
+   what prevents a tick chaining through it into a terminal. That is load-bearing
+   rather than incidental, so the criterion must fail if a later simplification
+   removes the evidence block.
