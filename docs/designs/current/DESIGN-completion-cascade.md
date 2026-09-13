@@ -288,12 +288,40 @@ it could not fully check. The step succeeded, so it is not a failure to recover 
 without the detail the caveat would live only in finalize-chain's own JSON, which nothing
 downstream reads.
 
+**Step status and `cascade_status`:**
+
+A step's `status` says what happened to that one action:
+
+- `ok`: the step did what it was asked. It carries a `detail` only in the case
+  described above.
+- `skipped`: there was nothing to do (the chain was already at its terminal
+  state, or no chain document survived the commit to verify against), the step
+  could not run because an earlier step failed (there is nothing to verify when
+  the finalization commit did not land), or it was deliberately deferred on state
+  the cascade does not control (a ROADMAP is left in place while an issue it
+  references is still open). `skipped` never means the cascade was asked to do
+  something and could not.
+- `failed`: the cascade was asked to do the step and could not.
+
+`cascade_status` follows from the steps. It is `partial` if and only if at least
+one step is `failed`. Otherwise it is `skipped` when the chain held nothing but
+the PLAN (or the pre-cascade probe found the chain already at its terminal
+state), and `completed` when it held more. A `skipped` step never makes a run
+`partial`, so a `completed` run can carry `skipped` steps.
+
+The distinction matters to callers. `/execute` halts on a `partial` verdict and
+prints the `failed` steps' details as the reason, so a step that should stop the
+run has to be recorded as `failed`. A `partial` whose cause was recorded as
+`skipped` would halt with nothing printed.
+
 **Error message contract:**
 
-Each failure class has a prescribed message format so the agent sees consistent,
-parseable descriptions:
+Every `skipped` or `failed` step's `detail` follows a prescribed format, so the
+agent sees consistent, parseable descriptions. The table fixes the wording, not
+the status; the status follows the rule above. "Issue still open" is recorded as
+`skipped`, and every other case in the table as `failed`.
 
-| Failure | `detail` message |
+| Case | `detail` message |
 |---------|-----------------|
 | Upstream file not found | `"upstream field in <found_in> references <target>, but that file does not exist — cannot transition <artifact-type> to <target-status>"` |
 | Path escapes repo | `"upstream field in <found_in> references <target>, which resolves outside the repository root — refusing to operate on files outside the working tree"` |
@@ -349,12 +377,18 @@ stops and the overall status reflects work done up to that point.
       "action": "update_roadmap_feature",
       "target": "docs/roadmaps/ROADMAP-strategic-pipeline.md",
       "found_in": "docs/prds/PRD-foo.md",
-      "status": "skipped",
+      "status": "failed",
       "detail": "searched docs/roadmaps/ROADMAP-strategic-pipeline.md for a feature whose Downstream: field references plan slug 'foo' (from docs/prds/PRD-foo.md), but no matching feature entry was found — ROADMAP feature status was not updated"
     }
   ]
 }
 ```
+
+The run is `partial` because the `update_roadmap_feature` step is `failed`. The
+steps are abbreviated. Because this chain transitioned the DESIGN before the
+ROADMAP lookup failed, a `--push` run still commits and pushes that transition
+before it reports `partial` (#372). A PLAN whose only upstream is the ROADMAP
+publishes nothing.
 
 **`validate_upstream_path`:**
 ```bash
@@ -384,12 +418,20 @@ check_issue_closed <github-issue-url>
 
 **ROADMAP text substitution:**
 
-ROADMAP feature status updates use fixed-string matching. The lookup targets the
-`**Downstream:**` field of the feature entry containing the plan slug — not a
-grep of the feature body. If no `**Downstream:**` field references the plan slug,
-`handle_roadmap` logs a warning, sets `cascade_status: partial`, and skips the
-update rather than silently succeeding. All substitutions use `awk` with
-`ENVIRON["varname"]` (not `-v`) to avoid backslash interpretation of values.
+ROADMAP feature status updates use fixed-string matching. The lookup takes the
+first line that contains the plan slug as a fixed-string substring and also
+contains `Downstream:` (case-insensitively), then walks up to the nearest `### `
+heading above it to find the feature entry. If there is no such line, or no
+heading above it, `handle_roadmap` records a `failed` `update_roadmap_feature`
+step with the "ROADMAP feature not found" message and leaves the file untouched,
+so the run is `partial`.
+
+Two limits of this lookup are tracked in #370. The roadmap format defines no
+`Downstream` field and no skill writes one, so against a ROADMAP the roadmap
+skill produced, the lookup finds nothing today. And the match is not anchored,
+so a feature whose reference merely contains the plan slug can be selected
+instead of the right one. All substitutions use `awk` with `ENVIRON["varname"]`
+(not `-v`) to avoid backslash interpretation of values.
 
 **`handle_design`:**
 
@@ -404,10 +446,11 @@ update rather than silently succeeding. All substitutions use `awk` with
 
 **`handle_roadmap`:**
 
-1. Locate the feature entry whose `**Downstream:**` field mentions the plan slug.
-   Use `grep -F <plan-slug>` to find the line, then walk up to find the enclosing
-   `### Feature N:` heading. If not found, record a `skipped` step with the
-   prescribed "feature not found" message and return — do not update the file.
+1. Locate the feature entry as described under ROADMAP text substitution: the
+   first line containing the plan slug and `Downstream:`, then the nearest
+   `### ` heading above it. If either is missing, record a `failed` step with the
+   prescribed "ROADMAP feature not found" message and return without updating
+   the file. The run is then `partial`.
 2. Update the feature's `**Status:**` to `Done` and `**Downstream:**` to include
    the DESIGN doc at Current status, using `awk` with `ENVIRON` for literal-safe
    substitution.
@@ -418,11 +461,13 @@ update rather than silently succeeding. All substitutions use `awk` with
    `skills/roadmap/scripts/transition-status.sh <path> Done`.
 5. `git add` the file.
 
-After all nodes are processed, the script commits and pushes all staged changes
-in a single commit: `chore(cascade): post-implementation artifact transitions`.
-Then it emits the JSON result to stdout. The `plan_completion` directive reads
-this output and uses the `steps` array to determine `cascade_status` and whether
-any `failed` or `skipped` steps require follow-up.
+After all nodes are processed, and only under `--push` with something staged,
+the script commits the staged changes in a single commit,
+`chore(cascade): post-implementation artifact transitions`, and pushes it. It
+derives `cascade_status` from the steps by the rule under Output format, then
+emits the JSON result. The `plan_completion` directive reads the verdict and, on
+`partial`, the `failed` steps' details. A `skipped` step's detail says what was
+deferred or unnecessary; it is not something to recover from.
 
 ### Data Flow
 
@@ -559,9 +604,12 @@ remote before running the cascade.
 - Cascade logic now lives in two places: the koto template (for state machine
   context) and `run-cascade.sh` (for execution logic). Maintainers must know to
   look in both.
-- The ROADMAP feature-update step (step 4 of `handle_roadmap`) requires finding
-  the feature entry by plan slug, which is a heuristic text search. If the feature
-  entry doesn't mention the plan slug, the update is silently skipped.
+- The ROADMAP feature update depends on step 1 of `handle_roadmap` finding the
+  feature entry with a heuristic text search: a `Downstream:` line containing
+  the plan slug. The roadmap format defines no such field and no skill writes
+  one, so on a ROADMAP the roadmap skill produced the search finds nothing and
+  the run is `partial`. The match is also unanchored, so it can select the wrong
+  feature. Both are tracked in #370.
 - Compression is one-way: once `## Implementation Issues` is stripped from a
   DESIGN doc, it cannot be recovered except from git history.
 
@@ -569,9 +617,11 @@ remote before running the cascade.
 
 - A clear comment in the `plan_completion` directive points maintainers to
   `run-cascade.sh`. This is the same pattern as `plan-to-tasks.sh`.
-- The ROADMAP feature lookup logs a warning if no matching entry is found,
-  setting `cascade_status: partial` rather than silently succeeding. The agent
-  can then surface this to the user.
+- A lookup miss is never silent. It records a `failed` `update_roadmap_feature`
+  step carrying the "ROADMAP feature not found" message, which makes the run
+  `partial`, and `/execute` halts on `partial` instead of marking the PR ready
+  and shows the failed step. Through a chain, the transitions before the lookup
+  have already been pushed by then (#372).
 - The strip operation is idempotent and only removes a section with a known
   deterministic heading. A section-presence check before invoking the `awk` strip
   prevents empty-file bugs if Implementation Issues is the last section.

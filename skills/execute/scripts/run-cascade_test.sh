@@ -2501,7 +2501,8 @@ EOF
 # handle_roadmap recorded "feature not found" as a `skipped` step, which leaves
 # ANY_FAILED false and reports `completed` for a chain that never finalized:
 # the ROADMAP feature stays at Planned and its Downstream is never written.
-# DESIGN-completion-cascade.md lists this under Failures.
+# Under DESIGN-completion-cascade.md's step-status rule this is `failed`: the
+# cascade was asked to update the feature and could not.
 #
 # The reason it has to be a failure rather than a cosmetic mislabel is the
 # interaction with the PLAN deletion now entering STAGED_FILES. With the step at
@@ -2515,7 +2516,10 @@ EOF
 # The fixture is the shape that has nothing dangling in it: a ROADMAP feature
 # with no `Downstream:` line at all, never planned against. Nothing here is
 # malformed, so the only thing the lifecycle check can object to is the chain
-# state the cascade left behind.
+# state the cascade left behind. It is also what every feature looks like in a
+# ROADMAP the roadmap skill writes, since that format has no `Downstream` field
+# (shirabe#370). This scenario pins the first not-found arm; Scenario 29 pins
+# the second.
 scenario_roadmap_feature_not_found() {
     local scenario="Scenario 28: --push fails when the ROADMAP feature is not found"
     echo "Running $scenario..."
@@ -2583,7 +2587,11 @@ EOF
         "the failed step carries the design's detail text" || ok=false
 
     # ANY_FAILED is set before delete_plan, so the PLAN never enters
-    # STAGED_FILES and nothing publishes.
+    # STAGED_FILES. In this direct PLAN-to-ROADMAP shape that deletion was the
+    # only thing that could have been staged, so nothing publishes. Through a
+    # DESIGN, PRD or BRIEF chain the transitioned nodes are already staged, so
+    # the commit and push still fire before the run reports partial
+    # (shirabe#372); this scenario does not cover that shape.
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action == "commit")] | length == 0' \
         "no commit step: nothing was published" || ok=false
@@ -2601,6 +2609,118 @@ EOF
     # that did not finalize cannot merge green. Validate the PUBLISHED tree --
     # `git archive HEAD` -- not the worktree, which still holds the uncommitted
     # leftovers and so answers a different question.
+    local published="$tmpdir/published"
+    mkdir -p "$published"
+    git archive HEAD | tar -x -C "$published"
+    local lifecycle_rc=0
+    ( cd "$published" && "$SHIRABE_BIN_PATH" validate --lifecycle . --mode=ready > /dev/null 2>&1 ) || lifecycle_rc=$?
+    assert_shell "$scenario" "$([[ "$lifecycle_rc" -ne 0 ]] && echo true || echo false)" \
+        "the published tree still fails the ready-mode lifecycle check" "rc=$lifecycle_rc" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+
+# ── A Downstream line with no feature heading above it is the same failure ────
+#
+# handle_roadmap has two not-found arms. The first (no line names the plan slug
+# alongside `Downstream:`) is Scenario 28. The second fires when that line exists
+# but no `### ` heading sits above it, so there is no feature entry to update.
+# No scenario reached the second arm, so reverting it alone to a `skipped` step
+# left the suite green, and in this direct PLAN-to-ROADMAP shape that revert
+# reproduces the merge-capable `completed` that Scenario 28 guards against.
+#
+# The fixture is hand-edited: the Downstream line sits under `## Features`,
+# before the first `### ` heading. Nothing writes this shape; it exists to pin
+# the arm. Both arms emit the same detail text, so the JSON cannot tell them
+# apart; what proves this fixture reaches the second arm is that it fails
+# against a build with only that arm reverted.
+scenario_roadmap_feature_no_heading() {
+    local scenario="Scenario 29: --push fails when the ROADMAP's Downstream line has no feature heading above it"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    mkdir -p "$repo/docs/roadmaps"
+    cat > "$repo/docs/roadmaps/ROADMAP-cascade-test.md" <<'EOF'
+---
+status: Active
+---
+
+# ROADMAP: Cascade Test
+
+## Status
+
+Active
+
+## Theme
+
+Test roadmap for cascade validation.
+
+## Features
+
+**Downstream:** PLAN-headingless.md
+
+### Feature 1: Not Yet Planned
+
+**Status:** Planned
+EOF
+    write_plan "$repo/docs/plans/PLAN-headingless.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+
+    commit_and_push_all
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-headingless.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # Killing assertion: a build that records this arm as `skipped` leaves
+    # ANY_FAILED false and reports completed.
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial, not completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature" and .status == "failed")] | length == 1' \
+        "exactly one update_roadmap_feature step, at failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature")][0].detail | test("no matching feature entry was found")' \
+        "the failed step carries the design's detail text" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit")] | length == 0' \
+        "no commit step: nothing was published" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push")] | length == 0' \
+        "no push step" || ok=false
+
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" == "$head_before" ]] && echo true || echo false)" \
+        "HEAD did not move" || ok=false
+
+    # The arm returns before the awk rewrites, so the ROADMAP is untouched.
+    local roadmap_rc=0
+    git diff --quiet HEAD -- docs/roadmaps/ROADMAP-cascade-test.md || roadmap_rc=$?
+    assert_shell "$scenario" "$([[ "$roadmap_rc" -eq 0 ]] && echo true || echo false)" \
+        "the ROADMAP is unchanged" "git diff rc=$roadmap_rc" || ok=false
+
+    # As in Scenario 28, validate the PUBLISHED tree: the surviving PLAN keeps
+    # the ready-mode lifecycle check red, so this state cannot merge green.
     local published="$tmpdir/published"
     mkdir -p "$published"
     git archive HEAD | tar -x -C "$published"
@@ -2738,6 +2858,9 @@ scenario_refused_walk_publishes_nothing
 cd "$ORIG_DIR"
 
 scenario_roadmap_feature_not_found
+cd "$ORIG_DIR"
+
+scenario_roadmap_feature_no_heading
 cd "$ORIG_DIR"
 
 echo ""

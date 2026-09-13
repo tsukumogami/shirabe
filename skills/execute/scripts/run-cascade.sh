@@ -483,14 +483,23 @@ emit_result() {
 # it stays in bash.
 #
 # Not finding the feature entry is a FAILURE, not a skip, and the distinction is
-# load-bearing rather than cosmetic. The cascade was asked to bring the ROADMAP
-# to its terminal state and could not, so the chain does not reach the posture
-# the post-cascade check attests to -- DESIGN-completion-cascade.md lists
-# "ROADMAP feature not found" under Failures, with the detail text below.
+# load-bearing rather than cosmetic. Under DESIGN-completion-cascade.md's
+# step-status rule, `failed` means the cascade was asked to do a step and could
+# not, which is this case; `skipped` never does. The design's message table
+# supplies the detail text below, not the status. Both arms below take this
+# path: no `Downstream:` line names the plan slug, or the matching line has no
+# `### ` heading above it.
+#
 # Recording it as a skip left ANY_FAILED false, which reported `completed` for a
 # chain that had not finalized and, once the PLAN deletion began entering
 # STAGED_FILES, let that state publish to a tree the ready-mode lifecycle check
-# passes. scenario_roadmap_feature_not_found pins both halves.
+# passes. It also left /execute's partial halt, which prints only `failed`
+# steps, with no reason to show. scenario_roadmap_feature_not_found pins the
+# first arm and scenario_roadmap_feature_no_heading the second.
+#
+# The lookup keys on a `Downstream:` line that the roadmap format does not
+# define, so on a ROADMAP the roadmap skill produced the first arm is the usual
+# outcome today (shirabe#370).
 #
 # Usage: handle_roadmap <roadmap-path> <found-in> <plan-slug>
 
@@ -1126,14 +1135,22 @@ fi
 
 # ── Emit result ────────────────────────────────────────────────────────────────
 #
-# cascade_status:
-#   skipped   — the PLAN had no upstream chain (only the delete step ran)
-#   partial   — something failed: finalize-chain refused, an error node, git rm
-#               failed, the finalization commit or push failed, or the
-#               post-cascade verification failed. The cascade still RAN, so the
-#               script exits 0 -- a publish failure is neither a setup nor a
-#               precondition failure and does not belong in the exit code.
-#   completed — every node transitioned cleanly
+# cascade_status (the rule is stated in DESIGN-completion-cascade.md):
+#   partial   -- at least one step is `failed`. Every `failed` arm sets
+#               ANY_FAILED and no `skipped` arm does: finalize-chain refused or
+#               reported an error node, the ROADMAP feature was not found, a
+#               git rm (PLAN or ROADMAP) failed, the finalization commit or push
+#               failed, or the post-cascade verification failed. The cascade
+#               still RAN, so the script exits 0 -- a publish failure is neither
+#               a setup nor a precondition failure and does not belong in the
+#               exit code.
+#   skipped   -- nothing failed and finalize-chain reported only the PLAN's
+#               delete node (no upstream chain). The pre-probe no-op exits
+#               earlier with the same verdict.
+#   completed -- nothing failed and the chain held more than the PLAN. A
+#               completed run can still carry `skipped` steps: a ROADMAP
+#               deletion deferred on an open issue, or a verification with no
+#               surviving document to anchor on.
 # The script exits 0 whenever the cascade ran; exit 1 is reserved for the
 # setup/precondition failures handled above (before this point).
 
