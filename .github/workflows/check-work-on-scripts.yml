@@ -12,6 +12,9 @@ on:
       # The suite drives the shipped template, so a template edit can change
       # which gate holds which state.
       - 'skills/work-on/koto-templates/**'
+      # terminal-retention_test.sh reads the retention rule out of SKILL.md and
+      # fails when it is missing or stops routing through the discriminator.
+      - 'skills/work-on/SKILL.md'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -48,6 +51,14 @@ jobs:
       - name: Run retry-clearing tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/retry-clearing_test.sh
+
+      # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
+      # to assert the run's context survives it, and materializes a child to
+      # assert that a child carrying the same flag blocks its parent's converge.
+      # Both need the engine.
+      - name: Run terminal-retention tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/terminal-retention_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

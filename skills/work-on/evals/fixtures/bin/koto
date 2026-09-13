@@ -114,6 +114,23 @@ case "$ARGS" in
     fi
     exit 1                        # absent
     ;;
+  *"session list"*)
+    # scripts/session-role.sh reads koto's parent_workflow field from here to
+    # tell a root run from a materialized child. The arm serves ONLY a scenario
+    # that opted in by providing the fixture; without one it reproduces the
+    # no-match failure below byte for byte, so no existing scenario sees an
+    # environment delta -- the concern recorded on the `context list` note.
+    #
+    # Falling through is safe either way: session-role.sh treats an unreadable
+    # listing as `child`, which withholds the retention flag rather than
+    # risking it on a session whose role is unknown.
+    if [ -f "$SCENARIO_DIR/koto-session-list.json" ]; then
+      cat "$SCENARIO_DIR/koto-session-list.json"
+      exit 0
+    fi
+    echo "koto shim: no match for args: $ARGS" >&2
+    exit 1
+    ;;
   # No `context list` arm on purpose. The clearing block uses `remove` and
   # `exists` only, and an earlier version of this shim added `list` for
   # completeness -- which changed what an unrelated eval sees when it probes:

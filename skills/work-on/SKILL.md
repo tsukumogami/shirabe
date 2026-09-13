@@ -218,6 +218,13 @@ Only create a new branch when none of the above apply. The setup states (`setup_
 
 ### Execution Loop
 
+Before the first tick, resolve this session's role once and keep it for the
+whole run:
+
+```bash
+ROLE=$(bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>)
+```
+
 Repeat:
 
 1. Run `koto next <WF>`
@@ -229,6 +236,30 @@ Repeat:
    ```
    Provide the fields listed in `expects`. Check `expects.options` for valid values.
 4. If `action: "done"` — report the outcome and stop.
+
+**Retention: when `ROLE` is `root`, every `koto next` above also carries
+`--no-cleanup`.** When it is `child`, none of them do.
+
+koto deletes a session on the tick that reaches a terminal state, and the
+deletion takes the session's `ctx/` with it — `plan.md` and the other seven keys
+this workflow accumulates. `--no-cleanup` suppresses that, so the record of a
+run that ended at `done_blocked` survives for whoever has to read why. The flag
+is a no-op on any tick that does not terminate, which is why the rule is "every
+tick" rather than "the last one": `ci_monitor`, `analysis` and the setup states
+all route to a clean or a blocked terminal off the same evidence field, so an
+agent cannot reliably know in advance which tick is the last one, and guessing
+wrong loses exactly the failures worth keeping.
+
+A child must not carry it. On a child, `--no-cleanup` also suppresses the
+`request_store.result` and `ChildCompleted` events that `/execute`'s
+`children-complete` gate reads to learn the child finished; the parent's
+converge then blocks permanently with no event left to emit. That is why the
+role is resolved by `session-role.sh` rather than assumed, and why the rule is
+stated here rather than in `work-on.md` — the template is also the child
+template, so a `--no-cleanup` written into it would reach children.
+`skills/work-on/scripts/terminal-retention_test.sh` pins both halves, including
+a tripwire that fails when a future koto makes the flag safe for children (see
+koto#240) and this exception can be dropped.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
