@@ -165,8 +165,15 @@ The explore skill doesn't call for a jury or review panel at any phase. What did
 - The orchestrator re-read the load-bearing claims against the code and docs, and
   re-ran the cascade suite (33 passed / 0 failed).
 
-No independent reviewer has assessed this crystallize decision itself. The
-coordinator's repo agent is reviewing it and the halt claim now.
+The claim that carries this routing, that `execute.md`'s halt prints only `failed`
+steps, reached the routing decision verified only by reading. The coordinator's
+repo agent was its first execution. That review ran `execute.md`'s halt block
+exactly as written, with both arms reverted to `skipped`: a `partial` halted rc=1
+and printed nothing. With `failed` it printed the reason.
+
+The same review found a gap in the criteria. Reverting only the second not-found arm
+leaves the suite at 33/0, so AC2 now requires a scenario for that arm. It also added a
+criterion that the design states the step-status rule.
 
 ## Proposed wording for #354's reworded criteria
 
