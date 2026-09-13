@@ -149,10 +149,29 @@ Recommendation: take the file-an-issue arm, reusing #354, on the condition that 
 PR states the rule in the design. Alternative: `/decision` for a standalone ADR
 first, then the same PR.
 
+Coordinator's provisional answer, pending its verdict: proceed without a separate
+`/decision`. The design is the durable home, and an ADR would be a second copy to
+drift.
+
+## Review depth
+
+The explore skill doesn't call for a jury or review panel at any phase. What did run:
+
+- Four research agents, one per lead, each working separately:
+  - design reading
+  - step-status vocabulary
+  - behaviour gaps
+  - consumers and landing
+- The orchestrator re-read the load-bearing claims against the code and docs, and
+  re-ran the cascade suite (33 passed / 0 failed).
+
+No independent reviewer has assessed this crystallize decision itself. The
+coordinator's repo agent is reviewing it and the halt claim now.
+
 ## Proposed wording for #354's reworded criteria
 
-These are for the coordinator to apply or approve. This worker hasn't edited the
-issue.
+This file is the source text. The coordinator's side applies issue edits to #354 and
+#358 through one writer, after review; this worker doesn't edit either issue.
 - **AC1:** A ROADMAP feature the cascade can't find yields `cascade_status: partial`,
   recorded as a `failed` `update_roadmap_feature` step carrying the design's "no
   matching feature entry was found" detail. This covers both arms: no `Downstream:`
