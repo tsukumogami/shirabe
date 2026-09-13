@@ -14,14 +14,14 @@ decision: |
   Move the cascade script under /work-on and have /execute reach it over a
   cross-skill path, the third instance of a dependency direction this repository
   already chose twice. Guard the cascade with two composed conditions: role
-  first on ci_monitor, then anchor presence as a gate-only transition that emits
-  nothing when there is no anchor. Extend ci_monitor and pr_creation in place
+  first on ci_monitor, then anchor presence on a state whose edges both fire
+  without evidence, so nothing is emitted when there is no anchor. Extend ci_monitor and pr_creation in place
   for the two obligations with an exact precedent, and add one narrow state for
   the rest. Evidence a completed cascade by its observed post-state, with the
   commit half read from the commit's own paths rather than the working tree.
 rationale: |
   Every choice follows a shape the repository already has rather than inventing
-  one: the cross-skill dependency direction, the gate-only transition, the
+  one: the cross-skill dependency direction, the evidence-free gate routing, the
   verbatim-copied merge gate. The one place the design deliberately does not
   follow an existing shape is the cascade's evidence, because the existing shape
   there is a self-report the repository has since found to be unreliable in six
@@ -203,7 +203,7 @@ already has tooling, rather than a new category.
 
 **Chosen: search `docs/plans/` for a PLAN whose Implementation Issues table
 names this issue, run as a late `command` gate immediately before the
-cascade-invoking state, wired through zero-evidence gate-only transitions.**
+cascade-invoking state, wired so both edges fire without evidence.**
 
 Alternatives weighed: a caller-supplied plan path (kept as a fast path, but
 silent for issues that already exist); a new issue-body `Plan:` field (worth
@@ -211,10 +211,41 @@ adding for issues created from here forward, but silent for the population that
 surfaced the defect); caching the answer from `context_injection` (pays the cost
 on every run including children, and stales).
 
-The gate-only, zero-evidence shape is what satisfies R3's "emits no
+The shape that satisfies R3's "emits no
 cascade-related output": the no-anchor branch produces no agent-facing language
 by construction rather than by convention, following `pr_precheck` and
 `settled_branch_record`.
+
+**The precise shape, and where it comes from.** "Gate-only" is too loose to
+implement from, and an earlier draft of this design used it. The state **does**
+carry an `accepts:` block — with every field optional. That is what makes a
+failing gate fall through to transition resolution instead of returning
+`GateBlocked`, which is what lets the no-anchor edge fire with no evidence and
+stay silent. With no `accepts:` block at all, the no-anchor path would stop and
+report, defeating R3.
+
+The rule is stated in a comment on `execute.md`'s `settled_branch_record`
+(`:87-91`) and nowhere else: *"A failed gate on a state that has an `accepts`
+block does NOT block on its own -- it falls through to transition resolution...
+Both transitions below name the gate; deleting either reference leaves a gate
+that is evaluated, reported, and ignored."* Cited here so the next person finds
+it deliberately rather than by luck, because it currently lives where only
+someone editing that one state would meet it. **Any state this work adds on the
+same pattern carries the same warning in its own comment.**
+
+That comment also settles the anchoring obligation in Issue 3, with an example
+worth keeping because it survives in memory where a rule does not: the matcher
+is `Regex::is_match`, a substring test, so an unanchored pattern passes `main`
+inside `main; rm -rf /`.
+
+**One shape declined, recorded so its absence is not read as an oversight.**
+Routing a transition on a captured variable (`when: vars.X`) is supported by
+koto — `advance.rs` evaluates `vars.*` in when-clauses — and would express the
+anchor decision directly. It appears in **no** when-clause anywhere in shirabe;
+the only uses of `vars.*` are in `skip_if:`. Introducing an unprecedented
+routing shape when the precedented one works is a cost this design declines to
+pay. Supported but unprecedented here is a reason to decline, not a reason to
+adopt.
 
 The accepted failure direction is the false negative: a PLAN in a shape the
 anchored search does not recognise reads as no-anchor and the run completes via
@@ -389,7 +420,7 @@ Two consequences for the states this design adds:
   `accepts:` block in place*. That is the specific regression the PLAN's
   chain-level criterion has to catch, and it is not visible in a state-by-state
   reading.
-- `cascade_entry` is deliberately zero-evidence and gate-routed, so a tick that
+- `cascade_entry` routes on its gate with neither edge requiring evidence, so a tick that
   reaches it **can** continue into `done` on the no-anchor edge within the same
   invocation. That is correct and desirable — it is what keeps the no-anchor
   path silent — but it means the tick that lands on a terminal may be the same

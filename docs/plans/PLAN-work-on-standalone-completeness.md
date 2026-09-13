@@ -77,8 +77,17 @@ them as the design specifies. Prove it with a test before anything is thickened.
 
 **Acceptance Criteria**:
 
-- [ ] `cascade_entry` exists, carries no `accepts:` block, and both its outgoing
-      edges are gate-decided.
+- [ ] `cascade_entry` exists and both its outgoing edges are gate-decided, with
+      **both transitions naming the gate**. An earlier draft of this criterion
+      said the state carries no `accepts:` block; that is wrong and would defeat
+      R3. With no `accepts:`, a failing gate returns `GateBlocked` rather than
+      routing, so the no-anchor path would stop and report instead of passing
+      silently. The state therefore carries an `accepts:` block whose fields are
+      all optional — the `pr_precheck` shape — which is what makes a failed gate
+      fall through to transition resolution so the `exit_code: 1` edge can fire
+      with no evidence. `settled_branch_record` in `execute.md` states the rule
+      and its trap: a gate not named in a `when:` clause is "evaluated,
+      reported, and ignored".
 - [ ] `cascade_run` exists and carries **at least one conditional transition**
       (routing on `cascade_status`), not merely an `accepts:` block.
 - [ ] A test drives a single tick from `ci_monitor` through to a terminal and
@@ -165,6 +174,10 @@ commit's own paths.
       names what stands in its place rather than leaving the gap implicit.
 - [ ] No criterion here depends on the cascade script's step-level `ok`, which is
       unreliable in six measured places and is being hardened separately.
+- [ ] **R4 directly:** an anchor that resolves to no upstream chain still commits
+      and pushes its own deletion alone and reports `skipped`, and the existing
+      test pinning that behaviour passes unchanged. A criterion that would fail
+      if this regressed, rather than coverage by implication.
 - [ ] `partial` routes to `done_blocked` carrying the failing step's detail and
       the shape-specific recovery guidance; `completed` and `skipped` route to
       `done`.
@@ -202,7 +215,9 @@ child routes straight to `done` and a root routes toward `cascade_entry`.
 - [ ] A root session routes to `cascade_entry`.
 - [ ] The role comes from the discriminator the terminal-record fix establishes,
       not from a second implementation. A search for a second root-versus-child
-      test returns nothing.
+      test returns nothing. **The mechanism is reading koto's `parent_workflow`
+      via `koto session list`** — named here because the dot-in-session-name
+      heuristic it replaced was vetoed, and is what older material describes.
 - [ ] If that discriminator has not landed, the work escalates rather than
       inventing a parallel mechanism.
 
@@ -227,7 +242,15 @@ record when a root session runs it, and that no child ever requests retention.
       template is also the child template, so an unconditional edit hands the
       flag to every child and wedges its parent.
 - [ ] The mechanism is the one the terminal-record fix established, not a second
-      implementation.
+      implementation. **Name it explicitly rather than by reference:** the
+      discriminator reads koto's `parent_workflow` field via `koto session list`.
+      It is **not** the dot-in-session-name heuristic, which was considered and
+      vetoed as unsound in both directions — a reader searching older material
+      will find the vetoed version first.
+- [ ] **R13 directly:** a multi-issue plan run cascades exactly once, not once
+      per issue. Demonstrated by running a parent over more than one child and
+      counting cascade invocations. A criterion that would fail if the cadence
+      changed, rather than coverage by implication.
 
 **Dependencies**: <<ISSUE:1>>, <<ISSUE:5>>
 
