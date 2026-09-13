@@ -37,7 +37,12 @@ them.
   `ci_monitor`.
 - A shared cascade script both skills call, so the cascade logic is not
   duplicated even though the states are.
-- A last-issue discriminator for multi-pr plans.
+- **Moving multi-pr execution into `/execute`.** Author decision, 2026-09-13:
+  `/execute` is the skill for running a PLAN, one PR at a time, and people should
+  not be invoking `/work-on` on a PLAN's individual issues. This inverts what is
+  documented today and is expanded under its own heading below.
+- A per-child "do not cascade" signal, replacing what would otherwise have been a
+  last-issue discriminator (see below).
 - A clean skip path for runs with no document chain.
 - Keeping finalization out of `skills/work-on/SKILL.md`, which is loaded
   wholesale on direct invocation.
@@ -67,6 +72,68 @@ them.
 - The naming fossils left by the earlier split (five "work-on cascade" references
   in `skills/roadmap/SKILL.md`, three Rust doc comments, one citing a path that
   has never existed). Worth fixing alongside, but not the point of the work.
+
+## multi-pr moves into `/execute`
+
+Author decision, 2026-09-13, taken after the direction was chosen and after this
+handoff was first written. The intent: `/execute` is how a PLAN gets run, one PR
+at a time, and `/work-on` should not be the thing a person points at a PLAN's
+individual issues.
+
+**This inverts what the repository currently says**, in at least six places
+across three skills, two of them `description:` frontmatter that drives skill
+triggering:
+
+- `skills/execute/SKILL.md:48-49` — "`multi-pr` — out of scope for `/execute`;
+  multi-pr plans run one issue at a time through `/work-on` ... Direct the user
+  to `/work-on`."
+- `skills/execute/SKILL.md:12` — frontmatter, "A `multi-pr` plan is the
+  exception: those run through `/work-on` instead."
+- `skills/work-on/SKILL.md:10` — frontmatter, "also runs a `multi-pr` PLAN, one
+  issue at a time, each landing its own pull request."
+- `skills/work-on/SKILL.md:137-141` — the multi-pr mode implementation.
+- `skills/explore/SKILL.md:55` and `:70` — both routing tables name multi-pr as
+  the exception that goes to `/work-on`.
+
+Also affected: `/explore`'s crystallize framework states a candidacy
+precondition that a multi-pr PLAN does not qualify for `/execute`
+(`skills/explore/references/quality/crystallize-framework.md`), which this change
+would reverse.
+
+**What it buys, and it is substantial.** The hardest open question in this work
+disappears. The exploration established that a last-issue discriminator was
+needed because multi-pr runs inside `/work-on` with each issue landing its own
+PR, so cascade states after `ci_monitor` would fire per issue; and that every
+candidate discriminator carried a drift or race exposure, or required
+re-deriving batch-completion machinery inside `/work-on`. With `/execute`
+orchestrating multi-pr, the orchestrator already knows when the last child is
+done — that is what its existing `children-complete` machinery is for — so the
+cascade fires once, from `/execute`, exactly as it already does for single-pr.
+
+The child then needs only to know **that it is a child**, not whether it is the
+last one. That is a flag the orchestrator sets on dispatch, not a completion
+query against GitHub or a PLAN table, so it is race-free and cheap. It is the
+same shape as the existing `SHARED_BRANCH` signal, with one difference worth
+flagging to the design hop: multi-pr children **do** create their own PRs and so
+**do** reach `ci_monitor`, unlike single-pr children which take
+`pr_status: shared` straight to `done`. The existing fork therefore does not
+cover this case and a distinct signal is required.
+
+It also gives an owner to a gap the exploration found unowned: issueless multi-pr
+plans have no `/work-on` entry point today, and nobody is responsible for them.
+Under this change `/execute` is.
+
+**What it costs.** Routing prose, two frontmatter descriptions, the crystallize
+precondition, and eval scenarios in several skills all have to change together,
+and skill descriptions are what make a skill trigger, so they are part of the
+contract rather than documentation. `/execute` grows a third execution path
+alongside single-pr and coordinated. Anyone today invoking `/work-on` against a
+multi-pr PLAN's issues is doing the documented thing and would need to be
+redirected. Whether `/work-on` retains multi-pr as a mode for backward
+compatibility, refuses it with a pointer to `/execute`, or drops it silently is
+for the design hop — note that the earlier split rejected hard-removing
+`/work-on`'s PLAN input because it "breaks existing invocations and `/work-on`'s
+own evals", which is the same objection in the same place.
 
 ## Decisions Already Settled
 
@@ -105,13 +172,16 @@ From `wip/explore_work-on-standalone-completeness_decisions.md`:
 
 What the exploration did not answer and the chain should:
 
-- **Which discriminator, and scoped to what.** The exploration established that a
-  last-issue discriminator is needed and that two shapes have precedent; it did
-  not choose between querying open issues and requiring a deliberate author
-  gesture, and it did not settle whether the discriminator is scoped to the
-  issue-tracked multi-pr shape that works today or waits on the separately
-  flagged, currently unowned work of giving issueless multi-pr plans any driver
-  at all.
+- **The per-child signal.** With multi-pr moving into `/execute`, the last-issue
+  discriminator is replaced by a simpler need: a child must know it is a child so
+  it does not cascade. multi-pr children reach `ci_monitor` (unlike single-pr
+  children, which take `pr_status: shared` straight to `done`), so the existing
+  fork does not cover them and a distinct signal is needed. Its shape is
+  unsettled. The two discriminator precedents the exploration found
+  (`DECISION-cascade-trigger-mechanism-2026-06-06.md:176-178` and
+  `DECISION-multi-pr-posture-detection-2026-06-06.md:81`) are no longer the live
+  question but remain useful context for how this repo has reasoned about
+  posture signals before.
 - **What the no-chain skip path looks like.** A standalone issue-driven run may
   have no PLAN, DESIGN or BRIEF. The exploration identified the requirement but
   did not specify the behaviour, and did not establish how `run-cascade.sh`
@@ -168,15 +238,13 @@ the author.
 
 ### Architectural alternatives left open
 
-- **The multi-pr last-issue discriminator.** Querying open issues via `gh` is
-  buildable cheaply for plans with tracking level `issues` or
-  `issues-and-milestone`, but is silent for issueless multi-pr plans and inherits
-  a drift-and-race objection already recorded against a structurally similar
-  check. A deliberate author gesture avoids the race entirely at trivial
-  implementation cost, but shifts correctness onto an operator who can forget it.
-  Re-deriving koto's `children-complete` inside `/work-on` is correct by
-  construction but pulls multi-pr back toward the orchestrator architecture it
-  was deliberately carved away from.
+- **How `/work-on` treats a multi-pr PLAN once `/execute` owns that mode.**
+  Retain it for backward compatibility, refuse it with a pointer to `/execute`,
+  or drop it. The earlier split rejected hard-removing `/work-on`'s PLAN input
+  because it "breaks existing invocations and `/work-on`'s own evals", which is
+  the same objection in the same place.
+- **The shape of the per-child "do not cascade" signal**, given that multi-pr
+  children reach `ci_monitor` and single-pr children do not.
 - **How far the shared cascade script goes.** Both skills calling one
   `run-cascade.sh` avoids duplicating cascade logic, but the two callers want
   different cadences and different chain postures. Whether that is one script

@@ -119,3 +119,16 @@
   `run-cascade.sh` therefore duplicates the koto states without duplicating the
   cascade logic, which removes most of the cost originally charged against this
   direction.
+
+- **multi-pr execution moves into `/execute`** (author, 2026-09-13, after the
+  direction was chosen). Intent: `/execute` is how a PLAN gets run, one PR at a
+  time; `/work-on` should not be what a person points at a PLAN's individual
+  issues. Rationale and full cost in
+  `wip/scope_work-on-standalone-completeness_handoff.md`. Consequence: the
+  last-issue discriminator -- the hardest open question this exploration
+  surfaced -- is replaced by a per-child "you are a child, do not cascade" flag
+  the orchestrator sets on dispatch, which is race-free and cheap, because
+  `/execute` already knows when its last child is done. It also gives the
+  unowned issueless-multi-pr gap an owner. Cost: inverts multi-pr routing in at
+  least six places across three skills, two of them trigger descriptions, plus
+  the crystallize precondition.
