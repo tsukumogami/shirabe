@@ -233,11 +233,17 @@ Alternatives weighed, each with what it buys before what it costs:
 
 - **One batching state for everything.** Buys a single place a reader looks for
   every finishing obligation, one new state rather than several, and one mermaid
-  entry. Rejected because two of the obligations have byte-level precedents in
-  `execute.md`, and re-deriving them as new standalone states means re-justifying
-  invariants that template already settled — for no legibility gain, since
-  `validate-template-mermaid.sh` check 4 makes copying the merge gate verbatim
-  close to mandatory anyway.
+  entry. Rejected on sequencing: the obligations split cleanly by when they are
+  observable. Code cleanup, summary shape, the design diagram and the
+  commit-message convention are all decidable *before* `pr_creation` runs; the
+  closing keyword and merge cleanliness both need a pull request to exist before
+  anything can query one. A single state cannot sit on both sides of
+  `pr_creation` in a linear walk without either running twice — which concedes
+  that one state cannot hold everything — or deferring the PR-dependent half to
+  a second pass that is no longer one state. "One state" therefore degrades in
+  practice into a pre-PR batching state plus reuse of the existing post-PR
+  states, which is the hybrid actually chosen, reached honestly rather than by
+  accident.
 - **One state per obligation.** Buys maximal isolation: each obligation's
   failure is its own state, legible in the run record, and a later change to one
   cannot entangle review of another. Rejected because it multiplies states and
@@ -337,13 +343,16 @@ The single-issue caller handles both shapes identically in **verdict semantics
 and recovery guidance**, which is what R5 requires — not identically in routing,
 because the two flows differ structurally. `/execute` runs its cascade before
 `ci_monitor` and routes all three verdicts there; this design runs the cascade
-*after* `ci_monitor`, so there is no later state to absorb a halt. The fourth
-state is therefore an explicit failure route: `cascade_run` accepts
-`cascade_status`, routes `completed` and `skipped` to `done`, and routes
-`partial` to `done_blocked` carrying the failing step's detail and the
-shape-specific recovery guidance quoted above.
+*after* `ci_monitor`, so there is no later state to absorb a halt. The halt is
+therefore an explicit failure **edge** rather than a new state: `cascade_run`
+accepts `cascade_status`, routes `completed` and `skipped` to `done`, and routes
+`partial` into the pre-existing `done_blocked` terminal carrying the failing
+step's detail and the shape-specific recovery guidance quoted above. No new
+terminal is introduced — `done_blocked` already exists and already carries a
+failure reason.
 
-Naming a terminal for `partial` is a deliberate divergence from `/execute`,
+Routing `partial` to a failure terminal at all is a deliberate divergence from
+`/execute`,
 which has none and leaves the halt for the agent to observe rather than the
 machine to enforce (`execute.md:757`). That is tolerable there because a
 following state exists; here it would let a failed cascade reach a success
@@ -506,9 +515,13 @@ describing a capability that does not exist.
 
 **Negative.** The cascade script moves, which invalidates path references in
 anything not updated with it, and one recorded decision is amended. `work-on.md`
-grows four states — the pre-PR evidence state, `cascade_entry`, `cascade_run`
-and the `partial` failure route — in a template that already declares
-twenty-eight. The second
+grows **three** states — the pre-PR evidence state, `cascade_entry` and
+`cascade_run` — in a template that already declares twenty-eight, plus one new
+edge from `cascade_run` into the pre-existing `done_blocked` terminal for a
+`partial` cascade. An earlier draft called that edge a fourth state; it is not,
+and the miscount is recorded here rather than silently corrected because it is
+the second time a stated cardinality in this document disagreed with its own
+enumeration. The second
 pull request is a breaking change for anyone running a multi-pr plan through the
 single-issue entry point today, mitigated by a refusal that names where a plan
 is run now but not eliminated. And the design depends on a mechanism not yet on

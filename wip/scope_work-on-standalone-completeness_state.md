@@ -13,14 +13,12 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-parent_orchestration:
-  invoking_child: design
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
 chain_ran:
   - child: brief
     started_at: 2026-09-13T00:00:00Z
   - child: prd
+    started_at: 2026-09-13T00:00:00Z
+  - child: design
     started_at: 2026-09-13T00:00:00Z
 consolidation_judgments:
   - edge: brief->prd
@@ -45,6 +43,10 @@ child_snapshots:
   prd:
     status: Accepted
     content_hash: ca4f8a073f6afde09b8d0385f37df8fe8c17cbaa
+    captured_at: 2026-09-13T00:00:00Z
+  design:
+    status: Proposed
+    content_hash: 4d06a199cbebcc0ea5d2b2deee78d6df181d8f23
     captured_at: 2026-09-13T00:00:00Z
 worktree_rebases:
   - phase: brief
