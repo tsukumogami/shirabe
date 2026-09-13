@@ -238,6 +238,16 @@ The two `koto next` lines inside the lifted template's `spawn_and_await` section
 are the exception, and stay as written: they tick the orchestrator toward
 `pr_finalization` or `escalate`, never to a terminal.
 
+**This does not extend to the children.** A per-issue `/work-on` child must not
+carry the flag — on a child it also suppresses the `request_store.result` and
+`ChildCompleted` events this skill's own `children-complete` gate reads, which
+would block the converge permanently. `/work-on` decides that per run with
+`skills/work-on/scripts/session-role.sh`. The consequence to be honest about is
+that a child which ends at `done_blocked` still loses its context, so the
+per-child record a `needs_attention` batch would most want to read is the one
+still being destroyed. koto#240 is where that gets fixed; no change on this side
+can do it.
+
 In autonomous mode, drive this loop continuously per the **Autonomy** section below —
 do not stop between issues to advise a checkpoint. The mandate is bound at the loop
 tick itself: the lifted template's `spawn_and_await` state carries an "Autonomy at

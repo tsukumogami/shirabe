@@ -43,11 +43,14 @@
 #                     child and silently lose the retention this discriminator
 #                     exists to grant.
 #
-# `koto session list` is used rather than `koto workflows` because `workflows`
-# documents itself as listing the workflows "in the current directory", and a
+# `koto session list` is used rather than `koto workflows` because it is the
+# surface whose documented contract is "all sessions": `koto workflows`
+# describes itself as listing the workflows "in the current directory", and a
 # session whose execution anchor differs from the caller's cwd must not fall
-# through to the unknown branch below. `koto session list` is "all sessions" by
-# contract. `koto status` does not emit the field at all.
+# through to the unknown branch below. Both read the same flat session store
+# today, so this is a choice of the contract that will keep holding rather than
+# a workaround for a difference that exists now. `koto status` does not emit the
+# field at all, so it is not a candidate.
 #
 # ---------------------------------------------------------------------------
 # Which way it fails

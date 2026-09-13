@@ -129,7 +129,11 @@ suite_scripts() {
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
-            echo "skills/work-on/scripts/session-role.sh"
+            # session-role.sh is deliberately NOT listed. Every entry here is
+            # run with no arguments and a nonzero status is a failure, and the
+            # discriminator exits 2 on a missing session name by design. It
+            # reaches the floor through the suite above, whose first four cases
+            # run without koto and include invoking it.
             ;;
         preflight)
             echo "scripts/skill-preflight_test.sh"

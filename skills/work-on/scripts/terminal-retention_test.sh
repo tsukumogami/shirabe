@@ -13,17 +13,21 @@
 # parent's converge then blocks permanently. So retention is root-only, and
 # `session-role.sh` is the discriminator that decides.
 #
-# This harness asserts that contract on four fronts:
+# This harness asserts that contract on four fronts, in execution order:
 #
-#   the discriminator answers correctly, and fails safe   (cases 1-5)
-#   a root run's record survives its blocked terminal     (cases 6-8)
-#   a child's terminal tick must NOT carry the flag       (cases 9-10)
-#   nothing has tidied the flag into the child template   (cases 11-13)
+#   nothing has tidied the flag into the child template   (cases 1-3)
+#   the discriminator refuses a call it cannot answer     (case 4)
+#   the discriminator answers correctly, and fails safe   (cases 5-8)
+#   a root run's record survives its blocked terminal     (cases 9-11)
+#   a child's terminal tick must NOT carry the flag       (cases 12-13)
 #
-# Cases 6-8 drive the SHIPPED work-on.md to its real `done_blocked` terminal
-# rather than a stand-in, so a template edit that moves that terminal fails
-# here. Cases 9-10 use a minimal parent/child pair, because what they assert is
-# koto's convergence behaviour and not anything about work-on.md's own states.
+# Cases 1-4 need no engine and run BEFORE the koto check, so the macOS bash 3.2
+# floor leg -- where koto is absent -- still exercises this file rather than
+# skipping it whole. Cases 9-11 drive the SHIPPED work-on.md to its real
+# `done_blocked` terminal rather than a stand-in, so a template edit that moves
+# that terminal fails here. Cases 12-13 use a minimal parent/child pair, because
+# what they assert is koto's convergence behaviour and not anything about
+# work-on.md's own states.
 #
 # The discriminator cases describe BEHAVIOUR ("a child classifies as child"),
 # never the mechanism session-role.sh currently uses to decide. koto's parentage
@@ -64,10 +68,60 @@ NC='\033[0m'
 pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- no case ran"; exit 0; }
-command -v jq   >/dev/null 2>&1 || { echo "SKIP: jq not on PATH -- no case ran";   exit 0; }
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 [ -f "$ROLE_SH" ]  || { echo "FAIL: discriminator not found at $ROLE_SH" >&2; exit 1; }
+
+# --- nothing has tidied the flag into the child template ---------------------
+#
+# These need no engine, so they run first and the floor leg gets real coverage.
+#
+# work-on.md and its phase files are read by BOTH a root run and a child. A
+# `--no-cleanup` written into either would reach children, which is the wedge
+# this whole contract exists to avoid. The rule therefore lives in SKILL.md,
+# which is consumed per-run, and these cases keep a later edit from relocating
+# it.
+
+if grep -rn -- '--no-cleanup' "$TEMPLATE" >/dev/null 2>&1; then
+    fail "work-on.md carries --no-cleanup; a child reads this template and would wedge its parent"
+else
+    pass "work-on.md carries no --no-cleanup, so a child cannot pick it up from the template"
+fi
+
+if grep -rn -- '--no-cleanup' "$PHASES" >/dev/null 2>&1; then
+    fail "a references/phases file carries --no-cleanup; children read these too"
+else
+    pass "no references/phases file carries --no-cleanup"
+fi
+
+# The rule has to actually be stated somewhere a root run reads, and has to
+# route through the discriminator rather than asserting rootness on its own.
+if grep -q -- '--no-cleanup' "$SKILL_MD" && grep -q 'session-role.sh' "$SKILL_MD"; then
+    pass "SKILL.md states the retention rule and routes it through session-role.sh"
+else
+    fail "SKILL.md must state the retention rule and decide it with session-role.sh"
+fi
+
+bash "$ROLE_SH" >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+    pass "the discriminator rejects a missing session name with exit 2"
+else
+    fail "the discriminator did not exit 2 on a missing session name"
+fi
+
+command -v koto >/dev/null 2>&1 || {
+    echo
+    echo "SKIP: koto not on PATH -- the engine-backed cases did not run"
+    echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
+    [ "$FAIL_COUNT" -eq 0 ] || exit 1
+    exit 0
+}
+command -v jq >/dev/null 2>&1 || {
+    echo
+    echo "SKIP: jq not on PATH -- the engine-backed cases did not run"
+    echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
+    [ "$FAIL_COUNT" -eq 0 ] || exit 1
+    exit 0
+}
 
 WORKDIR=$(mktemp -d)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
@@ -201,13 +255,6 @@ else
     fail "an unresolvable session classified as '$(role_of no-such-session-anywhere)', expected child"
 fi
 
-bash "$ROLE_SH" >/dev/null 2>&1
-if [ "$?" -eq 2 ]; then
-    pass "the discriminator rejects a missing session name with exit 2"
-else
-    fail "the discriminator did not exit 2 on a missing session name"
-fi
-
 # --- a root run's record survives its blocked terminal -----------------------
 #
 # Driven through the SHIPPED work-on.md: entry -> context_injection ->
@@ -288,33 +335,6 @@ if [ "$(converge_state nowedge)" = "absent" ]; then
     pass "a child whose terminal tick omits the flag lets its parent converge (control)"
 else
     fail "a child's unflagged terminal tick still blocked the converge"
-fi
-
-# --- nothing has tidied the flag into the child template ---------------------
-#
-# work-on.md and its phase files are read by BOTH a root run and a child. A
-# `--no-cleanup` written into either would reach children, which is the wedge
-# above. The rule therefore lives in SKILL.md, which is consumed per-run, and
-# these greps keep a later edit from relocating it.
-
-if grep -rn -- '--no-cleanup' "$TEMPLATE" >/dev/null 2>&1; then
-    fail "work-on.md carries --no-cleanup; a child reads this template and would wedge its parent"
-else
-    pass "work-on.md carries no --no-cleanup, so a child cannot pick it up from the template"
-fi
-
-if grep -rn -- '--no-cleanup' "$PHASES" >/dev/null 2>&1; then
-    fail "a references/phases file carries --no-cleanup; children read these too"
-else
-    pass "no references/phases file carries --no-cleanup"
-fi
-
-# The rule has to actually be stated somewhere a root run reads, and has to
-# route through the discriminator rather than asserting rootness on its own.
-if grep -q -- '--no-cleanup' "$SKILL_MD" && grep -q 'session-role.sh' "$SKILL_MD"; then
-    pass "SKILL.md states the retention rule and routes it through session-role.sh"
-else
-    fail "SKILL.md must state the retention rule and decide it with session-role.sh"
 fi
 
 echo

@@ -216,6 +216,21 @@ Branch creation is conditional. Before creating a new branch in any setup state,
 
 Only create a new branch when none of the above apply. The setup states (`setup_issue_backed`, `setup_free_form`, `setup_plan_backed`) all accept `status: override` for these cases.
 
+### Scripts
+
+- `scripts/session-role.sh <session-name>` — prints `root` or `child`. **The
+  single discriminator for any `/work-on` behaviour that must differ between a
+  directly-invoked run and one materialized as a child of `/execute`.** Use it
+  rather than inventing a second test, so two such behaviours cannot drift
+  apart. From prose, call it as
+  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`; from
+  a `work-on.md` state directive, `{{PLUGIN_ROOT}}` is the interpolation koto
+  resolves — a shell-style `${CLAUDE_PLUGIN_ROOT}` in a template reaches `sh -c`
+  untouched and expands to the empty string. Its first caller is the retention
+  rule below.
+- `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh` — the
+  two harnesses; see each file's header.
+
 ### Execution Loop
 
 Before the first tick, resolve this session's role once and keep it for the
@@ -237,29 +252,59 @@ Repeat:
    Provide the fields listed in `expects`. Check `expects.options` for valid values.
 4. If `action: "done"` — report the outcome and stop.
 
-**Retention: when `ROLE` is `root`, every `koto next` above also carries
-`--no-cleanup`.** When it is `child`, none of them do.
+**Retention: when `ROLE` is `root`, every `koto next` in this workflow carries
+`--no-cleanup` — every tick of the loop above, the entry-evidence tick, and the
+Resume tick below.** When `ROLE` is `child`, none of them do.
+
+```bash
+koto next <WF> --with-data '{"field_name": "value", ...}' --no-cleanup
+```
 
 koto deletes a session on the tick that reaches a terminal state, and the
 deletion takes the session's `ctx/` with it — `plan.md` and the other seven keys
 this workflow accumulates. `--no-cleanup` suppresses that, so the record of a
-run that ended at `done_blocked` survives for whoever has to read why. The flag
-is a no-op on any tick that does not terminate, which is why the rule is "every
-tick" rather than "the last one": `ci_monitor`, `analysis` and the setup states
-all route to a clean or a blocked terminal off the same evidence field, so an
-agent cannot reliably know in advance which tick is the last one, and guessing
-wrong loses exactly the failures worth keeping.
+run that ended at `done_blocked` survives for whoever has to read why.
+
+The flag is a no-op on any tick that does not terminate, which is why the rule
+is "every tick" rather than "the last one". An agent cannot tell in advance
+which tick is the last one: koto's `expects` payload lists the evidence a state
+accepts, never the states its transitions lead to, so whether this submission
+terminates the run is not visible until after it is made. Guessing wrong loses
+exactly the failures worth keeping.
 
 A child must not carry it. On a child, `--no-cleanup` also suppresses the
 `request_store.result` and `ChildCompleted` events that `/execute`'s
 `children-complete` gate reads to learn the child finished; the parent's
 converge then blocks permanently with no event left to emit. That is why the
-role is resolved by `session-role.sh` rather than assumed, and why the rule is
-stated here rather than in `work-on.md` — the template is also the child
-template, so a `--no-cleanup` written into it would reach children.
+role is resolved by `session-role.sh` rather than assumed.
+
+Note that `ROLE` is not the same distinction as **Plan-Backed Child Mode**
+above. That mode is chosen by the arguments `/work-on` was invoked with; `ROLE`
+is koto's own record of whether this session has a parent. They usually agree,
+and where they do not, `ROLE` is the one that governs retention, because what
+must not be disturbed is the parent's converge gate and only koto knows whether
+there is a parent. In `multi-pr` dispatcher mode `/work-on` drives one session
+per issue, so resolve `ROLE` again for each.
+
+**Why the rule lives here and not in `work-on.md`, and when that reasoning does
+NOT transfer.** `work-on.md` is also the child template, so a `--no-cleanup`
+written into it would reach children; `SKILL.md` is not loaded by a materialized
+child, so stating it here means a child never learns to ask for retention. That
+is safe **only because omission is the correct child behaviour for this
+particular rule** — not because `SKILL.md` is where root-only rules belong. A
+rule whose failure mode is omission — an obligation a child must discharge —
+placed here would be skipped silently on exactly the path nobody watches. Such a
+rule belongs in the template, guarded by `ROLE`.
+
 `skills/work-on/scripts/terminal-retention_test.sh` pins both halves, including
 a tripwire that fails when a future koto makes the flag safe for children (see
 koto#240) and this exception can be dropped.
+
+**Known gap while that exception stands:** a `/work-on` run materialized as a
+child of `/execute` still loses its context at its terminal, including a
+`done_blocked` one. No caller-side change can close that — the flag fuses
+retention with the suppression of the events the parent needs — so it is
+koto#240's to fix, not this skill's.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
@@ -271,8 +316,22 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
 ### Resume
 
 1. `koto workflows` — find the active workflow name
-2. If found, `koto next <WF>`
-3. If none, `koto init` fresh
+2. If found, `koto next <WF>` (carrying `--no-cleanup` per the retention rule
+   when `ROLE` is `root`)
+3. **If that tick answers `action: "done"`, this is not a resume.** A retained
+   session that already finished answers `done` immediately, and `koto workflows`
+   lists it with nothing to distinguish it from a live one. Do NOT report the
+   issue complete on the strength of it — no work was done this run, and the
+   `done` is last week's. Treat the run as fresh: either start under a different
+   workflow name, or clear the finished session first with
+   `koto session cleanup <WF>` when its record is no longer wanted. (`koto init`
+   on the existing name refuses and tells you the same.)
+4. If none, `koto init` fresh
+
+Step 3 exists because retention created the ambiguity. Before the terminal tick
+carried `--no-cleanup`, a finished session was gone and step 1 fell through to a
+fresh `koto init` on its own. Keeping the record means a finished session is
+still there to be found, so the resume path has to tell the two apart itself.
 
 Phase 0 detection: if the parent-chain sentinel is present in
 `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
@@ -317,7 +376,7 @@ If your project's extension file defines a language skill or PR creation skill, 
 those for project-specific quality and PR requirements.
 
 Then:
-1. `koto workflows` — if an active workflow matches this issue, resume with `koto next <WF>`.
+1. `koto workflows` — if an active workflow matches this issue, resume with `koto next <WF>`. Apply the **Resume** guard above: a tick that answers `action: "done"` is a finished prior run, not a resume, and must not be reported as the issue being complete.
 2. Otherwise, `koto init` with the template path and appropriate variables.
 3. Submit entry evidence:
    - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}'`

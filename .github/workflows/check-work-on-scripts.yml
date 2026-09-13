@@ -32,6 +32,14 @@ jobs:
       # cannot be checked without the engine that evaluates the gate. koto
       # arrives through the project tool manifest, the same way
       # check-execute-scripts.yml and validate-templates.yml get it.
+      # terminal-retention_test.sh needs jq to read koto's parentage field and its
+      # converge verdicts. Without this the suite skips its engine-backed cases
+      # with exit 0, so a runner that stopped shipping jq would go green having
+      # tested almost nothing.
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
         run: |

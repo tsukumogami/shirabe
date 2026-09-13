@@ -11,20 +11,27 @@
 #
 # `/execute` passes the flag unconditionally, where `/work-on` has to decide per
 # run. That is sound only while an orchestrator session is always a root, so
-# this harness checks the premise rather than trusting it:
+# this harness checks the premise rather than trusting it. In execution order:
 #
-#   the orchestrator's blocked terminal keeps its context     (cases 1-2)
-#   its pause terminal keeps its context                      (case 3)
-#   execute.md is never materialized as a koto child          (case 4)
-#   SKILL.md states the rule                                  (case 5)
+#   execute.md is never materialized as a koto child          (case 1)
+#   SKILL.md states the rule                                  (case 2)
+#   the blocked terminal keeps its context, and the control   (cases 3-4)
+#   the PAUSE terminal keeps its context, and the control     (cases 5-6)
 #
-# Case 4 is the tripwire. If a future change makes `/execute` spawnable as a
+# Case 1 is the tripwire. If a future change makes `/execute` spawnable as a
 # child, the unconditional flag becomes the wedge documented in
 # skills/work-on/scripts/session-role.sh, and this case is what says so before
-# it ships rather than after.
+# it ships rather than after. It covers the routes by which one template names
+# another as its children's, not only the one /execute happens to use.
 #
-# Cases 1-3 drive the SHIPPED execute.md to its real terminals, so a template
-# edit that moves them fails here.
+# Cases 3-6 drive the SHIPPED execute.md to its real terminals and read the
+# context back afterwards, so a template edit that moves a terminal fails here.
+# The pause cases walk the declared edges with `koto next --to`, because
+# reaching pr_finalization by evidence alone would mean satisfying the
+# children-complete gate with real children -- a great deal of machinery to
+# assert something about the tick that LEAVES the state, not about how it was
+# entered. Every hop is a declared transition; koto refuses an undeclared one,
+# so the walk cannot drift from the template's own graph without failing.
 #
 # Usage: terminal-retention_test.sh
 #
@@ -65,15 +72,20 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 # template its children are built from, so a hit anywhere outside a comment is
 # the thing this case exists to catch.
 
-# The `cut -d: -f3-` drops the `path:line:` prefix before matching, or every hit
-# inside execute.md itself would match on its own filename.
-CHILD_DECLS=$(grep -rn 'default_template:' "$SKILLS_DIR"/*/koto-templates/*.md 2>/dev/null \
+# Three routes, not one. `default_template` is what /execute uses for its own
+# children; a per-task `template:` field overrides it per child; and a session
+# started under an explicit parent makes a child of any template at all. SKILL.md
+# files are scanned alongside the templates because that last route is invoked
+# from prose. The awk drops the `path:line:` prefix before matching, or every hit
+# inside execute.md would match on its own filename.
+CHILD_DECLS=$(grep -rn 'default_template:\|template:\|--parent' \
+        "$SKILLS_DIR"/*/koto-templates/*.md "$SKILLS_DIR"/*/SKILL.md 2>/dev/null \
     | grep -v '^[^:]*:[0-9]*: *#' \
     | awk -F: '{ line = $0; sub(/^[^:]*:[0-9]*:/, "", line); if (line ~ /execute\.md/) print $0 }')
 if [ -z "$CHILD_DECLS" ]; then
-    pass "no template names execute.md as a default_template, so an orchestrator session is always a root"
+    pass "nothing names execute.md as a child template, so an orchestrator session is always a root"
 else
-    fail "execute.md is named as a default_template, so /execute can now run as a child and its unconditional --no-cleanup would block the parent's converge:
+    fail "execute.md is named as a child template, so /execute can now run as a child and its unconditional --no-cleanup would block the parent's converge:
 $CHILD_DECLS"
 fi
 
@@ -149,15 +161,46 @@ fi
 # --- the pause terminal keeps its context ------------------------------------
 #
 # paused_for_review is a suspension, not a termination: the operator is expected
-# to come back. It is nonetheless terminal: true, so koto disposes of it on
-# arrival like any other. #360's written acceptance criteria cover only the
-# blocked terminal; this case is the widening, argued in the PR.
+# to come back, and what a resume reads is exactly the context koto disposes of
+# on arrival, because the state is still terminal: true. #360's written
+# acceptance criteria cover only the blocked terminal; this is the widening, and
+# it is measured here rather than inferred from koto's source.
 
-PAUSE_TARGET=$(grep -n 'target: paused_for_review' "$TEMPLATE" | head -1)
-if [ -n "$PAUSE_TARGET" ]; then
-    pass "execute.md still routes to paused_for_review, the non-failure terminal whose resume needs its context"
+# The declared edges from orchestrator_setup to the pause terminal. koto refuses
+# a hop it cannot find in the template, so this list is checked against the real
+# graph on every run -- if a future edit reroutes the pause path, the walk stops
+# short and the assertions below fail rather than silently testing nothing.
+PAUSE_PATH="settled_branch_record worktree_sync worktree_discipline_check spawn_and_await pr_finalization paused_for_review"
+
+walk_to_pause() {
+    # $1 session name, $2 extra flag for every hop ("" or --no-cleanup)
+    local target
+    for target in $PAUSE_PATH; do
+        if [ -n "$2" ]; then
+            koto next "$1" --to "$target" --rationale "terminal-retention probe" "$2" >/dev/null 2>&1
+        else
+            koto next "$1" --to "$target" --rationale "terminal-retention probe" >/dev/null 2>&1
+        fi
+    done
+}
+
+init_orchestrator pause_keep
+walk_to_pause pause_keep --no-cleanup
+PAUSE_STATE=$(koto status pause_keep 2>/dev/null | jq -r '.current_state // "gone"')
+if [ "$PAUSE_STATE" != "paused_for_review" ]; then
+    fail "the walk did not reach paused_for_review (stopped at '$PAUSE_STATE') -- the pause path in execute.md has changed and this case is no longer testing it"
+elif [ "$(koto context get pause_keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+    pass "an orchestrator run reaching paused_for_review with the flag keeps its context"
 else
-    fail "execute.md no longer routes to paused_for_review -- re-check whether the retention rule still covers the pause path"
+    fail "an orchestrator run reaching paused_for_review with the flag lost its context"
+fi
+
+init_orchestrator pause_drop
+walk_to_pause pause_drop ""
+if koto context get pause_drop summary.md >/dev/null 2>&1; then
+    fail "an orchestrator run reaching paused_for_review without the flag kept its context -- the control did not fire"
+else
+    pass "an orchestrator run reaching paused_for_review without the flag loses its context (control)"
 fi
 
 echo
