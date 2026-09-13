@@ -36,7 +36,8 @@ them.
 - Adding document-chain cascade states to `/work-on`, positioned after
   `ci_monitor`.
 - A shared cascade script both skills call, so the cascade logic is not
-  duplicated even though the states are.
+  duplicated even though the states are — **including deciding where that script
+  lives**, which amends a recorded decision. See the heading below.
 - **Moving multi-pr execution into `/execute`.** Author decision, 2026-09-13:
   `/execute` is the skill for running a PLAN, one PR at a time, and people should
   not be invoking `/work-on` on a PLAN's individual issues. This inverts what is
@@ -74,6 +75,42 @@ them.
   in `skills/roadmap/SKILL.md`, three Rust doc comments, one citing a path that
   has never existed). Worth fixing alongside, but not the point of the work.
 
+## Named design decisions this chain must take deliberately
+
+Three things must be decided on the record rather than discovered during
+implementation. Each amends something already accepted.
+
+**1. Where the shared cascade script lives.** The rejected option in
+`DESIGN-execute-skill.md:98-100` was a shared *template*, on legibility grounds,
+which is why a shared *script* is still available. But the **chosen** option in
+that same decision, E3 at `:101-104`, moved `run-cascade.sh` **into `/execute`**:
+"Move `work-on-plan.md`, the orchestrator prose, and `run-cascade.sh` ... into
+/execute; keep `work-on.md` in /work-on as the canonical single-issue engine."
+
+So "both skills call one script" forces a question that must not be deferred: if
+the script stays at `skills/execute/scripts/run-cascade.sh` and `/work-on` calls
+across the boundary, **`/work-on` acquires a dependency on `/execute`** — which
+inverts the dependency-direction argument that chose this direction in the first
+place, and adds a second load-bearing cross-skill path of exactly the kind
+`assert-child-template.sh` exists to guard. A shared location neither skill owns
+is the likely answer, but that amends E3 and must be recorded as such.
+
+**2. Superseding `PRD-execute-skill.md` D5 and `DESIGN-execute-skill.md`
+Decision 2 R1.** The multi-pr migration contradicts an accepted requirement and a
+chosen option in a Current design. The PRD hop must plan to supersede them —
+a decision record amending E3 and R1 is the cheap, correct move — rather than
+write a new document that silently disagrees with them. This repo already
+validates upstream-link legality and lifecycle posture, and already carries a
+queue of issues about documents describing capabilities that do not exist
+(including the two multi-pr cascade claims listed below). Adding another
+contradiction to that pile while fixing the others would be the wrong outcome.
+
+**3. Retain, refuse, or drop `/work-on`'s multi-pr support.** Settled inside this
+chain, not before it. Whatever is chosen, a user pointing `/work-on` at a
+multi-pr PLAN must land somewhere better than a confusing failure: that is a
+supported invocation today, described by two Current designs and a PRD
+requirement, and asserted by two eval scenarios.
+
 ## Where a fix may be written: a hard constraint
 
 VERIFIED in koto's source. `init_child_core`
@@ -104,6 +141,10 @@ and not sufficient; what is missing is the evidence gate.
 The practical test for any proposed change: name the file it lands in, and say
 whether a `/work-on` child materialized by `/execute` would receive it.
 
+**This belongs in the acceptance criteria, not only in the scope notes.** A
+criterion that the new finalization states land in `work-on.md` and are reachable
+from a child session is testable; a scope note saying the same thing is not.
+
 ## multi-pr moves into `/execute`
 
 Author decision, 2026-09-13, taken after the direction was chosen and after this
@@ -111,9 +152,13 @@ handoff was first written. The intent: `/execute` is how a PLAN gets run, one PR
 at a time, and `/work-on` should not be the thing a person points at a PLAN's
 individual issues.
 
-**This inverts what the repository currently says**, in at least six places
-across three skills, two of them `description:` frontmatter that drives skill
-triggering:
+**This inverts what the repository currently says, in 16 or more places across
+five skills, two eval suites, one PRD and two Current DESIGNs.** An earlier draft
+of this handoff said "six places across three skills"; that was a grep of the
+three `SKILL.md` files only and is roughly a third of the real surface. The list
+below is MEASURED by an independent sweep. Treat it as the starting set.
+
+Skill prose and routing:
 
 - `skills/execute/SKILL.md:48-49` — "`multi-pr` — out of scope for `/execute`;
   multi-pr plans run one issue at a time through `/work-on` ... Direct the user
@@ -123,13 +168,44 @@ triggering:
 - `skills/work-on/SKILL.md:10` — frontmatter, "also runs a `multi-pr` PLAN, one
   issue at a time, each landing its own pull request."
 - `skills/work-on/SKILL.md:137-141` — the multi-pr mode implementation.
-- `skills/explore/SKILL.md:55` and `:70` — both routing tables name multi-pr as
-  the exception that goes to `/work-on`.
+- `skills/explore/SKILL.md:55` and `:70` — both routing tables.
+- `skills/explore/references/quality/crystallize-framework.md:36,38` — the
+  candidacy precondition that a multi-pr PLAN does not qualify for `/execute`.
+- `skills/explore/references/phases/phase-4-crystallize.md:75` — a **second,
+  distinct copy** of that precondition.
+- `skills/roadmap/SKILL.md:350` and
+  `skills/plan/references/quality/plan-doc-structure.md:95` — the multi-pr
+  cascade claim that nothing implements.
 
-Also affected: `/explore`'s crystallize framework states a candidacy
-precondition that a multi-pr PLAN does not qualify for `/execute`
-(`skills/explore/references/quality/crystallize-framework.md`), which this change
-would reverse.
+Tests that assert the **opposite** of the new decision, and are the serious ones:
+
+- `skills/execute/evals/evals.json:22-33` — scenario
+  `dispatcher-multi-pr-one-issue-at-a-time`, prompt `/work-on <PLAN-multi-pr-test.md>`,
+  asserting "Agent does **NOT** hand off a multi-pr PLAN to `/execute`".
+- `skills/work-on/evals/evals.json:299-304` — the same fixture, asserting the
+  thin-dispatcher behaviour.
+- `skills/execute/evals/fixtures/plans/PLAN-multi-pr-test.md` — the fixture both
+  scenarios drive.
+
+Accepted requirements and Current designs that must be **superseded, not
+contradicted** (see the heading below):
+
+- `docs/prds/PRD-execute-skill.md:307` — requirement D5, "Multi-pr execution is
+  independent per-issue `/work-on` runs".
+- `docs/designs/current/DESIGN-execute-skill.md:138` — "multi-pr: not owned by
+  `/execute`; the `/work-on` dispatcher runs it in place"; also `:260`.
+- `docs/designs/current/DESIGN-execute-skill.md` Decision 2, R1 — the **chosen**
+  routing option: "`/work-on <PLAN>` keeps working as a thin dispatcher... runs
+  multi-pr in place per issue (PRD D5)".
+- `docs/designs/current/DESIGN-multi-pr-plan-decoupling.md:276` and `:653` —
+  "`/execute` declines `multi-pr` outright".
+
+**One risk that does not materialise.** MEASURED: no koto template carries
+multi-pr routing. The only `multi-pr` strings under any `koto-templates/` are in
+`scope.md` (`:474`, `:967`, `:1091`), all recording the `execution_mode` enum
+value rather than routing on it; `work-on.md` and `execute.md` carry none, and
+neither do the crates. So the child-path failure mode described in the
+file-placement section above does not apply to the routing inversion.
 
 **What it buys, and it is substantial.** The hardest open question in this work
 disappears. The exploration established that a last-issue discriminator was
@@ -165,6 +241,29 @@ compatibility, refuses it with a pointer to `/execute`, or drops it silently is
 for the design hop — note that the earlier split rejected hard-removing
 `/work-on`'s PLAN input because it "breaks existing invocations and `/work-on`'s
 own evals", which is the same objection in the same place.
+
+## Two PRs, in this order
+
+This is more than one pull request, and the decomposition must separate them
+rather than produce one undifferentiated issue list. Two separable bodies of
+work, each independently valuable and independently testable:
+
+1. **`/work-on` completeness** — enforcement altitude, cascade states after
+   `ci_monitor`, the shared script and where it lives, the no-chain skip path.
+2. **The multi-pr migration** — the 16-plus place routing inversion, the two
+   eval suites, a third execution path in `/execute`, and the PRD and DESIGN
+   amendments.
+
+**Do (1) first, under today's routing.** If the migration lands first, the rules
+for running a multi-pr PLAN change underneath the work that is implementing them.
+
+There is a wrinkle worth noticing either way: a multi-pr PLAN for this work would
+today be executed through `/work-on` — the very mode being inverted. Landing (1)
+as a single-pr PLAN, and (2) as its own PLAN afterwards, avoids running the work
+under rules it is in the middle of rewriting.
+
+The PLAN this chain produces should say which issues belong to which pull
+request, and why the order holds.
 
 ## Decisions Already Settled
 

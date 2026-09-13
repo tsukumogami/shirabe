@@ -132,3 +132,32 @@
   unowned issueless-multi-pr gap an owner. Cost: inverts multi-pr routing in at
   least six places across three skills, two of them trigger descriptions, plus
   the crystallize precondition.
+
+## Review corrections carried into /scope (2026-09-13)
+
+- **The multi-pr surface is 16+ places, not six.** The earlier figure came from
+  grepping three `SKILL.md` files only. An independent sweep found five skills,
+  two eval suites, one PRD requirement and two Current DESIGNs. Two eval
+  scenarios assert the opposite of the new decision by name
+  (`skills/execute/evals/evals.json:22-33`,
+  `skills/work-on/evals/evals.json:299-304`). Full list in the handoff.
+
+- **No koto template carries multi-pr routing** (MEASURED), so the child-path
+  failure mode does not apply to the routing inversion. The file-placement
+  constraint still binds the new finalization states.
+
+- **The shared-script location is a named design decision, not an
+  implementation detail.** `DESIGN-execute-skill.md:101-104` (option E3, the
+  chosen one) moved `run-cascade.sh` into `/execute`. Leaving it there and
+  calling across the boundary would give `/work-on` a dependency on `/execute`,
+  inverting the argument that chose this direction. Amending E3 must be
+  deliberate.
+
+- **`PRD-execute-skill.md` D5 and `DESIGN-execute-skill.md` Decision 2 R1 must be
+  superseded, not contradicted.** Writing a new document that silently disagrees
+  with an accepted requirement and a Current design would add to the existing
+  queue of documents describing capabilities that do not exist.
+
+- **Two PRs, `/work-on` completeness before the multi-pr migration.** Otherwise
+  the routing rules change underneath the work implementing them. The PLAN must
+  say which issues belong to which PR and why the order holds.
