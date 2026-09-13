@@ -4,7 +4,7 @@ session: scope-work-on-standalone-completeness
 visibility: Public
 chain_started: 2026-09-13T00:00:00Z
 last_updated: 2026-09-13T00:00:00Z
-phase_pointer: phase-2
+phase_pointer: phase-3
 exit: UNSET
 exit_artifacts: []
 planned_chain:
@@ -19,6 +19,8 @@ chain_ran:
   - child: prd
     started_at: 2026-09-13T00:00:00Z
   - child: design
+    started_at: 2026-09-13T00:00:00Z
+  - child: plan
     started_at: 2026-09-13T00:00:00Z
 consolidation_judgments:
   - edge: prd->design
@@ -57,8 +59,12 @@ child_snapshots:
     content_hash: ca4f8a073f6afde09b8d0385f37df8fe8c17cbaa
     captured_at: 2026-09-13T00:00:00Z
   design:
-    status: Proposed
+    status: Planned
     content_hash: 4d06a199cbebcc0ea5d2b2deee78d6df181d8f23
+    captured_at: 2026-09-13T00:00:00Z
+  plan:
+    status: Active
+    content_hash: bd29bc51c4eafa2029b437d5afd7f5904b8dfe7e
     captured_at: 2026-09-13T00:00:00Z
 worktree_rebases:
   - phase: brief
