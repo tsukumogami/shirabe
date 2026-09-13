@@ -132,8 +132,8 @@ suite_scripts() {
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
-            # reaches the floor through the suite above, whose first four cases
-            # run without koto and include invoking it.
+            # reaches the floor through the suite above, whose engine-free
+            # cases run without koto and include invoking it.
             ;;
         preflight)
             echo "scripts/skill-preflight_test.sh"

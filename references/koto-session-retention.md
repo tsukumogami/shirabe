@@ -4,8 +4,10 @@ The normative rule for `koto next --no-cleanup` across shirabe's koto-driven
 skills, and the koto behaviour it rests on. Normative prose like
 [`tool-declaration-policy.md`](tool-declaration-policy.md) and
 [`wip-hygiene.md`](wip-hygiene.md): no skill loads this file at runtime, and it
-is reviewed as part of a PR. A skill states which side of the rule it is on and
-cites here; it does not restate the argument.
+is reviewed as part of a PR. A skill states which side of the rule it is on, in
+one or two sentences with the reason its own reader needs at the call site, and
+cites here for the argument. What a skill should not do is re-derive the
+mechanism: that is what drifts.
 
 The rule lives here rather than in a skill because what it describes is a
 property of koto's session disposal, not of any one skill. Three skills drive
@@ -118,4 +120,4 @@ read as instruction.
 |---|---|
 | `/work-on` | Root runs pass it on every tick; children pass it nowhere. Decided per run by `session-role.sh`, because `work-on.md` is also `/execute`'s child template. |
 | `/execute` | Every tick, unconditionally. An orchestrator session is always a root. |
-| `/scope` | States the selective per-state form, predating the findings above. Not reconciled; see shirabe#360's PR discussion. |
+| `/scope` | States the selective per-state form, predating the findings above, and is **not reconciled**. Measured: `scope.md` declares no state whose transitions are all unconditional, so nothing there chains into a terminal and its selective rule is reachable in practice — inconsistent rather than unsafe. One future state with a single unconditional exit would make it unsafe, with nothing to catch that. Aligning it is tracked separately. |

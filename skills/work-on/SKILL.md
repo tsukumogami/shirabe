@@ -307,9 +307,8 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
    `--no-cleanup` per the retention rule when `ROLE` is `root`.
 4. If none, `koto init` fresh.
 
-The state read has to come first, and ticking is not a substitute for it: a
-finished session answers `action: "done"` to any tick, so the tick reveals the
-problem only after making it, and disposes of the session on the way. See
+Ticking is not a substitute for the state read: a finished session answers
+`action: "done"` to any tick, and that tick disposes of the session. See
 [`references/koto-session-retention.md`](../../references/koto-session-retention.md)
 § "What retention does not buy".
 
@@ -356,13 +355,21 @@ If your project's extension file defines a language skill or PR creation skill, 
 those for project-specific quality and PR requirements.
 
 Then:
-1. `koto workflows` — if a workflow matches this issue, apply the **Resume** guard above before ticking it: `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not a resume. Never tick it and never report the issue complete on its strength. Otherwise resume with `koto next <WF>`.
-2. Otherwise, `koto init` with the template path and appropriate variables.
-3. Resolve `ROLE` (see **Execution Loop**), then submit entry evidence — adding
-   `--no-cleanup` to these and to every later tick when `ROLE` is `root`:
+1. `koto workflows` — find a workflow matching this issue, or `koto init` with
+   the template path and appropriate variables if none does.
+2. **Resolve `ROLE` before any tick** (see **Execution Loop**). It has to come
+   first: every `koto next` below carries `--no-cleanup` when `ROLE` is `root`,
+   and a resumed run can reach a terminal on its very first tick — that is the
+   one path where resolving `ROLE` later would leave the tick that matters bare.
+3. On a resumed workflow, apply the **Resume** guard above before ticking it:
+   `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not
+   a resume. Never tick it and never report the issue complete on its strength.
+   Otherwise resume with `koto next <WF>`, carrying `--no-cleanup` per `ROLE`.
+4. On a fresh workflow, submit entry evidence — adding `--no-cleanup` to these
+   and to every later tick when `ROLE` is `root`:
    - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
    - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
-4. Enter the execution loop.
+5. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
 proceeds with generic behavior: no language-specific quality checks. The `needs-design`

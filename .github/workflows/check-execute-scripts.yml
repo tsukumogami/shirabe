@@ -9,11 +9,13 @@ on:
       # skills/execute/scripts/** untouched.
       - 'skills/execute/koto-templates/**'
       - 'skills/execute/SKILL.md'
-      # terminal-retention_test.sh asserts that NO skill's template names
-      # execute.md as its children's. That premise is broken by an edit to some
-      # OTHER skill, so this suite has to run on those too.
-      - 'skills/*/koto-templates/**'
-      - 'skills/*/SKILL.md'
+      # terminal-retention_test.sh asserts that NO skill names execute.md as its
+      # children's template. That premise is broken by an edit to some OTHER
+      # skill, and the scan reads every markdown file under skills/ -- this repo
+      # puts `koto init` in references/phases too -- so the trigger has to be
+      # just as wide as the scan. A narrower one merges the case the scan was
+      # widened for without ever running it.
+      - 'skills/**'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
