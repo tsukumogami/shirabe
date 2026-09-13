@@ -375,7 +375,21 @@ validation must be read for `outcome`, not for `errors: 0`.
    record and a child's did not, and that `cascade_run` was not passed through
    without stopping.
 
-   The guard this leans on: `cascade_run` carries an `accepts:` block, which is
-   what prevents a tick chaining through it into a terminal. That is load-bearing
-   rather than incidental, so the criterion must fail if a later simplification
-   removes the evidence block.
+   **Corrected after measurement.** An earlier version of this obligation said
+   the criterion must fail if `cascade_run`'s evidence block were removed. That
+   is the wrong trigger. Two measured variants of the same state settled it: with
+   a required evidence field and a single unconditional transition, a bare tick
+   two states upstream chains through to the terminal and the agent never sees
+   the directive; with a required evidence field plus one conditional transition
+   and an unconditional fallback, the tick stops and the record survives.
+
+   So the guard is **at least one conditional transition**, not the evidence
+   block. `cascade_run` is protected because it routes on `cascade_status` —
+   `completed` and `skipped` one way, `partial` another.
+
+   The criterion must therefore **fail when `cascade_run`'s transitions become
+   all-unconditional**, not when its evidence block is removed. That is the
+   harder regression to see: collapsing three edges into one is a tempting
+   simplification because two of them share a target, it leaves the `accepts:`
+   block untouched, and a reviewer asking "does this state still require
+   evidence?" sees nothing wrong. Only a driven tick catches it.

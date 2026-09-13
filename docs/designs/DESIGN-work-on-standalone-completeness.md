@@ -342,16 +342,32 @@ traverses, not the state it nominally routes to.
 One guard qualifies that, and this design depends on it. `fresh_evidence` is
 set false after each auto-advance, so a state carrying *conditional*
 transitions will not fire its unconditional fallback when entered by chaining —
-it stops and asks (`advance.rs:571-575`, `:1229-1234`). Only pure-routing
-states, whose transitions are all unconditional, chain through unconditionally.
+it stops and asks (`advance.rs:571-575`, `:1229-1234`).
+
+**The guard is keyed on having a conditional transition, not on having an
+`accepts:` block, and the difference is the whole point.** An earlier draft of
+this design said an `accepts:` block was what stopped a tick passing through.
+That is wrong, and `execute.md` contains the counter-example: `escalate`
+(`:457-466`) declares a *required* `failure_reason` and a single transition to
+`done_blocked` with no `when:` clause. Having no conditional transition, its
+`has_conditional` is false, the guard does not apply, and a tick chains straight
+through it — bypassing the required evidence — which is exactly the behaviour
+measured elsewhere in this repository when a bare tick ran
+`spawn_and_await` → `escalate` → `done_blocked` in one invocation and destroyed
+the record for the batch that had just failed.
 
 Two consequences for the states this design adds:
 
-- `cascade_run` carries an `accepts:` block, so a tick cannot pass through it.
-  That is what stops a tick from running the cascade and landing on a terminal
-  in one invocation, and it is a load-bearing property rather than an incidental
-  one. An implementer who later removes its evidence block to simplify the graph
-  would silently reintroduce the chaining.
+- `cascade_run` is protected, but **by its conditional transitions rather than
+  by its evidence block**: it routes on `cascade_status`, sending `completed`
+  and `skipped` one way and `partial` another, exactly as `plan_completion` does
+  at `execute.md:447-455`. That makes `has_conditional` true and stops a chained
+  tick. An implementer who collapsed those three edges into one unconditional
+  transition — an obvious-looking simplification, since two of them share a
+  target — would silently reintroduce the chaining *even while leaving the
+  `accepts:` block in place*. That is the specific regression the PLAN's
+  chain-level criterion has to catch, and it is not visible in a state-by-state
+  reading.
 - `cascade_entry` is deliberately zero-evidence and gate-routed, so a tick that
   reaches it **can** continue into `done` on the no-anchor edge within the same
   invocation. That is correct and desirable — it is what keeps the no-anchor
