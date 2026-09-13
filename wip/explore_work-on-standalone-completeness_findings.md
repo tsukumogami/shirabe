@@ -75,9 +75,14 @@ accepts `pr_status: shared` and routes **straight to `done`**, bypassing
 never enter any post-CI state.
 
 Consequence: finishing logic added to `/work-on` **after** `ci_monitor` is
-automatically skipped for `/execute`'s children, with no new "is this the last
-issue" machinery, no `children-complete` re-derivation, and no double cascade.
-The cadence objection holds only for logic placed before that fork.
+automatically skipped for `/execute`'s children, with no `children-complete`
+re-derivation and no double cascade on that path.
+
+**NARROWED BY ROUND 2 -- see insight 12.** As written above this claim
+overreached: the fork discriminates `/execute`'s children and nothing else.
+multi-pr runs inside `/work-on` with each issue landing its own PR, so a
+last-issue discriminator is still required there. Read insight 4 together with
+insight 12, never alone.
 
 **5. `/execute` does not invoke `/work-on` as a skill. They share one template
 file.** VERIFIED: `execute.md:302-305`, `materialize_children.default_template:
@@ -118,15 +123,15 @@ CLAUDE.md separately forbids a CLI subcommand that renders an artifact body.
 Where true sharing is unavailable the repo's accepted pattern is deliberate
 duplication plus a CI drift check -- `work-on.md` and `execute.md` already
 duplicate the CI-gate expression on purpose, with `validate-template-mermaid.sh`
-check 4 guarding the copies (VERIFIED: the comment at `work-on.md:764-765` says
-"kept identical to execute.md").
+check 4 guarding the copies (VERIFIED: the comment at `work-on.md:789` says
+"kept identical to execute.md", mirrored at `execute.md:381`).
 
 **8. multi-pr is the real hole, and it is `/work-on`'s own territory.** (leads:
 cadence-classification, boundary-dependents)
 
 multi-pr PLANs route to `/work-on`, not `/execute`. They have **no cascade wiring
 at all** -- `run-cascade.sh` is invoked only from `execute.md:706`. Yet
-`plan-doc-structure.md:95` and `skills/roadmap/SKILL.md:350` both state as fact
+`skills/plan/references/quality/plan-doc-structure.md:95` and `skills/roadmap/SKILL.md:350` both state as fact
 that the work-completing PR runs the cascade. Nothing implements it.
 
 So for multi-pr, "migrate the finishing logic into `/work-on`" is not a
