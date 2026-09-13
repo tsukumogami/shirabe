@@ -149,7 +149,17 @@ See `wip/explore_cascade-verdict-residue_decisions.md`.
 
 ### User Focus
 
-Pending the coordinator's narrowing answer.
+The coordinator (speaking for the author) said:
+- Hand off the ROADMAP lookup gap. It's being filed as its own shirabe issue and
+  treated as serious. This worker keeps its deliverable to the #354 docs fix. If
+  that fix describes ROADMAP behaviour, it has to describe the current behaviour
+  honestly and cite the new issue.
+- Crystallize.
+- Make one point prominent: reverting to `skipped` would break `execute.md`'s halt,
+  which prints only `failed` steps. That's what makes the docs-only answer safe
+  rather than just convenient.
+- Keep reading-verified claims separate from run-measured ones, and mark the roadmap
+  runs as agent-measured wherever they're cited.
 
 ## Accumulated Understanding
 
@@ -184,4 +194,6 @@ Smaller neighbours, also unfiled:
   28's comment nor `execute.md`'s recovery list describes that;
 - the open-issue deletion skip's recovery path can't be followed, and a `gh` failure
   is read as an open issue.
+
+## Decision: Crystallize
 </content>
