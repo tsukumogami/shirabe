@@ -261,9 +261,10 @@ koto next <WF> --with-data '{"field_name": "value", ...}' --no-cleanup
 Without it, the tick that reaches a terminal state disposes of the session and
 takes `plan.md` and the run's other context keys with it, so a run that ended at
 `done_blocked` destroys the record of why. A child must not carry the flag: on a
-child it also suppresses the events `/execute`'s `children-complete` gate reads,
-blocking that converge permanently. Both halves, and why the rule is every tick
-rather than a predicted last one, are in
+child it also suppresses the events that deliver its result to the parent, so
+the parent never receives it. Under `/execute` the batch proceeds without that
+child's outcome; under a parent that waits on the gate, it never advances. Both
+halves, and why the rule is every tick rather than a predicted last one, are in
 [`references/koto-session-retention.md`](../../references/koto-session-retention.md).
 `scripts/terminal-retention_test.sh` pins them, including a tripwire that fails
 once koto#240 makes the flag safe for children and the exception can go.

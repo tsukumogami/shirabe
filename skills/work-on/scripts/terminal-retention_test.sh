@@ -114,14 +114,28 @@ else
     pass "work-on.md carries no --no-cleanup call site, so a child cannot pick it up from the template"
 fi
 
-# Phase files have no frontmatter, so every line of them is prose a child can be
-# sent to read. No comment exclusion applies here at all.
-PHASE_HITS=$(grep -rn -- '--no-cleanup' "$PHASES" 2>/dev/null)
+# Phase files a work-on.md state sends a child to must not carry the flag. The
+# ban is scoped to those files, not to the directory: phase-2.5 lives here but is
+# read only by /execute's worktree_discipline_check, on the orchestrator -- always
+# a root -- and it MUST carry the flag, because its intent-changing tick chains
+# into done_blocked. An earlier directory-wide ban here actively forbade that fix.
+#
+# The exemption is only as good as its premise, so the premise is checked:
+# work-on.md must never route to phase-2.5. If it ever does, that file becomes
+# child-readable and the exemption turns into a wedge.
+ORCH_ONLY="phase-2.5-worktree-discipline.md"
+PHASE_HITS=$(grep -rln -- '--no-cleanup' "$PHASES" 2>/dev/null | grep -v "/$ORCH_ONLY\$")
 if [ -n "$PHASE_HITS" ]; then
-    fail "a references/phases file carries --no-cleanup; children read these too:
+    fail "a child-readable references/phases file carries --no-cleanup:
 $PHASE_HITS"
 else
-    pass "no references/phases file carries --no-cleanup"
+    pass "no child-readable phase file carries --no-cleanup ($ORCH_ONLY excepted: orchestrator-only)"
+fi
+
+if grep -q "$ORCH_ONLY" "$TEMPLATE"; then
+    fail "work-on.md now references $ORCH_ONLY, so a child can be sent there -- its --no-cleanup would reach children. Drop the exemption above or move the file."
+else
+    pass "work-on.md never routes to $ORCH_ONLY, so its flag cannot reach a child"
 fi
 
 # The frontmatter note is itself required: without it a future editor has no
@@ -392,34 +406,106 @@ fi
 
 # --- a child's terminal tick must not carry the flag -------------------------
 #
-# The tripwire. If koto#240 or a later koto makes the flag safe for children,
-# this case goes red and tells the next author the exception can be dropped,
-# rather than leaving it as folklore in a comment.
+# What the flag does to a child, pinned as the shape-independent fact: the
+# child's result never reaches its parent. The gate reports all_complete true
+# with results_in false.
+#
+# An earlier version of this block asserted that a flagged child blocks its
+# parent's converge. That holds only for a parent that waits for the gate to
+# pass, like parent.md's single unconditional exit -- NOT for /execute, whose
+# spawn_and_await keys on gates.batch_done.all_complete and so advances anyway,
+# without the child's result. So the assertion is the result, and the two parent
+# shapes are shown separately rather than one being generalised to the other.
+#
+# This is also the tripwire: if koto#240 or a later koto makes the flag safe for
+# children, results_in goes true under the flag, this case goes red, and the
+# exception can be dropped rather than surviving as folklore.
 
-converge_state() {
-    # Prints the parent's converge_blocked verdict after its children settled.
+gate_field() { # $1 parent session, $2 field of the batch_done gate output
+    # Not `.output[$f] // "absent"`: jq's `//` treats false as empty as well as
+    # null, so a results_in of false would read back as "absent" and this suite
+    # would report the opposite of what koto said. Null is tested explicitly.
     koto next "$1" --with-data "$TASKS" 2>/dev/null \
-        | jq -r '[.blocking_conditions[]? | select(.name=="batch_done")][0].output.converge_blocked // "absent"'
+        | jq -r --arg f "$2" '
+            ([.blocking_conditions[]? | select(.name=="batch_done")][0].output) as $o
+            | if $o == null or $o[$f] == null then "absent" else ($o[$f] | tostring) end'
 }
 
-koto init wedge --template "$WORKDIR/parent.md" >/dev/null 2>&1
-init_or_die wedge
-koto next wedge --with-data "$TASKS" >/dev/null 2>&1
-koto next wedge.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if [ "$(converge_state wedge)" = "true" ]; then
-    pass "a child whose terminal tick carries the flag blocks its parent's converge"
+# parent_hold.md: a parent that stays put whatever the gate says, so the gate
+# can be read without the parent advancing and cleaning itself up.
+cat > "$WORKDIR/parent_hold.md" <<'HOLD_EOF'
+---
+name: retention-probe-parent-hold
+version: "1.0"
+description: A parent that only advances on explicit evidence, so the gate can be read.
+initial_state: spawn
+states:
+  spawn:
+    gates:
+      batch_done:
+        type: children-complete
+    accepts:
+      tasks:
+        type: tasks
+        required: true
+      go:
+        type: enum
+        values: ["yes"]
+        required: false
+    materialize_children:
+      from_field: tasks
+      failure_policy: skip_dependents
+      default_template: ./child.md
+    transitions:
+      - target: finished
+        when:
+          go: "yes"
+  finished:
+    terminal: true
+---
+
+## spawn
+
+Submit tasks.
+
+## finished
+
+Terminal.
+HOLD_EOF
+
+koto init withheld --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
+init_or_die withheld
+koto next withheld --with-data "$TASKS" >/dev/null 2>&1
+koto next withheld.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+if [ "$(gate_field withheld all_complete)" = "true" ] && [ "$(gate_field withheld results_in)" = "false" ]; then
+    pass "a child whose terminal tick carries the flag withholds its result: all_complete true, results_in false"
 else
-    fail "a child's flagged terminal tick did not block the converge -- the child exception may no longer be needed; re-check koto#240 before dropping it"
+    fail "a flagged child's result reached its parent (results_in is not false) -- the child exception may no longer be needed; re-check koto#240 before dropping it"
 fi
 
-koto init nowedge --template "$WORKDIR/parent.md" >/dev/null 2>&1
-init_or_die nowedge
-koto next nowedge --with-data "$TASKS" >/dev/null 2>&1
-koto next nowedge.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
-if [ "$(converge_state nowedge)" = "absent" ]; then
-    pass "a child whose terminal tick omits the flag lets its parent converge (control)"
+koto init delivered --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
+init_or_die delivered
+koto next delivered --with-data "$TASKS" >/dev/null 2>&1
+koto next delivered.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
+# An unflagged child delivers its result, so the gate passes and is not reported
+# as a blocking condition at all.
+if [ "$(gate_field delivered results_in)" = "absent" ]; then
+    pass "a child whose terminal tick omits the flag delivers its result (control)"
 else
-    fail "a child's unflagged terminal tick still blocked the converge"
+    fail "an unflagged child's result did not reach its parent"
+fi
+
+# The two consequences, which depend on the parent and not the child. parent.md
+# waits for the gate to pass, so it never advances; this is why the exception
+# matters for any parent shaped like it, even though /execute is not.
+koto init waits --template "$WORKDIR/parent.md" >/dev/null 2>&1
+init_or_die waits
+koto next waits --with-data "$TASKS" >/dev/null 2>&1
+koto next waits.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+if [ "$(gate_field waits converge_blocked)" = "true" ]; then
+    pass "against a parent that waits for the gate to pass, a flagged child leaves it blocked"
+else
+    fail "a parent that waits on the gate advanced despite a flagged child"
 fi
 
 echo

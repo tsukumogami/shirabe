@@ -57,8 +57,8 @@
 #
 #   false negative -- koto supports non-composed children created through
 #                     `koto init --parent`. Such a child has no dot, would read
-#                     as a root, and would then pass `--no-cleanup` and wedge
-#                     its parent's converge.
+#                     as a root, and would then pass `--no-cleanup` and
+#                     withhold its result from its parent.
 #   false positive -- nothing validates a session name against dots. A root
 #                     whose caller chose a name containing one would read as a
 #                     child and silently lose the retention this discriminator
@@ -85,10 +85,12 @@
 #   recoverable -- the run's artifacts are still on the branch and in the PR.
 #
 #   a child misread as a root passes `--no-cleanup` on its terminal tick, which
-#   suppresses the `request_store.result` and `ChildCompleted` events that
-#   /execute's `children-complete` gate reads to learn the child finished. The
-#   parent then reports `converge_blocked: true` permanently, with no event left
-#   to emit, and the batch cannot be finished without manual intervention.
+#   suppresses the `request_store.result` and `ChildCompleted` events that carry
+#   its result to the parent's `children-complete` gate. The parent never
+#   receives that child's result. Against a parent that keys on the gate's
+#   `all_complete`, as /execute does, the batch advances without it; against one
+#   that waits for the gate to pass, the batch never advances and nothing can
+#   clear it. Neither is recoverable by the child.
 #
 # So an unknown answer takes the recoverable failure, loudly.
 #
@@ -115,7 +117,7 @@ SESSION="$1"
 unknown() {
     echo "session-role.sh: cannot determine the role of '$SESSION' ($1);" \
          "reporting child, which withholds terminal-tick retention rather" \
-         "than risking a permanently blocked parent converge" >&2
+         "than risk withholding this session's result from a parent" >&2
     echo child
     exit 0
 }

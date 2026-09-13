@@ -130,6 +130,28 @@ else
     fail "execute.md has $TEMPLATE_TICKS koto next command lines but only $TEMPLATE_TICKS_FLAGGED carry --no-cleanup. A tick keeps advancing while the next transition needs no evidence, so a tick that looks non-terminal can still chain into one."
 fi
 
+# The orchestrator's ticks are not all in execute.md. A state directive can send
+# the agent to another file for the command to run, and that command is then an
+# orchestrator tick exactly as much as one written inline. Counting only
+# execute.md's own lines is how phase-2.5's bare intent-changing tick -- which
+# chains through escalate_upstream_drift into done_blocked -- went unflagged. So
+# every file execute.md cites is scanned too.
+CITED_FILES=$(grep -o 'skills/[A-Za-z0-9_/.-]*\.md' "$TEMPLATE" 2>/dev/null | sort -u)
+CITED_BARE=""
+for rel in $CITED_FILES; do
+    f="$SKILLS_DIR/../$rel"
+    [ -f "$f" ] || continue
+    bare=$(grep -n '^koto next ' "$f" 2>/dev/null | grep -v -- '--no-cleanup')
+    [ -n "$bare" ] && CITED_BARE="$CITED_BARE
+$rel:
+$bare"
+done
+if [ -z "$CITED_BARE" ]; then
+    pass "every koto next in a file execute.md sends the orchestrator to carries --no-cleanup ($(printf '%s\n' "$CITED_FILES" | grep -c .) files cited)"
+else
+    fail "a file execute.md cites carries a bare koto next, which the orchestrator will run -- a bare tick that chains into a terminal destroys its record:$CITED_BARE"
+fi
+
 # The mechanism behind that rule, pinned so nobody reinstates the carve-out on
 # the reasoning that was wrong the first time: a state halts an auto-advance
 # chain only if it declares at least one CONDITIONAL transition. Declaring

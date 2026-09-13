@@ -2,7 +2,7 @@
 # Terminal-tick retention (#360). --no-cleanup is DELIBERATELY ABSENT from this
 # template and must stay absent. This file is also the child template for
 # /execute's spawn_and_await, and on a koto child the flag suppresses the events
-# the parent's children-complete gate reads, blocking its converge permanently.
+# that carry the child's result to the parent, so the parent never receives it.
 #
 # Root runs still get retention: the rule lives in ../SKILL.md's Execution Loop,
 # gated on scripts/session-role.sh. A root passes the flag on every tick; a child
@@ -12,8 +12,8 @@
 # takes the opposite position: ../../../references/koto-session-retention.md
 #
 # scripts/terminal-retention_test.sh greps this file to keep the flag out, and
-# pins the wedge it would cause. koto#240 is the platform fix that would retire
-# the exception.
+# pins what the flag does to a child's result. koto#240 is the platform fix that
+# would retire the exception.
 #
 # A YAML comment, so it reaches a template editor without koto rendering it into
 # any state's directive -- which is also why the grep above excludes frontmatter

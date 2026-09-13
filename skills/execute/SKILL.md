@@ -249,8 +249,10 @@ invocation, and bare it destroys the record of the batch that failed.
 
 **This does not extend to the children.** A per-issue `/work-on` child must not
 carry the flag — on a child it also suppresses the `request_store.result` and
-`ChildCompleted` events this skill's own `children-complete` gate reads, which
-would block the converge permanently. `/work-on` decides that per run with
+`ChildCompleted` events that carry the child's result to this skill's
+`children-complete` gate. `spawn_and_await`'s transitions key on the gate's
+`all_complete`, so the batch would still advance, but without that child's
+outcome in what it received. `/work-on` decides that per run with
 `skills/work-on/scripts/session-role.sh`. The consequence to be honest about is
 that a child which ends at `done_blocked` still loses its context, so the
 per-child record a `needs_attention` batch would most want to read is the one

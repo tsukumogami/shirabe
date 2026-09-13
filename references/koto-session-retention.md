@@ -68,14 +68,32 @@ transitions, so its unconditional fallback fires within the same invocation.
 On a session materialized as a koto child, `--no-cleanup` also suppresses the
 `request_store.result` event on the child's own log and the `ChildCompleted`
 event on the parent's. Those are the only two sources a parent's
-`children-complete` gate dereferences, so the parent reports
-`converge_blocked: true` permanently, with no event left to emit and the child
-no longer tickable. The batch cannot be finished without manual intervention.
+`children-complete` gate dereferences, so **the child's result never reaches its
+parent**: the gate reports `all_complete: true` with `results_in: false`.
 
-So retention is **root-only**, and the cost of each mistake is asymmetric: a
-root misread as a child loses one run's record, which is recoverable; a child
-misread as a root wedges a batch, which is not. Code deciding this fails toward
-`child`.
+What that does to the parent depends on how the parent's transitions read the
+gate, and the two cases measured differently:
+
+| parent's converge transition | flagged child |
+|---|---|
+| waits for the gate to pass — e.g. a single unconditional exit | parent reports `converge_blocked: true` and never advances; the child is no longer tickable, so nothing can clear it |
+| keys on `gates.<gate>.all_complete: true`, as `/execute`'s `spawn_and_await` does | parent advances as normal, without that child's result |
+
+So under `/execute` today a flagged child is silent rather than stuck: the batch
+proceeds, and the one child's outcome is missing from what the parent received.
+A child cannot see which kind of parent it has, and neither outcome is one it
+should cause, so retention is **root-only**.
+
+The costs of a wrong answer are asymmetric: a root misread as a child loses one
+run's record, which is recoverable; a child misread as a root withholds its
+result from its parent, and against a parent that waits on the gate that is a
+batch that cannot finish. Code deciding this fails toward `child`.
+
+An earlier version of this section said a flagged child wedges `/execute`
+permanently. That was measured against a fixture whose parent had an
+unconditional exit, and `/execute`'s transitions differ in exactly that respect.
+It is corrected here rather than softened, because the claim had already been
+repeated into two skills, a script header and a test.
 
 `skills/work-on/scripts/session-role.sh` is the discriminator. It reads koto's
 own `parent_workflow` field rather than the `<parent>.<task>` name shape, which
