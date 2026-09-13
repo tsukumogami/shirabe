@@ -13,6 +13,10 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
+parent_orchestration:
+  invoking_child: design
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 chain_ran:
   - child: brief
     started_at: 2026-09-13T00:00:00Z
@@ -273,3 +277,77 @@ is what surfaced this deviation, one hop after the one it should have caught.
 accepted artifact that three reviewers have passed, to change a detection flag
 whose only effect is on resume routing that this run did not use. The deviation
 is recorded instead.
+
+## PLAN obligations accumulated during the DESIGN hop
+
+Recorded here so the PLAN hop carries them rather than rediscovering them.
+
+1. **The `--no-cleanup` issue, written against the new states.** Every terminal
+   tick this chain introduces that a ROOT session runs passes `--no-cleanup`;
+   no child session ever does. The criterion is written against the states this
+   chain adds, not against today's. The trap it guards:
+   `skills/work-on/koto-templates/work-on.md` IS the child template, so an
+   unconditional edit hands the flag to every child and wedges its parent at
+   `converge_blocked`. A regression test must fail if the behaviour is made
+   unconditional.
+
+2. **A test that fails when a document is transitioned on disk but missing from
+   the finalization commit.** That is the exact state the cascade's staging
+   defect produces — a failed `git add` leaves the document transitioned in the
+   tree while the bogus `STAGED_FILES` entry keeps the commit block running, and
+   the tree-reading post-verify passes. It is therefore the case this chain's
+   evidence must be able to see. If it cannot be constructed in a test harness,
+   the PLAN says so explicitly and names what stands in its place rather than
+   leaving the gap implicit.
+
+Both are issues in their own right in the PLAN, not acceptance criteria folded
+into someone else's issue.
+
+## Recurring defect in this run: the missing `schema:` field
+
+Twice now — the PRD and the DESIGN — an artifact was authored without its
+`schema:` frontmatter field, and in both cases `shirabe validate` did not report
+a violation. It reported `outcome: incomplete` with a SCHEMA notice and **skipped
+the file entirely**, so none of its mechanical checks ran.
+
+That is the dangerous half and the reason this is recorded rather than just
+fixed. A missing schema field does not produce a failing check; it produces an
+absence of checking that reads as a notice. An author glancing at "0 errors"
+would conclude the document passed, when in fact nothing was examined. It is the
+same shape as the defects this whole feature exists to remove: a report that
+looks like success without being evidence of it.
+
+Both were caught by a reviewer running the validator and reading its `outcome`
+field rather than its error count.
+
+**Obligation for the PLAN hop:** the PLAN needs `schema: plan/v1`, and its
+validation must be read for `outcome`, not for `errors: 0`.
+
+3. **The anchor gate's search pattern must be anchored, and nothing mechanical
+   enforces it.** An unanchored match could find an issue number as a substring
+   of another and cascade the wrong document chain — a correctness defect with a
+   security-shaped consequence, since the cascade transitions documents and
+   pushes. `check-template-interpolation.sh` does not cover this. The PLAN
+   carries it as an explicit review obligation on whichever issue writes that
+   gate, rather than leaving it to be noticed.
+
+4. **A stated count that disagrees with its own enumeration is a findable
+   defect, and a jury should not be the thing that finds it.** This design
+   claimed four new states while naming three, and the missing one was exactly
+   the requirement left unaddressed. The document carried the evidence of its own
+   gap and nothing mechanical looked.
+
+   The PLAN carries a review criterion for this class: where an artifact states
+   a cardinality ("four states", "six operations", "three deferrals", "the two
+   documents"), the enumeration it refers to is checked against it. Cheap to
+   apply by eye at review time; worth asking during implementation whether it is
+   cheap to assert mechanically for the documents this repository validates,
+   since `shirabe validate` already parses their structure. If it is not cheap,
+   the criterion stays a review obligation rather than becoming a new check —
+   this feature is not the place to grow the validator.
+
+   Noted as a general lesson rather than a one-off correction: the same shape
+   produced the `schema:` field defect (an absence of checking that reads as a
+   notice) and the two silent edit no-ops earlier in this run. All four are
+   reports or counts that look like evidence without being it, which is the
+   theme this feature exists to address one level up.
