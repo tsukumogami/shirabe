@@ -287,14 +287,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "After pr_finalization completes for an /execute plan run, what does the plan_completion state do?",
-      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready, and submits cascade_status to koto. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
+      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready unless the verdict is partial, and submits cascade_status to koto on a completed or skipped verdict; a partial halts the run and is surfaced instead of being submitted. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
       "files": [],
       "expectations": [
         "Agent invokes skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
         "Agent does NOT invoke shirabe validate directly; the cascade script runs the chain-targeted check internally",
-        "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands)",
+        "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands), and only when the cascade verdict is completed or skipped -- a partial halts the run and is surfaced instead",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
-        "Agent submits cascade_status to koto (completed, partial, or skipped) and does NOT manually git rm the PLAN doc or run shirabe transition directly"
+        "Agent submits cascade_status to koto on a completed or skipped verdict, surfaces the failed steps to the human instead of marking the PR ready on a partial, and does NOT manually git rm the PLAN doc or run shirabe transition directly"
       ]
     },
     {

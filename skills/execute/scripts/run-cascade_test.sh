@@ -211,6 +211,23 @@ EOF
 # to control `validate --lifecycle-chain --strict` exit codes deterministically
 # can set CASCADE_SHIRABE_BIN_OVERRIDE to a wrapper path (see setup_shirabe_stub).
 run_cascade() {
+    run_cascade_rc /dev/null "$@"
+}
+
+# Run the cascade and record its exit status in a file the caller names.
+#
+# run_cascade is always used inside a command substitution, so anything it
+# assigns lands in a subshell and is lost, and its `|| true` discards the status
+# outright. The exit code is load-bearing for the failure-contract scenarios: the
+# script reserves non-zero for setup and precondition failures, so a run whose
+# commit or push failed must still exit 0 with a parseable report. This variant
+# writes the status somewhere the caller can read it back after the substitution
+# closes. Keep the rc file outside the repo -- an untracked file inside it would
+# show up in the `git status --porcelain` assertions.
+# shellcheck disable=SC2120
+run_cascade_rc() {
+    local rc_file="$1"
+    shift
     local plan_doc="$1"
     shift
     local bin="${CASCADE_SHIRABE_BIN_OVERRIDE:-$SHIRABE_BIN_PATH}"
@@ -218,7 +235,30 @@ run_cascade() {
     if [[ -n "${GH_STUB_DIR:-}" ]]; then
         effective_path="$GH_STUB_DIR:$PATH"
     fi
-    PATH="$effective_path" SHIRABE_BIN="$bin" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
+    local rc=0
+    PATH="$effective_path" SHIRABE_BIN="$bin" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || rc=$?
+    printf '%s' "$rc" > "$rc_file"
+}
+
+# Assert a shell-level (non-JSON) condition, for the git-state checks the
+# failure-contract scenarios need.
+# Usage: assert_shell <scenario> <actual> <desc> [<detail>]
+# where <actual> is the string "true" or anything else, and <detail> is
+# appended to the failure message in parentheses. Fails unless <actual> is
+# exactly "true".
+assert_shell() {
+    local scenario="$1"
+    local actual="$2"
+    local desc="$3"
+    local detail="${4:-}"
+
+    if [[ "$actual" == "true" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ $desc"
+        return 0
+    else
+        fail "$scenario: $desc${detail:+ ($detail)}"
+        return 1
+    fi
 }
 
 # Assert a jq expression evaluates to "true" on the JSON
@@ -421,11 +461,18 @@ commit_all() {
 # Commit the fixtures and give the branch an upstream.
 #
 # setup_test_repo creates a file-based bare origin but never sets a tracking
-# branch, and the cascade's `--push` path runs a bare `git push`. Without an
-# upstream that exits 128, `set -e` kills run-cascade.sh before emit_result, and
-# the scenario captures an empty string rather than a report. HEAD rather than
-# `main` because setup_test_repo's fallback path can leave the branch on
-# `master`.
+# branch, and the cascade's `--push` path runs a bare `git push`, which exits 128
+# without one. The cascade now guards that call, so the missing upstream no
+# longer kills the script -- it produces a complete report carrying a failed
+# `push` step and a `partial` verdict. That is what this call is load-bearing for
+# now: every `--push` scenario that asserts `completed` needs the push to
+# actually succeed, because a failed push sets ANY_FAILED and the verdict drops
+# to `partial`. It is the VERDICT that needs it, not the post-verify, which runs
+# on a landed commit whether or not the push succeeded -- scenario_push_failure_
+# still_reports omits the tracking branch deliberately and asserts exactly that.
+#
+# HEAD rather than `main` because setup_test_repo's fallback path can leave the
+# branch on `master`.
 commit_and_push_all() {
     commit_all
     git push -u origin HEAD > /dev/null 2>&1
@@ -1982,6 +2029,593 @@ scenario_push_probe_seeds() {
     rm -rf "$tmpdir"
     cd "$SCRIPT_DIR"
 }
+# ══════════════════════════════════════════════════════════════════════════════
+# --push scenarios: what the cascade commits, and what it reports when it cannot
+#
+# The four below cover the finalization step itself rather than the chain walk.
+# Everything above assumes the commit and the push succeed; nothing above ever
+# exercised a chain whose only staged path is the PLAN deletion, or a run whose
+# git commit or git push failed.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── A PLAN-only chain commits its own deletion ────────────────────────────────
+#
+# A PLAN with no resolvable upstream stages exactly one path: its own deletion.
+# Before the delete_plan step recorded that path, STAGED_FILES stayed empty, both
+# the commit gate and the post-verify gate read false, and a --push run left the
+# deletion staged and uncommitted while still reporting cascade_status skipped.
+scenario_push_plan_only_commits_deletion() {
+    local scenario="Scenario 24: --push commits a PLAN-only chain's own deletion"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # PLAN with no upstream field -- the same fixture shape scenario 4 uses,
+    # which produces a one-node finalize-chain report.
+    mkdir -p "$repo/docs/plans"
+    cat > "$repo/docs/plans/PLAN-no-upstream.md" <<'EOF'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Test"
+issue_count: 1
+---
+
+# PLAN: No Upstream
+
+## Status
+
+Draft
+
+EOF
+
+    commit_and_push_all
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-no-upstream.md" --push)
+
+    local ok=true
+
+    # The killing assertion. On the unfixed script STAGED_FILES is empty, the
+    # commit gate is false, and the deletion sits in the index: porcelain prints
+    # `D  docs/plans/PLAN-no-upstream.md`.
+    local porcelain
+    porcelain=$(git status --porcelain)
+    assert_shell "$scenario" "$([[ -z "$porcelain" ]] && echo true || echo false)" \
+        "worktree is clean after the cascade" "git status --porcelain: $porcelain" || ok=false
+
+    # ...and the tree is clean because the deletion was COMMITTED, not because
+    # something else cleared it. Both halves have to hold together.
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" != "$head_before" ]] && echo true || echo false)" \
+        "HEAD advanced past the fixture commit" || ok=false
+
+    local head_changes
+    head_changes=$(git show --name-status --format= HEAD)
+    assert_shell "$scenario" \
+        "$(printf '%s' "$head_changes" | grep -q '^D[[:space:]]*docs/plans/PLAN-no-upstream.md$' && echo true || echo false)" \
+        "the new HEAD commit deletes the PLAN" "git show --name-status HEAD: $head_changes" || ok=false
+
+    # The push actually reached the bare origin. Guards a half-fix that commits
+    # and drops the push.
+    local upstream_sha
+    upstream_sha=$(git rev-parse '@{u}' 2>/dev/null || echo "NONE")
+    assert_shell "$scenario" "$([[ "$upstream_sha" == "$head_after" ]] && echo true || echo false)" \
+        "origin points at the cascade commit" "upstream=$upstream_sha head=$head_after" || ok=false
+
+    # A one-node chain still reports skipped. A fix that flips this to completed
+    # would be a contract regression, not a fix.
+    assert_json "$scenario" "$output" '.cascade_status == "skipped"' \
+        "cascade_status is still skipped for a one-node chain" || ok=false
+
+    # The run-verdict half: a mutant that stages the PLAN but leaves the commit
+    # block unguarded and step-less passes the porcelain check and fails here.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit" and .status == "ok")] | length == 1' \
+        "exactly one commit step, at ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push" and .status == "ok")] | length == 1' \
+        "exactly one push step, at ok" || ok=false
+
+    # The PLAN is in the record but must never produce an anchored verification:
+    # the git rm took it out of the worktree, so resolve_anchor's existence test
+    # drops it and this run has nothing else to fall back on. The assertion pins
+    # that outcome for the shape the #346 append created; it is not what kills a
+    # mutant dropping the existence test, since the PLAN has no case rung to
+    # match even if the test were gone. Scenario 17 is the one that kills that
+    # mutant, on a ROADMAP that does have a rung.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")] | length == 1' \
+        "exactly one lifecycle_post_verify step" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].status == "skipped"' \
+        "lifecycle_post_verify is skipped (no survivor to anchor on)" || ok=false
+    assert_json "$scenario" "$output" \
+        '([.steps[] | select(.action == "lifecycle_post_verify")][0].target | type) == "null"' \
+        "the skipped post-verify names no target" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── A failed push still produces a report ─────────────────────────────────────
+#
+# setup_test_repo makes a bare origin but sets no tracking branch, so the
+# cascade's bare `git push` exits 128. Unguarded under `set -euo pipefail` with
+# no trap, that killed the script before emit_result: no JSON on stdout at all,
+# and the caller saw exit 128 with nothing to parse.
+scenario_push_failure_still_reports() {
+    local scenario="Scenario 25: --push reports a failed push instead of dying"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    # commit_all, deliberately NOT commit_and_push_all: no tracking branch is
+    # exactly what makes the push fail.
+    commit_all
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    # The killing assertion: there is output at all, and it parses. Against the
+    # unfixed script this is the empty string.
+    assert_shell "$scenario" "$([[ -n "$output" ]] && echo true || echo false)" \
+        "the run emitted something on stdout" || ok=false
+    assert_shell "$scenario" \
+        "$(printf '%s' "$output" | jq -e . > /dev/null 2>&1 && echo true || echo false)" \
+        "stdout parses as JSON" "got: $output" || ok=false
+
+    # Nothing precedes the JSON. Kills a guard that catches the exit status but
+    # lets git's own output onto stdout.
+    assert_shell "$scenario" "$([[ "${output:0:1}" == "{" ]] && echo true || echo false)" \
+        "nothing precedes the JSON on stdout" "first char: ${output:0:1}" || ok=false
+
+    # The exit-code contract reserves non-zero for setup and precondition
+    # failures. A failed push is neither.
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # Kills a half-fix that guards the push but forgets ANY_FAILED.
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push" and .status == "failed")] | length == 1' \
+        "exactly one push step, at failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push")][0].detail != null' \
+        "the failed push step carries a detail" || ok=false
+    assert_json "$scenario" "$output" \
+        '([.steps[] | select(.action == "push")][0].target | type) == "null"' \
+        "the push step names no target" || ok=false
+
+    # The commit must still have landed locally. Kills a mutant that reorders
+    # push before commit, or that abandons the commit on a doomed push.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit" and .status == "ok")] | length == 1' \
+        "exactly one commit step, at ok" || ok=false
+
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" != "$head_before" ]] && echo true || echo false)" \
+        "HEAD advanced: the finalization commit landed locally" || ok=false
+
+    local porcelain
+    porcelain=$(git status --porcelain)
+    assert_shell "$scenario" "$([[ -z "$porcelain" ]] && echo true || echo false)" \
+        "worktree is clean" "git status --porcelain: $porcelain" || ok=false
+
+    # A failed push does NOT suppress the verification: the commit landed, so the
+    # chain is finalized in local history and the check is meaningful. A build
+    # that gated the post-verify on the push would record skipped and fail here.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify" and .status == "ok")] | length == 1' \
+        "lifecycle_post_verify still ran, at ok" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── A failed commit reports, does not push, and verifies nothing ──────────────
+#
+# The other half of the failure contract, and the scenario that pins the
+# post-verify decision: when the finalization commit did not land, the chain is
+# not finalized in any history, so the verification is skipped rather than run.
+# The probe reads the worktree and never invokes git, so a build that ran it
+# anyway would record a genuine `ok` here -- which is precisely why the assertion
+# has to constrain the step's STATUS, not just which document it named.
+scenario_commit_failure_skips_verification() {
+    local scenario="Scenario 26: --push reports a failed commit and skips the verification"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    # Tracking exists, so the push would succeed -- the commit is the only thing
+    # that fails, and only for the cascade's commit, not the fixture's.
+    commit_and_push_all
+
+    # A pre-commit hook that always refuses. core.hooksPath is pinned repo-local
+    # so a global setting in the environment cannot silently neutralize it; a
+    # neutralized hook would turn this scenario green for the wrong reason.
+    git config core.hooksPath "$repo/.git/hooks"
+    mkdir -p "$repo/.git/hooks"
+    cat > "$repo/.git/hooks/pre-commit" <<'EOF'
+#!/usr/bin/env bash
+echo "pre-commit hook refuses" >&2
+exit 1
+EOF
+    chmod +x "$repo/.git/hooks/pre-commit"
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    # The killing assertion: unfixed, the script dies at `git commit` before
+    # emit_result and this is the empty string.
+    assert_shell "$scenario" "$([[ -n "$output" ]] && echo true || echo false)" \
+        "the run emitted something on stdout" || ok=false
+    assert_shell "$scenario" \
+        "$(printf '%s' "$output" | jq -e . > /dev/null 2>&1 && echo true || echo false)" \
+        "stdout parses as JSON" "got: $output" || ok=false
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial" || ok=false
+
+    # If the hook were neutralized the commit would succeed and these two would
+    # fail loudly, rather than the scenario passing vacuously.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit" and .status == "failed")] | length == 1' \
+        "exactly one commit step, at failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit")][0].detail != null' \
+        "the failed commit step carries a detail" || ok=false
+
+    # No push is attempted after a failed commit. Kills a guard written as two
+    # independent ifs rather than commit-then-push.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push")] | length == 0' \
+        "no push step: the push was never attempted" || ok=false
+
+    # The decision this scenario pins. A build that runs the verification anyway
+    # records ok here, because the worktree IS fully transitioned.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")] | length == 1' \
+        "exactly one lifecycle_post_verify step" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].status == "skipped"' \
+        "lifecycle_post_verify is skipped, not ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].detail | test("commit did not land")' \
+        "the skipped post-verify names the failed commit" || ok=false
+
+    # The script did not paper over the failure: nothing was committed and the
+    # transitions are still sitting in the index.
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" == "$head_before" ]] && echo true || echo false)" \
+        "HEAD did not move" || ok=false
+
+    local porcelain
+    porcelain=$(git status --porcelain)
+    assert_shell "$scenario" "$([[ -n "$porcelain" ]] && echo true || echo false)" \
+        "the transitions are still staged and uncommitted" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+
+# ── A refused chain walk publishes nothing ────────────────────────────────────
+#
+# finalize-chain's apply loop is sequential and not transactional, and a DESIGN
+# transition does a `git mv`, which stages a rename. So a walk that transitions
+# the DESIGN and then refuses a later node leaves that rename in the index and
+# returns non-zero, at which point the script stages nothing of its own.
+#
+# The PLAN deletion must not open the commit gate on its own in that shape. The
+# `git add` that would stage the accompanying frontmatter write lives in the
+# per-node loop, which never runs when there is no report, so a commit here
+# publishes a DESIGN at its post-move path still carrying its pre-transition
+# status, beside a node the walk never reached, and takes the PLAN out of HEAD.
+# That is a claim about the committed blob: the worktree copy does read its new
+# status, which is why the assertion below reads HEAD rather than the file.
+#
+# Declining to commit keeps the whole chain in HEAD, which is what makes the
+# refusal recoverable: `git reset --hard HEAD` restores the tree and the cascade
+# can be run again once the refused node is fixed. That is a manual step, not an
+# automatic one -- `git rm -f` has already removed the PLAN from the worktree
+# and the script's precondition test is on the worktree, so a bare re-invocation
+# exits 1 regardless. What the gate decides is whether recovery is a local reset
+# or a revert of a commit that is already on the remote.
+#
+# This scenario is a regression guard, not a fix for a filed defect: at 9f84fa7
+# it passes, because the base never committed in this shape either. It exists to
+# pin the boundary the STAGED_FILES append opened up.
+scenario_refused_walk_publishes_nothing() {
+    local scenario="Scenario 27: --push publishes nothing when the chain walk was refused"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # A BRIEF at Draft is a transition finalize-chain refuses (Draft -> Done is
+    # not a legal move), and it sits ABOVE the DESIGN, so the walk transitions
+    # the DESIGN first and only then fails.
+    mkdir -p "$repo/docs/briefs"
+    cat > "$repo/docs/briefs/BRIEF-cascade-test.md" <<'EOF'
+---
+schema: brief/v1
+status: Draft
+---
+
+# BRIEF: Cascade Test
+
+## Status
+
+Draft
+
+EOF
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/briefs/BRIEF-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # The walk was refused, so the run is partial. If this fixture ever stops
+    # producing a refusal the rest of the scenario would pass vacuously, so
+    # assert the refusal itself before asserting what follows from it.
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "failed")] | length == 1' \
+        "the chain walk was refused" || ok=false
+    # ...and refused in the shape this scenario is about. finalize-chain has a
+    # second refusal that exits ZERO and reports an error node; there the
+    # per-node loop has already staged the nodes it walked, so the array is
+    # non-empty regardless of the PLAN append and the commit fires. The gate
+    # does not cover that shape, so pin which one the fixture produced rather
+    # than letting the scenario drift onto it and pass for the wrong reason.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design")][0].detail | test("finalize-chain exited")' \
+        "the refusal is the non-zero-exit shape, not the error-node shape" || ok=false
+
+    # The killing assertion. The PLAN deletion alone must not open the commit
+    # gate: committing here publishes whatever half-applied work finalize-chain
+    # left in the index.
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" == "$head_before" ]] && echo true || echo false)" \
+        "HEAD did not move: nothing was committed" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit")] | length == 0' \
+        "no commit step: the commit was never attempted" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push")] | length == 0' \
+        "no push step: the push was never attempted" || ok=false
+
+    # Nothing reached the remote either.
+    local upstream_sha
+    upstream_sha=$(git rev-parse '@{u}' 2>/dev/null || echo "NONE")
+    assert_shell "$scenario" "$([[ "$upstream_sha" == "$head_before" ]] && echo true || echo false)" \
+        "origin still points at the fixture commit" "upstream=$upstream_sha before=$head_before" || ok=false
+
+    # The whole chain is still in HEAD, so `git reset --hard HEAD` restores the
+    # tree and the cascade can be run again once the BRIEF is fixed. A commit
+    # here would have put the PLAN's deletion in history instead, and on the
+    # remote, where recovery means reverting a pushed commit.
+    assert_shell "$scenario" \
+        "$(git cat-file -e "HEAD:docs/plans/PLAN-cascade-test-short.md" 2>/dev/null && echo true || echo false)" \
+        "the PLAN survives in HEAD, so the tree can be reset and the run retried" || ok=false
+    assert_shell "$scenario" \
+        "$(git show "HEAD:docs/designs/DESIGN-cascade-test-short.md" 2>/dev/null | grep -q "^status: Planned$" && echo true || echo false)" \
+        "the DESIGN survives in HEAD at its pre-transition path and status" || ok=false
+
+    # ...and the deletion plus the half-applied rename are still sitting in the
+    # index, unpublished, where an operator can inspect or reset them.
+    local porcelain
+    porcelain=$(git status --porcelain)
+    assert_shell "$scenario" "$([[ -n "$porcelain" ]] && echo true || echo false)" \
+        "the refused walk's work is still staged and uncommitted" || ok=false
+
+    # No verification claim is made about a chain that never finalized.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")] | length == 0' \
+        "no lifecycle_post_verify step" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+
+# ── A ROADMAP feature the cascade cannot find is a failure ────────────────────
+#
+# handle_roadmap recorded "feature not found" as a `skipped` step, which leaves
+# ANY_FAILED false and reports `completed` for a chain that never finalized:
+# the ROADMAP feature stays at Planned and its Downstream is never written.
+# DESIGN-completion-cascade.md lists this under Failures.
+#
+# The reason it has to be a failure rather than a cosmetic mislabel is the
+# interaction with the PLAN deletion now entering STAGED_FILES. With the step at
+# `skipped`, a PLAN whose upstream IS the ROADMAP stages nothing but its own
+# deletion, so the deletion becomes the sole entry, the commit fires, and the
+# published tree passes the ready-mode lifecycle check -- a chain that did not
+# finalize, reported `completed`, merging green. Before the append existed the
+# commit never fired and the surviving PLAN failed that same check, so CI caught
+# it by accident. This scenario pins the deliberate catch.
+#
+# The fixture is the shape that has nothing dangling in it: a ROADMAP feature
+# with no `Downstream:` line at all, never planned against. Nothing here is
+# malformed, so the only thing the lifecycle check can object to is the chain
+# state the cascade left behind.
+scenario_roadmap_feature_not_found() {
+    local scenario="Scenario 28: --push fails when the ROADMAP feature is not found"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    mkdir -p "$repo/docs/roadmaps"
+    cat > "$repo/docs/roadmaps/ROADMAP-cascade-test.md" <<'EOF'
+---
+status: Active
+---
+
+# ROADMAP: Cascade Test
+
+## Status
+
+Active
+
+## Theme
+
+Test roadmap for cascade validation.
+
+## Features
+
+### Feature 1: Not Yet Planned
+
+**Status:** Planned
+
+### Feature 2: Already Done Feature
+
+**Status:** Done
+**Downstream:** closed
+EOF
+    write_plan "$repo/docs/plans/PLAN-orphaned.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+
+    commit_and_push_all
+
+    local head_before
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-orphaned.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # Killing assertion #1: the verdict. A build that records the missing feature
+    # as `skipped` leaves ANY_FAILED false and reports completed.
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial, not completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature" and .status == "failed")] | length == 1' \
+        "exactly one update_roadmap_feature step, at failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature")][0].detail | test("no matching feature entry was found")' \
+        "the failed step carries the design's detail text" || ok=false
+
+    # ANY_FAILED is set before delete_plan, so the PLAN never enters
+    # STAGED_FILES and nothing publishes.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit")] | length == 0' \
+        "no commit step: nothing was published" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push")] | length == 0' \
+        "no push step" || ok=false
+
+    local head_after
+    head_after=$(git rev-parse HEAD)
+    assert_shell "$scenario" "$([[ "$head_after" == "$head_before" ]] && echo true || echo false)" \
+        "HEAD did not move" || ok=false
+
+    # Killing assertion #2, and the one the verdict alone cannot give: the tree
+    # CI would check out still fails the ready-mode lifecycle check, so a chain
+    # that did not finalize cannot merge green. Validate the PUBLISHED tree --
+    # `git archive HEAD` -- not the worktree, which still holds the uncommitted
+    # leftovers and so answers a different question.
+    local published="$tmpdir/published"
+    mkdir -p "$published"
+    git archive HEAD | tar -x -C "$published"
+    local lifecycle_rc=0
+    ( cd "$published" && "$SHIRABE_BIN_PATH" validate --lifecycle . --mode=ready > /dev/null 2>&1 ) || lifecycle_rc=$?
+    assert_shell "$scenario" "$([[ "$lifecycle_rc" -ne 0 ]] && echo true || echo false)" \
+        "the published tree still fails the ready-mode lifecycle check" "rc=$lifecycle_rc" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -2089,6 +2723,21 @@ scenario_push_earlier_failure_not_rescued
 cd "$ORIG_DIR"
 
 scenario_push_probe_seeds
+cd "$ORIG_DIR"
+
+scenario_push_plan_only_commits_deletion
+cd "$ORIG_DIR"
+
+scenario_push_failure_still_reports
+cd "$ORIG_DIR"
+
+scenario_commit_failure_skips_verification
+cd "$ORIG_DIR"
+
+scenario_refused_walk_publishes_nothing
+cd "$ORIG_DIR"
+
+scenario_roadmap_feature_not_found
 cd "$ORIG_DIR"
 
 echo ""
