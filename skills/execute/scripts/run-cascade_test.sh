@@ -2637,7 +2637,8 @@ EOF
 # before the first `### ` heading. Nothing writes this shape; it exists to pin
 # the arm. Both arms emit the same detail text, so the JSON cannot tell them
 # apart; what proves this fixture reaches the second arm is that it fails
-# against a build with only that arm reverted.
+# against a build with only that arm reverted. Re-check that if the lookup
+# changes (shirabe#370).
 scenario_roadmap_feature_no_heading() {
     local scenario="Scenario 29: --push fails when the ROADMAP's Downstream line has no feature heading above it"
     echo "Running $scenario..."

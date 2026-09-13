@@ -292,15 +292,19 @@ downstream reads.
 
 A step's `status` says what happened to that one action:
 
-- `ok`: the step did what it was asked. It carries a `detail` only in the case
-  described above.
+- `ok`: the step did what it was asked. Any `detail` it carries is a note, not a
+  failure: the finalize-chain note described above, or a marker that a lifecycle
+  finding was suppressed.
 - `skipped`: there was nothing to do (the chain was already at its terminal
   state, or no chain document survived the commit to verify against), the step
   could not run because an earlier step failed (there is nothing to verify when
   the finalization commit did not land), or it was deliberately deferred on state
   the cascade does not control (a ROADMAP is left in place while an issue it
   references is still open). `skipped` never means the cascade was asked to do
-  something and could not.
+  something and could not. Two known defects break that today: when `gh` itself
+  fails, the open-issue check reads the failure as an open issue and records a
+  `skipped` step, and the unanchored ROADMAP lookup described below can record
+  `ok` against the wrong feature (#370).
 - `failed`: the cascade was asked to do the step and could not.
 
 `cascade_status` follows from the steps. It is `partial` if and only if at least
@@ -316,10 +320,13 @@ run has to be recorded as `failed`. A `partial` whose cause was recorded as
 
 **Error message contract:**
 
-Every `skipped` or `failed` step's `detail` follows a prescribed format, so the
-agent sees consistent, parseable descriptions. The table fixes the wording, not
-the status; the status follows the rule above. "Issue still open" is recorded as
-`skipped`, and every other case in the table as `failed`.
+The cases below have a prescribed `detail` format, so the agent sees consistent,
+parseable descriptions. The table fixes the wording, not the status; the status
+follows the rule above. "Issue still open" is recorded as `skipped`, and every
+other case in the table as `failed`. Steps the table does not list (a failed
+commit, push or `git rm`, or a failed or skipped verification) carry a detail
+written where the script records them, and some rows have drifted from the text
+the script now emits; #358 tracks bringing this section current.
 
 | Case | `detail` message |
 |---------|-----------------|
@@ -386,9 +393,11 @@ stops and the overall status reflects work done up to that point.
 
 The run is `partial` because the `update_roadmap_feature` step is `failed`. The
 steps are abbreviated. Because this chain transitioned the DESIGN before the
-ROADMAP lookup failed, a `--push` run still commits and pushes that transition
-before it reports `partial` (#372). A PLAN whose only upstream is the ROADMAP
-publishes nothing.
+ROADMAP lookup failed, a `--push` run still commits and pushes. The commit
+publishes the whole index, so it carries the DESIGN's transition and the PLAN's
+deletion, and the post-cascade verification passes against it, all before the
+run reports `partial` (#372). A PLAN whose only upstream is the ROADMAP commits
+nothing, and the PLAN survives.
 
 **`validate_upstream_path`:**
 ```bash
@@ -461,9 +470,12 @@ instead of the right one. All substitutions use `awk` with `ENVIRON["varname"]`
    `skills/roadmap/scripts/transition-status.sh <path> Done`.
 5. `git add` the file.
 
-After all nodes are processed, and only under `--push` with something staged,
-the script commits the staged changes in a single commit,
-`chore(cascade): post-implementation artifact transitions`, and pushes it. It
+After all nodes are processed, and only under `--push`, the script commits once
+it has recorded at least one staged change, in a single commit,
+`chore(cascade): post-implementation artifact transitions`, and pushes it. The
+commit publishes the whole index. The PLAN's deletion counts toward that record
+only on a run where nothing failed, so a failed run whose only change is the
+deletion commits nothing. It
 derives `cascade_status` from the steps by the rule under Output format, then
 emits the JSON result. The `plan_completion` directive reads the verdict and, on
 `partial`, the `failed` steps' details. A `skipped` step's detail says what was
@@ -621,7 +633,7 @@ remote before running the cascade.
   step carrying the "ROADMAP feature not found" message, which makes the run
   `partial`, and `/execute` halts on `partial` instead of marking the PR ready
   and shows the failed step. Through a chain, the transitions before the lookup
-  have already been pushed by then (#372).
+  and the PLAN's deletion have already been pushed by then (#372).
 - The strip operation is idempotent and only removes a section with a known
   deterministic heading. A section-presence check before invoking the `awk` strip
   prevents empty-file bugs if Implementation Issues is the last section.
