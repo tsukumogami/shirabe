@@ -493,7 +493,8 @@ emit_result() {
 # Recording it as a skip left ANY_FAILED false, which reported `completed` for a
 # chain that had not finalized and, once the PLAN deletion began entering
 # STAGED_FILES, let that state publish to a tree the ready-mode lifecycle check
-# passes. It also left /execute's partial halt, which prints only `failed`
+# passes. Recording it as `skipped` while still setting ANY_FAILED would fix
+# the verdict but leave /execute's partial halt, which prints only `failed`
 # steps, with no reason to show. scenario_roadmap_feature_not_found pins the
 # first arm and scenario_roadmap_feature_no_heading the second.
 #

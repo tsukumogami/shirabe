@@ -282,7 +282,7 @@ The `detail` field is the recovery surface. Every `skipped` or `failed` step mus
 include a sentence that names what was being attempted and why it could not proceed,
 written so an agent can act on it without reading the script.
 
-An `ok` step carries a `detail` only when finalize-chain attached a note to the node —
+An `ok` step can carry a `detail` when finalize-chain attached a note to the node:
 today, when its retirement guard could not see the whole corpus and cleared a transition
 it could not fully check. The step succeeded, so it is not a failure to recover from;
 without the detail the caveat would live only in finalize-chain's own JSON, which nothing
@@ -301,10 +301,11 @@ A step's `status` says what happened to that one action:
   the finalization commit did not land), or it was deliberately deferred on state
   the cascade does not control (a ROADMAP is left in place while an issue it
   references is still open). `skipped` never means the cascade was asked to do
-  something and could not. Two known defects break that today: when `gh` itself
+  something and could not. Known defects break that today. When `gh` itself
   fails, the open-issue check reads the failure as an open issue and records a
   `skipped` step, and the unanchored ROADMAP lookup described below can record
-  `ok` against the wrong feature (#370).
+  `ok` against the wrong feature; both are tracked in #370. A feature update
+  whose text rewrites match nothing also records `ok` (#362).
 - `failed`: the cascade was asked to do the step and could not.
 
 `cascade_status` follows from the steps. It is `partial` if and only if at least
@@ -322,11 +323,12 @@ run has to be recorded as `failed`. A `partial` whose cause was recorded as
 
 The cases below have a prescribed `detail` format, so the agent sees consistent,
 parseable descriptions. The table fixes the wording, not the status; the status
-follows the rule above. "Issue still open" is recorded as `skipped`, and every
-other case in the table as `failed`. Steps the table does not list (a failed
-commit, push or `git rm`, or a failed or skipped verification) carry a detail
-written where the script records them, and some rows have drifted from the text
-the script now emits; #358 tracks bringing this section current.
+follows the rule above. "Issue still open" is recorded as `skipped`; the other
+cases are recorded as `failed` where the script records a step for them at all.
+Steps the table does not list carry a detail written where the script records
+them. The table is not current: some rows have drifted from the text the script
+emits, and some cases (a failed ROADMAP transition, for one) now only log a
+warning. #358 tracks bringing this section current.
 
 | Case | `detail` message |
 |---------|-----------------|
@@ -396,8 +398,12 @@ steps are abbreviated. Because this chain transitioned the DESIGN before the
 ROADMAP lookup failed, a `--push` run still commits and pushes. The commit
 publishes the whole index, so it carries the DESIGN's transition and the PLAN's
 deletion, and the post-cascade verification passes against it, all before the
-run reports `partial` (#372). A PLAN whose only upstream is the ROADMAP commits
-nothing, and the PLAN survives.
+run reports `partial` (#372). That published tree also passes the ready-mode
+lifecycle check, which does not look at ROADMAP feature status, so `/execute`'s
+halt on `partial` is the only thing that stops the PR being marked ready. A PLAN
+whose only upstream is the ROADMAP commits nothing: the PLAN stays in HEAD and
+on the remote, while its deletion is left staged in the working tree, so a later
+commit would carry it unless the index is reset first.
 
 **`validate_upstream_path`:**
 ```bash
@@ -475,11 +481,14 @@ it has recorded at least one staged change, in a single commit,
 `chore(cascade): post-implementation artifact transitions`, and pushes it. The
 commit publishes the whole index. The PLAN's deletion counts toward that record
 only on a run where nothing failed, so a failed run whose only change is the
-deletion commits nothing. It
-derives `cascade_status` from the steps by the rule under Output format, then
-emits the JSON result. The `plan_completion` directive reads the verdict and, on
-`partial`, the `failed` steps' details. A `skipped` step's detail says what was
-deferred or unnecessary; it is not something to recover from.
+deletion commits nothing.
+
+The script then derives `cascade_status` from the steps by the rule under Output
+format and emits the JSON result. The `plan_completion` directive reads the
+verdict and, on `partial`, the `failed` steps' details. A `skipped` step does not
+stop the run, but its detail can still describe work left over: a ROADMAP whose
+deletion was deferred on an open issue has to be removed by hand once the issue
+closes, because re-running the cascade needs the PLAN it already deleted (#370).
 
 ### Data Flow
 

@@ -2605,8 +2605,8 @@ EOF
         "HEAD did not move" || ok=false
 
     # Killing assertion #2, and the one the verdict alone cannot give: the tree
-    # CI would check out still fails the ready-mode lifecycle check, so a chain
-    # that did not finalize cannot merge green. Validate the PUBLISHED tree --
+    # CI would check out still fails the ready-mode lifecycle check, so in this
+    # direct shape a chain that did not finalize cannot merge green. Validate the PUBLISHED tree --
     # `git archive HEAD` -- not the worktree, which still holds the uncommitted
     # leftovers and so answers a different question.
     local published="$tmpdir/published"
