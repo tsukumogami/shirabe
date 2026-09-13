@@ -28,8 +28,9 @@
 #     the chain itself, driven in both directions on a minimal template
 #
 # The tripwire matters most: if a future change makes `/execute` spawnable as a
-# child, the unconditional flag becomes the wedge documented in
-# skills/work-on/scripts/session-role.sh, and that case says so before it ships.
+# child, the unconditional flag would withhold its result from its parent, as
+# references/koto-session-retention.md documents, and that case says so before
+# it ships.
 #
 # The pause cases walk the declared edges with `koto next --to`, because reaching
 # pr_finalization by evidence alone would mean satisfying the children-complete
@@ -71,6 +72,31 @@ pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
+
+REPO_ROOT=$(cd "$SKILLS_DIR/.." && pwd)
+WORK_ON_TPL="skills/work-on/koto-templates/work-on.md"
+
+# Every `koto next` inside a fenced code block, at any indentation and inside
+# `$(...)`, excluding shell-comment lines. Prints "line: text". This is the one
+# definition of "a tick" in this suite; both the template count and the
+# orchestrator walk use it, so they cannot disagree about what they are counting.
+fenced_ticks() {
+    awk '
+        /^[[:space:]]*```/ { inblk = !inblk; next }
+        inblk && /koto next / {
+            t = $0; sub(/^[[:space:]]+/, "", t)
+            if (t ~ /^#/) next
+            printf "%d: %s\n", NR, $0
+        }' "$1"
+}
+raw_cites() { grep -oE '(skills|references)/[A-Za-z0-9_/.-]*\.md' "$1" 2>/dev/null | sort -u; }
+resolve() { # $1 citation, $2 citing file (repo-relative) -> repo-relative path, or nothing
+    [ -f "$REPO_ROOT/$1" ] && { echo "$1"; return; }
+    case "$2" in
+        skills/*) sd=$(printf '%s' "$2" | cut -d/ -f1-2)
+                  [ -f "$REPO_ROOT/$sd/$1" ] && echo "$sd/$1" ;;
+    esac
+}
 
 # --- the engine-free cases, which run before the koto skip -------------------
 #
@@ -122,8 +148,11 @@ fi
 # Every koto next command line in this template must carry the flag. An earlier
 # version of this suite asserted the opposite for spawn_and_await's two ticks, on
 # the false premise that a state declaring `accepts` cannot be chained through.
-TEMPLATE_TICKS=$(grep -c '^koto next ' "$TEMPLATE" 2>/dev/null)
-TEMPLATE_TICKS_FLAGGED=$(grep '^koto next ' "$TEMPLATE" 2>/dev/null | grep -c -- '--no-cleanup')
+# Counted with the same shape-aware matcher as the walk below -- fenced, any
+# indentation, inside $(...) -- not a column-0 grep, which would miss an indented
+# tick and report a smaller denominator than the template really has.
+TEMPLATE_TICKS=$(fenced_ticks "$TEMPLATE" | grep -c .)
+TEMPLATE_TICKS_FLAGGED=$(fenced_ticks "$TEMPLATE" | grep -c -- '--no-cleanup')
 if [ "$TEMPLATE_TICKS" -gt 0 ] && [ "$TEMPLATE_TICKS" -eq "$TEMPLATE_TICKS_FLAGGED" ]; then
     pass "every koto next command line in execute.md carries --no-cleanup ($TEMPLATE_TICKS of $TEMPLATE_TICKS)"
 else
@@ -131,26 +160,81 @@ else
 fi
 
 # The orchestrator's ticks are not all in execute.md. A state directive can send
-# the agent to another file for the command to run, and that command is then an
+# the agent to another file for the command to run, and that command is an
 # orchestrator tick exactly as much as one written inline. Counting only
 # execute.md's own lines is how phase-2.5's bare intent-changing tick -- which
-# chains through escalate_upstream_drift into done_blocked -- went unflagged. So
-# every file execute.md cites is scanned too.
-CITED_FILES=$(grep -o 'skills/[A-Za-z0-9_/.-]*\.md' "$TEMPLATE" 2>/dev/null | sort -u)
-CITED_BARE=""
-for rel in $CITED_FILES; do
-    f="$SKILLS_DIR/../$rel"
-    [ -f "$f" ] || continue
-    bare=$(grep -n '^koto next ' "$f" 2>/dev/null | grep -v -- '--no-cleanup')
-    [ -n "$bare" ] && CITED_BARE="$CITED_BARE
-$rel:
+# chains through escalate_upstream_drift into done_blocked -- went unflagged.
+#
+# What this scan covers, stated exactly so nothing relies on more:
+#
+#   the ticks  every `koto next` inside a fenced code block, at any indentation
+#              and inside `$(...)`, excluding shell-comment lines. A tick written
+#              only as inline code in prose is not treated as one.
+#   the files  execute.md and skills/execute/SKILL.md, then every file reachable
+#              from them by citation, transitively. Citations are resolved as
+#              repo-rooted first, then relative to the citing skill.
+#   bounded to the files /execute's orchestrator can be sent to: /execute's own
+#              tree, repo-root references/, and /work-on's reference files --
+#              but NOT /work-on's phase files that work-on.md itself cites. Those
+#              are the child's instructions, and their ticks are correctly bare.
+#              Other skills' trees are not entered: shared references cite them
+#              as examples, not as commands the orchestrator runs.
+#
+# A citation that resolves to nothing is not followed, and is reported.
+
+# The child's own phase files: the /work-on phase files work-on.md sends a child to.
+CHILD_PHASES=" "
+for c in $(raw_cites "$REPO_ROOT/$WORK_ON_TPL"); do
+    r=$(resolve "$c" "$WORK_ON_TPL")
+    case "$r" in skills/work-on/references/phases/*) CHILD_PHASES="$CHILD_PHASES$r " ;; esac
+done
+
+orchestrator_reachable() { # $1 candidate -> 0 if the walk may enter it
+    case "$CHILD_PHASES" in *" $1 "*) return 1 ;; esac
+    case "$1" in
+        references/*.md)                 return 0 ;;
+        skills/execute/*)                return 0 ;;
+        skills/work-on/references/*)     return 0 ;;
+        *)                               return 1 ;;
+    esac
+}
+
+WALK_QUEUE="skills/execute/koto-templates/execute.md skills/execute/SKILL.md"
+WALK_SEEN=""
+WALK_UNRESOLVED=""
+while [ -n "$WALK_QUEUE" ]; do
+    set -- $WALK_QUEUE; cur="$1"; shift; WALK_QUEUE="$*"
+    case " $WALK_SEEN " in *" $cur "*) continue ;; esac
+    WALK_SEEN="$WALK_SEEN $cur"
+    for c in $(raw_cites "$REPO_ROOT/$cur"); do
+        r=$(resolve "$c" "$cur")
+        if [ -z "$r" ]; then WALK_UNRESOLVED="$WALK_UNRESOLVED $c"; continue; fi
+        orchestrator_reachable "$r" && WALK_QUEUE="$WALK_QUEUE $r"
+    done
+done
+
+WALK_BARE=""
+for f in $WALK_SEEN; do
+    bare=$(fenced_ticks "$REPO_ROOT/$f" | grep -v -- '--no-cleanup')
+    [ -n "$bare" ] && WALK_BARE="$WALK_BARE
+$f:
 $bare"
 done
-if [ -z "$CITED_BARE" ]; then
-    pass "every koto next in a file execute.md sends the orchestrator to carries --no-cleanup ($(printf '%s\n' "$CITED_FILES" | grep -c .) files cited)"
+WALK_COUNT=$(echo $WALK_SEEN | wc -w | tr -d ' ')
+if [ -z "$WALK_BARE" ]; then
+    pass "every fenced koto next in the $WALK_COUNT files the orchestrator can be sent to carries --no-cleanup"
 else
-    fail "a file execute.md cites carries a bare koto next, which the orchestrator will run -- a bare tick that chains into a terminal destroys its record:$CITED_BARE"
+    fail "a file the orchestrator can be sent to carries a bare koto next -- a bare tick that chains into a terminal destroys its record:$WALK_BARE"
 fi
+
+# Sanity on the walk itself: it has to have reached the file whose miss started
+# this, or a change to how citations are written has quietly shrunk it.
+case " $WALK_SEEN " in
+    *" skills/work-on/references/phases/phase-2.5-worktree-discipline.md "*)
+        pass "the walk reaches phase-2.5, the orchestrator-only /work-on file" ;;
+    *)  fail "the walk no longer reaches phase-2.5 -- citation resolution changed and the scan has shrunk" ;;
+esac
+[ -n "$WALK_UNRESOLVED" ] && echo "  note: citations not followed (resolve to no file):$WALK_UNRESOLVED"
 
 # The mechanism behind that rule, pinned so nobody reinstates the carve-out on
 # the reasoning that was wrong the first time: a state halts an auto-advance

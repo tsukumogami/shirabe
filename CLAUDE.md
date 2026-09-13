@@ -257,8 +257,8 @@ pointers to the states that are already converted. Read it before adding a
 into one.
 
 Whether your skill's `koto next` calls carry `--no-cleanup` is a third such
-question, and getting it wrong destroys the run's own record or wedges a
-parent's batch. `references/koto-session-retention.md` carries that rule, the
+question, and getting it wrong either destroys the run's own record or, on a
+child session, withholds the child's result from its parent. `references/koto-session-retention.md` carries that rule, the
 koto behaviour behind it — including that a tick does not stop at the state it
 routes to — and the position each existing skill takes. Read it before writing
 a skill's koto loop, not after.

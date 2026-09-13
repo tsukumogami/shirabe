@@ -84,8 +84,9 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 # These need no engine, so they run first and the floor leg gets real coverage.
 #
 # work-on.md and its phase files are read by BOTH a root run and a child. A
-# `--no-cleanup` written into either would reach children, which is the wedge
-# this whole contract exists to avoid. The rule therefore lives in SKILL.md,
+# `--no-cleanup` written into either would reach children, and a child carrying
+# it withholds its result from its parent -- the outcome this contract exists to
+# avoid. The rule therefore lives in SKILL.md,
 # which is consumed per-run, and these cases keep a later edit from relocating
 # it.
 
@@ -108,7 +109,7 @@ template_flag_sites() {
 }
 
 if [ -n "$(template_flag_sites "$TEMPLATE")" ]; then
-    fail "work-on.md carries --no-cleanup outside a YAML comment; a child reads this template and would wedge its parent:
+    fail "work-on.md carries --no-cleanup outside a YAML comment; a child reads this template and would withhold its result from its parent:
 $(template_flag_sites "$TEMPLATE")"
 else
     pass "work-on.md carries no --no-cleanup call site, so a child cannot pick it up from the template"
@@ -122,7 +123,7 @@ fi
 #
 # The exemption is only as good as its premise, so the premise is checked:
 # work-on.md must never route to phase-2.5. If it ever does, that file becomes
-# child-readable and the exemption turns into a wedge.
+# child-readable and the exemption would hand the flag to children.
 ORCH_ONLY="phase-2.5-worktree-discipline.md"
 PHASE_HITS=$(grep -rln -- '--no-cleanup' "$PHASES" 2>/dev/null | grep -v "/$ORCH_ONLY\$")
 if [ -n "$PHASE_HITS" ]; then
