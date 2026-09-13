@@ -14,8 +14,18 @@
 #   init            --template picks the work-on template, --var carries
 #                   ISSUE_NUMBER / ARTIFACT_PREFIX
 #   next            --with-data submits phase evidence; the whole loop turns
-#                   on it
+#                   on it. --no-cleanup rides every tick of a ROOT run so the
+#                   terminal tick keeps the session's context instead of
+#                   deleting it; a child run passes it nowhere, because on a
+#                   child it also suppresses the events /execute's converge
+#                   gate reads. scripts/session-role.sh decides which.
 #   workflows       resume lookup, no flag
+#   session list    scripts/session-role.sh reads koto's parent_workflow field
+#                   from it to tell a root run from a materialized child
+#   status          the Resume step reads is_terminal from it BEFORE ticking, so
+#                   a retained finished session is recognised without the tick
+#                   that would both report it done and destroy its context
+#   session cleanup the Resume step's recovery once that record has been read
 #   rewind          step back after a failed gate, no flag
 #   context add     --from-file for the file-backed keys (context.md,
 #                   introspection.md, plan.md); the stdin heredoc form of the
@@ -34,8 +44,11 @@
 # `--pr-body` citation has no mechanical tell and is exempted by name.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 koto	init	--template,--var	always
-koto	next	--with-data	always
+koto	next	--with-data,--no-cleanup	always
 koto	workflows	-	always
+koto	session list	-	always
+koto	status	-	always
+koto	session cleanup	-	always
 koto	rewind	-	always
 koto	context add	--from-file	always
 koto	context get	-	always

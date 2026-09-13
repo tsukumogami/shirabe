@@ -4,6 +4,18 @@ on:
   pull_request:
     paths:
       - 'skills/execute/scripts/**'
+      # terminal-retention_test.sh drives the shipped template and reads the
+      # rule out of SKILL.md, so an edit to either can break it while leaving
+      # skills/execute/scripts/** untouched.
+      - 'skills/execute/koto-templates/**'
+      - 'skills/execute/SKILL.md'
+      # terminal-retention_test.sh asserts that NO skill names execute.md as its
+      # children's template. That premise is broken by an edit to some OTHER
+      # skill, and the scan reads every markdown file under skills/ -- this repo
+      # puts `koto init` in references/phases too -- so the trigger has to be
+      # just as wide as the scan. A narrower one merges the case the scan was
+      # widened for without ever running it.
+      - 'skills/**'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -54,6 +66,15 @@ jobs:
       - name: Run settled-branch-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/settled-branch-record_test.sh
+
+      # terminal-retention_test.sh drives the shipped execute.md to its real
+      # terminals to assert the session's context survives them, which needs the
+      # same engine. It also checks the premise behind /execute passing
+      # --no-cleanup unconditionally: that nothing materializes execute.md as a
+      # koto child.
+      - name: Run terminal-retention tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/terminal-retention_test.sh
 
       # The macOS leg is the floor check, and until now it was not one: it
       # invoked `bash`, which resolves to whatever the runner image has on

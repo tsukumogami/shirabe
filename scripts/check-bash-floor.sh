@@ -114,6 +114,9 @@ suite_scripts() {
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
             echo "skills/execute/scripts/settled-branch-record_test.sh"
+            # Same koto-absent contract: its two static cases still run on the
+            # macOS leg, and the engine-backed ones skip there.
+            echo "skills/execute/scripts/terminal-retention_test.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key
@@ -123,6 +126,14 @@ suite_scripts() {
             # since a developer running it locally has koto and the cases
             # genuinely execute on 3.2 there.
             echo "skills/work-on/scripts/retry-clearing_test.sh"
+            # Drives real koto sessions for the same reason, and carries the
+            # discriminator the retention rule reads.
+            echo "skills/work-on/scripts/terminal-retention_test.sh"
+            # session-role.sh is deliberately NOT listed. Every entry here is
+            # run with no arguments and a nonzero status is a failure, and the
+            # discriminator exits 2 on a missing session name by design. It
+            # reaches the floor through the suite above, whose engine-free
+            # cases run without koto and include invoking it.
             ;;
         preflight)
             echo "scripts/skill-preflight_test.sh"
