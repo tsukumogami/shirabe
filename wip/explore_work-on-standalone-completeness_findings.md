@@ -334,3 +334,7 @@ which is the point.
 
 The exploration is converged. The remaining questions are scoping questions for
 whoever takes the work, not open unknowns.
+
+## Decision: Crystallize
+
+Round 2 closed the one substantive hole an adversarial review found. Converged.
