@@ -222,19 +222,29 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   single discriminator for any `/work-on` behaviour that must differ between a
   directly-invoked run and one materialized as a child of `/execute`.** Use it
   rather than inventing a second test, so two such behaviours cannot drift
-  apart. Call it as
-  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, both
-  from here and from a `work-on.md` state directive — the agent's own shell
-  expands the variable, which is what the existing `references/phases/` files
-  already do. A `{{PLUGIN_ROOT}}` in `work-on.md` would NOT work, and the reason
-  is *declared versus undeclared*, not prose versus command: koto interpolates
-  `{{KEY}}` in rendered prose perfectly well (`{{ISSUE_NUMBER}}` and
-  `{{BRANCH}}` both do it in this template), but it validates every reference
-  against the template's `variables:` block at compile time, and `work-on.md`
-  declares no `PLUGIN_ROOT`. A state that needs the discriminator in a command
-  **koto itself runs** — a `default_action`, where no agent shell exists to
-  expand anything — would have to declare `PLUGIN_ROOT` as a variable first, the
-  way `execute.md` does. Its first caller is the retention rule below.
+  apart. Its first caller is the retention rule below.
+
+  From here, call it as
+  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`.
+
+  **From a `work-on.md` state directive, this is the form that works:**
+
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+  ```
+
+  The two halves are resolved by different things and it matters. The directive
+  is prose the agent reads, so the agent's own shell expands
+  `${CLAUDE_PLUGIN_ROOT}`; that is what the `references/phases/` files already
+  do. `{{SESSION_NAME}}` is koto's, and koto substitutes it before the agent
+  sees the text. A `{{KEY}}` reference resolves when it names a declared
+  `variables:` entry, a `capture_stdout_as` capture, or one of the two reserved
+  runtime names — `SESSION_NAME` and `SESSION_DIR` — and fails template
+  compilation otherwise. So `{{SESSION_NAME}}` needs no declaration, while
+  `{{PLUGIN_ROOT}}` in this template would fail: `work-on.md` declares no such
+  variable. A state that needs the discriminator inside a command **koto itself
+  runs** (a `default_action`, where no agent shell exists) would have to declare
+  `PLUGIN_ROOT` first, the way `execute.md` does.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh` — the
   two harnesses; see each file's header.
 
@@ -298,22 +308,16 @@ per issue, so resolve `ROLE` again for each.
 
 **Why the rule lives here and not in `work-on.md`.** `work-on.md` is the child
 template, so a `--no-cleanup` written into it is read by children as much as by
-roots. Keeping the flag out of the template removes that exposure; what makes a
-root still get retention is the `ROLE` gate above.
+roots. Keeping the flag out of the template removes that exposure. It does not
+keep the rule from children — a child still reaches `SKILL.md` wherever a
+state's prose sends it — so `ROLE`, not the placement, is what stops a child
+acting on it.
 
-`ROLE` is the guarantee, not the placement. A koto-materialized child is seeded
-from the compiled template rather than by loading this file, but it still
-reaches `SKILL.md` wherever a state's prose sends it there — `work-on.md`'s
-`verification` state cites the **Definition of Done** section below exactly as
-it cites a `references/phases/` file. So a child can read this rule; what stops
-it acting on the rule is `session-role.sh`.
-
-Do not read the placement as a pattern. It is safe here **because omission is
-the correct child behaviour for this particular rule** — a child that never asks
-for retention is doing the right thing. A rule whose failure mode is omission is
-the opposite case: an obligation a child must discharge, left somewhere a child
-may never be sent, is skipped silently on exactly the path nobody watches. Such
-a rule belongs in the template, gated on `ROLE`.
+Do not copy the placement for a different rule. It is safe here because omission
+is the correct child behaviour: a child that never asks for retention is doing
+the right thing. An obligation a child must discharge is the opposite case, and
+belongs in the template gated on `ROLE`, where it cannot be skipped by never
+being read.
 
 `skills/work-on/scripts/terminal-retention_test.sh` pins both halves, including
 a tripwire that fails when a future koto makes the flag safe for children (see

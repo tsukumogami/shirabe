@@ -104,6 +104,21 @@ else
     fail "execute.md has no frontmatter note explaining the retention rule to a template editor"
 fi
 
+# That note's central rule -- a terminal-reaching `koto next` added here must
+# carry the flag -- is worth enforcing rather than merely stating. Today the
+# only two command lines in this template are spawn_and_await's, which route to
+# pr_finalization and escalate, both of which accept evidence, so neither tick
+# can reach a terminal and neither carries the flag. Any THIRD command line is a
+# new tick nobody has classified: this fails until someone either adds the flag
+# or records why the new call cannot terminate.
+TEMPLATE_TICKS=$(grep -c '^koto next ' "$TEMPLATE" 2>/dev/null)
+TEMPLATE_TICKS_FLAGGED=$(grep '^koto next ' "$TEMPLATE" 2>/dev/null | grep -c -- '--no-cleanup')
+if [ "$TEMPLATE_TICKS" -eq 2 ] && [ "$TEMPLATE_TICKS_FLAGGED" -eq 0 ]; then
+    pass "execute.md's two koto next command lines are the known non-terminal pair in spawn_and_await"
+else
+    fail "execute.md's koto next command lines changed ($TEMPLATE_TICKS lines, $TEMPLATE_TICKS_FLAGGED flagged; expected 2 and 0). A tick that can reach a terminal must carry --no-cleanup; if this one cannot, say why in the frontmatter note and update this count."
+fi
+
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
 skip_engine_cases() {

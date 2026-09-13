@@ -519,12 +519,19 @@ both copies in lockstep is the cross-repo follow-up.
 
 ## Resume
 
-**Before anything else on re-entry, check whether the koto session named for this
-plan has already finished:**
+**On a single-pr re-entry, before Step 2's `koto init`, check whether the koto
+session named for this plan has already finished:**
 
 ```bash
-koto status execute-<plan-slug>
+koto workflows | jq -e --arg s "execute-<plan-slug>" 'any(.name == $s)' >/dev/null \
+  && koto status execute-<plan-slug>
 ```
+
+The `koto workflows` test comes first because `koto status` on a session that
+does not exist exits 2 with an error, and no session is the ordinary case — a
+first run, a run that crashed before `koto init`, and every coordinated-path
+re-entry all reach here with nothing to find. No match means nothing to check;
+carry on down the ladder.
 
 `is_terminal: true` means a previous run reached `done_blocked` or
 `paused_for_review` and its session was retained so its record would survive. It
