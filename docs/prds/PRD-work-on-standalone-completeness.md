@@ -14,7 +14,8 @@ goals: |
   cannot skip them and reachable by a child run that never loads the skill's
   prose. Running a whole plan keeps its current cadence, and the plan entry
   point becomes the only way a plan is run.
-upstream: docs/briefs/BRIEF-work-on-standalone-completeness.md
+absorbed:
+  - docs/briefs/BRIEF-work-on-standalone-completeness.md
 source_issue: 361
 motivating_context: |
   Three dispatched worker sessions ran the single-issue skill standalone on
@@ -28,6 +29,34 @@ motivating_context: |
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-work-on-standalone-completeness](docs/briefs/BRIEF-work-on-standalone-completeness.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+A `/work-on` run invoked on one issue opens a pull request and stops, leaving a
+change that looks finished and is not. Whoever supervises has to know what is
+missing and say it out loud, every time — which happened three times in two days
+across three repositories.
+
+The feature is for the person or agent running a single issue. What is different
+for them afterwards is that the run either reaches a genuinely mergeable pull
+request on its own, or stops and names the obligation it could not discharge
+instead of reaching a terminal state that reads as success. An ordinary bug fix
+with no documents behind it finishes without ever mentioning a document chain;
+an issue that sits under a design has that chain pulled to its terminal state in
+the same run; an orchestrator running a whole plan sees the cadence it sees
+today, once per plan; and someone who points the single-issue entry point at a
+plan is told where a plan is run now rather than getting a partial result.
+
+The boundary the framing drew holds in this document: in scope are the cascade
+becoming reachable including the no-chain case, the prose obligations becoming
+gated, where the shared machinery lives, the multi-pr migration, the per-child
+suppression signal, and keeping every obligation somewhere a child receives it.
+Out of scope are four defects reported alongside this one but caused by
+something else — the verification-map gap, the missing staleness script, the
+pre-existing terminal-record defect, and panel observability — plus the naming
+fossils from the earlier split, and merging the pull request itself.
 
 ## Problem Statement
 
@@ -446,7 +475,7 @@ directly.
 
 ## Decisions and Trade-offs
 
-These close the three questions the upstream BRIEF deferred.
+These close the three questions the absorbed framing deferred.
 
 ### The single-issue skill refuses a multi-pr plan and names where one is run
 

@@ -18,6 +18,21 @@ chain_ran:
     started_at: 2026-09-13T00:00:00Z
   - child: prd
     started_at: 2026-09-13T00:00:00Z
+consolidation_judgments:
+  - edge: brief->prd
+    verdict: absorb
+    preflight_exit: 0
+    finding: >-
+      No content in the BRIEF is absent from the PRD. Its Problem Statement is
+      restated in full (the PRD format requires a PRD to state its own problem),
+      its User Outcome is carried by Goals, all four User Journeys map onto user
+      stories plus R1/R2/R3/R11/R13/R15, and both halves of its Scope Boundary
+      were verified covered by the completeness reviewer across four rounds. The
+      one argument for keeping it - that BRIEFs are durable by type - is a type
+      rule, which this judgment's input restriction forbids as an input. Carry
+      check at wip/scope_work-on-standalone-completeness_carry-check.md recorded
+      no carried:false.
+    decided_at: 2026-09-13T00:00:00Z
 child_snapshots:
   brief:
     status: Accepted
