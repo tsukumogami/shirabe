@@ -1,57 +1,24 @@
 ---
-# Terminal-tick retention (#360): koto disposes of a session on the tick that
-# reaches a terminal state and takes its ctx/ with it, so a run ending at
-# done_blocked or paused_for_review loses its record -- and the pause is the
-# worse loss, since it is solicited. Every koto next on an orchestrator session
-# therefore carries --no-cleanup. The rule and its reasoning live in ../SKILL.md
-# (Step 3, Drive the orchestrator loop); it is stated there rather than here
-# because the ticks are the agent's, not koto's.
+# Terminal-tick retention (#360). EVERY `koto next` in this template carries
+# --no-cleanup, including the two in spawn_and_await. Without it, the tick that
+# reaches a terminal disposes of the session and its ctx/.
 #
-# Unconditional, unlike work-on.md, because an orchestrator session is always a
-# root: nothing names execute.md as a child template. If that ever changes, the
-# flag must be gated on ../../work-on/scripts/session-role.sh first -- on a child
-# it suppresses the events a parent's children-complete gate reads and blocks the
-# converge permanently. scripts/terminal-retention_test.sh asserts the premise
-# and goes red if it stops holding.
+# Do not restore a carve-out for a tick that looks non-terminal. An earlier
+# version of this note had one, reasoning that spawn_and_await routes only to
+# pr_finalization or escalate. A tick does not stop at the state it routes to:
+# escalate declares required evidence and still exits unconditionally to
+# done_blocked, so needs_attention chains straight there and bare it destroyed
+# the record of the batch that FAILED.
 #
-# EVERY koto next in this template carries the flag, including the two in
-# spawn_and_await, and the reason is worth stating because an earlier version of
-# this note got it wrong and the mistake shipped.
+# The rule, the measurements behind it, and the child exception that makes
+# work-on.md's position the opposite of this one:
+# ../../../references/koto-session-retention.md
 #
-# A tick does not stop at the state it routes to. koto keeps auto-advancing, and
-# a state halts the chain only if it declares AT LEAST ONE CONDITIONAL
-# transition; a state whose transitions are all unconditional fires straight
-# through. Declaring `accepts` halts nothing.
+# scripts/terminal-retention_test.sh pins the flag count, escalate's shape, and
+# the chain itself, so a regression here fails rather than going quiet.
 #
-# Check that rather than trusting it. Two templates, identical but for the
-# middle state's transitions, each ticked once from two states upstream:
-#
-#   middle: accepts {reason, required}          -> action "done", landed on the
-#           transitions: [ -> dead_end ]           terminal, context DESTROYED
-#
-#   middle: accepts {reason, required}          -> action "evidence_required",
-#           transitions: [ -> other when ...,      stopped AT middle,
-#                          -> dead_end ]           context intact
-#
-# The required evidence block is identical in both; only the conditional
-# transition differs. koto says the same at engine/advance.rs:571-575 -- fresh
-# evidence is re-granted to a state with no conditional transitions, so its
-# unconditional fallback fires during the same invocation.
-#
-# `escalate` is the first shape: a required failure_reason and one unconditional
-# edge to done_blocked, no `when` anywhere. So submitting batch_outcome:
-# needs_attention at spawn_and_await chains spawn_and_await -> escalate ->
-# done_blocked inside one invocation. Bare, that tick returns action: "done" and
-# deletes the session -- destroying the record of the batch that FAILED, which is
-# the case #360 exists for.
-#
-# So the rule for anyone editing this file: a koto next here carries the flag
-# unless you have checked that every state reachable from it without further
-# evidence is non-terminal. scripts/terminal-retention_test.sh pins the count and
-# the chain, so removing the flag fails rather than silently regressing.
-#
-# This note is a YAML comment so it reaches a template editor without being
-# rendered into any state's directive.
+# A YAML comment, so it reaches a template editor without koto rendering it into
+# any state's directive.
 name: execute
 version: "1.0"
 description: >

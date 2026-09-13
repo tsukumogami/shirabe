@@ -13,22 +13,29 @@
 # parent's converge then blocks permanently. So retention is root-only, and
 # `session-role.sh` is the discriminator that decides.
 #
-# This harness asserts that contract on four fronts, in execution order:
+# This harness asserts that contract in these groups, in execution order --
+# deliberately not numbered, because a numbered map goes stale the first time a
+# case is inserted and then misdirects the reader it was written for:
 #
-#   nothing has tidied the flag into the child template   (cases 1-3)
-#   the discriminator refuses a call it cannot answer     (case 4)
-#   the discriminator answers correctly, and fails safe   (cases 5-8)
-#   a root run's record survives its blocked terminal     (cases 9-11)
-#   retention does not become a false "already done"      (cases 12-15)
-#   a child's terminal tick must NOT carry the flag       (cases 16-17)
+#   engine-free, so they also run on the bash 3.2 floor where koto is absent:
+#     nothing has tidied the flag into the child template or its phase files
+#     SKILL.md states the rule and routes it through the discriminator
+#     the template frontmatter records why the flag must not be added there
+#     the discriminator refuses a call it cannot answer
 #
-# Cases 1-4 need no engine and run BEFORE the koto check, so the macOS bash 3.2
-# floor leg -- where koto is absent -- still exercises this file rather than
-# skipping it whole. Cases 9-11 drive the SHIPPED work-on.md to its real
-# `done_blocked` terminal rather than a stand-in, so a template edit that moves
-# that terminal fails here. Cases 12-13 use a minimal parent/child pair, because
-# what they assert is koto's convergence behaviour and not anything about
-# work-on.md's own states.
+#   engine-backed:
+#     the discriminator answers correctly for a root, a child, and a parent,
+#       and fails safe on a session it cannot resolve
+#     a root run's record survives its blocked terminal, with a control, and
+#       the flag on an earlier tick is shown to retain nothing
+#     retention does not become a false "already done" on the next run
+#     a child's terminal tick must NOT carry the flag, with a control
+#
+# The root-run cases drive the SHIPPED work-on.md to its real `done_blocked`
+# terminal rather than a stand-in, so a template edit that moves that terminal
+# fails here. The child cases use a minimal parent/child pair, because what they
+# assert is koto's convergence behaviour rather than anything about work-on.md's
+# own states.
 #
 # The discriminator cases describe BEHAVIOUR ("a child classifies as child"),
 # never the mechanism session-role.sh currently uses to decide. koto's parentage

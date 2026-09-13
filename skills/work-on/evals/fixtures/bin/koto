@@ -130,20 +130,14 @@ case "$ARGS" in
     # tell a root run from a materialized child, so every scenario whose agent
     # drives the Execution Loop now reaches this arm.
     #
-    # A scenario pins the answer with koto-session-list.json. Without one the
-    # arm returns an empty listing rather than failing: session-role.sh reads
-    # that as "session not found" and reports `child`, which withholds the
-    # retention flag. That is the correct default for a fixture-driven run --
-    # no scenario asserts anything about retention, and withholding the flag is
-    # the direction that cannot wedge anything.
+    # The empty listing makes session-role.sh report `child`, which withholds
+    # the retention flag. That is the correct default for a fixture-driven run:
+    # no scenario asserts anything about retention, and withholding is the
+    # direction that cannot wedge anything.
     #
     # It returns a listing rather than falling through to the no-match error
     # because an arm that errors would put a spurious failure in front of every
     # agent driving the loop, in scenarios that are about something else.
-    if [ -f "$SCENARIO_DIR/koto-session-list.json" ]; then
-      cat "$SCENARIO_DIR/koto-session-list.json"
-      exit 0
-    fi
     echo '[]'
     exit 0
     ;;

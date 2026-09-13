@@ -227,40 +227,25 @@ operator approved). The home-PR resume lookup re-enters and advances
 koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
 ```
 
-koto deletes a session on the tick that reaches a terminal state, and the
-deletion takes the session's `ctx/` with it. Without the flag an orchestrator
-run that ends at `done_blocked` destroys the record of why, and one that ends at
-`paused_for_review` destroys what a resume needs — a pause is solicited, so
-losing its context is worse than losing a failure's.
-
-The flag is a no-op on any tick that does not terminate, which is why it rides
-every tick rather than a predicted last one. `expects.options` does name the
-target each evidence value routes to, but not which of those targets are
-terminal, so a selective rule means carrying this template's terminal-state list
-and checking every submission against it. A blanket rule costs nothing and
-cannot miss.
+Without it, the tick that reaches a terminal disposes of the session and its
+`ctx/`. That costs the record of why at `done_blocked`, and at
+`paused_for_review` it costs what a resume reads — the worse loss, since the
+pause is solicited. The rule and its reasoning are in
+[`references/koto-session-retention.md`](../../references/koto-session-retention.md).
 
 Unconditional here, unlike `/work-on`, because an orchestrator session is always
-a root: nothing in the repo names `execute.md` as a `default_template`, so
-`execute.md` is never materialized as a koto child.
-`skills/execute/scripts/terminal-retention_test.sh` asserts that, and goes red if
-a future change makes `/execute` spawnable — at which point this rule has to
-route through `skills/work-on/scripts/session-role.sh` the way `/work-on`'s
-does, because on a child the flag also suppresses the events a parent's
-`children-complete` gate reads.
+a root: nothing names `execute.md` as a child template.
+`scripts/terminal-retention_test.sh` asserts that rather than trusting it, and
+goes red if a future change makes `/execute` spawnable — at which point this rule
+must route through `skills/work-on/scripts/session-role.sh` the way `/work-on`'s
+does.
 
-**No exceptions, including `spawn_and_await`.** An earlier version of this rule
-carved out the two `koto next` lines in that state on the grounds that they tick
-toward `pr_finalization` or `escalate` rather than to a terminal. That was wrong,
-and wrong in the case the retention exists for. A tick does not stop at the state
-it routes to. koto keeps auto-advancing, and a state halts the chain only if it
-declares **at least one conditional transition**; a state whose transitions are
-all unconditional fires straight through. Declaring `accepts` halts nothing.
-`escalate` is the second shape — a required `failure_reason` and one
-unconditional edge to `done_blocked` — so submitting
-`batch_outcome: needs_attention` chains `spawn_and_await` → `escalate` →
-`done_blocked` in one invocation. Bare, that call returns `action: "done"` and
-deletes the session, destroying the record of the batch that failed.
+**Including the two ticks in `spawn_and_await`, which look non-terminal and are
+not.** A tick does not stop at the state it routes to; a state halts the chain
+only if it declares at least one conditional transition, and `escalate` declares
+required evidence but exits unconditionally to `done_blocked`. So
+`batch_outcome: needs_attention` chains through to that terminal in one
+invocation, and bare it destroys the record of the batch that failed.
 
 **This does not extend to the children.** A per-issue `/work-on` child must not
 carry the flag — on a child it also suppresses the `request_store.result` and

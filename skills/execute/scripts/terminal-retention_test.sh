@@ -10,29 +10,33 @@
 # solicited, and what dies with it is what a resume reads.
 #
 # `/execute` passes the flag unconditionally, where `/work-on` has to decide per
-# run. That is sound only while an orchestrator session is always a root, so
-# this harness checks the premise rather than trusting it. In execution order:
+# run. That is sound only while an orchestrator session is always a root, so this
+# harness checks the premise rather than trusting it. Case groups, in execution
+# order -- deliberately not numbered, because a numbered map goes stale the first
+# time a case is inserted and then misdirects the reader it was written for:
 #
-#   execute.md is never materialized as a koto child          (case 1)
-#   SKILL.md states the rule                                  (case 2)
-#   the blocked terminal keeps its context, and the control   (cases 3-4)
-#   the PAUSE terminal keeps its context, and the control     (cases 5-6)
-#   retention does not block the resume it exists to protect  (cases 7-10)
+#   engine-free, so they also run on the bash 3.2 floor where koto is absent:
+#     nothing in the corpus names execute.md as a child template (the tripwire)
+#     SKILL.md and the template frontmatter both state the rule
+#     every koto next command line in the template carries the flag
+#     escalate still has the shape that chains
 #
-# Case 1 is the tripwire. If a future change makes `/execute` spawnable as a
+#   engine-backed, against the SHIPPED execute.md:
+#     the blocked terminal keeps its context, and a control without the flag
+#     the PAUSE terminal keeps its context, and a control
+#     retention does not block the resume it exists to protect
+#     the chain itself, driven in both directions on a minimal template
+#
+# The tripwire matters most: if a future change makes `/execute` spawnable as a
 # child, the unconditional flag becomes the wedge documented in
-# skills/work-on/scripts/session-role.sh, and this case is what says so before
-# it ships rather than after. It covers the routes by which one template names
-# another as its children's, not only the one /execute happens to use.
+# skills/work-on/scripts/session-role.sh, and that case says so before it ships.
 #
-# Cases 3-6 drive the SHIPPED execute.md to its real terminals and read the
-# context back afterwards, so a template edit that moves a terminal fails here.
-# The pause cases walk the declared edges with `koto next --to`, because
-# reaching pr_finalization by evidence alone would mean satisfying the
-# children-complete gate with real children -- a great deal of machinery to
-# assert something about the tick that LEAVES the state, not about how it was
-# entered. Every hop is a declared transition; koto refuses an undeclared one,
-# so the walk cannot drift from the template's own graph without failing.
+# The pause cases walk the declared edges with `koto next --to`, because reaching
+# pr_finalization by evidence alone would mean satisfying the children-complete
+# gate with real children -- a great deal of machinery to assert something about
+# the tick that LEAVES the state, not about how it was entered. Every hop is a
+# declared transition; koto refuses an undeclared one, so the walk cannot drift
+# from the template's own graph without failing.
 #
 # Usage: terminal-retention_test.sh
 #
@@ -66,6 +70,8 @@ NC='\033[0m'
 pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
+[ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
+
 # --- the engine-free cases, which run before the koto skip -------------------
 #
 # The premise behind /execute's unconditional flag: nothing materializes
@@ -73,13 +79,22 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 #
 # Three routes, not one. `default_template` is what /execute uses for its own
 # children; a per-task `template:` field overrides it per child; and a session
-# started under an explicit parent makes a child of any template at all. SKILL.md
-# files are scanned alongside the templates because that last route is invoked
-# from prose. The awk drops the `path:line:` prefix before matching, or every hit
-# inside execute.md would match on its own filename.
+# started under an explicit parent makes a child of any template at all.
+#
+# The scan covers every markdown file under skills/, not just templates and
+# SKILL.md: this repo puts `koto init` in references/phases too (see
+# skills/scope/references/phases/phase-0-setup.md), so a narrower scan would
+# report a guarantee it had not checked. It still cannot see a `koto init
+# --parent` issued from outside this repo, which is the residual blind spot --
+# the premise this case asserts is "nothing in the shirabe corpus spawns
+# execute.md as a child", not "koto could not be made to".
+#
+# The awk drops the `path:line:` prefix before matching, or every hit inside
+# execute.md would match on its own filename.
 CHILD_DECLS=$(grep -rn 'default_template:\|template:\|--parent' \
-        "$SKILLS_DIR"/*/koto-templates/*.md "$SKILLS_DIR"/*/SKILL.md 2>/dev/null \
+        --include='*.md' "$SKILLS_DIR" 2>/dev/null \
     | grep -v '^[^:]*:[0-9]*: *#' \
+    | grep -v '/evals/' \
     | awk -F: '{ line = $0; sub(/^[^:]*:[0-9]*:/, "", line); if (line ~ /execute\.md/) print $0 }')
 if [ -z "$CHILD_DECLS" ]; then
     pass "nothing names execute.md as a child template, so an orchestrator session is always a root"
@@ -129,7 +144,6 @@ else
     fail "escalate's shape changed. Re-derive whether spawn_and_await's ticks can still chain into a terminal before trusting the flag count above; do NOT conclude from 'it accepts evidence' that it cannot."
 fi
 
-[ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
 skip_engine_cases() {
     echo

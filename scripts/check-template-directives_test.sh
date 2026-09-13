@@ -787,10 +787,10 @@ test_shipped_templates_have_four_known_violations() {
 
     local expected
     for expected in \
-        "work-on.md:140 state 'research'" \
-        "execute.md:510 state 'escalate'" \
-        "execute.md:471 state 'escalate_dirty_merge_state'" \
-        "execute.md:332 state 'escalate_upstream_drift'"
+        "work-on.md:144 state 'research'" \
+        "execute.md:477 state 'escalate'" \
+        "execute.md:438 state 'escalate_dirty_merge_state'" \
+        "execute.md:299 state 'escalate_upstream_drift'"
     do
         case "$output" in
             *"$expected"*) ;;

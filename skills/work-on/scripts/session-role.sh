@@ -13,12 +13,33 @@
 #   ROLE=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh" "$WF")
 #   [ "$ROLE" = root ] && ...
 #
+# TEST POSITIVELY FOR `root`. The fail-safe below holds only for a caller that
+# does. On a usage error this exits 2 having printed NOTHING to stdout, so a
+# caller written as `[ "$ROLE" = child ] || treat-as-root` reads an empty string
+# as "not child" and takes the root branch -- passing the flag on a session whose
+# role was never determined, which is the one outcome the fail-safe exists to
+# prevent. Anything that is not exactly `root` is `child`.
+#
+# From a work-on.md state directive, call it with koto's own session name:
+#
+#   bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+#
+# The agent's shell expands ${CLAUDE_PLUGIN_ROOT}, since a directive is prose the
+# agent reads; koto substitutes {{SESSION_NAME}} before the agent sees it. A
+# {{KEY}} reference resolves when it names a declared `variables:` entry, a
+# `capture_stdout_as` capture, or one of the two reserved runtime names
+# (SESSION_NAME, SESSION_DIR), and fails template compilation otherwise -- so
+# {{SESSION_NAME}} needs no declaration, while {{PLUGIN_ROOT}} would fail here
+# because work-on.md declares no such variable. A command koto itself runs (a
+# default_action, where there is no agent shell) would have to declare it.
+#
 # Usage:
 #   session-role.sh <session-name>
 #
 # Exit codes:
 #   0 -- a role was determined and printed
-#   2 -- usage error (no session name, or more than one argument)
+#   2 -- usage error (no session name, or more than one argument); nothing is
+#        printed to stdout, so see the positive-test rule above
 #
 # ---------------------------------------------------------------------------
 # The signal: koto's own parentage field, not the shape of the name

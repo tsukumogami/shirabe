@@ -218,33 +218,14 @@ Only create a new branch when none of the above apply. The setup states (`setup_
 
 ### Scripts
 
-- `scripts/session-role.sh <session-name>` — prints `root` or `child`. **The
-  single discriminator for any `/work-on` behaviour that must differ between a
-  directly-invoked run and one materialized as a child of `/execute`.** Use it
-  rather than inventing a second test, so two such behaviours cannot drift
-  apart. Its first caller is the retention rule below.
-
-  From here, call it as
-  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`.
-
-  **From a `work-on.md` state directive, this is the form that works:**
-
-  ```bash
-  bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
-  ```
-
-  The two halves are resolved by different things and it matters. The directive
-  is prose the agent reads, so the agent's own shell expands
-  `${CLAUDE_PLUGIN_ROOT}`; that is what the `references/phases/` files already
-  do. `{{SESSION_NAME}}` is koto's, and koto substitutes it before the agent
-  sees the text. A `{{KEY}}` reference resolves when it names a declared
-  `variables:` entry, a `capture_stdout_as` capture, or one of the two reserved
-  runtime names — `SESSION_NAME` and `SESSION_DIR` — and fails template
-  compilation otherwise. So `{{SESSION_NAME}}` needs no declaration, while
-  `{{PLUGIN_ROOT}}` in this template would fail: `work-on.md` declares no such
-  variable. A state that needs the discriminator inside a command **koto itself
-  runs** (a `default_action`, where no agent shell exists) would have to declare
-  `PLUGIN_ROOT` first, the way `execute.md` does.
+- `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
+  koto's `parent_workflow`. The discriminator for any `/work-on` behaviour that
+  must differ between a directly-invoked run and one materialized as a child of
+  `/execute`; its one caller today is the retention rule below. Call it as
+  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
+  **treat any answer that is not exactly `root` as `child`** — that is what
+  makes its fail-safe hold. The script's header covers calling it from a
+  `work-on.md` state directive, where `{{SESSION_NAME}}` supplies the name.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh` — the
   two harnesses; see each file's header.
 
@@ -277,57 +258,30 @@ Resume tick below.** When `ROLE` is `child`, none of them do.
 koto next <WF> --with-data '{"field_name": "value", ...}' --no-cleanup
 ```
 
-koto deletes a session on the tick that reaches a terminal state, and the
-deletion takes the session's `ctx/` with it — `plan.md` and the other seven keys
-this workflow accumulates. `--no-cleanup` suppresses that, so the record of a
-run that ended at `done_blocked` survives for whoever has to read why.
+Without it, the tick that reaches a terminal state disposes of the session and
+takes `plan.md` and the run's other context keys with it, so a run that ended at
+`done_blocked` destroys the record of why. A child must not carry the flag: on a
+child it also suppresses the events `/execute`'s `children-complete` gate reads,
+blocking that converge permanently. Both halves, and why the rule is every tick
+rather than a predicted last one, are in
+[`references/koto-session-retention.md`](../../references/koto-session-retention.md).
+`scripts/terminal-retention_test.sh` pins them, including a tripwire that fails
+once koto#240 makes the flag safe for children and the exception can go.
 
-The flag is a no-op on any tick that does not terminate, which is why the rule
-is "every tick" rather than "the last one". The response does not tell you which
-tick is the last one: `expects.options` lists only transitions that carry a
-`when`, so an unconditional transition's target is never shown and `options` is
-omitted altogether when a state's transitions are all unconditional — and even a
-listed target is a bare state name, with nothing marking it terminal. A blanket
-rule costs nothing, since the flag is inert wherever it is not needed, and cannot
-miss; the selective version has to be got right on every tick, and the ticks it
-would get wrong are the failures whose record matters most.
+`ROLE` is not **Plan-Backed Child Mode** above. That mode is chosen by the
+arguments `/work-on` was invoked with; `ROLE` is koto's own record of whether
+this session has a parent, and where they disagree `ROLE` governs retention —
+only koto knows whether a parent's converge gate is waiting. In `multi-pr`
+dispatcher mode, resolve `ROLE` again for each session.
 
-A child must not carry it. On a child, `--no-cleanup` also suppresses the
-`request_store.result` and `ChildCompleted` events that `/execute`'s
-`children-complete` gate reads to learn the child finished; the parent's
-converge then blocks permanently with no event left to emit. That is why the
-role is resolved by `session-role.sh` rather than assumed.
+The flag stays out of `work-on.md` because that template is also `/execute`'s
+child template. Do not copy the placement for a different rule: it is safe here
+only because omission is the correct child behaviour. An obligation a child must
+discharge belongs in the template, gated on `ROLE`.
 
-Note that `ROLE` is not the same distinction as **Plan-Backed Child Mode**
-above. That mode is chosen by the arguments `/work-on` was invoked with; `ROLE`
-is koto's own record of whether this session has a parent. They usually agree,
-and where they do not, `ROLE` is the one that governs retention, because what
-must not be disturbed is the parent's converge gate and only koto knows whether
-there is a parent. In `multi-pr` dispatcher mode `/work-on` drives one session
-per issue, so resolve `ROLE` again for each.
-
-**Why the rule lives here and not in `work-on.md`.** `work-on.md` is the child
-template, so a `--no-cleanup` written into it is read by children as much as by
-roots. Keeping the flag out of the template removes that exposure. It does not
-keep the rule from children — a child still reaches `SKILL.md` wherever a
-state's prose sends it — so `ROLE`, not the placement, is what stops a child
-acting on it.
-
-Do not copy the placement for a different rule. It is safe here because omission
-is the correct child behaviour: a child that never asks for retention is doing
-the right thing. An obligation a child must discharge is the opposite case, and
-belongs in the template gated on `ROLE`, where it cannot be skipped by never
-being read.
-
-`skills/work-on/scripts/terminal-retention_test.sh` pins both halves, including
-a tripwire that fails when a future koto makes the flag safe for children (see
-koto#240) and this exception can be dropped.
-
-**Known gap while that exception stands:** a `/work-on` run materialized as a
-child of `/execute` still loses its context at its terminal, including a
-`done_blocked` one. No caller-side change can close that — the flag fuses
-retention with the suppression of the events the parent needs — so it is
-koto#240's to fix, not this skill's.
+**Known gap:** a `/work-on` run materialized as a child of `/execute` still
+loses its context at its terminal. No caller-side change can close that;
+koto#240 can.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
@@ -353,18 +307,11 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
    `--no-cleanup` per the retention rule when `ROLE` is `root`.
 4. If none, `koto init` fresh.
 
-The state read is the guard, and it has to come first. Retention is what created
-the ambiguity: before the terminal tick carried `--no-cleanup` a finished session
-was gone, so step 1 found nothing and fell through to a fresh `koto init` on its
-own. Now a finished session is still there to be found, and `koto workflows`
-lists it with nothing marking it terminal.
-
-Discovering this by ticking would not do. A finished session answers
-`action: "done"` to any tick, so the tick tells you what you needed to know only
-after making it — and that same tick disposes of the session, destroying the
-record this flag was added to keep, whenever it goes out without `--no-cleanup`.
-`koto status` reports `is_terminal` without advancing anything, so the finished
-session is never ticked at all.
+The state read has to come first, and ticking is not a substitute for it: a
+finished session answers `action: "done"` to any tick, so the tick reveals the
+problem only after making it, and disposes of the session on the way. See
+[`references/koto-session-retention.md`](../../references/koto-session-retention.md)
+§ "What retention does not buy".
 
 Phase 0 detection: if the parent-chain sentinel is present in
 `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
