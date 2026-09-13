@@ -356,6 +356,27 @@ measured elsewhere in this repository when a bare tick ran
 `spawn_and_await` → `escalate` → `done_blocked` in one invocation and destroyed
 the record for the batch that had just failed.
 
+**The rule, for anyone adding a state to either template.** An `accepts:` block
+does not stop a tick chaining through a state. At least one *conditional*
+transition does, because the guard is keyed on `has_conditional`. It has been
+stated wrongly in three different forms in one afternoon, so it is recorded here
+with both halves of its evidence:
+
+- **By inspection.** `execute.md`'s `escalate` (`:457-466`) has a required
+  `failure_reason` and one unconditional transition, and is chained through;
+  `plan_completion` (`:439-455`) has evidence *and* three `when:`-conditioned
+  edges, and is not.
+- **By measurement.** The same state was built twice with a required `reason`
+  field in both. With one unconditional transition, a bare tick two states
+  upstream returned `done`, landed on the terminal, and destroyed the record.
+  With one conditional transition plus an unconditional fallback, the tick
+  stopped at the state with `evidence_required` and the record survived.
+
+A related trap for a reader checking the source: `next.rs:107-118` governs what
+`koto next` *returns to the agent*, not what the advance loop chains through.
+They are different code paths, and citing the first as the chaining rule is how
+this was got wrong the first time.
+
 Two consequences for the states this design adds:
 
 - `cascade_run` is protected, but **by its conditional transitions rather than
