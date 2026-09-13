@@ -54,3 +54,36 @@
   design-level change whose shape depends on which skill ends up owning
   `/work-on`'s three panels, so doing it before the boundary settles risks doing
   it twice.
+
+## Round 2
+
+- **Insight 4 is narrowed, not withdrawn.** The `pr_status: shared` fork
+  discriminates `/execute`'s children only. multi-pr runs inside `/work-on` with
+  each issue landing its own PR, so a last-issue discriminator is still required.
+  Rationale: `skills/work-on/SKILL.md:137-141`, found by adversarial review of
+  round 1. Direction C's "no last-issue machinery" claim is corrected in the
+  routing options document rather than deleted.
+
+- **The multi-pr discriminator is treated as a decided design with a lost
+  implementation, not an open research question.** Rationale:
+  `DECISION-cascade-trigger-mechanism-2026-06-06.md:176-178` already adopted
+  execution_mode plus open-issue-count posture detection; the code moved into
+  `/execute` during #199, which excludes multi-pr, with no amendment recording
+  the removal.
+
+- **The discriminator cost is assigned to all three directions, not to C
+  alone.** Rationale: none of the three has a multi-pr cascade today, so all
+  three build it. C was distinctive only in wrongly claiming to escape the cost.
+
+- **The enforcement-altitude diagnosis is retained and a constraint added.**
+  Rationale: koto's `init_child_core` seeds children from the compiled template
+  and never loads `SKILL.md`, so a fix must live in `work-on.md` to reach both
+  entry points -- but `work-on.md:1180` already cites the `Fixes #N` reference
+  from its own prose, so the instruction reached both paths and was skipped
+  anyway. The missing evidence gate is the defect; unreachability is a separate
+  constraint on where any fix is written.
+
+- **Three round-2 gaps are carried into scoping rather than explored further.**
+  Rationale: issueless multi-pr's missing driver, the two `status: Current`
+  designs where one superseded the other, and the discriminator's scope are all
+  questions for whoever takes the work.

@@ -224,6 +224,74 @@ construction, not relocation (insight 8), and some cascade logic would exist in
 two places under a duplication-plus-drift-check regime (insight 7) rather than
 one.
 
+## Round 2
+
+Two narrow leads, dispatched after an adversarial review of round 1 found one
+substantive hole and one gap wrongly recorded as undeterminable. Both closed.
+
+### Key Insights
+
+**12. Insight 4 was true but insufficient, and the shortfall lands on the
+direction it supported.** VERIFIED at `skills/work-on/SKILL.md:137-141`: a
+multi-pr PLAN runs **inside `/work-on`**, one issue at a time, "each landing its
+own PR". Every multi-pr issue therefore reaches `ci_monitor`, so cascade states
+placed after it fire once per issue, where
+`skills/plan/references/quality/plan-doc-structure.md:95` says the cascade
+belongs to the work-completing PR alone. The `shared` fork discriminates
+`/execute`'s children and nothing else. A last-issue discriminator is still
+required.
+
+**13. multi-pr has no loop to ask.** Each multi-pr issue is an independent
+top-level koto workflow selected by fresh reasoning in a new invocation, with
+"no cross-issue carry-forward" by explicit design (`SKILL.md:140`). No run can
+know from its own state that it is the last. The signal has to come from outside
+the run -- a `gh` query, the PLAN's issues table, or a deliberate gesture.
+
+**14. That discriminator is a decided design with a lost implementation, not an
+open question.** VERIFIED at
+`docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md:176-178`: the
+accepted decision detects chain posture "by reading the PLAN's `execution_mode`
+and the chain's open-issue count", with explicit single-pr / multi-pr
+work-completing / multi-pr intermediate branches. Nothing in today's `/work-on`
+implements it; the cascade code moved into `/execute` during #199, which excludes
+multi-pr, and no amendment records the removal.
+
+A cheaper correct answer also has a precedent: VERIFIED at
+`DECISION-multi-pr-posture-detection-2026-06-06.md:81`, inferring posture from
+the issues table was **rejected** -- it "races with child PR merges" and depends
+on the table tracking issue closures synchronously -- in favour of an explicit
+author gesture (a PLAN frontmatter field) at "trivial" cost.
+
+**15. koto never loads `SKILL.md` for a materialized child.** VERIFIED in koto's
+source: `init_child_core` (`src/cli/init_child.rs:481-628`) seeds a child session
+by writing `WorkflowInitialized` and `Transitioned` events straight from the
+compiled child template. It constructs no prompt and spawns no process. So an
+obligation living only in `skills/work-on/SKILL.md` is **unreachable** for
+`/execute`'s children, not merely skippable -- only `work-on.md`'s states, gates
+and per-state prose reach both entry points.
+
+This sharpens the enforcement-altitude diagnosis into a design constraint but
+does not replace it. VERIFIED: `work-on.md:1180` cites
+`references/phases/phase-6-pr.md` from the `pr_creation` prose itself, so the
+`Fixes #N` instruction *was* delivered on both paths and skipped anyway. The gap
+is the missing evidence gate, not the missing instruction.
+
+### Tensions
+
+- None unresolved. Insight 12 corrects insight 4 rather than contradicting it:
+  the fork is real, its reach is narrower than claimed.
+
+### Gaps
+
+- Whether a cascade-cadence discriminator should be scoped to the issue-tracked
+  multi-pr shape that works today, or wait on the separately-flagged and
+  currently unowned work of giving issueless multi-pr plans any driver at all.
+  A scoping question for `/scope`, not an exploration blocker.
+- `DESIGN-work-on-koto-unification.md` and `DESIGN-execute-skill.md` are both
+  `status: Current` though the latter superseded the former's plan-mode
+  architecture; neither frontmatter records it. A documentation defect, noted not
+  chased.
+
 ## Accumulated Understanding
 
 The problem #361 reports is real -- a standalone `/work-on` run does not finish
@@ -247,3 +315,22 @@ boundary has moved once already and left inaccurate comments in shipped source.
 Three defects reported alongside this one are not this one: `cannot_verify` is a
 per-repo configuration gap (MEASURED), `check-staleness.sh` is a missing script,
 and #87 is the same cascade gap filed four months earlier and still open.
+
+Round 2 closed the one hole an adversarial review found and cost the third
+direction its headline advantage. The `shared` fork discriminates `/execute`'s
+children only; multi-pr, which is `/work-on`'s own mode, still needs a last-issue
+discriminator, and no direction escapes that because none of them has a multi-pr
+cascade today. What softens it is that the discriminator is a decided design
+whose implementation was lost in the #199 split rather than an unexplored
+problem, and that the sibling decision already chose a cheap correct shape for
+the structurally identical question.
+
+Round 2 also converted one gap into a constraint: koto seeds materialized
+children straight from the compiled template and never loads `SKILL.md`, so
+whatever is written must live in `work-on.md` to reach both entry points. The
+enforcement-altitude diagnosis survives this intact -- the `Fixes #N` instruction
+reaches both paths from the template's own prose and was skipped regardless,
+which is the point.
+
+The exploration is converged. The remaining questions are scoping questions for
+whoever takes the work, not open unknowns.
