@@ -19,7 +19,8 @@
 #   the discriminator refuses a call it cannot answer     (case 4)
 #   the discriminator answers correctly, and fails safe   (cases 5-8)
 #   a root run's record survives its blocked terminal     (cases 9-11)
-#   a child's terminal tick must NOT carry the flag       (cases 12-13)
+#   retention does not become a false "already done"      (cases 12-15)
+#   a child's terminal tick must NOT carry the flag       (cases 16-17)
 #
 # Cases 1-4 need no engine and run BEFORE the koto check, so the macOS bash 3.2
 # floor leg -- where koto is absent -- still exercises this file rather than
@@ -303,6 +304,51 @@ if koto context get retain_early plan.md >/dev/null 2>&1; then
     fail "the flag on an earlier tick retained the record -- it is meant to act only on the terminal tick"
 else
     pass "the flag on an earlier tick retains nothing; only the terminal tick counts"
+fi
+
+# --- retention must not turn into a false "already done" ---------------------
+#
+# Retention creates an ambiguity that did not exist before it: a finished session
+# is still on disk, so the Resume step finds it where it used to find nothing and
+# fall through to a fresh `koto init`. Ticking it answers `action: "done"`, which
+# the Execution Loop says to report as the outcome -- a run claiming the issue is
+# complete having done none of it -- and that same tick disposes of the session.
+#
+# Two halves, and they are not equally strong. The first is EXECUTED: the signal
+# the Resume step reads exists, says what the guard needs, and the ambiguity it
+# resolves is real. The second is a GREP: whether an agent actually follows the
+# written step cannot be executed here, so what is pinned is that the instruction
+# still reads the signal before ticking. A later edit that drops the guard fails
+# the grep; an agent that ignores the guard is beyond this harness.
+
+drive_work_on_to_blocked resume_probe --no-cleanup
+
+if [ "$(koto status resume_probe 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+    pass "a retained finished session reports is_terminal: true, the signal the Resume guard reads"
+else
+    fail "koto status no longer reports is_terminal: true for a retained finished session -- the Resume guard's signal is gone and the guard cannot work"
+fi
+
+# The ambiguity the guard exists for: koto workflows still lists it, unmarked.
+if koto workflows 2>/dev/null | jq -e --arg s resume_probe 'map(select(.name == $s)) | length == 1' >/dev/null 2>&1; then
+    pass "koto workflows still lists the finished session, so the Resume step does find it and must disambiguate"
+else
+    fail "koto workflows no longer lists a retained finished session -- re-check whether the Resume guard is still needed"
+fi
+
+# Reading the signal must not advance or dispose of anything: the whole point of
+# using koto status rather than a tick is that discovering the session is
+# finished cannot itself destroy the record.
+if [ "$(koto context get resume_probe plan.md 2>/dev/null)" = "the running record" ]; then
+    pass "koto status left the record intact, so the guard cannot destroy what it inspects"
+else
+    fail "reading koto status destroyed or altered the retained record"
+fi
+
+if grep -q 'is_terminal' "$SKILL_MD"; then
+    pass "SKILL.md's Resume step reads is_terminal (grep, not an executed agent run)"
+else
+    fail "SKILL.md no longer reads is_terminal before ticking a found session -- the Resume guard has been dropped"
 fi
 
 # --- a child's terminal tick must not carry the flag -------------------------

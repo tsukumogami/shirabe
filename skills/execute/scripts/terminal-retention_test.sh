@@ -17,6 +17,7 @@
 #   SKILL.md states the rule                                  (case 2)
 #   the blocked terminal keeps its context, and the control   (cases 3-4)
 #   the PAUSE terminal keeps its context, and the control     (cases 5-6)
+#   retention does not block the resume it exists to protect  (cases 7-10)
 #
 # Case 1 is the tripwire. If a future change makes `/execute` spawnable as a
 # child, the unconditional flag becomes the wedge documented in
@@ -65,13 +66,11 @@ NC='\033[0m'
 pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-# --- case 4 needs no engine, so it runs before the koto skip ------------------
+# --- the engine-free cases, which run before the koto skip -------------------
 #
 # The premise behind /execute's unconditional flag: nothing materializes
-# execute.md as a child. `default_template` is how a koto template names the
-# template its children are built from, so a hit anywhere outside a comment is
-# the thing this case exists to catch.
-
+# execute.md as a child.
+#
 # Three routes, not one. `default_template` is what /execute uses for its own
 # children; a per-task `template:` field overrides it per child; and a session
 # started under an explicit parent makes a child of any template at all. SKILL.md
@@ -95,14 +94,21 @@ else
     fail "SKILL.md must state that the orchestrator's koto next carries --no-cleanup"
 fi
 
-command -v koto >/dev/null 2>&1 || {
+[ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
+
+skip_engine_cases() {
     echo
-    echo "SKIP: koto not on PATH -- the engine-backed cases did not run"
+    echo "SKIP: $1 -- the engine-backed cases did not run"
     echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
     [ "$FAIL_COUNT" -eq 0 ] || exit 1
     exit 0
 }
-[ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
+
+command -v koto >/dev/null 2>&1 || skip_engine_cases "koto not on PATH"
+# jq skips rather than failing, matching koto. A runner with koto but no jq is
+# an environment gap, not a defect in what this suite tests, and the Linux leg
+# installs both so the cases genuinely run where it matters.
+command -v jq >/dev/null 2>&1 || skip_engine_cases "jq not on PATH"
 
 WORKDIR=$(mktemp -d)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
@@ -201,6 +207,41 @@ if koto context get pause_drop summary.md >/dev/null 2>&1; then
     fail "an orchestrator run reaching paused_for_review without the flag kept its context -- the control did not fire"
 else
     pass "an orchestrator run reaching paused_for_review without the flag loses its context (control)"
+fi
+
+# --- retention must not block the resume it exists to protect ----------------
+#
+# The pause terminal is retained so a resume can read its record. But a retained
+# session keeps its name, and `koto init execute-<plan-slug>` -- the only
+# documented entry point for a single-pr run -- refuses a name already in use.
+# So retention would break the very resume that justifies it unless the Resume
+# step recognises the finished session first. These pin the signal it reads and
+# the fact that reading it is non-destructive.
+
+if [ "$(koto status pause_keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+    pass "the retained pause session reports is_terminal: true, the signal the Resume guard reads"
+else
+    fail "koto status no longer reports is_terminal: true for the retained pause session -- the Resume guard's signal is gone"
+fi
+
+if koto init pause_keep --template "$TEMPLATE" \
+        --var PLAN_DOC=docs/plans/PLAN-probe.md --var PLAN_SLUG=probe \
+        --var PLUGIN_ROOT=/koto-probe --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1; then
+    fail "koto init accepted a name still held by the retained session -- re-check whether the Resume guard is still needed"
+else
+    pass "koto init refuses the retained session's name, which is why Resume must check before initializing"
+fi
+
+if [ "$(koto context get pause_keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+    pass "koto status and the refused init left the record intact"
+else
+    fail "inspecting the retained session destroyed or altered its record"
+fi
+
+if grep -q 'is_terminal' "$SKILL_MD"; then
+    pass "SKILL.md's Resume step reads is_terminal (grep, not an executed agent run)"
+else
+    fail "SKILL.md no longer reads is_terminal on re-entry -- the Resume guard has been dropped"
 fi
 
 echo

@@ -46,6 +46,7 @@ koto	context add	--from-file	always
 koto	context get	-	always
 koto	workflows	-	always
 koto	status	-	always
+koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

@@ -214,16 +214,24 @@ operator approved). The home-PR resume lookup re-enters and advances
 
 ### Step 3 — Drive the orchestrator loop
 
-**Every `koto next` on the orchestrator session carries `--no-cleanup`.**
+**Every `koto next` on the orchestrator session carries `--no-cleanup`:**
+
+```bash
+koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
+```
 
 koto deletes a session on the tick that reaches a terminal state, and the
 deletion takes the session's `ctx/` with it. Without the flag an orchestrator
 run that ends at `done_blocked` destroys the record of why, and one that ends at
 `paused_for_review` destroys what a resume needs — a pause is solicited, so
-losing its context is worse than losing a failure's. The flag is a no-op on any
-tick that does not terminate, which is why it rides every tick rather than a
-predicted last one: `ci_monitor` and `pr_finalization` both route to a clean or
-a blocked terminal off the same evidence field.
+losing its context is worse than losing a failure's.
+
+The flag is a no-op on any tick that does not terminate, which is why it rides
+every tick rather than a predicted last one. `expects.options` does name the
+target each evidence value routes to, but not which of those targets are
+terminal, so a selective rule means carrying this template's terminal-state list
+and checking every submission against it. A blanket rule costs nothing and
+cannot miss.
 
 Unconditional here, unlike `/work-on`, because an orchestrator session is always
 a root: nothing in the repo names `execute.md` as a `default_template`, so
@@ -503,6 +511,29 @@ wip-hygiene rule and its `dot-niwa-overlay` mirror. Those are **out-of-repo** fi
 both copies in lockstep is the cross-repo follow-up.
 
 ## Resume
+
+**Before anything else on re-entry, check whether the koto session named for this
+plan has already finished:**
+
+```bash
+koto status execute-<plan-slug>
+```
+
+`is_terminal: true` means a previous run reached `done_blocked` or
+`paused_for_review` and its session was retained so its record would survive. It
+is not resumable and must not be ticked — a tick answers `action: "done"` and
+would report the plan complete on the strength of work this run did not do. It
+also blocks the `koto init` in **Single-PR Execution Path** Step 2, which refuses
+a name already in use. Clear it with `koto session cleanup execute-<plan-slug>`
+once its record has been read, or init under a different session name to keep the
+record, then proceed.
+
+This check exists because retention created the ambiguity: before the terminal
+tick carried `--no-cleanup`, a finished session was gone and a re-entry simply
+started fresh. `koto status` reports `is_terminal` without advancing anything, so
+the finished session is never ticked and its record is never destroyed by the act
+of discovering it. A resume of a genuinely paused run — `is_terminal: false` —
+is unaffected and continues down the ladder below.
 
 On re-entry, `/execute` follows the universal meta-ladder at
 [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`](../../references/parent-skill-resume-ladder-template.md):
