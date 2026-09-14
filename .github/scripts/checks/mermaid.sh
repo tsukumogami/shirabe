@@ -1,0 +1,1024 @@
+#!/usr/bin/env bash
+#
+# mermaid.sh - Validate Mermaid dependency diagrams in design documents
+#
+# Implements mermaid diagram validation rules:
+#   MM01: Use 'graph', not 'flowchart'
+#   MM02: Direction (LR or TD) required
+#   MM03: No edges inside subgraph blocks
+#   MM04: Class definitions must come after edges
+#   MM05: Valid class names (done, ready, blocked, needsDesign, needsPrd, needsSpike, needsDecision, tracksDesign, tracksPlan)
+#   MM06: Issue in table must appear in diagram
+#   MM07: Diagram only allowed in "Planned" status
+#   MM08: Only one mermaid diagram per document
+#   MM09: Issue in diagram must appear in table (no orphans)
+#   MM10: Node naming convention: I<number> or M<number>
+#   MM11: Every node must have a class assigned
+#   MM12: If classDef present, colors must be standardized
+#   MM13: If subgraph styling present, colors must be standardized
+#   MM14: Legend line required after diagram
+#   MM15: Class must match actual issue status (requires gh CLI)
+#   MM16a: needs-design label must use needsDesign class
+#   MM16b: needsDesign class must have needs-design label
+#   MM16c: tracks-design label must use tracksDesign class
+#   MM16d: tracksDesign class must have tracks-design label
+#   MM16e: needs-prd label must use needsPrd class
+#   MM16f: needsPrd class must have needs-prd label
+#   MM16g: needs-spike label must use needsSpike class
+#   MM16h: needsSpike class must have needs-spike label
+#   MM16i: needs-decision label must use needsDecision class
+#   MM16j: needsDecision class must have needs-decision label
+#   MM16k: tracks-plan label must use tracksPlan class
+#   MM16l: tracksPlan class must have tracks-plan label
+#   MM17: Node with no open blockers cannot have class 'blocked'
+#   MM18: Node with open blocker cannot have class 'ready'
+#   MM19: Node with open blocker cannot have class 'needsDesign', 'needsPrd', 'needsSpike', 'needsDecision', 'tracksDesign', or 'tracksPlan'
+#   MM20: Parent-child Mermaid consistency (class matches child design status)
+#   MM21: tracksDesign/tracksPlan nodes must have child reference rows (and vice versa)
+#
+# Usage:
+#   mermaid.sh [-q|--quiet] [--skip-status-check] [--github-state <file>] [--pr <number>] <doc-path>
+#
+# Options:
+#   -q, --quiet              Suppress [PASS] messages, only show failures
+#   --skip-status-check      Skip MM15-MM18 (GitHub status validation)
+#   --github-state <file>    Read node state from JSON file instead of GitHub API
+#   --pr <number>            PR number; issues closed by this PR expect 'done' class
+#
+# Exit codes:
+#   0 - All checks passed
+#   1 - One or more checks failed
+#   2 - Operational error
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+CI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Valid class names and their standard colors
+declare -A VALID_CLASS_COLORS=(
+    ["done"]="#c8e6c9"
+    ["ready"]="#bbdefb"
+    ["blocked"]="#fff9c4"
+    ["needsDesign"]="#e1bee7"
+    ["needsPrd"]="#b3e5fc"
+    ["needsSpike"]="#ffcdd2"
+    ["needsDecision"]="#d1c4e9"
+    ["tracksDesign"]="#FFE0B2"
+    ["tracksPlan"]="#FFE0B2"
+)
+
+# Parse arguments
+SKIP_STATUS_CHECK=0
+PR_NUMBER=""
+GITHUB_STATE_FILE=""
+DOC_PATH=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -q|--quiet)
+            export QUIET_MODE=1
+            shift
+            ;;
+        --skip-status-check)
+            SKIP_STATUS_CHECK=1
+            shift
+            ;;
+        --github-state)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --github-state requires a file path" >&2
+                exit $EXIT_ERROR
+            fi
+            GITHUB_STATE_FILE="$2"
+            shift 2
+            ;;
+        --pr)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --pr requires a number" >&2
+                exit $EXIT_ERROR
+            fi
+            PR_NUMBER="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Error: unknown option: $1" >&2
+            exit $EXIT_ERROR
+            ;;
+        *)
+            DOC_PATH="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$DOC_PATH" ]]; then
+    echo "Error: missing required argument <doc-path>" >&2
+    exit $EXIT_ERROR
+fi
+
+# Check file exists
+if [[ ! -f "$DOC_PATH" ]]; then
+    echo "Error: file not found: $DOC_PATH" >&2
+    exit $EXIT_ERROR
+fi
+
+# Export for emit_fail to include in error messages (when called standalone)
+export VALIDATE_DOC_PATH="${VALIDATE_DOC_PATH:-$DOC_PATH}"
+
+# Get normalized status from frontmatter (uses shared function from common.sh)
+FM_STATUS=$(get_frontmatter_status "$DOC_PATH")
+
+# Count mermaid code blocks
+# Note: grep -c returns 0 count with exit 1, so fallback must be outside subshell
+MERMAID_COUNT=$(grep -c '```mermaid' "$DOC_PATH" 2>/dev/null) || MERMAID_COUNT=0
+
+# If no mermaid diagram, check if Planned status requires one
+if [[ "$MERMAID_COUNT" -eq 0 ]]; then
+    if [[ "$FM_STATUS" == "Planned" ]]; then
+        emit_fail "MM07: 'Planned' status requires an issue dependency diagram. See: .github/scripts/docs/MM07.md"
+        exit $EXIT_FAIL
+    fi
+    exit $EXIT_PASS
+fi
+
+# Extract each mermaid block separately and find the one with I<number> or M<number> nodes
+# This is the issue dependency diagram - other diagrams are ignored for validation
+DEPENDENCY_DIAGRAM_CONTENT=""
+ALL_DEPENDENCY_NODES=""
+ISSUE_NODES=""
+MILESTONE_NODES=""
+
+# Use a unique separator that won't appear in mermaid diagrams
+BLOCK_SEP="__MERMAID_BLOCK_SEP_$$__"
+
+# Extract all blocks separated by the unique separator
+ALL_BLOCKS=$(awk -v sep="$BLOCK_SEP" '
+    /^```mermaid/ { in_mermaid = 1; block = ""; next }
+    /^```/ && in_mermaid {
+        in_mermaid = 0
+        print block
+        print sep
+        next
+    }
+    in_mermaid { block = block (block ? "\n" : "") $0 }
+' "$DOC_PATH")
+
+# Process each block
+current_block=""
+while IFS= read -r line; do
+    if [[ "$line" == "$BLOCK_SEP" ]]; then
+        # End of block, process it
+        if [[ -n "$current_block" ]]; then
+            # Check if this block contains I<number> nodes
+            block_issue_nodes=$(echo "$current_block" | grep -oE '\bI[0-9]+\b' | sort -u || true)
+
+            # Check for M<number> nodes (excluding subgraph names)
+            block_subgraph_ids=$(echo "$current_block" | grep -E '^\s*subgraph\s+' | \
+                sed 's/^\s*subgraph\s*//' | sed 's/\[.*$//' | tr -d ' ' || true)
+            block_milestone_nodes_raw=$(echo "$current_block" | grep -oE '\bM[0-9]+\b' | sort -u || true)
+            block_milestone_nodes=""
+            if [[ -n "$block_milestone_nodes_raw" ]]; then
+                while IFS= read -r mnode; do
+                    [[ -z "$mnode" ]] && continue
+                    if [[ -z "$block_subgraph_ids" ]] || ! echo "$block_subgraph_ids" | grep -qE "^${mnode}$"; then
+                        block_milestone_nodes=$(printf '%s\n%s' "$block_milestone_nodes" "$mnode")
+                    fi
+                done <<< "$block_milestone_nodes_raw"
+                block_milestone_nodes=$(echo "$block_milestone_nodes" | grep -v '^$' | sort -u || true)
+            fi
+
+            # If this block has I<number> or M<number> nodes, it's the dependency diagram
+            if [[ -n "$block_issue_nodes" || -n "$block_milestone_nodes" ]]; then
+                DEPENDENCY_DIAGRAM_CONTENT="$current_block"
+                ISSUE_NODES="$block_issue_nodes"
+                MILESTONE_NODES="$block_milestone_nodes"
+                break  # Only validate the first dependency diagram found
+            fi
+        fi
+        current_block=""
+    else
+        # Accumulate lines into current block
+        if [[ -z "$current_block" ]]; then
+            current_block="$line"
+        else
+            current_block="$current_block"$'\n'"$line"
+        fi
+    fi
+done <<< "$ALL_BLOCKS"
+
+ALL_DEPENDENCY_NODES=$(printf '%s\n%s' "$ISSUE_NODES" "$MILESTONE_NODES" | grep -v '^$' | sort -u || true)
+HAS_ISSUE_DIAGRAM=0
+if [[ -n "$ALL_DEPENDENCY_NODES" ]]; then
+    HAS_ISSUE_DIAGRAM=1
+fi
+
+# MM07: Issue dependency diagram rules
+# - Issue dependency diagrams (with I<number> nodes) ONLY allowed in Planned status
+# - Non-issue diagrams (documentation, examples) allowed in any status
+# - Planned status MUST have exactly one issue dependency diagram
+if [[ "$HAS_ISSUE_DIAGRAM" -eq 1 ]]; then
+    if [[ "$FM_STATUS" != "Planned" ]]; then
+        emit_fail "MM07: Issue dependency diagram (with I<number> or M<number> nodes) only allowed in 'Planned' status, found in '$FM_STATUS'. See: .github/scripts/docs/MM07.md"
+        exit $EXIT_FAIL
+    fi
+else
+    # No issue dependency diagram - check if Planned status requires one
+    if [[ "$FM_STATUS" == "Planned" ]]; then
+        emit_fail "MM07: 'Planned' status requires an issue dependency diagram (with I<number> or M<number> nodes). See: .github/scripts/docs/MM07.md"
+        exit $EXIT_FAIL
+    fi
+    # Non-issue diagrams in non-Planned status - skip all further validation
+    exit $EXIT_PASS
+fi
+
+# At this point: we have an issue dependency diagram in Planned status
+# Continue with detailed validation
+
+# MM08: Only one issue dependency diagram per doc
+# Count mermaid blocks that contain I<number> or M<number> nodes (not just any diagram)
+ISSUE_DIAGRAM_COUNT=$(awk '
+    /^```mermaid/ { in_mermaid = 1; block = ""; next }
+    /^```/ && in_mermaid {
+        in_mermaid = 0
+        # Check if block contains I<number> or M<number> nodes (not as subgraph names)
+        if (match(block, /\bI[0-9]+\b/) || match(block, /\bM[0-9]+\[/)) {
+            count++
+        }
+        next
+    }
+    in_mermaid { block = block "\n" $0 }
+    END { print count+0 }
+' "$DOC_PATH")
+
+if [[ "$ISSUE_DIAGRAM_COUNT" -gt 1 ]]; then
+    emit_fail "MM08: Only one issue dependency diagram allowed per document, found $ISSUE_DIAGRAM_COUNT. See: .github/scripts/docs/MM08.md"
+    exit $EXIT_FAIL
+fi
+
+# Use only the dependency diagram content for validation
+MERMAID_CONTENT="$DEPENDENCY_DIAGRAM_CONTENT"
+
+FAILED=0
+
+# MM01: Check for flowchart keyword
+if echo "$MERMAID_CONTENT" | grep -qE '^flowchart\b'; then
+    emit_fail "MM01: Mermaid diagram should use 'graph', not 'flowchart'. See: .github/scripts/docs/MM01.md"
+    FAILED=1
+fi
+
+# MM02: Check for direction (LR or TD)
+GRAPH_LINE=$(echo "$MERMAID_CONTENT" | grep -E '^graph\b' | head -1 || true)
+if [[ -n "$GRAPH_LINE" ]]; then
+    if ! echo "$GRAPH_LINE" | grep -qE '^graph\s+(LR|TD)\b'; then
+        emit_fail "MM02: Mermaid diagram missing direction (LR or TD). See: .github/scripts/docs/MM02.md"
+        FAILED=1
+    fi
+fi
+
+# MM03: Check for edges inside subgraph blocks
+# Track subgraph depth and detect edges (-->, ---)
+IN_SUBGRAPH=0
+LINE_NUM=0
+while IFS= read -r line; do
+    LINE_NUM=$((LINE_NUM + 1))
+    # Skip empty lines and comments
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*%% ]] && continue
+
+    # Track subgraph entry/exit
+    if echo "$line" | grep -qE '^\s*subgraph\b'; then
+        IN_SUBGRAPH=$((IN_SUBGRAPH + 1))
+    elif echo "$line" | grep -qE '^\s*end\b'; then
+        IN_SUBGRAPH=$((IN_SUBGRAPH - 1))
+        [[ $IN_SUBGRAPH -lt 0 ]] && IN_SUBGRAPH=0
+    fi
+
+    # Check for edge while inside subgraph
+    if [[ $IN_SUBGRAPH -gt 0 ]]; then
+        if echo "$line" | grep -qE -- '-->|---'; then
+            # Extract the edge for error message
+            EDGE=$(echo "$line" | grep -oE -- '[A-Za-z0-9_]+\s*(-->|---)\s*[A-Za-z0-9_]+' | head -1)
+            emit_fail "MM03: Mermaid edge inside subgraph will not render: '$EDGE'. See: .github/scripts/docs/MM03.md"
+            FAILED=1
+        fi
+    fi
+done <<< "$MERMAID_CONTENT"
+
+# MM04: Check class definitions come after all edges
+# Find line numbers of last edge and first class/classDef
+LAST_EDGE_LINE=0
+FIRST_CLASS_LINE=0
+LINE_NUM=0
+while IFS= read -r line; do
+    LINE_NUM=$((LINE_NUM + 1))
+    if echo "$line" | grep -qE -- '-->|---'; then
+        LAST_EDGE_LINE=$LINE_NUM
+    fi
+    if echo "$line" | grep -qE '^\s*(class|classDef)\b'; then
+        if [[ $FIRST_CLASS_LINE -eq 0 ]]; then
+            FIRST_CLASS_LINE=$LINE_NUM
+        fi
+    fi
+done <<< "$MERMAID_CONTENT"
+
+if [[ $FIRST_CLASS_LINE -gt 0 && $LAST_EDGE_LINE -gt $FIRST_CLASS_LINE ]]; then
+    emit_fail "MM04: Class definition before diagram edges. See: .github/scripts/docs/MM04.md"
+    FAILED=1
+fi
+
+# MM05: Validate class names are valid
+# Extract class assignments: class NodeA,NodeB classname
+while IFS= read -r line; do
+    if echo "$line" | grep -qE '^\s*class\s+'; then
+        # Extract class name (last word on the line)
+        CLASS_NAME=$(echo "$line" | awk '{print $NF}')
+        if [[ ! "${VALID_CLASS_COLORS[$CLASS_NAME]+isset}" ]]; then
+            emit_fail "MM05: Invalid class '$CLASS_NAME'. Valid: done, ready, blocked, needsDesign, needsPrd, needsSpike, needsDecision, tracksDesign, tracksPlan. See: .github/scripts/docs/MM05.md"
+            FAILED=1
+        fi
+    fi
+done <<< "$MERMAID_CONTENT"
+
+# MM12: If classDef present, validate colors are standardized
+while IFS= read -r line; do
+    if echo "$line" | grep -qE '^\s*classDef\s+'; then
+        # Extract class name and color
+        CLASS_NAME=$(echo "$line" | awk '{print $2}')
+        COLOR=$(echo "$line" | grep -oE 'fill:#[a-fA-F0-9]{6}' | sed 's/fill://' || true)
+
+        if [[ -n "$COLOR" && "${VALID_CLASS_COLORS[$CLASS_NAME]+isset}" ]]; then
+            EXPECTED_COLOR="${VALID_CLASS_COLORS[$CLASS_NAME]}"
+            if [[ "${COLOR,,}" != "${EXPECTED_COLOR,,}" ]]; then
+                emit_fail "MM12: classDef '$CLASS_NAME' has wrong color '$COLOR', expected '$EXPECTED_COLOR'. See: .github/scripts/docs/MM12.md"
+                FAILED=1
+            fi
+        fi
+    fi
+done <<< "$MERMAID_CONTENT"
+
+# Extract all node definitions (I<number>["..."] or M<number>["..."])
+# Use the already extracted dependency nodes (issues + milestones)
+DIAGRAM_NODES="$ALL_DEPENDENCY_NODES"
+
+# MM10: Validate node naming convention
+# Find any node definitions that don't follow I<number> or M<number> pattern
+# First, extract subgraph names to exclude them (subgraphs are not issue/milestone nodes)
+SUBGRAPH_NAMES=$(echo "$MERMAID_CONTENT" | grep -E '^\s*subgraph\s+' | \
+    sed 's/^\s*subgraph\s*//' | sed 's/\[.*$//' | tr -d ' ' || true)
+
+# Look for node definitions like: NodeName["label"]
+OTHER_NODES=$(echo "$MERMAID_CONTENT" | grep -oE '\b[A-Za-z][A-Za-z0-9_]*\[' | sed 's/\[$//' | grep -vE '^[IM][0-9]+$' || true)
+if [[ -n "$OTHER_NODES" ]]; then
+    while IFS= read -r node; do
+        [[ -z "$node" ]] && continue
+        # Skip known keywords
+        [[ "$node" == "subgraph" || "$node" == "graph" || "$node" == "end" ]] && continue
+        # Skip subgraph names (they're allowed to be non-I/M<number>)
+        if [[ -n "$SUBGRAPH_NAMES" ]] && echo "$SUBGRAPH_NAMES" | grep -qE "^${node}$"; then
+            continue
+        fi
+        emit_fail "MM10: Node '$node' doesn't follow naming convention I<number> or M<number>. See: .github/scripts/docs/MM10.md"
+        FAILED=1
+    done <<< "$OTHER_NODES"
+fi
+
+# Extract issue numbers from Implementation Issues table
+TABLE_ISSUES=""
+if grep -q "^## Implementation Issues" "$DOC_PATH"; then
+    TABLE_ISSUES=$("$CI_DIR/extract-design-issues.sh" "$DOC_PATH" 2>/dev/null | \
+        jq -r '.milestones[].entries[] | select(.type == "issue") | .number' 2>/dev/null | sort -n || true)
+fi
+
+# MM06: Issue in table must appear in diagram
+if [[ -n "$TABLE_ISSUES" ]]; then
+    while IFS= read -r issue_num; do
+        [[ -z "$issue_num" ]] && continue
+        NODE_ID="I${issue_num}"
+        if ! echo "$DIAGRAM_NODES" | grep -qE "^${NODE_ID}$"; then
+            emit_fail "MM06: Issue #$issue_num in table but not in diagram. See: .github/scripts/docs/MM06.md"
+            FAILED=1
+        fi
+    done <<< "$TABLE_ISSUES"
+fi
+
+# MM09: Issue in diagram must appear in table (no orphans)
+# Only check I-prefix nodes; M-prefix milestone nodes don't require table entries
+if [[ -n "$ISSUE_NODES" ]]; then
+    while IFS= read -r node; do
+        [[ -z "$node" ]] && continue
+        # Extract issue number from node ID (I123 -> 123)
+        ISSUE_NUM=$(echo "$node" | sed 's/^I//')
+        if [[ -n "$TABLE_ISSUES" ]]; then
+            if ! echo "$TABLE_ISSUES" | grep -qE "^${ISSUE_NUM}$"; then
+                emit_fail "MM09: Node $node in diagram but issue #$ISSUE_NUM not in table. See: .github/scripts/docs/MM09.md"
+                FAILED=1
+            fi
+        fi
+    done <<< "$ISSUE_NODES"
+fi
+
+# MM11: Every node must have a class assigned
+# Extract all nodes that have class assignments
+CLASSED_NODES=$(echo "$MERMAID_CONTENT" | grep -E '^\s*class\s+' | \
+    sed 's/^\s*class\s*//' | sed 's/\s*[a-zA-Z]*$//' | tr ',' '\n' | tr -d ' ' | sort -u)
+
+if [[ -n "$DIAGRAM_NODES" ]]; then
+    while IFS= read -r node; do
+        [[ -z "$node" ]] && continue
+        if ! echo "$CLASSED_NODES" | grep -qE "^${node}$"; then
+            emit_fail "MM11: Node '$node' has no class assigned. See: .github/scripts/docs/MM11.md"
+            FAILED=1
+        fi
+    done <<< "$DIAGRAM_NODES"
+fi
+
+# MM13: If subgraph styling present, validate colors are standardized
+# Standard: fill:#f5f5f5,stroke:#e0e0e0
+while IFS= read -r line; do
+    if echo "$line" | grep -qE '^\s*style\s+[A-Za-z]'; then
+        # Extract fill color if present
+        FILL_COLOR=$(echo "$line" | grep -oE 'fill:#[a-fA-F0-9]{6}' | sed 's/fill://' || true)
+        STROKE_COLOR=$(echo "$line" | grep -oE 'stroke:#[a-fA-F0-9]{6}' | sed 's/stroke://' || true)
+
+        if [[ -n "$FILL_COLOR" && "${FILL_COLOR,,}" != "#f5f5f5" ]]; then
+            emit_fail "MM13: Subgraph fill color '$FILL_COLOR' should be '#f5f5f5'. See: .github/scripts/docs/MM13.md"
+            FAILED=1
+        fi
+        if [[ -n "$STROKE_COLOR" && "${STROKE_COLOR,,}" != "#e0e0e0" ]]; then
+            emit_fail "MM13: Subgraph stroke color '$STROKE_COLOR' should be '#e0e0e0'. See: .github/scripts/docs/MM13.md"
+            FAILED=1
+        fi
+    fi
+done <<< "$MERMAID_CONTENT"
+
+# MM14: Legend line required after diagram
+# Look for "**Legend**:" pattern after the mermaid block
+LEGEND_LINE=$(awk '
+    /^```mermaid/ { in_mermaid = 1; next }
+    /^```/ && in_mermaid { in_mermaid = 0; after_mermaid = 1; next }
+    after_mermaid && /^\*\*Legend\*\*:/ { found = 1; exit }
+    after_mermaid && /^##/ { exit }  # Hit next section
+    END { print found ? "found" : "" }
+' "$DOC_PATH")
+
+if [[ -z "$LEGEND_LINE" ]]; then
+    emit_fail "MM14: Legend line required after diagram. Add: **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design. See: .github/scripts/docs/MM14.md"
+    FAILED=1
+fi
+
+# MM15: Validate class matches actual issue status
+# Only run if gh CLI is available, we have diagram nodes, and --skip-status-check not set
+if [[ "$SKIP_STATUS_CHECK" -eq 0 ]] && { [[ -n "$GITHUB_STATE_FILE" ]] || command -v gh &>/dev/null; } && [[ -n "$DIAGRAM_NODES" ]]; then
+    # Extract issues being closed by this PR (if --pr was provided)
+    CLOSING_ISSUES=""
+    if [[ -n "$PR_NUMBER" ]]; then
+        CLOSING_ISSUES=$("$CI_DIR/extract-closing-issues.sh" --pr "$PR_NUMBER" 2>/dev/null | jq -r '.[]' || true)
+    fi
+
+    # Build dependency map: for each node, list its blockers (nodes it depends on)
+    # Edge A --> B means A blocks B (B depends on A)
+    declare -A BLOCKERS
+    while IFS= read -r line; do
+        # Match edges: I/M nodes connected by --> or ---
+        if echo "$line" | grep -qE -- '[IM][0-9]+\s*(-->|---)\s*[IM][0-9]+'; then
+            # Extract source and target
+            SOURCE=$(echo "$line" | grep -oE '[IM][0-9]+' | head -1)
+            TARGET=$(echo "$line" | grep -oE '[IM][0-9]+' | tail -1)
+            if [[ -n "$SOURCE" && -n "$TARGET" && "$SOURCE" != "$TARGET" ]]; then
+                # Add source as a blocker of target
+                BLOCKERS[$TARGET]="${BLOCKERS[$TARGET]:-} $SOURCE"
+            fi
+        fi
+    done <<< "$MERMAID_CONTENT"
+
+    # Get actual class assignments from diagram
+    declare -A ACTUAL_CLASS
+    while IFS= read -r line; do
+        if echo "$line" | grep -qE '^\s*class\s+'; then
+            # Format: class I123,I456 done
+            CLASS_NAME=$(echo "$line" | awk '{print $NF}')
+            NODES_STR=$(echo "$line" | sed 's/^\s*class\s*//' | sed "s/\s*${CLASS_NAME}$//" | tr -d ' ')
+            IFS=',' read -ra NODE_LIST <<< "$NODES_STR"
+            for node in "${NODE_LIST[@]}"; do
+                [[ -n "$node" ]] && ACTUAL_CLASS[$node]="$CLASS_NAME"
+            done
+        fi
+    done <<< "$MERMAID_CONTENT"
+
+    # First pass: get state for all nodes
+    declare -A NODE_GITHUB_STATE   # OPEN or CLOSED
+    declare -A NODE_NEEDS_DESIGN   # true or false
+    declare -A NODE_NEEDS_PRD      # true or false
+    declare -A NODE_NEEDS_SPIKE    # true or false
+    declare -A NODE_NEEDS_DECISION # true or false
+    declare -A NODE_TRACKS_DESIGN  # true or false
+    declare -A NODE_TRACKS_PLAN    # true or false
+    declare -A NODE_LABELS         # human-readable label
+    declare -A NODE_IS_CLOSING     # true if PR closes it
+
+    if [[ -n "$GITHUB_STATE_FILE" ]]; then
+        # Load state from JSON file (for testing)
+        while IFS= read -r node; do
+            [[ -z "$node" ]] && continue
+            NODE_DATA=$(jq -r --arg n "$node" '.[$n] // empty' "$GITHUB_STATE_FILE")
+            if [[ -z "$NODE_DATA" ]]; then
+                continue
+            fi
+            NODE_GITHUB_STATE[$node]=$(echo "$NODE_DATA" | jq -r '.state')
+            HAS_ND=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "needs-design")) | length > 0')
+            NODE_NEEDS_DESIGN[$node]="$HAS_ND"
+            HAS_NP=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "needs-prd")) | length > 0')
+            NODE_NEEDS_PRD[$node]="$HAS_NP"
+            HAS_NS=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "needs-spike")) | length > 0')
+            NODE_NEEDS_SPIKE[$node]="$HAS_NS"
+            HAS_NDC=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "needs-decision")) | length > 0')
+            NODE_NEEDS_DECISION[$node]="$HAS_NDC"
+            HAS_TD=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "tracks-design")) | length > 0')
+            NODE_TRACKS_DESIGN[$node]="$HAS_TD"
+            HAS_TP=$(echo "$NODE_DATA" | jq -r '.labels // [] | map(select(. == "tracks-plan")) | length > 0')
+            NODE_TRACKS_PLAN[$node]="$HAS_TP"
+            if [[ "$node" =~ ^M ]]; then
+                NODE_LABELS[$node]="milestone #${node#M}"
+            else
+                NODE_LABELS[$node]="issue #${node#I}"
+            fi
+            NODE_IS_CLOSING[$node]="false"
+            if [[ "$node" =~ ^I[0-9]+$ && -n "$CLOSING_ISSUES" ]]; then
+                ISSUE_NUM="${node#I}"
+                if echo "$CLOSING_ISSUES" | grep -qE "^${ISSUE_NUM}$"; then
+                    NODE_IS_CLOSING[$node]="true"
+                fi
+            fi
+        done <<< "$DIAGRAM_NODES"
+    else
+        # Query GitHub API
+        REPO_NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+
+        while IFS= read -r node; do
+            [[ -z "$node" ]] && continue
+
+            if [[ "$node" =~ ^M[0-9]+$ ]]; then
+                MILESTONE_NUM="${node#M}"
+                if [[ -z "$REPO_NWO" ]]; then
+                    continue
+                fi
+                MILESTONE_DATA=$(gh api "repos/${REPO_NWO}/milestones/${MILESTONE_NUM}" 2>/dev/null || true)
+                if [[ -z "$MILESTONE_DATA" ]]; then
+                    continue
+                fi
+                MS_STATE=$(echo "$MILESTONE_DATA" | jq -r '.state')
+                if [[ "$MS_STATE" == "closed" ]]; then
+                    NODE_GITHUB_STATE[$node]="CLOSED"
+                else
+                    NODE_GITHUB_STATE[$node]="OPEN"
+                fi
+                NODE_NEEDS_DESIGN[$node]="false"
+                NODE_NEEDS_PRD[$node]="false"
+                NODE_NEEDS_SPIKE[$node]="false"
+                NODE_NEEDS_DECISION[$node]="false"
+                NODE_TRACKS_DESIGN[$node]="false"
+                NODE_TRACKS_PLAN[$node]="false"
+                NODE_LABELS[$node]="milestone #$MILESTONE_NUM"
+            else
+                ISSUE_NUM="${node#I}"
+                ISSUE_DATA=$(gh issue view "$ISSUE_NUM" --json state,labels 2>/dev/null || true)
+                if [[ -z "$ISSUE_DATA" ]]; then
+                    continue
+                fi
+                NODE_GITHUB_STATE[$node]=$(echo "$ISSUE_DATA" | jq -r '.state')
+                NODE_NEEDS_DESIGN[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^needs-design$' && echo "true" || echo "false")
+                NODE_NEEDS_PRD[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^needs-prd$' && echo "true" || echo "false")
+                NODE_NEEDS_SPIKE[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^needs-spike$' && echo "true" || echo "false")
+                NODE_NEEDS_DECISION[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^needs-decision$' && echo "true" || echo "false")
+                NODE_TRACKS_DESIGN[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^tracks-design$' && echo "true" || echo "false")
+                NODE_TRACKS_PLAN[$node]=$(echo "$ISSUE_DATA" | jq -r '.labels[]?.name' 2>/dev/null | grep -qE '^tracks-plan$' && echo "true" || echo "false")
+                NODE_LABELS[$node]="issue #$ISSUE_NUM"
+            fi
+
+            NODE_IS_CLOSING[$node]="false"
+            if [[ "$node" =~ ^I[0-9]+$ && -n "$CLOSING_ISSUES" ]]; then
+                ISSUE_NUM="${node#I}"
+                if echo "$CLOSING_ISSUES" | grep -qE "^${ISSUE_NUM}$"; then
+                    NODE_IS_CLOSING[$node]="true"
+                fi
+            fi
+        done <<< "$DIAGRAM_NODES"
+    fi
+
+    # Helper: check if a node has any open blockers (using GitHub state)
+    node_has_open_blocker() {
+        local node="$1"
+        local blocker_list="${BLOCKERS[$node]:-}"
+        for blocker in $blocker_list; do
+            local b_state="${NODE_GITHUB_STATE[$blocker]:-}"
+            local b_closing="${NODE_IS_CLOSING[$blocker]:-false}"
+            if [[ "$b_state" != "CLOSED" && "$b_closing" != "true" ]]; then
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    # Second pass: validate class assignments against GitHub state
+    while IFS= read -r node; do
+        [[ -z "$node" ]] && continue
+
+        NODE_STATE="${NODE_GITHUB_STATE[$node]:-}"
+        [[ -z "$NODE_STATE" ]] && continue
+
+        HAS_NEEDS_DESIGN="${NODE_NEEDS_DESIGN[$node]:-false}"
+        HAS_NEEDS_PRD="${NODE_NEEDS_PRD[$node]:-false}"
+        HAS_NEEDS_SPIKE="${NODE_NEEDS_SPIKE[$node]:-false}"
+        HAS_NEEDS_DECISION="${NODE_NEEDS_DECISION[$node]:-false}"
+        HAS_TRACKS_DESIGN="${NODE_TRACKS_DESIGN[$node]:-false}"
+        HAS_TRACKS_PLAN="${NODE_TRACKS_PLAN[$node]:-false}"
+        NODE_LABEL="${NODE_LABELS[$node]:-$node}"
+        IS_CLOSING="${NODE_IS_CLOSING[$node]:-false}"
+        ACTUAL="${ACTUAL_CLASS[$node]:-}"
+        [[ -z "$ACTUAL" ]] && continue
+
+        # MM15: Closed/closing issues must be 'done', open issues must not be 'done'
+        if [[ "$IS_CLOSING" == "true" || "$NODE_STATE" == "CLOSED" ]]; then
+            if [[ "$ACTUAL" != "done" ]]; then
+                if [[ "$IS_CLOSING" == "true" ]]; then
+                    REASON="(PR closes this issue)"
+                else
+                    REASON="($NODE_LABEL is closed)"
+                fi
+                emit_fail "MM15: Node $node has class '$ACTUAL' but $NODE_LABEL requires 'done' $REASON. See: .github/scripts/docs/MM15.md"
+                FAILED=1
+            fi
+            continue
+        fi
+        if [[ "$ACTUAL" == "done" && "$NODE_STATE" == "OPEN" ]]; then
+            emit_fail "MM15: Node $node has class 'done' but $NODE_LABEL is open. See: .github/scripts/docs/MM15.md"
+            FAILED=1
+            continue
+        fi
+
+        # MM16a: needs-design label must use needsDesign class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_NEEDS_DESIGN" == "true" && "$ACTUAL" != "needsDesign" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16a: Node $node has class '$ACTUAL' but $NODE_LABEL has 'needs-design' label, expected 'needsDesign'. See: .github/scripts/docs/MM16.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16b: needsDesign class must have needs-design label
+        if [[ "$ACTUAL" == "needsDesign" && "$HAS_NEEDS_DESIGN" != "true" ]]; then
+            emit_fail "MM16b: Node $node has class 'needsDesign' but $NODE_LABEL lacks 'needs-design' label. See: .github/scripts/docs/MM16b.md"
+            FAILED=1
+        fi
+
+        # MM16c: tracks-design label must use tracksDesign class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_TRACKS_DESIGN" == "true" && "$ACTUAL" != "tracksDesign" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16c: Node $node has class '$ACTUAL' but $NODE_LABEL has 'tracks-design' label, expected 'tracksDesign'. See: .github/scripts/docs/MM16c.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16d: tracksDesign class must have tracks-design label
+        if [[ "$ACTUAL" == "tracksDesign" && "$HAS_TRACKS_DESIGN" != "true" ]]; then
+            emit_fail "MM16d: Node $node has class 'tracksDesign' but $NODE_LABEL lacks 'tracks-design' label. See: .github/scripts/docs/MM16d.md"
+            FAILED=1
+        fi
+
+        # MM16e: needs-prd label must use needsPrd class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_NEEDS_PRD" == "true" && "$ACTUAL" != "needsPrd" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16e: Node $node has class '$ACTUAL' but $NODE_LABEL has 'needs-prd' label, expected 'needsPrd'. See: .github/scripts/docs/MM16.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16f: needsPrd class must have needs-prd label
+        if [[ "$ACTUAL" == "needsPrd" && "$HAS_NEEDS_PRD" != "true" ]]; then
+            emit_fail "MM16f: Node $node has class 'needsPrd' but $NODE_LABEL lacks 'needs-prd' label. See: .github/scripts/docs/MM16.md"
+            FAILED=1
+        fi
+
+        # MM16g: needs-spike label must use needsSpike class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_NEEDS_SPIKE" == "true" && "$ACTUAL" != "needsSpike" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16g: Node $node has class '$ACTUAL' but $NODE_LABEL has 'needs-spike' label, expected 'needsSpike'. See: .github/scripts/docs/MM16.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16h: needsSpike class must have needs-spike label
+        if [[ "$ACTUAL" == "needsSpike" && "$HAS_NEEDS_SPIKE" != "true" ]]; then
+            emit_fail "MM16h: Node $node has class 'needsSpike' but $NODE_LABEL lacks 'needs-spike' label. See: .github/scripts/docs/MM16.md"
+            FAILED=1
+        fi
+
+        # MM16i: needs-decision label must use needsDecision class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_NEEDS_DECISION" == "true" && "$ACTUAL" != "needsDecision" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16i: Node $node has class '$ACTUAL' but $NODE_LABEL has 'needs-decision' label, expected 'needsDecision'. See: .github/scripts/docs/MM16.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16j: needsDecision class must have needs-decision label
+        if [[ "$ACTUAL" == "needsDecision" && "$HAS_NEEDS_DECISION" != "true" ]]; then
+            emit_fail "MM16j: Node $node has class 'needsDecision' but $NODE_LABEL lacks 'needs-decision' label. See: .github/scripts/docs/MM16.md"
+            FAILED=1
+        fi
+
+        # MM16k: tracks-plan label must use tracksPlan class
+        # Exempt: 'blocked' is allowed when node has open blockers (blocked takes precedence)
+        if [[ "$HAS_TRACKS_PLAN" == "true" && "$ACTUAL" != "tracksPlan" ]]; then
+            if ! { [[ "$ACTUAL" == "blocked" ]] && node_has_open_blocker "$node"; }; then
+                emit_fail "MM16k: Node $node has class '$ACTUAL' but $NODE_LABEL has 'tracks-plan' label, expected 'tracksPlan'. See: .github/scripts/docs/MM16.md"
+                FAILED=1
+            fi
+        fi
+
+        # MM16l: tracksPlan class must have tracks-plan label
+        if [[ "$ACTUAL" == "tracksPlan" && "$HAS_TRACKS_PLAN" != "true" ]]; then
+            emit_fail "MM16l: Node $node has class 'tracksPlan' but $NODE_LABEL lacks 'tracks-plan' label. See: .github/scripts/docs/MM16.md"
+            FAILED=1
+        fi
+
+        # MM17: No open blockers cannot show as 'blocked'
+        if [[ "$ACTUAL" == "blocked" ]] && ! node_has_open_blocker "$node"; then
+            emit_fail "MM17: Node $node has class 'blocked' but has no open blocking dependencies. See: .github/scripts/docs/MM17.md"
+            FAILED=1
+        fi
+
+        # MM18: Has open blocker cannot show as 'ready'
+        if [[ "$ACTUAL" == "ready" ]] && node_has_open_blocker "$node"; then
+            BLOCKER_LIST="${BLOCKERS[$node]:-}"
+            emit_fail "MM18: Node $node has class 'ready' but is blocked by open dependencies ($(echo "$BLOCKER_LIST" | sed 's/^ //; s/ /, /g')). See: .github/scripts/docs/MM18.md"
+            FAILED=1
+        fi
+
+        # MM19: Status classes (needsDesign, needsPrd, needsSpike, needsDecision, tracksDesign, tracksPlan)
+        # cannot have open blockers -- should be 'blocked' instead
+        if [[ "$ACTUAL" == "needsDesign" || "$ACTUAL" == "needsPrd" || "$ACTUAL" == "needsSpike" || \
+              "$ACTUAL" == "needsDecision" || "$ACTUAL" == "tracksDesign" || "$ACTUAL" == "tracksPlan" ]] && \
+           node_has_open_blocker "$node"; then
+            BLOCKER_LIST="${BLOCKERS[$node]:-}"
+            emit_fail "MM19: Node $node has class '$ACTUAL' but is blocked by open dependencies ($(echo "$BLOCKER_LIST" | sed 's/^ //; s/ /, /g')), expected 'blocked'. See: .github/scripts/docs/MM19.md"
+            FAILED=1
+        fi
+    done <<< "$DIAGRAM_NODES"
+fi
+
+# --- MM20 and MM21: Parent-child consistency checks ---
+# These checks cross-reference Mermaid node classes with child reference rows
+# in the Implementation Issues table, and validate against child design doc status.
+
+# Extract child reference rows from the Implementation Issues section.
+# Each child ref row has format: | ^_Child: [DESIGN-name.md](path)_ | | | |
+# or: | ^_Child: [PLAN-name.md](path)_ | | | |
+# or struck-through: | ~~^_Child: [DESIGN-name.md](path)_~~ | | | |
+# We need to associate each child ref row with the issue row immediately above it.
+
+if [[ -n "$DIAGRAM_NODES" ]] && grep -q "^## Implementation Issues" "$DOC_PATH"; then
+    ISSUES_SECTION=$(awk '
+        /^## Implementation Issues/ { in_section = 1; next }
+        in_section && /^## / { exit }
+        in_section { print }
+    ' "$DOC_PATH")
+
+    # Extract ALL table rows (excluding header and separator) in order
+    ALL_II_ROWS=$(echo "$ISSUES_SECTION" | awk '
+        /^\|/ && !/^\| *-/ && !/^\| *Issue/ { print }
+    ')
+
+    # Build maps: issue_number -> child_ref_path, issue_number -> child_ref_struck
+    declare -A CHILD_REF_PATHS         # issue_num -> relative path from child ref row
+    declare -A CHILD_REF_STRUCK        # issue_num -> true/false (struck through)
+    declare -A CHILD_REF_DISPLAY       # issue_num -> display name for errors
+
+    # Helper: check if a row is a child reference row
+    mm_is_child_ref_row() {
+        local row="$1"
+        [[ "$row" =~ ^\|\ *\^_ ]] || [[ "$row" =~ ^\|\ *~~\^_ ]]
+    }
+
+    # Helper: check if a row is a description row
+    mm_is_description_row() {
+        local row="$1"
+        [[ "$row" =~ ^\|\ *_ ]] || [[ "$row" =~ ^\|\ *~~_ ]]
+    }
+
+    # Helper: check if a row is a data row (issue or milestone)
+    mm_is_data_row() {
+        local row="$1"
+        [[ "$row" =~ ^\| ]] && ! [[ "$row" =~ ^\|\ *- ]] && ! [[ "$row" =~ ^\|\ *Issue ]] && \
+            ! mm_is_description_row "$row" && ! mm_is_child_ref_row "$row"
+    }
+
+    # Walk through rows to associate child ref rows with their parent issue
+    LAST_ISSUE_NUM=""
+    while IFS= read -r row; do
+        [[ -z "$row" ]] && continue
+
+        if mm_is_data_row "$row"; then
+            # Extract issue number from the first cell
+            FIRST_CELL=$(echo "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }')
+            # Strip strikethrough
+            FIRST_CELL_CLEAN=$(echo "$FIRST_CELL" | sed 's/^~~//;s/~~$//')
+            # Extract issue number from [#N: ...](url) or [#N](url)
+            if [[ "$FIRST_CELL_CLEAN" =~ ^\[#([0-9]+) ]]; then
+                LAST_ISSUE_NUM="${BASH_REMATCH[1]}"
+            else
+                LAST_ISSUE_NUM=""
+            fi
+        elif mm_is_child_ref_row "$row" && [[ -n "$LAST_ISSUE_NUM" ]]; then
+            # Parse the child reference path from the row
+            # Format: | ^_Child: [DESIGN-name.md](path)_ | | | |
+            # Or:     | ~~^_Child: [DESIGN-name.md](path)_~~ | | | |
+            CELL_CONTENT=$(echo "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }')
+
+            # Check if struck through
+            IS_STRUCK=false
+            if [[ "$CELL_CONTENT" =~ ^~~ ]]; then
+                IS_STRUCK=true
+                CELL_CONTENT=$(echo "$CELL_CONTENT" | sed 's/^~~//;s/~~$//')
+            fi
+
+            # Extract path from: ^_Child: [DESIGN-name.md](path)_
+            # The path is inside the parentheses of the markdown link
+            REF_PATH=$(echo "$CELL_CONTENT" | grep -oE '\]\([^)]+\)' | sed 's/^\](\(.*\))$/\1/' || true)
+            DISPLAY_NAME=$(echo "$CELL_CONTENT" | grep -oE '\[[^\]]+\]' | sed 's/^\[\(.*\)\]$/\1/' || true)
+
+            if [[ -n "$REF_PATH" ]]; then
+                CHILD_REF_PATHS[$LAST_ISSUE_NUM]="$REF_PATH"
+                CHILD_REF_STRUCK[$LAST_ISSUE_NUM]="$IS_STRUCK"
+                CHILD_REF_DISPLAY[$LAST_ISSUE_NUM]="${DISPLAY_NAME:-$REF_PATH}"
+            fi
+        fi
+    done <<< "$ALL_II_ROWS"
+
+    # Get actual class assignments (reuse ACTUAL_CLASS if already set, otherwise build it)
+    if [[ -z "${ACTUAL_CLASS+x}" ]]; then
+        declare -A ACTUAL_CLASS
+        while IFS= read -r line; do
+            if echo "$line" | grep -qE '^\s*class\s+'; then
+                CLASS_NAME=$(echo "$line" | awk '{print $NF}')
+                NODES_STR=$(echo "$line" | sed 's/^\s*class\s*//' | sed "s/\s*${CLASS_NAME}$//" | tr -d ' ')
+                IFS=',' read -ra NODE_LIST <<< "$NODES_STR"
+                for node in "${NODE_LIST[@]}"; do
+                    [[ -n "$node" ]] && ACTUAL_CLASS[$node]="$CLASS_NAME"
+                done
+            fi
+        done <<< "$MERMAID_CONTENT"
+    fi
+
+    # MM20: Parent-child Mermaid consistency
+    # For each issue with a child reference, check that the class matches the child status
+    DOC_DIR=$(dirname "$DOC_PATH")
+    REPO_ROOT=$(cd "$DOC_DIR" && git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+    for issue_num in "${!CHILD_REF_PATHS[@]}"; do
+        REF_PATH="${CHILD_REF_PATHS[$issue_num]}"
+        IS_STRUCK="${CHILD_REF_STRUCK[$issue_num]}"
+        NODE_ID="I${issue_num}"
+        ACTUAL="${ACTUAL_CLASS[$NODE_ID]:-}"
+
+        # Skip if node not in diagram
+        [[ -z "$ACTUAL" ]] && continue
+
+        # Check if cross-repo reference (absolute URL or path outside repo)
+        if [[ "$REF_PATH" =~ ^https?:// ]]; then
+            emit_pass "MM20: Node $NODE_ID child reference is cross-repo URL, skipping validation"
+            continue
+        fi
+
+        # Resolve the path relative to the design doc's location
+        CHILD_DOC_PATH="$DOC_DIR/$REF_PATH"
+
+        # Normalize the path
+        if [[ -n "$REPO_ROOT" ]]; then
+            CHILD_DOC_REAL=$(cd "$DOC_DIR" && realpath -m "$REF_PATH" 2>/dev/null || echo "$CHILD_DOC_PATH")
+            # Check if outside repo root
+            if [[ ! "$CHILD_DOC_REAL" =~ ^"$REPO_ROOT" ]]; then
+                emit_pass "MM20: Node $NODE_ID child reference points outside repo, skipping validation"
+                continue
+            fi
+        fi
+
+        # Check if child doc exists
+        if [[ ! -f "$CHILD_DOC_PATH" ]]; then
+            # MM20 skips if file doesn't exist; II06 handles that
+            continue
+        fi
+
+        # Read child design status
+        CHILD_STATUS=$(get_frontmatter_status "$CHILD_DOC_PATH")
+
+        if [[ -z "$CHILD_STATUS" ]]; then
+            # Can't determine child status, skip
+            continue
+        fi
+
+        # Determine child doc type from filename: PLAN-*.md or DESIGN-*.md
+        CHILD_BASENAME=$(basename "$CHILD_DOC_PATH")
+        IS_PLAN_DOC=false
+        if [[ "$CHILD_BASENAME" =~ ^PLAN- ]]; then
+            IS_PLAN_DOC=true
+        fi
+
+        # Validate class matches child lifecycle status
+        if [[ "$IS_PLAN_DOC" == "true" ]]; then
+            # PLAN doc statuses: Draft, Active -> tracksPlan; Done -> done
+            case "$CHILD_STATUS" in
+                Draft|Active)
+                    if [[ "$ACTUAL" != "tracksPlan" ]]; then
+                        emit_fail "MM20: Node $NODE_ID has class '$ACTUAL' but child PLAN status is '$CHILD_STATUS', expected 'tracksPlan'. See: .github/scripts/docs/MM20.md"
+                        FAILED=1
+                    fi
+                    ;;
+                Done)
+                    if [[ "$ACTUAL" != "done" ]]; then
+                        emit_fail "MM20: Node $NODE_ID has class '$ACTUAL' but child PLAN status is 'Done', expected 'done'. See: .github/scripts/docs/MM20.md"
+                        FAILED=1
+                    fi
+                    ;;
+            esac
+        else
+            # Design doc statuses: Proposed, Accepted, Planned -> tracksDesign; Current -> done; Superseded -> needsDesign
+            case "$CHILD_STATUS" in
+                Proposed|Accepted|Planned)
+                    # Parent node should be tracksDesign
+                    if [[ "$ACTUAL" != "tracksDesign" ]]; then
+                        emit_fail "MM20: Node $NODE_ID has class '$ACTUAL' but child design status is '$CHILD_STATUS', expected 'tracksDesign'. See: .github/scripts/docs/MM20.md"
+                        FAILED=1
+                    fi
+                    ;;
+                Current)
+                    # Parent node should be done and row should be struck through
+                    if [[ "$ACTUAL" != "done" ]]; then
+                        emit_fail "MM20: Node $NODE_ID has class '$ACTUAL' but child design status is 'Current', expected 'done'. See: .github/scripts/docs/MM20.md"
+                        FAILED=1
+                    fi
+                    ;;
+                Superseded)
+                    # Parent node should revert to needsDesign
+                    if [[ "$ACTUAL" != "needsDesign" ]]; then
+                        emit_fail "MM20: Node $NODE_ID has class '$ACTUAL' but child design status is 'Superseded', expected 'needsDesign'. See: .github/scripts/docs/MM20.md"
+                        FAILED=1
+                    fi
+                    ;;
+            esac
+        fi
+    done
+
+    # MM21: tracksDesign/tracksPlan validation
+    # 1. Every tracksDesign or tracksPlan node must have a child reference row
+    # 2. Every child reference row must belong to a tracksDesign, tracksPlan, or done (struck) node
+
+    # Check all tracking nodes have child ref rows
+    if [[ -n "$ISSUE_NODES" ]]; then
+        while IFS= read -r node; do
+            [[ -z "$node" ]] && continue
+            ACTUAL="${ACTUAL_CLASS[$node]:-}"
+            ISSUE_NUM="${node#I}"
+
+            if [[ "$ACTUAL" == "tracksDesign" || "$ACTUAL" == "tracksPlan" ]]; then
+                if [[ -z "${CHILD_REF_PATHS[$ISSUE_NUM]:-}" ]]; then
+                    emit_fail "MM21: Node $node has class '$ACTUAL' but no child reference row in Implementation Issues table. See: .github/scripts/docs/MM21.md"
+                    FAILED=1
+                fi
+            fi
+        done <<< "$ISSUE_NODES"
+    fi
+
+    # Check all child ref rows belong to tracksDesign, tracksPlan, or done (struck) nodes
+    for issue_num in "${!CHILD_REF_PATHS[@]}"; do
+        NODE_ID="I${issue_num}"
+        ACTUAL="${ACTUAL_CLASS[$NODE_ID]:-}"
+        IS_STRUCK="${CHILD_REF_STRUCK[$issue_num]}"
+
+        # Skip if node not in diagram
+        [[ -z "$ACTUAL" ]] && continue
+
+        if [[ "$ACTUAL" == "tracksDesign" || "$ACTUAL" == "tracksPlan" ]]; then
+            # Valid: tracking node with child ref
+            continue
+        elif [[ "$ACTUAL" == "done" && "$IS_STRUCK" == "true" ]]; then
+            # Valid: done node with struck-through child ref (completed state)
+            continue
+        else
+            emit_fail "MM21: Node $NODE_ID has class '$ACTUAL' but has a child reference row. Only 'tracksDesign', 'tracksPlan', or 'done' (struck-through) nodes may have child reference rows. See: .github/scripts/docs/MM21.md"
+            FAILED=1
+        fi
+    done
+fi
+
+# Return appropriate exit code
+if [[ "$FAILED" -eq 0 ]]; then
+    exit $EXIT_PASS
+else
+    exit $EXIT_FAIL
+fi
