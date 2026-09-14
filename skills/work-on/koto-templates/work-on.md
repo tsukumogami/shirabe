@@ -841,14 +841,38 @@ states:
         type: enum
         values: [passing, failing_fixed, failing_unresolvable]
         required: true
+      session_role:
+        type: enum
+        values: [root, child]
+        required: true
+        description: >-
+          From scripts/session-role.sh, which reads koto's own parent_workflow
+          field. Required, because the fallback edge below routes an unrecognised
+          submission to done: a run that omitted this would take the cascade's
+          silent exit rather than stopping, and nobody would learn the cascade
+          was skipped. Not derived from the session name — a name-shaped
+          heuristic was considered and rejected as unsound in both directions.
       rationale:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
+      # The cascade belongs to the run that owns the PLAN, and that is the root.
+      # A child materialized by /execute lands its own pull request and must not
+      # cascade: the chain is finalized once per plan, not once per issue in it,
+      # and a child that cascaded would race its siblings to delete the PLAN
+      # they are still working from.
       - target: cascade_entry
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+          session_role: root
+      # A child stops here, and stops silently. It never reaches cascade_entry,
+      # so it never runs the anchor search and never sees a cascade directive.
+      - target: done
+        when:
+          ci_outcome: passing
+          gates.ci_passing.exit_code: 0
+          session_role: child
       # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
       # polls the PR and may be stale relative to the new push. Gate check
       # is inappropriate here -- the agent's direct observation is the
@@ -1445,6 +1469,20 @@ Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
 ## ci_monitor
 
 Read `references/phases/phase-6-pr.md` for CI monitoring.
+
+Submit `session_role` alongside `ci_outcome`, asking the discriminator rather
+than judging it yourself:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+```
+
+It prints `root` or `child`, reading koto's own `parent_workflow`. Test
+positively for `root`: on a usage error it exits 2 having printed nothing, and
+anything that is not exactly `root` is `child`. Submitting `child` when unsure is
+the safe direction — a child that wrongly stops has landed its pull request and
+left the chain for the run that owns it, while a child that wrongly cascades
+deletes a PLAN its siblings are still working from.
 
 If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.

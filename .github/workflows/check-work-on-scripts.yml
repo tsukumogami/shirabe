@@ -81,6 +81,14 @@ jobs:
       - name: Run cascade post-state verifier tests
         run: bash skills/work-on/scripts/verify-cascade-commit_test.sh
 
+      # Drives the shipped ci_monitor block with each session role and asserts
+      # where the run lands. Its control is the state as it stood before the
+      # branch existed, because the half-changed shape does not compile: koto
+      # refuses two edges it cannot prove exclusive. Needs the engine.
+      - name: Run ci_monitor role branch tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-monitor-role_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
       # to assert the run's context survives it, and materializes a child to
       # assert that a child carrying the same flag blocks its parent's converge.

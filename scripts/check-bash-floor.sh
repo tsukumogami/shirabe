@@ -132,6 +132,8 @@ suite_scripts() {
             # Needs no engine at all: it builds repositories and reads commits,
             # so every case genuinely executes on the floor.
             echo "skills/work-on/scripts/verify-cascade-commit_test.sh"
+            # Drives real koto sessions, and skips cleanly without them.
+            echo "skills/work-on/scripts/ci-monitor-role_test.sh"
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"

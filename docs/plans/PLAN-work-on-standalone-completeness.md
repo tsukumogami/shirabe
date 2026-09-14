@@ -218,7 +218,7 @@ child routes straight to `done` and a root routes toward `cascade_entry`.
 
 **Acceptance Criteria**:
 
-- [ ] **The child used in these tests must be one that reaches `ci_monitor`.**
+- [x] **The child used in these tests must be one that reaches `ci_monitor`.**
       A single-pr child does not: it is dispatched with `SHARED_BRANCH`, submits
       `pr_status: shared` and routes straight to `done`
       (`work-on.md:762-766`), bypassing the new branch for reasons that have
@@ -227,16 +227,23 @@ child routes straight to `done` and a root routes toward `cascade_entry`.
       which works on its own branch and lands its own per-repo pull request
       (`skills/execute/SKILL.md:316`, `:359-361`). If no such child can be
       constructed in the harness, say so and name what stands in its place.
-- [ ] A qualifying child session does not reach `cascade_entry` and therefore
+- [x] A qualifying child session does not reach `cascade_entry` and therefore
       never runs the anchor search.
-- [ ] A root session routes to `cascade_entry`.
-- [ ] The role comes from the discriminator the terminal-record fix establishes,
+- [x] A root session routes to `cascade_entry`.
+- [x] The role comes from the discriminator the terminal-record fix establishes,
       not from a second implementation. A search for a second root-versus-child
       test returns nothing. **The mechanism is reading koto's `parent_workflow`
       via `koto session list`** — named here because the dot-in-session-name
       heuristic it replaced was vetoed, and is what older material describes.
-- [ ] If that discriminator has not landed, the work escalates rather than
+- [x] If that discriminator has not landed, the work escalates rather than
       inventing a parallel mechanism.
+
+**Substitute recorded** (permitted by the first criterion): no real coordinated
+child is constructed. `ci-monitor-role_test.sh` drives the shipped `ci_monitor`
+block directly with each role, and the claim that a coordinated child reaches
+`ci_monitor` at all rests on `/execute`'s contract rather than on anything
+measured here. The control is the state as it stood before the branch, because
+the half-changed shape does not compile.
 
 **Dependencies**: <<ISSUE:1>>
 

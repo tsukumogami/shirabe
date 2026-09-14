@@ -7,7 +7,8 @@ stateDiagram-v2
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
     analysis --> done_blocked : plan_outcome: blocked_missing_context
-    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0
+    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, session_role: root
+    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, session_role: child
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
     cascade_entry --> done : gates.anchor_present.exit_code: 1
     cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
