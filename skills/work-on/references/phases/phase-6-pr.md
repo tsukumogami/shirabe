@@ -32,7 +32,11 @@ footer). That rule is what `shirabe validate --pr-body` enforces in CI, so a
 PR authored to it passes the gate on the first run. For the **subjective**
 Part 2 section selection (which reviewer-context sections this change needs),
 apply the reasoning framework from your project's PR creation skill. Include
-`Fixes #<N>` in Part 2.
+`Fixes #<N>` in Part 2 — `pr_creation`'s `closing_keyword` gate reads the pull
+request GitHub actually has and blocks the run when the body does not close the
+issue, so this is an obligation the workflow enforces rather than a convention
+it asks for. Free-form work has no issue to close and the gate passes without
+consulting the body.
 
 ## CI Monitoring
 

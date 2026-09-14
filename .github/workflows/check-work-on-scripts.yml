@@ -89,6 +89,11 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
 
+      # Runs pr_creation's closing-keyword gate expression, extracted from the
+      # template, against constructed bodies with gh stubbed. No engine needed.
+      - name: Run closing keyword gate tests
+        run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
       # to assert the run's context survives it, and materializes a child to
       # assert that a child carrying the same flag blocks its parent's converge.

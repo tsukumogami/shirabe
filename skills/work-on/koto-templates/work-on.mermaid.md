@@ -7,8 +7,9 @@ stateDiagram-v2
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
     analysis --> done_blocked : plan_outcome: blocked_missing_context
-    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, session_role: root
-    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, session_role: child
+    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: root
+    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: child
+    ci_monitor --> done_blocked : ci_outcome: passing, gates.merge_state_clean.exit_code: 1
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
     cascade_entry --> done : gates.anchor_present.exit_code: 1
     cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
@@ -57,7 +58,8 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
-    pr_creation --> ci_monitor : pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, pr_status: created
+    pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
@@ -107,6 +109,9 @@ stateDiagram-v2
     note left of ci_monitor
         gate: ci_passing
     end note
+    note left of ci_monitor
+        gate: merge_state_clean
+    end note
     note left of context_injection
         gate: context_artifact
     end note
@@ -130,6 +135,9 @@ stateDiagram-v2
     end note
     note left of plan_context_injection
         gate: context_artifact
+    end note
+    note left of pr_creation
+        gate: closing_keyword
     end note
     note left of pr_precheck
         gate: on_feature_branch_pr

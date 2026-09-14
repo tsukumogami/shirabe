@@ -299,10 +299,10 @@ fails against the narrowed rule that previously passed.
 
 **Acceptance Criteria**:
 
-- [ ] The gate command is **byte-identical** to `execute.md`'s, as
+- [x] The gate command is **byte-identical** to `execute.md`'s, as
       `validate-template-mermaid.sh` check 4 requires for a gate name shared
       across templates.
-- [ ] A dirty merge state blocks; a clean one passes.
+- [x] A dirty merge state blocks; a clean one passes.
 
 **Dependencies**: None
 
@@ -314,10 +314,10 @@ fails against the narrowed rule that previously passed.
 
 **Acceptance Criteria**:
 
-- [ ] A pull request body without the closing keyword fails the gate.
-- [ ] The check uses `gh`, so it observes the real pull request rather than the
+- [x] A pull request body without the closing keyword fails the gate.
+- [x] The check uses `gh`, so it observes the real pull request rather than the
       agent's report of it.
-- [ ] The obligation is removed from prose where it now duplicates the gate, or
+- [x] The obligation is removed from prose where it now duplicates the gate, or
       the prose explicitly defers to it.
 
 **Dependencies**: None

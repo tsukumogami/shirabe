@@ -796,6 +796,18 @@ states:
           failure_reason: "pr_precheck blocked: ${evidence.detail}"
 
   pr_creation:
+    gates:
+      # Reads the pull request GitHub actually has, not the body the agent
+      # believes it wrote. An issue that stays open after its fix merges is the
+      # failure this prevents, and prose asking for the keyword cannot detect
+      # its absence.
+      #
+      # Free-form work has no issue to close, so an empty ISSUE_NUMBER passes
+      # rather than blocking: the obligation does not exist for that mode. The
+      # trailing character class stops `#12` matching in `#123`.
+      closing_keyword:
+        type: command
+        command: 'test -z "{{ISSUE_NUMBER}}" || gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"'
     accepts:
       pr_status:
         type: enum
@@ -808,6 +820,16 @@ states:
       - target: ci_monitor
         when:
           pr_status: created
+          gates.closing_keyword.exit_code: 0
+      # A body without the keyword stops here. Fail-closed: the gate also exits
+      # non-zero when it cannot read the pull request at all, and both readings
+      # are named in the reason, because the exit code cannot tell them apart.
+      - target: done_blocked
+        when:
+          pr_status: created
+          gates.closing_keyword.exit_code: 1
+        context_assignments:
+          failure_reason: "pr_creation: the pull request body does not close issue #{{ISSUE_NUMBER}} — add a closing keyword (Fixes #{{ISSUE_NUMBER}}) so the issue closes when this merges. If the body does carry it, the gate could not read the pull request."
       - target: done
         when:
           pr_status: shared
@@ -836,6 +858,17 @@ states:
       ci_passing:
         type: command
         command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+      # A DIRTY pull request has merge conflicts, and GitHub creates no new
+      # check-runs for one. `ci_passing` asks whether nothing is failing, and
+      # zero check-runs satisfies that, so the same gate fires for a genuinely
+      # green PR and for a DIRTY one whose checks never ran. This gate is what
+      # tells the two apart (#162). Byte-identical to execute.md's, which
+      # validate-template-mermaid.sh check 4 enforces for a gate name shared
+      # across templates: when one copy is fixed and the other is not, the two
+      # workflows disagree about what the gate means.
+      merge_state_clean:
+        type: command
+        command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
     accepts:
       ci_outcome:
         type: enum
@@ -865,6 +898,7 @@ states:
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
           session_role: root
       # A child stops here, and stops silently. It never reaches cascade_entry,
       # so it never runs the anchor search and never sees a cascade directive.
@@ -872,7 +906,18 @@ states:
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
           session_role: child
+      # A DIRTY pull request stops, and stops explicitly. Without this edge it
+      # would match no conditional transition and fall to the unconditional one
+      # at the end, reaching done: a run with merge conflicts would report
+      # success on the strength of checks that never ran.
+      - target: done_blocked
+        when:
+          ci_outcome: passing
+          gates.merge_state_clean.exit_code: 1
+        context_assignments:
+          failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
       # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
       # polls the PR and may be stale relative to the new push. Gate check
       # is inappropriate here -- the agent's direct observation is the

@@ -69,6 +69,22 @@ CI_MONITOR=$(extract_state ci_monitor)
 # `start` stands in for pr_creation: it routes into ci_monitor with no evidence
 # of its own. cascade_entry and the terminals are stubs — this file is about
 # which one the run lands on, not what happens after.
+# stub_gates <block> <ci_passing exit> <merge_state_clean exit>
+# Replaces each gate's command with a fixed exit, keyed on the gate name above
+# it. A blanket substitution would give both gates the same exit and make the
+# DIRTY case untestable, since that case is exactly the two disagreeing: checks
+# that look green because a conflicted pull request never ran any.
+stub_gates() {
+    printf '%s\n' "$1" | awk -v ci="$2" -v merge="$3" '
+        /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
+        /^        command:/ {
+            if (gate == "ci_passing") { print "        command: \"exit " ci "\""; next }
+            if (gate == "merge_state_clean") { print "        command: \"exit " merge "\""; next }
+        }
+        { print }
+    '
+}
+
 build_fixture() {
     local dir="$1" block="$2"
     cat > "$dir/fixture.md" <<FIXTURE
@@ -85,7 +101,7 @@ states:
   start:
     transitions:
       - target: ci_monitor
-$(echo "$block" | sed "s|command: .*|command: \"exit 0\"|")
+$(stub_gates "$block" "${3:-0}" "${4:-0}")
   cascade_entry:
     terminal: true
   done:
@@ -118,7 +134,8 @@ FIXTURE
 # land <dir> <session> <block> <evidence-json> — drive to ci_monitor, submit, print the state.
 land() {
     local dir="$1" session="$2" block="$3" data="$4"
-    build_fixture "$dir" "$block"
+    local ci_exit="${5:-0}" merge_exit="${6:-0}"
+    build_fixture "$dir" "$block" "$ci_exit" "$merge_exit"
     koto init "$session" --template "$dir/fixture.md" >/dev/null 2>&1 || return 1
     SESSIONS+=("$session")
     koto next "$session" >/dev/null 2>&1 || true
@@ -233,7 +250,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 7 — R13, as a count. A plan run is one root and its children; the chain is
+# Case 7 — a DIRTY pull request blocks, even though CI looks green.
+#
+# This is the pairing that makes the second gate necessary rather than
+# decorative. A conflicted pull request gets no new check-runs, and the CI gate
+# asks whether nothing is failing — which zero check-runs satisfies. So the CI
+# gate passes on a conflicted PR exactly as it does on a genuinely green one,
+# and the merge-state gate is the only thing that can tell them apart.
+# ---------------------------------------------------------------------------
+D7=$(mktemp -d); TMPS+=("$D7")
+OUT7=$(land "$D7" "ci-role-dirty-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"root"}' 0 1 || true)
+if echo "$OUT7" | grep -q '"state":"done_blocked"'; then
+    pass "a DIRTY pull request blocks even with the CI gate passing"
+elif echo "$OUT7" | grep -q '"state":"cascade_entry"'; then
+    fail "a DIRTY pull request reached the cascade — it would finalize a chain on a conflicted PR"
+else
+    fail "dirty case: expected done_blocked, got: $(echo "$OUT7" | head -c 200)"
+fi
+
+# Case 7b — and a clean one still passes, so Case 7 is not blocking everything.
+D7B=$(mktemp -d); TMPS+=("$D7B")
+OUT7B=$(land "$D7B" "ci-role-clean-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"root"}' 0 0 || true)
+if echo "$OUT7B" | grep -q '"state":"cascade_entry"'; then
+    pass "a clean merge state still reaches the cascade"
+else
+    fail "clean case: expected cascade_entry, got: $(echo "$OUT7B" | head -c 200)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 8 — R13, as a count. A plan run is one root and its children; the chain is
 # finalized ONCE for the plan, not once per issue in it. So drive a whole plan's
 # worth of runs and count how many reach the cascade. The assertion is `-eq 1`
 # deliberately: "at least one cascaded" passes at any number, including the

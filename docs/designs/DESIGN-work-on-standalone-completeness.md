@@ -334,14 +334,12 @@ all recorded as broken, chaining through without delivering their directive.
 **What the edges do and do not record.** They route: five distinct causes reach
 five distinct terminal edges, and which edge fired is real information. They do
 not explain. Each edge carries a `context_assignments` block naming a
-human-readable reason, and that mechanism is inert in the installed engine —
-measured by the assigned key being absent after a run, by the assigned text
-appearing nowhere in the session's files, and by a deliberately misspelled field
-name compiling and behaving identically, which shows the field is not parsed at
-all. Fifty-three uses across three skills write nothing. This design does not
-depend on those strings and no criterion in the PLAN is satisfied by them; the
-verifier's own stderr is where a human learns which cause fired. The platform
-defect is being handled separately.
+human-readable reason, and those blocks currently write nothing —
+tsukumogami/koto#204 for the engine defect, tsukumogami/shirabe#335 for the
+inert blocks across these templates. Nothing in this design depends on those
+strings, and no criterion in the PLAN is satisfied by them; until the engine
+records them, the verifier's own stderr is where a human learns which cause
+fired, which is the reason it keeps git's stderr rather than discarding it.
 
 ### Decision 3 — which obligations become gates, and where they live
 
