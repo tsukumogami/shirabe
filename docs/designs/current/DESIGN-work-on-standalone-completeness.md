@@ -720,15 +720,19 @@ not, and the miscount is recorded here rather than silently corrected because it
 is the second time a stated cardinality in this document disagreed with its own
 enumeration.
 
-It is now the third, and the third one is this sentence's own predecessor: the
-draft above said the change adds "one new edge into `done_blocked`, for a
-`partial` cascade". As built it adds far more than one — `cascade_run` carries
-thirteen edges because koto requires transitions to one target to be provably
-exclusive and the state routes on two independent facts, `pre_pr_evidence`
-carries six, and `ci_monitor` gains one for a conflicted pull request. The count
-was written when the shape was simpler and was not revisited when the shape
-changed, which is the ordinary way a stated cardinality goes stale: not by being
-wrong when written. The second
+It is now the fourth, and the last two are this passage's own predecessors. The
+draft said the change adds "one new edge into `done_blocked`, for a `partial`
+cascade", written when the shape was simpler and never revisited as it grew. The
+correction that replaced it claimed nineteen edges across three states, and that
+was wrong too — counted by hand a second time rather than read off the templates.
+
+Measured from both revisions: **28 states and 82 edges become 31 and 107**, so
+the change adds **three states and twenty-five edges across five states** —
+`cascade_run` 13, `pre_pr_evidence` 6, `cascade_entry` 3, `ci_monitor` +2 (the
+cascade route and the conflicted-pull-request block, not +1) and `pr_creation`
++1. The lesson is narrower than "be careful": a count asserted about a file
+should be read off the file, and both wrong versions came from counting in
+prose. The second
 pull request is a breaking change for anyone running a multi-pr plan through the
 single-issue entry point today, mitigated by a refusal that names where a plan
 is run now but not eliminated. And the design depends on a mechanism not yet on
