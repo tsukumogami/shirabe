@@ -40,17 +40,19 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $*"; }
 
 TMPS=()
 SESSIONS=()
-# Ends with an explicit success. The last command in this trap is a test that
-# is FALSE when the arrays are empty, and under `set -e` an EXIT trap's final
-# status replaces the script's own -- so a clean `exit 0` on the skip path came
-# back as 1, and the suite failed while every line printed said it had passed.
+# Ends with an explicit success. The last command in this trap is a test that is
+# FALSE when the arrays are empty, which under `set -e` would replace this
+# script's own exit status -- a clean `exit 0` on the skip path coming back as 1,
+# with every line printed saying it had passed.
 #
-# The trigger is `set -e`, not any shell version: measured, bash 5.2 and 3.2
-# behave identically, and a script without -e is unaffected. What made this
-# visible in one place and not another was koto's ABSENCE: with koto installed
-# the cases run, the arrays fill, and the trap's last command is a successful
-# rm; without it the script skips, the arrays stay empty, and the false test
-# becomes the exit status.
+# It never did so HERE. This file runs `set -uo pipefail` with no -e, and
+# measured against the pre-fix version with koto absent it exits 0. The shape was
+# present and could not fire; adding -e is what would make it fire, which is the
+# useful thing for the next author to know. cascade-chaining_test.sh, which sets
+# -euo pipefail, is where it actually bit.
+#
+# The trigger is `set -e` and not any shell version: bash 5.2 and 3.2 behave
+# identically.
 cleanup() {
     for w in "${SESSIONS[@]:-}"; do [[ -n "$w" ]] && koto cancel "$w" >/dev/null 2>&1; done
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
