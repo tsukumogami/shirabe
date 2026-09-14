@@ -256,25 +256,38 @@ record when a root session runs it, and that no child ever requests retention.
 
 **Acceptance Criteria**:
 
-- [ ] A root session's terminal tick retains its record.
-- [ ] **No child session requests retention**, and its parent's child-completion
+- [x] A root session's terminal tick retains its record.
+- [x] **No child session requests retention**, and its parent's child-completion
       gate still converges. Demonstrated by running a parent to convergence over
       a child that reaches one of the new terminal states — which, per Issue 5,
       means a child that reaches `ci_monitor` in the first place. A single-pr
       child never gets there and would make this vacuous.
-- [ ] A regression test fails if the behaviour is made unconditional — the
+- [x] A regression test fails if the behaviour is made unconditional — the
       template is also the child template, so an unconditional edit hands the
       flag to every child and wedges its parent.
-- [ ] The mechanism is the one the terminal-record fix established, not a second
+- [x] The mechanism is the one the terminal-record fix established, not a second
       implementation. **Name it explicitly rather than by reference:** the
       discriminator reads koto's `parent_workflow` field via `koto session list`.
       It is **not** the dot-in-session-name heuristic, which was considered and
       vetoed as unsound in both directions — a reader searching older material
       will find the vetoed version first.
-- [ ] **R13 directly:** a multi-issue plan run cascades exactly once, not once
+- [x] **R13 directly:** a multi-issue plan run cascades exactly once, not once
       per issue. Demonstrated by running a parent over more than one child and
       counting cascade invocations. A criterion that would fail if the cadence
       changed, rather than coverage by implication.
+
+**Scope, after the terminal-record fix landed upstream.** The mechanism
+criteria here were satisfied by that fix rather than by this work:
+`session-role.sh` exists and reads koto's `parent_workflow`, and the retention
+rule in SKILL.md already gates every tick on the role. What this issue
+contributed is the verification the fix did not carry, and one gap it found.
+
+**The gap.** Coverage of the terminal ticks this work adds was an assumption.
+Narrowing the rule to an enumeration that omitted the cascade ticks left
+`terminal-retention_test.sh` 20/20 green: the suite checked that the rule existed
+and routed through the discriminator, not that it quantified over every tick. The
+suite now asserts the rule is universal and names no state, and that assertion
+fails against the narrowed rule that previously passed.
 
 **Dependencies**: <<ISSUE:1>>, <<ISSUE:5>>
 

@@ -232,6 +232,36 @@ else
     pass "a submission with no session_role does not advance"
 fi
 
+# ---------------------------------------------------------------------------
+# Case 7 — R13, as a count. A plan run is one root and its children; the chain is
+# finalized ONCE for the plan, not once per issue in it. So drive a whole plan's
+# worth of runs and count how many reach the cascade. The assertion is `-eq 1`
+# deliberately: "at least one cascaded" passes at any number, including the
+# once-per-issue behaviour this exists to rule out, and a race to delete the same
+# PLAN four times would satisfy it.
+#
+# Scope, stated so the number is not read as more than it is: this counts
+# ROUTING decisions across four runs of the shipped ci_monitor block, not four
+# real sessions walking the whole workflow.
+# ---------------------------------------------------------------------------
+CASCADE_COUNT=0
+PLAN_RUN_ROLES="root child child child"
+RUN_N=0
+for role in $PLAN_RUN_ROLES; do
+    RUN_N=$((RUN_N + 1))
+    D=$(mktemp -d); TMPS+=("$D")
+    OUT=$(land "$D" "ci-role-plan-${RUN_N}-$$" "$CI_MONITOR" "{\"ci_outcome\":\"passing\",\"session_role\":\"$role\"}" || true)
+    if echo "$OUT" | grep -q '"state":"cascade_entry"'; then
+        CASCADE_COUNT=$((CASCADE_COUNT + 1))
+    fi
+done
+
+if [[ "$CASCADE_COUNT" -eq 1 ]]; then
+    pass "a plan run of one root and three children reaches the cascade exactly once (count: $CASCADE_COUNT)"
+else
+    fail "R13: expected exactly 1 cascade across one root and three children, counted $CASCADE_COUNT"
+fi
+
 echo
 echo "ci-monitor-role_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [[ "$FAIL_COUNT" -eq 0 ]]

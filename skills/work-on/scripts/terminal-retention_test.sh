@@ -156,6 +156,48 @@ else
     fail "SKILL.md must state the retention rule and decide it with session-role.sh"
 fi
 
+# ...and it has to be UNIVERSAL, which the check above does not establish. The
+# rule's value is that it covers ticks nobody had thought of when it was written:
+# a state added later reaches a terminal through a tick the author never saw. An
+# enumeration cannot do that, and the difference is invisible to a grep for the
+# flag.
+#
+# Measured, before this case existed: narrowing the rule to "the koto next calls
+# that reach context_injection, analysis and implementation carry --no-cleanup"
+# -- an enumeration omitting the cascade terminals entirely -- left this suite
+# 20/20 green. Coverage of any tick not named in that list was an assumption.
+#
+# Two things are asserted. The rule quantifies over every tick, and it names no
+# state, because the moment it names one it has become a list.
+RETENTION_RULE=$(awk '
+    /^\*\*Retention:/ { inrule = 1 }
+    inrule { print }
+    inrule && /^$/ { exit }
+' "$SKILL_MD")
+
+if [ -z "$RETENTION_RULE" ]; then
+    fail "the retention rule paragraph could not be found in SKILL.md -- it was reworded, and this case no longer reads it"
+elif ! printf '%s' "$RETENTION_RULE" | grep -qE 'every (\`?koto next\`?|tick)'; then
+    fail "the retention rule no longer quantifies over every tick, so a tick added later is not covered by it"
+else
+    # State names come from the template rather than a hardcoded list, so a state
+    # added later is checked without anyone remembering to add it here.
+    NAMED=""
+    for st in $(awk '/^states:/ { s=1; next } s && /^  [a-z_]+:$/ { n=$1; sub(/:$/, "", n); print n }' "$TEMPLATE"); do
+        # Bounded on both sides, so "the entry-evidence tick" is not read as
+        # naming the `entry` state. A bare substring match reports that, and a
+        # check that cries wolf is a check people switch off.
+        if printf '%s' "$RETENTION_RULE" | grep -qE "(^|[^-_[:alnum:]])${st}([^-_[:alnum:]]|$)"; then
+            NAMED="$NAMED $st"
+        fi
+    done
+    if [ -n "$NAMED" ]; then
+        fail "the retention rule names states ($NAMED) -- it has become an enumeration, and ticks outside it are uncovered"
+    else
+        pass "the retention rule quantifies over every tick and names no state, so a tick added later is covered by it"
+    fi
+fi
+
 bash "$ROLE_SH" >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then
     pass "the discriminator rejects a missing session name with exit 2"

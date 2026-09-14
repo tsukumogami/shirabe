@@ -308,6 +308,41 @@ the pass-through rather than cascading. That is the same direction the PRD
 already commits to when it rejects synthesizing an anchor to make a control-flow
 decision.
 
+**Why `cascade_run` is one state with a wide edge table, and not two states.**
+The state routes on two independent facts — the cascade's report of itself, and
+the observed post-state — and koto refuses to compile transitions it cannot prove
+mutually exclusive, where the only accepted proof is a shared key with unequal
+values. Every edge therefore names both fields, and the table is their cross
+product: thirteen edges, because `partial` collapses into one regardless of the
+observation.
+
+A reader meeting that table will reach for the obvious tidy-up — one state
+routing on the cascade's verdict, a second accepting the observation — and it is
+worth saying plainly that this was considered and measured rather than
+overlooked. Three findings ruled it out. Splitting saves one edge per added
+value, not an order of magnitude: thirteen against nine today, fifteen against
+ten with a sixth cause. Enumerating pairs across independent facts is what this
+repository already does, and `scope.md`'s `fold` does it across fourteen edges,
+more than this. And decisively, koto does not carry evidence forward: a state
+sees only its own submission, so a second state could not require that a
+`completed` claim arrive with a `verified` observation. It would get by
+sequencing what one state gets by requirement, which is the opposite of the
+separation this design exists to enforce. The report-then-observe shape also has
+no working instance here — the three states shaped that way in `execute.md` are
+all recorded as broken, chaining through without delivering their directive.
+
+**What the edges do and do not record.** They route: five distinct causes reach
+five distinct terminal edges, and which edge fired is real information. They do
+not explain. Each edge carries a `context_assignments` block naming a
+human-readable reason, and that mechanism is inert in the installed engine —
+measured by the assigned key being absent after a run, by the assigned text
+appearing nowhere in the session's files, and by a deliberately misspelled field
+name compiling and behaving identically, which shows the field is not parsed at
+all. Fifty-three uses across three skills write nothing. This design does not
+depend on those strings and no criterion in the PLAN is satisfied by them; the
+verifier's own stderr is where a human learns which cause fired. The platform
+defect is being handled separately.
+
 ### Decision 3 — which obligations become gates, and where they live
 
 **Chosen: a hybrid. Extend in place where an exact precedent exists — merge
