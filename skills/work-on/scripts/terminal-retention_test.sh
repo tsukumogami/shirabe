@@ -156,6 +156,48 @@ else
     fail "SKILL.md must state the retention rule and decide it with session-role.sh"
 fi
 
+# ...and it has to be UNIVERSAL, which the check above does not establish. The
+# rule's value is that it covers ticks nobody had thought of when it was written:
+# a state added later reaches a terminal through a tick the author never saw. An
+# enumeration cannot do that, and the difference is invisible to a grep for the
+# flag.
+#
+# Measured, before this case existed: narrowing the rule to "the koto next calls
+# that reach context_injection, analysis and implementation carry --no-cleanup"
+# -- an enumeration omitting the cascade terminals entirely -- left this suite
+# 20/20 green. Coverage of any tick not named in that list was an assumption.
+#
+# Two things are asserted. The rule quantifies over every tick, and it names no
+# state, because the moment it names one it has become a list.
+RETENTION_RULE=$(awk '
+    /^\*\*Retention:/ { inrule = 1 }
+    inrule { print }
+    inrule && /^$/ { exit }
+' "$SKILL_MD")
+
+if [ -z "$RETENTION_RULE" ]; then
+    fail "the retention rule paragraph could not be found in SKILL.md -- it was reworded, and this case no longer reads it"
+elif ! printf '%s' "$RETENTION_RULE" | grep -qE 'every (\`?koto next\`?|tick)'; then
+    fail "the retention rule no longer quantifies over every tick, so a tick added later is not covered by it"
+else
+    # State names come from the template rather than a hardcoded list, so a state
+    # added later is checked without anyone remembering to add it here.
+    NAMED=""
+    for st in $(awk '/^states:/ { s=1; next } s && /^  [a-z_]+:$/ { n=$1; sub(/:$/, "", n); print n }' "$TEMPLATE"); do
+        # Bounded on both sides, so "the entry-evidence tick" is not read as
+        # naming the `entry` state. A bare substring match reports that, and a
+        # check that cries wolf is a check people switch off.
+        if printf '%s' "$RETENTION_RULE" | grep -qE "(^|[^-_[:alnum:]])${st}([^-_[:alnum:]]|$)"; then
+            NAMED="$NAMED $st"
+        fi
+    done
+    if [ -n "$NAMED" ]; then
+        fail "the retention rule names states ($NAMED) -- it has become an enumeration, and ticks outside it are uncovered"
+    else
+        pass "the retention rule quantifies over every tick and names no state, so a tick added later is covered by it"
+    fi
+fi
+
 bash "$ROLE_SH" >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then
     pass "the discriminator rejects a missing session name with exit 2"
@@ -317,8 +359,15 @@ fi
 
 drive_work_on_to_blocked() {
     # $1 session name, $2 extra flag for the terminal tick ("" or --no-cleanup)
+    # PLUGIN_ROOT is required by the template (cascade_entry's gate resolves the
+    # anchor finder against it) and koto resolves every required variable at
+    # init, so a session cannot be created without it even though no case here
+    # reaches that state. A literal rather than this checkout's path: koto
+    # validates a value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the init if it
+    # does not match, which a checkout under a directory containing "+" would.
     koto init "$1" --template "$TEMPLATE" \
-        --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX="$1" >/dev/null 2>&1
+        --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX="$1" \
+        --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
     init_or_die "$1"
     printf 'the running record\n' | koto context add "$1" plan.md >/dev/null 2>&1
     koto next "$1" --with-data '{"mode":"issue_backed","issue_number":"360"}' >/dev/null 2>&1
@@ -349,7 +398,8 @@ fi
 # The flag is read only on the tick that lands on a terminal, so carrying it
 # earlier retains nothing. This is why the rule cannot be "pass it once".
 koto init retain_early --template "$TEMPLATE" \
-    --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early >/dev/null 2>&1
+    --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early \
+    --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
 init_or_die retain_early
 printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
 koto next retain_early --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1

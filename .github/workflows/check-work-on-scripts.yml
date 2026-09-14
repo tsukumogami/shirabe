@@ -60,6 +60,47 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/retry-clearing_test.sh
 
+      # Drives one koto tick across the cascade states and asserts what that
+      # single invocation did. koto chains through a state whose transitions are
+      # all unconditional even when it declares required evidence, so a
+      # state-by-state review cannot tell whether cascade_run is safe; only a
+      # driven tick can. The suite's middle case mutates the shipped template to
+      # all-unconditional and asserts the defect is detectable. It skips when
+      # koto is absent, which is why it runs here after the install step rather
+      # than relying on the skip.
+      - name: Run cascade chaining tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/cascade-chaining_test.sh
+
+      # Builds real repositories and asserts the post-state verifier reads the
+      # finalization COMMIT rather than the working tree. Its central case is a
+      # tree where every document is terminal on disk and the commit contains
+      # none of them, which is what the cascade's staging defect produces and
+      # what a tree-reading check passes. No engine needed, so it runs on both
+      # legs.
+      - name: Run cascade post-state verifier tests
+        run: bash skills/work-on/scripts/verify-cascade-commit_test.sh
+
+      # Drives the shipped ci_monitor block with each session role and asserts
+      # where the run lands. Its control is the state as it stood before the
+      # branch existed, because the half-changed shape does not compile: koto
+      # refuses two edges it cannot prove exclusive. Needs the engine.
+      - name: Run ci_monitor role branch tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-monitor-role_test.sh
+
+      # Runs pr_creation's closing-keyword gate expression, extracted from the
+      # template, against constructed bodies with gh stubbed. No engine needed.
+      - name: Run closing keyword gate tests
+        run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
+
+      # Drives the shipped pre-PR obligation ladder in throwaway repositories.
+      # Its central cases are the placeholder ones: a referent like "done" must
+      # fail the state rather than satisfy it. Needs the engine.
+      - name: Run pre-PR evidence tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/pre-pr-evidence_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
       # to assert the run's context survives it, and materializes a child to
       # assert that a child carrying the same flag blocks its parent's converge.

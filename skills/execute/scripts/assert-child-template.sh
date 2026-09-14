@@ -27,3 +27,18 @@ if [[ ! -f "$CHILD" ]]; then
   echo "  /execute delegates each issue to /work-on's work-on.md; this path must resolve before spawning children." >&2
   exit 1
 fi
+
+# The completion cascade is the second cross-skill path /execute depends on.
+# It lives under /work-on because the single-issue skill runs the same cascade
+# for a standalone issue, and /work-on is the component /execute already depends
+# on. Checked here, at the same early point, for the same reason as the child
+# template: without it a misresolved path surfaces deep inside plan_completion,
+# after the cascade has begun transitioning documents, instead of before any
+# child is spawned.
+CASCADE="$ROOT/skills/work-on/scripts/run-cascade.sh"
+
+if [[ ! -f "$CASCADE" ]]; then
+  echo "execute assert-child-template FAILED: cross-skill cascade script not found at: $CASCADE" >&2
+  echo "  plan_completion runs /work-on's run-cascade.sh; this path must resolve before any document is transitioned." >&2
+  exit 1
+fi

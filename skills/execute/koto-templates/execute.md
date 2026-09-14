@@ -623,7 +623,12 @@ TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # fallback existed because the key might be absent, and the gate is what
 # makes it present.
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
+# PLUGIN_ROOT is required by work-on.md and is not part of plan-to-tasks.sh's
+# contract, so it is injected here the same way SHARED_BRANCH is: a child koto
+# materializes receives only the variables its task entry lists, and a child
+# missing this one fails to spawn with a variable-resolution error in the
+# batch's errored ledger.
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
@@ -643,7 +648,12 @@ TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # fallback existed because the key might be absent, and the gate is what
 # makes it present.
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
+# PLUGIN_ROOT is required by work-on.md and is not part of plan-to-tasks.sh's
+# contract, so it is injected here the same way SHARED_BRANCH is: a child koto
+# materializes receives only the variables its task entry lists, and a child
+# missing this one fails to spawn with a variable-resolution error in the
+# batch's errored ledger.
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
@@ -726,7 +736,7 @@ The state runs two steps. The cascade script is the load-bearing element for the
 **Step 1: Run the cascade.** `run-cascade.sh --push` runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and runs the post-cascade verification (expects a clean pass). All three points are inside the script. The cascade also runs `handle_roadmap_deletion` which transitions the ROADMAP Active -> Done and `git rm`s the file in the same atomic finalization commit, gated by all-features-Done AND all-referenced-issues-closed.
 
 ```bash
-RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}})
+RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}})
 CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status // empty')
 ```
 

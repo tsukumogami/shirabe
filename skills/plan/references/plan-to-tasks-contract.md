@@ -26,7 +26,7 @@ plan-to-tasks.sh <PLAN.md-path>
 
 The `shirabe` binary is also required, because the `## Issue Outlines` parse
 lives there rather than in this script (see below). It is resolved in the same
-order `skills/execute/scripts/run-cascade.sh` uses:
+order `skills/work-on/scripts/run-cascade.sh` uses:
 
 1. `$SHIRABE_BIN`, if set — the hook a test harness uses to pin a build.
 2. `shirabe` on `PATH` — the plugin-installed binary.

@@ -136,14 +136,14 @@
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
-      "expected_output": "The agent runs ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + DESIGN transition to Current + ROADMAP Feature 1 Status to Done and Downstream pointed at the DESIGN at Current), pushes, and runs the post-cascade verification (expects a clean pass) -- all three points inside the script. cascade_status is completed. The cascade runs as one atomic finalization commit before the PR flips ready (DRAFT-before-READY). This is the finalization cascade running atomically under /execute (the relocated script copy).",
+      "expected_output": "The agent runs ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + DESIGN transition to Current + ROADMAP Feature 1 Status to Done and Downstream pointed at the DESIGN at Current), pushes, and runs the post-cascade verification (expects a clean pass) -- all three points inside the script. cascade_status is completed. The cascade runs as one atomic finalization commit before the PR flips ready (DRAFT-before-READY). This is the finalization cascade running atomically under /execute (reached across into /work-on).",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md",
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
-        "Agent runs skills/execute/scripts/run-cascade.sh --push (the relocated /execute cascade copy), not the work-on path",
+        "Agent runs skills/work-on/scripts/run-cascade.sh --push (the cascade script /execute reaches across into /work-on)",
         "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "ROADMAP-cascade-test.md Feature 1 Status is updated to Done and Downstream references the DESIGN at Current",
         "The PLAN deletion (git rm; PLAN no longer on disk) and the DESIGN/ROADMAP transitions land in one atomic finalization commit",
@@ -172,7 +172,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/execute/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
+      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/work-on/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
       "files": [],
       "expectations": [
         "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
@@ -180,7 +180,7 @@
         "Agent runs plan-to-tasks.sh to produce tasks JSON and injects SHARED_BRANCH into each task's vars",
         "Agent submits batch_outcome: all_success when all children succeed and routes to pr_finalization",
         "Agent updates the PR description in pr_finalization but does NOT mark the PR ready in that state",
-        "Agent routes from pr_finalization to plan_completion, which runs the cascade (skills/execute/scripts/run-cascade.sh) and marks the PR ready via gh pr ready, then routes to ci_monitor"
+        "Agent routes from pr_finalization to plan_completion, which runs the cascade (skills/work-on/scripts/run-cascade.sh) and marks the PR ready via gh pr ready, then routes to ci_monitor"
       ]
     },
     {
@@ -287,10 +287,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "After pr_finalization completes for an /execute plan run, what does the plan_completion state do?",
-      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready unless the verdict is partial, and submits cascade_status to koto on a completed or skipped verdict; a partial halts the run and is surfaced instead of being submitted. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
+      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready unless the verdict is partial, and submits cascade_status to koto on a completed or skipped verdict; a partial halts the run and is surfaced instead of being submitted. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
       "files": [],
       "expectations": [
-        "Agent invokes skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
+        "Agent invokes skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
         "Agent does NOT invoke shirabe validate directly; the cascade script runs the chain-targeted check internally",
         "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands), and only when the cascade verdict is completed or skipped -- a partial halts the run and is surfaced instead",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
@@ -304,14 +304,14 @@
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
-      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-short.md to Current, updates the ROADMAP-cascade-test.md Feature 1 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "expected_output": "Agent runs skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-short.md to Current, updates the ROADMAP-cascade-test.md Feature 1 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md",
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
-        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "Agent runs skills/work-on/scripts/run-cascade.sh (reached across into /work-on)",
         "PLAN-cascade-test-short.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
         "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "ROADMAP-cascade-test.md Feature 1 Status is updated to Done",
@@ -326,7 +326,7 @@
       "mode": "execute",
       "scenario": "e2e-cascade-new-shape",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
-      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-new-shape.md. The chain is authored under the upstream-legality rule: PLAN -> DESIGN -> PRD -> BRIEF, with the ROADMAP named by the PLAN's own second upstream entry rather than by the BRIEF. No durable artifact in the chain names the ROADMAP: the BRIEF records the STRATEGY it resolved one hop up from that roadmap, and the walk stops cleanly on that STRATEGY rather than reporting it as an unrecognized node. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-new-shape.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-new-shape.md to Done, transitions BRIEF-cascade-test-new-shape.md to Done, updates ROADMAP-cascade-test.md Feature 3 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. The roadmap is reached through the PLAN, which the same cascade deletes first, so the link that reached it cannot be left dangling.",
+      "expected_output": "Agent runs skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-new-shape.md. The chain is authored under the upstream-legality rule: PLAN -> DESIGN -> PRD -> BRIEF, with the ROADMAP named by the PLAN's own second upstream entry rather than by the BRIEF. No durable artifact in the chain names the ROADMAP: the BRIEF records the STRATEGY it resolved one hop up from that roadmap, and the walk stops cleanly on that STRATEGY rather than reporting it as an unrecognized node. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-new-shape.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-new-shape.md to Done, transitions BRIEF-cascade-test-new-shape.md to Done, updates ROADMAP-cascade-test.md Feature 3 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. The roadmap is reached through the PLAN, which the same cascade deletes first, so the link that reached it cannot be left dangling.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-new-shape.md",
@@ -336,7 +336,7 @@
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
-        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "Agent runs skills/work-on/scripts/run-cascade.sh (reached across into /work-on)",
         "PLAN-cascade-test-new-shape.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
         "DESIGN-cascade-test-new-shape.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "PRD-cascade-test-new-shape.md is transitioned to Done",
@@ -355,7 +355,7 @@
       "mode": "execute",
       "scenario": "e2e-cascade-full",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic — the validator gained the opinion, not finalize-chain — so the cascade must behave exactly as it did before the rule landed. Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
+      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic — the validator gained the opinion, not finalize-chain — so the cascade must behave exactly as it did before the rule landed. Agent runs skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
@@ -364,7 +364,7 @@
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
-        "Agent runs skills/execute/scripts/run-cascade.sh against the old-shape chain without migrating any fixture",
+        "Agent runs skills/work-on/scripts/run-cascade.sh against the old-shape chain without migrating any fixture",
         "The walk reaches the ROADMAP through BRIEF-cascade-test-full.md's upstream: field, the pre-rule route",
         "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
         "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/)",

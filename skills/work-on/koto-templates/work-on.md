@@ -58,6 +58,33 @@ variables:
       Shared branch name provided by the plan orchestrator. When set, skip branch
       creation in setup states and commit directly to this branch.
     required: false
+  PLUGIN_ROOT:
+    description: >-
+      Absolute path to the shirabe plugin root, passed at koto init as
+      --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} where the agent's own shell
+      expands it once. cascade_entry's gate invokes find-anchor-plan.sh, which
+      ships in the plugin, and koto runs a gate command with the working
+      directory of the `koto next` process -- here the repository being worked,
+      not this checkout. A repo-relative path therefore resolves only when
+      /work-on runs against shirabe itself. Declared as a template variable
+      rather than written as a shell-style ${CLAUDE_PLUGIN_ROOT} because koto
+      resolves only {{KEY}} references: the shell form reaches sh -c untouched
+      and expands to nothing, and scripts/check-template-interpolation.sh
+      rejects it for that reason.
+
+      Required, but required is not the guarantee. koto accepts an empty value
+      for a required variable (VALUE_PATTERN ends in `*`), so an init run in a
+      shell where CLAUDE_PLUGIN_ROOT is unset passes --var PLUGIN_ROOT= and
+      sails through. cascade_entry's gate therefore tests that the finder is
+      executable at the resolved path and exits 2 if it is not, which routes to
+      done_blocked. Without that test the failure is exit 127, whose output koto
+      discards, and the run holds with no diagnostic.
+
+      Unlike /scope and /execute, this template is both initialized directly and
+      materialized as a child, so it has more than one kind of init site. Every
+      one of them passes this variable; check-init-site-vars.sh is what keeps
+      that true.
+    required: true
 
 states:
   entry:
@@ -670,7 +697,7 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
-      - target: pr_precheck
+      - target: pre_pr_evidence
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
@@ -701,7 +728,7 @@ states:
           The unmet acceptance criterion and the human's rationale. On approved, this is
           the deferral recorded via `koto decisions record` and surfaced in the PR body.
     transitions:
-      - target: pr_precheck
+      - target: pre_pr_evidence
         when:
           approval_decision: approved
           gates.summary_exists.exists: true
@@ -710,6 +737,114 @@ states:
           approval_decision: rejected
         context_assignments:
           failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
+
+  pre_pr_evidence:
+    # The finishing obligations that are decidable BEFORE a pull request exists.
+    # The ones that need a pull request to query -- the closing keyword, merge
+    # cleanliness -- live on pr_creation and ci_monitor instead, which is why
+    # this state is narrow rather than a single batching state for everything.
+    #
+    # Why gates rather than four required string fields: koto's evidence schema
+    # has type, required, values and description, and nothing that constrains a
+    # string's shape. A `type: string` field is satisfied by "done", which makes
+    # an obligation unenforced in substance while looking enforced in the record
+    # (PRD R7a). So the judgment calls are enums, which are closed sets a
+    # placeholder cannot satisfy, and the concrete referents live in a context
+    # artifact whose shape a gate checks.
+    gates:
+      # The summary exists by the time this state is reached -- both edges into
+      # it require it -- so this checks its SHAPE, not its presence.
+      summary_shape:
+        type: context-matches
+        key: summary.md
+        pattern: "## Changes Made"
+      # Conventional Commits on the tip. Observable from git, so it is gated
+      # rather than asked for (PRD R6).
+      commit_convention:
+        type: command
+        command: "git log -1 --format=%s | grep -qE '^(feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert)(\\([^)]+\\))?!?: .+'"
+      # The concrete referents, in an artifact the run writes. The patterns are
+      # what makes a placeholder fail: "cleanup_commit: done" does not match a
+      # hex sha, and "design_diagram: yes" matches neither a path nor the
+      # explicit not-applicable form with a reason after it.
+      cleanup_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+      diagram_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
+    accepts:
+      pre_pr_status:
+        type: enum
+        values: [recorded, blocked]
+        required: true
+      cleanup_done:
+        type: enum
+        values: [removed, none_found]
+        required: true
+        description: >-
+          Whether the cleanup pass removed anything. An enum rather than prose,
+          because a free-text field here is satisfied by "cleaned up" and the
+          obligation is then unenforced in substance. The commit it was judged
+          against goes in pre_pr.md, where a gate checks it is a sha.
+      design_diagram:
+        type: enum
+        values: [updated, not_applicable]
+        required: true
+        description: >-
+          PRD R9's first limb: the diagram obligation is brought within one hop
+          of the template and given a field, rather than left two reference-hops
+          away with a contract permitting a silent skip. The path updated, or the
+          reason it does not apply, goes in pre_pr.md.
+    transitions:
+      # The ladder is ordered, and every edge names the field the edge above it
+      # named, because koto refuses transitions to one target it cannot prove
+      # exclusive. Each rung is a distinct cause, which is what keeps them
+      # distinguishable in the record.
+      - target: pr_precheck
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: true
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the summary does not have the shape the finalization step requires (no '## Changes Made' section)."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 1
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the tip commit's subject is not a Conventional Commits subject."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit as a sha. A word like 'done' is not a referent: name the commit whose diff was reviewed."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path or as 'not-applicable: <reason>'."
+      - target: done_blocked
+        when:
+          pre_pr_status: blocked
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the run could not satisfy a pre-PR obligation and stopped rather than opening a pull request."
 
   pr_precheck:
     # The single edge into pr_creation, so the branch is read once here instead
@@ -769,6 +904,18 @@ states:
           failure_reason: "pr_precheck blocked: ${evidence.detail}"
 
   pr_creation:
+    gates:
+      # Reads the pull request GitHub actually has, not the body the agent
+      # believes it wrote. An issue that stays open after its fix merges is the
+      # failure this prevents, and prose asking for the keyword cannot detect
+      # its absence.
+      #
+      # Free-form work has no issue to close, so an empty ISSUE_NUMBER passes
+      # rather than blocking: the obligation does not exist for that mode. The
+      # trailing character class stops `#12` matching in `#123`.
+      closing_keyword:
+        type: command
+        command: 'test -z "{{ISSUE_NUMBER}}" || gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"'
     accepts:
       pr_status:
         type: enum
@@ -781,6 +928,16 @@ states:
       - target: ci_monitor
         when:
           pr_status: created
+          gates.closing_keyword.exit_code: 0
+      # A body without the keyword stops here. Fail-closed: the gate also exits
+      # non-zero when it cannot read the pull request at all, and both readings
+      # are named in the reason, because the exit code cannot tell them apart.
+      - target: done_blocked
+        when:
+          pr_status: created
+          gates.closing_keyword.exit_code: 1
+        context_assignments:
+          failure_reason: "pr_creation: the pull request body does not close issue #{{ISSUE_NUMBER}} — add a closing keyword (Fixes #{{ISSUE_NUMBER}}) so the issue closes when this merges. If the body does carry it, the gate could not read the pull request."
       - target: done
         when:
           pr_status: shared
@@ -809,19 +966,66 @@ states:
       ci_passing:
         type: command
         command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+      # A DIRTY pull request has merge conflicts, and GitHub creates no new
+      # check-runs for one. `ci_passing` asks whether nothing is failing, and
+      # zero check-runs satisfies that, so the same gate fires for a genuinely
+      # green PR and for a DIRTY one whose checks never ran. This gate is what
+      # tells the two apart (#162). Byte-identical to execute.md's, which
+      # validate-template-mermaid.sh check 4 enforces for a gate name shared
+      # across templates: when one copy is fixed and the other is not, the two
+      # workflows disagree about what the gate means.
+      merge_state_clean:
+        type: command
+        command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
     accepts:
       ci_outcome:
         type: enum
         values: [passing, failing_fixed, failing_unresolvable]
         required: true
+      session_role:
+        type: enum
+        values: [root, child]
+        required: true
+        description: >-
+          From scripts/session-role.sh, which reads koto's own parent_workflow
+          field. Required, because the fallback edge below routes an unrecognised
+          submission to done: a run that omitted this would take the cascade's
+          silent exit rather than stopping, and nobody would learn the cascade
+          was skipped. Not derived from the session name — a name-shaped
+          heuristic was considered and rejected as unsound in both directions.
       rationale:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
+      # The cascade belongs to the run that owns the PLAN, and that is the root.
+      # A child materialized by /execute lands its own pull request and must not
+      # cascade: the chain is finalized once per plan, not once per issue in it,
+      # and a child that cascaded would race its siblings to delete the PLAN
+      # they are still working from.
+      - target: cascade_entry
+        when:
+          ci_outcome: passing
+          gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
+          session_role: root
+      # A child stops here, and stops silently. It never reaches cascade_entry,
+      # so it never runs the anchor search and never sees a cascade directive.
       - target: done
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
+          session_role: child
+      # A DIRTY pull request stops, and stops explicitly. Without this edge it
+      # would match no conditional transition and fall to the unconditional one
+      # at the end, reaching done: a run with merge conflicts would report
+      # success on the strength of checks that never ran.
+      - target: done_blocked
+        when:
+          ci_outcome: passing
+          gates.merge_state_clean.exit_code: 1
+        context_assignments:
+          failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
       # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
       # polls the PR and may be stale relative to the new push. Gate check
       # is inappropriate here -- the agent's direct observation is the
@@ -835,6 +1039,213 @@ states:
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
       - target: done
+
+  cascade_entry:
+    # Decides whether this run has a document chain to finalize, and routes past
+    # the cascade entirely when it does not. Every edge fires with NO evidence:
+    # an ordinary bug fix with nothing behind it must never learn that a cascade
+    # step exists (PRD R3).
+    #
+    # The `accepts:` block below is load-bearing despite every field being
+    # optional, and removing it breaks R3 rather than tidying the state. A
+    # failed gate on a state with NO accepts block returns GateBlocked; with one,
+    # it falls through to transition resolution, which is what lets the
+    # no-anchor edge fire silently. The rule is stated in execute.md's
+    # settled_branch_record (:87-91), which also carries the warning repeated
+    # here:
+    #
+    #   EVERY transition must name the gate in its `when:` clause. A gate not
+    #   referenced by any transition is evaluated, reported, and ignored -- an
+    #   anchor check that runs and decides nothing. An unconditional edge added
+    #   here would also chain the state through, since koto's advance loop keys
+    #   on having a conditional transition rather than on required evidence.
+    #
+    # The decision is delegated to find-anchor-plan.sh rather than inlined here,
+    # and the three exit codes are the reason. A gate command can express a
+    # two-way test in one line; this decision has three outcomes, because "could
+    # not decide" must not collapse into "no anchor" -- exit 1 routes past the
+    # cascade in silence, so an unreadable tree or an issue named by two PLANs
+    # arriving as 1 would skip a cascade that was owed and tell nobody. The
+    # script's search is also anchored on the colon after the issue number, which
+    # is what stops issue 12 matching a row for issue 123 and cascading the wrong
+    # chain; its test suite covers that case and five other wrong
+    # implementations. Nothing mechanical enforces the anchoring, in the script
+    # or here -- check-template-interpolation.sh reads shell-style references,
+    # not regex correctness.
+    #
+    # The `test -x` prefix is not defensive clutter. PLUGIN_ROOT is required and
+    # koto still accepts an empty value for it, so an unset CLAUDE_PLUGIN_ROOT at
+    # init reaches this line as an absolute path to nothing. Without the test the
+    # finder is simply not found, the gate exits 127, koto discards its output,
+    # and the run holds with no diagnostic. With it, a plugin root that does not
+    # resolve fails closed to exit 2 and stops loudly at done_blocked.
+    gates:
+      anchor_present:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/find-anchor-plan.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/find-anchor-plan.sh" "{{ISSUE_NUMBER}}" "{{PLAN_DOC}}"'
+    accepts:
+      anchor_note:
+        type: string
+        description: >-
+          Absent on both normal paths. The state advances with no evidence
+          whichever way the gate resolves, so the agent never sees this field;
+          it exists so a failed gate falls through to transition resolution
+          instead of blocking.
+    transitions:
+      - target: cascade_run
+        when:
+          gates.anchor_present.exit_code: 0
+      - target: done
+        when:
+          gates.anchor_present.exit_code: 1
+      - target: done_blocked
+        when:
+          gates.anchor_present.exit_code: 2
+        context_assignments:
+          failure_reason: >-
+            cascade_entry: could not determine whether this issue has a PLAN
+            behind it. Either the anchor finder could not decide (a
+            non-numeric issue number, an unreadable docs/plans, or two PLANs
+            naming the same issue) or it was not reachable at PLUGIN_ROOT.
+            Run skills/work-on/scripts/find-anchor-plan.sh against the issue
+            number to see which. Not skipped: a cascade may be owed.
+
+  cascade_run:
+    # Runs the document-chain cascade and records what it actually did.
+    #
+    # The three conditional transitions below are load-bearing beyond their
+    # routing. koto's advance loop chains through a state whose transitions are
+    # ALL unconditional, even when the state declares required evidence -- the
+    # guard is keyed on having a conditional transition, not on having an
+    # `accepts:` block (advance.rs:571-575, :1229-1234). execute.md's `escalate`
+    # (:457-466) is the worked counter-example: required evidence, one
+    # unconditional edge, chained straight through.
+    #
+    # So collapsing these three edges into one unconditional transition -- a
+    # tempting simplification, since two of them share a target -- would let a
+    # tick run the cascade and land on a terminal in the same invocation, with
+    # the agent never seeing this state's directive. The `accepts:` block would
+    # still be here and would not save it.
+    #
+    # The evidence below is the OBSERVED post-state, not the script's account of
+    # itself. `cascade_status` is what the cascade said; `post_state` is what the
+    # repository shows, and a `completed` claim cannot route to `done` without a
+    # `verified` observation to go with it. That split is the point of the state:
+    # several of the script's operations report step-level `ok` having changed
+    # nothing, and its own post-cascade verification reads the working tree, so a
+    # document transitioned on disk but never staged satisfies everything it
+    # checks.
+    #
+    # `post_state` carries five failure values rather than one, and each has its
+    # own edge and its own failure_reason. koto discards a failed gate's output
+    # and a terminal state records what it was given, so collapsing them would
+    # make "the PLAN was never deleted", "nothing was committed" and "a document
+    # was transitioned but not staged" arrive identically in the record -- the
+    # shape that makes a catastrophe and a timeout indistinguishable
+    # (tsukumogami/shirabe#376). The distinction has to survive in the routing,
+    # because there is nowhere else for it to survive.
+    accepts:
+      cascade_status:
+        type: enum
+        values: [completed, partial, skipped]
+        required: true
+      post_state:
+        type: enum
+        values: [verified, plan_present, no_commit, wrong_status, not_in_commit, undecided]
+        required: true
+        description: >-
+          The exit of verify-cascade-commit.sh, which reads the third fact from
+          the finalization commit's own paths: 0 verified, 2 plan_present,
+          3 no_commit, 4 wrong_status, 5 not_in_commit, 6 undecided.
+      anchor_plan:
+        type: string
+        description: The PLAN path that was cascaded. A path, not a description.
+      finalization_commit:
+        type: string
+        description: The sha whose paths were read. A sha, not "the last commit".
+      cascade_detail:
+        type: string
+        description: What the cascade did, or why steps were skipped.
+    transitions:
+      # koto requires transitions to one target to be provably exclusive, and
+      # two edges keyed on different fields are not: it refuses to compile a
+      # `cascade_status` edge alongside a `post_state` edge to the same terminal
+      # because both could match one submission. So every edge below names BOTH
+      # fields, and the table is their cross product. It is mechanical, and it
+      # grows multiplicatively if either dimension gains a value.
+      - target: done_blocked
+        when:
+          cascade_status: partial
+        context_assignments:
+          failure_reason: "cascade_run: cascade reported partial: ${evidence.cascade_detail}"
+      - target: done
+        when:
+          cascade_status: completed
+          post_state: verified
+      - target: done
+        when:
+          cascade_status: skipped
+          post_state: verified
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: plan_present
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is still on disk (${evidence.anchor_plan}). The cascade did not delete its anchor, whatever it reported."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: no_commit
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is gone from the tree but no commit deletes it. Nothing was finalized; the work is uncommitted, not lost."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: wrong_status
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is not at its terminal posture. Re-run verify-cascade-commit.sh against ${evidence.anchor_plan} to see which."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: not_in_commit
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is terminal on disk but ABSENT from commit ${evidence.finalization_commit}. It was transitioned in the working tree and never staged, so the tree looks finished and the commit is not."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: undecided
+        context_assignments:
+          failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: plan_present
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is still on disk (${evidence.anchor_plan}). The cascade did not delete its anchor, whatever it reported."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: no_commit
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is gone from the tree but no commit deletes it. Nothing was finalized; the work is uncommitted, not lost."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: wrong_status
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is not at its terminal posture. Re-run verify-cascade-commit.sh against ${evidence.anchor_plan} to see which."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: not_in_commit
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is terminal on disk but ABSENT from commit ${evidence.finalization_commit}. It was transitioned in the working tree and never staged, so the tree looks finished and the commit is not."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: undecided
+        context_assignments:
+          failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
 
   done:
     terminal: true
@@ -1180,6 +1591,40 @@ Evidence schema:
 - `approval_decision`: `approved` or `rejected`
 - `deferral_detail`: the unmet criterion and the human's rationale
 
+## pre_pr_evidence
+
+The finishing obligations that can be decided before a pull request exists.
+Record them, then submit.
+
+```bash
+cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
+cleanup_commit: $(git rev-parse HEAD)
+design_diagram: docs/designs/DESIGN-<topic>.md
+EOF
+```
+
+`cleanup_commit` is the commit whose diff you reviewed for debug statements,
+commented-out code, addressed TODOs and unused imports. `design_diagram` is the
+path of the diagram you updated, or `not-applicable: <reason>` when the change
+touches no design document. Both are checked for shape, so a word standing in
+for a referent fails the state rather than satisfying it — that is the point of
+asking for them rather than for a claim that the work was done.
+
+Then submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
+`none_found`) and `design_diagram` (`updated` or `not_applicable`).
+
+If an obligation cannot be met, submit `pre_pr_status: blocked` instead of
+recording a referent you cannot stand behind.
+
+The gates check the summary's shape, the tip commit's subject against
+Conventional Commits, and the two referents. A failing one stops the run before
+the pull request is opened, with the reason naming which.
+
+`references/finishing-obligations.md` is the table of every finishing obligation
+— which are gate-enforced, which are evidence-carried, and which are
+deliberately advisory. Read it when you want to know what else is checked before
+this run can finish, or when adding an obligation of your own.
+
 ## pr_precheck
 
 Reading the branch this work is on, before the pull request is opened. koto runs the read itself on entry; you only see this state if it could not.
@@ -1212,8 +1657,86 @@ Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
 
 Read `references/phases/phase-6-pr.md` for CI monitoring.
 
+Submit `session_role` alongside `ci_outcome`, asking the discriminator rather
+than judging it yourself:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+```
+
+It prints `root` or `child`, reading koto's own `parent_workflow`. Test
+positively for `root`: on a usage error it exits 2 having printed nothing, and
+anything that is not exactly `root` is `child`. Submitting `child` when unsure is
+the safe direction — a child that wrongly stops has landed its pull request and
+left the chain for the run that owns it, while a child that wrongly cascades
+deletes a PLAN its siblings are still working from.
+
 If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+## cascade_entry
+
+No action. This state decides whether the issue has a PLAN behind it and routes
+accordingly; every outcome advances without evidence, so you will normally not
+see this state at all.
+
+There is a third outcome, and it does not stop here: the finder exits 2 when it
+cannot decide, and the run ends at done_blocked with the reason. Uncertainty is
+never treated as absence, because the absence edge is the silent one — skipping
+a cascade that was owed would tell nobody.
+
+## cascade_run
+
+Run the document-chain cascade for the PLAN that sequences this issue, then
+report what it did.
+
+```bash
+PLAN=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/find-anchor-plan.sh "{{ISSUE_NUMBER}}" "{{PLAN_DOC}}")
+RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push "$PLAN")
+```
+
+Ask the finder for the path rather than searching for it yourself. It is the
+same script cascade_entry's gate just ran to decide you belong here, so asking
+it again is what keeps the document you cascade the same one the gate found. A
+second search written by hand can differ — the row for issue 123 is a substring
+match away from the row for issue 12.
+
+Then observe what the repository actually shows:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verify-cascade-commit.sh "$PLAN"
+```
+
+Submit `cascade_status` from the script's own verdict, and `post_state` from the
+verifier's exit code: 0 `verified`, 2 `plan_present`, 3 `no_commit`, 4
+`wrong_status`, 5 `not_in_commit`, 6 `undecided`. Add `anchor_plan` (the PLAN
+path) and `finalization_commit` (the sha the verifier read), and `cascade_detail`
+summarising which transitions ran.
+
+The two are different kinds of thing and the state keeps them apart on purpose.
+`cascade_status` is the cascade's account of itself; `post_state` is the
+repository's. A `completed` claim with anything other than `verified` does not
+route to `done` — it stops, and the reason names which of the five things was
+wrong.
+
+**Do not treat the script's step-level `ok` as evidence that the chain moved.**
+Several of its operations report `ok` having changed nothing, and its own
+post-cascade verification reads the working tree rather than the commit, so a
+document transitioned on disk but missing from the finalization commit satisfies
+every check it makes. That is what the verifier is for: it establishes the PLAN
+absent from disk, each upstream document at its terminal posture, and the
+finalization commit CONTAINING each of those documents — the last read from the
+commit's own path list, never from the tree. Read its stderr if it fails; koto
+keeps the exit code, not the diagnostics.
+
+A `partial` verdict halts the run. The two shapes differ in what recovery means,
+and `/execute`'s `plan_completion` directive is the authority for both — read it
+there rather than reasoning from here, so two callers of one script cannot come
+to disagree about what a partial result means. A refused transition *without*
+`commit` and `push` at `ok` published nothing, so recovery is local. One *with*
+them published what it reached: the remote carries that commit, and recovery is
+a follow-up commit or a revert rather than a reset. Inspect the `steps` array to
+tell which shape you have; the verdict alone does not say.
 
 ## done
 

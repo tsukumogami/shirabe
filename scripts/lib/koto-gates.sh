@@ -57,8 +57,18 @@ koto_gate_rows() {
 # absent or unreadable.
 koto_gate_command() {
     local template="$1" gate="$2"
+    # Reads every row rather than exiting at the first match, and the difference
+    # is not style. `exit` closes the pipe while koto_gate_rows is still writing,
+    # so the writer takes SIGPIPE; a caller running under `set -o pipefail`
+    # then sees 141 and, under `set -e`, dies on the spot with no output at all.
+    # Whether that happens depends on how much the writer still had to say after
+    # the match — so it stays invisible until a template grows a gate below the
+    # one being read, and then it looks like the caller broke rather than this.
+    # Reading to the end costs a few hundred lines of awk and removes the class.
     koto_gate_rows "$template" \
-        | awk -F'\t' -v g="$gate" '$1 == "COMMAND" && $2 == g { print $3; exit }'
+        | awk -F'\t' -v g="$gate" '
+            $1 == "COMMAND" && $2 == g && !found { print $3; found = 1 }
+        '
 }
 
 # koto_unquote_scalar <raw-scalar>

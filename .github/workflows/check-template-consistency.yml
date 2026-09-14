@@ -31,3 +31,9 @@ jobs:
 
       - name: Test the CI gate expression
         run: bash scripts/ci-gate-expression_test.sh
+
+      # The gate reader both checks above depend on. On this runner it is a smoke
+      # test; the regression it pins reproduces only under bash 3.2, which
+      # check-bash-floor.yml runs.
+      - name: Test the gate reader
+        run: bash scripts/lib/koto-gates_test.sh

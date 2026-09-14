@@ -180,7 +180,7 @@ fall outside every in-scope shape by construction. 33 - 2 = 31 and 25 - 2 = 23,
 so the entry count lands where the design put it.
 
 The record count does not: the design expected one pair of byte-identical lines
-and there are two, both in `skills/execute/scripts/run-cascade.sh` -- the
+and there are two, both in `skills/work-on/scripts/run-cascade.sh` -- the
 `finding_count` capture at two call sites and `git add "$target" 2>/dev/null || true`
 in the `transition_prd` and `transition_brief` arms. 23 entries in 21 records,
 not 22. Recorded here rather than reconciled, because the count field carries
@@ -211,7 +211,7 @@ names the canonical example of the class, not open work. A reader chasing an
 entry here should read #279 for what the failure looks like and then fix the
 site named in field one, which is still live.
 
-- **`skills/execute/scripts/run-cascade.sh`, the three `git add` sites.** All
+- **`skills/work-on/scripts/run-cascade.sh`, the three `git add` sites.** All
   three append to `STAGED_FILES` and record the step as `"ok"` unconditionally.
   A `git add` that fails leaves the file unstaged while the cascade reports it
   staged and goes on to commit, so the artifact silently does not land. The
@@ -237,12 +237,12 @@ site named in field one, which is still live.
 skills/execute/koto-templates/execute.md	git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}}	1	1	Branch-existence probe: exit 1 means the shared branch does not exist yet and the -b fallback creates it, reaching the same end state. Re-adjudicated unchanged when the shell-derived slug became the declared {{PLAN_SLUG}}.	DESIGN-koto-default-action-adoption.md#c5
 skills/execute/koto-templates/execute.md	git push -u origin impl/{{PLAN_SLUG}} 2>/dev/null || true	1	1,128	Re-run path expects an already-tracked branch to reject the push, but the guard also swallows a real push failure. Re-adjudicated unchanged when the shell-derived slug became the declared {{PLAN_SLUG}}; the swallowing is unchanged and still tracked by shirabe#279.	shirabe#279
 skills/execute/scripts/record-settled-branch.sh	DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)	1	1	resolving the default branch is a probe whose failure is the ordinary case: refs/remotes/origin/HEAD is absent in a clone that never fetched it. The empty result is handled by ${DEFAULT:-main} and by main and master being named literally in the same case statement, so a failed resolution cannot leave the default-branch refusal satisfied by every branch.	DESIGN-koto-default-action-adoption.md#c2
-skills/execute/scripts/run-cascade.sh	state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || {	1	1	Handled: the block logs a named warning and returns 1, so an unreachable issue is reported rather than treated as closed.	PLAN-skill-preflight-checks.md#issue-17
-skills/execute/scripts/run-cascade.sh	finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""	2	5	The captured output is not guaranteed to be JSON; a parse failure sets the empty sentinel the very next conditional tests for.	PLAN-skill-preflight-checks.md#issue-17
-skills/execute/scripts/run-cascade.sh	REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {	1	128	Handled: the block emits a structured cascade_status=skipped error naming "not a git repository" and exits 1.	PLAN-skill-preflight-checks.md#issue-17
-skills/execute/scripts/run-cascade.sh	git add "$new_path" 2>/dev/null || git add "$target" 2>/dev/null || true	1	128	Post-move and pre-move paths are both tried because only one exists, but the trailing guard also swallows the case where neither stages.	shirabe#279
-skills/execute/scripts/run-cascade.sh	git add "$target" 2>/dev/null || true	2	128	Staging a path finalize-chain just reported, where a failure is silenced and the step is still recorded ok.	shirabe#279
-skills/execute/scripts/run-cascade.sh	errmsg=$(echo "$FINALIZE_ERR" | jq -r '.error // empty' 2>/dev/null) || errmsg=""	1	5	The captured stderr may not be JSON; the empty sentinel routes to the head -1 fallback that prints the raw text instead.	PLAN-skill-preflight-checks.md#issue-17
+skills/work-on/scripts/run-cascade.sh	state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || {	1	1	Handled: the block logs a named warning and returns 1, so an unreachable issue is reported rather than treated as closed.	PLAN-skill-preflight-checks.md#issue-17
+skills/work-on/scripts/run-cascade.sh	finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""	2	5	The captured output is not guaranteed to be JSON; a parse failure sets the empty sentinel the very next conditional tests for.	PLAN-skill-preflight-checks.md#issue-17
+skills/work-on/scripts/run-cascade.sh	REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {	1	128	Handled: the block emits a structured cascade_status=skipped error naming "not a git repository" and exits 1.	PLAN-skill-preflight-checks.md#issue-17
+skills/work-on/scripts/run-cascade.sh	git add "$new_path" 2>/dev/null || git add "$target" 2>/dev/null || true	1	128	Post-move and pre-move paths are both tried because only one exists, but the trailing guard also swallows the case where neither stages.	shirabe#279
+skills/work-on/scripts/run-cascade.sh	git add "$target" 2>/dev/null || true	2	128	Staging a path finalize-chain just reported, where a failure is silenced and the step is still recorded ok.	shirabe#279
+skills/work-on/scripts/run-cascade.sh	errmsg=$(echo "$FINALIZE_ERR" | jq -r '.error // empty' 2>/dev/null) || errmsg=""	1	5	The captured stderr may not be JSON; the empty sentinel routes to the head -1 fallback that prints the raw text instead.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/build-dependency-graph.sh	if ! echo "$input" | jq -e 'type == "array"' >/dev/null 2>&1; then	1	1,5	Used as a predicate over untrusted stdin; the branch emits its own json_error naming the expected shape.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/plan-to-tasks.sh	root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""	1	128	Repo-root probe inside resolve_shirabe_bin: outside a repo there is no target/ to look in, the empty sentinel skips both probes, and the caller's die_input names every way to supply the binary.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/plan-to-tasks.sh	schema=$(printf '%s' "$envelope" | jq -r '.schema // empty' 2>/dev/null) || schema=""	1	5	The envelope is not guaranteed to be JSON; the empty sentinel fails the very next schema comparison, which reports the version skew by name.	PLAN-skill-preflight-checks.md#issue-17

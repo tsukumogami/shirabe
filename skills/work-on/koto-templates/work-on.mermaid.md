@@ -7,7 +7,25 @@ stateDiagram-v2
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
     analysis --> done_blocked : plan_outcome: blocked_missing_context
-    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0
+    cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
+    cascade_entry --> done : gates.anchor_present.exit_code: 1
+    cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
+    cascade_run --> done_blocked : cascade_status: partial
+    cascade_run --> done : cascade_status: completed, post_state: verified
+    cascade_run --> done : cascade_status: skipped, post_state: verified
+    cascade_run --> done_blocked : cascade_status: completed, post_state: plan_present
+    cascade_run --> done_blocked : cascade_status: completed, post_state: no_commit
+    cascade_run --> done_blocked : cascade_status: completed, post_state: wrong_status
+    cascade_run --> done_blocked : cascade_status: completed, post_state: not_in_commit
+    cascade_run --> done_blocked : cascade_status: completed, post_state: undecided
+    cascade_run --> done_blocked : cascade_status: skipped, post_state: plan_present
+    cascade_run --> done_blocked : cascade_status: skipped, post_state: no_commit
+    cascade_run --> done_blocked : cascade_status: skipped, post_state: wrong_status
+    cascade_run --> done_blocked : cascade_status: skipped, post_state: not_in_commit
+    cascade_run --> done_blocked : cascade_status: skipped, post_state: undecided
+    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: root
+    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: child
+    ci_monitor --> done_blocked : ci_outcome: passing, gates.merge_state_clean.exit_code: 1
     ci_monitor --> done : ci_outcome: failing_fixed
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
     ci_monitor --> done
@@ -15,14 +33,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pr_precheck : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.summary_exists.exists: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.summary_exists.exists: true
+    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
     implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
@@ -45,13 +63,20 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
-    pr_creation --> ci_monitor : pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, pr_status: created
+    pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
     pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
     pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
+    pre_pr_evidence --> pr_precheck : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: true, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: false, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: false, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry
     qa_validation --> done_blocked : qa_outcome: blocking_escalate
@@ -92,8 +117,14 @@ stateDiagram-v2
     note left of analysis
         gate: plan_artifact
     end note
+    note left of cascade_entry
+        gate: anchor_present
+    end note
     note left of ci_monitor
         gate: ci_passing
+    end note
+    note left of ci_monitor
+        gate: merge_state_clean
     end note
     note left of context_injection
         gate: context_artifact
@@ -119,8 +150,23 @@ stateDiagram-v2
     note left of plan_context_injection
         gate: context_artifact
     end note
+    note left of pr_creation
+        gate: closing_keyword
+    end note
     note left of pr_precheck
         gate: on_feature_branch_pr
+    end note
+    note left of pre_pr_evidence
+        gate: cleanup_referent
+    end note
+    note left of pre_pr_evidence
+        gate: commit_convention
+    end note
+    note left of pre_pr_evidence
+        gate: diagram_referent
+    end note
+    note left of pre_pr_evidence
+        gate: summary_shape
     end note
     note left of qa_validation
         gate: qa_results

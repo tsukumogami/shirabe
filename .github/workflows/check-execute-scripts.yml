@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'skills/execute/scripts/**'
+      # The cascade script and its test moved under /work-on, which /execute
+      # reaches over a cross-skill path. This suite still runs them because it
+      # carries the Rust toolchain run-cascade_test.sh rebuilds the binary with;
+      # the wide `skills/**` filter below is what triggers on them now.
       # terminal-retention_test.sh drives the shipped template and reads the
       # rule out of SKILL.md, so an edit to either can break it while leaving
       # skills/execute/scripts/** untouched.
@@ -39,7 +43,7 @@ jobs:
 
       - name: Run cascade tests (Linux)
         if: runner.os == 'Linux'
-        run: bash skills/execute/scripts/run-cascade_test.sh
+        run: bash skills/work-on/scripts/run-cascade_test.sh
 
       - name: Run assert-child-template tests (Linux)
         if: runner.os == 'Linux'

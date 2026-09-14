@@ -108,7 +108,7 @@ suite_scripts() {
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
             ;;
         execute)
-            echo "skills/execute/scripts/run-cascade_test.sh"
+            echo "skills/work-on/scripts/run-cascade_test.sh"
             echo "skills/execute/scripts/assert-child-template_test.sh"
             # Skips cleanly when koto is absent, which it is on the macOS
             # runner. It is here for the floor's own sake: a developer running
@@ -126,6 +126,18 @@ suite_scripts() {
             # since a developer running it locally has koto and the cases
             # genuinely execute on 3.2 there.
             echo "skills/work-on/scripts/retry-clearing_test.sh"
+            # Also drives real koto sessions, and skips cleanly without them
+            # for the same reason retry-clearing_test.sh does.
+            echo "skills/work-on/scripts/cascade-chaining_test.sh"
+            # Needs no engine at all: it builds repositories and reads commits,
+            # so every case genuinely executes on the floor.
+            echo "skills/work-on/scripts/verify-cascade-commit_test.sh"
+            # Drives real koto sessions, and skips cleanly without them.
+            echo "skills/work-on/scripts/ci-monitor-role_test.sh"
+            # Needs no engine: it runs the gate expression against stubbed gh.
+            echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
+            # Drives real koto sessions, and skips cleanly without them.
+            echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
@@ -148,11 +160,17 @@ suite_scripts() {
             echo "scripts/check-template-interpolation.sh"
             echo "scripts/check-template-directives_test.sh"
             echo "scripts/check-template-directives.sh"
+            echo "scripts/check-init-site-vars_test.sh"
+            echo "scripts/check-init-site-vars.sh"
             ;;
         template-consistency)
             echo "scripts/validate-template-mermaid.sh"
             echo "scripts/validate-template-mermaid_test.sh"
             echo "scripts/ci-gate-expression_test.sh"
+            # The gate reader both of those depend on. Its regression only
+            # reproduces on the floor: newer bash does not make the writer's
+            # SIGPIPE fatal, so this leg is where the pin actually bites.
+            echo "scripts/lib/koto-gates_test.sh"
             # The settled-branch read used to be listed here, because it
             # extracted twenty-five lines of shell straight out of
             # skills/execute/koto-templates/execute.md. That read is gone: the

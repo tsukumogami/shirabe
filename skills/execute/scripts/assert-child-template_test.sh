@@ -43,8 +43,9 @@ fi
 # Case 2 — the success path is silent: a valid root prints nothing on stdout or
 # stderr. A check that speaks only when it fails is the shape this repo expects.
 ALT_ROOT=$(mktemp -d); TMPS+=("$ALT_ROOT")
-mkdir -p "$ALT_ROOT/skills/work-on/koto-templates"
+mkdir -p "$ALT_ROOT/skills/work-on/koto-templates" "$ALT_ROOT/skills/work-on/scripts"
 touch "$ALT_ROOT/skills/work-on/koto-templates/work-on.md"
+touch "$ALT_ROOT/skills/work-on/scripts/run-cascade.sh"
 out=$(CLAUDE_PLUGIN_ROOT="$ALT_ROOT" bash "$ASSERT" 2>&1) || true
 if [[ -z "$out" ]]; then
     pass "success path prints nothing"
@@ -74,6 +75,21 @@ if env -u CLAUDE_PLUGIN_ROOT bash "$FAKE_ROOT/skills/execute/scripts/assert-chil
     fail "missing child template (self-resolved root) should exit 1, but it passed"
 else
     pass "missing child template (self-resolved root) -> exits 1 (assertion fires)"
+fi
+
+# Case 5 — the cascade check fires on its own. The child template is present and
+# only the relocated cascade script is missing, so a pass here would mean the
+# second check is not really being made — the template check alone would have
+# let this tree through.
+CASCADE_ROOT=$(mktemp -d); TMPS+=("$CASCADE_ROOT")
+mkdir -p "$CASCADE_ROOT/skills/work-on/koto-templates"
+touch "$CASCADE_ROOT/skills/work-on/koto-templates/work-on.md"
+if err=$(CLAUDE_PLUGIN_ROOT="$CASCADE_ROOT" bash "$ASSERT" 2>&1); then
+    fail "missing cascade script with template present should exit 1, but it passed"
+elif [[ "$err" == *"$CASCADE_ROOT/skills/work-on/scripts/run-cascade.sh"* ]]; then
+    pass "missing cascade script (template present) -> exits 1 naming the cascade path"
+else
+    fail "cascade check should name its own path; got: $err"
 fi
 
 echo
