@@ -305,7 +305,7 @@ A step's `status` says what happened to that one action:
   the cascade does not control (a ROADMAP is left in place while an issue it
   references is still open). `skipped` never means the cascade was asked to do
   something and could not. Known defects break these meanings today: an issue
-  check that fails (a `gh` error, or a URL it cannot parse) reads as an open
+  check that fails (a `gh` error, or a URL whose owner or repo it rejects) reads as an open
   issue and records `skipped`, and the ROADMAP update can record `ok` against
   the wrong feature (both #370) or after rewrites that matched nothing (#362).
 - `failed`: the cascade was asked to do the step and could not.
@@ -397,7 +397,7 @@ stops and the overall status reflects work done up to that point.
 The run is `partial` because the `update_roadmap_feature` step is `failed`. The
 steps are abbreviated and not in emitted order (the script records `delete_plan`
 after the lookup). Through a chain like this one, a `--push` run has already
-committed and pushed the DESIGN's transition and the PLAN's deletion by the time
+committed and pushed the chain's transitions and the PLAN's deletion by the time
 it reports `partial`, and that tree passes the ready-mode lifecycle check, so
 `/execute`'s halt on `partial` is the only guard (#372). A PLAN whose only
 upstream is the ROADMAP commits nothing and leaves the PLAN's deletion staged in
