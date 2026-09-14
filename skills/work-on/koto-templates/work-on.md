@@ -498,7 +498,7 @@ states:
       # Nothing replaces it here yet. Verification of the change still happens at
       # the `verification` state, against the repository's own map, and still
       # fails closed when nothing can verify. A replacement is expected; the
-      # constraints it has to meet are tracked with the follow-up to #376.
+      # constraints it has to meet are tracked in #384.
     accepts:
       implementation_status:
         type: enum
