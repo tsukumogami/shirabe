@@ -482,31 +482,23 @@ states:
       has_commits:
         type: command
         command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
-      # The output goes to a file in the run's own directory, NOT to /dev/null,
-      # and not merely unredirected. koto keeps a command gate's stderr only for
-      # a spawn or wait failure: a non-zero exit is reported as
-      # {"exit_code": N, "error": ""} and a timeout as {"error": "timed_out"}
-      # with nothing else (koto/src/gate.rs:281-306). So simply dropping the
-      # redirect would satisfy the letter of "stop discarding stderr" and still
-      # leave an operator with a bare exit code to read.
+      # A `tests_passing` gate used to sit here, running `go test ./...` before
+      # the review panels. It was removed (#376) pending a safer design, not
+      # because the idea was wrong: a machine-checked proof that the change works,
+      # taken before three panels spend effort on it, is worth having.
       #
-      # Writing to a file is what makes the timeout case legible, and the timeout
-      # case is the one that mattered: a run whose suite fork bombed was recorded
-      # as `timed_out` with exit -1 while the machine filled with processes, and
-      # the command had been producing evidence the whole time. A killed command's
-      # partial output stays in the file.
+      # This instance could not serve that purpose. It did nothing in seven of the
+      # nine repositories it ran in, including shirabe, which ships it; it ran a
+      # command one repository's own verification map documents as the wrong way
+      # to verify it; and in one repository it executed a suite that spawned copies
+      # of itself, unattended, until the host reached a load average in the
+      # thousands. koto's 30-second bound killed the gate's process group, which is
+      # a defence against a hang and not against something that multiplies first.
       #
-      # The redirect must not change the verdict — `> file 2>&1` keeps the exit
-      # status of `go test` itself, which is what the transition routes on. A
-      # pipe to `tee` would report tee's status instead.
-      #
-      # {{SESSION_DIR}} resolves inside a gate command, which is measured rather
-      # than assumed. On a child session the directory is disposed of with the
-      # session, so the log outlives the run only for a root; that is the same
-      # retention rule the record itself follows (#360).
-      tests_passing:
-        type: command
-        command: '[ ! -f go.mod ] || go test ./... > "{{SESSION_DIR}}/tests_passing.log" 2>&1'
+      # Nothing replaces it here yet. Verification of the change still happens at
+      # the `verification` state, against the repository's own map, and still
+      # fails closed when nothing can verify. A replacement is expected; the
+      # constraints it has to meet are tracked in #384.
     accepts:
       implementation_status:
         type: enum
@@ -535,8 +527,7 @@ states:
           issue_type: code
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
-          gates.tests_passing.exit_code: 0
-      # docs: skip panels, go to verification before finalization (no tests_passing check)
+      # docs: skip panels, go to verification before finalization
       - target: verification
         when:
           implementation_status: complete
@@ -1493,13 +1484,6 @@ Capture non-obvious decisions in the `decisions` field.
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
 code review guidance, and commit patterns.
 
-If the `tests_passing` gate blocks this state, read
-`{{SESSION_DIR}}/tests_passing.log` — the suite's own output, both streams, is
-there. koto reports the gate itself as an exit code, and as nothing at all when
-the command times out, so the log is where the reason lives. A gate that timed
-out still leaves whatever the command wrote before it was killed, which is the
-case worth knowing about: a suite that runs away looks identical to a slow one
-from the exit code alone.
 
 When submitting `implementation_status: complete`, also submit `issue_type` as the
 value confirmed during analysis (from `analysis.accepts.issue_type`). This determines
