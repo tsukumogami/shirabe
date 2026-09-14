@@ -787,7 +787,7 @@ test_shipped_templates_have_four_known_violations() {
 
     local expected
     for expected in \
-        "work-on.md:125 state 'research'" \
+        "work-on.md:152 state 'research'" \
         "execute.md:457 state 'escalate'" \
         "execute.md:418 state 'escalate_dirty_merge_state'" \
         "execute.md:279 state 'escalate_upstream_drift'"

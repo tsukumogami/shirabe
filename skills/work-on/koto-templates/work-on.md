@@ -39,6 +39,33 @@ variables:
       Shared branch name provided by the plan orchestrator. When set, skip branch
       creation in setup states and commit directly to this branch.
     required: false
+  PLUGIN_ROOT:
+    description: >-
+      Absolute path to the shirabe plugin root, passed at koto init as
+      --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} where the agent's own shell
+      expands it once. cascade_entry's gate invokes find-anchor-plan.sh, which
+      ships in the plugin, and koto runs a gate command with the working
+      directory of the `koto next` process -- here the repository being worked,
+      not this checkout. A repo-relative path therefore resolves only when
+      /work-on runs against shirabe itself. Declared as a template variable
+      rather than written as a shell-style ${CLAUDE_PLUGIN_ROOT} because koto
+      resolves only {{KEY}} references: the shell form reaches sh -c untouched
+      and expands to nothing, and scripts/check-template-interpolation.sh
+      rejects it for that reason.
+
+      Required, but required is not the guarantee. koto accepts an empty value
+      for a required variable (VALUE_PATTERN ends in `*`), so an init run in a
+      shell where CLAUDE_PLUGIN_ROOT is unset passes --var PLUGIN_ROOT= and
+      sails through. cascade_entry's gate therefore tests that the finder is
+      executable at the resolved path and exits 2 if it is not, which routes to
+      done_blocked. Without that test the failure is exit 127, whose output koto
+      discards, and the run holds with no diagnostic.
+
+      Unlike /scope and /execute, this template is both initialized directly and
+      materialized as a child, so it has more than one kind of init site. Every
+      one of them passes this variable; check-init-site-vars.sh is what keeps
+      that true.
+    required: true
 
 states:
   entry:
@@ -819,7 +846,7 @@ states:
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
-    # the cascade entirely when it does not. Both edges fire with NO evidence:
+    # the cascade entirely when it does not. Every edge fires with NO evidence:
     # an ordinary bug fix with nothing behind it must never learn that a cascade
     # step exists (PRD R3).
     #
@@ -831,19 +858,35 @@ states:
     # settled_branch_record (:87-91), which also carries the warning repeated
     # here:
     #
-    #   BOTH transitions must name the gate in their `when:` clause. A gate not
+    #   EVERY transition must name the gate in its `when:` clause. A gate not
     #   referenced by any transition is evaluated, reported, and ignored -- an
-    #   anchor check that runs and decides nothing.
+    #   anchor check that runs and decides nothing. An unconditional edge added
+    #   here would also chain the state through, since koto's advance loop keys
+    #   on having a conditional transition rather than on required evidence.
     #
-    # The gate's search pattern MUST be anchored. context-matches evaluates
-    # Regex::is_match, a substring test, so an unanchored pattern passes "main"
-    # inside "main; rm -rf /", and here an unanchored issue number would match
-    # as a substring of another and cascade the wrong chain. Nothing mechanical
-    # enforces this: check-template-interpolation.sh does not cover it.
+    # The decision is delegated to find-anchor-plan.sh rather than inlined here,
+    # and the three exit codes are the reason. A gate command can express a
+    # two-way test in one line; this decision has three outcomes, because "could
+    # not decide" must not collapse into "no anchor" -- exit 1 routes past the
+    # cascade in silence, so an unreadable tree or an issue named by two PLANs
+    # arriving as 1 would skip a cascade that was owed and tell nobody. The
+    # script's search is also anchored on the colon after the issue number, which
+    # is what stops issue 12 matching a row for issue 123 and cascading the wrong
+    # chain; its test suite covers that case and five other wrong
+    # implementations. Nothing mechanical enforces the anchoring, in the script
+    # or here -- check-template-interpolation.sh reads shell-style references,
+    # not regex correctness.
+    #
+    # The `test -x` prefix is not defensive clutter. PLUGIN_ROOT is required and
+    # koto still accepts an empty value for it, so an unset CLAUDE_PLUGIN_ROOT at
+    # init reaches this line as an absolute path to nothing. Without the test the
+    # finder is simply not found, the gate exits 127, koto discards its output,
+    # and the run holds with no diagnostic. With it, a plugin root that does not
+    # resolve fails closed to exit 2 and stops loudly at done_blocked.
     gates:
       anchor_present:
         type: command
-        command: "test -n \"$(grep -rlE '^\\|[[:space:]]*\\[?#?{{ISSUE_NUMBER}}\\]?[[:space:]]*\\|' docs/plans/ 2>/dev/null | head -1)\""
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/find-anchor-plan.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/find-anchor-plan.sh" "{{ISSUE_NUMBER}}" "{{PLAN_DOC}}"'
     accepts:
       anchor_note:
         type: string
@@ -859,6 +902,17 @@ states:
       - target: done
         when:
           gates.anchor_present.exit_code: 1
+      - target: done_blocked
+        when:
+          gates.anchor_present.exit_code: 2
+        context_assignments:
+          failure_reason: >-
+            cascade_entry: could not determine whether this issue has a PLAN
+            behind it. Either the anchor finder could not decide (a
+            non-numeric issue number, an unreadable docs/plans, or two PLANs
+            naming the same issue) or it was not reachable at PLUGIN_ROOT.
+            Run skills/work-on/scripts/find-anchor-plan.sh against the issue
+            number to see which. Not skipped: a cascade may be owed.
 
   cascade_run:
     # Runs the document-chain cascade and records what it actually did.
@@ -1279,11 +1333,13 @@ If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 ## cascade_entry
 
 No action. This state decides whether the issue has a PLAN behind it and routes
-accordingly; both outcomes advance without evidence, so you will normally not
+accordingly; every outcome advances without evidence, so you will normally not
 see this state at all.
 
-If it stops here, the gate could not resolve. Read its output, fix what it
-names, and tick again.
+There is a third outcome, and it does not stop here: the finder exits 2 when it
+cannot decide, and the run ends at done_blocked with the reason. Uncertainty is
+never treated as absence, because the absence edge is the silent one — skipping
+a cascade that was owed would tell nobody.
 
 ## cascade_run
 
@@ -1291,8 +1347,15 @@ Run the document-chain cascade for the PLAN that sequences this issue, then
 report what it did.
 
 ```bash
-RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push <PLAN-path>)
+PLAN=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/find-anchor-plan.sh "{{ISSUE_NUMBER}}" "{{PLAN_DOC}}")
+RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push "$PLAN")
 ```
+
+Ask the finder for the path rather than searching for it yourself. It is the
+same script cascade_entry's gate just ran to decide you belong here, so asking
+it again is what keeps the document you cascade the same one the gate found. A
+second search written by hand can differ — the row for issue 123 is a substring
+match away from the row for issue 12.
 
 Submit `cascade_status` from the script's own verdict, with `cascade_detail`
 summarising which transitions ran.

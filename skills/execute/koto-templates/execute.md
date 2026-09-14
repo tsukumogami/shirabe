@@ -603,7 +603,12 @@ TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # fallback existed because the key might be absent, and the gate is what
 # makes it present.
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
+# PLUGIN_ROOT is required by work-on.md and is not part of plan-to-tasks.sh's
+# contract, so it is injected here the same way SHARED_BRANCH is: a child koto
+# materializes receives only the variables its task entry lists, and a child
+# missing this one fails to spawn with a variable-resolution error in the
+# batch's errored ledger.
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
@@ -623,7 +628,12 @@ TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # fallback existed because the key might be absent, and the gate is what
 # makes it present.
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
+# PLUGIN_ROOT is required by work-on.md and is not part of plan-to-tasks.sh's
+# contract, so it is injected here the same way SHARED_BRANCH is: a child koto
+# materializes receives only the variables its task entry lists, and a child
+# missing this one fails to spawn with a variable-resolution error in the
+# batch's errored ledger.
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"

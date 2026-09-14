@@ -148,15 +148,24 @@ two edges.
 
 **Acceptance Criteria**:
 
-- [ ] An issue named in a PLAN's table is detected; one that is not is not.
-- [ ] The search pattern is **anchored**, so an issue number cannot match as a
+- [x] An issue named in a PLAN's table is detected; one that is not is not.
+- [x] The search pattern is **anchored**, so an issue number cannot match as a
       substring of another and cascade the wrong chain. **Review obligation:**
       nothing mechanical enforces this — `check-template-interpolation.sh` does
       not cover it — so the anchoring is checked by a reviewer when the gate is
       written, and the pull request says it was.
-- [ ] A caller-supplied plan path short-circuits the search when present.
-- [ ] A run with no anchor emits no cascade-related output at all: the no-anchor
+- [x] A caller-supplied plan path short-circuits the search when present.
+- [x] A run with no anchor emits no cascade-related output at all: the no-anchor
       path produces no agent-facing cascade language.
+- [x] Uncertainty is not absence. The finder has **three** outcomes, and a
+      "could not decide" — a non-numeric issue number, an unreadable
+      `docs/plans/`, two PLANs naming one issue — stops at `done_blocked`
+      rather than taking the silent no-anchor edge and skipping an owed
+      cascade.
+- [x] The gate reaches the finder through a required `PLUGIN_ROOT`, passed at
+      every init site, and fails **closed**: an unresolved plugin root exits 2
+      to `done_blocked` rather than 127 into a silent hold. A check proves
+      every init site passes the variable, mutation-proven site by site.
 
 **Dependencies**: <<ISSUE:1>>
 

@@ -10,6 +10,7 @@ stateDiagram-v2
     ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
     cascade_entry --> done : gates.anchor_present.exit_code: 1
+    cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
     cascade_run --> done : cascade_status: completed
     cascade_run --> done : cascade_status: skipped
     cascade_run --> done_blocked : cascade_status: partial

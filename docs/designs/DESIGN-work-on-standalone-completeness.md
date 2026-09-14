@@ -246,6 +246,62 @@ routing shape when the precedented one works is a cost this design declines to
 pay. Supported but unprecedented here is a reason to decline, not a reason to
 adopt.
 
+**How the gate reaches the search, and why a third outcome exists.** The search
+ships as a script rather than as shell inside the gate string, and the gate
+reaches it through a required `PLUGIN_ROOT` template variable — the shape
+`scope.md` and `execute.md` already use, for the same reason: koto resolves only
+`{{KEY}}` references, so a shell-style `${CLAUDE_PLUGIN_ROOT}` in a gate command
+reaches `sh -c` untouched and expands to nothing, and a repo-relative path
+resolves only when the skill runs against shirabe itself.
+
+Writing the search inline would need no plugin path at all, which is a real
+advantage and the reason the alternative was weighed rather than dismissed. It
+loses on duplication: `cascade_run` needs the anchor's path to hand to the
+cascade script, so an inline gate does not remove the script, it adds a second
+implementation of the same matching — and puts the copy that routes the workflow
+into a multi-branch shell program inside a YAML scalar, which is where a wrong
+pattern is least likely to be caught. The version of that gate this work
+replaced is the evidence: it matched on a pattern the canonical table row does
+not use, and with an empty issue number it matched an empty cell.
+
+`work-on.md` is also the first template here that is both initialized directly
+and materialized as a child, so the variable has more than one kind of init site:
+the `koto init` blocks an agent runs from SKILL.md, and the task entries
+`/execute` builds for the children koto materializes. The child half needs no
+change to `/plan`'s script or its contract — `/execute` already injects a
+variable of its own into each child's vars after that script runs, and this one
+follows it. koto fails loudly when a required variable is missing, at `koto init`
+for the first kind of site and in the batch's errored ledger for the second, but
+loudly to whoever runs the path that was missed is not the same as visible before
+merge, and nothing in the repository checked the sites agreed. `check-init-site-
+vars.sh` does, and its test drops the variable from each site separately, because
+a check that only fires when every site is wrong would not catch the drift this
+guards against.
+
+The decision has **three** outcomes rather than two, and that is what a gate
+string could not express cleanly anyway. Exit 1 routes past the cascade in
+silence, so it must mean only that there is genuinely nothing to cascade;
+anything uncertain — a non-numeric issue number, an unreadable `docs/plans/`, two
+PLANs naming the same issue — exits 2 and stops at `done_blocked`. Collapsing
+uncertainty into absence would skip an owed cascade down the silent edge and tell
+nobody, which is the omission this whole feature exists to remove.
+
+The same edge carries a second job. `required: true` does not guarantee a usable
+value: koto accepts an empty one for a required variable, so an init in a shell
+where `CLAUDE_PLUGIN_ROOT` is unset passes `--var PLUGIN_ROOT=` and sails through
+(tsukumogami/koto#245). The gate therefore tests that the finder is executable at
+the resolved path and exits 2 when it is not, turning what would otherwise be an
+exit 127 with its output discarded — a silent hold — into a loud stop. The
+template's test exercises this against the shipped gate text, not a stub.
+
+One limit of this approach, recorded because it is invisible until it fires:
+koto validates a variable value against `^[a-zA-Z0-9._/:@ \-]*$`
+(tsukumogami/koto#180), so a plugin root containing any other character cannot be
+threaded as a variable at all. This is a constraint on where the plugin may be
+installed, not a hidden defect — the failure is loud and immediate at `koto
+init`, with koto naming the pattern and the value it rejected. An inline gate
+would not have the constraint at all; it is part of what the chosen shape costs.
+
 The accepted failure direction is the false negative: a PLAN in a shape the
 anchored search does not recognise reads as no-anchor and the run completes via
 the pass-through rather than cascading. That is the same direction the PRD

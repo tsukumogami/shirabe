@@ -103,6 +103,14 @@ variables:
   ISSUE_NUMBER:
     description: Issue under test
     required: false
+  PLAN_DOC:
+    description: Caller-supplied PLAN, empty in every case here
+    required: false
+  PLUGIN_ROOT:
+    description: >-
+      Declared optional here, unlike the shipped template, so Case 5 can init
+      without it and exercise what the gate does with an unresolved root.
+    required: false
 states:
   start:
     accepts:
@@ -114,7 +122,7 @@ states:
       - target: cascade_entry
         when:
           ci_outcome: passing
-$(echo "$CASCADE_ENTRY" | sed "s|command: .*|command: \"exit $anchor_exit\"|")
+$(if [[ "$anchor_exit" == "real" ]]; then echo "$CASCADE_ENTRY"; else echo "$CASCADE_ENTRY" | sed "s|command: .*|command: \"exit $anchor_exit\"|"; fi)
 $run_block
   done:
     terminal: true
@@ -215,6 +223,49 @@ elif echo "$OUT3" | grep -qE '"state":"done"|"action":"done"'; then
     pass "no-anchor path reaches a terminal without stopping at cascade_run (R3 holds)"
 else
     fail "no-anchor case: unexpected tick result: $(echo "$OUT3" | head -c 300)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 4 — uncertainty is not absence.
+#
+# The finder exits 2 when it cannot decide: a non-numeric issue number, an
+# unreadable docs/plans, or two PLANs naming the same issue. That must stop at
+# done_blocked. Routing it to done would skip a cascade that may be owed, and
+# the no-anchor edge is silent, so nobody would ever hear about it.
+# ---------------------------------------------------------------------------
+D4=$(mktemp -d); TMPS+=("$D4")
+OUT4=$(tick_from_start "$D4" "cascade-chain-undecided-$$" 2 "$CASCADE_RUN" || true)
+
+if echo "$OUT4" | grep -q '"state":"done_blocked"'; then
+    pass "could-not-decide stops at done_blocked (uncertainty is not treated as absence)"
+elif echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
+    fail "could-not-decide routed to done — an owed cascade would be skipped in silence"
+else
+    fail "undecided case: unexpected tick result: $(echo "$OUT4" | head -c 300)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 5 — the SHIPPED gate command, with no plugin root to resolve.
+#
+# Every case above stubs the gate's exit code. This one runs the real command
+# text with PLUGIN_ROOT unset, which is what an init in a shell with no
+# CLAUDE_PLUGIN_ROOT produces: koto accepts an empty value for a required
+# variable, so the empty root reaches the gate rather than being caught at init
+# (koto#245). Without the `test -x` guard the finder is simply not found, the
+# gate exits 127, koto discards its output, and the run holds with no
+# diagnostic. The guard is what turns that into a loud stop.
+# ---------------------------------------------------------------------------
+D5=$(mktemp -d); TMPS+=("$D5")
+OUT5=$(tick_from_start "$D5" "cascade-chain-noroot-$$" real "$CASCADE_RUN" || true)
+
+if echo "$OUT5" | grep -q '"state":"done_blocked"'; then
+    pass "shipped gate with an unresolved plugin root fails closed to done_blocked"
+elif echo "$OUT5" | grep -qE '"state":"done"|"action":"done"'; then
+    fail "shipped gate with an unresolved plugin root routed to done — a cascade would be skipped because a path was wrong"
+elif echo "$OUT5" | grep -q '"state":"cascade_entry"'; then
+    fail "shipped gate with an unresolved plugin root held at cascade_entry with no route — the fail-closed guard is gone"
+else
+    fail "no-root case: unexpected tick result: $(echo "$OUT5" | head -c 300)"
 fi
 
 echo

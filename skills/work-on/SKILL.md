@@ -194,13 +194,15 @@ You are assigned to work on the resolved issue. The issue number determined abov
 ```bash
 koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
   --var ISSUE_NUMBER=<N> \
-  --var ARTIFACT_PREFIX=issue_<N>
+  --var ARTIFACT_PREFIX=issue_<N> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 ```
 
 **Free-form mode:**
 ```bash
 koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
-  --var ARTIFACT_PREFIX=task_<slug>
+  --var ARTIFACT_PREFIX=task_<slug> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 ```
 
 **Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the

@@ -59,3 +59,20 @@ jobs:
 
       - name: Check koto template directives
         run: bash scripts/check-template-directives.sh
+
+  # work-on.md is the first template here that is both initialized directly by
+  # an agent following SKILL.md and materialized as a child from a task array
+  # /execute builds. A variable required by the template can therefore be added
+  # to one kind of init site and forgotten at the other. koto fails loudly when
+  # it happens, but only for whoever runs the path that was missed; this check
+  # is what makes the omission visible before the PR lands.
+  init-sites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run check-init-site-vars tests
+        run: bash scripts/check-init-site-vars_test.sh
+
+      - name: Check every init site passes the template's required variables
+        run: bash scripts/check-init-site-vars.sh

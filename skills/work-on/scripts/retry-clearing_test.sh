@@ -43,6 +43,15 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 PHASES="$SKILL_DIR/references/phases"
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
+# The template requires PLUGIN_ROOT: cascade_entry's gate resolves the anchor
+# finder against it. This test never reaches that state, but koto resolves every
+# required variable at init, so a session cannot be created without it.
+#
+# A literal rather than this checkout's own path, because koto validates a
+# variable value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the whole init if it
+# does not match. A checkout under a directory containing, say, a "+" would fail
+# here for a reason that has nothing to do with what this test covers.
+PLUGIN_ROOT=/nonexistent/plugin-root
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -148,7 +157,8 @@ cd "$REPO" || exit 1
 new_session() {
     koto init "$1" --template "$TEMPLATE" \
         --var ARTIFACT_PREFIX=issue_42 \
-        --var ISSUE_NUMBER=42 >/dev/null 2>&1
+        --var ISSUE_NUMBER=42 \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1
 }
 
 seed() { printf 'round-1 artifact\n' | koto context add "$1" "$2" >/dev/null 2>&1; }
