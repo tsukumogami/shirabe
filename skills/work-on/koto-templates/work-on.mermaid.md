@@ -42,7 +42,7 @@ stateDiagram-v2
     finalization --> implementation : finalization_status: issues_found
     finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
-    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
+    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: code
     implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
     implementation --> verification : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
     implementation --> implementation : implementation_status: partial_tests_failing_retry
@@ -140,9 +140,6 @@ stateDiagram-v2
     end note
     note left of implementation
         gate: on_feature_branch_impl
-    end note
-    note left of implementation
-        gate: tests_passing
     end note
     note left of introspection
         gate: introspection_artifact

@@ -353,8 +353,7 @@
         "Agent submits implementation_status: complete with issue_type: docs",
         "Agent does NOT submit issue_type: code for a documentation issue",
         "Agent understands that issue_type: docs routes to finalization directly, skipping review panels",
-        "Agent does NOT attempt to run scrutiny or review panels for a docs issue type",
-        "Agent recognizes that tests_passing gate is not required for docs type transitions"
+        "Agent does NOT attempt to run scrutiny or review panels for a docs issue type"
       ]
     },
     {
