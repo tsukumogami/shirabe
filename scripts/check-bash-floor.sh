@@ -167,6 +167,10 @@ suite_scripts() {
             echo "scripts/validate-template-mermaid.sh"
             echo "scripts/validate-template-mermaid_test.sh"
             echo "scripts/ci-gate-expression_test.sh"
+            # The gate reader both of those depend on. Its regression only
+            # reproduces on the floor: newer bash does not make the writer's
+            # SIGPIPE fatal, so this leg is where the pin actually bites.
+            echo "scripts/lib/koto-gates_test.sh"
             # The settled-branch read used to be listed here, because it
             # extracted twenty-five lines of shell straight out of
             # skills/execute/koto-templates/execute.md. That read is gone: the

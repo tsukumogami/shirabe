@@ -26,7 +26,11 @@ pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT+1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 TMPS=()
-cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; }
+# The trailing `return 0` is load-bearing: the loop's last command is a test
+# that is FALSE when TMPS is empty, and on bash 3.2 an EXIT trap's final
+# status replaces the script's own, turning a clean exit into a failure that
+# prints nothing at all.
+cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
 trap cleanup EXIT
 
 TEMPLATE="skills/work-on/koto-templates/work-on.md"

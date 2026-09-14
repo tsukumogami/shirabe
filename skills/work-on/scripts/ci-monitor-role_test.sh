@@ -40,9 +40,15 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $*"; }
 
 TMPS=()
 SESSIONS=()
+# Ends with an explicit success. The last command in this trap is a test
+# that is FALSE when the arrays are empty, and on bash 3.2 an EXIT trap's
+# final status replaces the script's own -- so a clean `exit 0` on the skip
+# path came back as 1, and the suite failed while every line printed said it
+# had passed.
 cleanup() {
     for w in "${SESSIONS[@]:-}"; do [[ -n "$w" ]] && koto cancel "$w" >/dev/null 2>&1; done
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
+    return 0
 }
 trap cleanup EXIT
 
