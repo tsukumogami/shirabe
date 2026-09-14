@@ -78,3 +78,4 @@ gh	-	-	always
 git	-	-	always
 jq	-	-	always
 python3	-	-	always
+#not-a-call-site	skills/work-on/references/finishing-obligations.md	shirabe	--pr-body	The obligations table names what CI runs against a pull request body, to say why that obligation is advisory here rather than carried as evidence. /work-on never invokes it.

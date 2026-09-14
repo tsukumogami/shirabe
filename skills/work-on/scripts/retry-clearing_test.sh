@@ -335,10 +335,18 @@ if [ "$NEXT_STATE" = "deferral_approval" ]; then
     # that the state would have refused whatever the key's status.
     seed defer-hold summary.md
     submit defer-hold '{"approval_decision":"approved"}'
-    if [ "$NEXT_STATE" = "pr_creation" ]; then
-        pass "deferral_approval: summary.md present + approved -> advances to pr_creation"
+    # The approved path now stops at pre_pr_evidence rather than chaining on to
+    # pr_creation. That is the pre-PR obligation state doing its job: it declares
+    # required evidence and conditional edges, so a tick cannot pass through it
+    # unattended. Before it existed this tick chained deferral_approval ->
+    # pr_precheck -> pr_creation in one invocation, which is precisely how a
+    # finishing obligation gets skipped without anyone seeing it. What this case
+    # pins is unchanged: with summary.md present the state ADVANCES, and with it
+    # cleared the state HOLDS.
+    if [ "$NEXT_STATE" = "pre_pr_evidence" ]; then
+        pass "deferral_approval: summary.md present + approved -> advances to pre_pr_evidence"
     else
-        fail "deferral_approval: summary.md present + approved -> expected pr_creation, got [$NEXT_STATE]"
+        fail "deferral_approval: summary.md present + approved -> expected pre_pr_evidence, got [$NEXT_STATE]"
     fi
     # And the rejected exit stays reachable with the key absent -- deferral_approval's
     # own route to a terminal state, the analogue of the escalate exits elsewhere.

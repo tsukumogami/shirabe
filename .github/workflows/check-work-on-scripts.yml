@@ -94,6 +94,13 @@ jobs:
       - name: Run closing keyword gate tests
         run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
 
+      # Drives the shipped pre-PR obligation ladder in throwaway repositories.
+      # Its central cases are the placeholder ones: a referent like "done" must
+      # fail the state rather than satisfy it. Needs the engine.
+      - name: Run pre-PR evidence tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/pre-pr-evidence_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
       # to assert the run's context survives it, and materializes a child to
       # assert that a child carrying the same flag blocks its parent's converge.

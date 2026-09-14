@@ -136,6 +136,8 @@ suite_scripts() {
             echo "skills/work-on/scripts/ci-monitor-role_test.sh"
             # Needs no engine: it runs the gate expression against stubbed gh.
             echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
+            # Drives real koto sessions, and skips cleanly without them.
+            echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"

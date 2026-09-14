@@ -28,14 +28,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pr_precheck : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.summary_exists.exists: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.summary_exists.exists: true
+    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
     implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
@@ -58,6 +58,12 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
+    pre_pr_evidence --> pr_precheck : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: true, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: false, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: false, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, pr_status: created
     pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
     pr_creation --> done : pr_status: shared
@@ -135,6 +141,18 @@ stateDiagram-v2
     end note
     note left of plan_context_injection
         gate: context_artifact
+    end note
+    note left of pre_pr_evidence
+        gate: cleanup_referent
+    end note
+    note left of pre_pr_evidence
+        gate: commit_convention
+    end note
+    note left of pre_pr_evidence
+        gate: diagram_referent
+    end note
+    note left of pre_pr_evidence
+        gate: summary_shape
     end note
     note left of pr_creation
         gate: closing_keyword

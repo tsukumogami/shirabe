@@ -714,12 +714,21 @@ describing a capability that does not exist.
 **Negative.** The cascade script moves, which invalidates path references in
 anything not updated with it, and one recorded decision is amended. `work-on.md`
 grows **three** states — the pre-PR evidence state, `cascade_entry` and
-`cascade_run` — in a template that already declares twenty-eight, plus one new
-edge from `cascade_run` into the pre-existing `done_blocked` terminal for a
-`partial` cascade. An earlier draft called that edge a fourth state; it is not,
-and the miscount is recorded here rather than silently corrected because it is
-the second time a stated cardinality in this document disagreed with its own
-enumeration. The second
+`cascade_run` — in a template that already declares twenty-eight, reaching
+thirty-one. An earlier draft called one of the new edges a fourth state; it is
+not, and the miscount is recorded here rather than silently corrected because it
+is the second time a stated cardinality in this document disagreed with its own
+enumeration.
+
+It is now the third, and the third one is this sentence's own predecessor: the
+draft above said the change adds "one new edge into `done_blocked`, for a
+`partial` cascade". As built it adds far more than one — `cascade_run` carries
+thirteen edges because koto requires transitions to one target to be provably
+exclusive and the state routes on two independent facts, `pre_pr_evidence`
+carries six, and `ci_monitor` gains one for a conflicted pull request. The count
+was written when the shape was simpler and was not revisited when the shape
+changed, which is the ordinary way a stated cardinality goes stale: not by being
+wrong when written. The second
 pull request is a breaking change for anyone running a multi-pr plan through the
 single-issue entry point today, mitigated by a refusal that names where a plan
 is run now but not eliminated. And the design depends on a mechanism not yet on

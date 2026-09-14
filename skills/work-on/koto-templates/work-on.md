@@ -697,7 +697,7 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
-      - target: pr_precheck
+      - target: pre_pr_evidence
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
@@ -728,7 +728,7 @@ states:
           The unmet acceptance criterion and the human's rationale. On approved, this is
           the deferral recorded via `koto decisions record` and surfaced in the PR body.
     transitions:
-      - target: pr_precheck
+      - target: pre_pr_evidence
         when:
           approval_decision: approved
           gates.summary_exists.exists: true
@@ -737,6 +737,114 @@ states:
           approval_decision: rejected
         context_assignments:
           failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
+
+  pre_pr_evidence:
+    # The finishing obligations that are decidable BEFORE a pull request exists.
+    # The ones that need a pull request to query -- the closing keyword, merge
+    # cleanliness -- live on pr_creation and ci_monitor instead, which is why
+    # this state is narrow rather than a single batching state for everything.
+    #
+    # Why gates rather than four required string fields: koto's evidence schema
+    # has type, required, values and description, and nothing that constrains a
+    # string's shape. A `type: string` field is satisfied by "done", which makes
+    # an obligation unenforced in substance while looking enforced in the record
+    # (PRD R7a). So the judgment calls are enums, which are closed sets a
+    # placeholder cannot satisfy, and the concrete referents live in a context
+    # artifact whose shape a gate checks.
+    gates:
+      # The summary exists by the time this state is reached -- both edges into
+      # it require it -- so this checks its SHAPE, not its presence.
+      summary_shape:
+        type: context-matches
+        key: summary.md
+        pattern: "## Changes Made"
+      # Conventional Commits on the tip. Observable from git, so it is gated
+      # rather than asked for (PRD R6).
+      commit_convention:
+        type: command
+        command: "git log -1 --format=%s | grep -qE '^(feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert)(\\([^)]+\\))?!?: .+'"
+      # The concrete referents, in an artifact the run writes. The patterns are
+      # what makes a placeholder fail: "cleanup_commit: done" does not match a
+      # hex sha, and "design_diagram: yes" matches neither a path nor the
+      # explicit not-applicable form with a reason after it.
+      cleanup_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+      diagram_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
+    accepts:
+      pre_pr_status:
+        type: enum
+        values: [recorded, blocked]
+        required: true
+      cleanup_done:
+        type: enum
+        values: [removed, none_found]
+        required: true
+        description: >-
+          Whether the cleanup pass removed anything. An enum rather than prose,
+          because a free-text field here is satisfied by "cleaned up" and the
+          obligation is then unenforced in substance. The commit it was judged
+          against goes in pre_pr.md, where a gate checks it is a sha.
+      design_diagram:
+        type: enum
+        values: [updated, not_applicable]
+        required: true
+        description: >-
+          PRD R9's first limb: the diagram obligation is brought within one hop
+          of the template and given a field, rather than left two reference-hops
+          away with a contract permitting a silent skip. The path updated, or the
+          reason it does not apply, goes in pre_pr.md.
+    transitions:
+      # The ladder is ordered, and every edge names the field the edge above it
+      # named, because koto refuses transitions to one target it cannot prove
+      # exclusive. Each rung is a distinct cause, which is what keeps them
+      # distinguishable in the record.
+      - target: pr_precheck
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: true
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the summary does not have the shape the finalization step requires (no '## Changes Made' section)."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 1
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the tip commit's subject is not a Conventional Commits subject."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit as a sha. A word like 'done' is not a referent: name the commit whose diff was reviewed."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 0
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: false
+        context_assignments:
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path or as 'not-applicable: <reason>'."
+      - target: done_blocked
+        when:
+          pre_pr_status: blocked
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the run could not satisfy a pre-PR obligation and stopped rather than opening a pull request."
 
   pr_precheck:
     # The single edge into pr_creation, so the branch is read once here instead
@@ -1482,6 +1590,40 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
 Evidence schema:
 - `approval_decision`: `approved` or `rejected`
 - `deferral_detail`: the unmet criterion and the human's rationale
+
+## pre_pr_evidence
+
+The finishing obligations that can be decided before a pull request exists.
+Record them, then submit.
+
+```bash
+cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
+cleanup_commit: $(git rev-parse HEAD)
+design_diagram: docs/designs/DESIGN-<topic>.md
+EOF
+```
+
+`cleanup_commit` is the commit whose diff you reviewed for debug statements,
+commented-out code, addressed TODOs and unused imports. `design_diagram` is the
+path of the diagram you updated, or `not-applicable: <reason>` when the change
+touches no design document. Both are checked for shape, so a word standing in
+for a referent fails the state rather than satisfying it — that is the point of
+asking for them rather than for a claim that the work was done.
+
+Then submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
+`none_found`) and `design_diagram` (`updated` or `not_applicable`).
+
+If an obligation cannot be met, submit `pre_pr_status: blocked` instead of
+recording a referent you cannot stand behind.
+
+The gates check the summary's shape, the tip commit's subject against
+Conventional Commits, and the two referents. A failing one stops the run before
+the pull request is opened, with the reason naming which.
+
+`references/finishing-obligations.md` is the table of every finishing obligation
+— which are gate-enforced, which are evidence-carried, and which are
+deliberately advisory. Read it when you want to know what else is checked before
+this run can finish, or when adding an obligation of your own.
 
 ## pr_precheck
 

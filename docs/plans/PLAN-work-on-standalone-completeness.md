@@ -331,19 +331,19 @@ pre-PR obligations, and commit the classification table.
 
 **Acceptance Criteria**:
 
-- [ ] Every obligation is classified **gate-enforced** or **evidence-carried**,
+- [x] Every obligation is classified **gate-enforced** or **evidence-carried**,
       recorded in a committed table naming the obligation, its class, and where
       it is enforced or carried. None is left in neither category.
-- [ ] Each classification is correct rather than merely present: a gate-enforced
+- [x] Each classification is correct rather than merely present: a gate-enforced
       row names a gate that exists on the state it names and fails when driven to
       failure; an evidence-carried row names a field the state's schema marks
       required.
-- [ ] Each evidence field is typed to a **concrete referent** — a path, a commit
+- [x] Each evidence field is typed to a **concrete referent** — a path, a commit
       identifier, or a named command's output — and a placeholder or empty value
       fails the state rather than satisfying it. Demonstrated per field.
-- [ ] The design-diagram obligation is either within one reference-hop with an
+- [x] The design-diagram obligation is either within one reference-hop with an
       evidence field, or explicitly recorded as advisory with the reason.
-- [ ] `finalization`'s existing three-way branch is untouched.
+- [x] `finalization`'s existing three-way branch is untouched.
 
 **Dependencies**: <<ISSUE:1>>
 
@@ -356,19 +356,29 @@ states, update the mermaid companion, and reconcile both `requires.tsv` files.
 
 **Acceptance Criteria**:
 
-- [ ] For every obligation this work introduces or moves, the pull request names
+- [x] For every obligation this work introduces or moves, the pull request names
       **the file it lands in and the state whose prose leads a child to it.** An
       obligation that cannot name the second half does not reach a child and is
       not done.
-- [ ] Nothing this work introduces lives only in `skills/work-on/SKILL.md`.
-- [ ] The mermaid companion has one entry per new state.
-- [ ] Both `requires.tsv` files declare every new tool call.
-- [ ] **Every stated cardinality in the changed documents matches its own
+- [x] Nothing this work introduces lives only in `skills/work-on/SKILL.md`.
+- [x] The mermaid companion has one entry per new state.
+- [x] Both `requires.tsv` files declare every new tool call.
+- [x] **Every stated cardinality in the changed documents matches its own
       enumeration.** A count that disagrees with the list it refers to is a
       findable defect and a reviewer should not be the thing that finds it; this
       plan's own design got it wrong twice. If asserting this mechanically is
       cheap given what `shirabe validate` already parses, do it; if not, it stays
       a review obligation and this work does not grow the validator.
+
+**Cardinality check, recorded per the criterion's second limb.** Asserting
+mechanically that every stated cardinality matches its own enumeration is not
+cheap: the counts are English words in prose ("three states", "thirteen edges"),
+and matching each to the enumeration it refers to is not something `shirabe
+validate` parses today. It stays a review obligation, and this work does not grow
+the validator for it. The review was done: the state count (28 + 3 = 31) matches
+the template, `cascade_run`'s thirteen edges match, and one stale count was found
+and corrected — the DESIGN claimed the change adds "one new edge", written when
+the shape was simpler and not revisited when it changed.
 
 **Dependencies**: <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:9>>
 
