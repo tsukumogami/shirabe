@@ -2516,9 +2516,9 @@ EOF
 # The fixture is the shape that has nothing dangling in it: a ROADMAP feature
 # with no `Downstream:` line at all, never planned against. Nothing here is
 # malformed, so the only thing the lifecycle check can object to is the chain
-# state the cascade left behind. It is also what every feature looks like in a
-# ROADMAP the roadmap skill writes, since that format has no `Downstream` field
-# (shirabe#370). This scenario pins the first not-found arm; Scenario 29 pins
+# state the cascade left behind. Feature 1 is also what every feature looks like
+# in a ROADMAP the roadmap skill writes, since that format has no `Downstream`
+# field (shirabe#370). This scenario pins the first not-found arm; Scenario 29 pins
 # the second.
 scenario_roadmap_feature_not_found() {
     local scenario="Scenario 28: --push fails when the ROADMAP feature is not found"

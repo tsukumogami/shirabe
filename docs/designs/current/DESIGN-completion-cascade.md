@@ -278,6 +278,9 @@ agent must never need to read the script source to understand a failure.
 }
 ```
 
+The `action` list above is stale (#358); the header of `run-cascade.sh` lists the
+actions the script emits.
+
 The `detail` field is the recovery surface. Every `skipped` or `failed` step must
 include a sentence that names what was being attempted and why it could not proceed,
 written so an agent can act on it without reading the script.
@@ -301,15 +304,16 @@ A step's `status` says what happened to that one action:
   the finalization commit did not land), or it was deliberately deferred on state
   the cascade does not control (a ROADMAP is left in place while an issue it
   references is still open). `skipped` never means the cascade was asked to do
-  something and could not. Known defects break that today. When `gh` itself
-  fails, the open-issue check reads the failure as an open issue and records a
-  `skipped` step, and the unanchored ROADMAP lookup described below can record
-  `ok` against the wrong feature; both are tracked in #370. A feature update
-  whose text rewrites match nothing also records `ok` (#362).
+  something and could not. Known defects break these meanings today: an issue
+  check that fails (a `gh` error, or a URL it cannot parse) reads as an open
+  issue and records `skipped`, and the ROADMAP update can record `ok` against
+  the wrong feature (both #370) or after rewrites that matched nothing (#362).
 - `failed`: the cascade was asked to do the step and could not.
 
-`cascade_status` follows from the steps. It is `partial` if and only if at least
-one step is `failed`. Otherwise it is `skipped` when the chain held nothing but
+`cascade_status` follows from the steps. The script sets a failure flag at every
+place it records a `failed` step and nowhere else, and reports `partial` from that
+flag, so `cascade_status` is `partial` if and only if at least one step is
+`failed`. Otherwise it is `skipped` when the chain held nothing but
 the PLAN (or the pre-cascade probe found the chain already at its terminal
 state), and `completed` when it held more. A `skipped` step never makes a run
 `partial`, so a `completed` run can carry `skipped` steps.
@@ -322,13 +326,10 @@ run has to be recorded as `failed`. A `partial` whose cause was recorded as
 **Error message contract:**
 
 The cases below have a prescribed `detail` format, so the agent sees consistent,
-parseable descriptions. The table fixes the wording, not the status; the status
-follows the rule above. "Issue still open" is recorded as `skipped`; the other
-cases are recorded as `failed` where the script records a step for them at all.
-Steps the table does not list carry a detail written where the script records
-them. The table is not current: some rows have drifted from the text the script
-emits, and some cases (a failed ROADMAP transition, for one) now only log a
-warning. #358 tracks bringing this section current.
+parseable descriptions. The table fixes the wording, not the status, which
+follows the rule above ("Issue still open" is `skipped`). It is not current: some
+rows have drifted from the emitted text and some cases no longer record a step
+(#358).
 
 | Case | `detail` message |
 |---------|-----------------|
@@ -394,16 +395,13 @@ stops and the overall status reflects work done up to that point.
 ```
 
 The run is `partial` because the `update_roadmap_feature` step is `failed`. The
-steps are abbreviated. Because this chain transitioned the DESIGN before the
-ROADMAP lookup failed, a `--push` run still commits and pushes. The commit
-publishes the whole index, so it carries the DESIGN's transition and the PLAN's
-deletion, and the post-cascade verification passes against it, all before the
-run reports `partial` (#372). That published tree also passes the ready-mode
-lifecycle check, which does not look at ROADMAP feature status, so `/execute`'s
-halt on `partial` is the only thing that stops the PR being marked ready. A PLAN
-whose only upstream is the ROADMAP commits nothing: the PLAN stays in HEAD and
-on the remote, while its deletion is left staged in the working tree, so a later
-commit would carry it unless the index is reset first.
+steps are abbreviated and not in emitted order (the script records `delete_plan`
+after the lookup). Through a chain like this one, a `--push` run has already
+committed and pushed the DESIGN's transition and the PLAN's deletion by the time
+it reports `partial`, and that tree passes the ready-mode lifecycle check, so
+`/execute`'s halt on `partial` is the only guard (#372). A PLAN whose only
+upstream is the ROADMAP commits nothing and leaves the PLAN's deletion staged in
+the index.
 
 **`validate_upstream_path`:**
 ```bash
@@ -483,12 +481,9 @@ commit publishes the whole index. The PLAN's deletion counts toward that record
 only on a run where nothing failed, so a failed run whose only change is the
 deletion commits nothing.
 
-The script then derives `cascade_status` from the steps by the rule under Output
-format and emits the JSON result. The `plan_completion` directive reads the
-verdict and, on `partial`, the `failed` steps' details. A `skipped` step does not
-stop the run, but its detail can still describe work left over: a ROADMAP whose
-deletion was deferred on an open issue has to be removed by hand once the issue
-closes, because re-running the cascade needs the PLAN it already deleted (#370).
+The script then reports `cascade_status` by the rule under Output format and
+emits the JSON result. The `plan_completion` directive reads the verdict and, on
+`partial`, the `failed` steps' details; a `skipped` step does not stop the run.
 
 ### Data Flow
 
@@ -625,12 +620,9 @@ remote before running the cascade.
 - Cascade logic now lives in two places: the koto template (for state machine
   context) and `run-cascade.sh` (for execution logic). Maintainers must know to
   look in both.
-- The ROADMAP feature update depends on step 1 of `handle_roadmap` finding the
-  feature entry with a heuristic text search: a `Downstream:` line containing
-  the plan slug. The roadmap format defines no such field and no skill writes
-  one, so on a ROADMAP the roadmap skill produced the search finds nothing and
-  the run is `partial`. The match is also unanchored, so it can select the wrong
-  feature. Both are tracked in #370.
+- The ROADMAP feature update depends on the heuristic lookup described under
+  ROADMAP text substitution, which finds nothing on a ROADMAP the roadmap skill
+  produced and can select the wrong feature (#370).
 - Compression is one-way: once `## Implementation Issues` is stripped from a
   DESIGN doc, it cannot be recovered except from git history.
 
@@ -639,10 +631,9 @@ remote before running the cascade.
 - A clear comment in the `plan_completion` directive points maintainers to
   `run-cascade.sh`. This is the same pattern as `plan-to-tasks.sh`.
 - A lookup miss is never silent. It records a `failed` `update_roadmap_feature`
-  step carrying the "ROADMAP feature not found" message, which makes the run
-  `partial`, and `/execute` halts on `partial` instead of marking the PR ready
-  and shows the failed step. Through a chain, the transitions before the lookup
-  and the PLAN's deletion have already been pushed by then (#372).
+  step, which makes the run `partial`, and `/execute` halts on `partial` instead
+  of marking the PR ready and shows the failed step. The note under the worked
+  example says what a chained run has already pushed by then.
 - The strip operation is idempotent and only removes a section with a known
   deterministic heading. A section-presence check before invoking the `awk` strip
   prevents empty-file bugs if Implementation Issues is the last section.

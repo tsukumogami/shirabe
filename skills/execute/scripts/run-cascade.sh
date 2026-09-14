@@ -403,7 +403,12 @@ lifecycle_probe() {
 
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 
-# Append a step to STEPS_JSON
+# Append a step to STEPS_JSON.
+#
+# A caller that records status "failed" must also set ANY_FAILED=true, and a
+# "skipped" step must not. The verdict at the end reads ANY_FAILED, not the
+# steps, so the rule DESIGN-completion-cascade.md states (partial iff some step
+# is failed) holds only while every call site keeps that pairing.
 add_step() {
     local action="$1"
     local target="$2"
@@ -492,8 +497,10 @@ emit_result() {
 #
 # Recording it as a skip left ANY_FAILED false, which reported `completed` for a
 # chain that had not finalized and, once the PLAN deletion began entering
-# STAGED_FILES, let that state publish to a tree the ready-mode lifecycle check
-# passes. Recording it as `skipped` while still setting ANY_FAILED would fix
+# STAGED_FILES, let a direct PLAN-to-ROADMAP run publish to a tree the
+# ready-mode lifecycle check passes. (Through a DESIGN, PRD or BRIEF chain the
+# run still publishes before it reports partial; see shirabe#372.) Recording
+# it as `skipped` while still setting ANY_FAILED would fix
 # the verdict but leave /execute's partial halt, which prints only `failed`
 # steps, with no reason to show. scenario_roadmap_feature_not_found pins the
 # first arm and scenario_roadmap_feature_no_heading the second.
@@ -1139,7 +1146,8 @@ fi
 # cascade_status (the rule is stated in DESIGN-completion-cascade.md):
 #   partial   -- at least one step is `failed`. Every `failed` arm sets
 #               ANY_FAILED and no `skipped` arm does: finalize-chain refused or
-#               reported an error node, the ROADMAP feature was not found, a
+#               reported an error node or an unknown action, the ROADMAP
+#               feature was not found, a
 #               git rm (PLAN or ROADMAP) failed, the finalization commit or push
 #               failed, or the post-cascade verification failed. The cascade
 #               still RAN, so the script exits 0 -- a publish failure is neither
