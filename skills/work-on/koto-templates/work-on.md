@@ -482,9 +482,31 @@ states:
       has_commits:
         type: command
         command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+      # The output goes to a file in the run's own directory, NOT to /dev/null,
+      # and not merely unredirected. koto keeps a command gate's stderr only for
+      # a spawn or wait failure: a non-zero exit is reported as
+      # {"exit_code": N, "error": ""} and a timeout as {"error": "timed_out"}
+      # with nothing else (koto/src/gate.rs:281-306). So simply dropping the
+      # redirect would satisfy the letter of "stop discarding stderr" and still
+      # leave an operator with a bare exit code to read.
+      #
+      # Writing to a file is what makes the timeout case legible, and the timeout
+      # case is the one that mattered: a run whose suite fork bombed was recorded
+      # as `timed_out` with exit -1 while the machine filled with processes, and
+      # the command had been producing evidence the whole time. A killed command's
+      # partial output stays in the file.
+      #
+      # The redirect must not change the verdict — `> file 2>&1` keeps the exit
+      # status of `go test` itself, which is what the transition routes on. A
+      # pipe to `tee` would report tee's status instead.
+      #
+      # {{SESSION_DIR}} resolves inside a gate command, which is measured rather
+      # than assumed. On a child session the directory is disposed of with the
+      # session, so the log outlives the run only for a root; that is the same
+      # retention rule the record itself follows (#360).
       tests_passing:
         type: command
-        command: "[ ! -f go.mod ] || go test ./... 2>/dev/null"
+        command: '[ ! -f go.mod ] || go test ./... > "{{SESSION_DIR}}/tests_passing.log" 2>&1'
     accepts:
       implementation_status:
         type: enum
@@ -1470,6 +1492,14 @@ Capture non-obvious decisions in the `decisions` field.
 
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
 code review guidance, and commit patterns.
+
+If the `tests_passing` gate blocks this state, read
+`{{SESSION_DIR}}/tests_passing.log` — the suite's own output, both streams, is
+there. koto reports the gate itself as an exit code, and as nothing at all when
+the command times out, so the log is where the reason lives. A gate that timed
+out still leaves whatever the command wrote before it was killed, which is the
+case worth knowing about: a suite that runs away looks identical to a slow one
+from the exit code alone.
 
 When submitting `implementation_status: complete`, also submit `issue_type` as the
 value confirmed during analysis (from `analysis.accepts.issue_type`). This determines
