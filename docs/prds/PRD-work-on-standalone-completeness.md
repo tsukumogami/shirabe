@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A single-issue `/work-on` run opens a pull request and stops before the
   change is mergeable. The document-chain cascade is unreachable from it
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-work-on-standalone-completeness](docs/briefs/BRIEF-work-on-standalone-completeness.md); carried in Absorbed Brief.
 
