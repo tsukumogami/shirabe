@@ -12,6 +12,9 @@ on:
       # The suite drives the shipped template, so a template edit can change
       # which gate holds which state.
       - 'skills/work-on/koto-templates/**'
+      # terminal-retention_test.sh reads the retention rule out of SKILL.md and
+      # fails when it is missing or stops routing through the discriminator.
+      - 'skills/work-on/SKILL.md'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -29,6 +32,14 @@ jobs:
       # cannot be checked without the engine that evaluates the gate. koto
       # arrives through the project tool manifest, the same way
       # check-execute-scripts.yml and validate-templates.yml get it.
+      # terminal-retention_test.sh needs jq to read koto's parentage field and its
+      # converge verdicts. Without this the suite skips its engine-backed cases
+      # with exit 0, so a runner that stopped shipping jq would go green having
+      # tested almost nothing.
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -60,6 +71,23 @@ jobs:
       - name: Run cascade chaining tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/cascade-chaining_test.sh
+
+      # Builds real repositories and asserts the post-state verifier reads the
+      # finalization COMMIT rather than the working tree. Its central case is a
+      # tree where every document is terminal on disk and the commit contains
+      # none of them, which is what the cascade's staging defect produces and
+      # what a tree-reading check passes. No engine needed, so it runs on both
+      # legs.
+      - name: Run cascade post-state verifier tests
+        run: bash skills/work-on/scripts/verify-cascade-commit_test.sh
+
+      # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
+      # to assert the run's context survives it, and materializes a child to
+      # assert that a child carrying the same flag blocks its parent's converge.
+      # Both need the engine.
+      - name: Run terminal-retention tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/terminal-retention_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

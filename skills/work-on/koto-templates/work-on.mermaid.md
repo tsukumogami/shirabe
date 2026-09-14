@@ -11,9 +11,14 @@ stateDiagram-v2
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
     cascade_entry --> done : gates.anchor_present.exit_code: 1
     cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
-    cascade_run --> done : cascade_status: completed
-    cascade_run --> done : cascade_status: skipped
     cascade_run --> done_blocked : cascade_status: partial
+    cascade_run --> done : cascade_status: completed, post_state: verified
+    cascade_run --> done : cascade_status: skipped, post_state: verified
+    cascade_run --> done_blocked : post_state: plan_present
+    cascade_run --> done_blocked : post_state: no_commit
+    cascade_run --> done_blocked : post_state: wrong_status
+    cascade_run --> done_blocked : post_state: not_in_commit
+    cascade_run --> done_blocked : post_state: undecided
     ci_monitor --> done : ci_outcome: failing_fixed
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
     ci_monitor --> done

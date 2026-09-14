@@ -175,6 +175,13 @@ cross-skill reference: `/execute` spawns per-issue children with `/work-on`'s
 
 ### Step 2 — Initialize the plan-level orchestrator
 
+**First, if a session for this plan may already exist, apply the retained-session
+check in [**Resume**](#resume) before the `koto init` below.** A previous run that
+ended at `done_blocked` or `paused_for_review` left its session on disk so its
+record would survive, and `koto init` refuses a name already in use — so this is
+where a re-invocation lands, and the check is what tells you to read that record
+and clear it rather than reporting the plan already done.
+
 Derive the plan slug from the filename (`PLAN-foo-bar.md` → `foo-bar`) and
 initialize the lifted orchestrator template. Resolve `PAUSE_BEFORE_FINALIZE` from
 the **execution mode** (see **Execution-Mode Flags** and the mode-driven pause in the
@@ -213,6 +220,44 @@ operator approved). The home-PR resume lookup re-enters and advances
 `pr_finalization` → `plan_completion`.
 
 ### Step 3 — Drive the orchestrator loop
+
+**Every `koto next` on the orchestrator session carries `--no-cleanup`:**
+
+```bash
+koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
+```
+
+Without it, the tick that reaches a terminal disposes of the session and its
+`ctx/`. That costs the record of why at `done_blocked`, and at
+`paused_for_review` it costs what a resume reads — the worse loss, since the
+pause is solicited. The rule and its reasoning are in
+[`references/koto-session-retention.md`](../../references/koto-session-retention.md).
+
+Unconditional here, unlike `/work-on`, because an orchestrator session is always
+a root: nothing names `execute.md` as a child template.
+`scripts/terminal-retention_test.sh` asserts that rather than trusting it, and
+goes red if a future change makes `/execute` spawnable — at which point this rule
+must route through `skills/work-on/scripts/session-role.sh` the way `/work-on`'s
+does.
+
+**Including the two ticks in `spawn_and_await`, which look non-terminal and are
+not.** A tick does not stop at the state it routes to; a state halts the chain
+only if it declares at least one conditional transition, and `escalate` declares
+required evidence but exits unconditionally to `done_blocked`. So
+`batch_outcome: needs_attention` chains through to that terminal in one
+invocation, and bare it destroys the record of the batch that failed.
+
+**This does not extend to the children.** A per-issue `/work-on` child must not
+carry the flag — on a child it also suppresses the `request_store.result` and
+`ChildCompleted` events that carry the child's result to this skill's
+`children-complete` gate. `spawn_and_await`'s transitions key on the gate's
+`all_complete`, so the batch would still advance, but without that child's
+outcome in what it received. `/work-on` decides that per run with
+`skills/work-on/scripts/session-role.sh`. The consequence to be honest about is
+that a child which ends at `done_blocked` still loses its context, so the
+per-child record a `needs_attention` batch would most want to read is the one
+still being destroyed. koto#240 is where that gets fixed; no change on this side
+can do it.
 
 In autonomous mode, drive this loop continuously per the **Autonomy** section below —
 do not stop between issues to advise a checkpoint. The mandate is bound at the loop
@@ -472,6 +517,49 @@ wip-hygiene rule and its `dot-niwa-overlay` mirror. Those are **out-of-repo** fi
 both copies in lockstep is the cross-repo follow-up.
 
 ## Resume
+
+**On a single-pr re-entry, before Step 2's `koto init`, check whether the koto
+session named for this plan has already finished:**
+
+```bash
+koto workflows | jq -e --arg s "execute-<plan-slug>" 'any(.name == $s)' >/dev/null \
+  && koto status execute-<plan-slug>
+```
+
+The `koto workflows` test comes first because `koto status` on a session that
+does not exist exits 2 with an error, and no session is the ordinary case — a
+first run, a run that crashed before `koto init`, and every coordinated-path
+re-entry all reach here with nothing to find. No match means nothing to check;
+carry on down the ladder.
+
+`is_terminal: true` means a previous run reached `done_blocked` or
+`paused_for_review` and its session was retained so its record would survive. It
+is not resumable and must not be ticked — a tick answers `action: "done"` and
+would report the plan complete on the strength of work this run did not do. It
+also blocks the `koto init` in **Single-PR Execution Path** Step 2, which refuses
+a name already in use.
+
+**Read the record first, then clear it:** `koto context get execute-<plan-slug>
+<key>` for whatever the retained run left, then `koto session cleanup
+execute-<plan-slug>`, then init as normal. Reading before clearing is the whole
+procedure — there is no option that both keeps the old session and lets a new run
+proceed. Initializing under a different session name does NOT work:
+`settled_branch_record`'s action writes the settled branch into
+`execute-{{PLAN_SLUG}}` while its gate reads the *current* session, so a run
+under any other name blocks there with no override edge and routes to
+`done_blocked`.
+
+So retention here buys a record that can be read after the fact, not a session a
+later run resumes in place. That is worth having — `paused_for_review` otherwise
+leaves nothing at all — but do not read it as making a paused run restartable
+where it stands.
+
+This check exists because retention created the ambiguity: before the terminal
+tick carried `--no-cleanup`, a finished session was gone and a re-entry simply
+started fresh. `koto status` reports `is_terminal` without advancing anything, so
+the finished session is never ticked and its record is never destroyed by the act
+of discovering it. A resume of a genuinely paused run — `is_terminal: false` —
+is unaffected and continues down the ladder below.
 
 On re-entry, `/execute` follows the universal meta-ladder at
 [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`](../../references/parent-skill-resume-ladder-template.md):

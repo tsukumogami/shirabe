@@ -1,4 +1,24 @@
 ---
+# Terminal-tick retention (#360). EVERY `koto next` in this template carries
+# --no-cleanup, including the two in spawn_and_await. Without it, the tick that
+# reaches a terminal disposes of the session and its ctx/.
+#
+# Do not restore a carve-out for a tick that looks non-terminal. An earlier
+# version of this note had one, reasoning that spawn_and_await routes only to
+# pr_finalization or escalate. A tick does not stop at the state it routes to:
+# escalate declares required evidence and still exits unconditionally to
+# done_blocked, so needs_attention chains straight there and bare it destroyed
+# the record of the batch that FAILED.
+#
+# The rule, the measurements behind it, and the child exception that makes
+# work-on.md's position the opposite of this one:
+# ../../../references/koto-session-retention.md
+#
+# scripts/terminal-retention_test.sh pins the flag count, escalate's shape, and
+# the chain itself, so a regression here fails rather than going quiet.
+#
+# A YAML comment, so it reaches a template editor without koto rendering it into
+# any state's directive.
 name: execute
 version: "1.0"
 description: >
@@ -610,7 +630,7 @@ SETTLED_BRANCH="{{SETTLED_BRANCH}}"
 # batch's errored ledger.
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
-koto next {{SESSION_NAME}} --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
@@ -637,7 +657,7 @@ TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAU
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
-koto next {{SESSION_NAME}} --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
@@ -694,7 +714,7 @@ On a resume of a paused run, `/execute` re-enters with `PAUSE_BEFORE_FINALIZE=fa
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Read `references/phases/phase-6-pr.md` for CI monitoring guidance.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-6-pr.md` for CI monitoring guidance.
 
 If the gate fails (CI not yet green), fix what you can and submit `ci_outcome: failing_fixed`.
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.

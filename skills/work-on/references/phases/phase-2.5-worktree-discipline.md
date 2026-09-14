@@ -3,7 +3,7 @@
 Detect upstream main movement before dispatching the next child workflow and
 classify whether the movement invalidates the PLAN's intent. This phase runs
 inside the `worktree_discipline_check` koto state defined in
-`skills/work-on/koto-templates/work-on-plan.md`.
+`skills/execute/koto-templates/execute.md`.
 
 ## When This Phase Runs
 
@@ -72,16 +72,26 @@ field is what the agent submits as evidence.
 Submit `impact` to the `worktree_discipline_check` state:
 
 ```bash
-koto next {{SESSION_NAME}} --with-data '{"impact": "none"}'
+koto next {{SESSION_NAME}} --with-data '{"impact": "none"}' --no-cleanup
 # or
-koto next {{SESSION_NAME}} --with-data '{"impact": "informational", "rationale": "main added unrelated tests in skills/charter/"}'
+koto next {{SESSION_NAME}} --with-data '{"impact": "informational", "rationale": "main added unrelated tests in skills/charter/"}' --no-cleanup
 # or
-koto next {{SESSION_NAME}} --with-data '{"impact": "intent-changing", "rationale": "main deleted references/worktree-discipline.md that this PLAN renames to; PLAN must be re-planned against new main"}'
+koto next {{SESSION_NAME}} --with-data '{"impact": "intent-changing", "rationale": "main deleted references/worktree-discipline.md that this PLAN renames to; PLAN must be re-planned against new main"}' --no-cleanup
 ```
 
 `none` and `informational` route forward to `spawn_and_await`. `intent-changing`
 routes to `escalate_upstream_drift` → `done_blocked` carrying the rationale as
-the actionable failure reason.
+the actionable failure reason — **inside the same `koto next` call**, because
+`escalate_upstream_drift` declares required evidence but exits to `done_blocked`
+unconditionally, so koto chains straight through it. That is why every line
+above carries `--no-cleanup`: without it, the `intent-changing` tick disposes of
+the orchestrator's session and destroys the record of why the chain was stopped.
+
+This file sits under `/work-on` but is read only by `/execute`'s
+`worktree_discipline_check`, which runs on the orchestrator — always a root — so
+the flag is correct here even though `/work-on`'s other phase files must not
+carry it. See
+[`references/koto-session-retention.md`](../../../../references/koto-session-retention.md).
 
 ## Why This Phase Exists
 

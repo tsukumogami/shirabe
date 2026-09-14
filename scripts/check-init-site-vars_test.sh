@@ -32,6 +32,7 @@ trap cleanup EXIT
 TEMPLATE="skills/work-on/koto-templates/work-on.md"
 SKILL_DOC="skills/work-on/SKILL.md"
 EXECUTE_TEMPLATE="skills/execute/koto-templates/execute.md"
+HARNESS="skills/work-on/scripts/terminal-retention_test.sh"
 
 # new_tree — a temp copy of the four files the check reads.
 new_tree() {
@@ -41,6 +42,8 @@ new_tree() {
     cp "$REPO_ROOT/$TEMPLATE" "$d/$TEMPLATE"
     cp "$REPO_ROOT/$SKILL_DOC" "$d/$SKILL_DOC"
     cp "$REPO_ROOT/$EXECUTE_TEMPLATE" "$d/$EXECUTE_TEMPLATE"
+    mkdir -p "$d/$(dirname "$HARNESS")"
+    cp "$REPO_ROOT/$HARNESS" "$d/$HARNESS"
     echo "$d"
 }
 
@@ -118,6 +121,33 @@ expect "second child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .
 T=$(new_tree)
 printf 'TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})\n' >> "$T/$EXECUTE_TEMPLATE"
 expect "a new task build with no injection is caught" 1 "$T" "builds 3 task array(s)"
+
+# Case 9 — A TEST HARNESS that inits the shipped template and forgets the
+# variable. This category was missed by the first version of this check, and the
+# omission cost two suites: every case in them failed at init, reporting a
+# missing session rather than a missing variable.
+T=$(new_tree)
+python3 - "$T/$HARNESS" <<'PYMUT'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = " \\\n        --var PLUGIN_ROOT=/nonexistent/plugin-root"
+assert needle in s, "the harness mutation is stale"
+open(p, "w").write(s.replace(needle, "", 1))
+PYMUT
+expect "a harness init missing PLUGIN_ROOT is caught" 1 "$T" "inits the shipped template without required variable PLUGIN_ROOT"
+
+# Case 10 — and the harness scan must not report zero sites. A scan that matches
+# nothing reports OK forever, which is the failure mode of every check that
+# looks for something by pattern.
+T=$(new_tree)
+python3 - "$T/$HARNESS" <<'PYMUT'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+open(p, "w").write(s.replace("koto init", "koto start"))
+PYMUT
+expect "a harness scan matching nothing is caught" 1 "$T" "covering nothing"
 
 # Case 7 — the check must not silently pass when it can no longer see the init
 # sites it is supposed to cover.

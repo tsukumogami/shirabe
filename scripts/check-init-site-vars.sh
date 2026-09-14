@@ -23,6 +23,14 @@
 #      template because the split is real: ARTIFACT_PREFIX reaches a child from
 #      /plan's script, PLUGIN_ROOT and SHARED_BRANCH from /execute's own jq
 #      (plan-to-tasks-contract.md is the authority for which is which).
+#   3. Every TEST HARNESS that inits the shipped template passes them too. This
+#      third category was not in the first version of this check, and its absence
+#      cost two suites: a required variable was added, two harnesses that init
+#      the real template were not updated, and every case in them failed at init
+#      with a message about a missing session rather than a missing variable. A
+#      harness is an init site like any other. Fixing the two would have left the
+#      next one to fail the same way, which is what makes this a gap to close
+#      rather than a pair of bugs to patch.
 #
 # Usage: check-init-site-vars.sh
 # Exit codes: 0 all sites pass, 1 a site is missing a variable.
@@ -100,9 +108,54 @@ for var in PLUGIN_ROOT SHARED_BRANCH; do
     fi
 done
 
+# --- Site 3: test harnesses that init the shipped template -------------------
+# Any script that names the real template in a `koto init` is bound by the same
+# requirement as SKILL.md. Found by scanning rather than by listing, so a harness
+# added later is covered without anyone remembering to add it here.
+# The init COMMAND has to name the template, not the file merely mention it.
+# Matching on the file caught two harnesses that only reference the path — one
+# extracts states from it into a fixture of its own, another greps it for a flag
+# — and neither inits it. A check that reports sites which are not sites teaches
+# people to ignore it.
+HARNESSES=$(grep -rl "koto init" skills/*/scripts/*.sh 2>/dev/null || true)
+HARNESS_SITES=0
+for harness in $HARNESSES; do
+    # A harness names the template through its own variable, so match the
+    # literal text "$TEMPLATE" in the init command AND confirm that variable is
+    # assigned this template. Matching the file instead of the command caught two
+    # harnesses that only reference the path -- one extracts states from it into a
+    # fixture of its own, the other greps it for a flag -- and neither inits it.
+    # A check that reports sites which are not sites teaches people to ignore it.
+    names_template=0
+    if grep -qE '^[[:space:]]*TEMPLATE=.*koto-templates/work-on\.md' "$harness"; then
+        names_template=1
+    fi
+    inits=$(sed ':a; /\\$/ { N; s/\\\n//; ba; }' "$harness" | grep 'koto init' || true)
+    [[ -n "$inits" ]] || continue
+    while IFS= read -r cmd; do
+        case "$cmd" in
+            *koto-templates/work-on.md*) ;;
+            *'"$TEMPLATE"'*) [[ "$names_template" -eq 1 ]] || continue ;;
+            *) continue ;;
+        esac
+        HARNESS_SITES=$((HARNESS_SITES + 1))
+        for var in $REQUIRED_VARS; do
+            if [[ "$cmd" != *"--var ${var}="* ]]; then
+                note_failure "$harness inits the shipped template without required variable $var"
+            fi
+        done
+    done <<< "$inits"
+done
+
+# Zero is not a pass. Harnesses that drive the shipped template exist; finding
+# none means the matching broke, and a check covering nothing reports OK forever.
+if [[ "$HARNESS_SITES" -eq 0 ]]; then
+    note_failure "no harness init of the shipped template found -- the scan no longer sees any, so it is covering nothing"
+fi
+
 if [[ "$FAILURES" -ne 0 ]]; then
     echo "check-init-site-vars: FAILED ($FAILURES problem(s))" >&2
     exit 1
 fi
 
-echo "check-init-site-vars: OK (required: $(echo "$REQUIRED_VARS" | tr '\n' ' ')| $(echo "$INIT_COMMANDS" | wc -l) direct init site(s), $TASK_BUILDS child task build(s))"
+echo "check-init-site-vars: OK (required: $(echo "$REQUIRED_VARS" | tr '\n' ' ')| $(echo "$INIT_COMMANDS" | wc -l) direct init site(s), $TASK_BUILDS child task build(s), $HARNESS_SITES harness init site(s))"

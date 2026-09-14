@@ -1,4 +1,23 @@
 ---
+# Terminal-tick retention (#360). --no-cleanup is DELIBERATELY ABSENT from this
+# template and must stay absent. This file is also the child template for
+# /execute's spawn_and_await, and on a koto child the flag suppresses the events
+# that carry the child's result to the parent, so the parent never receives it.
+#
+# Root runs still get retention: the rule lives in ../SKILL.md's Execution Loop,
+# gated on scripts/session-role.sh. A root passes the flag on every tick; a child
+# passes it nowhere.
+#
+# The rule and the measurements behind it, including why /execute's template
+# takes the opposite position: ../../../references/koto-session-retention.md
+#
+# scripts/terminal-retention_test.sh greps this file to keep the flag out, and
+# pins what the flag does to a child's result. koto#240 is the platform fix that
+# would retire the exception.
+#
+# A YAML comment, so it reaches a template editor without koto rendering it into
+# any state's directive -- which is also why the grep above excludes frontmatter
+# comments but nothing below them.
 name: work-on
 version: "1.0"
 description: >
@@ -930,26 +949,126 @@ states:
     # tick run the cascade and land on a terminal in the same invocation, with
     # the agent never seeing this state's directive. The `accepts:` block would
     # still be here and would not save it.
+    #
+    # The evidence below is the OBSERVED post-state, not the script's account of
+    # itself. `cascade_status` is what the cascade said; `post_state` is what the
+    # repository shows, and a `completed` claim cannot route to `done` without a
+    # `verified` observation to go with it. That split is the point of the state:
+    # several of the script's operations report step-level `ok` having changed
+    # nothing, and its own post-cascade verification reads the working tree, so a
+    # document transitioned on disk but never staged satisfies everything it
+    # checks.
+    #
+    # `post_state` carries five failure values rather than one, and each has its
+    # own edge and its own failure_reason. koto discards a failed gate's output
+    # and a terminal state records what it was given, so collapsing them would
+    # make "the PLAN was never deleted", "nothing was committed" and "a document
+    # was transitioned but not staged" arrive identically in the record -- the
+    # shape that makes a catastrophe and a timeout indistinguishable
+    # (tsukumogami/shirabe#376). The distinction has to survive in the routing,
+    # because there is nowhere else for it to survive.
     accepts:
       cascade_status:
         type: enum
         values: [completed, partial, skipped]
         required: true
+      post_state:
+        type: enum
+        values: [verified, plan_present, no_commit, wrong_status, not_in_commit, undecided]
+        required: true
+        description: >-
+          The exit of verify-cascade-commit.sh, which reads the third fact from
+          the finalization commit's own paths: 0 verified, 2 plan_present,
+          3 no_commit, 4 wrong_status, 5 not_in_commit, 6 undecided.
+      anchor_plan:
+        type: string
+        description: The PLAN path that was cascaded. A path, not a description.
+      finalization_commit:
+        type: string
+        description: The sha whose paths were read. A sha, not "the last commit".
       cascade_detail:
         type: string
         description: What the cascade did, or why steps were skipped.
     transitions:
-      - target: done
-        when:
-          cascade_status: completed
-      - target: done
-        when:
-          cascade_status: skipped
+      # koto requires transitions to one target to be provably exclusive, and
+      # two edges keyed on different fields are not: it refuses to compile a
+      # `cascade_status` edge alongside a `post_state` edge to the same terminal
+      # because both could match one submission. So every edge below names BOTH
+      # fields, and the table is their cross product. It is mechanical, and it
+      # grows multiplicatively if either dimension gains a value.
       - target: done_blocked
         when:
           cascade_status: partial
         context_assignments:
           failure_reason: "cascade_run: cascade reported partial: ${evidence.cascade_detail}"
+      - target: done
+        when:
+          cascade_status: completed
+          post_state: verified
+      - target: done
+        when:
+          cascade_status: skipped
+          post_state: verified
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: plan_present
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is still on disk (${evidence.anchor_plan}). The cascade did not delete its anchor, whatever it reported."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: no_commit
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is gone from the tree but no commit deletes it. Nothing was finalized; the work is uncommitted, not lost."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: wrong_status
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is not at its terminal posture. Re-run verify-cascade-commit.sh against ${evidence.anchor_plan} to see which."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: not_in_commit
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is terminal on disk but ABSENT from commit ${evidence.finalization_commit}. It was transitioned in the working tree and never staged, so the tree looks finished and the commit is not."
+      - target: done_blocked
+        when:
+          cascade_status: completed
+          post_state: undecided
+        context_assignments:
+          failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: plan_present
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is still on disk (${evidence.anchor_plan}). The cascade did not delete its anchor, whatever it reported."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: no_commit
+        context_assignments:
+          failure_reason: "cascade_run: the PLAN is gone from the tree but no commit deletes it. Nothing was finalized; the work is uncommitted, not lost."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: wrong_status
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is not at its terminal posture. Re-run verify-cascade-commit.sh against ${evidence.anchor_plan} to see which."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: not_in_commit
+        context_assignments:
+          failure_reason: "cascade_run: a chain document is terminal on disk but ABSENT from commit ${evidence.finalization_commit}. It was transitioned in the working tree and never staged, so the tree looks finished and the commit is not."
+      - target: done_blocked
+        when:
+          cascade_status: skipped
+          post_state: undecided
+        context_assignments:
+          failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
 
   done:
     terminal: true
@@ -1357,23 +1476,42 @@ it again is what keeps the document you cascade the same one the gate found. A
 second search written by hand can differ — the row for issue 123 is a substring
 match away from the row for issue 12.
 
-Submit `cascade_status` from the script's own verdict, with `cascade_detail`
+Then observe what the repository actually shows:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verify-cascade-commit.sh "$PLAN"
+```
+
+Submit `cascade_status` from the script's own verdict, and `post_state` from the
+verifier's exit code: 0 `verified`, 2 `plan_present`, 3 `no_commit`, 4
+`wrong_status`, 5 `not_in_commit`, 6 `undecided`. Add `anchor_plan` (the PLAN
+path) and `finalization_commit` (the sha the verifier read), and `cascade_detail`
 summarising which transitions ran.
+
+The two are different kinds of thing and the state keeps them apart on purpose.
+`cascade_status` is the cascade's account of itself; `post_state` is the
+repository's. A `completed` claim with anything other than `verified` does not
+route to `done` — it stops, and the reason names which of the five things was
+wrong.
 
 **Do not treat the script's step-level `ok` as evidence that the chain moved.**
 Several of its operations report `ok` having changed nothing, and its own
 post-cascade verification reads the working tree rather than the commit, so a
 document transitioned on disk but missing from the finalization commit satisfies
-every check it makes. Confirm the three facts yourself: the PLAN absent from
-disk, each upstream document at its expected status, and the finalization commit
-containing each of those documents — the last read from the commit's own paths
-(`git diff-tree --no-commit-id --name-only -r <sha>`), never from the tree.
+every check it makes. That is what the verifier is for: it establishes the PLAN
+absent from disk, each upstream document at its terminal posture, and the
+finalization commit CONTAINING each of those documents — the last read from the
+commit's own path list, never from the tree. Read its stderr if it fails; koto
+keeps the exit code, not the diagnostics.
 
 A `partial` verdict halts the run. The two shapes differ in what recovery means,
-and `execute.md:735-740` is the authority for both: a refused transition without
-`commit` and `push` at `ok` published nothing, so recovery is local; one with
-them published what it reached, so the remote carries that commit and recovery
-is a follow-up commit or a revert rather than a reset.
+and `/execute`'s `plan_completion` directive is the authority for both — read it
+there rather than reasoning from here, so two callers of one script cannot come
+to disagree about what a partial result means. A refused transition *without*
+`commit` and `push` at `ok` published nothing, so recovery is local. One *with*
+them published what it reached: the remote carries that commit, and recovery is
+a follow-up commit or a revert rather than a reset. Inspect the `steps` array to
+tell which shape you have; the verdict alone does not say.
 
 ## done
 

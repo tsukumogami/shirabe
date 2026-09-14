@@ -179,26 +179,26 @@ commit's own paths.
 
 **Acceptance Criteria**:
 
-- [ ] Evidence comprises: the anchor absent from disk; each upstream document at
+- [x] Evidence comprises: the anchor absent from disk; each upstream document at
       its expected status; and the finalization commit containing each of those
       documents.
-- [ ] The third fact is established **from the commit** (listing the commit's own
+- [x] The third fact is established **from the commit** (listing the commit's own
       paths), not from the working tree.
-- [ ] **A test fails when a document is transitioned on disk but missing from the
+- [x] **A test fails when a document is transitioned on disk but missing from the
       finalization commit.** That is the exact state the cascade's staging defect
       produces, so it is the case this evidence must be able to see. If it cannot
       be constructed in the harness, the pull request says so explicitly and
       names what stands in its place rather than leaving the gap implicit.
-- [ ] No criterion here depends on the cascade script's step-level `ok`, which is
+- [x] No criterion here depends on the cascade script's step-level `ok`, which is
       unreliable in six measured places and is being hardened separately.
-- [ ] **R4 directly:** an anchor that resolves to no upstream chain still commits
+- [x] **R4 directly:** an anchor that resolves to no upstream chain still commits
       and pushes its own deletion alone and reports `skipped`, and the existing
       test pinning that behaviour passes unchanged. A criterion that would fail
       if this regressed, rather than coverage by implication.
-- [ ] `partial` routes to `done_blocked` carrying the failing step's detail and
+- [x] `partial` routes to `done_blocked` carrying the failing step's detail and
       the shape-specific recovery guidance; `completed` and `skipped` route to
       `done`.
-- [ ] **The recovery guidance matches `/execute`'s for both partial shapes**,
+- [x] **The recovery guidance matches `/execute`'s for both partial shapes**,
       which R5 requires and which nothing else in this plan checks. Verified by
       comparing against `execute.md:735-740`: a refused transition *without*
       `commit` and `push` at `ok` leaves nothing published and recovery is local;

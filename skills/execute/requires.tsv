@@ -2,7 +2,12 @@
 # Split rule: references/tool-declaration-policy.md
 #
 # koto drives the plan-level loop: init lifts the execute template, next
-# submits the tasks array and the finalization evidence, context add/get carry
+# submits the tasks array and the finalization evidence. `next` also carries
+# --no-cleanup on every tick, so the tick that reaches done_blocked or
+# paused_for_review keeps the session's context instead of deleting it; it is
+# unconditional here because an orchestrator session is always a root, which
+# scripts/terminal-retention_test.sh asserts rather than assumes. context add/get
+# carry
 # the settled branch and the per-child batch view, workflows inspects child
 # outcomes, status reports progress. `context add` takes `--from-file` on the
 # cross-issue-context path; the settled-branch write pipes on stdin instead and
@@ -40,11 +45,12 @@
 #not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
 #not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
 koto	init	--template,--var	always
-koto	next	--with-data	always
+koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
 koto	context get	-	always
 koto	workflows	-	always
 koto	status	-	always
+koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
