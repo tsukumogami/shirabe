@@ -22,9 +22,10 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 TMPS=()
 # The trailing `return 0` is load-bearing: the loop's last command is a test
-# that is FALSE when TMPS is empty, and on bash 3.2 an EXIT trap's final
+# that is FALSE when TMPS is empty, and under `set -e` an EXIT trap's final
 # status replaces the script's own, turning a clean exit into a failure that
-# prints nothing at all.
+# prints nothing at all. The trigger is `set -e` and not any shell version --
+# measured, bash 5.2 and 3.2 behave identically.
 cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
 trap cleanup EXIT
 

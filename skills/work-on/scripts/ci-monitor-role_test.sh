@@ -40,11 +40,17 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $*"; }
 
 TMPS=()
 SESSIONS=()
-# Ends with an explicit success. The last command in this trap is a test
-# that is FALSE when the arrays are empty, and on bash 3.2 an EXIT trap's
-# final status replaces the script's own -- so a clean `exit 0` on the skip
-# path came back as 1, and the suite failed while every line printed said it
-# had passed.
+# Ends with an explicit success. The last command in this trap is a test that
+# is FALSE when the arrays are empty, and under `set -e` an EXIT trap's final
+# status replaces the script's own -- so a clean `exit 0` on the skip path came
+# back as 1, and the suite failed while every line printed said it had passed.
+#
+# The trigger is `set -e`, not any shell version: measured, bash 5.2 and 3.2
+# behave identically, and a script without -e is unaffected. What made this
+# visible in one place and not another was koto's ABSENCE: with koto installed
+# the cases run, the arrays fill, and the trap's last command is a successful
+# rm; without it the script skips, the arrays stay empty, and the false test
+# becomes the exit status.
 cleanup() {
     for w in "${SESSIONS[@]:-}"; do [[ -n "$w" ]] && koto cancel "$w" >/dev/null 2>&1; done
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
