@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   An author can't hand one agent session a feature with the goal "scope it,
   then build it, done when merged": the execution mode that decides whether
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-scope-then-execute](docs/briefs/BRIEF-scope-then-execute.md); carried in Absorbed Brief.
 
@@ -151,10 +151,10 @@ verbatim as `outcome=<token>`.
 | `ready-awaiting-merge` | `/execute`, `/deliver` | Every PR is open, ready for review, with every check on its head commit passed, and at least one is unmerged because merging was off or R19's merge-state condition or the merge call failed. For coordinated, this includes the case where only the coordination PR remains. |
 | `paused-awaiting-merges` | `/execute`, `/deliver` | Coordinated only: every PR whose predecessors have merged is open, ready, and CI-green; some PR can't start until a predecessor merges. |
 | `paused-for-review` | `/execute`, `/deliver` | Interactive only: `/execute`'s existing review pause with the home PR still draft. |
-| `scoped` | `/scope` | `full-run` with a `single-pr` or `coordinated` PLAN. |
+| `scoped` | `/scope`, `/deliver` | `full-run` with a `single-pr` or `coordinated` PLAN. `/deliver` also ends here when the author declines its confirmation, printing `next=/deliver <topic>`. |
 | `handed-off-multi-pr` | `/scope`, `/deliver` | `full-run` with a `multi-pr` PLAN; the startable issues are listed (and, with `--intent`, the scoping PR is open). |
 | `scope-ended-early` | `/deliver` | `/scope` ended at `re-evaluation` or `abandonment-forced`; the report names which. |
-| `error` | `/scope`, `/execute`, `/deliver` | A step failed; the report names the step: `scope:push`, `scope:pr-create`, `execute:ci` (a check on a PR's head commit failed, required or not), `execute:ci-timeout` (checks still running when `/execute`'s existing CI-monitor limit expires), `execute:ready` (an adopted draft PR couldn't be marked ready), or `deliver:intent-mismatch`. A failed merge is not an error; it ends `ready-awaiting-merge` (R20). |
+| `error` | `/scope`, `/execute`, `/deliver` | A step failed; the report names the step: `scope:push`, `scope:pr-create`, `execute:ci` (a check on a PR's head commit failed, required or not), `execute:ci-timeout` (checks still running when the CI wait limit in R19 expires), `execute:ready` (an adopted draft PR couldn't be marked ready), `execute:pr-closed` (the PR was closed unmerged), `execute:pr-adopt` (no single owned PR matched a head-branch lookup), `execute:status-read` (GitHub couldn't be read), `execute:re-evaluation`, `execute:<state>` (any other existing `/execute` blocker, named by its state), `deliver:intent-mismatch`, or `deliver:child-outcome` (a child ended with a record `/deliver` doesn't recognise). The step is printed as `step=<step>`. A failed merge is not an error; it ends `ready-awaiting-merge` (R20). |
 
 `/scope` ends a `re-evaluation` or `abandonment-forced` run with its existing
 exit record and no `outcome=` token; `/deliver` maps those to
@@ -258,6 +258,9 @@ exit record and no `outcome=` token; `/deliver` maps those to
     writes no new BRIEF, PRD, or DESIGN;
   - an unfinished `/scope` run started with a different intent isn't
     converted: `/deliver` ends `outcome=error` naming `deliver:intent-mismatch`;
+  - a topic whose PLAN has already been executed and removed (its DESIGN is
+    under `docs/designs/current/`) runs neither child: `/deliver` reads the
+    branch's PR and reports `merged` or `ready-awaiting-merge`;
   - the resumed `/execute` gets `--merge` unless the re-invocation passes
     `--no-merge`; the earlier run's setting isn't remembered.
   R16 takes precedence over this requirement for `multi-pr` PLANs.
@@ -272,16 +275,26 @@ exit record and no `outcome=` token; `/deliver` maps those to
   and never passes an administrator or bypass option:
   - the PR is ready for review (not draft);
   - every check that ran on the PR's head commit has completed successfully,
-    required or not; `/execute` waits for running checks within its existing
-    CI-monitor limit;
+    required or not; `/execute` waits for running checks up to a CI wait
+    limit of 30 minutes per head commit, configurable for tests;
   - GitHub reports the PR's merge state as clean (no outstanding required
-    review, no conflicts, no failing protection rule).
+    review, no conflicts, no failing protection rule), and no review asks for
+    changes;
+  - at least one check reported on the head commit, and the head commit is
+    the one this run pushed;
+  - the base branch requires status checks or reviews. An unprotected base
+    never merges in v1.
+  Only PRs in the same repository, opened by the authenticated user against
+  the expected base, are ever adopted or merged; any other match is an error
+  (`execute:pr-adopt`).
   A failing check ends the run `error` naming `execute:ci`, checks still
   running at the limit end it `error` naming `execute:ci-timeout`, and a draft
   PR that can't be marked ready ends it `error` naming `execute:ready`. These
   are the same whether or not `--merge` is given.
-  It merges with the repository's single allowed method, or with squash when
-  several are allowed. `/execute` marks a draft PR it adopted ready before
+  It merges with the repository's single allowed method; with squash when
+  several are allowed and squash is one of them; otherwise with a merge
+  commit. It passes the head commit it evaluated, so a head that moved since
+  is refused rather than merged. `/execute` marks a draft PR it adopted ready before
   evaluating these conditions, as it does today.
 - **R20.** When R19's merge-state condition fails, or the merge call itself
   fails, `/execute` doesn't retry with other options and ends
@@ -339,7 +352,7 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
 
 - [ ] `/scope <topic> --intent=bogus` and `/scope <topic> --intent=stop
       --intent=continue` each end with an error naming `--intent`, and no
-      `wip/scope_<topic>_state.md` or `scope-<topic>` session exists
+      `/scope` state file or `scope-<topic>` session exists
       afterwards (R1).
 - [ ] On the forced-split fixture, `/scope` with no intent produces
       `execution_mode: multi-pr`, commits locally, and the shim logs no
@@ -410,7 +423,7 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
 - [ ] With the shim's `pr create` failing, an `--intent=continue` run records
       its exit in the state file and prints `outcome=error` with
       `scope:pr-create`; with no `origin` remote it prints `scope:push` (R12).
-- [ ] No `execute-<topic>` koto session and no `wip/execute_<topic>_state.md`
+- [ ] No `execute-<topic>` koto session and no `/execute` state file
       exist after any `/scope` run, with any intent (R13).
 - [ ] `/execute` on the PLAN a single-pr `--intent=continue` run produced
       adopts the open PR; the shim logs no second `pr create` and no
@@ -463,13 +476,22 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       R20).
 - [ ] `/execute --merge` on a scenario with a failing non-required check ends
       `error` naming `execute:ci`; with a check still pending past the
-      CI-monitor limit, `error` naming `execute:ci-timeout`; with a draft PR
+      CI wait limit, `error` naming `execute:ci-timeout`; with a draft PR
       whose `pr ready` call fails, `error` naming `execute:ready`. None logs a
       `pr merge` call (R19).
 - [ ] `/execute --merge` on a scenario where every pre-check passes but `pr
       merge` returns an error ends `ready-awaiting-merge`, logs exactly one
       `pr merge` call, and never reports `merged` (R20).
-- [ ] No logged `pr merge` call carries `--admin` (R19).
+- [ ] No logged `pr merge` call carries `--admin` or `--auto` (R19).
+- [ ] `/execute --merge` on scenarios where the base branch has no protection,
+      where no check ever reports, and where the PR head differs from the
+      pushed commit logs no `pr merge` call and ends `ready-awaiting-merge`
+      naming `base-unprotected`, `no-checks`, and `head-moved` (R19).
+- [ ] With a same-named PR from a fork (or by another author) on the head
+      branch, `/execute` doesn't adopt it and ends `error` naming
+      `execute:pr-adopt` (R19).
+- [ ] A session started with `--merge` and resumed without it logs no `pr
+      merge` call (R17, R19).
 - [ ] On a repository scenario allowing merge and squash, the logged call
       uses `--squash`; allowing only rebase, it uses `--rebase` (R19).
 - [ ] On the single-repo coordinated fixture with the mergeable scenario,
