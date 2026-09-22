@@ -786,8 +786,9 @@ the set of repositories it may write to when it starts and rejects PR-index or
 5. **`/execute`.** It adopts the PR by head branch through the ownership
    filter. Each merge decision reads live GitHub state through
    `merge-verdict.sh`; `merge-exec.sh` recomputes it before merging. The CI
-   deadline bookkeeping lives in koto context (single-pr) or `/execute`'s state
-   file (coordinated); losing it only restarts the wait.
+   deadline and the no-checks grace window are anchored on the head commit's
+   `committedDate` from the same PR snapshot, so the scripts keep no
+   bookkeeping and a resumed run measures the same deadline.
 6. **Coordinated resume.** Resume state lives on the coordination PR (its PR
    index and merge-order block) and in the node branches' PRs.
 
