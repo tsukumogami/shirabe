@@ -14,7 +14,13 @@ goals: |
   merged when the session may merge, ready and handed off when it can't, or a
   PLAN on a PR with its startable issues named. Plain /scope keeps working as
   it does.
-upstream: docs/briefs/BRIEF-scope-then-execute.md
+absorbed:
+  - docs/briefs/BRIEF-scope-then-execute.md
+motivating_context: |
+  Authors hand whole features to background sessions with a standing goal
+  ("scope this, then build it, done when merged"). The goal is only
+  satisfiable for some PLANs, and the author can't tell which kind they'll get
+  until /scope has already run.
 ---
 
 # PRD: scope-then-execute
@@ -22,6 +28,33 @@ upstream: docs/briefs/BRIEF-scope-then-execute.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-scope-then-execute](docs/briefs/BRIEF-scope-then-execute.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature frames one gap: an author who hands a whole feature to a session
+with the goal "scope it, build it, done when merged" can't know at launch
+whether that goal is reachable, because the execution mode is picked late and
+the modes conflate how many PRs the work lands in with whether anyone stays to
+drive it.
+
+The problem it named is this document's Problem Statement. The outcome it asked
+for is that an author states intent up front and every run under that intent
+ends somewhere useful: merged when the session may merge, a ready PR handed off
+when it can't, or a landed PLAN with issues ready for per-PR sessions, with no
+change for anyone who doesn't opt in. Those are this document's Goals.
+
+Four journeys grounded it and survive as User Stories 1 through 4: a
+maintainer's background session driven to done; a contributor's driven run in a
+repository where agents can't merge, which must neither stall silently nor
+re-scope; a lead who scopes now and fans out to per-issue sessions later; and an
+author who keeps using `/scope` as before. Its scope boundary is carried as the
+Requirements and Out of Scope: intent declared at launch, splits resolved by
+intent, coordinated allowed in one repository, a thin driver over a directly
+callable `/scope`, merging only when permitted; and, excluded, automatic
+fan-out, moving multi-pr into `/execute`, changing split reasons, merging by
+default, and the strategic chain.
 
 ## Problem Statement
 
@@ -69,20 +102,17 @@ caller's intent, and the caller has no way to state it.
 1. As a maintainer handing a feature to a background session, I want one
    command that scopes the feature and then drives it to merged code, so that
    I can step away and come back to finished work and the documents that
-   explain it. (BRIEF journey "Background session, drive it to done".)
+   explain it.
 2. As a contributor in a repository where agent sessions can't merge, I want a
    driven run to finish cleanly with its PRs ready, tell me exactly which
    merges are waiting on me, and pick up where it stopped when I re-run it, so
-   that the run neither stalls silently nor re-scopes. (BRIEF journey "Driven
-   run in a repo where agents can't merge".)
+   that the run neither stalls silently nor re-scopes.
 3. As a lead planning parallel work, I want to scope a feature with the intent
    to stop at the PLAN and be told which issues can start once the PLAN lands,
-   so that I can start one session per issue. (BRIEF journey "Scope now, fan
-   out later".)
+   so that I can start one session per issue.
 4. As an author who uses `/scope` as it is, I want no change in what it
    produces unless I ask for one, and a correct next step at the end, so that
-   the new behavior costs me nothing. (BRIEF journey "Plain scoping, no intent
-   stated".)
+   the new behavior costs me nothing.
 5. As an author who wants to review the documents before any code is written,
    I want `/scope --intent=continue` alone to leave the work ready for
    `/execute`, so that I can read the PR and then start execution myself.
@@ -532,7 +562,7 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
   the shape of the work. Coordinated keeps the incremental-value benefit of
   splitting, because each PR still merges on its own; only the PLAN waits.
   This drops coordinated's multi-repo-only restriction (R6).
-- **The `/scope` flag shapes; the driver invokes.** This answers the BRIEF's
+- **The `/scope` flag shapes; the driver invokes.** This answers the framing's
   first open question. `--intent` ends at leaving the branch on a PR in the
   shape `/execute` adopts (R9, R13); `/deliver` calls `/execute`. The
   alternative, `/scope` invoking `/execute` itself, would make the driver
@@ -540,7 +570,7 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
   does. Keeping them as peers also makes `/scope --intent=continue` useful on
   its own (story 5).
 - **Merging is opt-in, requested by the driver, and bounded by what GitHub
-  reports.** This answers the BRIEF's second open question. Alternatives were
+  reports.** This answers the framing's second open question. Alternatives were
   a per-repository setting or probing permissions ahead of time. R19 checks the
   PR's own state (ready, all checks green, clean merge state) and treats a
   failed merge call as "not possible", which needs no configuration and can't
