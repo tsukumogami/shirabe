@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A caller can't launch one session that scopes a feature and drives it to
   merged code. The PLAN's mode is chosen inside /plan from inputs the caller
@@ -30,7 +30,7 @@ user_visible_surface: true
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
