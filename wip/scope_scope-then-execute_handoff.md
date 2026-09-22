@@ -54,12 +54,19 @@ merges, and `/scope` ends without naming or taking the next step.
   when reviewing the framing.
 - The launch-time uncertainty is resolved by declaring intent, not by predicting
   the mode.
+- The continuation lives in two layers (author). `/scope` gains an intent flag:
+  continue into execution, or stop at PLAN. Omitting it keeps today's default.
+  A thin driver skill invokes `/scope` with the continue flag and then drives the
+  resulting PLAN to merge (or to a hand-off when it can't merge). Calling `/scope`
+  directly, with or without the flag, stays fully supported.
 
 ## Coverage Notes
-- Where the continuation lives is open: a flag on `/scope`, a thin driver skill
-  in the parent-of-the-parent slot the parent-skill pattern names, or a goal
-  recipe paired with exit-time branching. The trade-off is the house rule that
-  parents stop and name the next command rather than invoke each other.
+- The driver-plus-flag split is settled, but its boundary isn't. Open questions:
+  does `/scope` with the continue flag invoke `/execute` itself, or only shape
+  the PLAN (mode resolution, pushed PR) and leave invocation to the driver? What
+  does the driver own beyond sequencing (the merge step, suspend/resume on the
+  coordination PR, the final report)? What should the driver be called? And what
+  is the flag's name and default?
 - How intent reaches `/plan` is open. `/scope` passes `/plan` only the DESIGN
   path today, the Delivery Preference stack documents a flag layer `/plan` never
   defines, and how `/plan` currently learns to write `execution_mode: coordinated`
@@ -94,12 +101,10 @@ drivable".
 
 ## Shape Signals
 ### Architectural alternatives left open
-- Continuation as a `/scope` flag: smallest change, but bends the parents-as-peers
-  rule.
-- Continuation as a thin driver skill: keeps `/scope` and `/execute` unchanged,
-  and adds a skill.
-- Continuation as a documented goal recipe: no new skill, but intent never
-  reaches `/plan`, so it needs exit-time branching.
+- The `/scope` flag's reach. It could only resolve intent (split to coordinated
+  and push the PR) and exit, which keeps parents as peers with the driver doing
+  the chaining. Or it could also invoke `/execute`, which makes the driver
+  thinner but has one parent invoking another.
 - Intent plumbing to `/plan`: a new delivery/intent flag forwarded by `/scope`,
   or `/scope` rewriting the mode after `/plan` returns.
 

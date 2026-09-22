@@ -55,3 +55,10 @@ entry is a recommendation followed, with status noted.
 - **Consequence for the core question**: with intent declared up front, every
   mode a continuing run can land on is one that session can drive, so the
   launch-time uncertainty goes away rather than being predicted.
+
+## After crystallize, author input
+
+- **Continuation = thin driver skill + intent flag on `/scope`** (author): the
+  driver calls `/scope` with the continue flag and then drives the PLAN; `/scope`
+  stays directly callable with the flag or its default. Where the line between
+  the flag's job and the driver's job falls is left to DESIGN.
