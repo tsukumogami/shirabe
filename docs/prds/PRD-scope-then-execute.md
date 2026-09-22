@@ -151,6 +151,7 @@ verbatim as `outcome=<token>`.
 | `ready-awaiting-merge` | `/execute`, `/deliver` | Every PR is open, ready for review, with every check on its head commit passed, and at least one is unmerged because merging was off or R19's merge-state condition or the merge call failed. For coordinated, this includes the case where only the coordination PR remains. |
 | `paused-awaiting-merges` | `/execute`, `/deliver` | Coordinated only: every PR whose predecessors have merged is open, ready, and CI-green; some PR can't start until a predecessor merges. |
 | `paused-for-review` | `/execute`, `/deliver` | Interactive only: `/execute`'s existing review pause with the home PR still draft. |
+| `executed` | `/scope` | `--intent` given for a topic whose PLAN was already executed and removed; the report names the branch's PR. `/deliver` relays it as `merged` or `ready-awaiting-merge` from that PR's state. |
 | `scoped` | `/scope`, `/deliver` | `full-run` with a `single-pr` or `coordinated` PLAN. `/deliver` also ends here when the author declines its confirmation, printing `next=/deliver <topic>`. |
 | `handed-off-multi-pr` | `/scope`, `/deliver` | `full-run` with a `multi-pr` PLAN; the startable issues are listed (and, with `--intent`, the scoping PR is open). |
 | `scope-ended-early` | `/deliver` | `/scope` ended at `re-evaluation` or `abandonment-forced`; the report names which. |
@@ -207,10 +208,10 @@ exit record and no `outcome=` token; `/deliver` maps those to
 - **R9.** With `--intent` set, `/scope` pushes its branch to the `origin`
   remote and opens a PR carrying every document the run committed, before it
   exits. The PR's title contains the topic slug, so `/execute`'s existing
-  home-PR lookup finds it. It opens exactly one PR per run: when the coordination PR already
-  exists because `--coordinated` or a CLAUDE.md header created it up front, as
-  today, that PR is the one; otherwise `/scope` opens the PR at exit, once the
-  PLAN's mode is known. The branch is the one `/scope` already requires (named, not the
+  home-PR lookup finds it. It opens exactly one PR per run, at exit, once the
+  PLAN's mode is known: with `--intent` set, `/scope` never creates a
+  coordination PR up front, and a PR left open on the branch by an earlier
+  attempt at the same run is reused. The branch is the one `/scope` already requires (named, not the
   default branch).
   - For a `single-pr` PLAN the PR is a draft; it's the PR `/execute` adopts
     as its home PR.
@@ -259,8 +260,9 @@ exit record and no `outcome=` token; `/deliver` maps those to
   - an unfinished `/scope` run started with a different intent isn't
     converted: `/deliver` ends `outcome=error` naming `deliver:intent-mismatch`;
   - a topic whose PLAN has already been executed and removed (its DESIGN is
-    under `docs/designs/current/`) runs neither child: `/deliver` reads the
-    branch's PR and reports `merged` or `ready-awaiting-merge`;
+    under `docs/designs/current/`) doesn't re-scope: `/scope` reports
+    `outcome=executed` naming the branch's PR, and `/deliver` reports `merged`
+    or `ready-awaiting-merge` from it without running `/execute`;
   - the resumed `/execute` gets `--merge` unless the re-invocation passes
     `--no-merge`; the earlier run's setting isn't remembered.
   R16 takes precedence over this requirement for `multi-pr` PLANs.
@@ -283,7 +285,11 @@ exit record and no `outcome=` token; `/deliver` maps those to
   - at least one check reported on the head commit, and the head commit is
     the one this run pushed;
   - the base branch requires status checks or reviews. An unprotected base
-    never merges in v1.
+    never merges in v1;
+  - every check the base requires has reported success;
+  - an approving review exists when the base requires one, or when the PR
+    changes workflow files (`.github/workflows/`, `.github/actions/`) or a
+    CODEOWNERS file.
   Only PRs in the same repository, opened by the authenticated user against
   the expected base, are ever adopted or merged; any other match is an error
   (`execute:pr-adopt`).
@@ -406,7 +412,8 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       exactly one `pr create`, a draft whose body contains the coordination-PR
       declaration marker (R9).
 - [ ] `--intent=continue --coordinated` on the multi-repo fixture logs exactly
-      one `pr create` for the whole run, made before the first child runs (R9).
+      one `pr create` for the whole run, made after the PLAN hop, never before
+      the first child runs (R9).
 - [ ] After `--intent=stop` on the forced-split fixture, the created PR is not
       a draft (R9).
 - [ ] Runs with `--intent=continue` that end `abandonment-forced` and,
@@ -487,6 +494,10 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       where no check ever reports, and where the PR head differs from the
       pushed commit logs no `pr merge` call and ends `ready-awaiting-merge`
       naming `base-unprotected`, `no-checks`, and `head-moved` (R19).
+- [ ] `/execute --merge` on a base requiring a review, with no approval, and on
+      a base requiring only checks, with a PR that edits
+      `.github/workflows/`, logs no `pr merge` call and ends
+      `ready-awaiting-merge` naming `review` and `workflow-change` (R19).
 - [ ] With a same-named PR from a fork (or by another author) on the head
       branch, `/execute` doesn't adopt it and ends `error` naming
       `execute:pr-adopt` (R19).
@@ -516,9 +527,10 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       `skills/work-on/SKILL.md` returns no line describing a non-`merged`
       final state or exit as merged (checked by a script added with this
       change) (R24).
-- [ ] `shirabe validate` accepts a `/scope` state file with
+- [ ] `/scope`'s state-file enum re-validation accepts
       `plan_execution_mode: coordinated` and still rejects
-      `plan_execution_mode: bogus` (R25).
+      `plan_execution_mode: bogus`, and the shared state-schema reference lists
+      all three values (R25).
 - [ ] `/scope`'s PLAN-status table lists a status for each of `single-pr`,
       `multi-pr`, and `coordinated` that matches what `/plan` writes on the
       three fixtures (R25).
