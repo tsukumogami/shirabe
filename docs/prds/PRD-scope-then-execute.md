@@ -151,7 +151,7 @@ verbatim as `outcome=<token>`.
 | `ready-awaiting-merge` | `/execute`, `/deliver` | Every PR is open, ready for review, with every check on its head commit passed, and at least one is unmerged because merging was off or R19's merge-state condition or the merge call failed. For coordinated, this includes the case where only the coordination PR remains. |
 | `paused-awaiting-merges` | `/execute`, `/deliver` | Coordinated only: every PR whose predecessors have merged is open, ready, and CI-green; some PR can't start until a predecessor merges. |
 | `paused-for-review` | `/execute`, `/deliver` | Interactive only: `/execute`'s existing review pause with the home PR still draft. |
-| `executed` | `/scope` | `--intent` given for a topic whose PLAN was already executed and removed; the report names the branch's PR. `/deliver` relays it as `merged` or `ready-awaiting-merge` from that PR's state. |
+| `executed` | `/scope` | `--intent` given for a topic whose PLAN was already executed and removed; the report names the branch's PR and prints `pr_state=merged` or `pr_state=open`. `/deliver` relays it as `merged` or `ready-awaiting-merge`. |
 | `scoped` | `/scope`, `/deliver` | `full-run` with a `single-pr` or `coordinated` PLAN. `/deliver` also ends here when the author declines its confirmation, printing `next=/deliver <topic>`. |
 | `handed-off-multi-pr` | `/scope`, `/deliver` | `full-run` with a `multi-pr` PLAN; the startable issues are listed (and, with `--intent`, the scoping PR is open). |
 | `scope-ended-early` | `/deliver` | `/scope` ended at `re-evaluation` or `abandonment-forced`; the report names which. |
@@ -253,10 +253,10 @@ exit record and no `outcome=` token; `/deliver` maps those to
 - **R17.** Re-invoking `/deliver` on the same topic resumes:
   - an unfinished `/scope` run in the same working copy resumes inside
     `/scope` at the hop it stopped;
-  - a topic whose PLAN exists on the checked-out branch resumes inside
-    `/execute`, which adopts the branch's open PR or coordination PR when one
-    exists and otherwise creates its home PR as it does today; either way it
-    writes no new BRIEF, PRD, or DESIGN;
+  - a topic whose PLAN exists on the checked-out branch passes through
+    `/scope`, which re-runs its publish step (opening the branch's PR if none
+    is open), and then resumes inside `/execute`, which adopts that PR or
+    coordination PR; either way it writes no new BRIEF, PRD, or DESIGN;
   - an unfinished `/scope` run started with a different intent isn't
     converted: `/deliver` ends `outcome=error` naming `deliver:intent-mismatch`;
   - a topic whose PLAN has already been executed and removed (its DESIGN is
@@ -457,9 +457,9 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       with the root-issue list (R16).
 - [ ] Re-invoking `/deliver` after a run stopped during the PRD hop resumes at
       the PRD hop; re-invoking it on a checked-out branch whose PLAN exists
-      and has an open PR adopts that PR, and on one with no PR creates the
-      home PR as `/execute` does today; neither creates a BRIEF, PRD, or
-      DESIGN commit (R17).
+      and has an open PR adopts that PR, and on one with no PR has `/scope`
+      open it (one `pr create` on the topic branch) before `/execute` adopts
+      it; neither creates a BRIEF, PRD, or DESIGN commit (R17).
 - [ ] Re-invoking `/deliver` on a topic whose unfinished `/scope` run has
       `intent: stop` prints `outcome=error` with `deliver:intent-mismatch` and
       changes nothing (R17).

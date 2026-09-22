@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A caller can't launch one session that scopes a feature and drives it to
   merged code. The PLAN's mode is chosen inside /plan from inputs the caller
@@ -30,7 +30,7 @@ user_visible_surface: true
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -304,9 +304,9 @@ merge_confirm` with two new terminals, `merged` and `ready_awaiting_merge`.
 the decision table in Solution Architecture, owns the CI deadline, and writes
 a verdict to koto context. `merge_route` routes on that verdict.
 `merge_attempt` is agent-run (never a default action) and runs exactly
-`merge-exec.sh <repo> <pr>`, the only `gh pr merge` call site in the
-repository, which reads the recorded verdict for the method and head commit
-and accepts no pass-through flags. `merge_confirm` re-reads
+`merge-exec.sh <repo> <pr> <expected-head>`, the only `gh pr merge` call
+site in the repository, which recomputes the verdict itself and accepts no
+pass-through flags (see Key Interfaces > Script interfaces). `merge_confirm` re-reads
 the PR and reaches `merged` only if GitHub reports `MERGED`. Merge intent is a
 template variable set at `koto init` from `--merge`, never agent evidence, so a
 run without `--merge` can't merge. `ci_monitor`'s gates and DIRTY route stay
@@ -567,8 +567,11 @@ and printed `key=value` exit lines coming back up.
   publish step and reprints the exit lines (`outcome=scoped` or
   `handed-off-multi-pr`, `next=`, `pr=`) instead of refusing. A topic whose
   PLAN was already executed and removed (DESIGN under
-  `docs/designs/current/`) prints `outcome=executed` and `pr=` for the
-  branch's owned PR.
+  `docs/designs/current/`) prints `outcome=executed`, `pr=` for the branch's
+  owned PR, and `pr_state=merged|open` from the same ownership-filtered read.
+- Resume under `--intent` when a PLAN exists and no owned PR is open on the
+  branch: the re-run publish step opens it, so `/execute` always adopts a PR
+  `/scope` opened and never creates its own home PR on a `/deliver` run.
 - Three publish states, plus the `intent_declared` gate on the exit states.
 - New scripts, each with a `_test.sh`:
   - `scripts/publish-scoping-pr.sh`
@@ -642,16 +645,40 @@ evals:
 ```
 /scope finished: exit=<exit>; artifact=<path>
 intent=<continue|stop|none>
-outcome=<scoped|handed-off-multi-pr|error>   # full-run or publish failure
+outcome=<scoped|handed-off-multi-pr|executed|error>   # full-run, executed-topic resume, or publish failure
 step=<scope:push|scope:pr-create>            # error only
 next=<command>                               # full-run only
 pr=<url>                                     # intent runs only
+pr_state=<merged|open>                       # executed only
+wip_paths=<comma-separated paths>            # intent runs with wip/ in unpushed history
 #<N> <title>                                 # multi-pr startable issues, then one closing line
 ```
 
-`/execute` prints `outcome=<token>`, `step=<step>` on error, and for each
+`/execute` prints `outcome=<token>`, `step=<step>` on error, `repos=<comma-
+separated owner/repo list>` (its write set, fixed at start), and for each
 unmerged PR `pr=<url> waiting=human|predecessor reason=<condition>`. For a
 pause it adds the resume command.
+
+**Script interfaces.** Both merge scripts take everything they decide on as
+arguments, and neither reads koto context or state files:
+
+- `merge-verdict.sh --repo <owner/repo> --pr <n> --merge <true|false>
+  --expected-head <sha|none> [--confirm]` prints one verdict line and exits 0,
+  or exits non-zero on a usage error. `--merge` is true only when both the
+  session's `MERGE` variable and this invocation's `--merge` are true; the
+  caller computes it. `--expected-head none` makes row 8 fire.
+- `merge-exec.sh <owner/repo> <pr> <expected-head>` runs
+  `merge-verdict.sh --merge true --expected-head <expected-head>` itself,
+  refuses unless the fresh verdict is `mergeable:<method>:<expected-head>`,
+  then makes the single fixed-text merge call with that method and sha, and
+  prints `merge-called:<method>:<sha>` or `merge-refused:<verdict>`. The
+  caller confirms with `merge-verdict.sh --confirm`; `merge-called` is never
+  read as merged.
+- The expected head always comes from the durable record below, read by
+  `/execute` itself (koto context for single-pr, the coordination index for
+  coordinated), never from the live PR. The check guards against pushes the
+  run didn't make; it is not a defense against a compromised agent, which the
+  repository's own protection covers.
 
 **Merge decision table** (`merge-verdict.sh`, first match wins; the caller has
 already run `gh pr ready`):
@@ -687,11 +714,10 @@ A persistent `gh` read failure is `error:execute:status-read`. Method: the
 single allowed one; squash when several are allowed including squash;
 otherwise `--merge`. The merge call is fixed text:
 `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>`.
-`merge-exec.sh` takes only the repository and PR number and never trusts a
-stored verdict, which the agent's shell could write: it runs `merge-verdict.sh`
-itself immediately before the merge call and refuses unless that fresh verdict
-is `mergeable:<method>:<sha>` and matches the one that routed the run there; it validates the PR number (`^[1-9][0-9]*$`),
-method, sha, and repository against closed patterns.
+`merge-exec.sh` never trusts a stored verdict, which the agent's shell could
+write: it recomputes the verdict immediately before the merge call (Script
+interfaces above), and validates the PR number (`^[1-9][0-9]*$`), method, sha,
+and repository against closed patterns.
 
 **Merge intent per invocation.** Merging needs two things: the session's
 `MERGE` template variable (set at `koto init` from `--merge`) and a
@@ -779,8 +805,9 @@ topic stop" question through its own resume ladder:
    - a `re-evaluation` or `abandonment-forced` exit record:
      `outcome=scope-ended-early` naming which.
    - `outcome=handed-off-multi-pr`: relayed with its list (R16).
-   - `outcome=executed`: relayed as `merged` or `ready-awaiting-merge` from the
-     printed PR's state (the finished single-pr case).
+   - `outcome=executed`: relayed as `merged` when `pr_state=merged`, else
+     `ready-awaiting-merge`, with the printed PR (the finished single-pr
+     case).
    - `outcome=scoped`: re-read the PLAN at `docs/plans/PLAN-<topic>.md`; a
      missing PLAN is `deliver:child-outcome`, a `multi-pr` mode is handed off,
      anything else continues.
@@ -788,9 +815,8 @@ topic stop" question through its own resume ladder:
 3. Interactively, ask one Proceed/Stop question naming the mode; Stop ends
    `outcome=scoped` with `next=/deliver <topic>`.
 4. Run `/execute docs/plans/PLAN-<topic>.md` with the mode flag and `--merge`
-   unless `--no-merge`, and relay its `outcome=`, `step=`, and `pr=` lines,
-   plus the repositories in the run's write set and `/scope`'s `wip_paths=`
-   line.
+   unless `--no-merge`, and relay its `outcome=`, `step=`, `pr=`, and
+   `repos=` lines, plus `/scope`'s `wip_paths=` line.
 
 Because a topic with a PLAN still passes through `/scope`, a run whose
 publish failed after the PLAN was written gets its PR opened on the retry
@@ -947,9 +973,9 @@ recipes) should require an approving review before `--merge` is used there.
 `merge-exec.sh` is the only place `gh pr merge` appears, and a shell test
 enforces that by grep. The call is
 `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>` with no
-`--admin`, no `--auto`, and no pass-through flags. The script reads the
-verdict recorded for that same PR rather than trusting its arguments, and
-validates every value against a closed pattern. `--match-head-commit` closes
+`--admin`, no `--auto`, and no pass-through flags. The script recomputes the
+verdict itself immediately before merging rather than trusting a stored one,
+and validates every value against a closed pattern. `--match-head-commit` closes
 the window between verdict and merge. `merged` is reported only after a live
 read says `MERGED`. A merge queue that accepts a PR without merging it is
 reported as `merge-not-observed`, and the report says the PR may still merge
