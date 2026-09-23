@@ -134,6 +134,7 @@ current behavior.
 | `/deliver` | `--auto` / `--interactive` | boolean | `interactive` (or the CLAUDE.md `## Execution Mode:` header) | Resolved once and passed to both `/scope` and `/execute`. |
 | `/deliver` | `--no-merge` | boolean | off (merging on) | Runs `/execute` without `--merge`. |
 | `/deliver` | `--upstream`, `--max-rounds`, `--coordinated`, `--no-coordinated` | as in `/scope` | as in `/scope` | Forwarded to `/scope` unchanged. |
+| `/scope`, `/execute` | `--koto-leg=<request>:<leg>` | a koto request leg | absent | Child-owned and documented for direct use. Attaches the run to a leg of a koto request, so the run's terminal result is recorded on that leg for whoever created the request. `/deliver` passes it; a person running either skill directly never needs to. |
 
 **Precedence for the PLAN's mode when the work splits:** an explicit
 `--coordinated` or `--no-coordinated` flag wins, then `--intent`, then the
@@ -154,8 +155,8 @@ verbatim as `outcome=<token>`.
 | `executed` | `/scope` | `--intent` given for a topic whose PLAN was already executed and removed; the report names the branch's PR and prints `pr_state=merged` or `pr_state=open`. `/deliver` relays it as `merged` or `ready-awaiting-merge`. |
 | `scoped` | `/scope`, `/deliver` | `full-run` with a `single-pr` or `coordinated` PLAN. `/deliver` also ends here when the author declines its confirmation, printing `next=/deliver <topic>`. |
 | `handed-off-multi-pr` | `/scope`, `/deliver` | `full-run` with a `multi-pr` PLAN; the startable issues are listed (and, with `--intent`, the scoping PR is open). |
-| `scope-ended-early` | `/deliver` | `/scope` ended at `re-evaluation` or `abandonment-forced`; the report names which. |
-| `error` | `/scope`, `/execute`, `/deliver` | A step failed; the report names the step: `scope:push`, `scope:pr-create`, `execute:ci` (a check on a PR's head commit failed, required or not), `execute:ci-timeout` (checks still running when the CI wait limit in R19 expires), `execute:ready` (an adopted draft PR couldn't be marked ready), `execute:pr-closed` (the PR was closed unmerged), `execute:pr-adopt` (no single owned PR matched a head-branch lookup), `execute:status-read` (GitHub couldn't be read), `execute:re-evaluation`, `execute:<state>` (any other existing `/execute` blocker, named by its state), `deliver:intent-mismatch`, or `deliver:child-outcome` (a child ended with a record `/deliver` doesn't recognise). The step is printed as `step=<step>`. A failed merge is not an error; it ends `ready-awaiting-merge` (R20). |
+| `scope-ended-early` | `/deliver` | `/scope` ended at `re-evaluation`, `abandonment-forced`, or a clean cancel; the report names which. |
+| `error` | `/scope`, `/execute`, `/deliver` | A step failed; the report names the step: `scope:push`, `scope:pr-create`, `execute:ci` (a check on a PR's head commit failed, required or not), `execute:ci-timeout` (checks still running when the CI wait limit in R19 expires), `execute:ready` (an adopted draft PR couldn't be marked ready), `execute:pr-closed` (the PR was closed unmerged), `execute:pr-adopt` (no single owned PR matched a head-branch lookup), `execute:status-read` (GitHub couldn't be read), `execute:re-evaluation`, `execute:<state>` (any other existing `/execute` blocker, named by its state), `deliver:intent-mismatch`, `deliver:child-outcome` (a child ended with a record `/deliver` doesn't recognise), `deliver:child-absent` (a child returned without ever recording a result), `scope:refused` / `execute:refused` (a child refused its arguments before any work started), `scope:intake` (a `/scope` intake check such as the upstream battery failed), or `scope:resume-probe` (`/scope` couldn't read the state its resume routing needs). The step is printed as `step=<step>`. A failed merge is not an error; it ends `ready-awaiting-merge` (R20). |
 
 `/scope` ends a `re-evaluation` or `abandonment-forced` run with its existing
 exit record and no `outcome=` token; `/deliver` maps those to
@@ -332,7 +333,7 @@ exit record and no `outcome=` token; `/deliver` maps those to
 
 ### Non-functional
 
-- **R26.** Each requirement R1-R25 is covered by at least one eval scenario
+- **R26.** Each requirement R1-R25, R30, and R31 is covered by at least one eval scenario
   that declares the requirement IDs it covers. Scenarios that depend on
   GitHub state run against the `gh` shim under the owning skill's
   `evals/fixtures/bin/`, with scenarios for mergeable and not-mergeable PRs.
@@ -344,10 +345,26 @@ exit record and no `outcome=` token; `/deliver` maps those to
   it's updated in the same change, and nothing else about it changes.
 - **R28.** Each skill that gains a write lists it in its SKILL.md
   write-target section: `/scope` gains `git push` and `gh pr create`,
-  `/execute` gains `gh pr merge`, and `/deliver` declares that it writes only
+  `/execute` gains `gh pr merge`, and `/deliver` declares its one write of its
+  own, the koto request it opens per run, with every repository write happening
   through its children.
 - **R29.** `/deliver` inherits `/scope`'s repository binding (public-repo
   tactical chains in v1).
+- **R30.** `/deliver`'s sequencing, confirmation, resume, and outcome mapping
+  are enforced by a koto workflow, not skill prose. `/scope` and `/execute`
+  report every outcome to `/deliver` as a koto result recorded against the
+  current `/deliver` run, including their refusals and resume shortcuts; a
+  result left over from an earlier `/deliver` run is never read as the
+  current one. `/deliver` doesn't parse the children's printed output to
+  decide anything.
+- **R31.** Every `/scope` and `/execute` invocation, with or without
+  `/deliver`, ends in a koto terminal state that declares its outcome, so the
+  printed exit lines are rendered from the recorded result rather than
+  composed by the agent. A second `/scope` run on a topic whose earlier run
+  finished starts a fresh run rather than reattaching to the finished one.
+- **R32.** The koto features these requirements need ship in a koto release
+  before the shirabe changes merge, and `/scope`, `/execute`, and `/deliver`
+  declare that koto version as their minimum.
 
 ## Acceptance Criteria
 
@@ -542,10 +559,30 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       R24 text (R27).
 - [ ] `skills/scope/SKILL.md`'s write-target section lists `git push` and `gh
       pr create`, `skills/execute/SKILL.md`'s lists `gh pr merge`, and
-      `skills/deliver/SKILL.md` declares writes only through its children
+      `skills/deliver/SKILL.md` declares the per-run koto request as its only own write and every repository write as its children's
       (R28).
 - [ ] `/deliver` on a private-repo fixture refuses the same way `/scope` does
       (R29).
+- [ ] `/deliver`'s template, compiled by koto, contains a state for each
+      step of R14-R18 (scope, check, mode route, confirm, execute, merged
+      re-check, report), and every `/deliver` eval asserts its outcome from
+      the session's terminal result, not from printed lines (R30).
+- [ ] A `/deliver` re-run after an earlier run's `/scope` child finished
+      reports the new run's `/scope` result; the earlier run's terminal
+      result is refused as stale (R30).
+- [ ] With a child that returns without recording a result, `/deliver` ends
+      `outcome=error step=deliver:child-absent` (R30).
+- [ ] A `/scope --koto-leg` run refused at argument validation (for example
+      `--intent=bogus`) records `scope:refused` on its leg and opens no
+      session; `/deliver` relays `outcome=error step=scope:refused` (R1, R30).
+- [ ] Every terminal state in `/scope`'s and `/execute`'s templates declares
+      a result with at least `outcome`, and each skill's exit lines are
+      printed by a script from that result (R31).
+- [ ] A second `/scope <topic>` after an earlier run on the topic reached its
+      terminal starts a new session rather than ticking the finished one, on
+      both the no-intent and intent paths (R31).
+- [ ] Each of the three skills' `requires.tsv` declares the koto minimum, and
+      preflight on an older koto reports it before any work starts (R32).
 
 ## Out of Scope
 
@@ -568,6 +605,10 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
   re-invocation (R22), not a wait loop.
 - **The strategic chain.** `/charter` and its handoff into `/scope` are
   untouched.
+- **A koto template for `/plan`, and a full koto template for coordinated
+  execution.** The split-mode decision is already a deterministic script, and
+  the coordinated merge order moves into a tested action script; wrapping
+  either in its own template is later work.
 
 ## Known Limitations
 
@@ -582,6 +623,10 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
   topic's branch.
 - A stop-at-PLAN `multi-pr` run's issues can start only after a human (or a
   session with the rights) merges the scoping PR; `/scope` doesn't merge it.
+- Every `/scope`, `/execute`, and `/deliver` run needs the koto release that
+  carries the new features, including plain no-intent `/scope` runs.
+- The koto request store that ties `/deliver` to its children is local to one
+  machine, so a `/deliver` run resumes only on the machine it started on.
 
 ## Decisions and Trade-offs
 
@@ -625,6 +670,15 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
 - **Pausing beats polling for coordinated runs without merge rights.** A named
   pause with resume from the coordination PR (R22) ends the session cleanly and
   uses state that already exists on the PR.
+- **The driver is a koto workflow, and its children report through koto.**
+  The first design made `/deliver` a stateless skill that parsed its
+  children's printed lines. The author asked for the chain to be controlled
+  by workflows as far as possible, extending koto where it falls short. So
+  `/deliver` is a koto template, and `/scope` and `/execute` each attach to a
+  per-run koto request leg that records their terminal result (R30). The two
+  children are treated the same way, which meant moving `/scope`'s argument
+  checks and resume shortcuts into its template (R31). The cost is a koto
+  release the shirabe changes depend on (R32).
 - **The driver is named `/deliver`.** It says what the run does end to end
   without colliding with `/release` (versions) or `/execute` (a finished
   PLAN).
