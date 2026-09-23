@@ -130,7 +130,7 @@ current behavior.
 | `/scope` | `--intent=<value>` | `continue`, `stop` | absent | Given at most once. Any other value, or a repeat, is rejected at Phase 0 before a state file or session exists. |
 | `/plan` | `--intent=<value>` | `continue`, `stop` | absent | Same values and rejection rule as `/scope`'s; `/scope` forwards its own value to the `/plan` hop. Usable when `/plan` is invoked directly. |
 | `/execute` | `--merge` | boolean | off | Asks `/execute` to merge the PRs it produces, within R19. |
-| `/deliver` (the new driver) | positional topic slug | `^[a-z0-9-]+$` | required | Same slug rule as `/scope`. |
+| `/deliver` (the new driver) | positional topic slug | `^[a-z0-9][a-z0-9-]*$` | required | Same slug rule as `/scope`; no leading `-`. |
 | `/deliver` | `--auto` / `--interactive` | boolean | `interactive` (or the CLAUDE.md `## Execution Mode:` header) | Resolved once and passed to both `/scope` and `/execute`. |
 | `/deliver` | `--no-merge` | boolean | off (merging on) | Runs `/execute` without `--merge`. |
 | `/deliver` | `--upstream`, `--max-rounds`, `--coordinated`, `--no-coordinated` | as in `/scope` | as in `/scope` | Forwarded to `/scope` unchanged. |

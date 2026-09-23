@@ -883,28 +883,47 @@ paragraph below is the contract shirabe consumes. The code-level detail
   `_Repo: <owner/repo> | Group: <unit-slug>_` row when it carries issues.
 - Tracking level for coordinated (R7): `coordinated` joins `multi-pr` on the
   `flag > CLAUDE.md ## Tracking Level: > mode default` stack, with `none` as
-  its default. `plan-format.md` and `references/coordination-strategy.md` drop
-  "coordinated is always issue-carrying"; `plan-doc-structure.md` documents the
-  outline-shaped coordinated form (outlines plus a Dependency Graph).
+  its default, and Phase 7 now always writes `tracking_level` on a coordinated
+  PLAN. The outline form is selected only by an explicit
+  `tracking_level: none`; a coordinated PLAN with no `tracking_level` field
+  (every coordinated PLAN written before this change, including the existing
+  eval and `plan-to-tasks_test.sh` fixtures) keeps the issue-table path, so
+  the validator and the extractor apply the same rule. The "coordinated is
+  always issue-carrying" text is removed where it lives: `plan-format.md`,
+  `phase-7-creation.md`, and the `plan_is_outline_shaped` doc comment in
+  `checks.rs`; `plan-doc-structure.md` documents the outline-shaped
+  coordinated form (outlines, each with `**Repo**:` and `**Group**:`, plus a
+  Dependency Graph). An outline-shaped coordinated PLAN is authored at
+  `Active`, as `single-pr` at `none` is, so `/scope`'s PLAN-Active resume row
+  and the R25 status table cover it.
 - `phase-4-agent-generation.md`: coordinated gets full outline bodies at
   `none` and full issue bodies when issues are filed.
 - `phase-7-creation.md`: a coordinated branch that writes outlines at `none`
   and, only at `issues` or `issues-and-milestone`, files through
   `create-issues-batch.sh` behind the explicit filing approval; single-pr and
   coordinated next-step advice names `/execute` (R23).
-- `scripts/plan-to-tasks.sh`: `process_coordinated` gains an outline path. For
-  an outline-shaped coordinated PLAN it reads each outline's `**Repo**:`,
-  `**Group**:`, and `**Dependencies**:`, contracts to `(repo, pr_group)` nodes
+- The Rust outline parser behind `shirabe plan outlines` gains `repo` and
+  `group` fields read from `**Repo**:` and `**Group**:`, so there is still one
+  outline parser. The validator flags an outline in a coordinated PLAN that
+  lacks either field, with the same validation `plan-to-tasks.sh` applies to
+  the table path's annotation row (repo `owner/repo`, group
+  `^[a-z][a-z0-9-]*$`).
+- `scripts/plan-to-tasks.sh`: `process_coordinated` gains an outline path,
+  taken only when the PLAN's `tracking_level` is `none`. It reads each
+  outline's repo, group, and dependencies from `shirabe plan outlines`
+  (never re-parsing the markdown), refuses an outline missing either field
+  with the table path's wording, contracts to `(repo, pr_group)` nodes
   exactly as the table path does, and emits `ISSUES` as local outline IDs with
   `ISSUE_SOURCE=plan_outline` for the children, so `/execute`'s coordinated
   loop dispatches `/work-on` from outlines with no GitHub issue. Both paths
   emit `REPO`, `PR_GROUP`, and `ISSUES` node vars, and the refusal text says
   "atomicity across PR groups".
 - The validator (`crates/shirabe-validate/src/checks.rs`):
-  `plan_is_outline_shaped()` treats `coordinated` at `tracking_level: none`
-  (or with the field absent) as outline-shaped, the way it treats `multi-pr`,
-  so FC04/FC14 accept the outline form and still flag a PLAN that populates
-  both outlines and an issue table.
+  `plan_is_outline_shaped()` treats `coordinated` at an explicit
+  `tracking_level: none` as outline-shaped, exactly as it treats `multi-pr`
+  (an absent field stays issue-carrying for both), so FC04/FC14 accept the
+  outline form and still flag a PLAN that populates both outlines and an
+  issue table.
 - A `gh` shim under `skills/plan/evals/fixtures/bin/` that logs `issue create`
   calls (new), used to assert that none happen at the default level.
 
@@ -912,11 +931,13 @@ paragraph below is the contract shirabe consumes. The code-level detail
 
 - Constrained variables in `scope.md` (K3):
   - `TOPIC`: pattern `^[a-z0-9][a-z0-9-]*$`, so no leading `-`;
-  - `PLUGIN_ROOT`: an absolute path with no `..` segment, `rebind: true`;
+  - `PLUGIN_ROOT`: an absolute path with no `..` segment that doesn't lie
+    inside the repository being worked on, `rebind: true`;
   - `INTENT`: `continue|stop|none|unset`, default `unset`;
   - `COORDINATION`: `none|coordinated|no-coordinated`, default `none`;
   - `EXEC_MODE`: `auto|interactive|default`, `rebind: true`;
-  - `MAX_ROUNDS`: 1 to 50, or empty;
+  - `MAX_ROUNDS`: 1 to 50, or empty, `rebind: true` (so a direct run picked up
+    by `/deliver` with a different value resumes rather than refusing);
   - `UPSTREAM`: a repository-relative `docs/roadmaps/ROADMAP-*.md` path, or
     `owner/repo:` followed by that path, never with a `..` segment, or empty.
 - Phase 0 keeps only tokenizing and the residue rule. The agent writes the
@@ -1020,6 +1041,15 @@ paragraph below is the contract shirabe consumes. The code-level detail
   fixed body template, and its branch runs the single-pr `wip/` sweep
   before `gh pr ready`. The chain-finalization cascade runs once, on the
   coordination branch, after every node PR has merged.
+- Outline-sourced children on node branches: a node branch is cut from the
+  default branch (or lives in another repository), so the PLAN isn't in its
+  tree. `/execute` dispatches each outline child with `PLAN_DOC` set to the
+  PLAN's absolute path in the coordination checkout, the checkout that holds
+  the coordination branch, and the child reads its outline from there; with
+  issues, the child reads GitHub as today. The coordinated section of
+  `skills/execute/SKILL.md` is rewritten accordingly: it reads work items and
+  PR status, not "issue/PR status", and dispatches a node's work items, not
+  "its issue(s)".
 - The ownership filter at every existing PR lookup: the four
   `gh pr list --head ... .[0]` sites in `execute.md` and the resume ladder's
   title search, which becomes a head-branch lookup.
@@ -1266,8 +1296,8 @@ author is the authenticated user, whose base is the expected branch, and, for
 index entries, whose head branch is the one the node's id determines. Zero or
 several matches after that filter is an error (`execute:pr-adopt`,
 `scope:pr-create`, or `deliver:child-outcome`), never a pick. `/execute` fixes
-the set of repositories it may write to when it starts and rejects PR-index or
-`_Repo:` entries outside it.
+the set of repositories it may write to when it starts and rejects PR-index
+entries, outline `**Repo**:` fields, or `_Repo:` rows outside it.
 
 **Outcome versus exit.** Encoded on `/execute`'s template edges through
 `context_assignments` and carried by the terminal results:
@@ -1314,7 +1344,8 @@ The Overview diagram shows the sequence. What each hand-off carries:
    `intake` writes `intent:` to the state file.
 2. **Through the `/plan` hop:** the forwarded flags in; `split_branch`,
    `split_rationale`, `execution_mode`, and `split_mode_source` recorded in
-   the PLAN, plus Repo and Group rows on a coordinated split.
+   the PLAN, plus Repo and Group on each outline (or issue row, when issues
+   are filed) of a coordinated split.
 3. **Out of `/scope`:** on intent runs, its own topic `wip/` untracked, one
    pushed branch, one verified PR, and a terminal result on the leg.
 4. **Into `/execute`:** the PLAN path, `--merge`, and `REQ:execute`. It
@@ -1439,8 +1470,10 @@ issue-free default for coordinated (tracking level, the outline path in
 creation branch with filing approval when issues are asked for, the
 `plan-to-tasks.sh` node vars with a single-repo test, next-step routing (R23), and the updated "(multi-repo)" eval
 assertion. Deliverables: `skills/plan/SKILL.md` and phases 3, 4, and 7,
-`plan-to-tasks.sh` and its test, the plan-to-tasks contract doc, and plan
-evals.
+`plan-format.md` and `plan-doc-structure.md`, `plan-to-tasks.sh` and its
+test, the plan-to-tasks contract doc, the Rust outline parser and
+`plan_is_outline_shaped` in `checks.rs` with tests, the `/plan` `gh` shim, and
+plan evals.
 
 ### Phase 5a: `/execute` merge step (single-pr)
 
@@ -1465,9 +1498,12 @@ table-tested; per-node branches, worktrees, PR titles and bodies, and the
 `wip/` sweep; the `execute-coordinated.md` envelope with result maps and the
 same `--koto-leg` entry; the merge, pause, and resume loop with `head=`
 fields written only by `node-push.sh` and the cascade push; and the Rust
-single-repo tests and `lifecycle.yml` filter. Deliverables: the coordinated
-section of `skills/execute/SKILL.md`, the envelope template and its
-mermaid, validator tests, `lifecycle.yml`, and coordinated execute evals.
+single-repo tests and `lifecycle.yml` filter; and outline-sourced children
+reading their outline through `PLAN_DOC` in the coordination checkout.
+Deliverables: the rewritten coordinated section of `skills/execute/SKILL.md`,
+the envelope template and its mermaid, validator tests, `lifecycle.yml`, and
+coordinated execute evals, including an outline-shaped coordinated PLAN run
+end to end with no `gh issue` call.
 
 ### Phase 6: `/scope` intent, intake, resume, and publish
 
@@ -1582,7 +1618,8 @@ node id.
 
 **Published content is bounded.** PR bodies come from a fixed template over
 validated fields and are passed with `--body-file`. The fields are the slug,
-exit, outcome, intent, mode, `docs/` artifact paths, and issue numbers.
+exit, outcome, intent, mode, `docs/` artifact paths, and work-item IDs
+(outline IDs, or issue numbers when issues are filed).
 Free-text state fields are left out. The coordination PR's rule against
 embedding private-repository content applies to every PR these skills open.
 Pushing a branch publishes its whole history. In this workspace, `wip/`
@@ -1681,6 +1718,12 @@ the branch.
 review, a PR could edit the workflows that produce those checks. The verdict
 refuses to merge a PR touching `.github/workflows/`, `.github/actions/`, or a
 CODEOWNERS file unless a review approved it.
+
+**Override records.** Replacing a terminal session with `--replace-terminal`
+deletes that session's override log along with it. With K8 required, the gates
+that matter can't be overridden at all, so the loss is limited to gates that
+still accept overrides; recording overrides outside the session is left to
+koto's request prune work (K9).
 
 **Residual risk.** These are skill-level controls around an agent that has a
 shell and the operator's token. A token that can bypass protection (an
