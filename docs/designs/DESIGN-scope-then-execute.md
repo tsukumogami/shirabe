@@ -35,11 +35,12 @@ user_visible_surface: true
 
 Planned
 
-This design was revised after its PLAN was written. The revision makes
-`/deliver` a koto workflow and has `/scope` and `/execute` report their
-outcomes to it through koto instead of printed lines, which takes six new
-koto features (Decisions 4 and 6). The PLAN is being rebuilt as a coordinated
-effort across koto and shirabe.
+The existing PLAN still describes the previous `/deliver`, a stateless
+SKILL.md that parsed its children's printed lines. It is being rebuilt as a
+coordinated effort across koto and shirabe, and nobody should run `/execute`
+on the current PLAN file. This design makes `/deliver` a koto workflow and
+has `/scope` and `/execute` report their outcomes to it through koto, which
+takes seven required koto features (Decisions 4 and 6).
 
 ## Context and Problem Statement
 
@@ -71,59 +72,26 @@ Fourth, there's no place for "scope, then execute" to live. Parent skills
 today hand off by naming the next command; none invokes another. The
 parent-skill pattern names a parent-of-the-parent slot but nothing fills it.
 
-The PRD resolves the product questions. This design has to settle how each
-requirement is met inside the existing skills:
+The PRD resolves the product questions; this design settles how each group
+of requirements is met inside the existing skills:
 
-- **Intent (R1-R3).** `/scope` accepts `--intent=continue|stop`, rejects bad
-  or repeated values before writing state, records `intent: continue|stop|none`
-  in its state file, and prints `intent=<value>` at exit. No intent means
-  today's behavior (R2).
-- **Split resolution (R4-R8).** `/plan` keeps its split rules and records the
-  same split reason whatever the intent. When the work splits, the mode follows
-  the precedence explicit `--coordinated`/`--no-coordinated` > `--intent` >
-  CLAUDE.md coordination headers > default `multi-pr`; `continue` resolves to
-  `coordinated`, `stop` or none to `multi-pr`. `/plan` gains its own `--intent`
-  flag, which `/scope` forwards (R5). A coordinated PLAN may live in one
-  repository, one PR group per split unit, each with its own branch and PR
-  (R6), and a *continue* split files per-PR issues, with `/plan`'s filing
-  approval resolved by its decision protocol under `--auto` (R7). Existing
-  multi-repo coordination keeps working (R8).
-- **`/scope` exit (R9-R13).** With `--intent`, `/scope` pushes its branch to
-  `origin` and opens exactly one PR whose title contains the topic slug: a
-  draft home PR for `single-pr`, a draft coordination PR for `coordinated`
-  (opened at exit; intent runs never create one up front), a ready PR for
-  `multi-pr`,
-  and a draft on `re-evaluation` or `abandonment-forced`. Every `full-run`
-  exit prints `next=` for the mode and `outcome=scoped` or
-  `outcome=handed-off-multi-pr`, the latter listing the dependency-free issues.
-  Push or PR failure ends `outcome=error` naming `scope:push` or
-  `scope:pr-create`. `/scope` never invokes `/execute` (R13).
-- **The driver (R14-R18, R29).** A new `/deliver <topic>` koto workflow runs
-  `/scope --intent=continue` then `/execute --merge` (unless `--no-merge`) in
-  one session, resolves interactive vs `--auto` once and passes it down, asks
-  one confirmation before `/execute` when interactive, stops at
-  `handed-off-multi-pr` for a `multi-pr` PLAN, resumes from the checked-out
-  branch (refusing an intent mismatch), and ends in a named final state.
-- **Merging (R19-R22).** `/execute --merge` merges only a ready PR at the
-  commit this run pushed, whose every check (and every required one) has
-  passed, whose merge state is clean, whose base branch actually requires
-  checks or reviews, and which has an approving review where the rules require
-  one or where it edits workflow files. It never uses an admin or bypass
-  option, and picks the repository's single allowed method, else squash, else
-  a merge commit.
-  A failing check, a check-wait timeout, or an un-draftable PR is an `error`;
-  an unclean merge state or a failed merge call ends `ready-awaiting-merge`.
-  Coordinated merges follow the merge order with the coordination PR last,
-  and a run blocked on merges ends `paused-awaiting-merges` with the
-  coordination PR left open and resumable.
-- **Truthful routing (R23-R25).** Next-step advice routes `single-pr` and
-  `coordinated` to `/execute` and `multi-pr` to `/work-on`; "merged" in
-  `/execute`'s and `/work-on`'s text means only the `merged` state; the state
-  schema accepts `coordinated`.
-- **Verification (R26-R28).** Every requirement has an eval scenario that names
-  it, GitHub state comes from the `gh` shim, splits are forced by fixture
-  design, and each new scenario passes 3 of 3 runs. Skills that gain writes
-  declare them.
+- **Intent (R1-R3):** `/scope` takes `--intent`, and no intent is today's
+  behavior.
+- **Split resolution (R4-R8):** `/plan` resolves a split's mode by
+  precedence, including coordinated in one repository.
+- **`/scope` exit (R9-R13):** intent runs push and open one PR, and `/scope`
+  never invokes `/execute`.
+- **The driver (R14-R18, R29):** `/deliver` sequences `/scope` then
+  `/execute` and ends in a named final state.
+- **Merging (R19-R22):** `/execute --merge` merges only what the
+  repository's own rules allow.
+- **Truthful routing (R23-R25):** next-step advice, "merged" wording, and the
+  state schema match what the skills do.
+- **Verification (R26-R28):** eval coverage through the `gh` shim, and
+  declared write targets.
+- **koto enforcement (R30-R32):** `/deliver`'s sequencing and outcome mapping
+  live in a koto workflow, every `/scope` and `/execute` run ends in a
+  result-declaring terminal, and the koto features ship in a release first.
 
 ## Decision Drivers
 
@@ -156,7 +124,7 @@ requirement is met inside the existing skills:
   `/scope` and `/execute` already own.
 - **D9. Prefer koto workflows.** Sequencing, resume, and outcome mapping that
   a template's gates and transitions can enforce live there, not in skill
-  prose; where koto lacks the feature, extend koto.
+  prose; where koto lacks the feature, extend koto (R30, R32).
 
 ## Considered Options
 
@@ -306,23 +274,18 @@ Key assumptions:
 
 #### Chosen: new koto states after `ci_monitor`, backed by a read-only verdict script and a fixed-flag merge script
 
-The verdict also requires the PR head to equal the commit the run pushed, a
-protected base branch, at least one reported check, and no outstanding review;
-merge intent is checked per invocation; and every PR lookup is
-ownership-filtered (see Solution Architecture).
-
 Single-pr gains `merge_readiness -> merge_route -> merge_attempt ->
 merge_confirm` with two new terminals, `merged` and `ready_awaiting_merge`.
 `merge_readiness` runs `merge-verdict.sh`, which reads one snapshot, applies
 the decision table in Solution Architecture, owns the CI deadline, and writes
 a verdict to koto context. `merge_route` routes on that verdict.
-`merge_attempt` is agent-run (never a default action) and runs exactly
-`merge-exec.sh <repo> <pr> <expected-head>`, the only `gh pr merge` call
-site in the repository, which recomputes the verdict itself and accepts no
-pass-through flags (see Key Interfaces > Script interfaces). `merge_confirm` re-reads
-the PR and reaches `merged` only if GitHub reports `MERGED`. Merge intent is a
-template variable set at `koto init` from `--merge`, never agent evidence, so a
-run without `--merge` can't merge. `ci_monitor`'s gates and DIRTY route stay
+`merge_attempt` is agent-run (never a default action) and runs
+`merge-exec.sh`, the only `gh pr merge` call site in the repository, which
+recomputes the verdict itself (Key Interfaces). `merge_confirm` re-reads
+the PR and reaches `merged` only if GitHub reports `MERGED`; every route into
+`merged` passes it. Merge intent is the template variable `MERGE`, set from
+each invocation's own `--merge`, never agent evidence, so an invocation
+without `--merge` can't merge. `ci_monitor`'s gates and DIRTY route stay
 as they are; its `passing` and `failing_fixed` edges retarget to
 `merge_readiness`, which closes the ungated shortcut. The coordinated loop
 calls the same two scripts per node in merge order and on the coordination PR
@@ -382,7 +345,13 @@ Measurements on koto 0.12.2 set the constraints:
   terminal one alike.
 - **Two features the templates already assume don't run.** Transition
   `context_assignments` are dropped silently by the compiler (koto#204), and
-  terminals declare no result.
+  terminals declare no result. A workflow result today is `{status, summary,
+  payload}`, with `payload` built from the terminal state's evidence.
+- **A leg declaration is `{role, template, inputs}`.** The template names
+  what the leg expects to run, but binding doesn't check it today.
+- **Overrides aren't bounded by the gate.** `koto overrides record
+  --with-data` replaces a gate's override default and isn't checked against
+  the gate's output schema, so one override can drive any arm.
 
 On the shirabe side, not every `/scope` path opens a session. Its refusals
 happen before `koto init`, and its planned `--intent` shortcuts (PLAN exists:
@@ -392,16 +361,19 @@ ticks a finished session into nothing.
 
 Key assumptions:
 
-- koto ships the required changes K1-K6 (Solution Architecture > koto
+- koto ships the required changes K1-K6 and K8 (Solution Architecture > koto
   changes) in one release before shirabe's dependent changes merge, and
-  shirabe raises its koto floor for `/scope`, `/execute`, and `/deliver`. If
-  the leg gate (K6) slips, `deliver.md` routes through a command gate over
-  `koto request get` instead, which works on 0.12.2 and is weaker on D9 but
-  functional.
+  shirabe raises its koto floor for `/scope`, `/execute`, and `/deliver`
+  (R32). If the leg gate (K6) slips, each `*_run` state instead gets a
+  default action that runs a small script over `koto request get` and
+  captures its output into context, and the arms route on those context
+  keys. A command gate wouldn't do: it yields only an exit code, so the arms
+  that copy the leg's values couldn't work. The fallback is weaker on D9.
 - koto's maintainers accept admitting root sessions to a leg. koto's
-  request-lifecycle design gets an amendment saying why its epoch fence isn't
-  needed for roots: roots are never redelegated, and their results arrive by
-  promotion, not through the fenced verbs. If the carve-out is rejected, the
+  request-lifecycle design gets an amendment: roots are never redelegated and
+  their results arrive only by promotion, so the fenced verbs (`progress`,
+  `resolve`, leg-scoped `abandon`) are refused outright on a self-attached
+  leg rather than fenced at a known epoch. If the carve-out is rejected, the
   fallback is both children as `--parent` children with a parent-side fence,
   which needs koto#240.
 - The request store's limits are acceptable for v1: it's unix only, isn't
@@ -418,33 +390,27 @@ direct run that `/deliver` later picks up. Both stay root sessions that
 retain their record (`--no-cleanup` on every tick) and carry no `--parent`
 link. Each `/deliver` invocation opens a fresh `deliver-<topic>` session. Its
 `open_request` state abandons any request still open under that coordinator
-and creates one request with two legs, `scope` and `execute`. The children
-join through a flag each owns and documents for use with any koto
-coordinator, `--koto-leg=<request-id>:<leg>` (D1), and report through a
-declared `result:` map on every terminal, which koto promotes to the leg
-(K1). `/deliver` reads each leg through a `request-leg` gate (K6) and routes
-on the child's `outcome`. It never parses a printed line.
+and creates one request with two legs, `scope` and `execute`, each declaring
+its role and the template it accepts. The children join through a flag each
+owns and documents for use with any koto coordinator,
+`--koto-leg=<request-id>:<leg>` (D1), and report through a declared
+`result:` map on every terminal, which koto writes into the result's
+`payload` and promotes to the leg (K1, R31). `/deliver` reads each leg
+through a `request-leg` gate (K6) and routes on the child's `outcome`. It
+never parses a printed line (R30).
 
 Every `/scope` path reaches a koto record, and the agent composes none of
-them:
-
-- **Static argument checks run inside `koto init`.** `scope.md` declares its
-  inputs as constrained variables (K3). `scope-open.sh` passes the
-  invocation's raw tokens through `koto init --vars-file` (K4), so a repeated
-  or invalid `--intent` is a koto refusal with exit 2, no session, and no
-  state file (R1). Under `--koto-leg`, koto records the refusal on the leg
-  itself.
-- **Attach-time checks run inside koto too.** `--attach-live` refuses an
-  explicit variable that differs from a live session's recorded one, so
-  `--intent=continue` against a live `intent=stop` run is `var-mismatch:INTENT`,
-  recorded on the leg with the session untouched. It also rebinds the
-  variables marked `rebind: true` (`MERGE`, `PLUGIN_ROOT`). `--replace-terminal`
-  gives a finished topic a fresh session, which fixes the retained-terminal
-  bug.
-- **Checks that need a session and the working tree run in two new template
-  states**, `intake` and `resume_route`. Every outcome is a terminal with a
-  result: `done_refused`, `done_error`, `done_republished`, and
-  `done_executed` join the existing ones.
+them. Static argument checks run inside `koto init` over constrained
+variables (K3, K4), so a repeated or invalid `--intent` is a koto refusal
+with exit 2, no session, and no state file (R1), recorded on the leg under
+`--koto-leg`. Attach-time checks run inside koto too: `--attach-live` refuses
+a session from another template, worktree, or store, and a differing
+non-rebind variable, so `--intent=continue` against a live `intent=stop` run
+is `var-mismatch:INTENT` with the session untouched. `--replace-terminal`
+gives a finished topic a fresh session, which fixes the retained-terminal
+bug (R31). Checks that need the working tree run in two new template
+states, `intake` and `resume_route`, and every outcome is a terminal with a
+result.
 
 The request id is the stale-run fence. A run reads only its own request's
 legs, and older requests are abandoned before the new one is created, so a
@@ -458,16 +424,18 @@ requires a promoted result, and each is re-checked against durable state
 before the next step: `scoped_check` verifies the PLAN is tracked and the
 owned PR records `intent=continue`, `mode_route` reads the PLAN's mode,
 `executed_check` re-reads the owned PR, and `merged_check` re-reads GitHub.
-Two cases can't produce a koto record: a `--koto-leg` naming no open leg, and
-a `/scope` too old to know the flag. The agent reports that the Skill
-returned, and `/deliver` resolves the still-open leg as
-`deliver:child-absent`, an arm that can only reach an error.
+`merged_check` and `executed_check` find the PR themselves through the
+ownership filter; neither trusts a `pr` value from a leg. Two cases can't
+produce a koto record: a `--koto-leg` naming no open leg, and a `/scope` too
+old to know the flag. The agent reports that the Skill returned, and
+`/deliver` resolves the still-open leg as `deliver:child-absent`, an arm that
+can only reach an error.
 
 #### Alternatives Considered
 
-**A stateless SKILL.md that sequences two Skill calls (the previous
-choice).** `/deliver` would have no template, would parse the children's exit
-lines, re-read the PLAN's mode, and relay the result. Rejected under D9:
+**A stateless SKILL.md that sequences two Skill calls.** `/deliver` would
+have no template, would parse the children's exit lines, re-read the PLAN's
+mode, and relay the result. Rejected under D9:
 sequencing, the confirmation, and outcome mapping would all be prose, and
 `merged` would rest on a printed token. The driver also couldn't tell
 `/execute`'s review pause from a failed batch, or a CI timeout from an
@@ -478,9 +446,9 @@ enter-through-`/scope` resume model survives inside the chosen option.
 **`/scope` inline, `/execute` as a `--parent` child.** `/deliver` is a koto
 workflow; `/execute` joins through a `--koto-parent` flag and reports through
 a child-state gate, while `/scope` stays a plain call gated on durable files.
-The author overruled the asymmetry, and it costs more than it looks.
-`/scope`'s stop outcomes would still arrive as agent evidence, and there'd be
-two observation mechanisms to document. `/execute` would lose "always a
+Rejected: the asymmetry costs more than it looks. `/scope`'s stop outcomes
+would still arrive as agent evidence, and there'd be two observation
+mechanisms to document. `/execute` would lose "always a
 root" and need role-routed retention until koto#240 lands. A parent linking
 by name still leaks stale children. And an interrupted direct `/execute` run
 couldn't be adopted, so it would end as a new `deliver:child-detached` error.
@@ -499,8 +467,8 @@ without koto#240. Its `koto init` surface (variable constraints,
 it remains the fallback if koto rejects the root carve-out.
 
 **Composed per-parent child names (`deliver-<topic>.scope`) with init-first
-intake.** Rejected. Composed names don't close the stale-child hole, which
-the option's own advocate measured. Two namespaces for one topic would need a
+intake.** Rejected. Composed names don't close the stale-child hole (the
+koto 0.12.2 measurement above). Two namespaces for one topic would need a
 live direct run migrated. Children still couldn't retain `/scope`'s per-hop
 record. And intake refusals would open a session, against R1's wording. Its
 in-session intake is adopted for the checks that genuinely need a session:
@@ -511,9 +479,10 @@ resume ladder.
 
 `/scope`'s koto template runs `finalize -> exit_* -> cleanup_* -> done_*`.
 Cleanup deletes the state file, which R12 needs after a failure and which
-holds the durable record Phase 3 says belongs in "the run's pull-request
-body", a PR that doesn't exist today. `/execute` adopts a home PR by head
-branch (`gh pr list --head <branch>`), not by title. A branch can also carry
+holds the durable record `/scope`'s exit-finalization phase says belongs in
+"the run's pull-request body", a PR that doesn't exist today. `/execute`
+adopts a home PR by head branch (`gh pr list --head <branch>`), not by
+title. A branch can also carry
 tracked `wip/` from an upstream workflow such as `/explore`. A publish can
 fail after the PLAN is written, and a later run has to retry it.
 
@@ -569,30 +538,29 @@ chosen option.
 **One shared publish state for all exits.** Rejected: the agent would re-state
 which exit it took, and no gate could check it.
 
-**Park a failed publish in the publish state (the previous choice).** The
-session would hold there, and re-running `/scope <topic>` would reattach and
-retry. Rejected: a parked session leaves a parent waiting on an open leg with
-no outcome to print, while the PRD requires `error step=scope:push`. It's the
+**Park a failed publish in the publish state.** The session would hold
+there, and re-running `/scope <topic>` would reattach and retry. Rejected:
+a parked session leaves a parent waiting on an open leg with no outcome to
+print, while the PRD requires `error step=scope:push`. It's the
 non-terminal path Decision 4 removes. And the retry needs no live session,
 because the state file's `exit:` plus `publish_error:` routes the next
 invocation back to the publish state.
 
 ### Decision 6: Which prose-carried pieces move into koto
 
-Setting `/deliver` aside, the design left six pieces to skill prose or to
-values the agent writes: the merge values that routing depends on, the
-exit-line outcomes, the `/plan` hop's flag forwarding, the coordinated loop,
-`/scope`'s `--intent` parsing and mismatch refusal, and whether `/plan`
-itself should get a template. Each was weighed under D9 on what koto
-enforcement adds and what it costs.
+Setting `/deliver` aside, five pieces could live in skill prose or in values
+the agent writes: the merge values that routing depends on, the exit-line
+outcomes, the `/plan` hop's flag forwarding, the coordinated loop, and
+`/scope`'s `--intent` parsing and mismatch refusal. A sixth question is
+whether `/plan` itself should get a template. Each was weighed under D9 on
+what koto enforcement adds and what it costs.
 
-One finding changed the picture. koto has no working transition-level
-`context_assignments`: the compiler's transition type deserializes only
-`target` and `when`, and nothing rejects unknown fields. All 60
-`context_assignments:` blocks in shirabe's templates are silently dropped,
-including every `failure_reason` write in `execute.md` and `scope.md`, which
-koto's own batch view reads for failed children. The PLAN already depended on
-a koto feature that doesn't exist.
+koto has no working transition-level `context_assignments`: the compiler's
+transition type deserializes only `target` and `when`, and nothing rejects
+unknown fields. All 58 `context_assignments:` blocks in shirabe's templates
+(38 in `work-on.md`, 10 each in `scope.md` and `execute.md`) are silently
+dropped, including every `failure_reason` write, which koto's own batch view
+reads for failed children.
 
 Other koto facts that bound the answer: a `default_action` can capture stdout
 and call `koto context add`, but it runs under a 30-second limit, runs again
@@ -614,11 +582,12 @@ Key assumptions:
 
 #### Chosen: enforcement moves now; structural rewrites wait
 
-- **Merge values.** The agent no longer writes the verdict. `merge_readiness`
-  gains a default action running `record-merge-verdict.sh`, which reads
-  `merge_requested` and `expected_head` from koto context, computes the AND
-  with `MERGE` in code, resolves the PR through the owned-PR script, runs the
-  unchanged `merge-verdict.sh`, and writes the verdict line with
+- **Merge values.** The agent writes none of them. Merge intent is the
+  session's `MERGE` variable, rebound from each invocation's own `--merge`
+  (K3, K4). `merge_readiness` gains a default action running
+  `record-merge-verdict.sh`, which clears any earlier `merge_verdict`, reads
+  `MERGE` and `expected_head`, resolves the PR through the owned-PR script,
+  runs the unchanged `merge-verdict.sh`, and writes the verdict line with
   `koto context add`. `merge_route` keys on anchored `context-matches` gates
   over that line, and the `pending:` loop back to readiness passes through an
   agent-evidence hop (`recheck: waited`) so one tick never revisits a state.
@@ -626,17 +595,15 @@ Key assumptions:
   a new `push-and-record.sh` record `git rev-parse HEAD` after a successful
   push, and a gate on `plan_completion` makes a missing record visible.
   Coordinated `head=` fields are written only by `node-push.sh`, which
-  validates the new coordination body before editing it. `merge_requested`
-  stays the one agent-written merge value. It's the skill's parse of this
-  invocation's flags, which no action can see, and it can only narrow `MERGE`.
+  validates the new coordination body before editing it.
 - **Outcomes.** Every edge into a terminal assigns `outcome`, `step`, and
   `reason` through `context_assignments` (K2), and every terminal declares a
   `result:` map built from them (K1). The outcome-versus-exit table moves out
   of SKILL.md prose into template edges, where the engine-backed retention
   tests walk it. Scripts render the printed exit block from the terminal
   result (`print-scope-exit.sh`, `/execute`'s `print-exit.sh`, and
-  `deliver-report.sh`); the agent never composes it. The printed lines stay
-  the human-facing contract. Parents read the leg.
+  `deliver-report.sh`); the agent never composes it (R31). The printed lines
+  stay the human-facing contract. Parents read the leg.
 - **The `/plan` hop.** koto can't see a Skill call, but it can check what the
   call produced. `scope.md` gains a `COORDINATION` variable, and `hop_plan`'s
   `landed` edge requires a `plan_mode_consistent` gate. Its script,
@@ -687,91 +654,74 @@ PR), and it leaves the cheap trust fixes undone.
 ## Decision Outcome
 
 The six decisions fit together as one pipeline, and koto carries its
-sequencing. At launch, `/deliver` opens a fresh `deliver-<topic>` koto
-session, abandons any earlier request for the topic, and creates a request
-with a `scope` leg and an `execute` leg. It runs
-`/scope --intent=continue --koto-leg=<req>:scope`. koto checks `/scope`'s
-arguments at `koto init` and attaches its session to the leg. `intake`
-resolves the effective intent, and `resume_route` decides where the topic
-stopped. On a fresh topic, `/scope` forwards intent to `/plan`, which settles
-whether the work splits exactly as it does today and then, only on a split,
-picks `coordinated` or `multi-pr` by the precedence rule. It can now emit
-`coordinated` for one repository or many, with one PR group per split unit. A
-gate on the hop checks the PLAN's mode against what was forwarded. `/scope`
-publishes one PR on the pushed branch after the exit is recorded and before
-cleanup, and ends at a terminal whose result koto promotes to the leg.
+sequencing. `/deliver` opens a fresh session and a fresh request with a
+`scope` leg and an `execute` leg, then runs `/scope --intent=continue` on
+the first. koto checks `/scope`'s arguments at init and attaches its session
+to the leg; `intake` and `resume_route` decide where the topic stopped. On a
+fresh topic, `/plan` settles whether the work splits exactly as it does
+today and then, only on a split, picks `coordinated` (for one repository or
+many) or `multi-pr` by precedence, and a gate checks the result against
+what was forwarded. `/scope` publishes one PR between the recorded exit and
+cleanup, and ends at a terminal whose result reaches the leg.
 
-`/deliver`'s `scope_run` state routes on that result through the leg gate.
-It re-checks the PLAN and the owned PR, reads the mode, asks one confirmation
-when interactive, and runs `/execute --koto-leg=<req>:execute` with `--merge`
-unless `--no-merge`. `/execute` adopts the PR, runs its existing children,
-and, with `--merge`, merges through a script-recorded verdict and one
-fixed-flag merge script. Single-pr does it through four new koto states;
-coordinated does it node by node in merge order with the coordination PR
-last, driven by `coordinated-next.sh` inside a thin envelope template. The
-terminal result reaches the execute leg, and `/deliver` re-reads GitHub
+`/deliver` routes on that result, re-checks the PLAN and the owned PR, reads
+the mode, asks one confirmation when interactive, and runs `/execute` on the
+second leg with `--merge` unless `--no-merge`. `/execute` merges through a
+script-recorded verdict and one fixed-flag merge script: through four new
+states on single-pr, and node by node in merge order on coordinated, with
+the coordination PR last. `/deliver` finds the PR itself and re-reads GitHub
 before it reports `merged`. Every printed exit block is rendered from a
 terminal result.
 
-Cross-validation found no conflicting assumptions that needed a decision to be
-re-run, and settled these seams:
+The decisions meet at these seams:
 
-- **Who opens coordinated node PRs.** Decision 3 assumed `/work-on` children
-  open them; Decision 2 has `/execute` open one PR per node on a shared
-  branch. Decision 2's shape stands, and Decision 3's scripts run on those PRs
-  unchanged.
+- **Who opens coordinated node PRs.** `/execute` opens one PR per node on
+  its own branch (Decision 2), and Decision 3's merge scripts run on those
+  PRs unchanged.
 - **Intent mismatch.** A live session with a different recorded intent is
   refused by koto at attach (`var-mismatch:INTENT`); an unfinished run whose
   session is gone is refused by `intake` (`intent-mismatch`). `/deliver` maps
   both to `deliver:intent-mismatch`. A finished run whose PR records
   `intent=stop` isn't a mismatch: the re-run republishes and rewrites the
   PR's `intent=` field.
+- **Per-run settings on a shared session.** `/scope`'s `EXEC_MODE` and
+  `/execute`'s `PAUSE_BEFORE_FINALIZE` and `MERGE` are `rebind: true`, so a
+  run `/deliver` picks up takes this invocation's mode and merge setting
+  (R15, R17). `TOPIC`, `INTENT`, `COORDINATION`, `UPSTREAM`, and the PLAN
+  path are not rebindable, and a differing value is a mismatch.
 - **Finished single-pr topics.** After a single-pr run the cascade deletes the
   PLAN. `/scope`'s `executed_report` state reads the branch's owned PR and
-  ends at `done_executed`; `/deliver`'s `executed_check` re-reads it and
-  reports `merged` or `ready-awaiting-merge`. `/deliver` always enters
-  through `/scope`, so a publish that failed after the PLAN was written is
-  retried before `/execute` runs.
+  ends at `done_executed`; `/deliver`'s `executed_check` finds the owned PR
+  itself and reports `merged` or `ready-awaiting-merge`. `/deliver` always
+  enters through `/scope`, so a publish that failed after the PLAN was
+  written is retried before `/execute` runs.
 - **Error line spelling.** Every skill prints `outcome=error` followed by
   `step=<step>`.
-- **koto change numbering.** Decision 6 was drafted with its own working
-  numbers. This document uses Decision 4's K1-K10 everywhere:
-  `context_assignments` is K2 and the terminal result map is K1.
-- **Terminal results.** Decision 6 first deferred a koto terminal result to
-  the `/deliver` redesign. Decision 4 needs it, so K1 is required, and the
-  exit-render scripts read the result rather than falling back to state names
-  on an older koto, which the floor rules out.
-- **Variable constraints.** Decision 6 first kept `--intent` parsing in
-  Phase 0 because an older koto rejects constraint fields. The koto floor
-  removes that obstacle, and Decision 4 makes the constraints required (K3).
+- **Result vocabulary.** A child's result `outcome` is a koto-level
+  vocabulary that `/deliver` maps; values such as `re-evaluation`,
+  `cancelled`, and `refused` aren't printed tokens.
 - **Effective intent.** `intent_declared` and `check-plan-mode.sh` key on
-  `RUN_INTENT`, not the raw `INTENT`, which can now be `unset` on a bare
+  `RUN_INTENT`, not the raw `INTENT`, which can be `unset` on a bare
   re-invocation.
-- **Coordinated envelope.** Decision 6 defers a coordinated template, while
-  Decision 4 needs coordinated terminals with results. The envelope is three
-  states around the script-driven loop; the full template stays deferred.
-- **The intermediate `/deliver` revision is superseded.** It had `/scope`
-  inline and `/execute` as a `--parent` child. Its `--koto-parent` flag,
-  role-routed retention for `/execute`, child-state gate, and the
-  `execute:session-root` and `deliver:child-detached` steps are dropped. Its
-  durable re-checks stay.
-- **Delivery shape.** Decision 6 expected shirabe to stay one PR with one
-  small koto prerequisite. With six required koto changes, the work is a
-  coordinated effort across both repositories (Implementation Approach).
+- **Coordinated envelope.** Coordinated needs result-declaring terminals
+  (Decision 4) without a full coordinated template (Decision 6). The envelope
+  is three states around the script-driven loop, and it shares the
+  `execute-<topic>` session name with `execute.md`; attach refuses a session
+  created from the other template.
+- **Delivery shape.** Seven required koto changes make the work a coordinated
+  effort across both repositories (Implementation Approach).
 
-The PRD's Final States, R17, and R19 were clarified to match: the added
-`execute:*` and `deliver:child-outcome` steps, the merge-method rule for
-repositories that allow merge and rebase but not squash, the 30-minute CI wait
-limit, the declined-confirmation outcome, and the executed-topic resume row.
-This revision adds `cancelled` under `scope-ended-early`, the steps
-`scope:refused`, `execute:refused`, `deliver:child-absent`, and
-`scope:intake`, and R1's refusal recorded on the leg under `/deliver`.
+The PRD's Final States carry every step this design emits, including
+`scope:refused`, `execute:refused`, `deliver:child-absent`,
+`deliver:request-abandoned`, and `scope:intake`, and `cancelled` under
+`scope-ended-early`. R30 carries the refusal recorded on the leg under
+`/deliver`.
 
 ## Solution Architecture
 
 ### Overview
 
-Four existing skills change, one is added, and koto gains six required
+Four existing skills change, one is added, and koto gains seven required
 features. The shared contracts (coordination strategy, state schema,
 draft/ready discipline, parent-skill pattern) change first among the shirabe
 pieces because every skill reads them. The data that crosses skill
@@ -804,300 +754,252 @@ and evals.
 
 ### Components
 
-**koto changes** (in `tsukumogami/koto`). K1-K6 are required and ship in one
-release; K7-K10 are off the critical path.
+**koto changes** (in `tsukumogami/koto`). K1-K6 and K8 are required and
+ship in one release (R32); K7, K9, and K10 are off the critical path. Each
+paragraph below is the contract shirabe consumes. The code-level detail
+(files, functions, and internal limits) lives in the koto issues.
 
-- **K1. Declared terminal `result:` map (required).**
-  - Terminal states gain an optional `result:` whose values are literals,
-    `{{VAR}}`, or `${context.<key>}`. Keys match `^[a-z_]+$`, with at most 16
-    keys and 4 KiB per value. A missing key resolves empty and is listed in
-    `missing`.
-  - On the terminal tick the map is written to the workflow result's
-    exports. It rides the request-store result, the leg promotion, the
-    parent's child-completed event, the terminal `koto next` response, and
-    `koto status` for a retained terminal.
-  - Code: `SourceState` in `src/template/compile.rs`, `TemplateState` in
-    `src/template/types.rs`, `synthesize_workflow_result` and
-    `finish_terminal_tick` in `src/cli/mod.rs`, and the response types in
-    `src/cli/next_types.rs`.
-- **K2. Transition `context_assignments` (koto#204, required).**
-  - Values are literals, `{{VAR}}`, `${evidence.<field>}`, and
-    `${gates.<g>.<field>}`, including `${gates.<g>.exports.<k>}` for the leg
-    gate. They're written atomically with the transition event.
-    `${evidence.<field>}` must name a declared `accepts` field, and unknown
-    transition fields fail compilation instead of being dropped.
-  - Code: `SourceTransition` in `compile.rs`, `Transition` in `types.rs`,
-    the advance loop in `src/engine/advance.rs`, and the W5 lint, which
-    credits assignments that write `failure_reason`.
-  - It makes shirabe's 60 existing assignment blocks run.
-- **K3. Variable constraints and rebinding (required).**
-  - `values:`, `pattern:`, and `rebind: true` on variable declarations
-    (`VariableDecl` in `types.rs`, `SourceVariable` in `compile.rs`), with the
-    default validated at compile time.
-  - `resolve_variables` in `src/cli/mod.rs` returns typed errors
-    (`invalid_var`, `duplicate_var`, `unknown_var`, naming the variable,
-    value, and constraint).
-  - A new verb, `koto session rebind <session> --vars-file <file>`, accepts
-    only `rebind: true` keys and refuses a terminal session. It appends a
-    `VariablesRebound` event, which `bindings_from_events` in
-    `src/engine/substitute.rs` folds.
+- **K1. Declared terminal `result:` map (required, R31).** A terminal state
+  may declare `result:`, a map of up to 32 keys whose values are literals,
+  `{{VAR}}`, or `${context.<key>}`. koto writes the map into the workflow
+  result's existing `payload` field; there's no new field. A terminal that
+  declares no map keeps today's evidence-derived payload. A missing key
+  resolves empty and is listed in `missing`. The payload rides every path a
+  result already takes: the request-store result, the leg promotion, the
+  parent's child-completed event, the terminal `koto next` response, and
+  `koto status` for a retained terminal.
+- **K2. Transition `context_assignments` (koto#204, required).** Values are
+  literals, `{{VAR}}`, `${evidence.<field>}`, and `${gates.<g>.<path>}`, a
+  dot path into any gate's output (so `${gates.scope_leg.payload.pr}` works
+  without leg-specific support), and references may sit inside string
+  literals. Assignments are recorded with the transition event, so a crash
+  can't split them. `${evidence.<field>}` must name a declared `accepts`
+  field, and an unknown transition field fails compilation instead of being
+  dropped. This turns on shirabe's 58 existing assignment blocks, and the W5
+  lint credits assignments that write `failure_reason`.
+- **K3. Variable constraints and rebinding (required).** Variable
+  declarations gain `values:`, `pattern:`, and `rebind: true`, with the
+  default validated at compile time. `koto init` refuses with typed errors
+  (`invalid_var`, `duplicate_var`, `unknown_var`) that name the variable,
+  value, and constraint. A `rebind: true` variable can change only through
+  K4's attach; there's no standalone rebind verb.
 - **K4. `koto init` entry flags (required).**
-  - `--vars-file <path>`: a JSON array of `[key, value]` pairs, so duplicate
-    keys survive to be refused. Variable validation moves ahead of the name
-    and "already exists" checks.
-  - `--replace-terminal`: replaces only a terminal session and returns its
-    old result; a live session is refused.
-  - `--attach-live`: on a live session, compares the given non-rebind
-    variables with the recorded ones (`var_mismatch` names the variable, the
-    recorded value, and the requested one), then rebinds the `rebind` keys.
-  - `--koto-leg <req>:<leg>`: after create or attach, performs K5's attach.
-    On any refusal (a bad, duplicate, or mismatched variable, a name error,
-    or an attach refusal), koto resolves the unbound leg itself with
-    `source: refused` and exports `{outcome: refused, reason, var, recorded,
-    requested}`. Exit codes don't change.
-  - Code: `handle_init` in `src/cli/mod.rs` and `init_child.rs`.
-- **K5. `koto request attach <req> <leg> --session <s>` (required).**
-  - Admits root sessions as well as the existing dispatch children, refuses
-    a terminal session, and checks the leg's declared inputs against the
-    session's non-rebind variables.
-  - Idempotent for the same session. It re-points a session only when its
-    current pointer names an abandoned leg or a closed request.
-  - Writes the leg-bound event (`attach: self`, dispatch epoch 0) before the
-    pointer sidecar, and adds `result_source: refused` to the leg view.
-  - Amends koto's request-lifecycle design (its Decision 3 and Security
-    Considerations) and the `child_not_fenceable` message with the root
-    carve-out.
-  - Code: `src/cli/request.rs` and `src/engine/request_store/`, reusing
-    `bind`.
-- **K6. `request-leg` gate type (required).**
-  - Fields: `request`, `leg`, and an optional `expect: {key: [values]}`.
-  - Output: `found`, `disposition` (open, resolved, abandoned, missing),
-    `bound`, `source` (promoted, explicit, refused), `status`,
-    `final_state`, `outcome`, `step`, `reason`, `valid`, `exports`, and
-    `error`. An open leg is a temporal block.
-  - Override default: `{disposition: resolved, source: explicit, valid:
-    false}`, so a forced gate can only reach an error arm.
-  - Code: the gate schema and default beside `gate_type_schema` in
-    `types.rs`; evaluation in `src/gate.rs` over the request store's read
-    view.
+  - `--vars-file <path>` takes the variables as a JSON list of pairs, so a
+    duplicate survives to be refused. Variable validation runs before the
+    name check.
+  - `--replace-terminal` replaces only a terminal session and returns its old
+    result; a live session is refused.
+  - `--attach-live` joins a live session. It refuses a session created from a
+    different template, a session whose origin record (worktree and store)
+    differs from the caller's, and an explicit non-rebind variable that
+    differs from the recorded one (`var_mismatch` names the variable, the
+    recorded value, and the requested one).
+  - `--koto-leg <req>:<leg>` performs K5's attach in the same step.
+  - Attach, leg attach, and rebind are one atomic step: every check,
+    including K5's, runs before any `rebind: true` variable is re-applied,
+    so a refused invocation changes nothing on the session. A stale
+    invocation can't flip `MERGE` on a session another run owns.
+  - On any refusal under `--koto-leg`, koto resolves the unbound leg itself
+    with `source: refused` and a K1-shaped payload `{outcome: refused,
+    reason, var, recorded, requested}`. Exit codes don't change.
+- **K5. `koto request attach <req> <leg> --session <s>` (required).** Admits
+  root sessions as well as dispatch children. It refuses a terminal session,
+  a session whose template isn't one the leg's `template` names (one
+  template identity or a short list), and a
+  session whose non-rebind variables don't match the leg's declared inputs.
+  It's idempotent for the same session, and re-points a session only when
+  its current pointer names an abandoned leg or a closed request. The
+  leg-bound event records `attach: self` and the session's template
+  identity. On a self-attached leg koto refuses the fenced verbs
+  (`progress`, `resolve`, and leg-scoped `abandon`) outright. The leg view
+  gains `result_source: refused`. koto's request-lifecycle design and the
+  `child_not_fenceable` message are amended with this root carve-out.
+- **K6. `request-leg` gate type (required, R30).** Fields: `request`, `leg`,
+  and an optional `expect: {key: [values]}`. Output: `found`, `disposition`
+  (open, resolved, abandoned, missing), `bound`, `source` (promoted,
+  explicit, refused), `status`, `final_state`, `template`, `outcome`,
+  `step`, `reason`, `valid`, `payload`, and `error`. An open leg is a
+  temporal block.
 - **K7. Retention separate from result emission (koto#240, recommended).**
   It serves `/work-on`'s batch children, which stay `--parent` children, and
   would retire their role routing.
-- **K8. `overridable: false` on gates (recommended).** Refuses
-  `koto overrides record` for `merged_check`, `scoped_check`, and
-  `/execute`'s `merge_confirm`.
-- **K9. Request prune and listing by coordinator (recommended).** Listing
-  exists; prune doesn't.
+- **K8. `overridable: false` on gates (required).** `koto overrides record`
+  is refused on a gate so marked, with or without `--with-data`. shirabe
+  marks the two leg gates (`scope_leg`, `exec_leg`), the durable re-checks
+  (`scoped_check`, `executed_check`, `merged_check`), and `/execute`'s
+  `merge_confirm`.
+- **K9. Request prune (recommended).** Listing by coordinator exists; prune
+  doesn't.
 - **K10. The `children-complete` `name_filter` fix for cleaned-up
   non-composed children (optional).** Independent, and not used here.
 
 **Shared references.**
 
-- `references/coordination-strategy.md`:
-  - "one or more repositories"
-  - the four-level mode precedence
-  - the single definition of which `## PR Grouping Policy:` /
-    `## Reviewability Ceiling:` values mean coordinated by default (pinned to
-    what `/scope` Phase 0 resolves today)
-  - a Branches paragraph (one branch per PR node, cut from the default
-    branch)
-  - the merge step and the `paused-awaiting-merges` pause in the lifecycle
-  - template blockquote without "multi-repo" after the unchanged prefix
+- `references/coordination-strategy.md`: "one or more repositories", the
+  four-level mode precedence, the single definition of which
+  `## PR Grouping Policy:` / `## Reviewability Ceiling:` values mean
+  coordinated by default (pinned to what `/scope` Phase 0 resolves today), a
+  Branches paragraph (one branch per PR node, cut from the default branch),
+  the merge step and `paused-awaiting-merges` pause, and the template
+  blockquote without "multi-repo" after the unchanged prefix.
 - `references/parent-skill-state-schema.md`: `plan_execution_mode` gains
-  `coordinated`, plus a note that a parent may declare an always-present
-  invocation-intent field. `intent` gains `unset` at the koto variable level
-  only; the state file still records `continue|stop|none`.
+  `coordinated`; a parent may declare an always-present invocation-intent
+  field; `intent` gains `unset` at the koto variable level only.
 - `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`: an
-  "Opt-in agent merge" paragraph, and the coordination-PR exception amended so
-  `/execute` marks it ready once every indexed PR has merged.
+  "Opt-in agent merge" paragraph, and the coordination-PR exception amended
+  so `/execute` marks it ready once every indexed PR has merged.
 - `references/parent-skill-pattern.md`: `--koto-leg` as the pattern-level
-  child flag, and a "Parent-of-the-Parent Binding" subsection for a
-  koto-backed driver (a template, a request per run, children as
-  leg-attached roots).
-- `references/parent-skill-child-inspection.md`: a row for a leg-attached
-  child, whose observable surface is its leg's promoted result exports, read
-  only through the `request-leg` gate.
-- `references/koto-session-retention.md`: `/scope` retains on every tick; a
-  leg-attached root reports by promotion, which `--no-cleanup` doesn't
-  suppress; `--replace-terminal` replaces the "read, then clean up" recovery.
-  `/execute` stays always-root.
+  child flag, and a "Parent-of-the-Parent Binding" subsection (a template, a
+  request per run, children as leg-attached roots).
+- `references/parent-skill-child-inspection.md`: a leg-attached child's
+  observable surface is its leg's promoted payload, read only through the
+  `request-leg` gate.
+- `references/koto-session-retention.md`: `/scope` retains on every tick, a
+  leg-attached root reports by promotion, and `--replace-terminal` replaces
+  the "read, then clean up" recovery.
 - `references/default-action-conversion.md`: `merge_readiness`,
-  `republish_record`, and the request-store actions (`open_request`,
-  `scope_absent`, `execute_absent`) join the converted states.
+  `republish_record`, `open_request`, `scope_absent`, and `execute_absent`
+  join the converted states.
 
 **`/plan`.**
 
 - `SKILL.md`: the three flags, with rejection of bad or repeated values
   before any `wip/` write; a "Split mode" rule; "Coordinated Mode" without
   "(multi-repo)".
-- `phase-3-decomposition.md`: step 5a and the `split_mode_source` field. Step
-  5a calls a deterministic `scripts/resolve-split-mode.sh` (split verdict,
-  flags, intent, CLAUDE.md headers in; `execution_mode` and
-  `split_mode_source` out) rather than resolving the precedence in prose, so
-  the one decision this feature turns on is table-tested, not model judgment. On a
-  `coordinated` outcome, every issue gets `_Repo: <owner/repo> | Group:
-  <unit-slug>_`.
+- `phase-3-decomposition.md`: step 5a and the `split_mode_source` field.
+  Step 5a calls a deterministic `scripts/resolve-split-mode.sh` (split
+  verdict, flags, intent, and CLAUDE.md headers in; `execution_mode` and
+  `split_mode_source` out), so the one decision this feature turns on is
+  table-tested, not model judgment. It also runs on `/plan`'s interactive
+  override path and on direct roadmap input. On a `coordinated` outcome,
+  every issue gets `_Repo: <owner/repo> | Group: <unit-slug>_`.
 - `phase-4-agent-generation.md`: coordinated gets full issue bodies.
 - `phase-7-creation.md`: a coordinated branch reusing `create-issues-batch.sh`,
   with the explicit filing approval; single-pr and coordinated next-step
   advice names `/execute` (R23).
 - `scripts/plan-to-tasks.sh`: `REPO`, `PR_GROUP`, and `ISSUES` node vars, and
   refusal text saying "atomicity across PR groups".
-- Step 5a also runs on `/plan`'s interactive override path and on direct
-  roadmap input, whose split branch is Incremental Value; both then resolve
-  the mode by the same precedence.
 - A `gh` shim under `skills/plan/evals/fixtures/bin/` that logs `issue create`
   calls (new).
 
 **`/scope`.**
 
 - Constrained variables in `scope.md` (K3):
-  - `TOPIC`: pattern `^[a-z0-9-]+$`;
-  - `PLUGIN_ROOT`: `rebind: true`;
+  - `TOPIC`: pattern `^[a-z0-9][a-z0-9-]*$`, so no leading `-`;
+  - `PLUGIN_ROOT`: an absolute path with no `..` segment, `rebind: true`;
   - `INTENT`: `continue|stop|none|unset`, default `unset`;
   - `COORDINATION`: `none|coordinated|no-coordinated`, default `none`;
-  - `EXEC_MODE`: `auto|interactive|default`;
+  - `EXEC_MODE`: `auto|interactive|default`, `rebind: true`;
   - `MAX_ROUNDS`: 1 to 50, or empty;
-  - `UPSTREAM`: a repository-relative `docs/roadmaps/ROADMAP-*.md` path or an
-    `owner/repo:path`, or empty.
+  - `UPSTREAM`: a repository-relative `docs/roadmaps/ROADMAP-*.md` path, or
+    `owner/repo:` followed by that path, never with a `..` segment, or empty.
 - Phase 0 keeps only tokenizing and the residue rule. The agent writes the
-  invocation's tokens to a nonce-named args file with the Write tool.
-  `scripts/scope-open.sh`, a thin wrapper over the shared
-  `scripts/koto-open.sh`, maps each flag occurrence to one pair and runs
-  `koto init --vars-file --attach-live --replace-terminal`, adding
-  `--koto-leg` when given, then deletes the args file. A repeated `--intent`,
-  both mode flags, or both coordination flags becomes a duplicate key koto
-  refuses. `scope-open.sh` renders koto's structured errors in today's exact
-  wording (D2), for example "Topic slug `Foo` does not match the required
-  pattern `^[a-z0-9-]+$`." and `intent-mismatch recorded=<x> requested=<y>`.
-  The cold-start prompt stays before init on a standalone run. The probe,
-  reattach, and origin prose move into the script and into koto.
+  tokens to an args file outside the work tree (the koto session directory
+  or a private `mktemp` directory), and `scripts/scope-open.sh`, a thin
+  wrapper over the shared `koto-open.sh` (Key Interfaces > koto entry), maps
+  each flag occurrence to one pair with `jq`, never `eval`. A repeated
+  `--intent`, both mode flags, or both coordination flags becomes a
+  duplicate key koto refuses. `scope-open.sh` renders koto's structured
+  errors in today's exact wording (D2). The cold-start prompt stays before
+  init on a standalone run.
 - `--koto-leg=<request-id>:<leg>`, checked against koto's request-id pattern
-  and a closed leg-name set. It changes nothing but where the result goes, so
-  a direct user can pass it with any koto coordinator.
-- Retention: `--no-cleanup` on every tick, unconditionally.
-- `initial_state` moves to `intake`. Its read-only default action runs
-  `resolve-intent.sh` and captures `RUN_INTENT` (`unset` becomes the recorded
-  value or `none`). Two gates run local checks only: `check-upstream.sh` (the
-  `--upstream` filesystem battery) and `check-recorded-intent.sh` (an
-  unfinished run with no live session whose state file records a different
-  intent). Failures route to `done_refused` with a reason or `done_error`
-  with `scope:intake`.
-- `branch_check`'s setup target becomes `resume_route`. Its single gate runs
-  `resume-probe.sh`, the whole resume ladder as one table-tested probe. The
-  probe reads only the artifact tree, `/scope`'s own state file, the child
-  partials, and the handoff; keeps the documented first-match order; and
-  exits with a row code that gate-only transitions route (see Key
-  Interfaces). `phase-resume.md` stays the normative spec, with each row
-  naming its exit code and target state. The ladder's prompts become states
+  and a closed leg-name set. It changes nothing but where the result goes.
+  Retention is `--no-cleanup` on every tick, unconditionally.
+- `intake` becomes `initial_state`. Its read-only default action runs
+  `resolve-intent.sh` and captures `RUN_INTENT`; two gates run
+  `check-upstream.sh` and `check-recorded-intent.sh`. Failures route to
+  `done_refused` with a reason or `done_error` with `scope:intake`.
+- `resume_route` replaces `branch_check`'s setup target. Its single gate
+  runs `resume-probe.sh`, the whole resume ladder as one table-tested probe
+  over the artifact tree, the state file, the child partials, and the
+  handoff, exiting with the row codes in Key Interfaces. `phase-resume.md`
+  stays the normative spec. The ladder's prompts become states
   (`resume_stale`, `resume_malformed`, `resume_exit_set`, `resume_draft`,
   `resume_boundary`) with identical wording and choices.
-- Shortcut states under intent:
-  - `republish` is agent-run, because it pushes and may open a PR. It runs
-    `publish-scoping-pr.sh`, which rewrites the PR body's `intent=` field,
-    and its gate runs `--verify --expect-intent`. `republish_record`, a
-    default action running `record-scope-exit.sh`, then records the outcome
-    keys from the PLAN's frontmatter and the owned PR, and the run ends at
-    `done_republished`.
-  - `executed_report` is gate-only. It runs `owned-pr.sh --state all` and
-    ends at `done_executed` with `pr` and `pr_state`, or at `done_error` with
-    `scope:pr-create` when there's no single owned PR.
-  - An Active PLAN with no intent still refuses, with `next=` by mode (R23).
-- `/plan` hop forwarding in `phase-2-chain-orchestration.md` and the template:
-  `--intent`, the coordination flags exactly as passed, and `/scope`'s own
-  resolved mode flag (`--auto` or `--interactive`) when intent is set, so the
-  hop runs in the same mode as its parent rather than being forced into
-  auto.
-- `hop_plan`'s `landed` edge requires the `plan_mode_consistent` gate
-  (`check-plan-mode.sh`), with a mismatch edge to `bail`.
-- Coordination Intent: with `--intent` set, `/scope` never creates a
-  coordination PR up front; the publish step opens it at exit once the PLAN's
-  mode is known, so a header-coordinated run that doesn't split never carries
-  a coordination PR, and abandonment has no pre-existing PR to close. Without
+- The intent shortcuts (Decision 5): agent-run `republish` with its
+  `--verify --expect-intent` gate, then `republish_record`, a default action
+  running `record-scope-exit.sh`; and gate-only `executed_report` over
+  `owned-pr.sh --state all`, which ends at `done_error` with
+  `scope:pr-create` when there's no single owned PR. An Active PLAN with no
+  intent still refuses, with `next=` by mode (R23).
+- `/plan` hop forwarding in `phase-2-chain-orchestration.md` and the
+  template: `--intent`, the coordination flags exactly as passed, and
+  `/scope`'s own resolved mode flag when intent is set. `hop_plan`'s
+  `landed` edge requires `plan_mode_consistent` (Decision 6).
+- With `--intent` set, `/scope` never creates a coordination PR up front;
+  the publish step opens it at exit once the PLAN's mode is known. Without
   intent, today's up-front behavior is untouched (D2).
-- Three publish states, plus the `intent_declared` gate on the exit states,
-  keyed on `RUN_INTENT`. A publish failure records `publish_error:` and ends
-  at `done_error`; the next invocation's `resume_route` routes back to the
-  publish state.
-- Terminals with result maps (K1): `done_full_run`, `done_republished`,
+- The three publish states and the `intent_declared` gate (Decision 5).
+- Terminals with result maps (K1, R31): `done_full_run`, `done_republished`,
   `done_executed`, `done_re_evaluation`, `done_abandonment`,
-  `done_cancelled`, `done_refused` (failure), and `done_error` (failure). The
-  edges into them assign `outcome`, `step`, `reason`, and
-  `plan_execution_mode` (K2).
-- New scripts, each with a `_test.sh`:
-  - `scripts/publish-scoping-pr.sh`, with the `intent=` body field and
-    `--expect-intent`
-  - `scripts/startable-issues.sh`, which wraps `plan-to-tasks.sh`, keeps roots
-    in PLAN order, and reads titles from the issue cells without calling `gh`
-  - `scripts/scope-open.sh`, `resolve-intent.sh`, `check-upstream.sh`,
-    `check-recorded-intent.sh`, `resume-probe.sh`, `record-scope-exit.sh`,
-    and `check-plan-mode.sh`
-  - `scripts/owned-pr.sh`, shared with `/execute`
-  - `scripts/print-scope-exit.sh`
-- The exit-summary block in `phase-4-cleanup.md`, rendered by
-  `print-scope-exit.sh` from the terminal result.
-- The resume redirect for an Active PLAN routes by mode (R23), and the
-  PLAN-status table reflects what `/plan` writes (R25). The phase-2 state-file
-  enum re-validation accepts `coordinated` and rejects unknown values (R25's
-  testable surface; `shirabe validate` doesn't read state files).
-- A `gh` shim under `skills/scope/evals/fixtures/bin/` with a call log (new;
-  `/scope` evals have none today).
+  `done_cancelled`, `done_refused` (failure), and `done_error` (failure),
+  with `outcome`, `step`, `reason`, and `plan_execution_mode` assigned on
+  their edges (K2). The exit-summary block in `phase-4-cleanup.md` is
+  rendered by `print-scope-exit.sh` from that result.
+- New scripts, each with a `_test.sh`: `publish-scoping-pr.sh`,
+  `startable-issues.sh` (wraps `plan-to-tasks.sh`, keeps roots in PLAN
+  order, reads titles from the issue cells without calling `gh`),
+  `scope-open.sh`, `resolve-intent.sh`, `check-upstream.sh`,
+  `check-recorded-intent.sh`, `resume-probe.sh`, `record-scope-exit.sh`,
+  `check-plan-mode.sh`, `owned-pr.sh` (shared with `/execute`), and
+  `print-scope-exit.sh`.
+- The resume redirect for an Active PLAN routes by mode (R23), the
+  PLAN-status table reflects what `/plan` writes, and the state-file enum
+  re-validation accepts `coordinated` (R25).
+- A `gh` shim with a call log under `skills/scope/evals/fixtures/bin/` (new).
 - State-schema fields `intent:`, `published_pr:`, `publish_error:`.
-- A Publish group in Security Considerations, restated in Phases 3 and 4.
-- `requires.tsv` gains `gh - - mode:intent` and the koto minimum.
+- A Publish group in Security Considerations, restated in `/scope`'s
+  exit-finalization and cleanup phases.
+- The SKILL.md write-target section gains the branch push and PR creation
+  (R28); `requires.tsv` gains `gh - - mode:intent` and the koto minimum
+  (R32).
 
 **`/execute`.**
 
-- `--merge` parsed and passed as `MERGE`, which is now `rebind: true` along
-  with `PLUGIN_ROOT`, so a resumed run takes this invocation's setting (R17).
+- `--merge` parsed and passed as `MERGE`. `MERGE` and
+  `PAUSE_BEFORE_FINALIZE` become `rebind: true`, and `PLUGIN_ROOT` takes the
+  same absolute-path pattern as in `scope.md`, so a resumed run takes this
+  invocation's merge and mode settings (R15, R17). `PLAN_DOC` and
+  `PLAN_SLUG` aren't rebindable.
 - `--koto-leg`, entering through `koto-open.sh` with `--attach-live
   --replace-terminal`, which replaces the read-then-clean recovery of a
   retained terminal. The session stays a root with `--no-cleanup` on every
-  tick.
-- New scripts, each with a `_test.sh`:
-  - `scripts/merge-verdict.sh` (read-only)
-  - `scripts/merge-exec.sh` (the only `gh pr merge` line)
-  - `scripts/record-merge-verdict.sh`, the `merge_readiness` default action
-  - `scripts/push-and-record.sh`, which records `expected_head` after a
-    push; `run-cascade.sh --push` does the same
-  - `scripts/print-exit.sh`, which renders the exit block from the terminal
-    result
-  - `scripts/coordinated-next.sh`, `node-cut.sh`, `node-push.sh`, and
-    `coordination-verdict.sh`, wired into the execute scripts' CI check
-- Four koto states and two terminals, with the `ci_monitor` edge retargets,
-  and the regenerated mermaid file. `merge_route` keys on `context-matches`
-  gates over `merge_verdict`, and the `pending:` loop takes a
-  `recheck: waited` evidence hop. `plan_completion` gains an
-  `expected_head_recorded` gate.
-- A `result:` map on every terminal, including a `refused` outcome for
+  tick. `execute.md` and `execute-coordinated.md` share the
+  `execute-<topic>` name, so a finished session from the other template is
+  replaced, and a live one is refused and ends `execute:refused`.
+- New scripts, each with a `_test.sh`: `merge-verdict.sh` (read-only),
+  `merge-exec.sh` (the only `gh pr merge` line), `record-merge-verdict.sh`
+  (the `merge_readiness` default action), `push-and-record.sh`,
+  `print-exit.sh`, and the coordinated `coordinated-next.sh`,
+  `node-cut.sh`, `node-push.sh`, and `coordination-verdict.sh`.
+- Four koto states and two terminals, the `ci_monitor` edge retargets, and
+  the regenerated mermaid (Decisions 3 and 6). `record-merge-verdict.sh`
+  clears `merge_verdict` before each recompute, so a failed or timed-out
+  action routes to `pending:` rather than replaying an old value. Every
+  route into `merged`, row 1's already-merged verdict included, passes
+  `merge_confirm`, which is `overridable: false` (K8). `plan_completion`
+  gains an `expected_head_recorded` gate.
+- A `result:` map on every terminal (R31), including a `refused` outcome for
   init-time refusals. Record states capture `home_pr` after the
-  ownership-filtered adopt and `repos` at start. The edges into
-  `done_blocked` write `outcome` and `step`; the pinned DIRTY edge writes
-  `outcome=ready-awaiting-merge` and `reason=merge-state:DIRTY`.
-- The coordinated loop rewritten as refresh, dispatch, evaluate, merge, and
-  pause, with per-node branches and worktrees, driven by
-  `coordinated-next.sh` inside a new `koto-templates/execute-coordinated.md`
-  envelope under the same session name:
-  - `coord_setup` (agent-run) records the write set;
-  - `coord_loop` (agent-run) runs `coordinated-next.sh` and the action it
-    names until it prints `done:`, `pause`, or `error:`, with evidence
-    `loop_status: settled|blocked` carrying a step enum;
-  - `coord_verdict` (gate-only) runs `coordination-verdict.sh` over the
-    coordination index, the merge-order block, and live node PRs, and
-    routes to `merged`, `ready_awaiting_merge`, `paused_awaiting_merges`
-    (with `resume=`), or `done_blocked`, each with a result.
-  Each node PR is titled `feat(<slug>): <node-id>` with a fixed body template
-  (node id, issue numbers, coordination PR link); before `gh pr ready` its
-  branch runs the same `wip/` sweep single-pr's finalization runs. The
-  chain-finalization cascade runs once, on the coordination branch, after
-  every node PR has merged and before the coordination PR is marked ready.
-- The ownership filter applied at every existing PR lookup: the four
+  ownership-filtered adopt and `repos` at start. The pinned DIRTY edge
+  writes `outcome=ready-awaiting-merge` and `reason=merge-state:DIRTY`, and
+  `ci_monitor`'s `failing_unresolvable` edge maps to `execute:ci`.
+- The coordinated loop (Decision 6) inside a new `execute-coordinated.md`
+  envelope: agent-run `coord_setup` records the write set; agent-run
+  `coord_loop` runs `coordinated-next.sh` and the action it names until it
+  prints `done:`, `pause`, or `error:`; gate-only `coord_verdict` runs
+  `coordination-verdict.sh` and routes to `merged` (through the same confirm
+  read), `ready_awaiting_merge`, `paused_awaiting_merges`, or
+  `done_blocked`. Each node PR is titled `feat(<slug>): <node-id>` with a
+  fixed body template, and its branch runs the single-pr `wip/` sweep
+  before `gh pr ready`. The chain-finalization cascade runs once, on the
+  coordination branch, after every node PR has merged.
+- The ownership filter at every existing PR lookup: the four
   `gh pr list --head ... .[0]` sites in `execute.md` and the resume ladder's
   title search, which becomes a head-branch lookup.
-- `ci_monitor`'s `failing_unresolvable` edge maps to `outcome=error
-  step=execute:ci`.
 - An exit summary that always prints `outcome=`.
-- The write-set additions, and `requires.tsv` gains the koto minimum.
+- The write-target section gains `gh pr merge` (R28), and `requires.tsv`
+  gains the koto minimum (R32).
 - R24 wording, enforced by a new `scripts/check-merged-wording.sh` with an
   allowlist.
 
@@ -1108,31 +1010,39 @@ release; K7-K10 are off the critical path.
 - Single-repo tests in `crates/shirabe-validate/src/coordination.rs`,
   `merge_gate.rs`, and `crates/shirabe/tests/coordination_body.rs`.
 - `.github/workflows/lifecycle.yml` drops a self-referencing PR-index entry.
-- CI's koto pin moves to the release that carries K1-K6.
+- CI's koto pin moves to the release that carries K1-K6 and K8.
 
 **`/deliver` (new).**
 
-- `skills/deliver/SKILL.md`, with no phase files. It writes the args file,
-  runs `deliver-open.sh`, runs the tick loop with `--no-cleanup`, prints the
-  terminal result through `deliver-report.sh`, and closes the request on the
-  way out.
+- `skills/deliver/SKILL.md`, with no phase files. It writes the args file
+  outside the work tree, runs `deliver-open.sh`, runs the tick loop with
+  `--no-cleanup`, prints the terminal result through `deliver-report.sh`,
+  and closes the request on the way out (if it doesn't, the next run
+  abandons it). Its write-target section declares one write of its own, the
+  per-run koto request, and names every repository write as its children's
+  (R28).
 - `skills/deliver/koto-templates/deliver.md` and its mermaid, with variables
-  `TOPIC` (slug pattern), `PLUGIN_ROOT`, `MODE` (`auto|interactive`), `MERGE`
-  (`true|false`), and `COORDINATION`, `UPSTREAM`, and `MAX_ROUNDS` under the
-  same constraints as `scope.md`.
+  `TOPIC`, `PLUGIN_ROOT`, `COORDINATION`, `UPSTREAM`, and `MAX_ROUNDS` under
+  the same constraints as `scope.md`, plus `MODE` (`auto|interactive`) and
+  `MERGE` (`true|false`).
 - Scripts under `skills/deliver/scripts/`, each with a `_test.sh`:
-  - `deliver-open.sh`: if a `deliver-<topic>` session exists, checks its
-    origin record (worktree and store; a mismatch is a collision and a stop)
-    and cleans it, then runs `koto init deliver-<topic> --vars-file`, whose
-    refusals it prints;
+  - `deliver-open.sh`: resolves the mode from the flags and the
+    `## Execution Mode:` header (R15); if a `deliver-<topic>` session exists,
+    checks its origin record (worktree and store; a mismatch is a collision
+    and a stop) and cleans it; then runs `koto init deliver-<topic>
+    --vars-file`, whose refusals it prints;
   - `deliver-preflight.sh`: the visibility check (R29);
   - `deliver-open-request.sh`: abandons open requests for the coordinator,
-    creates the new one, prints its id;
-  - `deliver-probe.sh`: the `scoped` and `executed` re-checks;
-  - `deliver-report.sh`: prints the exit lines from the terminal result.
+    creates the new one with each leg's role, template, and inputs, and
+    prints its id;
+  - `deliver-probe.sh`: the `scoped` and `executed` re-checks, each finding
+    the owned PR itself;
+  - `deliver-report.sh`: prints the exit lines from the terminal result,
+    validating each value against a closed pattern (PR URL, `owner/repo`
+    list, enumerated outcome, step, and reason) and dropping anything else.
 - A shared `scripts/plan-mode.sh` that maps a PLAN's mode to an exit code.
-- `requires.tsv` with the koto minimum and read-only `gh` and `git` (the
-  probes and the merge confirm read).
+- `requires.tsv` with the koto minimum (R32) and read-only `gh` and `git`
+  (the probes and the merge confirm read).
 - `evals/` with a `gh` shim, a real koto, and fixtures.
 - A row in `README.md`.
 
@@ -1154,24 +1064,37 @@ release; K7-K10 are off the critical path.
 [--koto-leg <req>:<leg>]`. There are four outcomes:
 
 - a new session;
-- an attached live session, when the non-rebind variables match, with the
-  `rebind` variables re-applied;
+- an attached live session, when its template, origin record, and
+  non-rebind variables match, with the `rebind` variables then re-applied
+  in the same step;
 - a fresh session replacing a retained terminal one, whose old result the
   skill may print;
 - a refusal with exit 2 and a typed error, rendered in today's wording and,
-  under `--koto-leg`, recorded on the leg by koto.
+  under `--koto-leg`, recorded on the leg by koto. A refusal changes nothing
+  on the session, rebind variables included.
 
 **Requests and legs.** `open_request` creates one request per `/deliver`
-invocation with two legs, `scope` (inputs `TOPIC`, `INTENT: continue`) and
-`execute` (input `TOPIC`), and captures the id as `REQ`. A leg leaves the
-open state in one of four ways:
+invocation with two legs and captures the id as `REQ`:
+
+| Leg | `role` | `template` | Inputs |
+|-----|--------|------------|--------|
+| `scope` | `scope` | `scope.md` | `TOPIC`, `INTENT: continue` |
+| `execute` | `execute` | `execute.md`, `execute-coordinated.md` | `PLAN_SLUG` |
+
+The request is created before the PLAN's mode is known, so the `execute` leg
+names both of `/execute`'s templates, and K5 accepts a session built from
+either. The single-pr versus coordinated mismatch is caught one step
+earlier, by `--attach-live`'s template check on the `execute-<topic>`
+session itself. A leg leaves the open state in one of four ways:
 
 - **promoted**: the child reached a terminal and koto copied its result;
 - **refused**: koto refused the child's arguments or attach and recorded
   `{outcome: refused, reason}`;
 - **explicit**: `/deliver`'s absent state resolved it with the fixed
   `deliver:child-absent` error;
-- **abandoned**: a newer `/deliver` run superseded the request.
+- **abandoned**: a newer `/deliver` run superseded the request, or some
+  party holding the request id abandoned it. The run whose own request is
+  abandoned ends `deliver:request-abandoned`.
 
 A leg holds one result per run; a retry is always a new `/deliver`
 invocation with a new request. Only a promoted, valid result can move
@@ -1186,11 +1109,13 @@ leg carries:
 | `/execute` | `merged`, `ready-awaiting-merge`, `paused-for-review`, `paused-awaiting-merges`, `refused`, `error` | `pr`, `repos`, `resume`, `waiting`, `reason`, `step` |
 | `/deliver` | the PRD's Final States for `/deliver` | `step`, `reason`, `pr`, `pr_state`, `repos`, `resume`, `waiting`, `next`, `startable`, `wip_paths` |
 
-`/scope`'s `reason` is one of `invalid-var:<V>`, `duplicate-var:<V>`, or
-`var-mismatch:<V>` (from koto), `intent-mismatch`, `upstream-wip`,
-`upstream-untracked`, `upstream-outside`, `upstream-basename`,
-`plan-active`, or `plan-done`. Its `step` is one of `scope:push`,
-`scope:pr-create`, `scope:intake`, or `scope:resume-probe`.
+`/scope`'s `reason` is one of `invalid-var:<V>`, `duplicate-var:<V>`,
+`var-mismatch:<V>`, `template-mismatch`, or `origin-mismatch` (from koto),
+`intent-mismatch`, `upstream-wip`, `upstream-untracked`, `upstream-outside`,
+`upstream-basename`, `plan-active`, or `plan-done`. Its `step` is one of
+`scope:push`, `scope:pr-create`, `scope:intake`, or `scope:resume-probe`.
+`/execute`'s `waiting` holds one comma-joined `<pr-url>:<human|predecessor>`
+entry per unmerged PR.
 
 **Exit lines.** One `key=value` per line, rendered from the terminal result by
 `print-scope-exit.sh`, `/execute`'s `print-exit.sh`, and `deliver-report.sh`,
@@ -1222,10 +1147,9 @@ arguments, and neither reads koto context or state files:
 
 - `merge-verdict.sh --repo <owner/repo> --pr <n> --merge <true|false>
   --expected-head <sha|none> [--confirm]` prints one verdict line and exits 0,
-  or exits non-zero on a usage error. `--merge` is true only when both the
-  session's `MERGE` variable and this invocation's `merge_requested` are
-  true; `record-merge-verdict.sh` computes that and passes it. `--expected-head
-  none` makes row 8 fire.
+  or exits non-zero on a usage error. `record-merge-verdict.sh` passes the
+  session's `MERGE` variable as `--merge`. `--expected-head none` makes row 8
+  fire.
 - `merge-exec.sh <owner/repo> <pr> <expected-head>` runs
   `merge-verdict.sh --merge true --expected-head <expected-head>` itself,
   refuses unless the fresh verdict is `mergeable:<method>:<expected-head>`,
@@ -1277,16 +1201,16 @@ write: it recomputes the verdict immediately before the merge call (Script
 interfaces above), and validates the PR number (`^[1-9][0-9]*$`), method, sha,
 and repository against closed patterns.
 
-**Merge intent per invocation.** Merging needs two things: the session's
-`MERGE` template variable and a `merge_requested` context value `/execute`
-writes at the start of every invocation from that invocation's own flags,
-defaulting to false. `MERGE` is set at `koto init` from `--merge` and, being
-`rebind: true`, is re-applied from this invocation's flags whenever a live
-session is attached, so it's never agent evidence and never inherited from an
-earlier run. `merge_requested` is the one agent-written merge value, and it
-can only narrow `MERGE`. `record-merge-verdict.sh` computes the AND in code,
-so a session resumed without `--merge` doesn't merge and one resumed with it
-does (R17).
+**Merge intent per invocation.** Merge intent is the session's `MERGE`
+variable and nothing else. It's set at `koto init` from this invocation's
+`--merge` (false without it), and, being `rebind: true`, re-applied from this
+invocation's flags whenever a live session is attached, so it's never agent
+evidence and never inherited from an earlier run. A session resumed without
+`--merge` doesn't merge and one resumed with it does (R17). Rebind happens
+only inside an accepted attach (K4), so an invocation whose attach is refused,
+such as a stale driver naming an abandoned leg, leaves `MERGE` as it was.
+Between two accepted invocations on one session, the later one's setting
+wins.
 
 **Expected-head record.** Row 8 compares the PR head with the commit
 `/execute` expects, recorded durably by the push itself, never by the agent:
@@ -1298,6 +1222,9 @@ does (R17).
 - Coordinated node PRs: `node-push.sh` pushes and writes a `head=<sha>`
   field on the node's line in the coordination PR's index, validating the
   new body before editing it, so a resume in any working copy reads it back.
+  A collaborator who can edit that body can edit the field too, so for
+  coordinated nodes the check guards only against pushers who can't; required
+  reviews and checks still apply.
 - The coordination PR: the head `/execute` pushes when it runs the
   finalization cascade on the coordination branch, recorded the same way.
 - A PR `/execute` adopted but never pushed to has no record, so row 8 fires
@@ -1355,60 +1282,46 @@ the set of repositories it may write to when it starts and rejects PR-index or
 
 ### Data Flow
 
-1. **`/deliver` opens.** `deliver-open.sh` starts a fresh `deliver-<topic>`
-   session. `preflight` refuses a private repository, and `open_request`
-   abandons earlier requests and creates `REQ`.
-2. **`/scope` entry.** The Skill call carries `--koto-leg=REQ:scope`.
-   `scope-open.sh` passes the raw tokens to `koto init`, which validates
-   them, creates or attaches `scope-<topic>`, and binds it to the leg, or
-   records a refusal there. `intake` resolves `RUN_INTENT` and writes
-   `intent:` to the state file.
-3. **The `/plan` hop.** It receives the forwarded flags. `/plan` records
-   `split_branch`, `split_rationale`, `execution_mode`, and
-   `split_mode_source` in the PLAN. For a coordinated PLAN it also files the
-   issues with Repo and Group rows. `plan_mode_consistent` checks the result.
-4. **Exit and publish.** `/scope` records the exit, then, on intent runs:
-   - untracks its own topic `wip/`;
-   - pushes;
-   - reuses or creates one PR;
-   - verifies it through the `published` gate;
-   - cleans up, reaches a terminal, and koto promotes its result to the leg.
-5. **`/deliver` hand-off.** `scope_run` routes on the leg. `scoped_check`
-   re-verifies the PLAN and the owned PR, and `mode_route` reads the PLAN's
-   `execution_mode`.
-6. **`/execute`.** Entered with `--koto-leg=REQ:execute`, it adopts the PR by
-   head branch through the ownership filter. Each merge decision reads live
-   GitHub state through `merge-verdict.sh`, recorded by a default action;
-   `merge-exec.sh` recomputes it before merging. The CI deadline and the
-   no-checks grace window are anchored on the head commit's `committedDate`
-   from the same PR snapshot, so the scripts keep no bookkeeping and a
-   resumed run measures the same deadline. Its terminal result is promoted to
-   the execute leg.
-7. **`/deliver` closes.** `merged_check` re-reads GitHub on a `merged`
-   result, and `deliver-report.sh` prints the terminal result.
-8. **Coordinated resume.** Resume state lives on the coordination PR (its PR
-   index and merge-order block) and in the node branches' PRs.
+The Overview diagram shows the sequence. What each hand-off carries:
+
+1. **Into `/scope`:** the raw tokens through `--vars-file`, and `REQ:scope`.
+   `intake` writes `intent:` to the state file.
+2. **Through the `/plan` hop:** the forwarded flags in; `split_branch`,
+   `split_rationale`, `execution_mode`, and `split_mode_source` recorded in
+   the PLAN, plus Repo and Group rows on a coordinated split.
+3. **Out of `/scope`:** on intent runs, its own topic `wip/` untracked, one
+   pushed branch, one verified PR, and a terminal result on the leg.
+4. **Into `/execute`:** the PLAN path, `--merge`, and `REQ:execute`. It
+   adopts the PR by head branch through the ownership filter. The CI
+   deadline and the no-checks grace window are anchored on the head commit's
+   `committedDate` from the same PR snapshot, so the scripts keep no
+   bookkeeping and a resumed run measures the same deadline.
+5. **Out of `/execute`:** a terminal result on the leg, which `/deliver`
+   re-checks against GitHub before reporting.
+6. **Coordinated resume** reads the coordination PR (its PR index and
+   merge-order block) and the node branches' PRs.
 
 ### `/deliver` template states
 
 `deliver.md` always enters through `/scope`, which owns every "where did this
 topic stop" question through `resume_route`. No state pushes, merges, or
 writes to GitHub as a default action; the default actions touch only koto's
-request store, and every read is a gate.
+request store, and every read is a gate. The two leg gates and the three
+durable re-checks are `overridable: false` (K8).
 
 | State | Kind | Gate | Transitions |
 |-------|------|------|-------------|
 | `preflight` | gate-only | `deliver-preflight.sh` (R29) | Public goes to `open_request`; private or unknown goes to `done_refused` (`private-repo`) |
-| `open_request` | default action (koto request store only; safe to re-run) | `deliver-open-request.sh` abandons open requests for this coordinator, creates `REQ` with legs `scope` and `execute` | `scope_run` |
-| `scope_run` | agent-run: `Skill /scope <topic> --intent=continue --<mode> --koto-leg=REQ:scope` plus forwarded flags | `scope_leg`: `request-leg` on `scope`, with the scope outcome set as `expect` | An open leg waits. Promoted and valid: `scoped` or `handed-off-multi-pr` go to `scoped_check`; `executed` to `executed_check`; `re-evaluation`, `abandonment`, `cancelled` to `done_stopped` (`scope-ended-early`); `error` to `done_error` with the step. Refused with `intent-mismatch` or `var-mismatch:INTENT` goes to `done_error` (`deliver:intent-mismatch`); other refusals to `done_error` (`scope:refused`). Invalid goes to `deliver:child-outcome`; explicit to `deliver:child-absent`. Evidence `child_returned: yes` on an open, unbound leg goes to `scope_absent` |
+| `open_request` | default action (koto request store only; safe to re-run) | `deliver-open-request.sh` abandons open requests for this coordinator, creates `REQ` with legs `scope` and `execute` (role, template, inputs) | `scope_run` |
+| `scope_run` | agent-run: `Skill /scope <topic> --intent=continue --<mode> --koto-leg=REQ:scope` plus forwarded flags | `scope_leg`: `request-leg` on `scope`, with the scope outcome set, `refused` included, as `expect` | An open leg waits. Every arm copies `outcome`, `plan_path`, `plan_execution_mode`, `pr`, `pr_state`, `startable`, `wip_paths`, and `next` from the leg's `payload` into context (K2). Promoted and valid: `scoped` or `handed-off-multi-pr` go to `scoped_check`; `executed` to `executed_check`; `re-evaluation`, `abandonment`, `cancelled` to `done_stopped` (`scope-ended-early`); `error` to `done_error` with the step; `refused` with `intent-mismatch` to `done_error` (`deliver:intent-mismatch`), and any other promoted `refused` to `done_error` (`scope:refused`). Source `refused` with `var-mismatch:INTENT` goes to `done_error` (`deliver:intent-mismatch`); other source refusals to `done_error` (`scope:refused`). Invalid goes to `deliver:child-outcome`; explicit to `deliver:child-absent`; disposition `abandoned` to `done_error` (`deliver:request-abandoned`). Evidence `child_returned: yes` on an open, unbound leg goes to `scope_absent` |
 | `scope_absent` | default action: resolve the `scope` leg with the fixed `{outcome: error, step: deliver:child-absent}` | none | back to `scope_run`; if the leg was bound meanwhile, the resolve is refused and `scope_run` keeps waiting |
 | `scoped_check` | gate-only | `deliver-probe.sh scoped`: PLAN tracked and unchanged at HEAD, and `publish-scoping-pr.sh --verify --expect-intent continue` | pass goes to `mode_route`; fail to `done_error` (`deliver:child-outcome`) |
-| `mode_route` | gate-only | `plan-mode.sh` (0 single-pr, 10 coordinated, 20 multi-pr, 4 invalid) | 0 and 10 go to `confirm`; 20 to `done_stopped` (`handed-off-multi-pr`, `startable` copied from the leg); 4 to `deliver:child-outcome` |
-| `confirm` | gate plus agent | `test '<MODE>' = auto` | auto goes to `execute_run`, ignoring stray evidence; otherwise `decision: proceed` goes to `execute_run` and `decision: stop` to `done_stopped` (`scoped`, `next=/deliver <topic>`) |
-| `execute_run` | agent-run: `Skill /execute docs/plans/PLAN-<topic>.md --<mode> [--merge] --koto-leg=REQ:execute` | `exec_leg`: `request-leg` on `execute` | Promoted and valid: `merged` goes to `merged_check`; `ready-awaiting-merge` to `done`; the two pauses to `done_stopped`; `error` to `done_error` with the step. Refused goes to `done_error` (`execute:refused`). Invalid, explicit, and absent arms as in `scope_run`, through `execute_absent`. Every arm copies `pr`, `repos`, `resume`, and `waiting` from the leg's exports |
-| `executed_check` | gate-only | `deliver-probe.sh executed`: PLAN absent, DESIGN under `current/`, owned PR read through `owned-pr.sh` | merged goes to `done` (`merged`); open to `done` (`ready-awaiting-merge`); anything else to `deliver:child-outcome` |
-| `merged_check` | gate-only (non-overridable once K8 ships) | `merge-verdict.sh --confirm` on the owned PR or the coordination PR | `merged` goes to `done`; anything else can only downgrade, to `done` with `ready-awaiting-merge` |
-| `done`, `done_stopped`, `done_error` (failure), `done_refused` (failure) | terminal | none | a result with `outcome`, `step`, `reason`, `pr`, `pr_state`, `repos`, `resume`, `waiting`, `next`, `startable`, and `wip_paths`, all assigned on the edges |
+| `mode_route` | gate-only | `plan-mode.sh` (0 single-pr, 10 coordinated, 20 multi-pr, 4 invalid) | 0 and 10 go to `confirm`; 20 to `done_stopped` (`handed-off-multi-pr`, with the `startable` value `scope_run` copied); 4 to `deliver:child-outcome` |
+| `confirm` | gate plus agent | `test "{{MODE}}" = auto` | auto goes to `execute_run`, ignoring stray evidence; otherwise `decision: proceed` goes to `execute_run` and `decision: stop` to `done_stopped` (`scoped`, `next=/deliver <topic>`) |
+| `execute_run` | agent-run: `Skill /execute docs/plans/PLAN-<topic>.md --<mode> [--merge] --koto-leg=REQ:execute` | `exec_leg`: `request-leg` on `execute` | Every arm copies `pr`, `repos`, `resume`, and `waiting` from the leg's `payload`. Promoted and valid: `merged` goes to `merged_check`; `ready-awaiting-merge` to `done`; the two pauses to `done_stopped`; `error` to `done_error` with the step. Refused goes to `done_error` (`execute:refused`). Invalid, explicit, absent, and abandoned arms as in `scope_run`, through `execute_absent` |
+| `executed_check` | gate-only | `deliver-probe.sh executed`: PLAN absent, DESIGN under `current/`, and the owned PR found by `owned-pr.sh` on the topic's branch | merged goes to `done` (`merged`); open to `done` (`ready-awaiting-merge`); anything else to `deliver:child-outcome` |
+| `merged_check` | gate-only | `merge-verdict.sh --confirm` on the PR it finds itself: `owned-pr.sh` on `impl/<slug>` or on the coordination branch, never the leg's `pr` | `merged` goes to `done`; anything else can only downgrade, to `done` with `ready-awaiting-merge` |
+| `done`, `done_stopped`, `done_error` (failure), `done_refused` (failure) | terminal | none | a result with `outcome`, `step`, `reason`, `pr`, `pr_state`, `repos`, `resume`, `waiting`, `next`, `startable`, and `wip_paths`, all assigned on the edges; where a re-check resolved the PR, its `pr` replaces the leg's |
 
 Because a topic with a PLAN still passes through `/scope`, a run whose
 publish failed after the PLAN was written gets its PR opened on the retry
@@ -1419,169 +1332,127 @@ every progress step is re-derived from durable state.
 ## Implementation Approach
 
 The work spans two repositories and ships as a coordinated effort. koto's
-changes land first, as their own PRs in `tsukumogami/koto`, and are released.
-shirabe then raises its koto floor to that release and lands its phases. The
-earlier expectation of a single shirabe PR no longer holds: nothing in
-shirabe that uses the new koto features can merge before the release exists
-and CI pins it. Within shirabe, the phases stay ordered provider-first, so
-none leaves `main` with a half-wired flag if it lands alone, and the choice
+changes land first, as their own PRs in `tsukumogami/koto`, and are released
+(R32). shirabe then raises its koto floor to that release. Nothing in shirabe
+that uses the new koto features can merge before the release exists and CI
+pins it. Within shirabe, the phases stay ordered provider-first, so none
+leaves `main` with a half-wired flag if it lands alone, and the choice
 between one shirabe PR and several stays with `/plan`'s split step under the
 repository's Delivery Preference.
 
-The critical path runs through variable constraints and root attach, then
-the init flags, the koto release, shirabe's koto floor, `/scope`, `/deliver`,
-and the guides. The `/execute` track runs in parallel once the result map,
-`context_assignments`, variable constraints, and the koto floor are in.
+Phases 3 and 4 (the shared references and `/plan`) use no new koto feature
+and run in parallel with Phase 1. Every phase that uses `--koto-leg`,
+`--attach-live`, `--replace-terminal`, result maps, or assignments (5a, 5b,
+6, and 7) depends on the koto release through Phase 2; those phases can be
+written against a koto pre-release, but none merges before the release. The
+critical path runs through variable constraints, root attach, and the init
+flags, then the release, shirabe's koto floor, `/scope`, `/deliver`, and the
+guides.
 
 ### Phase 1: koto features (`tsukumogami/koto`)
 
 | Item | Change | Needs |
 |------|--------|-------|
-| KA | K2, transition `context_assignments` | none |
-| KB | K1, terminal `result:` map, including its `koto status` and `koto next` exposure and export onto leg results | none |
-| KC | K3, variable `values:`, `pattern:`, and `rebind:`, plus `koto session rebind` | none |
-| KD | K5, `koto request attach` for roots, with the request-lifecycle design amendment | none |
-| KE | K4, `koto init --vars-file`, `--replace-terminal`, `--attach-live`, and `--koto-leg` with refusal recording | KC, KD |
-| KF | K6, the `request-leg` gate | KB (it reads `exports`, which KA also reads) |
-| KR | a release, with shirabe's `koto-version` pin bumped | KA-KF |
+| KA | K2, transition `context_assignments`, with generic dot paths into gate output | none |
+| KB | K1, terminal `result:` map in the result's `payload`, up to 32 keys | none |
+| KC | K3, variable `values:`, `pattern:`, and `rebind:` | none |
+| KD | K5, `koto request attach` for roots, with template identity, refused fenced verbs, and the request-lifecycle design amendment | KC (non-rebind variables) |
+| KE | K4, `koto init --vars-file`, `--replace-terminal`, `--attach-live` with template and origin checks, and `--koto-leg` with atomic attach-then-rebind and refusal recording | KB (refusal payload shape), KC, KD |
+| KF | K6, the `request-leg` gate reading the leg's `payload` | KB, KD |
+| KG | K8, `overridable: false` on gates | none |
+| KR | a release, with shirabe's `koto-version` pin bumped | KA-KG |
 
-K7 (koto#240), K8 (`overridable: false`), K9 (request prune), and K10 (the
-`name_filter` fix) are recommended or optional and off the critical path.
+KA ships generic gate-field assignment on its own; the leg-gate path
+(`${gates.<g>.payload.<k>}`) gets its end-to-end test when KF lands. K7
+(koto#240), K9 (request prune), and K10 (the `name_filter` fix) are
+recommended or optional and off the critical path.
 
 Deliverables:
 
 - koto source changes with engine and compile tests
 - the custom-skill-authoring guide updated for result maps, assignments,
-  constraints, init flags, and the leg gate
+  constraints, init flags, the leg gate, and non-overridable gates
 - the request-lifecycle design amendment
 - the release
 
 ### Phase 2: shirabe koto floor
 
-Depends on KR.
+Depends on KR (R32).
 
 - The koto minimum raised in `requires.tsv` for `/scope`, `/execute`, and
   `/deliver`, with preflight naming the minimum when it's older.
 - CI's koto pin moved to KR.
-- The shared `scripts/koto-open.sh`: args-file transport, `--attach-live`,
+- A compile and eval sweep of every shirabe template under KR, `work-on.md`
+  included. K2 now executes and strictly validates the 58 existing
+  `context_assignments` blocks, so any block that names an undeclared
+  `accepts` field or fails the new checks is fixed here, and the existing
+  evals must pass. This phase also decides whether `/work-on`'s koto floor
+  moves.
+- The shared `scripts/koto-open.sh`: args-file transport outside the work
+  tree with removal on every exit path, `--attach-live`,
   `--replace-terminal`, `--koto-leg`, and rendering koto's errors in today's
   wording, with a `_test.sh`.
 
 ### Phase 3: Shared contracts
 
-The references every skill reads.
-
-- `coordination-strategy.md`: repository count, precedence, header definition,
-  Branches, merge and pause.
-- `parent-skill-state-schema.md`: the `coordinated` enum value, the intent
-  field note, and `unset` at the variable level.
-- The draft/ready design amendment.
-- `parent-skill-pattern.md` (`--koto-leg` and the koto-backed binding) and
-  `parent-skill-child-inspection.md` (the leg-result row).
-- `koto-session-retention.md` and `default-action-conversion.md`.
-
-Deliverables: the edited reference files. They can land with the code.
+Runs in parallel with Phase 1. Every edit under Components > Shared
+references: repository count, precedence, the header definition, Branches,
+and the merge and pause in `coordination-strategy.md`; the `coordinated`
+enum, intent note, and `unset` in the state schema; the draft/ready
+amendment; `--koto-leg` and the koto-backed binding in the parent-skill
+pattern; the leg-result row in child inspection; and the retention and
+default-action references. Deliverables: the edited reference files.
 
 ### Phase 4: `/plan` emits both multi-PR modes
 
-Depends on Phase 3's precedence and header definition.
-
-- The flags and their rejection rules.
-- Step 5a and group rows.
-- The coordinated creation branch with filing approval.
-- The `plan-to-tasks.sh` node vars and a single-repo test.
-- Next-step advice routing (R23).
-- The "(multi-repo)" eval assertion updated.
-
-Deliverables:
-
-- `skills/plan/SKILL.md` and phases 3, 4, and 7
-- `plan-to-tasks.sh` and its test
-- the plan-to-tasks contract doc
-- plan evals
+Depends on Phase 3's precedence and header definition, and runs in parallel
+with Phase 1. It carries the flags and their rejection rules, step 5a
+through `resolve-split-mode.sh`, group rows, the coordinated creation branch
+with filing approval, the `plan-to-tasks.sh` node vars with a single-repo
+test, next-step routing (R23), and the updated "(multi-repo)" eval
+assertion. Deliverables: `skills/plan/SKILL.md` and phases 3, 4, and 7,
+`plan-to-tasks.sh` and its test, the plan-to-tasks contract doc, and plan
+evals.
 
 ### Phase 5a: `/execute` merge step (single-pr)
 
-Depends on Phase 2, Phase 3's draft/ready amendment, and KA, KB, and KC.
-
-- `merge-verdict.sh` and `merge-exec.sh` with table-driven tests.
-- The four koto states and terminals, the `ci_monitor` retargets, the
-  `failing_unresolvable` mapping, and the regenerated mermaid.
-- `record-merge-verdict.sh` as `merge_readiness`'s default action, the
-  `context-matches` routing, and the `recheck` hop.
-- `push-and-record.sh`, the cascade push record, and the
-  `expected_head_recorded` gate.
-- `result:` maps on every terminal, `context_assignments` for outcome, step,
-  and reason, the `home_pr` and `repos` record states, and `print-exit.sh`.
-- `MERGE` and `PLUGIN_ROOT` as `rebind: true`, and `--koto-leg` through
-  `koto-open.sh`, with always-root retention.
-- The ownership filter at every existing lookup.
-- The write-set additions.
-- R24 wording, `check-merged-wording.sh`, and `/work-on` wording.
-
-Deliverables:
-
-- `skills/execute/*` (single-pr path), scripts, and template
-- `skills/work-on/SKILL.md`
-- `scripts/check-merged-wording.sh`
-- the execute `gh` shim with a call log and per-scenario fixtures
-- execute evals for the Merging criteria, including retention cases that
-  assert the result keys
+Depends on Phase 2, and so on the koto release, and on Phase 3's draft/ready
+amendment. It carries the single-pr items under Components > `/execute`:
+the two merge scripts with table-driven tests, the four states and two
+terminals with the `ci_monitor` retargets, `record-merge-verdict.sh` and its
+routing, the expected-head record, result maps and assignments, the rebind
+and pattern changes, `--koto-leg` entry, the ownership filter, the
+write-target addition (R28), and R24 wording with `check-merged-wording.sh`
+and the `/work-on` edit. Deliverables: `skills/execute/*` for the single-pr
+path, `skills/work-on/SKILL.md`, `scripts/check-merged-wording.sh`, the
+execute `gh` shim with a call log and per-scenario fixtures, and execute
+evals for the Merging criteria, including retention cases that assert the
+result keys.
 
 ### Phase 5b: `/execute` coordinated path in one repository
 
-Depends on Phase 4's node vars, Phase 5a's scripts, and KA and KB.
-
-- `coordinated-next.sh`, `node-cut.sh`, `node-push.sh`, and
-  `coordination-verdict.sh`, each table-tested.
-- Per-node branches, worktrees, PR titles and bodies, and the `wip/` sweep.
-- The `execute-coordinated.md` envelope with result maps and the same
-  `--koto-leg` entry.
-- The coordinated merge, pause, and resume loop, with `head=` index fields
-  written only by `node-push.sh` and the cascade push.
-- The cascade on the coordination branch before it is marked ready.
-- The Rust single-repo tests and the `lifecycle.yml` self-reference filter.
-
-Deliverables:
-
-- `skills/execute/SKILL.md` coordinated section, the envelope template, and
-  its mermaid
-- validator tests and `lifecycle.yml`
-- coordinated execute evals
+Depends on Phase 2, and so on the koto release, on Phase 4's node vars, and
+on Phase 5a's scripts. It carries the four coordinated scripts, each
+table-tested; per-node branches, worktrees, PR titles and bodies, and the
+`wip/` sweep; the `execute-coordinated.md` envelope with result maps and the
+same `--koto-leg` entry; the merge, pause, and resume loop with `head=`
+fields written only by `node-push.sh` and the cascade push; and the Rust
+single-repo tests and `lifecycle.yml` filter. Deliverables: the coordinated
+section of `skills/execute/SKILL.md`, the envelope template and its
+mermaid, validator tests, `lifecycle.yml`, and coordinated execute evals.
 
 ### Phase 6: `/scope` intent, intake, resume, and publish
 
-Depends on Phase 2, Phase 4 (forwarding targets real flags), Phase 3
-(schema), and KA, KB, KC, and KE.
-
-- The constrained variables, Phase 0 reduced to tokenizing and
-  `scope-open.sh`, and `--koto-leg`.
-- `intake` with `resolve-intent.sh`, `check-upstream.sh`, and
-  `check-recorded-intent.sh`.
-- `resume_route` with `resume-probe.sh` and the prompt states.
-- Hop forwarding, `check-plan-mode.sh`, and the `plan_mode_consistent` gate.
-- Coordination-intent precedence.
-- Publish states and `publish-scoping-pr.sh`, failing to `done_error`.
-- `republish`, `republish_record`, `executed_report`, `record-scope-exit.sh`,
-  and `owned-pr.sh`.
-- `startable-issues.sh`.
-- The terminals with results, and the exit summary through
-  `print-scope-exit.sh`.
-- Retention on every tick.
-- The resume redirect and status table (R23, R25).
-- State-schema fields.
-- Security Considerations and its restatements.
-- `requires.tsv`.
-
-Deliverables:
-
-- `skills/scope/*`, templates, the regenerated mermaid, and scripts
-- scope evals, including the "no `gh` call on a no-intent run" assertion,
-  R1 refusals with koto's exit 2 and today's wording, and both mismatch cases
+Depends on Phase 2, and so on the koto release, on Phase 3 (schema), and on
+Phase 4 (forwarding targets real flags). It carries everything under
+Components > `/scope`. Deliverables: `skills/scope/*`, its template and
+regenerated mermaid, and scripts; and scope evals, including the "no `gh`
+call on a no-intent run" assertion, R1 refusals with koto's exit 2 and
+today's wording, and both mismatch cases.
 
 ### Phase 7: `/deliver`
 
-Depends on Phases 5a, 5b, and 6, and on KD, KE, KF, and KR.
+Depends on Phases 5a, 5b, and 6, and through them on the koto release.
 
 Deliverables:
 
@@ -1599,8 +1470,8 @@ Deliverables:
 ### Eval coverage
 
 Each phase ships its own eval scenarios, naming the requirement IDs they
-cover, so the "every R1-R25 covered, 3 of 3 runs" criterion (R26) can be
-checked phase by phase:
+cover, so the "every R1-R25, R30, and R31 covered, 3 of 3 runs" criterion
+(R26) can be checked phase by phase:
 
 - GitHub state comes from the per-skill `gh` shims.
 - Forced-split fixtures carry a hard constraint in the DESIGN; no-split
@@ -1611,9 +1482,13 @@ checked phase by phase:
   result from a superseded run being refused, a live `intent=stop` run
   refused as `deliver:intent-mismatch` with the working tree unchanged, the
   republish and executed shortcuts, a publish failure and its retry, a
-  `/scope` that returns without attaching, a forced override on the leg gate
-  that can't reach `scoped_check`, and a `merged` result that the confirm
-  read downgrades.
+  `/scope` that returns without attaching, an override attempt with
+  `--with-data` and a forged promoted result on a leg gate that koto
+  refuses, an abandoned request ending `deliver:request-abandoned`, a
+  session from another template or worktree refused at attach, and a
+  `merged` result that the confirm read downgrades.
+- A stale invocation whose attach is refused leaves the session's `MERGE`
+  unchanged.
 - `/execute` resumed with `--merge` after an interrupted run without it
   merges; the reverse doesn't.
 
@@ -1628,15 +1503,11 @@ around review. They also keep it off PRs it doesn't own, and keep material
 off remotes it shouldn't reach.
 
 **The repository gates the merge, and the repository must have a gate.**
-`merge-verdict.sh` returns a mergeable verdict only when all of these hold:
-
-- the PR is open and not draft;
-- its merge state is `CLEAN`;
-- every reported check succeeded, and at least one check reported;
-- the review decision is neither `REVIEW_REQUIRED` nor `CHANGES_REQUESTED`;
-- its head commit equals the commit the run itself pushed.
-
-If the base branch requires neither status checks nor reviews, the verdict is
+`merge-verdict.sh` returns a mergeable verdict only for an open, non-draft
+PR whose merge state is `CLEAN`, whose every reported check succeeded (at
+least one reported), whose review decision is neither `REVIEW_REQUIRED` nor
+`CHANGES_REQUESTED`, and whose head equals the commit the run pushed. If the
+base branch requires neither status checks nor reviews, the verdict is
 `awaiting:base-unprotected`. A clean merge state on an unprotected branch
 proves nothing, so v1 has no override. The agent never approves a PR:
 `gh pr review` is outside every write set. GitHub doesn't let the operator
@@ -1659,11 +1530,15 @@ later.
 **Merge intent is per invocation, and only owned PRs are touched.** Both
 mechanisms are specified under Key Interfaces. A resumed session never
 inherits an earlier run's merge setting: `MERGE` is rebound from each
-invocation's flags, and merge intent never comes from agent evidence. A fork
-PR named after a predictable `impl/<slug>-<node-id>` branch can't be adopted,
-edited, readied, closed, or merged, because every head-branch lookup filters
-on same repository, the authenticated author, and the expected base, and
-treats zero or several matches as an error.
+invocation's flags, only inside an accepted attach, and no verb rebinds it
+on its own. Merge intent never comes from agent evidence. An agent that
+re-invokes `/execute --merge` on a live session does set it, because that's
+an accepted invocation, so under two drivers on one topic the later accepted
+invocation's setting wins. A fork PR named after a predictable
+`impl/<slug>-<node-id>` branch can't be adopted, edited, readied, closed, or
+merged, because every head-branch lookup filters on same repository, the
+authenticated author, and the expected base, and treats zero or several
+matches as an error.
 
 **No default action writes to GitHub.** The verdict, the expected head, and
 `/scope`'s exit record are written by scripts, not the agent, but none of
@@ -1696,12 +1571,25 @@ enumerated fields only, and never read child PR bodies, CI logs, or comments.
 Issue titles printed as startable issues are opaque data. `/deliver` parses
 no printed line: it reads leg results only through the `request-leg` gate,
 checked against a closed `expect` set. User tokens never pass through a
-shell: each skill writes them to an args file and koto reads them through
-`--vars-file`. `--upstream` must match a repository-relative `docs/` path
-pattern and `--max-rounds` a bounded integer, both enforced by koto at init
-before any gate command sees them. `EXECUTE_CI_WAIT_LIMIT_SECS` must be a
-bounded integer, or the default applies. The existing slug and enum
-re-validation rules apply unchanged.
+shell: each skill writes them to an args file outside the work tree, maps
+them with `jq` (no `eval`), and koto reads them through `--vars-file`; the
+file is removed on every exit path, so a crash can't leave it for the
+publish step's commit. koto enforces these patterns at init, before any gate
+command sees a value:
+
+- the topic starts with a letter or digit, so it can't be read as an option
+  by the `git` and `gh` calls that take it;
+- `--upstream` is a repository-relative `docs/roadmaps/ROADMAP-*.md` path or
+  `owner/repo:` followed by that path, never with a `..` segment;
+- `PLUGIN_ROOT` is an absolute path with no `..` segment, and changes only
+  through an accepted attach;
+- `--max-rounds` is a bounded integer.
+
+`EXECUTE_CI_WAIT_LIMIT_SECS` must be a bounded integer, or the default
+applies. Gate commands quote every `{{VAR}}`. The existing slug and enum
+re-validation rules apply unchanged. `deliver-report.sh` validates each value
+it prints from a leg against a closed pattern and drops anything else, so a
+leg can't carry control characters or prose into the report.
 
 **The koto request store is local state, and it grows.** Requests live under
 `~/.koto/requests/`. The store is unix only and isn't replicated under koto's
@@ -1712,31 +1600,47 @@ Progress never rests on a request record alone: every forward step re-checks
 the PLAN, the owned PR, or GitHub.
 
 **Leg attach and refusal are koto's, not the agent's.** Attach refuses a
-terminal session, checks the leg's inputs against the session's non-rebind
-variables, and re-points a session only away from an abandoned leg or a
-closed request, so one run can't take over another live run's leg. Admitting
-root sessions carves an exception into koto's epoch fence, argued in koto's
-request-lifecycle design: roots are never redelegated, and their results
-arrive only by promotion. koto records every argument and attach refusal on
-the leg itself. The only result `/deliver` writes is the absent record, a
-fixed JSON value that can reach only an error arm, and koto rejects it if the
-child bound in the meantime.
+terminal session, a session built from a template the leg doesn't name, and
+a session whose non-rebind variables don't match the leg's inputs, so a
+throwaway template that declares `outcome: merged` can't bind the leg. It
+re-points a session only away from an abandoned leg or a closed request, so
+one run can't take over another live run's bound leg. `--attach-live` also
+compares the session's origin record (worktree and store): session names are
+machine-wide, and a same-named `scope-<topic>` or `execute-<topic>` from
+another repository or worktree is refused, not adopted. Admitting root
+sessions carves an exception into koto's epoch fence, argued in koto's
+request-lifecycle design: roots are never redelegated and their results
+arrive only by promotion, so the fenced verbs (`progress`, `resolve`, and
+leg-scoped `abandon`) are refused on a self-attached leg. koto records every
+argument and attach refusal on the leg itself. The only result `/deliver`
+writes is the absent record, a fixed JSON value that can reach only an error
+arm, and koto rejects it if the child bound in the meantime. Request-scoped
+abandon isn't fenced in koto, so a confused child that knows the request id
+can abandon `/deliver`'s request; both leg gates route that disposition to
+`deliver:request-abandoned`.
 
-**Gate overrides are logged and can't manufacture progress.** koto today lets
-`koto overrides record` force any gate, and it logs the override. The
-`request-leg` gate's override default is an explicit, invalid result, so a
-forced leg gate reaches only an error. A false `merged` would need two logged
-overrides, one on `/execute`'s `merge_confirm` and one on `/deliver`'s
-`merged_check`, which re-reads GitHub. K8 (recommended) makes `merged_check`,
-`scoped_check`, and `merge_confirm` refuse overrides; until it ships, the
-design claims no more than a logged override.
+**Gate overrides can't manufacture progress or a report.** koto today lets
+`koto overrides record` force any gate and logs it, and `--with-data`
+replaces the override default without checking it against the gate's
+output, so one override on a leg gate could drive any arm, including the
+ones with no durable re-check behind them (`ready-awaiting-merge`, the
+pauses, the multi-pr hand-off). K8 is therefore required: the two leg gates,
+`scoped_check`, `executed_check`, `merged_check`, and `/execute`'s
+`merge_confirm` are `overridable: false`, and koto refuses an override on
+them with or without `--with-data`. Other gates can still be forced, with a
+log entry, and none of them leads to `merged`. `merged_check` and
+`executed_check` find the PR themselves through the ownership filter, so a
+forged leg `pr` naming some other merged PR proves nothing.
 
 **Two drivers on one topic.** If an agent from an older `/deliver` keeps
 ticking a child session after a newer run re-points it, nothing detects it:
-koto can't know whether an agent is alive. Abandoning the old request gives
-that agent koto's stop notice before the re-point. The merge protections
-above hold either way, since a merge still needs a fresh verdict at a head
-commit the run itself recorded.
+koto can't know whether an agent is alive. Abandoning the old request shows
+that agent koto's stop notice only until the newer child attaches, often a
+matter of seconds, so the old agent's later work becomes the new run's work
+under the new run's settings. A stale invocation that re-enters with the old
+request id is refused at attach before any rebind, so it can't flip `MERGE`.
+The merge protections above hold either way, since a merge still needs a
+fresh verdict at a head commit the run itself recorded.
 
 **Unattended runs are bounded.** `/deliver --auto` asks nothing and merges by
 default. With the gates above, an unattended run can merge only where the
@@ -1774,7 +1678,7 @@ two are absent.
 - Every `/scope` path ends in a koto record: a promoted terminal, a
   koto-refused leg, or `/deliver`'s absent record. Outcome mapping lives on
   template edges that engine-backed tests walk, not in prose.
-- The 60 `context_assignments` blocks koto silently dropped start working,
+- The 58 `context_assignments` blocks koto silently dropped start working,
   including the `failure_reason` writes koto's batch view reads.
 - `/scope`'s retained-terminal bug is fixed: a re-run on a finished topic
   gets a fresh session that walks the resume ladder instead of ticking a dead
@@ -1783,8 +1687,8 @@ two are absent.
   is rebound per invocation.
 - CI waiting gets a real, testable limit, and `ci_monitor`'s ungated
   `failing_fixed -> done` shortcut is closed.
-- The next-step advice and "merged" wording become accurate, and Phase 3's
-  promised PR body becomes real on intent runs.
+- The next-step advice and "merged" wording become accurate, and the PR body
+  `/scope`'s exit-finalization phase promises becomes real on intent runs.
 - The parent-of-the-parent slot gets a concrete koto binding. A future driver
   can nest `/deliver` by attaching it to a leg the same way.
 
@@ -1793,7 +1697,7 @@ two are absent.
 - Every `/scope` and `/execute` run, including a plain no-intent `/scope`,
   now needs a koto at or above the new floor. That's the one exception to D2.
 - Delivery is coupled across repositories: shirabe can't ship until a koto
-  release carries six features, and koto's request-lifecycle reasoning
+  release carries seven features, and koto's request-lifecycle reasoning
   carries a root exception.
 - `scope.md` grows by about 12 states, and `/execute`'s template grows by
   four states, two terminals, and record states, plus a coordinated envelope
@@ -1806,6 +1710,10 @@ two are absent.
 - `/deliver` makes read-only `gh` calls through its probes, and one of its
   arms still takes agent evidence (`child_returned`), though it can only
   lead to an error.
+- The new koto turns on `/work-on`'s 38 dormant assignment blocks, so
+  `/work-on` starts writing `failure_reason` and its W5 lint result changes.
+- Under two drivers on one topic, merge intent is whatever the later
+  accepted invocation passed.
 - `outcome=` and `exit:` aren't one-to-one (a DIRTY PR is
   `abandonment-forced` with `outcome=ready-awaiting-merge`).
 - A single-pr run that ends `ready-awaiting-merge` can't be re-merged by
@@ -1822,9 +1730,11 @@ two are absent.
   the only visible change to a plain `/scope`. A no-intent run still makes no
   `gh` call, which an eval asserts through the shim's call log.
 - koto lands and releases first, with its own tests. If the leg gate slips,
-  `deliver.md` routes through a command gate over `koto request get`. If the
-  root carve-out is rejected, both children fall back to `--parent` children
-  with a parent-side fence.
+  `deliver.md` captures a `koto request get` script's output into context
+  through a default action. If the root carve-out is rejected, both children
+  fall back to `--parent` children with a parent-side fence.
+- Phase 2 compiles every shirabe template under the new koto and runs the
+  existing evals, fixing any assignment block the stricter compiler rejects.
 - The new states and scripts are covered by table-driven shell tests and
   mermaid regeneration; `resume-probe_test.sh` covers every ladder row and
   the first-match order. The pinned DIRTY route is untouched, and the two
@@ -1833,8 +1743,6 @@ two are absent.
   changes.
 - K9 (request prune) is recommended to koto, and progress never depends on
   an old request record.
-- The coordinated approval step is documented as existing only to satisfy
-  interactive filing approval without changing no-intent multi-pr runs.
 - The outcome-to-exit mapping lives on template edges and in one table in
   `/execute`'s SKILL.md.
 - `/scope`'s `executed_report` lets `/deliver` report a single-pr PR's state;
