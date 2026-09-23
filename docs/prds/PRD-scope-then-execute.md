@@ -196,10 +196,14 @@ exit record and no `outcome=` token; `/deliver` maps those to
   coordination-PR declaration marker stop describing coordinated as
   multi-repo only, and `shirabe validate --coordination-body` accepts a
   single-repo coordination body.
-- **R7.** A *continue* split files the per-PR issues the coordinated path
-  reads, the same way a `multi-pr` PLAN files them. Under `--auto`, `/plan`'s
-  issue-filing approval resolves by its decision protocol instead of blocking;
-  interactively it asks as it does today.
+- **R7.** A coordinated PLAN needs no GitHub issues. Like a `multi-pr` PLAN,
+  it follows the resolved tracking level. At `none`, the default for
+  coordinated, the work items live in `## Issue Outlines` with local IDs,
+  each outline names its repository and PR group, nothing is filed, and
+  `/execute` runs the PLAN from the outlines. Only when the repository's
+  tracking level asks for issues does `/plan` file them; then, under
+  `--auto`, its issue-filing approval resolves by its decision protocol
+  instead of blocking, and interactively it asks as it does today.
 - **R8.** `--coordinated`, `--no-coordinated`, and the CLAUDE.md coordination
   headers keep working as they do today for multi-repo efforts, subject to the
   precedence rule.
@@ -402,9 +406,19 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
 - [ ] `shirabe validate --coordination-body` passes on the coordination body a
       single-repo *continue* run writes, and the body's declaration marker
       doesn't say "multi-repo" (R6).
-- [ ] A `--auto --intent=continue` run on the forced-split fixture reaches
-      `full-run` with the per-PR issues filed (the shim logs one `issue
-      create` per PR group) and no approval prompt in the transcript (R7).
+- [ ] A `--auto --intent=continue` run on the forced-split fixture in a
+      repository with no tracking-level header reaches `full-run` with a
+      coordinated PLAN whose work items are outlines, each naming a repository
+      and PR group; the shim logs no `issue create` call (R7).
+- [ ] `plan-to-tasks.sh` on that outline-shaped coordinated PLAN emits one PR
+      node per group with `ISSUES` listing local outline IDs, and `/execute`
+      runs it to its PRs with no `gh issue` call in the shim log (R7).
+- [ ] `shirabe validate` accepts the outline-shaped coordinated PLAN and
+      reports FC14 when a coordinated PLAN populates both outlines and an
+      issue table (R7).
+- [ ] The same run in a repository whose CLAUDE.md sets
+      `## Tracking Level: issues` files one issue per outline (the shim logs
+      one `issue create` each) with no approval prompt under `--auto` (R7).
 - [ ] `/scope --coordinated` on the multi-repo fixture still creates the
       coordination PR before the first child runs (R8).
 - [ ] `/plan <design> --intent=continue` invoked directly on the forced-split
@@ -414,8 +428,9 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
 - [ ] On the forced-split fixture in a repository whose CLAUDE.md coordination
       headers resolve to coordinated, `--intent=stop` produces `multi-pr` and
       no intent produces `coordinated` (R5, R8).
-- [ ] An interactive `--intent=continue` run on the forced-split fixture asks
-      for issue-filing approval before any `issue create` is logged (R7).
+- [ ] An interactive `--intent=continue` run on the forced-split fixture in a
+      repository with `## Tracking Level: issues` asks for issue-filing
+      approval before any `issue create` is logged (R7).
 - [ ] `references/coordination-strategy.md` and `/plan`'s coordinated-mode
       section contain no statement that coordinated requires more than one
       repository (R6).
@@ -552,7 +567,7 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       `multi-pr`, and `coordinated` that matches what `/plan` writes on the
       three fixtures (R25).
 - [ ] Every new eval scenario lists the requirement IDs it covers, every ID
-      R1-R25 appears at least once, and each new scenario passes with
+      R1-R25, R30, and R31 appears at least once, and each new scenario passes with
       `--runs 3` (R26).
 - [ ] The existing `/scope`, `/plan`, `/execute`, and `/work-on` eval suites
       pass, and the diff to them touches only assertions about R10, R23, or

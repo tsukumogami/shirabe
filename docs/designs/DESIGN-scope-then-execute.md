@@ -163,10 +163,14 @@ answered before intent is consulted, the split reason can't vary with intent
 (R4). `/scope` forwards its own `--intent`, the coordination flags exactly as
 the caller passed them (never a header-derived `--coordinated`, which would
 outrank `--intent`), and `--auto` when intent is set. A no-intent hop sends
-the same argument string as today (D2). A new coordinated branch in `/plan`'s
-creation phase reuses `create-issues-batch.sh`, with an explicit filing
-approval that asks interactively and resolves by the decision protocol under
-`--auto` (R7).
+the same argument string as today (D2). A coordinated PLAN follows the
+resolved tracking level the way `multi-pr` does, defaulting to `none`: its
+work items are outlines with local IDs, each carrying `**Repo**:` and
+`**Group**:` fields, and nothing is filed (R7). Only when the repository's
+tracking level asks for issues does the new coordinated branch in `/plan`'s
+creation phase file them through `create-issues-batch.sh`, behind an explicit
+filing approval that asks interactively and resolves by the decision
+protocol under `--auto`.
 
 This also makes `/scope --coordinated` produce a coordinated PLAN for the first
 time.
@@ -218,11 +222,13 @@ Key assumptions:
 #### Chosen: a branch per PR node on the existing coordinated path
 
 The unit of branching becomes the PR node, not the repository. `/plan` tags
-every issue of a coordinated split with the current repository and a per-unit
-group slug. `plan-to-tasks.sh` adds `REPO`, `PR_GROUP`, and `ISSUES` to each
-node entry so `/execute` doesn't re-parse the PLAN. `/execute` cuts
+every work item of a coordinated split, an outline by default or an issue when
+the tracking level files them (R7), with the current repository and a
+per-unit group slug. `plan-to-tasks.sh` adds `REPO`, `PR_GROUP`, and `ISSUES`
+(outline IDs or issue numbers) to each node entry so `/execute` doesn't
+re-parse the PLAN. `/execute` cuts
 `impl/<slug>-<node-id>` from the default branch in its own worktree for each
-unblocked node, dispatches the node's issues to `work-on.md` with that branch
+unblocked node, dispatches the node's work items to `work-on.md` with that branch
 as `SHARED_BRANCH`, then pushes and opens one draft PR per node and marks it
 ready once its CI is green. Nodes are never cut from the coordination branch,
 so no group PR carries the PLAN to main ahead of the coordination PR. On
@@ -872,15 +878,35 @@ paragraph below is the contract shirabe consumes. The code-level detail
   `split_mode_source` out), so the one decision this feature turns on is
   table-tested, not model judgment. It also runs on `/plan`'s interactive
   override path and on direct roadmap input. On a `coordinated` outcome,
-  every issue gets `_Repo: <owner/repo> | Group: <unit-slug>_`.
-- `phase-4-agent-generation.md`: coordinated gets full issue bodies.
-- `phase-7-creation.md`: a coordinated branch reusing `create-issues-batch.sh`,
-  with the explicit filing approval; single-pr and coordinated next-step
-  advice names `/execute` (R23).
-- `scripts/plan-to-tasks.sh`: `REPO`, `PR_GROUP`, and `ISSUES` node vars, and
-  refusal text saying "atomicity across PR groups".
+  every work item names its repository and PR group: as `**Repo**:` and
+  `**Group**:` fields on its outline when the PLAN is outline-shaped, or as the
+  `_Repo: <owner/repo> | Group: <unit-slug>_` row when it carries issues.
+- Tracking level for coordinated (R7): `coordinated` joins `multi-pr` on the
+  `flag > CLAUDE.md ## Tracking Level: > mode default` stack, with `none` as
+  its default. `plan-format.md` and `references/coordination-strategy.md` drop
+  "coordinated is always issue-carrying"; `plan-doc-structure.md` documents the
+  outline-shaped coordinated form (outlines plus a Dependency Graph).
+- `phase-4-agent-generation.md`: coordinated gets full outline bodies at
+  `none` and full issue bodies when issues are filed.
+- `phase-7-creation.md`: a coordinated branch that writes outlines at `none`
+  and, only at `issues` or `issues-and-milestone`, files through
+  `create-issues-batch.sh` behind the explicit filing approval; single-pr and
+  coordinated next-step advice names `/execute` (R23).
+- `scripts/plan-to-tasks.sh`: `process_coordinated` gains an outline path. For
+  an outline-shaped coordinated PLAN it reads each outline's `**Repo**:`,
+  `**Group**:`, and `**Dependencies**:`, contracts to `(repo, pr_group)` nodes
+  exactly as the table path does, and emits `ISSUES` as local outline IDs with
+  `ISSUE_SOURCE=plan_outline` for the children, so `/execute`'s coordinated
+  loop dispatches `/work-on` from outlines with no GitHub issue. Both paths
+  emit `REPO`, `PR_GROUP`, and `ISSUES` node vars, and the refusal text says
+  "atomicity across PR groups".
+- The validator (`crates/shirabe-validate/src/checks.rs`):
+  `plan_is_outline_shaped()` treats `coordinated` at `tracking_level: none`
+  (or with the field absent) as outline-shaped, the way it treats `multi-pr`,
+  so FC04/FC14 accept the outline form and still flag a PLAN that populates
+  both outlines and an issue table.
 - A `gh` shim under `skills/plan/evals/fixtures/bin/` that logs `issue create`
-  calls (new).
+  calls (new), used to assert that none happen at the default level.
 
 **`/scope`.**
 
@@ -1407,9 +1433,11 @@ default-action references. Deliverables: the edited reference files.
 
 Depends on Phase 3's precedence and header definition, and runs in parallel
 with Phase 1. It carries the flags and their rejection rules, step 5a
-through `resolve-split-mode.sh`, group rows, the coordinated creation branch
-with filing approval, the `plan-to-tasks.sh` node vars with a single-repo
-test, next-step routing (R23), and the updated "(multi-repo)" eval
+through `resolve-split-mode.sh`, Repo/Group on outlines and rows, the
+issue-free default for coordinated (tracking level, the outline path in
+`plan-to-tasks.sh`, and the validator's outline-shape rule), the coordinated
+creation branch with filing approval when issues are asked for, the
+`plan-to-tasks.sh` node vars with a single-repo test, next-step routing (R23), and the updated "(multi-repo)" eval
 assertion. Deliverables: `skills/plan/SKILL.md` and phases 3, 4, and 7,
 `plan-to-tasks.sh` and its test, the plan-to-tasks contract doc, and plan
 evals.
