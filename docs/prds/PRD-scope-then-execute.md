@@ -345,8 +345,9 @@ exit record and no `outcome=` token; `/deliver` maps those to
   upstream DESIGN; fixtures that need no split use a design small enough that
   `/plan` has no split reason. Each new scenario passes 3 of 3 runs.
 - **R27.** Existing evals for `/scope`, `/plan`, `/execute`, and `/work-on`
-  pass. Where one asserts text this PRD deliberately changes (R10, R23, R24),
-  it's updated in the same change, and nothing else about it changes.
+  pass. Where one asserts behavior or text this PRD deliberately changes (R7's
+  issue-free coordinated default, R10, R23, R24, R31), it's updated in the same
+  change, and nothing else about it changes.
 - **R28.** Each skill that gains a write lists it in its SKILL.md
   write-target section: `/scope` gains `git push` and `gh pr create`,
   `/execute` gains `gh pr merge`, and `/deliver` declares its one write of its
@@ -570,8 +571,8 @@ Unless stated otherwise, each criterion is an eval scenario under R26, and
       R1-R25, R30, and R31 appears at least once, and each new scenario passes with
       `--runs 3` (R26).
 - [ ] The existing `/scope`, `/plan`, `/execute`, and `/work-on` eval suites
-      pass, and the diff to them touches only assertions about R10, R23, or
-      R24 text (R27).
+      pass, and the diff to them touches only assertions about R7, R10, R23,
+      R24, or R31 behavior (R27).
 - [ ] `skills/scope/SKILL.md`'s write-target section lists `git push` and `gh
       pr create`, `skills/execute/SKILL.md`'s lists `gh pr merge`, and
       `skills/deliver/SKILL.md` declares the per-run koto request as its only own write and every repository write as its children's
