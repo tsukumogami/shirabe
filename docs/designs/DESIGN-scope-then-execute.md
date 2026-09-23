@@ -529,7 +529,11 @@ and printed `key=value` exit lines coming back up.
 - `SKILL.md`: the three flags, with rejection of bad or repeated values
   before any `wip/` write; a "Split mode" rule; "Coordinated Mode" without
   "(multi-repo)".
-- `phase-3-decomposition.md`: step 5a and the `split_mode_source` field. On a
+- `phase-3-decomposition.md`: step 5a and the `split_mode_source` field. Step
+  5a calls a deterministic `scripts/resolve-split-mode.sh` (split verdict,
+  flags, intent, CLAUDE.md headers in; `execution_mode` and
+  `split_mode_source` out) rather than resolving the precedence in prose, so
+  the one decision this feature turns on is table-tested, not model judgment. On a
   `coordinated` outcome, every issue gets `_Repo: <owner/repo> | Group:
   <unit-slug>_`.
 - `phase-4-agent-generation.md`: coordinated gets full issue bodies.
