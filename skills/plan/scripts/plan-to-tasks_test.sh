@@ -3,8 +3,10 @@
 # plan-to-tasks_test.sh - Tests for plan-to-tasks.sh
 #
 # Exercises multi-pr parsing, single-pr parsing, diamond dependency graphs, and
-# coordinated-mode per-repo contraction (two-node DAG, gate nodes, the X->Y->X
-# contraction-cycle resolution, and irreducible-atomicity refusal).
+# coordinated-mode (repo, pr_group) contraction on both the table path and the
+# outline path (two-node DAG, gate nodes, per-node REPO/PR_GROUP/ISSUES/
+# ISSUE_SOURCE vars, the X->Y->X contraction-cycle resolution, and
+# irreducible-atomicity refusal).
 #
 # Usage:
 #   bash plan-to-tasks_test.sh
@@ -2021,6 +2023,18 @@ FIXTURE
         fail "$name" "expected NODE_KIND=pr, got: $kind"
     fi
 
+    # Multi-repo PLAN with Group: default keeps one node per repository, and
+    # each node carries its repo, group, issues, and issue source as strings.
+    local a_vars b_vars
+    a_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-a-default") | [.vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    b_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-b-default") | [.vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    if [[ "$a_vars" == '["acme/repo-a","default","1","github"]' \
+        && "$b_vars" == '["acme/repo-b","default","2","github"]' ]]; then
+        pass "$name (REPO/PR_GROUP/ISSUES/ISSUE_SOURCE on both nodes)"
+    else
+        fail "$name" "unexpected node vars: a=$a_vars b=$b_vars"
+    fi
+
     teardown
 }
 
@@ -2122,10 +2136,21 @@ FIXTURE
         pass "$name (no cyclic order emitted: pr-repo-x-default was split)"
     fi
 
+    # Each split node holds one issue and inherits its origin's repo and group.
+    local x1_vars x3_vars
+    x1_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-x-default-i1") | [.vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    x3_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-x-default-i3") | [.vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    if [[ "$x1_vars" == '["acme/repo-x","default","1","github"]' \
+        && "$x3_vars" == '["acme/repo-x","default","3","github"]' ]]; then
+        pass "$name (split nodes carry single-number ISSUES and inherited REPO/PR_GROUP)"
+    else
+        fail "$name" "unexpected split node vars: i1=$x1_vars i3=$x3_vars"
+    fi
+
     teardown
 }
 
-# ── Fixture: coordinated mode, irreducible cross-repo atomicity (refused) ──
+# ── Fixture: coordinated mode, irreducible atomicity across PR groups (refused) ──
 # Single-issue repos whose PR nodes form a 2-cycle (via gates) cannot be split.
 # The parser must REFUSE with exit 2, never emit a cyclic order.
 test_coordinated_atomicity_refused() {
@@ -2202,7 +2227,7 @@ FIXTURE
 # Three single-issue repos form a pure PR-node contraction cycle X->Y->Z->X via
 # cross-repo issue deps alone (no gate closes it). Every PR node maps exactly one
 # issue, so split_repo_at_seam has no multi-issue victim: the cycle is genuine
-# cross-repo atomicity. The parser must REFUSE with exit 2 and carry the
+# atomicity across PR groups. The parser must REFUSE with exit 2 and carry the
 # reshaping guidance, never split a single-issue node and never emit an order.
 test_coordinated_atomicity_refused_pr_nodes() {
     local name="coordinated irreducible PR-node cycle refused (no gate)"
@@ -2277,10 +2302,10 @@ FIXTURE
     fi
 
     # The diagnostic must carry the reshaping guidance (the die_schema message
-    # about cross-repo atomicity / compatible-intermediate sequence).
+    # about atomicity across PR groups / compatible-intermediate sequence).
     local diag="" drc=0
     diag=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>&1 >/dev/null) || drc=$?
-    if echo "$diag" | grep -qi "cross-repo atomicity" \
+    if echo "$diag" | grep -qi "atomicity across PR groups" \
         && echo "$diag" | grep -qi "compatible-intermediate sequence"; then
         pass "$name (diagnostic carries reshaping guidance)"
     else
@@ -2369,6 +2394,14 @@ FIXTURE
         pass "$name (app waits on the gate)"
     else
         fail "$name" "expected pr-app-default to wait on gate-publish-lib"
+    fi
+
+    local gate_keys
+    gate_keys=$(echo "$output" | jq -r '.[] | select(.name=="gate-publish-lib") | .vars | [has("REPO"), has("PR_GROUP"), has("ISSUES"), has("ISSUE_SOURCE")] | any') || true
+    if [[ "$gate_keys" == "false" ]]; then
+        pass "$name (gate carries no REPO/PR_GROUP/ISSUES/ISSUE_SOURCE)"
+    else
+        fail "$name" "gate node must carry none of the PR-node vars; got: $(echo "$output" | jq -c '.[] | select(.name=="gate-publish-lib") | .vars')"
     fi
 
     teardown
@@ -2990,6 +3023,524 @@ STUB
     teardown
 }
 
+# ── Coordinated fixtures shared by the single-repo and outline-path tests ──
+# write_coord_outline_plan <path> <outline-body> writes a coordinated PLAN at
+# tracking_level none whose ## Issue Outlines section is <outline-body>.
+write_coord_outline_plan() {
+    local path="$1" body="$2"
+    {
+        printf '%s\n' '---' 'schema: plan/v1' 'status: Active' 'execution_mode: coordinated' \
+            'tracking_level: none' 'milestone: "Coord Outlines"' 'issue_count: 3' '---' '' \
+            '# PLAN: coord outlines' '' '## Status' '' 'Active' '' '## Scope Summary' '' \
+            'One repository, two PR groups.' '' '## Decomposition Strategy' '' 'Horizontal.' '' \
+            '## Issue Outlines' ''
+        printf '%s\n' "$body"
+        printf '%s\n' '' '## Dependency Graph' '' '```mermaid' 'graph TD' '    I1 --> I3' '```' '' \
+            '## Implementation Sequence' '' 'core, then cli.'
+    } > "$path"
+}
+
+# Three outlines in one repository, two groups, and a dependency across
+# groups (3 waits on 1). The outline twin of the single-repo table fixture.
+COORD_OUTLINES_TWO_GROUPS='### Issue 1: feat: core base
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Goal**: Base.
+
+**Acceptance Criteria**:
+- [ ] base
+
+**Dependencies**: None
+
+### Issue 2: feat: core more
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Goal**: More.
+
+**Acceptance Criteria**:
+- [ ] more
+
+**Dependencies**: Blocked by Issue 1
+
+### Issue 3: feat: cli
+
+**Repo**: `acme/repo-a`
+
+**Group**: cli
+
+**Goal**: CLI.
+
+**Acceptance Criteria**:
+- [ ] cli
+
+**Dependencies**: Blocked by Issue 1'
+
+# Assert the node shape both single-repo two-group fixtures must produce.
+# assert_single_repo_two_groups <name> <output> <issue-source>
+assert_single_repo_two_groups() {
+    local name="$1" output="$2" source="$3"
+
+    local names
+    names=$(echo "$output" | jq -c '[.[].name]') || true
+    if [[ "$names" == '["pr-repo-a-core","pr-repo-a-cli"]' ]]; then
+        pass "$name (two PR nodes in one repository)"
+    else
+        fail "$name" "expected [pr-repo-a-core, pr-repo-a-cli], got: $names"
+    fi
+
+    local cli_waits core_waits
+    cli_waits=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-a-cli") | .waits_on') || true
+    core_waits=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-a-core") | .waits_on') || true
+    if [[ "$cli_waits" == '["pr-repo-a-core"]' && "$core_waits" == '[]' ]]; then
+        pass "$name (cli waits on core)"
+    else
+        fail "$name" "expected cli -> [core], core -> []; got cli=$cli_waits core=$core_waits"
+    fi
+
+    local core_vars cli_vars
+    core_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-a-core") | [.vars.NODE_KIND, .vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    cli_vars=$(echo "$output" | jq -c '.[] | select(.name=="pr-repo-a-cli") | [.vars.NODE_KIND, .vars.REPO, .vars.PR_GROUP, .vars.ISSUES, .vars.ISSUE_SOURCE]') || true
+    if [[ "$core_vars" == "[\"pr\",\"acme/repo-a\",\"core\",\"1,2\",\"${source}\"]" \
+        && "$cli_vars" == "[\"pr\",\"acme/repo-a\",\"cli\",\"3\",\"${source}\"]" ]]; then
+        pass "$name (node vars: ISSUES 1,2 and 3, ISSUE_SOURCE ${source})"
+    else
+        fail "$name" "unexpected node vars: core=$core_vars cli=$cli_vars"
+    fi
+
+    # ISSUES partitions the work items: each appears in exactly one node.
+    local partition
+    partition=$(echo "$output" | jq -r '[.[] | select(.vars.NODE_KIND=="pr") | .vars.ISSUES | split(",")[]] | sort | join(",")') || true
+    if [[ "$partition" == "1,2,3" ]]; then
+        pass "$name (ISSUES partitions the work items)"
+    else
+        fail "$name" "ISSUES should partition 1,2,3; got: $partition"
+    fi
+}
+
+# ── Fixture: coordinated table path, one repository, two PR groups ──
+test_coordinated_single_repo_two_groups() {
+    local name="coordinated single repo two groups (table path)"
+    setup
+
+    cat > "$TEST_DIR/plan-one-repo.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord One Repo"
+issue_count: 3
+---
+
+# PLAN: coord one repo
+
+## Status
+
+Active
+
+## Scope Summary
+
+One repository, two PR groups.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat core base](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| [#2: feat core more](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| [#3: feat cli](https://example.com/3) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1 --> I2
+    I1 --> I3
+```
+
+## Implementation Sequence
+
+core, then cli.
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-one-repo.md" 2>/dev/null) || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc"
+        teardown
+        return
+    fi
+    assert_single_repo_two_groups "$name" "$output" "github"
+
+    teardown
+}
+
+# ── Fixture: coordinated outline path, one repository, two PR groups ──
+test_coordinated_outlines_two_groups() {
+    local name="coordinated outlines two groups (outline path)"
+    setup
+
+    write_coord_outline_plan "$TEST_DIR/plan-outlines.md" "$COORD_OUTLINES_TWO_GROUPS"
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-outlines.md" 2>/dev/null) || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc"
+        teardown
+        return
+    fi
+    assert_single_repo_two_groups "$name" "$output" "plan_outline"
+
+    teardown
+}
+
+# ── Fixture: coordinated outline path, a ### Gate: block ──
+# The gate node and its edges must match what the equivalent ^_Gate: row
+# produces on the table path.
+test_coordinated_outlines_gate_block() {
+    local name="coordinated outlines gate block"
+    setup
+
+    write_coord_outline_plan "$TEST_DIR/plan-outline-gate.md" '### Issue 1: feat: lib
+
+**Repo**: acme/lib
+
+**Group**: default
+
+**Goal**: Lib.
+
+**Acceptance Criteria**:
+- [ ] lib
+
+**Dependencies**: None
+
+### Gate: publish-lib
+
+**After**: Issue 1
+
+**Before**: Issue 2
+
+**Condition**: the lib release is published.
+
+### Issue 2: feat: app
+
+**Repo**: acme/app
+
+**Group**: default
+
+**Goal**: App.
+
+**Acceptance Criteria**:
+- [ ] app
+
+**Dependencies**: Blocked by Issue 1'
+
+    cat > "$TEST_DIR/plan-table-gate.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Gate"
+issue_count: 2
+---
+
+# PLAN: coord gate
+
+## Status
+
+Active
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat lib](https://example.com/1) | None | testable |
+| ^_Repo: acme/lib \| Group: default_ | | |
+| ^_Gate: publish-lib \| After: pr-lib-default \| Before: pr-app-default_ | | |
+| [#2: feat app](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/app \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1 --> I2
+```
+FIXTURE
+
+    local outline_out="" table_out="" rc1=0 rc2=0
+    outline_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-outline-gate.md" 2>/dev/null) || rc1=$?
+    table_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-table-gate.md" 2>/dev/null) || rc2=$?
+    if [[ $rc1 -ne 0 || $rc2 -ne 0 ]]; then
+        fail "$name" "expected both paths to exit 0, got outline=$rc1 table=$rc2"
+        teardown
+        return
+    fi
+
+    local outline_graph table_graph
+    outline_graph=$(echo "$outline_out" | jq -c '[.[] | {name, kind: .vars.NODE_KIND, waits_on}]')
+    table_graph=$(echo "$table_out" | jq -c '[.[] | {name, kind: .vars.NODE_KIND, waits_on}]')
+    if [[ "$outline_graph" == "$table_graph" ]]; then
+        pass "$name (gate node and edges match the ^_Gate: row)"
+    else
+        fail "$name" "graphs differ: outline=$outline_graph table=$table_graph"
+    fi
+
+    local gate_vars
+    gate_vars=$(echo "$outline_out" | jq -c '.[] | select(.name=="gate-publish-lib") | .vars')
+    if [[ "$gate_vars" == '{"NODE_KIND":"gate"}' ]]; then
+        pass "$name (gate carries only NODE_KIND)"
+    else
+        fail "$name" "unexpected gate vars: $gate_vars"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated outline path, a gate retargets after a seam split ──
+# X->Y->X across repos forces repo-x to split; the gate declared on outline 3
+# must follow outline 3 to its split node.
+test_coordinated_outlines_gate_follows_split() {
+    local name="coordinated outlines gate edge follows a seam split"
+    setup
+
+    write_coord_outline_plan "$TEST_DIR/plan-split-gate.md" '### Issue 1: feat: x base
+
+**Repo**: acme/repo-x
+
+**Group**: default
+
+**Dependencies**: None
+
+### Issue 2: feat: y middle
+
+**Repo**: acme/repo-y
+
+**Group**: default
+
+**Dependencies**: Blocked by Issue 1
+
+### Issue 3: feat: x top
+
+**Repo**: acme/repo-x
+
+**Group**: default
+
+**Dependencies**: Blocked by Issue 2
+
+### Gate: ship-x
+
+**After**: Issue 3
+
+**Condition**: repo-x top is released.'
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-split-gate.md" 2>/dev/null) || rc=$?
+    local gate_waits
+    gate_waits=$(echo "$output" | jq -c '.[] | select(.name=="gate-ship-x") | .waits_on' 2>/dev/null) || true
+    if [[ $rc -eq 0 && "$gate_waits" == '["pr-repo-x-default-i3"]' ]]; then
+        pass "$name (gate waits on the split node holding outline 3)"
+    else
+        fail "$name" "expected exit 0 and gate waits on pr-repo-x-default-i3; got rc=$rc waits=$gate_waits"
+    fi
+
+    teardown
+}
+
+# assert_outline_refusal <name> <path> <expected-exit> <stderr-pattern>
+assert_outline_refusal() {
+    local name="$1" path="$2" want="$3" pattern="$4"
+    local out="" err="" rc=0
+    err=$("$PARSER_SCRIPT" "$path" 2>&1 >/dev/null) || rc=$?
+    out=$("$PARSER_SCRIPT" "$path" 2>/dev/null) || true
+    if [[ $rc -eq $want && -z "$out" ]] && echo "$err" | grep -qF -- "$pattern"; then
+        pass "$name (exit $want, empty stdout, names the defect)"
+    else
+        fail "$name" "expected exit $want, empty stdout, stderr containing '$pattern'; got rc=$rc stdout=$out stderr=$err"
+    fi
+}
+
+# ── Fixture: coordinated outline path refusals ──
+test_coordinated_outlines_refusals() {
+    setup
+
+    write_coord_outline_plan "$TEST_DIR/missing-group.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: None
+
+### Issue 3: feat: b
+
+**Repo**: acme/repo-a
+
+**Dependencies**: None'
+    assert_outline_refusal "coordinated outlines missing Group refused" \
+        "$TEST_DIR/missing-group.md" 2 \
+        "coordinated outline Issue 3 is missing a Repo/Group declaration (**Repo**: owner/repo and **Group**: <pr-group>)"
+
+    write_coord_outline_plan "$TEST_DIR/bad-repo.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a/extra
+
+**Group**: core
+
+**Dependencies**: None'
+    assert_outline_refusal "coordinated outlines invalid repo tag refused" \
+        "$TEST_DIR/bad-repo.md" 2 "coordinated outline Issue 1 has invalid repo tag 'acme/repo-a/extra'"
+
+    write_coord_outline_plan "$TEST_DIR/bad-group.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a
+
+**Group**: Core_Group
+
+**Dependencies**: None'
+    assert_outline_refusal "coordinated outlines invalid pr_group refused" \
+        "$TEST_DIR/bad-group.md" 2 "has invalid pr_group tag 'Core_Group'"
+
+    write_coord_outline_plan "$TEST_DIR/gate-missing.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: None
+
+### Gate: release
+
+**After**: Issue 1
+
+**Before**: Issue 7'
+    assert_outline_refusal "coordinated outlines gate naming a missing outline refused" \
+        "$TEST_DIR/gate-missing.md" 2 "coordinated gate 'release' **Before**: names no outline: Issue 7"
+
+    write_coord_outline_plan "$TEST_DIR/gate-bad-name.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: None
+
+### Gate: Release_1
+
+**After**: Issue 1'
+    assert_outline_refusal "coordinated outlines invalid gate name refused" \
+        "$TEST_DIR/gate-bad-name.md" 2 "coordinated gate name 'Release_1'"
+
+    write_coord_outline_plan "$TEST_DIR/unresolved-dep.md" '### Issue 1: feat: a
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: Blocked by Issue 9'
+    assert_outline_refusal "coordinated outlines unresolved dependency refused" \
+        "$TEST_DIR/unresolved-dep.md" 2 "issue 1 declares dependencies that name no sibling outline: Issue 9"
+
+    write_coord_outline_plan "$TEST_DIR/no-outlines.md" 'No outlines were written here.'
+    assert_outline_refusal "coordinated outlines with no outlines refused" \
+        "$TEST_DIR/no-outlines.md" 2 "coordinated PLAN at tracking_level none has no issue outlines"
+
+    teardown
+}
+
+# ── Fixture: an envelope without the repo key is a skew, not a PLAN defect ──
+test_coordinated_outlines_envelope_skew() {
+    local name="coordinated outlines envelope missing repo is reported as skew"
+    setup
+
+    write_coord_outline_plan "$TEST_DIR/plan-skew.md" "$COORD_OUTLINES_TWO_GROUPS"
+
+    # A stand-in for a binary built before the repo/group/gates keys: a valid
+    # v1 envelope whose outlines lack "repo".
+    cat > "$TEST_DIR/old-shirabe" <<'STUB'
+#!/usr/bin/env bash
+echo '{"schema":"shirabe-plan-outlines/v1","outlines":[{"number":1,"title":"a","waits_on":[],"unresolved_dependencies":[],"group":"core"}],"nonconforming_headings":[],"gates":[]}'
+STUB
+    chmod +x "$TEST_DIR/old-shirabe"
+
+    local rc=0 out="" err=""
+    err=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>&1 >/dev/null) || rc=$?
+    out=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>/dev/null) || true
+    if [[ $rc -eq 1 && -z "$out" ]] && echo "$err" | grep -q "out of step; rebuild or reinstall" \
+        && ! echo "$err" | grep -q "missing a Repo/Group"; then
+        pass "$name (exit 1 with rebuild guidance)"
+    else
+        fail "$name" "expected exit 1 and rebuild guidance; got rc=$rc stderr=$err"
+    fi
+
+    teardown
+}
+
+# ── Fixture: a coordinated PLAN without tracking_level reads the table ──
+# The outline form needs an explicit tracking_level: none. A PLAN carrying
+# both outlines and a table, with no field, extracts from the table.
+test_coordinated_without_tracking_level_uses_table() {
+    local name="coordinated without tracking_level extracts from the table"
+    setup
+
+    cat > "$TEST_DIR/plan-both.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Both"
+issue_count: 1
+---
+
+# PLAN: coord both
+
+## Status
+
+Active
+
+## Issue Outlines
+
+### Issue 5: feat: outline only
+
+**Repo**: acme/outline-repo
+
+**Group**: outline
+
+**Dependencies**: None
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat a](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: default_ | | |
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-both.md" 2>/dev/null) || rc=$?
+    local got
+    got=$(echo "$output" | jq -c '[.[] | [.name, .vars.ISSUES, .vars.ISSUE_SOURCE]]' 2>/dev/null) || true
+    if [[ $rc -eq 0 && "$got" == '[["pr-repo-a-default","1","github"]]' ]]; then
+        pass "$name (table rows, not outlines)"
+    else
+        fail "$name" "expected the table's single node; got rc=$rc $got"
+    fi
+
+    teardown
+}
+
 build_shirabe_binary
 
 echo "Running plan-to-tasks.sh tests..." >&2
@@ -3001,6 +3552,13 @@ test_coordinated_atomicity_refused
 test_coordinated_atomicity_refused_pr_nodes
 test_coordinated_gate_node
 test_coordinated_invalid_tags
+test_coordinated_single_repo_two_groups
+test_coordinated_outlines_two_groups
+test_coordinated_outlines_gate_block
+test_coordinated_outlines_gate_follows_split
+test_coordinated_outlines_refusals
+test_coordinated_outlines_envelope_skew
+test_coordinated_without_tracking_level_uses_table
 test_multi_pr_basic
 test_single_pr_basic
 test_single_pr_diamond

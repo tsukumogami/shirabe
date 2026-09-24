@@ -9,13 +9,17 @@
 # Supports single-pr, multi-pr, and coordinated execution modes as indicated by
 # the PLAN frontmatter's execution_mode field.
 #
-# Coordinated mode (the multi-repo generalization defined in
-# references/coordination-strategy.md) collapses the issue-level waits_on graph
-# into a (repo, pr_group)-level two-node merge-order DAG: PR nodes (one per
-# (repo, pr_group) unit) plus non-PR gate nodes. After contraction it runs the
-# R13 acyclicity check; on a contraction cycle it applies the R16-vs-R13
+# Coordinated mode (defined in references/coordination-strategy.md; it spans
+# one or more repositories) collapses the issue-level waits_on graph into a
+# (repo, pr_group)-level two-node merge-order DAG: PR nodes (one per
+# (repo, pr_group) unit, so one repository may hold several) plus non-PR gate
+# nodes. Its work items come from the Implementation Issues table, or, when the
+# PLAN records an explicit `tracking_level: none`, from `## Issue Outlines`
+# (each outline naming its **Repo**: and **Group**:). After contraction it runs
+# the R13 acyclicity check; on a contraction cycle it applies the R16-vs-R13
 # discriminator (split-at-seam / re-sequence) and either resolves to an acyclic
-# order or refuses (exit 2). It NEVER emits a cyclic order.
+# order or refuses (exit 2). It NEVER emits a cyclic order. Every PR node
+# carries vars.REPO, vars.PR_GROUP, vars.ISSUES, and vars.ISSUE_SOURCE.
 #
 # Usage:
 #   plan-to-tasks.sh <PLAN.md-path>
@@ -24,8 +28,8 @@
 #   0 - success
 #   1 - malformed input (file not found, unreadable, or jq missing)
 #   2 - PLAN schema mismatch, unsanitizable name, or unschedulable
-#       coordinated effort (irreducible contraction cycle / cross-repo
-#       atomicity)
+#       coordinated effort (irreducible contraction cycle / atomicity
+#       across PR groups)
 
 set -euo pipefail
 
@@ -443,10 +447,17 @@ resolve_shirabe_bin() {
 # reusing this path is what keeps R12's "no GitHub issue numbers as
 # keys" from needing a second parser. Only the prefix and the source
 # value differ, so the two remain visibly distinct in a task graph.
-process_single_pr() {
+# Read the PLAN's `## Issue Outlines` envelope through `shirabe plan outlines`
+# into the global OUTLINE_ENVELOPE (and the binary used into OUTLINE_BIN).
+#
+# Sets globals rather than printing so it runs in this shell: a die_* inside a
+# command substitution would exit only the subshell. Shared by the single-pr,
+# issueless multi-pr, and coordinated outline paths so all three fail the same
+# way on a missing binary, a non-zero exit, or an unrecognized schema.
+OUTLINE_ENVELOPE=""
+OUTLINE_BIN=""
+load_outline_envelope() {
     local file="$1"
-    local id_prefix="${2:-o-}"
-    local issue_source="${3:-plan_outline}"
 
     local bin
     bin=$(resolve_shirabe_bin) || die_input "shirabe binary not found. Set \$SHIRABE_BIN, install shirabe so it is on PATH, or build it with 'cargo build --release'. The '## Issue Outlines' parse lives in that binary; this script does not carry a copy."
@@ -472,6 +483,18 @@ process_single_pr() {
     if [[ "$schema" != "shirabe-plan-outlines/v1" ]]; then
         die_input "unrecognized outline envelope from '$bin plan outlines' (expected schema 'shirabe-plan-outlines/v1', got '${schema}'). The shirabe binary and this script are out of step; rebuild or reinstall so both come from the same version."
     fi
+
+    OUTLINE_ENVELOPE="$envelope"
+    OUTLINE_BIN="$bin"
+}
+
+process_single_pr() {
+    local file="$1"
+    local id_prefix="${2:-o-}"
+    local issue_source="${3:-plan_outline}"
+
+    load_outline_envelope "$file"
+    local envelope="$OUTLINE_ENVELOPE"
 
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
@@ -766,10 +789,12 @@ pr_node_id() {
     echo "pr-${slug}"
 }
 
-# Process coordinated mode: collapse the issue-level waits_on graph into a
-# (repo, pr_group)-level two-node merge-order DAG (PR nodes + non-PR gate
+# Process coordinated mode, table path: collapse the issue-level waits_on graph
+# into a (repo, pr_group)-level two-node merge-order DAG (PR nodes + non-PR gate
 # nodes), check post-contraction acyclicity (R13), apply the R16-vs-R13
-# discriminator on a contraction cycle, and emit the serialized order.
+# discriminator on a contraction cycle, and emit the serialized order. Used for
+# every coordinated PLAN except one at an explicit `tracking_level: none`
+# (see process_coordinated_outlines).
 #
 # Per-issue tagging lives in the ## Implementation Issues table as an annotation
 # row directly under the issue's entity row, mirroring the existing `^_Child:_`
@@ -784,6 +809,7 @@ pr_node_id() {
 #   | ^_Gate: publish-foo \| After: pr-...,  \| Before: pr-..._ | | |
 process_coordinated() {
     local file="$1"
+    local issue_source="github"
 
     # ---- Pass 1: parse the Implementation Issues table into issue records ----
     # We reuse the multi-pr table walk to find issue numbers + dependency cells,
@@ -914,6 +940,140 @@ process_coordinated() {
         fi
     done
 
+    contract_and_emit_coordinated
+}
+
+# Process coordinated mode, outline path: a coordinated PLAN at an explicit
+# `tracking_level: none` files no GitHub issues, so its work items are the
+# `### Issue <N>:` outlines, each naming its repository and PR group on
+# `**Repo**:` / `**Group**:` lines, with non-PR gates declared as
+# `### Gate: <name>` blocks (`**After**:` / `**Before**:` naming outlines).
+#
+# Everything is read from the `shirabe plan outlines` envelope; the markdown is
+# never re-parsed here. The records it builds have the same shape the table
+# path builds (outline numbers stand where issue numbers stand, dependencies
+# are `#N` references), so contraction, ordering, and split-at-seam run through
+# the same contract_and_emit_coordinated. Gate After/Before entries are kept as
+# `#N` outline references and resolved to their current node on every
+# contraction attempt, so a split at the seam retargets the gate's edges.
+process_coordinated_outlines() {
+    local file="$1"
+    local issue_source="plan_outline"
+
+    load_outline_envelope "$file"
+    local envelope="$OUTLINE_ENVELOPE"
+
+    # The repo/group/gates keys are newer than the envelope schema itself. A
+    # binary that predates them emits a v1 envelope without them, which would
+    # read here as "every outline is missing its Repo/Group". Name the skew
+    # instead of reporting defects the PLAN does not have.
+    local has_keys
+    has_keys=$(printf '%s' "$envelope" | jq -r 'has("gates") and ((.outlines // []) | all(has("repo") and has("group")))') || has_keys=""
+    if [[ "$has_keys" != "true" ]]; then
+        die_input "outline envelope from '${OUTLINE_BIN} plan outlines' lacks the repo, group, or gates keys a coordinated outline PLAN needs. The shirabe binary and this script are out of step; rebuild or reinstall so both come from the same version."
+    fi
+
+    local -a issue_nums=()
+    local -a issue_deps=()
+    local -a issue_repos=()
+    local -a issue_groups=()
+    local -a gates=()
+
+    # One field per line, five lines per outline -- the same newline framing
+    # process_single_pr uses, for the same bash 3.2 reason.
+    local -a issue_unresolved=()
+    local o_number o_repo o_group o_waits o_unresolved
+    while IFS= read -r o_number; do
+        [[ -n "$o_number" ]] || continue
+        IFS= read -r o_repo
+        IFS= read -r o_group
+        IFS= read -r o_waits
+        IFS= read -r o_unresolved
+        issue_nums+=("$o_number")
+        issue_repos+=("$o_repo")
+        issue_groups+=("$o_group")
+        issue_unresolved+=("$o_unresolved")
+        local dep_refs="" w
+        for w in $o_waits; do
+            dep_refs="${dep_refs:+$dep_refs }#${w}"
+        done
+        issue_deps+=("$dep_refs")
+    done < <(printf '%s' "$envelope" | jq -r '
+        .outlines[]
+        | (.number|tostring),
+          (.repo // ""),
+          (.group // ""),
+          (.waits_on | map(tostring) | join(" ")),
+          (.unresolved_dependencies | join(", "))')
+
+    if [[ ${#issue_nums[@]} -eq 0 ]]; then
+        die_schema "coordinated PLAN at tracking_level none has no issue outlines in ## Issue Outlines section (each work item is a '### Issue <N>: <title>' outline with **Repo**: and **Group**: lines)"
+    fi
+
+    local idx
+    for idx in "${!issue_nums[@]}"; do
+        if [[ -n "${issue_unresolved[$idx]}" ]]; then
+            die_schema "issue ${issue_nums[$idx]} declares dependencies that name no sibling outline: ${issue_unresolved[$idx]}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder."
+        fi
+    done
+
+    for idx in "${!issue_nums[@]}"; do
+        local rtag="${issue_repos[$idx]}" gtag="${issue_groups[$idx]}"
+        if [[ -z "$rtag" || -z "$gtag" ]]; then
+            die_schema "coordinated outline Issue ${issue_nums[$idx]} is missing a Repo/Group declaration (**Repo**: owner/repo and **Group**: <pr-group>)"
+        fi
+        if ! validate_repo_tag "$rtag"; then
+            die_schema "coordinated outline Issue ${issue_nums[$idx]} has invalid repo tag '${rtag}'"
+        fi
+        if ! validate_pr_group "$gtag"; then
+            die_schema "coordinated outline Issue ${issue_nums[$idx]} has invalid pr_group tag '${gtag}'"
+        fi
+    done
+
+    local g_name g_after g_before g_un_after g_un_before
+    while IFS= read -r g_name; do
+        [[ -n "$g_name" ]] || continue
+        IFS= read -r g_after
+        IFS= read -r g_before
+        IFS= read -r g_un_after
+        IFS= read -r g_un_before
+        if ! validate_pr_group "$g_name"; then
+            die_schema "coordinated gate name '${g_name}' violates ^[a-z][a-z0-9-]*\$"
+        fi
+        if [[ -n "$g_un_after" ]]; then
+            die_schema "coordinated gate '${g_name}' **After**: names no outline: ${g_un_after}"
+        fi
+        if [[ -n "$g_un_before" ]]; then
+            die_schema "coordinated gate '${g_name}' **Before**: names no outline: ${g_un_before}"
+        fi
+        local after_refs="" before_refs="" n
+        for n in $g_after; do after_refs="${after_refs:+$after_refs,}#${n}"; done
+        for n in $g_before; do before_refs="${before_refs:+$before_refs,}#${n}"; done
+        gates+=("${g_name}|${after_refs}|${before_refs}")
+    done < <(printf '%s' "$envelope" | jq -r '
+        .gates[]
+        | .name,
+          (.after | map(tostring) | join(" ")),
+          (.before | map(tostring) | join(" ")),
+          (.unresolved_after | join(", ")),
+          (.unresolved_before | join(", "))')
+
+    contract_and_emit_coordinated
+}
+
+# Shared back-end of both coordinated paths: assign each work item to its
+# (repo, pr_group) PR node, contract, order, split at the seam on a cycle, and
+# emit the serialized order with per-node vars.
+#
+# Reads issue_nums, issue_deps, issue_repos, issue_groups, gates, and
+# issue_source from the calling front-end (bash dynamic scope). issue_deps
+# entries carry `#N` references; gate After/Before entries are either PR node
+# ids (the table path's `^_Gate:` rows) or `#N` work-item references (the
+# outline path), resolved in build_contracted_graph.
+contract_and_emit_coordinated() {
+    local n_issues="${#issue_nums[@]}"
+    local idx
+
     # ---- Initial node assignment: each issue -> its (repo, pr_group) PR node.
     # `issue_to_node` is the mutable assignment the resolver re-writes when it
     # splits a repo at the seam. The issue-level deps in `issue_deps` are the
@@ -970,10 +1130,10 @@ process_coordinated() {
         done
         if [[ -z "$victim" ]]; then
             # No multi-issue PR node on the cycle to split: the cycle is
-            # irreducible (true cross-repo atomicity). Refuse — never emit a
-            # cyclic order.
-            log "Refusing: contraction cycle among PR nodes [${RESIDUAL_NODES}] has no split-at-seam resolution (true cross-repo atomicity)."
-            die_schema "coordinated effort is unschedulable: no acyclic merge order exists after contraction (cross-repo atomicity). Reshape into a compatible-intermediate sequence per references/coordination-strategy.md."
+            # irreducible (true atomicity across PR groups, which may sit in
+            # one repository or several). Refuse — never emit a cyclic order.
+            log "Refusing: contraction cycle among PR nodes [${RESIDUAL_NODES}] has no split-at-seam resolution (atomicity across PR groups)."
+            die_schema "coordinated effort is unschedulable: no acyclic merge order exists after contraction (atomicity across PR groups). Reshape into a compatible-intermediate sequence per references/coordination-strategy.md."
         fi
         # Split the victim at the seam: give each of its issues its own PR node.
         split_repo_at_seam "$victim"
@@ -985,6 +1145,11 @@ process_coordinated() {
 
     # ---- Emit the serialized two-node order as JSON ----
     # Each node becomes a task entry; waits_on lists its immediate predecessors.
+    # A PR node also carries its repository, PR group, work items (comma-
+    # separated, PLAN order, no spaces or '#'), and where those work items
+    # live, so /execute can cut the node's branch and dispatch its children
+    # without re-parsing the PLAN. A split-at-seam node inherits REPO and
+    # PR_GROUP from the items it holds. Gate nodes carry none of the four.
     local -a json_entries=()
     local node
     for node in $serialized; do
@@ -997,13 +1162,31 @@ process_coordinated() {
         done
         local waits_json
         waits_json=$(array_to_json "${waits_on[@]+"${waits_on[@]}"}")
-        local kind="pr"
-        kv_has is_gate "$node" && kind="gate"
+        if kv_has is_gate "$node"; then
+            json_entries+=("$(jq -n \
+                --arg name "$node" \
+                --argjson waits_on "$waits_json" \
+                '{name: $name, vars: {NODE_KIND: "gate"}, waits_on: $waits_on}')")
+            continue
+        fi
+        local node_repo="" node_group="" node_issues=""
+        for idx in "${!issue_nums[@]}"; do
+            if [[ "$(kv_get issue_to_node "${issue_nums[$idx]}")" == "$node" ]]; then
+                if [[ -z "$node_issues" ]]; then
+                    node_repo="${issue_repos[$idx]}"
+                    node_group="${issue_groups[$idx]}"
+                fi
+                node_issues="${node_issues:+$node_issues,}${issue_nums[$idx]}"
+            fi
+        done
         json_entries+=("$(jq -n \
             --arg name "$node" \
-            --arg node_kind "$kind" \
+            --arg repo "$node_repo" \
+            --arg group "$node_group" \
+            --arg issues "$node_issues" \
+            --arg source "$issue_source" \
             --argjson waits_on "$waits_json" \
-            '{name: $name, vars: {NODE_KIND: $node_kind}, waits_on: $waits_on}')")
+            '{name: $name, vars: {NODE_KIND: "pr", REPO: $repo, PR_GROUP: $group, ISSUES: $issues, ISSUE_SOURCE: $source}, waits_on: $waits_on}')")
     done
 
     printf '%s\n' "${json_entries[@]}" | jq -s .
@@ -1014,7 +1197,11 @@ process_coordinated() {
 # rebuilds the three structures, so the resolver can call it after every split.
 #
 # issue_nums, issue_deps, issue_to_node, gates, node_order, edges_set, and
-# is_gate are in scope from process_coordinated (bash dynamic scope).
+# is_gate are in scope from the coordinated front-end (bash dynamic scope).
+#
+# A gate After/Before token is either a PR node id (table path) or a `#N`
+# work-item reference (outline path). The latter resolves through
+# issue_to_node here, on every attempt, so it follows a split at the seam.
 build_contracted_graph() {
     node_order=()
     local e
@@ -1074,11 +1261,17 @@ build_contracted_graph() {
         local pred
         for pred in ${gafter//,/ }; do
             [[ -z "$pred" ]] && continue
+            if [[ "$pred" == "#"* ]]; then
+                pred=$(kv_get issue_to_node "${pred#\#}")
+            fi
             set_add edges_set "${pred}->${gnode}"
         done
         local succ
         for succ in ${gbefore//,/ }; do
             [[ -z "$succ" ]] && continue
+            if [[ "$succ" == "#"* ]]; then
+                succ=$(kv_get issue_to_node "${succ#\#}")
+            fi
             set_add edges_set "${gnode}->${succ}"
         done
     done
@@ -1146,7 +1339,7 @@ kahn_order() {
 # currently mapped to $1 to its own per-issue PR node id, so a repo that
 # participated in an X->Y->X contraction cycle through *distinct* issues is
 # re-sequenced into orderable halves. The issue-level edges then re-contract
-# without the cross-repo cycle. issue_to_node is mutated in place; the caller
+# without the cycle across PR groups. issue_to_node is mutated in place; the caller
 # re-runs build_contracted_graph + kahn_order.
 split_repo_at_seam() {
     local victim="$1"
@@ -1254,8 +1447,17 @@ case "$execution_mode" in
         fi
         ;;
     coordinated)
-        log "Processing coordinated PLAN: $PLAN_PATH"
-        process_coordinated "$PLAN_PATH"
+        # Only an explicit `tracking_level: none` selects the outline form,
+        # the same rule the validator's plan_is_outline_shaped() applies. A
+        # coordinated PLAN with no field (every one written before coordinated
+        # followed the tracking level) is read as issue-carrying.
+        if [[ "$tracking_level" == "none" ]]; then
+            log "Processing coordinated PLAN (outlines): $PLAN_PATH"
+            process_coordinated_outlines "$PLAN_PATH"
+        else
+            log "Processing coordinated PLAN: $PLAN_PATH"
+            process_coordinated "$PLAN_PATH"
+        fi
         ;;
     *)
         die_schema "Unknown execution_mode '${execution_mode}': expected 'single-pr', 'multi-pr', or 'coordinated'"

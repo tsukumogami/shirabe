@@ -71,7 +71,8 @@ pub use report::{
 };
 pub use table::{
     is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs,
-    NonconformingHeading, OutlineAc, OutlineBlock, OutlineSection, Profile, Row, RowKind, Table,
+    NonconformingHeading, OutlineAc, OutlineBlock, OutlineGate, OutlineSection, Profile, Row,
+    RowKind, Table,
 };
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
