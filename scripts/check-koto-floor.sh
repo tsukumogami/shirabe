@@ -25,7 +25,8 @@
 #      declares may appear among the values any recorded response offered.
 #
 # koto is installed with koto's own install.sh, fetched from a pinned koto
-# commit and checked against a recorded SHA-256 before it runs (see
+# commit and checked against a recorded SHA-256 before it runs, and the binary
+# it installs is checked against a SHA-256 recorded for the platform (see
 # scripts/koto-floor/lib.sh). It installs into a directory of its own, never
 # ~/.koto, and every call here goes through $KOTO_BIN by absolute path, so a
 # newer koto on PATH cannot stand in for the floor.
@@ -43,6 +44,10 @@
 #                floor, so this is for a developer who already has v0.12.2,
 #                not a way to test another version.
 #   RUNNER_TEMP  when set (GitHub Actions), koto is installed under it
+#   KOTO_ALLOW_UNPINNED_BINARY
+#                set to 1 to install on a platform with no recorded binary
+#                SHA-256 (linux-amd64 and darwin-arm64 have one). Without it
+#                the install is refused on any other platform.
 #
 # Requires: bash, git, jq, mikefarah yq v4, and -- unless KOTO_BIN is set --
 # curl and sha256sum or shasum.

@@ -5,7 +5,9 @@
 # Covers the logic the floor check depends on without a network or a real
 # koto install: the strip, the decider and escape readers, template
 # discovery, the transcript line and comparison, the escape-leak check, the
-# installer's checksum and output checks, and the script's refusals -- a
+# installer's checksum and output checks, the koto binary pin (install_koto
+# run end to end against a stub curl and a fake install.sh), and the script's
+# refusals -- a
 # missing checksum tool, a missing or wrong yq, a missing jq, and a koto that
 # reports the wrong version. None of those refusals reaches a download: each
 # one fails before install.sh would be fetched, and curl is kept off PATH in
@@ -274,6 +276,102 @@ if ! grep -Eq 'koto/(main|master|refs/heads)[/]' "$CHECK" "$SCRIPT_DIR/koto-floo
     pass "neither the script nor the workflow fetches install.sh from a branch"
 else
     fail "neither the script nor the workflow fetches install.sh from a branch" "found a branch URL, or the workflow downloads something itself"
+fi
+
+# -- the binary pin -----------------------------------------------------------
+
+if [ "$(koto_binary_sha256 v0.12.2 linux-amd64)" = "a98bc2108dfd457bbfc79530ecc85f82b29801e2826682f4323c24b960e548c8" ] \
+    && [ "$(koto_binary_sha256 0.12.2 darwin-arm64)" = "73d163521733a2b8c8acfb59fb96e783f2f1314d928ab6c76371fbb9132f9739" ]; then
+    pass "the koto v0.12.2 binary SHA-256 is recorded for linux-amd64 and darwin-arm64"
+else
+    fail "the koto v0.12.2 binary SHA-256 is recorded for linux-amd64 and darwin-arm64" "[$(koto_binary_sha256 v0.12.2 linux-amd64)] [$(koto_binary_sha256 v0.12.2 darwin-arm64)]"
+fi
+
+err=$(unset KOTO_ALLOW_UNPINNED_BINARY; expected_koto_sha256 v0.12.2 linux-arm64 2>&1 >/dev/null); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -q 'linux-arm64' && printf '%s' "$err" | grep -q 'KOTO_ALLOW_UNPINNED_BINARY=1'; then
+    pass "a platform with no recorded binary SHA-256 is refused, naming the platform and the override"
+else
+    fail "a platform with no recorded binary SHA-256 is refused, naming the platform and the override" "rc $rc, [$err]"
+fi
+got=$(KOTO_ALLOW_UNPINNED_BINARY=1 expected_koto_sha256 v0.99.0 darwin-arm64 2>/dev/null); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$got" ]; then
+    pass "KOTO_ALLOW_UNPINNED_BINARY=1 lets a version with no recorded SHA-256 through"
+else
+    fail "KOTO_ALLOW_UNPINNED_BINARY=1 lets a version with no recorded SHA-256 through" "rc $rc, [$got]"
+fi
+
+# install_koto end to end, with no network: a stub curl hands back a fake
+# install.sh, which writes a fake koto reporting whatever version it was asked
+# for. install.sh's own pin is pointed at the fake, so every case gets past it
+# to the binary check.
+mkdir -p "$T/stub-bin"
+cat > "$T/fake-install.sh" <<'EOF'
+#!/bin/bash
+v=""
+for a in "$@"; do case "$a" in --version=*) v=${a#--version=} ;; esac; done
+mkdir -p "$KOTO_INSTALL_DIR/bin"
+printf '#!/bin/sh\n[ "$1" = version ] && echo "koto %s (0000000 2026-01-01T00:00:00Z)"\n' "${v#v}" > "$KOTO_INSTALL_DIR/bin/koto"
+chmod +x "$KOTO_INSTALL_DIR/bin/koto"
+echo "Installing to $KOTO_INSTALL_DIR/bin..."
+EOF
+cat > "$T/stub-bin/curl" <<EOF
+#!/bin/bash
+echo "\$*" >> "$T/curl.calls"
+out=""
+while [ \$# -gt 0 ]; do [ "\$1" = -o ] && { out=\$2; shift; }; shift; done
+cp "$T/fake-install.sh" "\$out"
+EOF
+chmod +x "$T/stub-bin/curl"
+printf '#!/bin/sh\n[ "$1" = version ] && echo "koto %s (0000000 2026-01-01T00:00:00Z)"\n' 0.12.2 > "$T/fake-koto-0.12.2"
+FAKE_KOTO_SUM=$(sha256_of "$T/fake-koto-0.12.2")
+
+# fake_install <platform> <version> <dir> [recorded-sum]: install_koto under the
+# stub, with koto_platform answering <platform> and, when given, <recorded-sum>
+# as the only recorded binary hash. Sets OUT and RC.
+fake_install() {
+    local fake_platform="$1" fake_sum="${4:-}"
+    OUT=$({
+        PATH="$T/stub-bin:$PATH"
+        KOTO_INSTALLER_SHA256=$(sha256_of "$T/fake-install.sh")
+        koto_platform() { echo "$fake_platform"; }
+        if [ -n "$fake_sum" ]; then
+            koto_binary_sha256() { echo "$fake_sum"; }
+        fi
+        install_koto "$2" "$3" && echo "installed at $INSTALLED_KOTO_BIN"
+    } 2>&1)
+    RC=$?
+}
+
+fake_install linux-amd64 v0.12.2 "$T/inst-wrong"
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'SHA-256 mismatch' \
+    && printf '%s' "$OUT" | grep -q 'koto v0.12.2 binary for linux-amd64 does not match the SHA-256 recorded' \
+    && [ ! -e "$T/inst-wrong/bin/koto" ]; then
+    pass "an installed koto binary that does not match the recorded SHA-256 fails and is removed"
+else
+    fail "an installed koto binary that does not match the recorded SHA-256 fails and is removed" "rc $RC, [$OUT]"
+fi
+
+fake_install linux-amd64 v0.12.2 "$T/inst-right" "$FAKE_KOTO_SUM"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "installed at $T/inst-right/bin/koto"; then
+    pass "an installed koto binary matching the recorded SHA-256 is accepted"
+else
+    fail "an installed koto binary matching the recorded SHA-256 is accepted" "rc $RC, [$OUT]"
+fi
+
+rm -f "$T/curl.calls"
+OUT=$(unset KOTO_ALLOW_UNPINNED_BINARY; fake_install linux-amd64 v0.99.0 "$T/inst-unpinned"; printf '%s' "$OUT"); rc=$?
+if printf '%s' "$OUT" | grep -q 'no recorded SHA-256 for the koto v0.99.0 binary on linux-amd64' \
+    && ! printf '%s' "$OUT" | grep -q 'installed at' && [ ! -e "$T/curl.calls" ]; then
+    pass "a version with no recorded binary SHA-256 is refused before anything is downloaded"
+else
+    fail "a version with no recorded binary SHA-256 is refused before anything is downloaded" "[$OUT], curl calls [$(cat "$T/curl.calls" 2>/dev/null)]"
+fi
+
+OUT=$(export KOTO_ALLOW_UNPINNED_BINARY=1; fake_install linux-amd64 v0.99.0 "$T/inst-override"; printf '%s' "$OUT")
+if printf '%s' "$OUT" | grep -q "installed at $T/inst-override/bin/koto" && printf '%s' "$OUT" | grep -q 'warning: no recorded SHA-256'; then
+    pass "with KOTO_ALLOW_UNPINNED_BINARY=1 a version with no recorded SHA-256 installs, with a warning"
+else
+    fail "with KOTO_ALLOW_UNPINNED_BINARY=1 a version with no recorded SHA-256 installs, with a warning" "[$OUT]"
 fi
 
 # Every koto call in the script, the library, and the scenarios goes through

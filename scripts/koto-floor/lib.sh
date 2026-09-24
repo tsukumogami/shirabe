@@ -3,7 +3,8 @@
 # Sourced, never run. Three groups:
 #
 #   install   -- fetch koto's install.sh from a pinned koto commit, check its
-#                SHA-256, run it into a directory of the caller's choosing, and
+#                SHA-256, run it into a directory of the caller's choosing, check
+#                the binary it installed against a SHA-256 recorded here, and
 #                assert the version the binary reports. `install_koto` takes the
 #                version and the directory as arguments, so a second koto can be
 #                installed beside the floor one without touching the first.
@@ -34,6 +35,16 @@ KOTO_FLOOR_VERSION="v0.12.2"
 KOTO_INSTALLER_COMMIT="1ca8c980a1cbeb032cbb93e5e4e6405e240d8fd8"
 KOTO_INSTALLER_SHA256="5f8c62f618f8181fa4b48e0e600e1208dddd1f0dab668a73e1b52ae7b52ba319"
 KOTO_INSTALLER_URL="https://raw.githubusercontent.com/tsukumogami/koto/${KOTO_INSTALLER_COMMIT}/install.sh"
+
+# install.sh checks the binary it downloads against the release's own
+# checksums.txt, which comes from the same place as the binary. The binary is
+# also pinned here: koto_binary_sha256 records the expected SHA-256 per
+# version and platform, and install_koto checks the installed file against it.
+# A version or platform with no recorded value is refused unless
+# KOTO_ALLOW_UNPINNED_BINARY=1, in which case only install.sh's own check
+# stands. To record a new version, take the values from that release's
+# checksums.txt and confirm them by hashing the downloaded assets.
+KOTO_UNPINNED_OVERRIDE_VAR="KOTO_ALLOW_UNPINNED_BINARY"
 
 kf_err() {
     echo "check-koto-floor: $*" >&2
@@ -96,16 +107,62 @@ assert_koto_version() {
     fi
 }
 
+# koto_platform: the `<os>-<arch>` suffix install.sh picks a release asset by,
+# derived the same way install.sh derives it.
+koto_platform() {
+    local os arch
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64) arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+    esac
+    echo "$os-$arch"
+}
+
+# koto_binary_sha256 <version> <platform>: prints the recorded SHA-256 of the
+# koto-<platform> asset of release <version>, or nothing when none is
+# recorded. linux-amd64 is the CI runner; darwin-arm64 is a developer's Mac.
+koto_binary_sha256() {
+    case "v${1#v}/$2" in
+        v0.12.2/linux-amd64)  echo "a98bc2108dfd457bbfc79530ecc85f82b29801e2826682f4323c24b960e548c8" ;;
+        v0.12.2/darwin-arm64) echo "73d163521733a2b8c8acfb59fb96e783f2f1314d928ab6c76371fbb9132f9739" ;;
+    esac
+}
+
+# expected_koto_sha256 <version> <platform>: prints the recorded SHA-256, or
+# nothing when none is recorded and KOTO_ALLOW_UNPINNED_BINARY=1. Fails, naming
+# the version, the platform, and the override, when none is recorded and the
+# override is not set.
+expected_koto_sha256() {
+    local sum
+    sum=$(koto_binary_sha256 "$1" "$2")
+    if [ -n "$sum" ]; then
+        echo "$sum"
+        return 0
+    fi
+    if [ "${KOTO_ALLOW_UNPINNED_BINARY:-}" = 1 ]; then
+        kf_err "warning: no recorded SHA-256 for the koto $1 binary on $2; $KOTO_UNPINNED_OVERRIDE_VAR=1 is set, so only install.sh's own checksums.txt check applies"
+        return 0
+    fi
+    kf_err "no recorded SHA-256 for the koto $1 binary on $2; refusing to install an unpinned binary. Record it in koto_binary_sha256 in scripts/koto-floor/lib.sh, or set $KOTO_UNPINNED_OVERRIDE_VAR=1 to rely on install.sh's checksums.txt alone"
+    return 1
+}
+
 # install_koto <version> <install-dir>: installs koto <version> into
 # <install-dir>/bin/koto and sets INSTALLED_KOTO_BIN to that absolute path.
 # Nothing outside <install-dir> is written: --no-modify-path leaves shell
 # profiles alone, and KOTO_INSTALL_DIR keeps the binary out of ~/.koto.
 INSTALLED_KOTO_BIN=""
 install_koto() {
-    local version="$1" dir="$2" installer log
+    local version="$1" dir="$2" installer log platform want_bin
     INSTALLED_KOTO_BIN=""
 
     sha256_tool >/dev/null || return 1
+    # Settled before anything is downloaded, so an unpinned platform or
+    # version fails without touching the network.
+    platform=$(koto_platform)
+    want_bin=$(expected_koto_sha256 "$version" "$platform") || return 1
     command -v curl >/dev/null 2>&1 || { kf_err "curl is required to fetch install.sh"; return 1; }
 
     mkdir -p "$dir" || { kf_err "could not create $dir"; return 1; }
@@ -127,6 +184,11 @@ install_koto() {
     check_installer_output "$log" || return 1
 
     [ -x "$dir/bin/koto" ] || { kf_err "install.sh left no binary at $dir/bin/koto"; return 1; }
+    if [ -n "$want_bin" ] && ! verify_sha256 "$dir/bin/koto" "$want_bin"; then
+        kf_err "the koto $version binary for $platform does not match the SHA-256 recorded in scripts/koto-floor/lib.sh; removed it"
+        rm -f "$dir/bin/koto"
+        return 1
+    fi
     assert_koto_version "$dir/bin/koto" "$version" || return 1
     INSTALLED_KOTO_BIN="$dir/bin/koto"
 }
