@@ -1,6 +1,8 @@
 # Phase 7: PLAN Artifact Creation
 
-Create the PLAN artifact and (in multi-pr mode) GitHub milestone and issues.
+Create the PLAN artifact and, when the resolved tracking level asks for them,
+GitHub issues and a milestone. The branch taken depends on `execution_mode`
+(`multi-pr`, `single-pr`, or `coordinated`).
 
 When the input is a roadmap, **do not** re-drive this phase to fill the
 roadmap's reserved sections by prose substitution -- that path is retired.
@@ -25,7 +27,8 @@ slice). It no longer rewrites the roadmap document itself.
 - [Prerequisites](#prerequisites)
 - [multi-pr Mode](#multi-pr-mode): 7.1 Create GitHub Issues, 7.2 Write PLAN Artifact (roadmap population is handled by `/roadmap populate`, not this phase), 7.3 Verify Creation, 7.4 Validate Traceability
 - [single-pr Mode](#single-pr-mode): 7.1 Write PLAN Artifact, 7.2 Suggest Next Steps
-- [Common Steps](#common-steps-both-modes): 7.5 Status Transition, 7.6 Cleanup, 7.7 Report Summary, 7.8 Upstream Issue Update
+- [coordinated Mode](#coordinated-mode): 7.C1 Filing Approval, 7.C2 Create GitHub Issues, 7.C3 Write PLAN Artifact, 7.C4 Suggest Next Steps
+- [Common Steps](#common-steps-all-modes): 7.5 Status Transition, 7.6 Cleanup, 7.7 Report Summary, 7.8 Upstream Issue Update
 
 ## Resume Check
 
@@ -63,7 +66,7 @@ Read all topic-scoped wip/ artifacts:
 
 **STOP** if `wip/plan_<topic>_manifest.json` does not exist. Phase 4 (Agent Generation) must run first.
 
-Read the `execution_mode` from the decomposition artifact's YAML frontmatter, then branch to the appropriate section below.
+Read the `execution_mode` from the decomposition artifact's YAML frontmatter, then branch to the appropriate section below. Carry its `split_mode_source` (and, on a split, `split_rationale`) into the PLAN's frontmatter next to `execution_mode`: they are the record that lets a caller re-run `scripts/resolve-split-mode.sh` over the PLAN's split and compare.
 
 ### Resolve the Tracking Level first
 
@@ -77,12 +80,17 @@ flag > CLAUDE.md `## Tracking Level: none|issues|issues-and-milestone` > default
 
 Where a level is stated it applies regardless of `execution_mode`. Where none is
 stated, the default is derived from the mode -- `issues-and-milestone` for
-`multi-pr`, `none` for `single-pr` -- which is the behavior every repo has today.
-An unrecognized value falls through to that default rather than being used.
+`multi-pr`, `none` for `single-pr` and for `coordinated` -- which for single-pr
+and multi-pr is the behavior every repo has today. An unrecognized value falls
+through to that default rather than being used.
 
-`coordinated` PLANs are exempt: their tracking is governed by
-`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, and the header does
-not apply.
+`coordinated` follows the same stack, with `none` as its default, and step 3.6's
+step 5a has already resolved it into the decomposition artifact's
+`tracking_level`, so Phase 4 could choose body depth; use that value. Phase 7
+**always writes `tracking_level` into a coordinated PLAN's frontmatter**, `none`
+included. The field is what selects the PLAN's shape downstream: the validator
+and the task extractor read a coordinated PLAN as outline-shaped only at an
+explicit `tracking_level: none`, and read one with no field as issue-carrying.
 
 Write the resolved value into the PLAN's `tracking_level` frontmatter field. This
 is load-bearing rather than bookkeeping: task extraction runs against a committed
@@ -98,9 +106,11 @@ The resolved level, not the mode, decides what gets created:
 | `issues` | One GitHub issue per work item, assigned to no milestone. |
 | `issues-and-milestone` | One issue per work item, all assigned to one milestone. |
 
-All six combinations of `{single-pr, multi-pr}` and the three levels are
-reachable. A `single-pr` PLAN with `issues` files them; a `multi-pr` PLAN with
-`none` files nothing.
+Every combination of `{single-pr, multi-pr, coordinated}` and the three levels
+is reachable. A `single-pr` PLAN with `issues` files them; a `multi-pr` PLAN with
+`none` files nothing; a `coordinated` PLAN files nothing at its default `none`
+and files issues, behind an explicit approval, only at `issues` or
+`issues-and-milestone`.
 
 ---
 
@@ -208,6 +218,9 @@ Create `docs/plans/PLAN-<topic>.md` with the following structure.
 schema: plan/v1
 status: Active
 execution_mode: multi-pr
+split_mode_source: <flag | intent | default>   # from the decomposition artifact
+split_rationale: |                             # from the decomposition artifact
+  <branch>. <rationale>
 upstream: <source-doc-path>   # design doc, PRD, or roadmap path
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -327,6 +340,7 @@ is a violation — the chain-aware `--lifecycle` check fails on it.
 schema: plan/v1
 status: Active
 execution_mode: single-pr
+split_mode_source: none   # from the decomposition artifact
 upstream: <design-doc-path>
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -362,11 +376,143 @@ No Implementation Issues table in single-pr mode.
 
 ### 7.2 Suggest Next Steps
 
-Recommend running `/work-on docs/plans/PLAN-<topic>.md` to begin implementation.
+Recommend running `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
+For a `multi-pr` PLAN the advice is `/work-on` instead, per issue (see 7.7).
 
 ---
 
-## Common Steps (Both Modes)
+## coordinated Mode
+
+Steps 7.C1 through 7.C4 apply when `execution_mode: coordinated`. The
+coordinated contract (lifecycle, grouping, merge order, done-signal) is
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`; this section only
+writes the PLAN and, when asked, files its issues. It does not open the
+coordination PR -- `/execute` does that when it runs the PLAN.
+
+**Gated on the resolved tracking level**, which step 5a recorded as
+`tracking_level` in the decomposition artifact:
+
+- **`none` (the default):** skip 7.C1 and 7.C2 entirely and go to 7.C3. No
+  `gh issue` command and no `gh api` milestone call runs on this path; the work
+  items live only in the PLAN's Issue Outlines.
+- **`issues` or `issues-and-milestone`:** run 7.C1, then 7.C2, then 7.C3.
+
+The multi-pr and single-pr branches above are unchanged; the approval step in
+7.C1 exists only on this coordinated filing path.
+
+### 7.C1 Filing Approval (tracking level `issues` or `issues-and-milestone` only)
+
+Filing creates remote artifacts, so it runs only after an explicit approval,
+**before the first `gh issue create`**:
+
+- **Interactive:** ask with AskUserQuestion, naming the number of issues, the
+  repositories they will be filed in, and whether a milestone will be created:
+
+  ```
+  The tracking level for this coordinated PLAN is <issues|issues-and-milestone>,
+  so Phase 7 will file <N> GitHub issues in <owner/repo>[, ...]<and create the
+  milestone "<Milestone Name>">.
+
+  - File them now (Recommended)
+  - Don't file: write the PLAN at tracking level none, with outlines instead
+  ```
+
+  On "Don't file", set the tracking level to `none` and continue at 7.C3's
+  outline-shaped branch.
+- **`--auto`:** do not prompt. Resolve the approval per
+  `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` -- a stated tracking
+  level in `CLAUDE.md` is the repository's standing instruction to file, so the
+  resolution is to file -- and record a decision block in
+  `wip/plan_<topic>_decisions.md` naming the level, where it came from, and the
+  issues to be filed. Then continue to 7.C2.
+
+### 7.C2 Create GitHub Issues (tracking level `issues` or `issues-and-milestone` only)
+
+Reuse the batch script exactly as the multi-pr branch's 7.1 does:
+
+```bash
+${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh \
+  --manifest wip/plan_<topic>_manifest.json \
+  --milestone "<Milestone Name>" \
+  --milestone-description "Design: \`<design-doc-path>\`" \
+  --output-map wip/plan_<topic>_mapping.json
+```
+
+At `issues`, pass no `--milestone` or `--milestone-description`, so no
+milestone is created or assigned. Failure handling, placeholder substitution,
+and complexity labels are as in multi-pr 7.1.
+
+### 7.C3 Write PLAN Artifact
+
+Create `docs/plans/PLAN-<topic>.md` at `status: Active` in both shapes: at
+`none` nothing is filed, so the Draft -> Active transition auto-fires; at the
+issue levels the filing was approved in 7.C1.
+
+**Frontmatter:**
+
+```yaml
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+split_mode_source: <flag | intent | header>   # from the decomposition artifact
+split_rationale: |                            # from the decomposition artifact
+  <branch>. <rationale>
+tracking_level: <none | issues | issues-and-milestone>   # always written
+upstream: <source-doc-path>
+milestone: "<Milestone Name>"
+issue_count: <N>
+---
+```
+
+A `--upstream <roadmap-path>` makes `upstream:` a sequence, exactly as in the
+other branches.
+
+**At tracking level `none` -- the outline-shaped coordinated PLAN.** Required
+sections, in order:
+
+1. **Status** -- `Active`
+2. **Scope Summary** -- from `wip/plan_<topic>_analysis.md`
+3. **Decomposition Strategy** -- as in the other branches
+4. **Issue Outlines** -- one `### Issue <N>: <title>` outline per work item,
+   read from the body files, each with:
+   - **Goal**
+   - **Acceptance Criteria**
+   - **Dependencies** -- internal IDs only; never a gate
+   - `**Repo**: <owner/repo>` and `**Group**: <slug>`, from the decomposition
+     artifact
+
+   followed by one `### Gate: <name>` block per declared gate, with
+   `**After**:`, `**Before**:`, and `**Condition**:` lines, in the form
+   `../quality/plan-doc-structure.md` documents under "Coordinated Mode".
+5. **Dependency Graph** -- same Mermaid rules as single-pr, nodes `I1`, `I2`, ...
+6. **Implementation Sequence**
+
+No `## Implementation Issues` table: the validator treats a coordinated PLAN at
+`tracking_level: none` as outline-shaped and reports FC14 when both outlines
+and an issue table are populated.
+
+**At `issues` or `issues-and-milestone` -- the issue-carrying coordinated PLAN.**
+Required sections as in the multi-pr branch's 7.2b, with the Implementation
+Issues table built from `wip/plan_<topic>_mapping.json` and, under each issue's
+row, a `_Repo: <owner/repo> \| Group: <slug>_` annotation row, plus one
+`_Gate: <name> \| After: ... \| Before: ..._` row per declared gate. No Issue
+Outlines section. Follow `../quality/plan-doc-structure.md` for the exact row
+format.
+
+**Validate.** Step 7.4b's `shirabe validate` run must exit 0 on this PLAN, with
+no FC04 or FC14 finding in either shape. An FC14 finding naming an outline's
+missing or invalid `**Repo**:` / `**Group**:`, or a gate naming no outline, is
+fixed in the PLAN before continuing.
+
+### 7.C4 Suggest Next Steps
+
+Recommend running `/execute docs/plans/PLAN-<topic>.md`, which cuts one branch
+per PR node, opens the coordination PR, and lands the nodes in merge order.
+
+---
+
+## Common Steps (All Modes)
 
 These steps run after the mode-specific steps above.
 
@@ -515,7 +661,8 @@ Summarize what was created:
 **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design
 
 ### Next Steps
-Start with issues that have no dependencies (marked `ready` in diagram):
+Start with issues that have no dependencies (marked `ready` in diagram), running
+`/work-on` on each:
 - [#N](<url>): <title>
 ```
 
@@ -527,7 +674,23 @@ PLAN document: `docs/plans/PLAN-<topic>.md`
 Design doc status: Planned
 
 ### Next Steps
-Run `/work-on docs/plans/PLAN-<topic>.md` to begin implementation.
+Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
+```
+
+**coordinated:**
+```markdown
+## Created Artifacts
+
+PLAN document: `docs/plans/PLAN-<topic>.md` (tracking level: <none|issues|issues-and-milestone>)
+Design doc status: Planned
+Split mode: coordinated (split_mode_source: <flag|intent|header>)
+
+| Work item | Repo | Group | Dependencies |
+|-----------|------|-------|--------------|
+| Issue 1 (or #N): <title> | <owner/repo> | <slug> | None |
+
+### Next Steps
+Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
 ```
 
 ### 7.8 Upstream Issue Update
@@ -570,6 +733,9 @@ Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
 - [ ] multi-pr: all issues created, milestone assigned, status is Active
+- [ ] coordinated: `tracking_level` written; at `none` no `gh issue` or milestone
+  call ran and every outline carries `**Repo**:` and `**Group**:`; at `issues`
+  levels the filing was approved before the first `gh issue create`
 - [ ] PLAN doc reference hygiene (step 7.4b) passed: no `wip/...` paths in
   frontmatter or body prose; `upstream:` resolves on disk or is a valid
   public cross-repo reference
