@@ -29,6 +29,7 @@
 # keeps a sibling's commits out: the orchestrator's other children commit to
 # the same branch, and every commit they made before this run reached
 # `analysis` is behind `impl_base`, so none of them appears here.
+# Limitation: a rebase after `analysis` can leave `impl_base` off HEAD's history; the diff then includes what the rebase pulled in.
 #
 # When `impl_base` is unset (the `analysis` action failed and the agent went on
 # without it), the base is `git merge-base HEAD origin/<default-branch>`, where
