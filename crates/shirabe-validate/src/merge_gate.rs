@@ -465,6 +465,66 @@ mod tests {
         );
     }
 
+    // run_merge_gate: a single-repo index (every PR in the same `owner/repo`)
+    // passes once all of them are merged. The gate never counts repositories.
+    #[test]
+    fn run_merge_gate_single_repo_all_merged_passes() {
+        let client = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 301, Ok(IssueState::Closed))
+            .with_issue("tsukumogami", "shirabe", 302, Ok(IssueState::Closed))
+            .with_issue("tsukumogami", "shirabe", 303, Ok(IssueState::Closed));
+        let resolver = StubResolver(Visibility::Public);
+        let outcome = run_merge_gate(
+            &[
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#301".to_string(),
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#302".to_string(),
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#303".to_string(),
+            ],
+            &[],
+            "",
+            ReviewPosture::Ready,
+            &client,
+            &resolver,
+        );
+        assert_eq!(
+            outcome,
+            MergeGateOutcome::Pass {
+                pr_count: 3,
+                upstream_count: 0
+            }
+        );
+    }
+
+    // run_merge_gate: a single-repo index with one unmerged PR blocks, and the
+    // blocker names that PR only.
+    #[test]
+    fn run_merge_gate_single_repo_one_unmerged_blocks() {
+        let client = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 301, Ok(IssueState::Closed))
+            .with_issue("tsukumogami", "shirabe", 302, Ok(IssueState::Open))
+            .with_issue("tsukumogami", "shirabe", 303, Ok(IssueState::Closed));
+        let resolver = StubResolver(Visibility::Public);
+        let outcome = run_merge_gate(
+            &[
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#301".to_string(),
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#302".to_string(),
+                "tsukumogami/shirabe:docs/plans/PLAN-x.md#303".to_string(),
+            ],
+            &[],
+            "",
+            ReviewPosture::Ready,
+            &client,
+            &resolver,
+        );
+        match outcome {
+            MergeGateOutcome::Blocked(reasons) => {
+                assert_eq!(reasons.len(), 1, "one blocker expected: {:?}", reasons);
+                assert!(reasons[0].contains("302"));
+            }
+            other => panic!("expected Blocked, got {:?}", other),
+        }
+    }
+
     // run_merge_gate: an empty index under READY posture fails closed (Blocked).
     // A ready coordination PR with nothing to gate against must not vacuously
     // pass — the merge-last gate is the authority and fails closed.
