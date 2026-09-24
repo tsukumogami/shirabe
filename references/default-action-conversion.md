@@ -177,6 +177,7 @@ Read one of these next to your own state; they are the worked examples.
 |---|---|---|
 | `branch_check` | `skills/scope/koto-templates/scope.md` | A read, captured, gated on the world the read describes |
 | `settled_branch_record` | `skills/execute/koto-templates/execute.md` | A write, gated by a `context-matches` read-back the action cannot influence |
+| `drift_facts` | `skills/execute/koto-templates/execute.md` | A read that writes its findings to context, where a later state's gate routes on them |
 | `worktree_sync` | `skills/execute/koto-templates/execute.md` | A local mutation, gated on whether the mutation's goal holds |
 | `pr_precheck` | `skills/work-on/koto-templates/work-on.md` | A read, captured, gated ahead of the step it feeds |
 

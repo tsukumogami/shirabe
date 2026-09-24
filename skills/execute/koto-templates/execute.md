@@ -35,8 +35,9 @@ variables:
     description: >
       The PLAN's topic slug -- PLAN_DOC's basename with the PLAN- prefix and
       .md suffix stripped, matching ^[a-z0-9-]+$. Declared as a template
-      variable because the worktree_discipline_check gate interpolates it into
-      a command koto runs itself, and koto resolves and compile-time-validates
+      variable because the settled_branch_record and drift_facts actions
+      interpolate it into commands koto runs itself (each rebuilds the session
+      name as execute-{{PLAN_SLUG}}), and koto resolves and compile-time-validates
       only {{KEY}} references. A shell-style ${PLAN_SLUG} there is passed to
       sh -c untouched and expands to the empty string, which is the defect this
       declaration closes.
@@ -171,7 +172,7 @@ states:
         type: string
         description: Why the branch could not be recorded.
     transitions:
-      - target: worktree_sync
+      - target: drift_facts
         when:
           gates.settled_branch_recorded.matches: true
       # The gate is named on this edge too, and it has to be: koto rejects a
@@ -187,18 +188,89 @@ states:
         context_assignments:
           failure_reason: "settled_branch_record blocked: ${evidence.detail}"
 
-  worktree_sync:
-    # The mechanical half of what worktree_discipline_check used to do in one
-    # state: fetch origin and rebase the shared branch on main. The other half,
-    # classifying the upstream impact against the PLAN's intent, is judgment and
-    # stays where it was.
+  drift_facts:
+    # Works out, from git alone, whether origin/main moved in a way the PLAN
+    # could care about, BEFORE worktree_sync rebases. The order is the point:
+    # for a PLAN that exists only on this branch, the base is the branch's fork
+    # point, and the rebase moves the fork point to the tip of origin/main. Run
+    # after the rebase, every run would read as "main hasn't advanced".
     #
-    # The gate asks the question the rebase was FOR -- is origin/main an
-    # ancestor of HEAD -- rather than asking whether the rebase command
-    # succeeded. A rebase that exits 0 without achieving it fails the gate, and
-    # a rebase that was unnecessary passes without one having run. That is what
-    # makes this an independent check rather than a restatement of the action's
-    # exit code.
+    # The script fetches origin itself, so the rebase in worktree_sync uses
+    # exactly the origin/main these facts describe. It writes plan_intent.md
+    # first and drift_facts.json second, both capped at 8192 bytes, and prints
+    # nothing. drift_facts.json is compact JSON with `route` as its first key,
+    # which is what lets the gates here and in worktree_sync match it with an
+    # anchored pattern rather than parse it.
+    #
+    # Both gates are named on the passing edge. plan_intent_recorded is implied
+    # by drift_facts_recorded in practice (the script writes the intent first),
+    # but it is what names plan_intent.md in a context gate, and a gate that no
+    # `when` clause references is evaluated and then ignored.
+    #
+    # The session argument is rebuilt from {{PLAN_SLUG}} for the reason
+    # settled_branch_record's comment gives.
+    default_action:
+      command: '{{PLUGIN_ROOT}}/skills/execute/scripts/drift-facts.sh "execute-{{PLAN_SLUG}}" "{{PLAN_DOC}}"'
+      fallback: >-
+        koto could not compute the upstream drift facts. Read the command's own
+        output above: the script exits 64 when no base resolves (the fetch of
+        origin failed, origin/main is missing, or it shares no history with the
+        PLAN), 65 when the PLAN doc is missing or outside the repository, and 66
+        when writing a context key failed. Fix the cause and tick again -- the
+        script re-runs on entry, so nothing needs submitting. Submit
+        `facts_status: override` with `detail` to continue to the rebase without
+        facts (the drift question is then asked with nothing precomputed), or
+        `facts_status: blocked` with `detail` to stop the run.
+    gates:
+      drift_facts_recorded:
+        type: context-matches
+        key: drift_facts.json
+        pattern: '^\{"route":"(none|judge)",'
+      plan_intent_recorded:
+        type: context-exists
+        key: plan_intent.md
+    accepts:
+      facts_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gates pass, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the drift facts could not be computed.
+    transitions:
+      - target: worktree_sync
+        when:
+          gates.drift_facts_recorded.matches: true
+          gates.plan_intent_recorded.exists: true
+      - target: worktree_sync
+        when:
+          gates.drift_facts_recorded.matches: false
+          facts_status: override
+      - target: done_blocked
+        when:
+          gates.drift_facts_recorded.matches: false
+          facts_status: blocked
+        context_assignments:
+          failure_reason: "drift_facts blocked: ${evidence.detail}"
+
+  worktree_sync:
+    # The mechanical half of the drift check: rebase the shared branch on
+    # origin/main. drift_facts already fetched, and computed the facts against
+    # the pre-rebase fork point; the judgment, when one is needed, is
+    # worktree_discipline_check's.
+    #
+    # There is no fetch here on purpose. drift_facts fetched immediately
+    # before, and a second fetch could move origin/main past what the facts
+    # describe, so the run would rebase onto commits nobody examined.
+    #
+    # The rebased_on_main gate asks the question the rebase was FOR -- is
+    # origin/main an ancestor of HEAD -- rather than asking whether the rebase
+    # command succeeded. A rebase that exits 0 without achieving it fails the
+    # gate, and a rebase that was unnecessary passes without one having run.
+    # That is what makes this an independent check rather than a restatement
+    # of the action's exit code.
     #
     # The two rebase-in-progress tests are not belt-and-braces. Measured: during
     # a CONFLICTED rebase the ancestor check PASSES on its own, because git has
@@ -208,23 +280,34 @@ states:
     # rather than a literal .git/ path so this holds in a worktree, where the
     # rebase state lives outside the main .git directory.
     #
+    # drift_clear routes the no-drift case. It matches only when drift_facts
+    # computed `route: none`, so the single edge to spawn_and_await needs both
+    # a clean rebase and facts that say nothing the PLAN references moved.
+    # Everything else -- facts that say judge, facts that are absent because
+    # drift_facts was overridden, or a rebase the agent overrode -- goes to
+    # worktree_discipline_check.
+    #
     # Re-running is safe in the two ways that matter. On an already-rebased
     # branch the rebase is a no-op. Mid-conflict, git itself refuses -- "It
     # seems that there is already a rebase-merge directory" -- so the retry
     # reports the conflict again instead of compounding it.
     default_action:
-      command: git fetch --quiet origin && git rebase origin/main
+      command: git rebase origin/main
       fallback: >-
         koto could not rebase the shared branch onto origin/main. Read git's own
         output above. A conflict leaves the rebase in progress: resolve it and
         run `git rebase --continue`, or run `git rebase --abort` and rebase by
-        hand, then tick again -- the sync re-runs on entry, so nothing needs
+        hand, then tick again -- the rebase re-runs on entry, so nothing needs
         submitting. Submit `sync_status: override` if the branch is deliberately
         not on top of main, or `blocked` with `detail` if it cannot be resolved.
     gates:
       rebased_on_main:
         type: command
         command: 'git merge-base --is-ancestor origin/main HEAD && test ! -d "$(git rev-parse --git-path rebase-merge)" && test ! -d "$(git rev-parse --git-path rebase-apply)"'
+      drift_clear:
+        type: context-matches
+        key: drift_facts.json
+        pattern: '^\{"route":"none",'
     accepts:
       sync_status:
         type: enum
@@ -236,9 +319,14 @@ states:
         type: string
         description: Why the branch could not be brought onto main.
     transitions:
+      - target: spawn_and_await
+        when:
+          gates.rebased_on_main.exit_code: 0
+          gates.drift_clear.matches: true
       - target: worktree_discipline_check
         when:
           gates.rebased_on_main.exit_code: 0
+          gates.drift_clear.matches: false
       - target: worktree_discipline_check
         when:
           gates.rebased_on_main.exit_code: 1
@@ -251,31 +339,24 @@ states:
           failure_reason: "worktree_sync blocked: ${evidence.detail}"
 
   worktree_discipline_check:
-    gates:
-      # Keep the {{PLAN_SLUG}} reference. Two shapes that look simpler are not:
-      #
-      #   ls wip/work-on_*_impact.json   -- passes on a classification left by
-      #     an earlier run or a different plan in the same worktree. This gate
-      #     exists to confirm THIS run classified THIS drift, and a glob cannot
-      #     tell those apart. It trades a gate that never passes for one that
-      #     passes on the wrong evidence.
-      #
-      #   test -f wip/work-on_$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')...
-      #     -- works, but puts command substitution and a sed expression back
-      #     into an sh -c string, which is the fragility that produced the
-      #     original defect, and duplicates a derivation koto init already does.
-      #
-      # The declared-variable form is the only one where a future mistake is
-      # loud: koto rejects a {{KEY}} that is not in the variables block at
-      # compile time, naming the state.
-      impact_classified:
-        type: command
-        command: "test -f wip/work-on_{{PLAN_SLUG}}_impact.json"
+    # The judgment half, and only reached when drift_facts could not rule drift
+    # out. It carries no gates: the facts it reasons over were computed and
+    # gated upstream (drift_facts.json and plan_intent.md, both written before
+    # this state is reached), and a gate on a question state would keep that
+    # question from ever being settled without the agent. There is no `none`
+    # value either -- the script owns that answer, and worktree_sync routes it
+    # straight to spawn_and_await.
     accepts:
       impact:
         type: enum
-        values: [none, informational, intent-changing]
+        values: [informational, intent-changing]
         required: true
+        description: >-
+          Whether the upstream changes listed in the drift_facts.json context key
+          invalidate the PLAN's intent as plan_intent.md states it.
+          `informational`: main touched paths the PLAN references, but the PLAN
+          still holds as written. `intent-changing`: a file, contract, or fact
+          the PLAN depends on was removed or changed so the PLAN no longer holds.
       rationale:
         type: string
         required: false
@@ -283,16 +364,10 @@ states:
     transitions:
       - target: spawn_and_await
         when:
-          impact: none
-          gates.impact_classified.exit_code: 0
-      - target: spawn_and_await
-        when:
           impact: informational
-          gates.impact_classified.exit_code: 0
       - target: escalate_upstream_drift
         when:
           impact: intent-changing
-          gates.impact_classified.exit_code: 0
         context_assignments:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
 
@@ -548,7 +623,7 @@ of the state that produces it stops the tick with `capture_unset` instead of
 showing you the failure you came here to read. Only `spawn_and_await`, which
 every path reaches through this state, references it with braces.
 
-On the passing path the run advances to `worktree_discipline_check` with no evidence and you never read this.
+On the passing path the run advances to `drift_facts` with no evidence and you never read this.
 
 You are here because the script failed, and the response above carries its exit code and its own stderr. Exit 64 is a detached HEAD, 65 a branch name the pattern rejects, 66 the default branch. Fix the branch and tick again; the record re-runs on entry.
 
@@ -560,35 +635,63 @@ Evidence schema (optional; the passing path submits neither):
 - `status`: `blocked`
 - `detail`: why the branch could not be recorded
 
-## worktree_sync
+## drift_facts
 
-Bringing the shared branch onto the current `origin/main`. koto fetches and rebases itself on entry; you only see this state if it could not.
+Computing what `origin/main` changed since this PLAN's base, before the rebase. koto runs the script itself on entry; you only see this state if it could not.
 
 <!-- details -->
 
-The command is `git fetch --quiet origin && git rebase origin/main`. The gate beside it asks the question the rebase existed to answer -- is `origin/main` an ancestor of HEAD -- independently of whether the rebase command succeeded, and additionally requires that no rebase is in progress.
+The command is `skills/execute/scripts/drift-facts.sh`. It fetches `origin`, takes the base as the merge-base of the last commit that touched the PLAN (or HEAD, for a PLAN git doesn't track yet) and `origin/main`, collects the paths the PLAN references (its `upstream:`, its `**Files**:` lines, and backticked path tokens), and diffs the base against `origin/main`. It writes two context keys and prints nothing: `plan_intent.md` (the PLAN's title, upstreams, Scope Summary, and outline goals) and then `drift_facts.json` (compact JSON, `route` first, schema `drift-facts/v1`). The facts hold paths, statuses, and line counts only, never commit subjects or diff text.
+
+`route` is `none` when main didn't move, or moved only in paths the PLAN doesn't reference, and `judge` otherwise: an overlap, a deleted reference, a payload cut to fit 8192 bytes, or a PLAN that references nothing beyond itself and its upstreams. `worktree_sync` routes on it after the rebase.
+
+This runs before the rebase because the rebase moves a branch-only PLAN's fork point to the tip of `origin/main`, after which every run would read as "main hasn't advanced". For the same reason, a `koto rewind` into this state after `worktree_sync` has run computes against the already rebased branch and reports no drift.
+
+On the passing path the run advances to `worktree_sync` with no evidence and you never read this.
+
+You are here because the script failed, and the response above carries its exit code and its own stderr. Exit 64 means no base resolved (the fetch failed, `origin/main` is missing, or it shares no history with the PLAN), 65 the PLAN doc is missing or outside the repository, 66 a context write failed. Fix the cause and tick again; the script re-runs on entry.
+
+`facts_status: override` with `detail` continues to the rebase without facts. The drift question in `worktree_discipline_check` is then asked with no `drift_facts.json` to read, so you'd have to answer it from git yourself. `facts_status: blocked` with `detail` stops the run.
+
+Evidence schema (optional; the passing path submits neither):
+- `facts_status`: `override` or `blocked`
+- `detail`: why the facts could not be computed
+
+## worktree_sync
+
+Bringing the shared branch onto the current `origin/main`. koto rebases itself on entry; you only see this state if it could not.
+
+<!-- details -->
+
+The command is `git rebase origin/main`, with no fetch: `drift_facts` fetched immediately before, so the rebase lands on exactly the `origin/main` the facts describe. The `rebased_on_main` gate beside it asks the question the rebase existed to answer -- is `origin/main` an ancestor of HEAD -- independently of whether the rebase command succeeded, and additionally requires that no rebase is in progress.
 
 That second half is load-bearing. During a conflicted rebase the ancestor check passes on its own, because git has already replayed part of the branch, so HEAD genuinely does contain `origin/main`. Without the in-progress tests the gate would wave a halted rebase and a conflicted worktree straight through.
 
-On the passing path the run advances to `worktree_discipline_check` with no evidence and you never read this. A branch already on top of main passes without a rebase having done anything.
+The `drift_clear` gate reads `drift_facts.json` and matches only when its `route` is `none`. A clean rebase with `drift_clear` passing advances straight to `spawn_and_await`, with no evidence and no drift question. A clean rebase with any other facts advances to `worktree_discipline_check`. A branch already on top of main passes without a rebase having done anything.
 
-You are here because the rebase failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the rebase in progress: resolve it and `git rebase --continue`, or `git rebase --abort` and rebase by hand, then tick again. Re-entering re-runs the sync, and git refuses to start a second rebase while one is in progress, so a retry reports the conflict rather than compounding it.
+You are here because the rebase failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the rebase in progress: resolve it and `git rebase --continue`, or `git rebase --abort` and rebase by hand, then tick again. Re-entering re-runs the rebase, and git refuses to start a second rebase while one is in progress, so a retry reports the conflict rather than compounding it.
 
-`sync_status: override` proceeds without the rebase, for the deliberate case where the shared branch should not be on top of main. `blocked` with `detail` stops the run.
+`sync_status: override` proceeds to `worktree_discipline_check` without the rebase, for the deliberate case where the shared branch should not be on top of main. `blocked` with `detail` stops the run.
 
-This state does not classify anything. Judging what the upstream changes mean for the PLAN is the next state's job.
+This state does not classify anything. Judging what the upstream changes mean for the PLAN is `worktree_discipline_check`'s job, and only when the facts couldn't rule drift out.
 
 ## worktree_discipline_check
 
-Per-child worktree-discipline check (#162). The fetch and rebase already happened in `worktree_sync`, and its gate confirmed the branch sits on top of `origin/main`. What is left is the judgment: classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+Upstream drift check, once per run. `origin/main` changed something this PLAN references, or the facts couldn't rule that out, so decide whether the change invalidates the PLAN's intent. The fetch, the rebase, and the fact-finding already happened; you don't fetch or rebase here, and there's no file to write.
 
-The `impact_classified` gate tests exactly that path: `wip/work-on_{{PLAN_SLUG}}_impact.json`. koto reports a failed command gate as an exit code with no message and discards the command's own output, so if this state will not advance, check that file first -- the gate has no other way to tell you what it wanted.
+Read the two context keys `drift_facts` wrote:
+
+```bash
+koto context get {{SESSION_NAME}} drift_facts.json
+koto context get {{SESSION_NAME}} plan_intent.md
+```
+
+`drift_facts.json` says why you're being asked (`reasons`), which referenced paths main changed (`overlap`, each with `status`, `added`, `removed`), and which it deleted (`deleted_referenced_paths`). `plan_intent.md` holds the PLAN's title, upstreams, Scope Summary, and outline goals. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full instruction, and `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` for the classification rule.
 
 Submit `impact` as one of:
 
-- `none` — main has not advanced or advanced in ways the PLAN does not touch. Routes to `spawn_and_await`.
-- `informational` — main has advanced but the changes do not invalidate the PLAN's intent (e.g., docs, unrelated tests). Routes to `spawn_and_await`.
-- `intent-changing` — main has advanced in a way that invalidates the PLAN's intent (e.g., the design's referenced files were deleted, the contract the PLAN relies on was changed). Routes to `escalate_upstream_drift` with `rationale` (required).
+- `informational` — main touched paths the PLAN references, but the PLAN's intent still holds (e.g., docs edits, unrelated tests, a reformat). Routes to `spawn_and_await`.
+- `intent-changing` — main changed something the PLAN depends on so it no longer holds (e.g., a referenced file was deleted, a contract the PLAN relies on changed). Routes to `escalate_upstream_drift` with `rationale` (required).
 
 ## escalate_upstream_drift
 

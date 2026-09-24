@@ -276,9 +276,9 @@ done
 # advances without the agent submitting anything for the record.
 
 # The assertion is "past settled_branch_record", not the name of the state after
-# it. What follows this one is worktree_sync today and was
-# worktree_discipline_check yesterday; either way the fixture has no remote, so
-# the run stops there. Naming the successor would make this case fail whenever a
+# it. What follows this one is drift_facts today, and has been worktree_sync
+# and worktree_discipline_check before it; either way the fixture has no
+# remote, so the run stops there. Naming the successor would make this case fail whenever a
 # state is inserted downstream, which says nothing about the record.
 new_session happy-path
 submit execute-happy-path '{"status":"override"}'
@@ -335,7 +335,7 @@ fi
 #
 # The submission carries `blocked`, which is the state's only evidence value.
 # With the gate false, the blocked edge is the one that can fire; a passing gate
-# would send it to worktree_discipline_check instead, which is the failure this
+# would send it to drift_facts instead, which is the failure this
 # case detects.
 
 new_session gate-metachar

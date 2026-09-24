@@ -117,6 +117,9 @@ suite_scripts() {
             # Same koto-absent contract: its two static cases still run on the
             # macOS leg, and the engine-backed ones skip there.
             echo "skills/execute/scripts/terminal-retention_test.sh"
+            # Its script cases write through a koto stand-in and need only git
+            # and jq, so they run on the macOS leg; its engine cases skip there.
+            echo "skills/execute/scripts/drift-facts_test.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key
