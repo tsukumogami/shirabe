@@ -61,6 +61,7 @@ recognized child shape.
 |---|---|
 | doc-emitting (committed doc with frontmatter) | child doc's frontmatter `status:` value + the doc's content fingerprint (git blob hash) |
 | issue or PR (no doc) | issue/PR state + labels + CI check rollup |
+| leg-attached child (a root session attached to a koto request leg) | the leg's promoted payload, read only through the `request-leg` gate |
 
 The table grows as new parents land children with new shapes. Each parent
 that invokes a new child shape adds a row; new rows go through the
@@ -77,6 +78,20 @@ issue/PR's state (Open, Closed, Merged), the set of labels attached, and
 the CI check rollup (the durable terminal verdict of the PR's checks —
 green, red, or pending). The CI check rollup is the externally-visible
 durable terminal state; individual check logs are internals.
+
+**Leg-attached children.** A child run with `--koto-leg` (see
+Parent-of-the-Parent Binding in
+[`parent-skill-pattern.md`](parent-skill-pattern.md)) reports by
+promoting its declared terminal `result:` map to the leg. That promoted
+payload, together with the leg's disposition and result source
+(promoted, refused, explicit), is the whole surface, and the driver
+reads it only through a `request-leg` gate. The child's own session,
+its koto context, and its state file stay off-limits even though the
+driver could name them: they're the child's internals, exactly as a
+doc-emitting child's state file is. Because a leg carries a child's
+word rather than durable state, a driver re-checks the durable
+artifacts the child claims (the PLAN, the owned PR) before acting on
+a progress outcome.
 
 ## Drift Detection
 

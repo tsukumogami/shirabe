@@ -1,12 +1,13 @@
-# Coordination Strategy: The Coordinated Multi-Repo Contract
+# Coordination Strategy: The Coordinated Contract
 
-This document is the canonical contract for **coordinated** execution — the
-multi-repo generalization of shirabe's single-repo tactical chain. It defines
-the lifecycle, the per-repo grouping rule, the merge-order model, the
-done-signal, and the load-bearing security rules (F1, F2, F4). `/scope` and
-`/work-on` bind to this contract and carry only bindings — no consumer restates
-it. This is the same single-source discipline `parent-skill-pattern.md` enforces
-across `/scope` and `/charter`.
+This document is the canonical contract for **coordinated** execution: a split
+PLAN whose PRs land in one or more repositories and are tied together by a
+coordination PR that merges last. It defines how the mode is resolved, the
+lifecycle, the grouping rule, branches, the merge-order model, the merge step
+and its pause, the done-signal, and the load-bearing security rules (F1, F2,
+F4). `/plan`, `/scope`, `/execute`, and `/work-on` bind to this contract and
+carry only bindings — no consumer restates it. This is the same single-source
+discipline `parent-skill-pattern.md` enforces across `/scope` and `/charter`.
 
 The coordination PR body is **authored by the skill** from the template below,
 the same author-by-skill discipline every other shirabe artifact follows; there
@@ -24,25 +25,105 @@ The companion references fill in the details this document points at:
 
 ## The Coordinated Mode
 
-A **coordinated effort** spans more than one repository. A single
-**coordination PR** — a docs-only PR on its own branch — holds the durable
-planning chain (BRIEF/PRD/DESIGN) and the PLAN, and is the durable home for the
-coordination state (the PR-index and the merge-order block). Per-repo
-implementation lands as separate PRs. The coordination PR merges **last**, and
-that merge is the effort's done-signal.
+A **coordinated effort** spans one or more repositories. Its PRs may all sit in
+one repository, one per split unit, or spread across several; the contract is
+the same either way. A single **coordination PR** — a docs-only PR on its own
+branch — holds the durable planning chain (BRIEF/PRD/DESIGN) and the PLAN, and
+is the durable home for the coordination state (the PR-index and the
+merge-order block). Implementation lands as separate PRs, one per PR node (a
+`(repo, pr_group)` unit). The coordination PR merges **last**, and that merge
+is the effort's done-signal.
 
-Because it is gated on every indexed per-repo PR merging first, the coordination
-PR **stays draft until it merges last** — draft is its correct resting state
-throughout review, not an oversight. This is the standing exception to the
+Because it is gated on every indexed PR merging first, the coordination PR
+**stays draft until every indexed PR has merged** — draft is its correct resting
+state throughout review, not an oversight. This is the standing exception to the
 [DRAFT-vs-READY discipline](../docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md):
-the per-repo implementation PRs each flip to ready-for-review at their own review
-handoff once their work is verified, while the coordination PR alone stays draft
-until last.
+the implementation PRs each flip to ready-for-review at their own review
+handoff once their work is verified, while the coordination PR alone stays
+draft. Once every indexed PR has merged, `/execute` marks the coordination PR
+ready, and it merges last.
 
 Coordinated mode is the third `execution_mode` value (`single-pr | multi-pr |
 coordinated`). It is always multi-PR, and adds what `multi-pr` lacks: a
-coordination PR that merges last, cross-repo per-repo grouping, and a two-node
-merge-order DAG with gates.
+coordination PR that merges last, grouping by `(repo, pr_group)` node, and a
+two-node merge-order DAG with gates.
+
+## Mode Resolution
+
+A PLAN's mode is settled in two questions, in order. The first is whether the
+work splits at all (recorded in the PLAN's `split_branch` and
+`split_rationale`). That question never reads the coordination flags, the
+intent, or the headers below, so none of them can change whether the work
+splits. **An unsplit PLAN is `single-pr` regardless of flags or intent.**
+
+Only when the work splits does the second question pick between `coordinated`
+and `multi-pr`. The first level that gives an answer wins:
+
+1. **An explicit flag.** `--coordinated` gives `coordinated`;
+   `--no-coordinated` gives `multi-pr`.
+2. **Intent.** `--intent=continue` gives `coordinated`; `--intent=stop` gives
+   `multi-pr`. No intent (`none`) gives no answer at this level.
+3. **A coordinated-by-default header** in the repository's `CLAUDE.md`, from
+   the closed list below, gives `coordinated`.
+4. **The default**, `multi-pr`.
+
+The PLAN records which level decided as `split_mode_source`, next to the mode:
+
+| `split_mode_source` | Meaning | Mode it accompanies |
+|---|---|---|
+| `none` | The work didn't split. | `single-pr` |
+| `flag` | Level 1 decided. | `coordinated` or `multi-pr` |
+| `intent` | Level 2 decided. | `coordinated` or `multi-pr` |
+| `header` | Level 3 decided. | `coordinated` |
+| `default` | No level above gave an answer. | `multi-pr` |
+
+`none` is recorded only when the work doesn't split, and the mode is then
+`single-pr`; `flag`, `intent`, `header`, and `default` appear only on a split.
+`/plan` computes both values with `skills/plan/scripts/resolve-split-mode.sh`
+rather than by judgment, and `/scope` re-runs the same script to check what its
+`/plan` hop produced.
+
+### Coordinated-by-default header values
+
+This table is the single definition of which `CLAUDE.md` header values mean
+"coordinated by default". It's mirrored as a constant in
+`skills/plan/scripts/resolve-split-mode.sh`; **the two must change together**,
+and that script's test fails when they differ.
+
+| Header | Values that mean coordinated by default |
+|---|---|
+| `## PR Grouping Policy:` | `coordinated` |
+| `## Reviewability Ceiling:` | none (no value of this header turns coordinated mode on) |
+
+Matching rules:
+
+- The header name is matched exactly and case-sensitively as a level-2
+  heading at the start of a line, and the value is the rest of that line after
+  the colon. The first matching heading in the file is the one read.
+- The value is trimmed of leading and trailing whitespace, then compared
+  case-sensitively against the table. `Coordinated` doesn't match.
+- Any other value is not a coordinated-by-default signal. That includes the
+  `coarsest-legal` grouping policy and every `## Reviewability Ceiling:` value
+  (`default` or a concrete ceiling). An unrecognized value isn't an error
+  either: the header keeps whatever meaning it has as a grouping or size
+  preference, and resolution falls through to level 4. A missing header or a
+  missing `CLAUDE.md` falls through the same way.
+
+`coordinated` is a grouping policy as well as a signal: it groups work by the
+Coarsest-Legal-Grouping Rule below, exactly as `coarsest-legal` does. The
+values repositories already set stay non-signals so that a repository which
+sets them keeps the modes it gets today.
+
+## Tracking Level
+
+A coordinated PLAN follows the resolved tracking level the way `multi-pr`
+does, on the `flag > CLAUDE.md ## Tracking Level: > mode default` stack, with
+**`none` as coordinated's default**. At `none` the work items are outlines with
+local IDs under `## Issue Outlines`, each carrying `**Repo**: <owner/repo>` and
+`**Group**: <pr_group>`, and nothing is filed. Only when the tracking level asks
+for issues (`issues` or `issues-and-milestone`) does `/plan` file them, each
+with a `_Repo: <owner/repo> | Group: <pr_group>_` row, behind an explicit
+filing approval.
 
 ## Lifecycle
 
@@ -54,17 +135,19 @@ The coordinated lifecycle has four phases, in order:
    coordination PR), the artifact chain, the PR-index, and a fenced merge-order
    block, all derived from the PLAN. The skill posts the body with `gh pr
    create`. `shirabe validate --coordination-body <file>` gives authoring
-   feedback before the post.
-2. **Track.** As per-repo PRs open and progress, the skill re-authors the body
+   feedback before the post. A `/scope` run under `--intent` is the one
+   exception to "up front": the PLAN's mode isn't known until its `/plan` hop
+   returns, so it opens the coordination PR when it publishes at exit.
+2. **Track.** As node PRs open and progress, the skill re-authors the body
    from the same template — reading each indexed PR on the operator's own `gh`
    credentials, rewriting the PR-index, and recomputing the merge-order — and
    posts the refreshed body with `gh pr edit`. State lives on the coordination
    branch/PR itself, so an interrupted effort reconnects from durable state — no
    session file is the source of truth.
 3. **Finalize.** Each repo finalizes its own artifacts in its own PR (writes
-   stay repo-local). The cross-repo boundary is a **read-only verification
-   gate**: "all upstreams terminal, all per-repo PRs merged." No coordination
-   step writes across a repo boundary.
+   stay repo-local). The boundary between node PRs is a **read-only
+   verification gate**: "all upstreams terminal, all indexed PRs merged." No
+   coordination step writes across a repo boundary.
 4. **Merge last.** Once every indexed PR has merged and finalization is
    complete, the read-only gate passes, the coordination PR consumes its own
    PLAN, and merges. That merge is the done-signal. A non-bypassable CI check
@@ -83,9 +166,9 @@ pr create` / refresh with `gh pr edit`:
 ````markdown
 # Coordination PR: <effort-slug>
 
-> This is a **coordination PR** for a coordinated multi-repo effort. It is
-> docs-only and merges **last**, once every indexed per-repo PR has merged and
-> finalization is complete. See `references/coordination-strategy.md`.
+> This is a **coordination PR** for a coordinated effort. It is docs-only and
+> merges **last**, once every indexed PR has merged and finalization is
+> complete. See `references/coordination-strategy.md`.
 
 ## Artifact Chain
 
@@ -125,7 +208,7 @@ Slot rules:
 
 ## Coarsest-Legal-Grouping Rule
 
-Per-repo implementation is grouped to the **coarsest legal unit**: by default,
+Implementation is grouped to the **coarsest legal unit**: by default,
 **one PR per repository**. A repo splits into more than one PR only on a named
 branch from the coordinated profile of
 [`${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`](split-triggers.md): the
@@ -140,6 +223,31 @@ section for which and why.
 
 Absent a named branch, do not split: the coarsest grouping minimizes the
 number of merge-order nodes and the cross-repo coordination surface.
+
+A coordinated PLAN whose work sits in one repository exists only because the
+work split, so the PLAN's recorded split branch is the named branch that
+splits that repository: each split unit is its own `pr_group`, and the PLAN
+has at least two. A multi-repo PLAN whose items all carry `Group: default`
+keeps one node per repository, as before.
+
+## Branches
+
+The unit of branching is the PR node, not the repository. `/execute` cuts one
+branch per PR node, named `impl/<slug>-<node-id>`, from the repository's
+default branch, in its own worktree. A node branch is **never** cut from the
+coordination branch, so no node PR carries the PLAN or the planning chain to
+the default branch ahead of the coordination PR. Two groups in one repository
+therefore get two branches and two PRs, and never share a branch. A multi-repo
+PLAN with `Group: default` on every item gets one node, and one branch, per
+repository, which is the shape it had before nodes were the unit.
+
+Because a node branch doesn't contain the PLAN, a work item on it reads its
+outline from the coordination checkout (the checkout holding the coordination
+branch), or from its GitHub issue when the tracking level filed one. On resume,
+a node with no indexed PR is adopted by looking up its branch
+(`impl/<slug>-<node-id>`) rather than by title, keeping only a PR whose head is
+in the same repository, whose author is the authenticated user, and whose base
+is the default branch. More than one match is an error, never a pick.
 
 ## Merge-Order Model: A Two-Node DAG
 
@@ -163,7 +271,7 @@ where it survives the PLAN through merge as the merge-time canon.
 
 ### Re-derivation with merged nodes
 
-An already-merged per-repo PR is a fixed, satisfied predecessor. Re-derivation
+An already-merged node PR is a fixed, satisfied predecessor. Re-derivation
 orders only the unmerged remainder and may not add an edge that would require
 re-merging a merged node. A new dependency pointing *into* a merged node is
 treated as already-satisfied; a new dependency that would require a merged node
@@ -171,15 +279,51 @@ to come *after* unmerged work is rejected as inconsistent with landed history.
 
 ### Atomicity is refused, not planned
 
-A cross-repo atomicity requirement — two repos that would have to merge
-simultaneously with no compatible-intermediate split — is detected at planning
-time and **refused** with guidance to reshape into a compatible-intermediate
-sequence. The system never emits a plan that assumes atomic cross-repo merge.
+An atomicity requirement across PR groups — two PR nodes, in one repository or
+in different ones, that would have to merge simultaneously with no
+compatible-intermediate split — is detected at planning time and **refused**
+with guidance to reshape into a compatible-intermediate sequence. The system
+never emits a plan that assumes an atomic merge across PR groups.
+
+## The Merge Step and the Pause
+
+The merge order is also the order `/execute` works in. A node's PR is opened
+only once every predecessor in the merge order is satisfied, and each node PR
+**merges only after all its predecessors have merged**. The coordination PR
+merges **last**, after every other indexed PR.
+
+Merging by the agent is opt-in. Without `--merge`, `/execute` never merges
+anything: it opens and readies the PRs it can, and a human merges them. With
+`/execute --merge`, it merges each node PR in merge order, and then the
+coordination PR, only through `skills/execute/scripts/merge-exec.sh` and only
+when that PR's merge verdict allows it (the decision rules live with the
+script, in `/execute`). A merge counts only once a fresh read of the PR reports
+it merged. Once every indexed PR has merged, `/execute` runs finalization on
+the coordination branch, pushes it, and marks the coordination PR ready (see
+the exception in the
+[DRAFT-vs-READY discipline](../docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md));
+with `--merge` it then merges it the same way.
+
+A coordinated run ends in one of three outcomes:
+
+| Outcome | When |
+|---|---|
+| `merged` | The coordination PR merged. |
+| `paused-awaiting-merges` | A node can't start because a predecessor hasn't merged, whether it waits on a human or on a merge the verdict didn't allow. |
+| `ready-awaiting-merge` | Nothing is left to start, and something (a node PR or the coordination PR) is still unmerged. |
+
+A paused run isn't a failure and doesn't end the effort. The coordination PR is
+**left open**, never closed, and it's the durable record the pause rests on:
+its PR index, the `head=` field each node's push records, and its merge-order
+block. A later `/execute` on the same PLAN, or a `/deliver` run that reaches
+`/execute`, resumes from the coordination PR and the node PRs it indexes. It
+reads which predecessors have merged since, opens the node PRs that are now
+unblocked, and carries on, with no re-scoping.
 
 ## The Done-Signal
 
 The single done-signal of a coordinated effort is **the coordination PR
-merging**. It cannot merge until every indexed per-repo PR has merged and
+merging**. It cannot merge until every indexed PR has merged and
 finalization is complete; `shirabe validate --merge-gate` (run by `lifecycle.yml`
 under `--mode=ready`) enforces this and is non-bypassable. There is no separate
 "effort complete" marker — the
@@ -204,7 +348,7 @@ incoherent, not merely risky:
    repo's PR (it indexes it). That is a Public → Private reference, which the
    directional rule forbids outright.
 2. The coordination PR holds the PLAN (R5/R8), and the PLAN describes the
-   per-repo work by tagging each issue with its `repo`. A public coordination
+   work by tagging each work item with its `repo`. A public coordination
    PR coordinating a private repo would therefore **name that private repo in
    plaintext in the PLAN**, regardless of any render-layer redaction — making
    redaction theater rather than protection.
@@ -298,6 +442,12 @@ the gate never trusts it.
 - The merge-last gate's `gh` use is **read-only**; no coordination step writes
   across a repo boundary. The skill's own `gh pr create`/`gh pr edit`/`gh pr
   close` calls write only the coordination PR's own body/state in its own repo.
+  Node PRs are opened by `/execute` in the repository each node names, which
+  must be in the write set `/execute` fixes when it starts.
+- The only merge call is `skills/execute/scripts/merge-exec.sh`, run only under
+  `/execute --merge`. It recomputes the merge verdict from live `gh` reads
+  immediately before merging, never trusts a stored verdict or the PR body, and
+  never passes an administrator or bypass option.
 - `gh` arguments are passed as an argv array, never through a shell; the
   validator process never holds the token bytes.
 - `gh`-sourced strings (PR titles, branch names) are treated as untrusted when

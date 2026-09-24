@@ -61,13 +61,27 @@ verified, review-ready work sitting in draft on the assumption that the
 human will "mark it ready and merge" — those are two different events with
 two different owners.
 
-**The one exception — the coordination PR.** In a coordinated multi-repo
-effort the per-repo implementation PRs follow the rule above: each flips
-to ready at its own review handoff. The coordination PR does not. It is
-docs-only and gated on every indexed per-repo PR merging first, so draft
-is its correct resting state throughout review — it **stays draft until it
-merges last**. The rule is therefore: per-repo impl PRs go ready at
-handoff; the coordination PR stays draft until it merges last. See
+**Opt-in agent merge.** `/execute --merge` is the one place an agent may
+merge. It merges only through `skills/execute/scripts/merge-exec.sh`, and
+only when the merge verdict rules `/execute` owns allow it: the PR is
+ready, its checks have passed, GitHub reports it cleanly mergeable, and
+the base branch's own protection rules would let an ordinary contributor
+merge it. The script recomputes that verdict from live reads immediately
+before merging and never passes an administrator or bypass option. Merge
+intent comes from the invocation's own `--merge` flag and is never
+remembered across runs. Without `--merge`, the rule above is unchanged:
+the agent marks ready, and the human merges.
+
+**The one exception — the coordination PR.** In a coordinated effort,
+whether its PRs sit in one repository or several, the implementation PRs
+follow the rule above: each flips to ready at its own review handoff. The
+coordination PR does not. It is docs-only and gated on every indexed PR
+merging first, so draft is its correct resting state throughout review —
+it **stays draft until every indexed PR has merged**. Once they all have,
+`/execute` marks the coordination PR ready, and it merges last (by a
+human, or by `/execute --merge` under the rules above). The rule is
+therefore: implementation PRs go ready at handoff; the coordination PR
+goes ready once every indexed PR has merged, and merges last. See
 [`references/coordination-strategy.md`](../../../references/coordination-strategy.md)
 for the merge-last contract.
 

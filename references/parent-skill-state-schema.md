@@ -87,17 +87,56 @@ identically rather than reinventing the vocabulary.
   exit path, not a fourth exit path.
 
 - **`plan_execution_mode:`** — gated by `/plan` appearing in
-  `chain_ran`. Valid values: `single-pr | multi-pr`. The field
-  records the output-mode selection of a terminal child that exposes
-  two distinct output modes (in v1 only `/plan` does; the field is
-  therefore parent-specific to chains that include `/plan` as a
-  terminal child). Recording the selection in the state file is what
-  lets downstream consumers — Decision Records, finalization
-  artifacts, future-resume detection — observe which output shape
-  the chain produced without re-reading the terminal artifact.
+  `chain_ran`. Valid values: `single-pr | multi-pr | coordinated`.
+  The field records the output-mode selection of a terminal child
+  that exposes more than one output mode (in v1 only `/plan` does;
+  the field is therefore parent-specific to chains that include
+  `/plan` as a terminal child). Recording the selection in the state
+  file is what lets downstream consumers — Decision Records,
+  finalization artifacts, future-resume detection — observe which
+  output shape the chain produced without re-reading the terminal
+  artifact. `coordinated` covers a split PLAN in one repository as
+  well as one spanning several.
+
+  The PLAN records, next to its `execution_mode`, which precedence
+  level chose the mode, as `split_mode_source` with values
+  `none | flag | intent | header | default`. `none` means the work
+  didn't split, and the mode is then `single-pr`; the other four
+  appear only on a split. This is the same value set
+  [`coordination-strategy.md`](coordination-strategy.md) documents
+  under Mode Resolution. The state file doesn't copy
+  `split_mode_source`; a parent that needs it reads the PLAN.
 
 Both fields are conditional per invariant I-5 (see Conditional-field
 gating below); R9 Parts 2 and 3 enforce.
+
+### Invocation intent
+
+A parent MAY declare an **invocation-intent field**, `intent:`,
+recording what the caller asked the run to do once its chain ends.
+Unlike the conditional fields above, it's **always present** on a
+parent that declares it, from the first state-file write onward, so
+it isn't subject to I-5 gating.
+
+- **Valid values:** `continue | stop | none`. `continue` and `stop`
+  are the two values a caller can pass (`--intent=continue`,
+  `--intent=stop`); `none` records a run whose caller passed no
+  intent, and such a run behaves as the parent always has.
+- **No empty value.** A parent that runs under a workflow session
+  may carry the caller's raw token on a session variable (for
+  `/scope`, `INTENT_FLAG`, whose default is empty when the flag is
+  missing). The empty value exists only on that variable. It never
+  appears in a state file: the parent resolves the effective intent
+  (the variable when non-empty, else the recorded `intent:`, else
+  `none`) and writes one of the three values above. An empty,
+  null, or placeholder `intent:` is a schema violation, the same as
+  an out-of-enum value.
+- **Written once, then compared.** A later invocation that names a
+  different intent against an unfinished run is a mismatch the
+  parent refuses; an invocation that names none resumes under the
+  recorded value.
+
+`/scope` is the first parent to declare the field.
 
 ## Pattern-Level Invariants
 
@@ -231,7 +270,7 @@ and multi-mode runs would appear identically in `chain_ran` either
 way; only a separate field carries the selection. `plan_execution_mode:`
 (see Parent-specific conditional fields above) is the canonical
 example: gated by `/plan` appearing in `chain_ran`, with valid values
-`single-pr | multi-pr`, the field records the output-mode selection
+`single-pr | multi-pr | coordinated`, the field records the output-mode selection
 without collapsing the chain-tracking triad's membership semantics.
 
 ### Status-aware re-entry control
