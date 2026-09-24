@@ -90,6 +90,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/terminal-retention_test.sh
 
+      # drift-facts_test.sh runs drift-facts.sh against git fixtures with a
+      # bare origin, then drives the shipped execute.md through drift_facts and
+      # worktree_sync to spawn_and_await or worktree_discipline_check, which
+      # needs the same engine for its second half.
+      - name: Run drift-facts tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/drift-facts_test.sh
+
       # The macOS leg is the floor check, and until now it was not one: it
       # invoked `bash`, which resolves to whatever the runner image has on
       # PATH, so a post-3.2 construct would have passed here unnoticed. That is

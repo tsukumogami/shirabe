@@ -10,8 +10,8 @@
 # carry
 # the settled branch and the per-child batch view, workflows inspects child
 # outcomes, status reports progress. `context add` takes `--from-file` on the
-# cross-issue-context path; the settled-branch write pipes on stdin instead and
-# needs no flag.
+# cross-issue-context path; the settled-branch write, and the drift-facts writes
+# of plan_intent.md and drift_facts.json, pipe on stdin instead and need no flag.
 #
 # The completion cascade's script owns the shirabe side. It lives under /work-on
 # (skills/work-on/scripts/run-cascade.sh), which runs it for a standalone issue,
@@ -35,8 +35,10 @@
 # gh drives the home PR throughout (pr list, pr create, pr edit, pr ready, pr
 # checks, pr view, issue view) and the opt-in merge: merge-verdict.sh reads
 # the PR, its checks, and the base's rules through `pr view`, `pr checks`, and
-# `api`, and merge-exec.sh makes the repository's one `pr merge` call. git creates and pushes the shared branch and
-# stages the cascade's transitions; jq builds the cascade report; python3 is
+# `api`, and merge-exec.sh makes the repository's one `pr merge` call. git
+# creates and pushes the shared branch and stages the cascade's transitions,
+# and fetches, diffs, and rebases for the drift check; jq builds the cascade
+# report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
 # The `shirabe validate --lifecycle .` line in SKILL.md describes the reusable

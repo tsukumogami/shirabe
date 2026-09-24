@@ -225,14 +225,19 @@ Claude Code session:
   anyway, but it is real and it is stated rather than papered over.
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
-- [koto](https://github.com/tsukumogami/koto) for `/work-on` and `/execute`
+- [koto](https://github.com/tsukumogami/koto): `/work-on` and `/execute` need
+  koto v0.12.2 or later. The `check-koto-floor.yml` CI job checks that floor on
+  every pull request that touches a template or the scripts a template runs.
 
 Each skill declares the tools it calls in its own `skills/<name>/requires.tsv`,
 and the preflight line checks that declaration when the skill loads. A satisfied
 host sees nothing. An unmet prerequisite gets one plain-prose block naming the
-tool, what is wrong, and the single command that fixes it on this machine. No
-skill states a version floor: floors go stale silently, and a floor nobody
-rechecks is worse than no floor at all.
+tool, what is wrong, and the single command that fixes it on this machine.
+Neither `requires.tsv` nor the preflight carries a version: floors go stale
+silently, and a floor nobody rechecks is worse than no floor at all. The one
+stated floor is the koto minimum above, and it is stated only because CI
+rechecks it: `check-koto-floor.yml` installs koto v0.12.2, compiles the
+templates with it, and replays scripted runs to confirm they route the same.
 
 ## CLI and doc validation
 

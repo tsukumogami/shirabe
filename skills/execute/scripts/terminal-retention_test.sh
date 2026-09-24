@@ -364,7 +364,7 @@ fi
 # a hop it cannot find in the template, so this list is checked against the real
 # graph on every run -- if a future edit reroutes the pause path, the walk stops
 # short and the assertions below fail rather than silently testing nothing.
-PAUSE_PATH="settled_branch_record worktree_sync worktree_discipline_check spawn_and_await pr_finalization paused_for_review"
+PAUSE_PATH="settled_branch_record drift_facts worktree_sync worktree_discipline_check spawn_and_await pr_finalization paused_for_review"
 
 walk_to_pause() {
     # $1 session name, $2 extra flag for every hop ("" or --no-cleanup)

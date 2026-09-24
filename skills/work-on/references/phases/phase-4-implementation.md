@@ -130,7 +130,7 @@ and design intent drift.
 
 ## Evidence
 
-- `implementation_status: complete` — all steps done, tests pass
+- `implementation_status: complete` — all steps done, tests pass. Submit it alone, with no `issue_type`: koto records the changed paths (`changed_paths_record`) and then asks for the type once, at `issue_type_routing`
 - `implementation_status: partial_tests_failing_retry` — fixing failures (up to 3)
 - `implementation_status: partial_tests_failing_escalate` — cannot fix
 - `implementation_status: scope_expanded_retry` — scope grew beyond the plan mid-implementation; route back to `analysis` to rewrite the plan rather than proceeding with stale decisions
