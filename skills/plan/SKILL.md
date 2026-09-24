@@ -209,14 +209,17 @@ authoring details (the Repo/Group annotation rows, gate-node declarations, and
 the contraction + acyclicity behavior) live in
 `references/quality/plan-doc-structure.md` under "Coordinated Mode."
 
-Mechanically, each coordinated issue carries a `^_Repo: owner/repo \| Group:
-<pr-group>_` annotation row in the Implementation Issues table (default
+Mechanically, each coordinated work item names its repository and PR group:
+at an explicit `tracking_level: none` as `**Repo**:` and `**Group**:` lines on
+its outline in `## Issue Outlines`, otherwise as a `^_Repo: owner/repo \|
+Group: <pr-group>_` annotation row in the Implementation Issues table (default
 grouping is one PR per repo, `Group: default`). `scripts/plan-to-tasks.sh`
-collapses the issue-level dependency graph into a `(repo, pr_group)`-level PR
+collapses the work-item dependency graph into a `(repo, pr_group)`-level PR
 DAG with non-PR gate nodes, checks acyclicity after contraction (R13), and
-resolves a contraction cycle by splitting a repo at the seam — or refuses if no
-acyclic order exists (true cross-repo atomicity). It never emits a cyclic
-order.
+resolves a contraction cycle by splitting a PR node at the seam — or refuses if
+no acyclic order exists (atomicity across PR groups). It never emits a cyclic
+order. Each PR node carries `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`
+vars; `references/plan-to-tasks-contract.md` documents them.
 
 ## Complexity Classification
 

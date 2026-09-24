@@ -607,6 +607,40 @@ pub struct OutlineBlock {
     /// The backtick-quoted tokens on the block's `**Files**:` line, with
     /// the backticks stripped.
     pub files: Vec<String>,
+    /// The `**Repo**:` declaration, trimmed with surrounding backticks
+    /// stripped, when declared. A coordinated PLAN at `tracking_level: none`
+    /// names each outline's repository here. Not validated by the parser:
+    /// FC14 and the extractor decide what a malformed value means.
+    pub repo: Option<String>,
+    /// The `**Group**:` declaration (the outline's PR group), trimmed with
+    /// surrounding backticks stripped, when declared. Not validated here.
+    pub group: Option<String>,
+}
+
+/// A `### Gate: <name>` block inside `## Issue Outlines`.
+///
+/// A coordinated PLAN at `tracking_level: none` declares a non-PR gate (a
+/// release, a deploy) this way instead of as an `_Gate: ..._` table row.
+/// The gate's edges live only on the gate block: `**After**:` names the
+/// outlines that must land before the gate, `**Before**:` the outlines that
+/// wait on it. References resolve as outline dependencies do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineGate {
+    /// The gate name, verbatim after `### Gate: `, trimmed. Not validated.
+    pub name: String,
+    /// 1-indexed absolute line number of the gate heading.
+    pub line: usize,
+    /// Outline numbers named on the `**After**:` line that resolved to an
+    /// outline in this section, in written order, de-duplicated.
+    pub after: Vec<u32>,
+    /// Outline numbers named on the `**Before**:` line that resolved.
+    pub before: Vec<u32>,
+    /// `**After**:` tokens that named no outline, verbatim.
+    pub unresolved_after: Vec<String>,
+    /// `**Before**:` tokens that named no outline, verbatim.
+    pub unresolved_before: Vec<String>,
+    /// The `**Condition**:` text, trimmed, when declared.
+    pub condition: Option<String>,
 }
 
 /// The parsed `## Issue Outlines` section.
@@ -617,6 +651,8 @@ pub struct OutlineSection {
     pub blocks: Vec<OutlineBlock>,
     /// `###` headings inside the section that opened no block.
     pub nonconforming_headings: Vec<NonconformingHeading>,
+    /// One entry per `### Gate: <name>` heading, in document order.
+    pub gates: Vec<OutlineGate>,
 }
 
 /// A single acceptance criterion parsed from an outline block.
@@ -681,6 +717,27 @@ struct PartialBlock {
     dependencies_raw: String,
     issue_type: Option<String>,
     files: Vec<String>,
+    repo: Option<String>,
+    group: Option<String>,
+}
+
+/// Per-gate state during stage one, before references are resolved.
+struct PartialGate {
+    name: String,
+    line: usize,
+    after_raw: String,
+    before_raw: String,
+    condition: Option<String>,
+}
+
+/// Which declaration the walk's non-heading lines currently belong to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    /// The last opened outline block (or nothing, before the first one).
+    Outline,
+    /// The last opened `### Gate:` block. Closes the preceding outline, so
+    /// nothing under a gate heading changes that outline's fields.
+    Gate,
 }
 
 /// Locate the `## Issue Outlines` section and parse it.
@@ -697,6 +754,8 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
 
     let mut partials: Vec<PartialBlock> = Vec::new();
     let mut nonconforming: Vec<NonconformingHeading> = Vec::new();
+    let mut gates: Vec<PartialGate> = Vec::new();
+    let mut owner = Owner::Outline;
     let mut accumulating = Accumulating::Nothing;
 
     for (offset, raw_line) in doc.body[start..end].iter().enumerate() {
@@ -705,7 +764,19 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
 
         if let Some(rest) = trimmed.strip_prefix("### ") {
             accumulating = Accumulating::Nothing;
-            if let Some(caps) = OUTLINE_HEADING_RE.captures(rest) {
+            if let Some(name) = strip_gate_heading(rest) {
+                // A gate declaration. It is a block boundary: the outline
+                // above it is closed, and the lines below belong to the
+                // gate until the next heading.
+                owner = Owner::Gate;
+                gates.push(PartialGate {
+                    name: name.to_string(),
+                    line: absolute_line,
+                    after_raw: String::new(),
+                    before_raw: String::new(),
+                    condition: None,
+                });
+            } else if let Some(caps) = OUTLINE_HEADING_RE.captures(rest) {
                 // A canonical outline heading. The only thing that opens a
                 // block -- the extractor's rule, kept because it decides
                 // what gets built.
@@ -721,6 +792,7 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
                         continue;
                     }
                 };
+                owner = Owner::Outline;
                 partials.push(PartialBlock {
                     key: rest.to_string(),
                     number,
@@ -733,8 +805,13 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
                     dependencies_raw: String::new(),
                     issue_type: None,
                     files: Vec::new(),
+                    repo: None,
+                    group: None,
                 });
-            } else if is_dependencies_heading(rest) && !partials.is_empty() {
+            } else if is_dependencies_heading(rest)
+                && owner == Owner::Outline
+                && !partials.is_empty()
+            {
                 // A dependencies sub-section of the block already open.
                 accumulating = Accumulating::Dependencies;
                 if let Some(block) = partials.last_mut() {
@@ -745,6 +822,19 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
                     text: rest.to_string(),
                     line: absolute_line,
                 });
+            }
+            continue;
+        }
+
+        if owner == Owner::Gate {
+            if let Some(gate) = gates.last_mut() {
+                if let Some(rest) = strip_label(trimmed, "**After**:") {
+                    append_dependency_text(&mut gate.after_raw, rest.trim().trim_end_matches('.'));
+                } else if let Some(rest) = strip_label(trimmed, "**Before**:") {
+                    append_dependency_text(&mut gate.before_raw, rest.trim().trim_end_matches('.'));
+                } else if let Some(rest) = strip_label(trimmed, "**Condition**:") {
+                    gate.condition = Some(rest.trim().to_string());
+                }
             }
             continue;
         }
@@ -774,6 +864,18 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
             block.dependencies_declared = true;
             let value = rest.trim().trim_end_matches('.');
             append_dependency_text(&mut block.dependencies_raw, value);
+            accumulating = Accumulating::Nothing;
+            continue;
+        }
+
+        if let Some(rest) = strip_label(trimmed, "**Repo**:") {
+            block.repo = Some(declared_value(rest));
+            accumulating = Accumulating::Nothing;
+            continue;
+        }
+
+        if let Some(rest) = strip_label(trimmed, "**Group**:") {
+            block.group = Some(declared_value(rest));
             accumulating = Accumulating::Nothing;
             continue;
         }
@@ -823,7 +925,7 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
         }
     }
 
-    resolve(partials, nonconforming)
+    resolve(partials, nonconforming, gates)
 }
 
 /// Flatten every block's acceptance criteria into one list, in document
@@ -844,8 +946,26 @@ pub fn parse_outline_acs(doc: &Doc) -> Vec<OutlineAc> {
 fn resolve(
     partials: Vec<PartialBlock>,
     nonconforming: Vec<NonconformingHeading>,
+    gates: Vec<PartialGate>,
 ) -> OutlineSection {
     let known: Vec<u32> = partials.iter().map(|b| b.number).collect();
+
+    let gates = gates
+        .into_iter()
+        .map(|g| {
+            let (after, unresolved_after) = resolve_gate_references(&g.after_raw, &known);
+            let (before, unresolved_before) = resolve_gate_references(&g.before_raw, &known);
+            OutlineGate {
+                name: g.name,
+                line: g.line,
+                after,
+                before,
+                unresolved_after,
+                unresolved_before,
+                condition: g.condition,
+            }
+        })
+        .collect();
 
     let blocks = partials
         .into_iter()
@@ -871,6 +991,8 @@ fn resolve(
                 unrecognized_dependency_text,
                 issue_type: p.issue_type,
                 files: p.files,
+                repo: p.repo,
+                group: p.group,
             }
         })
         .collect();
@@ -878,7 +1000,77 @@ fn resolve(
     OutlineSection {
         blocks,
         nonconforming_headings: nonconforming,
+        gates,
     }
+}
+
+/// Split a gate's `**After**:` or `**Before**:` text into
+/// `(resolved_numbers, unresolved_tokens)`.
+///
+/// `Issue <N>` and `<<ISSUE:N>>` resolve against the section's outline
+/// numbers exactly as dependencies do. Every other non-empty token (an
+/// `Issue <N>` naming no outline, a bare number, prose) is unresolved and
+/// kept verbatim: a gate edge that names nothing is an edge that would be
+/// dropped, so there is no advisory-only leftover here.
+fn resolve_gate_references(raw: &str, known: &[u32]) -> (Vec<u32>, Vec<String>) {
+    let value = raw.trim().trim_end_matches('.').trim();
+    if value.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let normalized = PLACEHOLDER_RE.replace_all(value, "Issue $1").to_string();
+
+    let mut resolved: Vec<u32> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    for caps in ISSUE_REF_RE.captures_iter(&normalized) {
+        match caps[1].parse::<u32>() {
+            Ok(n) if known.contains(&n) => {
+                if !resolved.contains(&n) {
+                    resolved.push(n);
+                }
+            }
+            _ => {
+                let token = caps[0].to_string();
+                if !unresolved.contains(&token) {
+                    unresolved.push(token);
+                }
+            }
+        }
+    }
+
+    let residue = ISSUE_REF_RE.replace_all(&normalized, "").to_string();
+    for token in residue.split(',') {
+        let token = token.trim().trim_end_matches('.').trim();
+        if token.is_empty() || token.eq_ignore_ascii_case("and") {
+            continue;
+        }
+        let owned = token.to_string();
+        if !unresolved.contains(&owned) {
+            unresolved.push(owned);
+        }
+    }
+
+    (resolved, unresolved)
+}
+
+/// Return the gate name when a `###` heading's text is `Gate: <name>`.
+fn strip_gate_heading(rest: &str) -> Option<&str> {
+    let name = rest.strip_prefix("Gate:")?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Normalize a `**Repo**:` / `**Group**:` value: trim, then strip one layer
+/// of surrounding backticks.
+fn declared_value(raw: &str) -> String {
+    let value = raw.trim();
+    let value = value
+        .strip_prefix('`')
+        .and_then(|v| v.strip_suffix('`'))
+        .unwrap_or(value);
+    value.trim().to_string()
 }
 
 /// Split one block's dependency text into
@@ -1675,5 +1867,99 @@ mod tests {
         let acs = parse_outline_acs(&doc);
         assert_eq!(acs.len(), 1);
         assert!(acs[0].line > 0, "line numbers are 1-indexed");
+    }
+
+    // --- Repo / Group / Gate declarations (coordinated outline form) ---
+
+    #[test]
+    fn outlines_read_both_repo_and_group() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Repo**: `acme/repo-a`\n\n**Group**:  core \n\n**Dependencies**: None\n",
+        ));
+        let b = &section.blocks[0];
+        assert_eq!(b.repo.as_deref(), Some("acme/repo-a"));
+        assert_eq!(b.group.as_deref(), Some("core"));
+        assert!(b.dependencies_none);
+    }
+
+    #[test]
+    fn outlines_read_one_of_repo_and_group() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Repo**: acme/repo-a\n\n### Issue 2: b\n\n**Group**: cli\n",
+        ));
+        assert_eq!(section.blocks[0].repo.as_deref(), Some("acme/repo-a"));
+        assert_eq!(section.blocks[0].group, None);
+        assert_eq!(section.blocks[1].repo, None);
+        assert_eq!(section.blocks[1].group.as_deref(), Some("cli"));
+    }
+
+    #[test]
+    fn outlines_without_repo_or_group_leave_both_none() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Goal**: g.\n\n**Dependencies**: None\n",
+        ));
+        assert_eq!(section.blocks[0].repo, None);
+        assert_eq!(section.blocks[0].group, None);
+        assert!(section.gates.is_empty());
+    }
+
+    #[test]
+    fn outlines_repo_value_is_not_validated() {
+        // The parser stays total; FC14 and the extractor judge the value.
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Repo**: not a repo!\n\n**Group**: Bad_Group\n",
+        ));
+        assert_eq!(section.blocks[0].repo.as_deref(), Some("not a repo!"));
+        assert_eq!(section.blocks[0].group.as_deref(), Some("Bad_Group"));
+    }
+
+    #[test]
+    fn outlines_gate_reads_after_before_and_condition() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: None\n\n### Gate: koto-release\n\n**After**: Issue 1\n\n**Before**: <<ISSUE:2>>\n\n**Condition**: koto is released.\n",
+        ));
+        assert!(section.nonconforming_headings.is_empty());
+        assert_eq!(section.gates.len(), 1);
+        let g = &section.gates[0];
+        assert_eq!(g.name, "koto-release");
+        assert!(g.line > 0);
+        assert_eq!(g.after, vec![1]);
+        assert_eq!(g.before, vec![2]);
+        assert!(g.unresolved_after.is_empty());
+        assert!(g.unresolved_before.is_empty());
+        assert_eq!(g.condition.as_deref(), Some("koto is released."));
+    }
+
+    #[test]
+    fn outlines_gate_naming_a_missing_outline_is_unresolved() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Gate: deploy\n\n**After**: Issue 1, Issue 9\n\n**Before**: 3\n",
+        ));
+        let g = &section.gates[0];
+        assert_eq!(g.after, vec![1]);
+        assert_eq!(g.unresolved_after, vec!["Issue 9".to_string()]);
+        assert!(g.before.is_empty());
+        assert_eq!(g.unresolved_before, vec!["3".to_string()]);
+        assert_eq!(g.condition, None);
+    }
+
+    #[test]
+    fn outlines_gate_between_outlines_leaves_the_first_outline_intact() {
+        // Lines under the gate heading belong to the gate: the outline above
+        // keeps its own goal, criteria, dependencies, repo, and group.
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Repo**: acme/repo-a\n\n**Group**: core\n\n**Acceptance Criteria**:\n- [ ] one\n\n### Gate: release\n\n**Goal**: gate goal.\n\n**Repo**: acme/other\n\n**Group**: other\n\n- [ ] not an ac\n\n**Dependencies**: Issue 2\n\n**After**: Issue 1\n\n**Before**: Issue 2\n\n### Issue 2: b\n\n**Repo**: acme/repo-a\n\n**Group**: cli\n\n**Dependencies**: None\n",
+        ));
+        let first = &section.blocks[0];
+        assert!(!first.goal_declared);
+        assert_eq!(first.acceptance_criteria.len(), 1);
+        assert!(!first.dependencies_declared);
+        assert!(first.waits_on.is_empty());
+        assert_eq!(first.repo.as_deref(), Some("acme/repo-a"));
+        assert_eq!(first.group.as_deref(), Some("core"));
+        assert_eq!(section.blocks[1].group.as_deref(), Some("cli"));
+        assert_eq!(section.gates[0].after, vec![1]);
+        assert_eq!(section.gates[0].before, vec![2]);
+        assert!(section.nonconforming_headings.is_empty());
     }
 }

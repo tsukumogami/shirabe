@@ -117,7 +117,9 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
                     "      \"waits_on\": [{waits}],\n",
                     "      \"unresolved_dependencies\": [{unresolved}],\n",
                     "      \"type\": {issue_type},\n",
-                    "      \"files\": [{files}]\n",
+                    "      \"files\": [{files}],\n",
+                    "      \"repo\": {repo},\n",
+                    "      \"group\": {group}\n",
                     "    }}"
                 ),
                 number = b.number,
@@ -151,6 +153,8 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
                     .map(|f| json_string(f))
                     .collect::<Vec<_>>()
                     .join(", "),
+                repo = optional_string(b.repo.as_deref()),
+                group = optional_string(b.group.as_deref()),
             )
         })
         .collect();
@@ -167,8 +171,35 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
         })
         .collect();
 
+    let gates: Vec<String> = section
+        .gates
+        .iter()
+        .map(|g| {
+            format!(
+                concat!(
+                    "    {{\n",
+                    "      \"name\": {name},\n",
+                    "      \"line\": {line},\n",
+                    "      \"after\": [{after}],\n",
+                    "      \"before\": [{before}],\n",
+                    "      \"unresolved_after\": [{ua}],\n",
+                    "      \"unresolved_before\": [{ub}],\n",
+                    "      \"condition\": {condition}\n",
+                    "    }}"
+                ),
+                name = json_string(&g.name),
+                line = g.line,
+                after = number_list(&g.after),
+                before = number_list(&g.before),
+                ua = string_list(&g.unresolved_after),
+                ub = string_list(&g.unresolved_before),
+                condition = optional_string(g.condition.as_deref()),
+            )
+        })
+        .collect();
+
     format!(
-        "{{\n  \"schema\": {schema},\n  \"path\": {path},\n  \"execution_mode\": {mode},\n  \"outlines\": [{outlines}],\n  \"nonconforming_headings\": [{headings}]\n}}\n",
+        "{{\n  \"schema\": {schema},\n  \"path\": {path},\n  \"execution_mode\": {mode},\n  \"outlines\": [{outlines}],\n  \"nonconforming_headings\": [{headings}],\n  \"gates\": [{gates}]\n}}\n",
         schema = json_string(SCHEMA),
         path = json_string(path),
         mode = execution_mode
@@ -176,7 +207,31 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
             .unwrap_or_else(|| "null".to_string()),
         outlines = wrap_list(&outlines),
         headings = wrap_list(&headings),
+        gates = wrap_list(&gates),
     )
+}
+
+/// Render an optional string as a JSON string or `null`.
+fn optional_string(value: Option<&str>) -> String {
+    value.map(json_string).unwrap_or_else(|| "null".to_string())
+}
+
+/// Render outline numbers as a JSON array body.
+fn number_list(values: &[u32]) -> String {
+    values
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Render strings as a JSON array body.
+fn string_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|v| json_string(v))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Render a list body: empty stays `[]`, non-empty gets newlines so the
@@ -293,6 +348,60 @@ mod tests {
         );
         let out = render("docs/plans/PLAN-x.md", Some("single-pr"), &doc);
         assert!(out.contains(r#""title": "feat: add \"quoted\" \\ thing""#));
+    }
+
+    #[test]
+    fn envelope_emits_repo_and_group_on_every_outline() {
+        let doc = plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Repo**: acme/repo-a\n\n**Group**: core\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: None\n",
+        );
+        let out = render("docs/plans/PLAN-x.md", Some("coordinated"), &doc);
+        assert!(out.contains("\"repo\": \"acme/repo-a\""));
+        assert!(out.contains("\"group\": \"core\""));
+        // Undeclared fields are present as null, never omitted.
+        assert!(out.contains("\"repo\": null"));
+        assert!(out.contains("\"group\": null"));
+        assert_eq!(out.matches("\"repo\":").count(), 2);
+        assert!(out.contains("\"gates\": []"));
+    }
+
+    #[test]
+    fn envelope_emits_gates() {
+        let doc = plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: None\n\n### Gate: koto-release\n\n**After**: Issue 1\n\n**Before**: Issue 2, Issue 7\n\n**Condition**: released\n",
+        );
+        let out = render("docs/plans/PLAN-x.md", Some("coordinated"), &doc);
+        assert!(out.contains("\"name\": \"koto-release\""));
+        assert!(out.contains("\"after\": [1]"));
+        assert!(out.contains("\"before\": [2]"));
+        assert!(out.contains("\"unresolved_after\": []"));
+        assert!(out.contains("\"unresolved_before\": [\"Issue 7\"]"));
+        assert!(out.contains("\"condition\": \"released\""));
+        assert!(out.contains("\"nonconforming_headings\": []"));
+    }
+
+    #[test]
+    fn envelope_keeps_the_v1_schema_and_existing_keys() {
+        // The change only adds keys; the schema identifier stays put.
+        let doc = plan("## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n");
+        let out = render("docs/plans/PLAN-x.md", Some("single-pr"), &doc);
+        assert!(out.contains("\"schema\": \"shirabe-plan-outlines/v1\""));
+        for key in [
+            "number",
+            "title",
+            "key",
+            "line",
+            "goal_declared",
+            "acceptance_criteria_declared",
+            "dependencies_declared",
+            "dependencies_none",
+            "waits_on",
+            "unresolved_dependencies",
+            "type",
+            "files",
+        ] {
+            assert!(out.contains(&format!("\"{key}\":")), "missing {key}");
+        }
     }
 
     #[test]
