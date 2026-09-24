@@ -5,9 +5,10 @@
 # call line.
 #
 # Every record here is `always`, and the absence of a mode-scoped record is a
-# recorded finding rather than an oversight. /plan selects single-pr or multi-pr
-# at step 3.6 of phase-3-decomposition.md, which is exactly where a mode call
-# would go; that step says in prose that /plan makes none, and this is the other
+# recorded finding rather than an oversight. /plan selects single-pr, multi-pr,
+# or coordinated at step 3.6 of phase-3-decomposition.md (its step 5a runs
+# resolve-split-mode.sh, which needs only bash), which is exactly where a mode
+# call would go; that step says in prose that /plan makes none, and this is the other
 # half of the same statement.
 #
 # gh is always rather than mode:multi-pr because Resume Logic checks for

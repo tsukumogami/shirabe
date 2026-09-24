@@ -328,13 +328,13 @@
     {
       "id": 24,
       "name": "coordinated-mode-per-repo-grouping-two-node-dag",
-      "prompt": "/plan docs/designs/DESIGN-multi-repo-rollout.md, where the design spans two repositories and the per-repo PRs must land in order with a coordination PR that merges last.",
-      "expected_output": "Detects input_type as design. The Execution Mode Decision selects coordinated (the third execution_mode value) because the effort spans more than one repository and the per-repo PRs must land in a coordinated order behind a merge-last coordination PR. The PLAN groups issues to the coarsest legal unit (one PR per repository by default), tags each issue with a Repo/Group annotation row, and emits a two-node merge-order DAG (PR nodes plus non-PR gate nodes) that plan-to-tasks.sh collapses from the issue-level dependency graph and validates acyclic after contraction. The coordinated PLAN validates and names its coordination PR. The contract is bound by reference, not restated.",
+      "prompt": "/plan docs/designs/DESIGN-multi-repo-rollout.md --coordinated, where the design spans two repositories and the per-repo PRs must land in order with a coordination PR that merges last.",
+      "expected_output": "Detects input_type as design. The Execution Mode Decision selects coordinated (the third execution_mode value) because the effort spans more than one repository and the per-repo PRs must land in a coordinated order behind a merge-last coordination PR. The PLAN groups issues to the coarsest legal unit (one PR per repository by default), tags each work item with its Repo and Group (at the default tracking level none, as **Repo**: and **Group**: lines on its outline, with nothing filed), and emits a two-node merge-order DAG (PR nodes plus non-PR gate nodes) that plan-to-tasks.sh collapses from the issue-level dependency graph and validates acyclic after contraction. The coordinated PLAN validates and names its coordination PR. The contract is bound by reference, not restated.",
       "files": [],
       "expectations": [
         "Transcript selects coordinated as the execution_mode (the third value: single-pr | multi-pr | coordinated), not multi-pr",
         "Transcript anchors the coordinated choice on the effort spanning more than one repository with per-repo PRs landing in order behind a merge-last coordination PR",
-        "Transcript groups per-repo implementation to the coarsest legal unit (one PR per repository by default) and tags each issue with a Repo/Group annotation row",
+        "Transcript groups per-repo implementation to the coarsest legal unit (one PR per repository by default) and tags each work item with its Repo and Group: at the default tracking level none as **Repo**: and **Group**: lines on its outline (no GitHub issues filed), or as a Repo/Group annotation row only when the tracking level files issues",
         "Transcript emits a two-node merge-order DAG (PR nodes plus non-PR gate nodes) collapsed from the issue-level dependency graph and validated acyclic after contraction",
         "Transcript binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md for the contract rather than restating the grouping rule or merge-order model",
         "Transcript produces a coordinated PLAN that validates and names its coordination PR"
@@ -359,11 +359,11 @@
       "id": 26,
       "name": "coordinated-rule-surface-binds-not-restates",
       "prompt": "/plan -- where does the coordinated execution mode live, and what contract does it bind to?",
-      "expected_output": "The coordinated mode is documented on the plan SKILL.md surface under 'Execution Mode Decision (single-pr vs multi-pr vs coordinated)' in a 'Coordinated Mode (multi-repo)' subsection. It is the multi-repo generalization of multi-pr: always multi-PR, sharing multi-pr's section shape (Implementation Issues table + Dependency Graph) and adding per-issue repo and pr_group tags plus a two-node merge-order DAG. The canonical contract (lifecycle, coarsest-legal grouping, two-node merge-order model, done-signal) lives in ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md; the SKILL.md carries only bindings and points the PLAN-side authoring details to references/quality/plan-doc-structure.md under 'Coordinated Mode.' The skill does not restate the contract.",
+      "expected_output": "The coordinated mode is documented on the plan SKILL.md surface under 'Execution Mode Decision (single-pr vs multi-pr vs coordinated)' in a 'Coordinated Mode' subsection. It spans one or more repositories: always multi-PR, adding a repo and pr_group tag on every work item plus a two-node merge-order DAG, with work items as Repo/Group-tagged outlines at the default tracking level and as issues with Repo/Group rows only when the tracking level files them. The canonical contract (lifecycle, coarsest-legal grouping, two-node merge-order model, done-signal) lives in ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md; the SKILL.md carries only bindings and points the PLAN-side authoring details to references/quality/plan-doc-structure.md under 'Coordinated Mode.' The skill does not restate the contract.",
       "files": [],
       "expectations": [
-        "Agent identifies coordinated mode on the plan SKILL.md surface under the Execution Mode Decision section, in a Coordinated Mode (multi-repo) subsection",
-        "Agent describes coordinated as the multi-repo generalization of multi-pr: always multi-PR, same section shape, adding repo and pr_group tags plus a two-node merge-order DAG",
+        "Agent identifies coordinated mode on the plan SKILL.md surface under the Execution Mode Decision section, in a Coordinated Mode subsection",
+        "Agent describes coordinated as spanning one or more repositories: always multi-PR, adding repo and pr_group tags plus a two-node merge-order DAG, and does not say it requires more than one repository",
         "Agent cites ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md as the canonical contract for lifecycle, grouping, merge-order model, and done-signal",
         "Agent confirms the SKILL.md binds to the contract and does NOT restate it",
         "Agent points the PLAN-side authoring details to references/quality/plan-doc-structure.md under Coordinated Mode"
@@ -455,6 +455,179 @@
         "Plan validates the --upstream value with cross-repo discrimination first, then canonicalization, confinement to docs/roadmaps/, the ROADMAP- basename, the wip/ and tracked-by-git rejections, and the private-upstream omission",
         "Plan writes a sequence-valued upstream: with the design first and the roadmap second",
         "Plan explains that the PLAN carries the roadmap because no durable document may name a working artifact"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "intent-continue-forced-split-single-repo-coordinated",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=continue --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`.",
+      "expected_output": "The forced-split DESIGN splits on its Hard Constraint in both runs. With --intent=continue step 5a's resolve-split-mode.sh prints execution_mode=coordinated, split_mode_source=intent, and every work item names the one repository (acme/widgets) with at least two distinct Groups. With --intent=stop it prints multi-pr, split_mode_source=intent.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R5, R6 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1 (--intent=continue) writes a PLAN with execution_mode: coordinated and split_mode_source: intent",
+        "Run 1 runs skills/plan/scripts/resolve-split-mode.sh with --split yes and --intent continue rather than choosing the mode by judgment",
+        "Every work item in run 1's PLAN has **Repo**: acme/widgets (the one repository)",
+        "Run 1's PLAN has at least two distinct **Group**: values",
+        "Run 2 (--intent=stop) writes a PLAN with execution_mode: multi-pr and split_mode_source: intent"
+      ]
+    },
+    {
+      "id": 34,
+      "name": "split-branch-independent-of-intent",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=continue --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 3] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Finally report the split branch (the first word of split_rationale) from each run side by side.",
+      "expected_output": "The split question is answered before intent is read, so all three runs record the same split branch (Hard Constraint) even though run 1 is coordinated and runs 2 and 3 are multi-pr.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R4 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "All three runs record a split (split_rationale present in each PLAN)",
+        "The split branch is identical across --intent=continue, --intent=stop, and no intent (Hard Constraint in all three)",
+        "Step 3.6's split decision is described as not reading --intent or the coordination flags"
+      ]
+    },
+    {
+      "id": 35,
+      "name": "no-split-design-is-single-pr-under-any-intent",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-error-message-fix.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-error-message-fix.md --intent=continue --auto`. Afterwards print the frontmatter of docs/plans/PLAN-error-message-fix.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-error-message-fix.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-error-message-fix.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-error-message-fix.md --intent=stop --auto`. Afterwards print the frontmatter of docs/plans/PLAN-error-message-fix.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-error-message-fix.md`. [run 3] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-error-message-fix.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-error-message-fix.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-error-message-fix.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-error-message-fix.md`.",
+      "expected_output": "The DESIGN is too small for any split branch to fire, so every run writes execution_mode: single-pr with split_mode_source: none, whatever the intent, and the closing advice names /execute.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R5, R23 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1 (--intent=continue) writes execution_mode: single-pr with split_mode_source: none",
+        "Run 2 (--intent=stop) writes execution_mode: single-pr with split_mode_source: none",
+        "Run 3 (no intent) writes execution_mode: single-pr with split_mode_source: none",
+        "No run files a GitHub issue (the issue create count is 0 in every run)",
+        "The closing advice for the single-pr PLAN names /execute docs/plans/PLAN-error-message-fix.md, not /work-on"
+      ]
+    },
+    {
+      "id": 36,
+      "name": "explicit-coordination-flag-beats-intent",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=continue --no-coordinated --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-two-repo-rollout.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-two-repo-rollout.md --intent=stop --coordinated --auto`. Afterwards print the frontmatter of docs/plans/PLAN-two-repo-rollout.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-two-repo-rollout.md`.",
+      "expected_output": "An explicit coordination flag outranks intent: run 1 resolves to multi-pr and run 2 to coordinated, both with split_mode_source: flag. Run 2's work items name acme/widgets-lib and acme/widgets. The multi-pr run's closing advice names /work-on; the coordinated run's names /execute.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R5, R8, R23 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1 (--intent=continue --no-coordinated, forced-split DESIGN) writes execution_mode: multi-pr with split_mode_source: flag",
+        "Run 2 (--intent=stop --coordinated, multi-repo DESIGN) writes execution_mode: coordinated with split_mode_source: flag",
+        "Run 2's work items name both acme/widgets-lib and acme/widgets in their **Repo**: lines",
+        "Run 1's closing advice names /work-on for the multi-pr PLAN",
+        "Run 2's closing advice names /execute docs/plans/PLAN-two-repo-rollout.md for the coordinated PLAN"
+      ]
+    },
+    {
+      "id": 37,
+      "name": "coordinated-header-yields-to-intent",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-coordinated-header.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-coordinated-header.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`.",
+      "expected_output": "The repository's CLAUDE.md sets `## PR Grouping Policy: coordinated`. Intent outranks the header, so --intent=stop gives multi-pr (split_mode_source: intent); with no intent the header decides, giving coordinated (split_mode_source: header).",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R5, R8 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "resolve-split-mode.sh is passed the repository's CLAUDE.md with --claude-md",
+        "Run 1 (--intent=stop) writes execution_mode: multi-pr with split_mode_source: intent",
+        "Run 2 (no intent) writes execution_mode: coordinated with split_mode_source: header"
+      ]
+    },
+    {
+      "id": 38,
+      "name": "auto-coordinated-default-tracking-files-nothing",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=continue`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`.",
+      "expected_output": "With no tracking-level header, coordinated takes its default tracking level none: Phase 7 writes an outline-shaped PLAN at status Active with tracking_level: none, every outline carrying **Repo**: and **Group**:, no Implementation Issues table, and no gh issue or milestone call. shirabe validate exits 0. Closing advice names /execute.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R7, R23 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "The PLAN's frontmatter has execution_mode: coordinated, status: Active, and tracking_level: none",
+        "Every outline under ## Issue Outlines carries a **Repo**: line and a **Group**: line",
+        "The PLAN has no ## Implementation Issues table",
+        "The shim's call log contains zero `issue create` lines",
+        "shirabe validate on the written PLAN exits 0",
+        "The closing advice names /execute docs/plans/PLAN-release-pipeline.md"
+      ]
+    },
+    {
+      "id": 39,
+      "name": "auto-coordinated-tracking-issues-files-without-prompt",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-tracking-issues.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=continue`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Also print the number of outlines the decomposition produced.",
+      "expected_output": "The repository states `## Tracking Level: issues`, so the coordinated filing path runs: the filing approval is resolved by the decision protocol with a decision block and no blocking prompt, create-issues-batch.sh files one issue per work item with no milestone, and the PLAN carries an Implementation Issues table with a _Repo: ... | Group: ..._ row per issue and tracking_level: issues.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R7 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "The shim's call log contains exactly one `issue create` line per work item",
+        "The transcript contains no filing-approval question to the user; the approval is recorded as a decision block instead",
+        "The PLAN's frontmatter has execution_mode: coordinated and tracking_level: issues",
+        "The PLAN's Implementation Issues table has a _Repo: acme/widgets | Group: <slug>_ row under each issue",
+        "No milestone is created (no POST to the milestones API in the call log)"
+      ]
+    },
+    {
+      "id": 40,
+      "name": "interactive-coordinated-tracking-issues-asks-before-filing",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-tracking-issues.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=continue`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. This run is interactive: when /plan asks whether to file the issues, answer 'File them now'. Before answering, print the current `grep -c '^issue create' \"$GH_CALL_LOG\"` so the transcript shows the count at the moment the question is asked.",
+      "expected_output": "Interactive run at `## Tracking Level: issues`: Phase 7's coordinated branch asks the filing-approval question before the first `gh issue create`, so the shim log holds no issue create line when the question appears, and one per work item after it is approved.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R7 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "The transcript shows a filing-approval question naming the issues to be filed",
+        "The issue create count printed when the question is asked is 0",
+        "After approval, the call log contains one `issue create` line per work item"
+      ]
+    },
+    {
+      "id": 41,
+      "name": "invalid-intent-and-coordination-flags-rejected",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. In one fresh repository created with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md` (cd into it), run each of these separately: `/plan docs/designs/DESIGN-release-pipeline.md --intent=bogus`, `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --intent=continue`, `/plan docs/designs/DESIGN-release-pipeline.md --coordinated --no-coordinated`. After each, print `ls wip/plan_release-pipeline_* 2>/dev/null | wc -l`.",
+      "expected_output": "Each invocation is rejected at flag parsing with an error naming the offending flag, before any phase runs, and no wip/plan_release-pipeline_* file is written.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers the Interfaces table's /plan row of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "--intent=bogus ends with an error naming --intent",
+        "--intent=stop --intent=continue ends with an error naming the repeated --intent",
+        "--coordinated --no-coordinated ends with an error naming the conflicting coordination flags",
+        "No wip/plan_release-pipeline_* file exists after any of the three runs (count 0 each time)",
+        "No run reaches Phase 1 analysis"
+      ]
+    },
+    {
+      "id": 42,
+      "name": "closing-advice-routes-by-mode",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-error-message-fix.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-error-message-fix.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-error-message-fix.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-error-message-fix.md`. [run 2] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=continue`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 3] Create a fresh repository with `bash skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=stop`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Print each run's closing Next Steps text.",
+      "expected_output": "Next-step advice follows the mode: /execute for the single-pr PLAN (run 1) and the coordinated PLAN (run 2), /work-on for the multi-pr PLAN (run 3).",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R23 of the scope-then-execute PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1 (single-pr) advises /execute docs/plans/PLAN-error-message-fix.md",
+        "Run 2 (coordinated) advises /execute docs/plans/PLAN-release-pipeline.md",
+        "Run 3 (multi-pr) advises /work-on, not /execute"
       ]
     }
   ]

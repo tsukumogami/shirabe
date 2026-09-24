@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'skills/plan/scripts/**'
+      # resolve-split-mode_test.sh compares the script's header-value constants
+      # against the table in this contract, so an edit to either side has to
+      # run the suite.
+      - 'references/coordination-strategy.md'
       # plan-to-tasks.sh reads `## Issue Outlines` through `shirabe plan
       # outlines` rather than parsing it, so a change to the crates can break
       # this suite without touching a file under skills/. Leaving the filter
@@ -73,3 +77,13 @@ jobs:
       - name: Run plan-to-tasks tests (macOS, system bash 3.2)
         if: runner.os == 'macOS'
         run: /bin/bash skills/plan/scripts/plan-to-tasks_test.sh
+
+      # resolve-split-mode.sh needs no binary; the same two-leg rule applies,
+      # so the macOS leg runs it under the system bash 3.2.
+      - name: Run resolve-split-mode tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/plan/scripts/resolve-split-mode_test.sh
+
+      - name: Run resolve-split-mode tests (macOS, system bash 3.2)
+        if: runner.os == 'macOS'
+        run: /bin/bash skills/plan/scripts/resolve-split-mode_test.sh

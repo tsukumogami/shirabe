@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# gh shim for /plan eval scenarios.
+#
+# Two jobs:
+#
+#   1. Record every invocation. Each call appends its arguments, joined by
+#      spaces, as ONE line to the call log, with any newline inside an argument
+#      written as the two characters `\n` so an issue body cannot add lines.
+#      A scenario counts `issue create` calls with
+#        grep -c '^issue create' "$GH_CALL_LOG"
+#      The log is $GH_CALL_LOG when set, otherwise `.eval-gh-calls.log` in the
+#      working directory, which puts it in the scenario's post-run tree.
+#
+#   2. Serve canned responses so /plan's gh calls succeed without a network.
+#      A response is read from fixtures/scenarios/$EVAL_SCENARIO/<key>.json
+#      when that file exists, and otherwise from the built-in default below.
+#      Keys: repo-view, issue-list, issue-view, milestones, label-list.
+#      A trailing `--jq <filter>` is applied the way real gh applies it.
+#
+# `issue create` prints https://github.com/<repo>/issues/<N>, numbering from
+# 101 upward per call log, which is the shape create-issue.sh parses. Any
+# subcommand not handled here fails with exit 1 and names itself on stderr, so
+# an unexpected call shows up in the transcript instead of passing silently.
+
+set -euo pipefail
+
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCENARIO_DIR="$FIXTURES_DIR/scenarios/${EVAL_SCENARIO:-}"
+CALL_LOG="${GH_CALL_LOG:-$PWD/.eval-gh-calls.log}"
+DEFAULT_REPO="acme/widgets"
+
+# --- 1. record the call -----------------------------------------------------
+line=""
+for arg in "$@"; do
+    arg="${arg//$'\r'/}"
+    arg="${arg//$'\n'/\\n}"
+    if [ -z "$line" ]; then line="$arg"; else line="$line $arg"; fi
+done
+printf '%s\n' "$line" >> "$CALL_LOG"
+
+# --- 2. respond ---------------------------------------------------------------
+
+# jq_filter_from_args: print the value after --jq / -q, if any.
+jq_filter_from_args() {
+    local capture=false a
+    for a in "$@"; do
+        if $capture; then printf '%s' "$a"; return 0; fi
+        case "$a" in --jq|-q) capture=true ;; esac
+    done
+    return 0
+}
+
+# arg_value <flag> <args...>: print the value after <flag>, if any.
+arg_value() {
+    local flag="$1" capture=false a
+    shift
+    for a in "$@"; do
+        if $capture; then printf '%s' "$a"; return 0; fi
+        [ "$a" = "$flag" ] && capture=true
+    done
+    return 0
+}
+
+# respond <key> <default-json> "$@": emit the scenario's canned JSON for <key>
+# or the default, applying any --jq filter from the original arguments.
+respond() {
+    local key="$1" default="$2"
+    shift 2
+    local json filter
+    if [ -n "${EVAL_SCENARIO:-}" ] && [ -f "$SCENARIO_DIR/$key.json" ]; then
+        json=$(cat "$SCENARIO_DIR/$key.json")
+    else
+        json="$default"
+    fi
+    filter=$(jq_filter_from_args "$@")
+    if [ -n "$filter" ]; then
+        printf '%s\n' "$json" | jq -r "$filter"
+    else
+        printf '%s\n' "$json"
+    fi
+}
+
+repo_name() {
+    local r
+    r=$(arg_value --repo "$@")
+    [ -z "$r" ] && r=$(arg_value -R "$@")
+    if [ -z "$r" ]; then
+        r=$(respond repo-view "{\"nameWithOwner\":\"$DEFAULT_REPO\"}" --jq .nameWithOwner)
+    fi
+    printf '%s' "$r"
+}
+
+next_issue_number() {
+    local counter="$CALL_LOG.counter" n=100
+    [ -f "$counter" ] && n=$(cat "$counter")
+    n=$((n + 1))
+    printf '%s\n' "$n" > "$counter"
+    printf '%s' "$n"
+}
+
+sub="${1:-} ${2:-}"
+case "$sub" in
+    "repo view")
+        respond repo-view "{\"nameWithOwner\":\"$DEFAULT_REPO\",\"visibility\":\"PUBLIC\"}" "$@"
+        ;;
+    "issue list")
+        respond issue-list '[]' "$@"
+        ;;
+    "issue create")
+        printf 'https://github.com/%s/issues/%s\n' "$(repo_name "$@")" "$(next_issue_number)"
+        ;;
+    "issue edit"|"issue close"|"issue comment")
+        ;;
+    "issue view")
+        respond issue-view "{\"number\":${3:-0},\"title\":\"\",\"state\":\"OPEN\",\"body\":\"\",\"labels\":[]}" "$@"
+        ;;
+    "label create"|"label edit")
+        ;;
+    "label list")
+        respond label-list '[]' "$@"
+        ;;
+    "api "*)
+        case "${2:-}" in
+            repos/*/milestones*)
+                if [ "$(arg_value --method "$@")" = "POST" ] || [ "$(arg_value -X "$@")" = "POST" ]; then
+                    printf '{"number":1,"title":"%s"}\n' "$(arg_value -f "$@" | sed 's/^title=//')"
+                else
+                    respond milestones '[]' "$@"
+                fi
+                ;;
+            *)
+                echo "gh shim: unhandled api path: ${2:-}" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "gh shim: unhandled command: $*" >&2
+        exit 1
+        ;;
+esac
