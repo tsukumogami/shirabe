@@ -99,6 +99,15 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
+#   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
+#   scripts/koto-floor/ (check-koto-floor.yml)
+#       The koto version-floor check. It runs only on ubuntu runners, from its
+#       own workflow, and no skill invokes it, so it never reaches a macOS
+#       /bin/bash on a user's machine. Its test needs mikefarah yq v4, which the
+#       floor container does not carry, and the check itself installs koto over
+#       the network, which a container run here cannot do. Both are written
+#       for bash 3.2 and were run under macOS /bin/bash when they landed; run
+#       them there by hand after changing them.
 
 SUITES="plan execute work-on preflight templates template-consistency"
 

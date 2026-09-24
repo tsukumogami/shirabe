@@ -1,0 +1,41 @@
+name: Check koto floor
+
+# shirabe's README states koto v0.12.2 as the minimum for /work-on and
+# /execute. A template may carry `decider` blocks that only a newer koto reads;
+# v0.12.2 drops them as unknown keys. This job is what keeps that claim true:
+# it installs v0.12.2, strips every decider block, requires the stripped and
+# original templates to compile to the same form, and diffs scripted runs of
+# both, tick by tick.
+#
+# Everything lives in scripts/check-koto-floor.sh, the same command a developer
+# runs locally, so this file holds no scenario logic. The script fetches koto's
+# installer from a pinned koto commit and checks its SHA-256 before running it.
+#
+# ubuntu-latest only: the runner image ships mikefarah yq v4 and jq, which the
+# script needs, and the check is about koto's behaviour, not the host's.
+
+on:
+  pull_request:
+    paths:
+      - 'skills/*/koto-templates/**'
+      # The scenarios run the scripts a template's default_action calls, so a
+      # change to one can change a transcript without touching a template.
+      - 'skills/*/scripts/**'
+      - 'scripts/check-koto-floor*.sh'
+      - 'scripts/koto-floor/**'
+      - '.github/workflows/check-koto-floor.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the floor check's helpers
+        run: bash scripts/check-koto-floor_test.sh
+
+      - name: Check templates against the koto v0.12.2 floor
+        run: bash scripts/check-koto-floor.sh
