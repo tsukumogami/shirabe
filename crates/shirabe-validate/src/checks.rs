@@ -347,9 +347,14 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
 /// this, the document `/plan` is instructed to write for that combination
 /// fails `FC04` on two sections it cannot populate.
 ///
-/// `coordinated` is deliberately excluded. Its tracking is governed by
-/// `references/coordination-strategy.md` rather than by this field, so a
-/// `tracking_level` written onto a coordinated PLAN does not move its shape.
+/// `coordinated` follows the same rule as `multi-pr`: at an explicit
+/// `tracking_level: none` it files no issues and its work items are outlines,
+/// each naming its repository and PR group. A coordinated PLAN with no
+/// `tracking_level` field, or at `issues` / `issues-and-milestone`, is read
+/// as issue-carrying and keeps the Implementation Issues table. The outline
+/// form needs the explicit field so every coordinated PLAN written before
+/// coordinated followed the tracking level keeps its table shape, and so the
+/// validator and `plan-to-tasks.sh` select the same form.
 pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
     let mode = doc
         .fields
@@ -358,12 +363,44 @@ pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
         .unwrap_or("");
     match mode {
         "single-pr" => true,
-        "multi-pr" => doc
+        "multi-pr" | "coordinated" => doc
             .fields
             .get("tracking_level")
             .is_some_and(|f| f.value.trim() == "none"),
         _ => false,
     }
+}
+
+/// Whether a repo declaration is a GitHub `owner/repo`: exactly one slash,
+/// each component `^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$`. The same rule
+/// `plan-to-tasks.sh`'s `validate_repo_tag` applies.
+fn is_valid_repo_tag(value: &str) -> bool {
+    let mut parts = value.split('/');
+    let (owner, name) = match (parts.next(), parts.next(), parts.next()) {
+        (Some(o), Some(n), None) => (o, n),
+        _ => return false,
+    };
+    let component_ok = |c: &str| {
+        let mut chars = c.chars();
+        match chars.next() {
+            Some(first) if first.is_ascii_alphanumeric() => {}
+            _ => return false,
+        }
+        c.len() <= 39
+            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-')
+    };
+    component_ok(owner) && component_ok(name)
+}
+
+/// Whether a PR group or gate name matches `^[a-z][a-z0-9-]*$`. The same
+/// rule `plan-to-tasks.sh`'s `validate_pr_group` applies.
+fn is_valid_group_slug(value: &str) -> bool {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
 /// The list before any contribution splice.
@@ -3654,12 +3691,13 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         return Vec::new();
     }
 
-    // Coordinated mode is the multi-repo generalization of multi-pr (see
-    // `references/coordination-strategy.md`): its authoritative content is the
-    // Implementation Issues table + a Dependency Graph that /plan collapses
-    // into a two-node `(repo, pr_group)` merge-order DAG. Structurally it
-    // shares every multi-pr sub-check, so the sub-checks below branch on
-    // "single-pr vs not-single-pr" rather than naming each multi-PR mode.
+    // Coordinated mode spans one or more repositories (see
+    // `references/coordination-strategy.md`): its work items, whether in the
+    // Implementation Issues table or, at `tracking_level: none`, in
+    // `## Issue Outlines`, plus a Dependency Graph are what /plan collapses
+    // into a `(repo, pr_group)` merge-order DAG. Structurally it shares every
+    // multi-pr sub-check, so the sub-checks below branch on "single-pr vs
+    // not-single-pr" rather than naming each multi-PR mode.
     let multi_pr_shaped = mode == "multi-pr" || mode == "coordinated";
 
     // Every sub-check below branches on where the work items live, which is
@@ -3747,6 +3785,17 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                 ),
             });
         }
+
+        // Sub-check G: an outline-shaped coordinated PLAN names every work
+        // item's repository and PR group on the outline, and declares its
+        // gates as `### Gate:` blocks. The rules are the ones
+        // `plan-to-tasks.sh` applies to the table path's `_Repo: ... | Group:
+        // ..._` row and `_Gate:` row, so a PLAN this passes extracts. Outlines
+        // in single-pr and multi-pr PLANs never carry these declarations and
+        // are never flagged.
+        if mode == "coordinated" {
+            errs.extend(coordinated_outline_findings(doc, &outlines));
+        }
     }
 
     // Sub-check D: issue_count consistency.
@@ -3827,6 +3876,85 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     mode
                 ),
             });
+        }
+    }
+
+    errs
+}
+
+/// FC14 Sub-check G findings for an outline-shaped coordinated PLAN.
+fn coordinated_outline_findings(
+    doc: &Doc,
+    outlines: &crate::table::OutlineSection,
+) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    let finding = |line: usize, message: String| ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC14".to_string(),
+        message,
+    };
+
+    for block in &outlines.blocks {
+        match block.repo.as_deref() {
+            None | Some("") => errs.push(finding(
+                block.line,
+                format!(
+                    "[FC14] coordinated outline '{}' is missing '**Repo**:' (a coordinated PLAN at tracking_level 'none' names each work item's repository as '**Repo**: owner/repo')",
+                    block.key
+                ),
+            )),
+            Some(repo) if !is_valid_repo_tag(repo) => errs.push(finding(
+                block.line,
+                format!(
+                    "[FC14] coordinated outline '{}' has invalid '**Repo**:' value '{}' (expected a GitHub owner/repo with exactly one slash)",
+                    block.key, repo
+                ),
+            )),
+            Some(_) => {}
+        }
+        match block.group.as_deref() {
+            None | Some("") => errs.push(finding(
+                block.line,
+                format!(
+                    "[FC14] coordinated outline '{}' is missing '**Group**:' (a coordinated PLAN at tracking_level 'none' names each work item's PR group as '**Group**: <pr-group>')",
+                    block.key
+                ),
+            )),
+            Some(group) if !is_valid_group_slug(group) => errs.push(finding(
+                block.line,
+                format!(
+                    "[FC14] coordinated outline '{}' has invalid '**Group**:' value '{}' (expected ^[a-z][a-z0-9-]*$)",
+                    block.key, group
+                ),
+            )),
+            Some(_) => {}
+        }
+    }
+
+    for gate in &outlines.gates {
+        if !is_valid_group_slug(&gate.name) {
+            errs.push(finding(
+                gate.line,
+                format!(
+                    "[FC14] gate '{}' has an invalid name (expected ^[a-z][a-z0-9-]*$)",
+                    gate.name
+                ),
+            ));
+        }
+        for (label, tokens) in [
+            ("After", &gate.unresolved_after),
+            ("Before", &gate.unresolved_before),
+        ] {
+            for token in tokens {
+                errs.push(finding(
+                    gate.line,
+                    format!(
+                        "[FC14] gate '{}' '**{}**:' names '{}', which is no outline in '## Issue Outlines' (use 'Issue <N>' naming an outline heading)",
+                        gate.name, label, token
+                    ),
+                ));
+            }
         }
     }
 
@@ -8301,9 +8429,9 @@ words:
 
     /// The widening is scoped to `tracking_level: none` and nothing else.
     ///
-    /// A `multi-pr` PLAN that files issues still owes the table and the graph,
-    /// and `coordinated` is unmoved by the field because its tracking is
-    /// governed by the coordination strategy rather than by `tracking_level`.
+    /// A `multi-pr` PLAN that files issues still owes the table and the graph.
+    /// `coordinated` follows the same rule: at an explicit `none` it is
+    /// outline-shaped, and at any other level it keeps the table.
     #[test]
     fn outline_shape_does_not_leak_to_issue_carrying_plans() {
         let plain = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
@@ -8315,11 +8443,7 @@ words:
             "a multi-pr PLAN with no tracking_level still owes the table"
         );
 
-        for (mode, level) in [
-            ("multi-pr", "issues"),
-            ("multi-pr", "issues-and-milestone"),
-            ("coordinated", "none"),
-        ] {
+        for (mode, level) in [("multi-pr", "issues"), ("multi-pr", "issues-and-milestone")] {
             let mut doc = make_plan_doc(mode, 2, well_formed_single_pr_body());
             doc.fields
                 .insert("tracking_level".to_string(), fv(level, 1));
@@ -8328,6 +8452,221 @@ words:
                 "{mode} at tracking_level {level} keeps the table shape"
             );
         }
+
+        let mut coordinated_none = make_plan_doc("coordinated", 2, well_formed_single_pr_body());
+        coordinated_none
+            .fields
+            .insert("tracking_level".to_string(), fv("none", 1));
+        assert!(
+            plan_is_outline_shaped(&coordinated_none),
+            "coordinated at tracking_level none is outline-shaped, as multi-pr is"
+        );
+    }
+
+    /// Coordinated keeps the table shape unless the tracking level is an
+    /// explicit `none`: absent, `issues`, and `issues-and-milestone` all stay
+    /// issue-carrying.
+    #[test]
+    fn coordinated_is_table_shaped_unless_tracking_level_is_none() {
+        let absent = make_plan_doc("coordinated", 2, well_formed_multi_pr_body());
+        assert!(!plan_is_outline_shaped(&absent));
+        for level in ["issues", "issues-and-milestone"] {
+            let mut doc = make_plan_doc("coordinated", 2, well_formed_multi_pr_body());
+            doc.fields
+                .insert("tracking_level".to_string(), fv(level, 1));
+            assert!(
+                !plan_is_outline_shaped(&doc),
+                "coordinated at tracking_level {level} keeps the table shape"
+            );
+        }
+    }
+
+    /// An outline-shaped coordinated PLAN: two outlines in one repository,
+    /// two PR groups, a gate between them, and a Dependency Graph.
+    fn outline_shaped_coordinated_body() -> Vec<String> {
+        vec![
+            "# PLAN: test".to_string(),
+            "## Status".to_string(),
+            "Active".to_string(),
+            "## Scope Summary".to_string(),
+            "demo".to_string(),
+            "## Decomposition Strategy".to_string(),
+            "horizontal".to_string(),
+            "## Issue Outlines".to_string(),
+            "### Issue 1: feat(x): first".to_string(),
+            "**Repo**: acme/repo-a".to_string(),
+            "**Group**: core".to_string(),
+            "**Goal**: do the first thing.".to_string(),
+            "**Acceptance Criteria**:".to_string(),
+            "- [ ] first AC".to_string(),
+            "**Dependencies**: None".to_string(),
+            "### Gate: release".to_string(),
+            "**After**: Issue 1".to_string(),
+            "**Before**: Issue 2".to_string(),
+            "**Condition**: the core release is published.".to_string(),
+            "### Issue 2: feat(x): second".to_string(),
+            "**Repo**: acme/repo-a".to_string(),
+            "**Group**: cli".to_string(),
+            "**Goal**: do the second thing.".to_string(),
+            "**Acceptance Criteria**:".to_string(),
+            "- [ ] second AC".to_string(),
+            "**Dependencies**: None".to_string(),
+            "## Dependency Graph".to_string(),
+            "```mermaid".to_string(),
+            "graph TD".to_string(),
+            "  I1 --> G[release] --> I2".to_string(),
+            "```".to_string(),
+            "## Implementation Sequence".to_string(),
+            "1, the release, then 2".to_string(),
+        ]
+    }
+
+    fn outline_shaped_coordinated_doc(body: Vec<String>) -> Doc {
+        let mut doc = make_plan_doc("coordinated", 2, body);
+        doc.fields
+            .insert("tracking_level".to_string(), fv("none", 1));
+        doc
+    }
+
+    #[test]
+    fn outline_shaped_coordinated_plan_has_no_fc04_or_fc14_finding() {
+        let doc = outline_shaped_coordinated_doc(outline_shaped_coordinated_body());
+        let fc04 = check_fc04(&doc, &plan_spec());
+        assert!(fc04.is_empty(), "no FC04 finding expected; got {fc04:?}");
+        let fc14 = check_fc14(&doc, &plan_spec());
+        assert!(fc14.is_empty(), "no FC14 finding expected; got {fc14:?}");
+    }
+
+    #[test]
+    fn outline_shaped_coordinated_plan_with_a_table_gets_the_mutual_exclusion_notice() {
+        let mut body = outline_shaped_coordinated_body();
+        body.push("## Implementation Issues".to_string());
+        body.push(String::new());
+        body.push("| Issue | Dependencies | Complexity |".to_string());
+        body.push("|---|---|---|".to_string());
+        body.push("| [#1](http://x/1) | None | simple |".to_string());
+        let doc = outline_shaped_coordinated_doc(body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("tracking_level is 'none'")
+                && e.message.contains("## Implementation Issues")),
+            "expected the FC14 mutual-exclusion notice; got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn coordinated_outline_missing_or_invalid_repo_group_is_flagged_per_outline() {
+        let body: Vec<String> = outline_shaped_coordinated_body()
+            .into_iter()
+            .map(|l| match l.as_str() {
+                "**Group**: core" => "**Repo**: acme/repo-a".to_string(),
+                "**Repo**: acme/repo-a" => String::new(),
+                "**Group**: cli" => "**Group**: Bad_Group".to_string(),
+                _ => l,
+            })
+            .collect();
+        // Outline 1 now declares Repo only (via the rewritten Group line) and
+        // no Group; outline 2 declares no Repo and an invalid Group.
+        let doc = outline_shaped_coordinated_doc(body);
+        let errs = check_fc14(&doc, &plan_spec());
+        let msgs: Vec<&str> = errs.iter().map(|e| e.message.as_str()).collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("'Issue 1: feat(x): first' is missing '**Group**:'")),
+            "{msgs:?}"
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("'Issue 2: feat(x): second' is missing '**Repo**:'")),
+            "{msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m
+                .contains("'Issue 2: feat(x): second' has invalid '**Group**:' value 'Bad_Group'")),
+            "{msgs:?}"
+        );
+
+        let bad_repo: Vec<String> = outline_shaped_coordinated_body()
+            .into_iter()
+            .map(|l| {
+                if l == "**Repo**: acme/repo-a" {
+                    "**Repo**: acme/repo/extra".to_string()
+                } else {
+                    l
+                }
+            })
+            .collect();
+        let errs = check_fc14(&outline_shaped_coordinated_doc(bad_repo), &plan_spec());
+        assert_eq!(
+            errs.iter()
+                .filter(|e| e
+                    .message
+                    .contains("invalid '**Repo**:' value 'acme/repo/extra'"))
+                .count(),
+            2,
+            "{errs:?}"
+        );
+    }
+
+    #[test]
+    fn coordinated_outline_gate_problems_are_flagged() {
+        let body: Vec<String> = outline_shaped_coordinated_body()
+            .into_iter()
+            .map(|l| match l.as_str() {
+                "### Gate: release" => "### Gate: Release_1".to_string(),
+                "**Before**: Issue 2" => "**Before**: Issue 9".to_string(),
+                _ => l,
+            })
+            .collect();
+        let errs = check_fc14(&outline_shaped_coordinated_doc(body), &plan_spec());
+        let msgs: Vec<&str> = errs.iter().map(|e| e.message.as_str()).collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("gate 'Release_1' has an invalid name")),
+            "{msgs:?}"
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("'**Before**:' names 'Issue 9'")),
+            "{msgs:?}"
+        );
+    }
+
+    #[test]
+    fn single_and_multi_pr_outlines_are_never_flagged_for_repo_group() {
+        let single = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        let mut multi = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
+        multi
+            .fields
+            .insert("tracking_level".to_string(), fv("none", 1));
+        for doc in [single, multi] {
+            let errs = check_fc14(&doc, &plan_spec());
+            assert!(
+                !errs
+                    .iter()
+                    .any(|e| e.message.contains("**Repo**") || e.message.contains("**Group**")),
+                "{errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn repo_and_group_validators_match_the_extractor_rules() {
+        assert!(is_valid_repo_tag("acme/repo-a"));
+        assert!(is_valid_repo_tag("tsukumogami/shirabe.rs"));
+        assert!(!is_valid_repo_tag("acme"));
+        assert!(!is_valid_repo_tag("acme/"));
+        assert!(!is_valid_repo_tag("/repo"));
+        assert!(!is_valid_repo_tag("a/b/c"));
+        assert!(!is_valid_repo_tag("-acme/repo"));
+        assert!(!is_valid_repo_tag("acme/re po"));
+        assert!(is_valid_group_slug("core"));
+        assert!(is_valid_group_slug("a1-b"));
+        assert!(!is_valid_group_slug("Core"));
+        assert!(!is_valid_group_slug("1core"));
+        assert!(!is_valid_group_slug(""));
+        assert!(!is_valid_group_slug("a_b"));
     }
 
     /// An issueless PLAN that carries a populated table is told the truth.

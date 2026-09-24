@@ -18,7 +18,7 @@ plan-to-tasks.sh <PLAN.md-path>
 |------|---------|
 | 0 | Success; valid JSON array written to stdout |
 | 1 | Malformed input: file not found, unreadable, or `jq` not in PATH |
-| 2 | Schema mismatch: wrong `schema:` value, missing `execution_mode`, empty slug, or unresolvable dependency reference |
+| 2 | Schema mismatch: wrong `schema:` value, missing `execution_mode`, empty slug, unresolvable dependency reference, or an unschedulable coordinated effort (see coordinated Mode) |
 
 **Output:** JSON array on stdout. Log messages written to stderr (prefixed `[plan-to-tasks]`).
 
@@ -71,6 +71,11 @@ shape, and the mode-derived default).
 | `ISSUE_SOURCE` | `"github"` |
 | `ISSUE_NUMBER` | Issue number as string (e.g., `"42"`) |
 
+Entries are emitted in Implementation Issues table order, one per entity row,
+with `name: issue-<N>`. That order is part of the contract, not an accident of
+the walk: a wrapper that lists the startable roots (`waits_on == []`) lists
+them in PLAN order by reading this output as-is.
+
 ### multi-pr vars, issueless
 
 Emitted when the PLAN's `tracking_level` is `none`. No GitHub issues
@@ -111,19 +116,39 @@ falls through to the mode-derived default.
 
 ### coordinated vars
 
-Coordinated mode emits one task entry per merge-order **node** (not per issue):
-the issue-level graph is collapsed into `(repo, pr_group)` PR nodes plus non-PR
-gate nodes. Each node's `waits_on` lists its immediate predecessors in the
-contracted, acyclic merge order.
+Coordinated mode emits one task entry per merge-order **node** (not per work
+item): the work-item graph is collapsed into `(repo, pr_group)` PR nodes plus
+non-PR gate nodes. Each node's `waits_on` lists its immediate predecessors in
+the contracted, acyclic merge order. A coordinated PLAN spans one or more
+repositories, so all of its PR groups may sit in one repository; each group is
+still its own PR node.
+
+Every PR node (`NODE_KIND: "pr"`) carries, on both the table path and the
+outline path:
 
 | Key | Value |
 |-----|-------|
-| `NODE_KIND` | `"pr"` for a `(repo, pr_group)` PR node, `"gate"` for a non-PR gate node |
+| `NODE_KIND` | `"pr"` |
+| `REPO` | The full `owner/repo` the node's work items name (e.g., `"acme/repo-a"`) |
+| `PR_GROUP` | The PR group as written (e.g., `"core"`, `"default"`) |
+| `ISSUES` | The node's work items as a comma-separated string with no spaces and no `#`, in PLAN order: GitHub issue numbers on the table path (`"1,2"`), outline numbers from the `### Issue <N>:` headings on the outline path |
+| `ISSUE_SOURCE` | `"github"` on the table path, `"plan_outline"` on the outline path |
+
+A gate node carries only `NODE_KIND: "gate"`: none of `REPO`, `PR_GROUP`,
+`ISSUES`, or `ISSUE_SOURCE`. All values are JSON strings.
+
+Across the PR nodes, `ISSUES` partitions the PLAN's work items: each appears in
+exactly one node. A consumer can therefore cut one branch per node in `REPO`
+and dispatch the node's work items without re-parsing the PLAN; when
+`ISSUE_SOURCE` is `plan_outline` the work items are outlines read from the PLAN
+document itself, not GitHub issues.
 
 Node `name` values: `pr-<repo-name>-<pr_group>` for PR nodes (the owner is
 dropped; the slug is sanitized to R9) and `gate-<gate-name>` for gate nodes. A
-repo split at the seam to break a contraction cycle yields per-issue node names
-of the form `pr-<repo-name>-<pr_group>-i<issue-number>`.
+PR node split at the seam to break a contraction cycle yields per-item node
+names of the form `pr-<repo-name>-<pr_group>-i<N>`. A split node carries its
+origin node's `REPO`, `PR_GROUP`, and `ISSUE_SOURCE`, and `ISSUES` equal to
+`"N"`.
 
 ## Frontmatter Requirements
 
@@ -141,9 +166,10 @@ The script exits 2 if:
 - The file does not start with `---`
 - `schema:` is missing or not `plan/v1`
 - `execution_mode:` is missing or not `single-pr` / `multi-pr` / `coordinated`
-- (coordinated) an issue is missing its `Repo`/`Group` annotation, a tag is
-  invalid, or the contracted PR DAG has an irreducible cycle (true cross-repo
-  atomicity — the effort is unschedulable)
+- (coordinated) a work item is missing its Repo/Group declaration, a tag or
+  gate name is invalid, a gate names no work item (outline path), or the
+  contracted PR DAG has an irreducible cycle (atomicity across PR groups —
+  the effort is unschedulable)
 
 ## Name-Sanitization Algorithm (single-pr)
 
@@ -275,6 +301,23 @@ still does.
 
 ### coordinated Mode
 
+A coordinated PLAN has two input shapes, selected by its frontmatter
+`tracking_level` exactly as `shirabe validate`'s `plan_is_outline_shaped()`
+selects them:
+
+- **Outline path** — only when `tracking_level` is explicitly `none`. Work
+  items are the `## Issue Outlines` outlines; nothing was filed on GitHub.
+- **Table path** — every other case: `tracking_level` absent, unrecognized,
+  `issues`, or `issues-and-milestone`. A coordinated PLAN written before
+  coordinated followed the tracking level has no field and is read as
+  issue-carrying.
+
+Both paths build the same work-item records and hand them to one contraction
+implementation (`build_contracted_graph`, `kahn_order`, `split_repo_at_seam`);
+there is no second contraction.
+
+#### Table path
+
 Reads the `## Implementation Issues` section like multi-pr, plus two annotation
 row types (escaped-pipe-separated so each stays a single markdown table cell):
 
@@ -286,20 +329,72 @@ row types (escaped-pipe-separated so each stays a single markdown table cell):
   declares a non-PR gate node sitting between its `After` predecessors and
   `Before` successors.
 
-Processing:
+#### Outline path
 
-1. Map each issue to its `(repo, pr_group)` PR node id (`pr-<repo-name>-<group>`).
-2. Contract the issue-level `waits_on` edges into PR-node edges (an edge between
+Reads the `shirabe plan outlines` envelope, through the same binary resolution
+and with the same failure handling as single-pr (missing binary, non-zero exit,
+unrecognized schema: exit 1). The markdown is never re-parsed here. From each
+outline it reads `number`, `repo`, `group`, `waits_on`, and
+`unresolved_dependencies`; from the top-level `gates` array it reads each gate's
+`name`, `after`, `before`, `unresolved_after`, and `unresolved_before`. An
+envelope without the `repo`, `group`, or `gates` keys comes from a binary older
+than this script and is exit 1 with the "out of step; rebuild or reinstall"
+guidance, not a report of missing declarations.
+
+The PLAN declares, in `## Issue Outlines`:
+
+```markdown
+### Issue 1: feat: core base
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: None
+
+### Gate: publish-core
+
+**After**: Issue 1
+
+**Before**: Issue 3
+
+**Condition**: the core release is published.
+```
+
+Refusals, each exit 2 with empty stdout:
+
+- no outlines at all;
+- an outline whose dependencies name no sibling outline (the single-pr wording);
+- an outline missing `**Repo**:` or `**Group**:` —
+  `coordinated outline Issue 3 is missing a Repo/Group declaration (**Repo**: owner/repo and **Group**: <pr-group>)`;
+- an invalid repo or group (the same `validate_repo_tag` / `validate_pr_group`
+  rules as the table path);
+- a gate name outside `^[a-z][a-z0-9-]*$`;
+- a gate whose `**After**:` or `**Before**:` names no outline.
+
+A `### Gate:` block becomes a gate node exactly as a `^_Gate:` row does: node
+`gate-<name>`, `vars.NODE_KIND: "gate"`, an edge from the node holding each
+`After` outline to the gate, and from the gate to the node holding each
+`Before` outline. The outline references resolve to their current node on every
+contraction attempt, so a split at the seam retargets the gate's edges.
+
+#### Processing (both paths)
+
+1. Map each work item to its `(repo, pr_group)` PR node id (`pr-<repo-name>-<group>`).
+2. Contract the work-item `waits_on` edges into PR-node edges (an edge between
    distinct PR nodes; self-edges within one node are dropped).
 3. Add gate nodes and their After/Before edges.
 4. Run a Kahn topological sort (R13 acyclicity). On a contraction cycle, apply
-   the R16-vs-R13 discriminator: split a multi-issue PR node on the residual
-   cycle into per-issue nodes (`pr-<repo-name>-<group>-i<N>`) and retry. If the
-   only cyclic nodes are single-issue (unsplittable), refuse with exit 2 — the
-   effort is unschedulable (true cross-repo atomicity). A cyclic order is never
-   emitted.
-5. Emit one task entry per node in the serialized order, each with `vars.NODE_KIND`
-   (`pr` or `gate`) and `waits_on` listing its immediate predecessors.
+   the R16-vs-R13 discriminator: split a multi-item PR node on the residual
+   cycle into per-item nodes (`pr-<repo-name>-<group>-i<N>`) and retry. If the
+   only cyclic nodes are single-item (unsplittable), refuse with exit 2 and
+   empty stdout — the effort is unschedulable because of atomicity across PR
+   groups (which may all sit in one repository). The diagnostic names a
+   compatible-intermediate sequence and `references/coordination-strategy.md`
+   as the way out. A cyclic order is never emitted.
+5. Emit one task entry per node in the serialized order, each with `vars`
+   (`NODE_KIND`, plus the four PR-node vars on a PR node) and `waits_on`
+   listing its immediate predecessors.
 
 ## Examples
 
@@ -318,6 +413,66 @@ Output:
 [
   {"name": "issue-42", "vars": {"ISSUE_SOURCE": "github", "ISSUE_NUMBER": "42"}, "waits_on": []},
   {"name": "issue-43", "vars": {"ISSUE_SOURCE": "github", "ISSUE_NUMBER": "43"}, "waits_on": ["issue-42"]}
+]
+```
+
+### coordinated Example, table path (one repository, two groups)
+
+Input table:
+```markdown
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat core base](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| [#2: feat core more](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| [#3: feat cli](https://example.com/3) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |
+```
+
+Output:
+```json
+[
+  {"name": "pr-repo-a-core", "vars": {"NODE_KIND": "pr", "REPO": "acme/repo-a", "PR_GROUP": "core", "ISSUES": "1,2", "ISSUE_SOURCE": "github"}, "waits_on": []},
+  {"name": "pr-repo-a-cli", "vars": {"NODE_KIND": "pr", "REPO": "acme/repo-a", "PR_GROUP": "cli", "ISSUES": "3", "ISSUE_SOURCE": "github"}, "waits_on": ["pr-repo-a-core"]}
+]
+```
+
+### coordinated Example, outline path (one repository, two groups)
+
+Input, with `tracking_level: none` in the frontmatter:
+```markdown
+### Issue 1: feat: core base
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: None
+
+### Issue 2: feat: core more
+
+**Repo**: acme/repo-a
+
+**Group**: core
+
+**Dependencies**: Blocked by Issue 1
+
+### Issue 3: feat: cli
+
+**Repo**: acme/repo-a
+
+**Group**: cli
+
+**Dependencies**: Blocked by Issue 1
+```
+
+Output (the same nodes and edges as the table path; `ISSUES` holds outline
+numbers):
+```json
+[
+  {"name": "pr-repo-a-core", "vars": {"NODE_KIND": "pr", "REPO": "acme/repo-a", "PR_GROUP": "core", "ISSUES": "1,2", "ISSUE_SOURCE": "plan_outline"}, "waits_on": []},
+  {"name": "pr-repo-a-cli", "vars": {"NODE_KIND": "pr", "REPO": "acme/repo-a", "PR_GROUP": "cli", "ISSUES": "3", "ISSUE_SOURCE": "plan_outline"}, "waits_on": ["pr-repo-a-core"]}
 ]
 ```
 

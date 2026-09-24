@@ -105,23 +105,42 @@ separable, at which point the exception can go; a skill relying on the exception
 should carry a tripwire that fails when it is no longer needed rather than
 leaving it as folklore.
 
+## A leg-attached root reports by promotion
+
+The exception above is about `--parent` children. A **root** session attached
+to a koto request leg (a child run with `--koto-leg=<request-id>:<leg>`; see
+Parent-of-the-Parent Binding in
+[`parent-skill-pattern.md`](parent-skill-pattern.md)) doesn't face that choice.
+koto's request store keeps retention and the result apart for it: at the
+terminal tick koto promotes the session's declared `result:` map to the leg,
+**even under `--no-cleanup`**, and the session keeps its record. So a
+leg-attached root passes `--no-cleanup` on every tick like any other root, and
+its driver still receives its result. Retention stays root-only; attaching to a
+leg doesn't make a session a child.
+
 ## What retention does not buy
 
-A retained session keeps its name, and `koto init` refuses a name already in
-use. A skill whose re-entry initializes a well-known session name must therefore
-recognise a retained finished session before initializing, or its own resume
-path is blocked by the session it retained.
+A retained session keeps its name, so a skill whose re-entry initializes a
+well-known session name has to deal with the finished session it retained, or
+its own resume path is blocked by it. Retention buys a record that can be read
+after the fact, not a session a later run resumes in place.
 
-Read `is_terminal` from `koto status` to detect this. It reports without
-advancing anything, where discovering the same fact by ticking both answers
-`action: "done"` — which an execution loop will report as the run's outcome,
-claiming work it did not do — and disposes of the session on the way, destroying
-the record. `koto workflows` lists a retained terminal session with nothing
-marking it terminal, so finding a session is not evidence that it is resumable.
+The recovery is **`koto init --replace-terminal`**. It replaces a session only
+when that session is terminal, hands back the old run's result so the skill may
+print it, and starts a fresh session under the same name in one step. A live
+session is never replaced: paired with `--attach-live`, the same `koto init`
+joins it instead when its template, origin, and non-rebind variables match,
+and refuses otherwise. The skill therefore needs no separate probe to tell a
+live session from a finished one, and no read-then-`koto session cleanup`
+sequence that a crash between the two steps could leave half done. shirabe's
+koto-backed skills pass these flags through the shared `scripts/koto-open.sh`.
 
-The recovery is to read the record and then `koto session cleanup` it. Retention
-buys a record that can be read after the fact, not a session a later run resumes
-in place.
+Don't discover a finished session by ticking it. A tick on a terminal session
+answers `action: "done"`, which an execution loop reports as the run's outcome,
+claiming work it didn't do. `koto workflows` lists a retained terminal session
+with nothing marking it terminal, so finding a session isn't evidence that it's
+resumable either; `is_terminal` from `koto status` remains the read-only way to
+ask when a skill needs to know outside its entry path.
 
 ## Where a skill states its position
 
@@ -137,5 +156,6 @@ read as instruction.
 | Skill | Position |
 |---|---|
 | `/work-on` | Root runs pass it on every tick; children pass it nowhere. Decided per run by `session-role.sh`, because `work-on.md` is also `/execute`'s child template. |
-| `/execute` | Every tick, unconditionally. An orchestrator session is always a root. |
-| `/scope` | States the selective per-state form, predating the findings above, and is **not reconciled**. Measured: `scope.md` declares no state whose transitions are all unconditional, so nothing there chains into a terminal and its selective rule is reachable in practice — inconsistent rather than unsafe. One future state with a single unconditional exit would make it unsafe, with nothing to catch that. Aligning it is tracked separately. |
+| `/execute` | Every tick, unconditionally. An orchestrator session is always a root, including under `--koto-leg`, where its result reaches the leg by promotion. |
+| `/scope` | Every tick, unconditionally. Its session is always a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. |
+| `/deliver` | Every tick, unconditionally. Its session is a root and a request coordinator; its children report through their legs, not through its session. |

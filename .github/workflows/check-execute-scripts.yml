@@ -49,6 +49,16 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/assert-child-template_test.sh
 
+      # The merge scripts' tests drive a test-local gh stub, so they need
+      # neither koto nor network access and run before the toolchain installs.
+      - name: Run merge-verdict tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/merge-verdict_test.sh
+
+      - name: Run merge-exec tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/merge-exec_test.sh
+
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch
       # was not recorded, which cannot be checked without the engine that

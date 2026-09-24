@@ -41,10 +41,11 @@ otherwise), and `tracking_level`.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
 - **execution_mode** -- one of `single-pr`, `multi-pr`, or
   `coordinated`. Determines how the work lands: one pull request
-  (`single-pr`) or several (`multi-pr`); `coordinated` is the
-  multi-repo generalization of `multi-pr`. It does **not** determine
-  whether the PLAN materializes GitHub issues -- that is
-  `tracking_level`, resolved separately.
+  (`single-pr`) or several (`multi-pr`); `coordinated` lands several
+  pull requests, one per PR group across one or more repositories, in
+  a recorded merge order with a coordination PR that merges last. It
+  does **not** determine whether the PLAN materializes GitHub issues --
+  that is `tracking_level`, resolved separately.
 - **split_rationale** -- why this PLAN has the delivery shape it has.
   Required when **either** of these holds:
   - `execution_mode` is not `single-pr`; **or**
@@ -97,8 +98,13 @@ otherwise), and `tracking_level`.
   deterministic branch signal rather than making it infer the level
   from the table's shape.
 
-  Absent on `coordinated` PLANs, whose tracking is governed by
-  `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
+  `coordinated` follows `tracking_level` the same way `multi-pr` does,
+  with `none` as its default, and Phase 7 always writes the field on
+  a coordinated PLAN. The outline form of a coordinated PLAN needs an
+  explicit `tracking_level: none`: a coordinated PLAN without the
+  field (every one written before coordinated followed the tracking
+  level) is read as issue-carrying by both `shirabe validate` and
+  `plan-to-tasks.sh`.
 - **upstream** -- path to the upstream DESIGN doc, repo-relative or
   cross-repo (`owner/repo:path`). Omit if the PLAN was authored from
   a topic with no single upstream DESIGN. Cross-repo upstream
@@ -206,8 +212,8 @@ lands. There are two shapes:
   resolved `tracking_level` is `issues` or `issues-and-milestone`.
 - **Outline-shaped** -- work items live in `## Issue Outlines`, keyed by
   local ids rather than issue numbers, and neither the table nor the
-  graph is required. Every `single-pr` PLAN, plus any `multi-pr` PLAN at
-  `tracking_level: none`.
+  graph is required. Every `single-pr` PLAN, plus any `multi-pr` or
+  `coordinated` PLAN at an explicit `tracking_level: none`.
 
 An outline-shaped `multi-pr` PLAN is a real combination, not a
 degenerate one: the work still lands in several pull requests, and the
@@ -220,10 +226,15 @@ from this shape.
 Whichever shape applies, the work items are authoritative in exactly one
 place. `FC14` fires when both are populated.
 
-`coordinated` is always issue-carrying. Its tracking is governed by
-`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, so a
-`tracking_level` written onto a coordinated PLAN does not move its
-shape.
+`coordinated` takes either shape by the same rule. At `tracking_level:
+none` each outline also names its repository and PR group on
+`**Repo**:` and `**Group**:` lines, and non-PR gates are `### Gate:
+<name>` blocks; at `issues` or `issues-and-milestone`, or with no
+`tracking_level` at all, it is issue-carrying and the table carries the
+`_Repo: ... | Group: ..._` and `_Gate: ..._` annotation rows. Both forms
+are specified in `references/quality/plan-doc-structure.md` under
+"Coordinated Mode", and the coordination contract itself is
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
 
 ## Dependency Graph
 

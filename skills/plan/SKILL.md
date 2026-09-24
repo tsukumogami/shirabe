@@ -14,7 +14,7 @@ description: >-
   last hop. Do NOT use it to sequence FEATURES across an initiative rather
   than issues inside one (`/roadmap`), or to run the resulting plan
   (`/execute`).
-argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
+argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical] [--intent=continue|stop] [--coordinated|--no-coordinated] [--auto]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -75,6 +75,13 @@ when /plan finishes authoring. So a `multi-pr` plan whose tracking
 level is `none` auto-fires, and a `single-pr` plan whose level is
 `issues` waits for approval. A committed PLAN at `status: Draft` is a
 violation in either case.
+
+`coordinated` follows the same gate. An outline-shaped coordinated PLAN
+(tracking level `none`, coordinated's default) files nothing, so it is
+authored at `Active`. A coordinated PLAN at `issues` or
+`issues-and-milestone` files issues, and it does so only behind an explicit
+filing approval: asked interactively, or resolved by
+`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` under `--auto`.
 
 PLANs are ephemeral: when the work completes, the PLAN file is
 deleted from the tree in the same commit set that transitions the
@@ -194,14 +201,43 @@ and continues; it never hard-stops. See `references/phases/phase-3-decomposition
 step 3.5a for the guard's procedure and step 3.6 for the mode finalization that
 consumes the guard's output.
 
-### Coordinated Mode (multi-repo)
+**Split mode.** Whether the work splits is the question above, answered first
+and recorded in `split_branch` and `split_rationale`; `--intent` and the
+coordination flags are never read by it, so they cannot change the split
+reason. **A PLAN that doesn't split is `single-pr` regardless of intent or
+flags.** Only when the work splits does a second question pick the kind of
+split, by a four-level precedence where the first level that answers wins:
 
-`coordinated` is the third execution mode: the multi-repo generalization of
-multi-pr. Reach for it when the effort spans more than one repository and the
-per-repo PRs must land in a coordinated order with a coordination PR that
-merges last. It is always multi-PR and shares multi-pr's section shape
-(Implementation Issues table + Dependency Graph); it adds per-issue `repo` and
-`pr_group` tags plus a two-node merge-order DAG.
+1. an explicit `--coordinated` (gives `coordinated`) or `--no-coordinated`
+   (gives `multi-pr`);
+2. `--intent`: `continue` resolves to `coordinated`, `stop` to `multi-pr`; no
+   intent gives no answer at this level;
+3. a coordinated-by-default `CLAUDE.md` header, whose values are defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md` (its
+   "Coordinated-by-default header values" table) and not restated here;
+4. `multi-pr`.
+
+So with no flag and no header, `stop` or no intent gives `multi-pr`. The PLAN
+records which level decided as `split_mode_source` (`flag`, `intent`, `header`,
+or `default`; `none` when the work doesn't split). The precedence is not
+applied by judgment: step 5a of `references/phases/phase-3-decomposition.md`
+runs `${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh` and copies its two
+output lines into the decomposition artifact.
+
+### Coordinated Mode
+
+`coordinated` is the third execution mode. It spans one or more repositories:
+its PR nodes may all sit in one repository, each group of work landing as its
+own PR, or spread across several. It is always multi-PR, lands its PRs in a
+coordinated order with a coordination PR that merges last, and adds a `repo`
+and `pr_group` tag on every work item plus a two-node merge-order DAG.
+
+Coordinated follows the resolved tracking level the way `multi-pr` does, with
+`none` as its default. At `none` (the default) its work items are outlines in
+`## Issue Outlines`, each with `**Repo**:` and `**Group**:` lines, and nothing is
+filed. Only when the tracking level is `issues` or `issues-and-milestone` are
+they GitHub issues, each with a `_Repo: <owner/repo> | Group: <pr-group>_` row
+in the Implementation Issues table, filed behind an explicit approval.
 
 The canonical contract is
 `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`; the PLAN-side
@@ -209,14 +245,18 @@ authoring details (the Repo/Group annotation rows, gate-node declarations, and
 the contraction + acyclicity behavior) live in
 `references/quality/plan-doc-structure.md` under "Coordinated Mode."
 
-Mechanically, each coordinated issue carries a `^_Repo: owner/repo \| Group:
-<pr-group>_` annotation row in the Implementation Issues table (default
-grouping is one PR per repo, `Group: default`). `scripts/plan-to-tasks.sh`
-collapses the issue-level dependency graph into a `(repo, pr_group)`-level PR
+Mechanically, each coordinated work item names its repository and PR group:
+at an explicit `tracking_level: none` as `**Repo**:` and `**Group**:` lines on
+its outline in `## Issue Outlines`, otherwise as a `^_Repo: owner/repo \|
+Group: <pr-group>_` annotation row in the Implementation Issues table. A
+multi-repo split may use one group per repository (`Group: default`); a split
+inside one repository needs one distinct group per split unit. `scripts/plan-to-tasks.sh`
+collapses the work-item dependency graph into a `(repo, pr_group)`-level PR
 DAG with non-PR gate nodes, checks acyclicity after contraction (R13), and
-resolves a contraction cycle by splitting a repo at the seam — or refuses if no
-acyclic order exists (true cross-repo atomicity). It never emits a cyclic
-order.
+resolves a contraction cycle by splitting a PR node at the seam — or refuses if
+no acyclic order exists (atomicity across PR groups). It never emits a cyclic
+order. Each PR node carries `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`
+vars; `references/plan-to-tasks-contract.md` documents them.
 
 ## Complexity Classification
 
@@ -271,7 +311,8 @@ branching behavior in Phases 1, 3, and downstream phases.
 
 #### 1. Parse Flags
 
-Check `$ARGUMENTS` for flags before extracting the document path:
+Check `$ARGUMENTS` for flags before extracting the document path. Flags may
+appear in any order after the document path.
 
 **Execution mode flags:**
 - `--auto` -- non-interactive execution; follow `references/decision-protocol.md`
@@ -295,6 +336,28 @@ If no mode flag, read CLAUDE.md `## Execution Mode:` header.
   roadmap is deleted when its features land, and the PLAN is deleted by the same
   cascade and goes first, so the link cannot outlive its target. No durable
   document in the chain may name a roadmap.
+
+**Intent and coordination flags** (direct-use flags; a parent such as `/scope`
+forwards them verbatim when its caller passed them):
+- `--intent=continue|stop` -- the caller's intent for the work after planning.
+  Read only by step 5a, and only when the work splits: `continue` resolves a
+  split to `coordinated`, `stop` to `multi-pr`. It never changes whether the work
+  splits, and a PLAN that doesn't split is `single-pr` either way.
+- `--coordinated` -- resolve a split to `coordinated`, outranking `--intent` and
+  the `CLAUDE.md` header.
+- `--no-coordinated` -- resolve a split to `multi-pr`, outranking `--intent` and
+  the `CLAUDE.md` header.
+
+A run with none of the three behaves exactly as before they existed. Validate
+them before anything else runs, and before any `wip/plan_<topic>_*` file is
+written. Each of these is a rejection with an error naming the offending flag,
+and the run stops without writing anything:
+
+- an `--intent` value other than `continue` or `stop` (`--intent=bogus`, a bare
+  `--intent`, `--intent=none`);
+- `--intent` given more than once, even with the same value (e.g.
+  `--intent=stop --intent=continue`);
+- `--coordinated` together with `--no-coordinated`, or either given twice.
 
 If conflicting flags are present (e.g., both `--strategic` and `--tactical`), error
 and ask user to pick one. Remove flags from arguments before using the remainder as
@@ -456,7 +519,7 @@ Seven sequential phases, plus an execution mode selection between Phases 3 and 4
 | 2. Milestone | Derive milestone from source document | `wip/plan_<topic>_milestones.md` |
 | 3. Decomposition | Break into atomic issues | `wip/plan_<topic>_decomposition.md` |
 | 3.5a. Value Confirmation | Check each unit delivers observable incremental value; can fail | Recorded in decomposition artifact (and `wip/plan_<topic>_decisions.md` under `--auto`) |
-| 3.5. Execution Mode | Select single-pr or multi-pr mode | Recorded in decomposition artifact |
+| 3.5. Execution Mode | Select single-pr, multi-pr, or coordinated mode (split decision, then step 5a's `resolve-split-mode.sh` on a split) | Recorded in decomposition artifact |
 | 4. Generation | Generate rich issue bodies via agents | `wip/plan_<topic>_issue_*.md` + `wip/plan_<topic>_manifest.json` |
 | 5. Dependencies | Sequence tasks, identify blockers | `wip/plan_<topic>_dependencies.md` |
 | 6. Review | AI validates completeness + sequencing | `wip/plan_<topic>_review.md` |
@@ -469,7 +532,9 @@ After decomposition completes, the workflow runs the value-confirmation guard (s
 delivers observable incremental value -- every feature for a roadmap, each PR-shaped
 unit for a plan whose split delivers incremental value -- and can fail, naming any
 mis-decomposed unit and the reason it failed the value test. The mode finalization
-then chooses single-pr or multi-pr based on the surfaced rule above.
+then decides whether the work splits based on the surfaced rule above, and on a
+split step 5a resolves `multi-pr` or `coordinated` through
+`scripts/resolve-split-mode.sh`.
 
 Under `--auto`, the guard records a decision block per
 `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` (`confirmed` on a clear pass,
@@ -482,6 +547,11 @@ are defined in the Phase 3 reference file.
   milestone created. PLAN status stays at Draft.
 - **multi-pr**: Phase 4 agents produce full issue body files. Phase 7 creates GitHub
   milestone and issues, populates Implementation Issues table. PLAN status set to Active.
+- **coordinated**: at tracking level `none` (its default) Phase 4 agents produce
+  structured outlines and Phase 7 writes them, each with `**Repo**:` and
+  `**Group**:`, into Issue Outlines with nothing filed. At `issues` or
+  `issues-and-milestone` agents produce full issue bodies and Phase 7 files them
+  behind an explicit filing approval.
 
 ### Phase Execution
 
@@ -517,6 +587,8 @@ scope from Context Resolution throughout.
    - Artifact: `docs/plans/PLAN-<topic>.md`
    - multi-pr: GitHub milestone + issues
    - single-pr: PLAN doc with Issue Outlines, no GitHub artifacts
+   - coordinated: PLAN doc with Repo/Group-tagged outlines at `none`; issues with
+     Repo/Group rows, behind a filing approval, only at `issues` levels
    - Design doc status transitions: Accepted -> Planned (status field only, no body edits); skip for topic input
    - Cleanup: delete `wip/plan_<topic>_*.md` and `wip/plan_<topic>_*.json` files
 
@@ -552,9 +624,26 @@ Final artifacts depend on execution mode:
 - Source design doc status updated to "Planned"
 - Not available for roadmap input (roadmap mode is always multi-pr)
 
+**coordinated mode, tracking level `none` (the default):**
+- `docs/plans/PLAN-<topic>.md` with status Active, `execution_mode: coordinated`,
+  `split_mode_source`, and `tracking_level: none`
+- Issue Outlines, each with `**Repo**:` and `**Group**:`, plus any `### Gate:`
+  blocks and a Dependency Graph
+- No GitHub issues or milestone created
+- Source design doc status updated to "Planned"
+
+**coordinated mode, tracking level `issues` or `issues-and-milestone`:**
+- `docs/plans/PLAN-<topic>.md` with status Active and the resolved `tracking_level`
+- GitHub issues (and, at `issues-and-milestone`, a milestone), filed only after
+  the explicit filing approval
+- An Implementation Issues table with a `_Repo: ... | Group: ..._` row under each
+  issue and any `_Gate:` rows
+- Source design doc status updated to "Planned"
+
 ### Begin
 
-1. Parse flags from arguments
+1. Parse flags from arguments, rejecting an invalid or repeated `--intent` or both
+   coordination flags before anything is written
 2. Detect input type from path pattern (design, prd, roadmap, or topic)
 3. If document input: read the source document and verify status
 4. If topic input: proceed without a source document
@@ -596,8 +685,9 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 | `references/quality/plan-doc-structure.md` | Phase 7 PLAN doc construction |
 | `references/quality/plan-doc-examples.md` | Phase 7 (if examples needed) |
 | `references/quality/consumer-validation-rules.md` | When implementing a consuming skill that must validate PLAN artifacts |
+| `${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh` | Phase 3 step 5a (split mode) |
 | `${CLAUDE_SKILL_DIR}/scripts/build-dependency-graph.sh` | Phase 5 |
-| `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |
+| `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr and coordinated filing (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issue.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issue.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/plan-to-tasks.sh` | When emitting koto task-entry JSON from a PLAN doc (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/render-template.sh` | Phase 4 |

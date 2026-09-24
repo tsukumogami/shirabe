@@ -1056,6 +1056,77 @@ mod tests {
         );
     }
 
+    // --- single-repo coordination bodies ---
+    //
+    // Coordinated mode also runs inside one repository: the declaration drops
+    // "multi-repo" and every PR-index entry names the same `owner/repo`. The
+    // check never counts repositories, so these bodies must validate exactly
+    // like the multi-repo fixture above.
+
+    /// A single-repo body: the fixed prefix without "multi-repo", three index
+    /// entries all in `tsukumogami/shirabe`, and a three-node merge order.
+    fn single_repo_body() -> String {
+        format!(
+            "# Coordination PR: scope-then-execute\n\n\
+             > {marker} for a coordinated effort. It merges last. \
+             See references/coordination-strategy.md.\n\n\
+             ## PR Index\n\n\
+             - pr-1 | tsukumogami/shirabe:docs/plans/PLAN-x.md#301 | open\n\
+             - pr-2 | tsukumogami/shirabe:docs/plans/PLAN-x.md#302 | open\n\
+             - pr-3 | tsukumogami/shirabe:docs/plans/PLAN-x.md#303 | merged\n\n\
+             ## Merge Order\n\n\
+             ```merge-order\n\
+             pr-1 | open\n\
+             pr-2 | open\n\
+             pr-3 | merged\n\
+             ```\n",
+            marker = COORDINATION_DECLARATION_MARKER
+        )
+    }
+
+    #[test]
+    fn body_check_passes_single_repo_body_without_multi_repo_wording() {
+        let body = single_repo_body();
+        assert!(!body.contains("multi-repo"));
+        let findings = check_coordination_body(&body);
+        assert!(
+            findings.is_empty(),
+            "a single-repo body must validate cleanly, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn body_check_passes_two_prs_from_same_repo() {
+        // The minimal single-repo index: exactly two PRs, one repository.
+        let body = single_repo_body().replace(
+            "- pr-3 | tsukumogami/shirabe:docs/plans/PLAN-x.md#303 | merged\n",
+            "",
+        );
+        let findings = check_coordination_body(&body);
+        assert!(findings.is_empty(), "got {:?}", findings);
+    }
+
+    #[test]
+    fn single_repo_merge_order_parses_and_is_acyclic() {
+        let nodes = parse_merge_order_block(&single_repo_body()).expect("block present");
+        assert_eq!(nodes, vec!["pr-1", "pr-2", "pr-3"]);
+        assert!(is_acyclic_order(&nodes).is_ok());
+    }
+
+    #[test]
+    fn single_repo_cyclic_merge_order_is_rejected() {
+        let body = single_repo_body().replace("pr-3 | merged\n```", "pr-1 | merged\n```");
+        let nodes = parse_merge_order_block(&body).expect("block present");
+        assert!(is_acyclic_order(&nodes).is_err());
+        let findings = check_coordination_body(&body);
+        assert!(
+            findings.iter().any(|f| f.message.contains("acyclic")),
+            "expected a cyclic-order finding: {:?}",
+            findings
+        );
+    }
+
     #[test]
     fn extract_ref_tokens_pulls_index_line_ref() {
         let line = "- pr-1 | tsukumogami/shirabe:docs/plans/PLAN-x.md#196 | open";

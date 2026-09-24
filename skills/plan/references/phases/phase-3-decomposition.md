@@ -7,9 +7,12 @@ This phase carries two separately named decisions:
 - **Decomposition strategy** (walking skeleton vs horizontal vs feature-by-feature
   planning) -- this phase's primary decision, made in step 3.0 (or fixed by input
   type for roadmaps). Governs how issues are shaped against the design.
-- **Execution mode** (single-pr vs multi-pr) -- finalized in step 3.6 against the
-  surfaced rule on the plan SKILL surface, after the value-confirmation guard in
-  step 3.5a has checked each unit. Governs how the resulting work lands.
+- **Execution mode** (single-pr vs multi-pr vs coordinated) -- finalized in step
+  3.6 against the surfaced rule on the plan SKILL surface, after the
+  value-confirmation guard in step 3.5a has checked each unit. Step 3.6 first
+  decides whether the work splits; only on a split does its step 5a pick
+  `multi-pr` or `coordinated`, through `scripts/resolve-split-mode.sh`. Governs
+  how the resulting work lands.
 
 The two decisions are independent and must not be conflated: a walking-skeleton
 decomposition can land single-pr or multi-pr; a horizontal decomposition can land
@@ -26,7 +29,7 @@ this land as PRs?"
 - [Standard Decomposition](#standard-decomposition-input_type-design-or-prd): Strategy Decision, Scope-Aware Decomposition, Steps 3.1-3.5
 - [Roadmap Decomposition](#roadmap-decomposition-input_type-roadmap): Steps 3.R1-3.R4
 - [Value Confirmation](#value-confirmation-all-input-types): Step 3.5a
-- [Execution Mode Selection](#execution-mode-selection-all-input-types): Step 3.6
+- [Execution Mode Selection](#execution-mode-selection-all-input-types): Step 3.6 (split decision, step 5a split mode)
 
 ## Resume Check
 
@@ -255,7 +258,8 @@ decomposition_strategy: walking-skeleton  # or: horizontal
 strategy_rationale: "<one sentence explaining why this strategy>"
 confirmed_by_user: false  # true if user was prompted
 issue_count: <number>
-execution_mode: <single-pr or multi-pr>  # set in step 3.6
+execution_mode: <single-pr | multi-pr | coordinated>  # set in step 3.6 (step 5a on a split)
+split_mode_source: <none | flag | intent | header | default>  # set in step 3.6 (step 5a on a split)
 ---
 ```
 
@@ -358,7 +362,8 @@ decomposition_strategy: feature-by-feature-planning
 strategy_rationale: "Roadmap features map 1:1 to planning issues with per-feature needs-* labels"
 confirmed_by_user: false
 issue_count: <number>
-execution_mode: <single-pr or multi-pr>  # set in step 3.6
+execution_mode: <single-pr | multi-pr | coordinated>  # set in step 3.6 (step 5a on a split)
+split_mode_source: <none | flag | intent | header | default>  # set in step 3.6 (step 5a on a split)
 ---
 ```
 
@@ -523,16 +528,19 @@ check.
    departs from, so it is resolved before a mode is recommended, not after.
 4. **Recommend a mode, and select the branch that produced it.** Every
    non-default outcome carries exactly one branch name:
-   - **Roadmap input** -> multi-pr, branch **Incremental Value** (each feature is
+   - **Roadmap input** -> splits, branch **Incremental Value** (each feature is
      a cohesive deliverable, per the surfaced rule).
    - **Plan input with a named hard constraint** (cross-repo, merge gate between
      steps, a workflow that must reach the default branch before it can be
-     invoked) -> multi-pr, branch **Hard Constraint**, with the constraint named.
-   - **Plan input with each PR independently useful** -> multi-pr, branch
+     invoked) -> splits, branch **Hard Constraint**, with the constraint named.
+   - **Plan input with each PR independently useful** -> splits, branch
      **Incremental Value**, with the rationale stated.
    - **Plan input under an `atomic` preference whose decomposition permits a
-     split** -> multi-pr, branch **Stated Preference**. Do not restate this as an
+     split** -> splits, branch **Stated Preference**. Do not restate this as an
      incremental-value claim; the branch exists so the real reason can be given.
+
+   A split is `multi-pr` or `coordinated`; which one is not decided here but in
+   step 5a.
    - **Plan input under `consolidated`, no branch fires** -> single-pr, no branch,
      no record.
    - **Plan input under `atomic` that stays single-pr anyway** -> single-pr, but
@@ -542,7 +550,6 @@ check.
    `split_rationale` without re-deriving the judgment:
 
    ```yaml
-   execution_mode: multi-pr
    split_branch: Hard Constraint
    split_rationale: |
      Hard Constraint. The reusable workflow added in unit 1 must reach the
@@ -552,20 +559,101 @@ check.
    Omit both fields when the outcome is `single-pr` under `consolidated` — the
    no-branch case records nothing.
 
+   When the work doesn't split, record `execution_mode: single-pr` and
+   `split_mode_source: none` in the frontmatter now. These are exactly the two
+   values `resolve-split-mode.sh --split no` prints, whatever intent or flags
+   the run carries, so there is nothing for step 5a to decide.
+
+   **Steps 1-5 never read `--intent`, `--coordinated`, or `--no-coordinated`.**
+   Whether the work splits, and on which branch, is decided from the
+   decomposition, the value guard, and the Delivery Preference alone. So
+   `split_branch` for a given DESIGN is identical under `--intent=continue`,
+   `--intent=stop`, and no intent; intent and the coordination flags only choose
+   between the two kinds of split, in step 5a.
+
+5a. **Resolve the split mode (only when the work splits).** Run the resolver
+   and copy its output; do not apply the precedence yourself:
+
+   ```bash
+   bash ${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh --split yes \
+     [--intent <continue|stop|none>] \
+     [--coordinated | --no-coordinated] \
+     [--claude-md <repo-root>/CLAUDE.md]
+   ```
+
+   Pass `--intent` with the run's `--intent` value (`none`, or omit it, when the
+   run has none), pass whichever coordination flag the run was given, and pass
+   `--claude-md` when the repository root has a `CLAUDE.md`. The script prints
+   exactly two lines:
+
+   ```
+   execution_mode=<multi-pr|coordinated>
+   split_mode_source=<flag|intent|header|default>
+   ```
+
+   Write them into the decomposition frontmatter as `execution_mode` and
+   `split_mode_source`, verbatim. The script is the precedence (explicit flag >
+   `--intent` > coordinated-by-default header > `multi-pr`) and carries the
+   header values defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`. **Never resolve
+   the precedence by judgment, and never override the script's output**, except
+   through step 6's interactive override, which re-runs the script. A non-zero
+   exit is a hard stop: report its stderr line. Phase 0 already validated the
+   flags, so a refusal here means the invocation was built wrong.
+
+   Step 5a also runs on roadmap input (whose split branch is Incremental Value)
+   and again after a step 6 override whose confirmed mode splits.
+
+   **On a `coordinated` outcome**, step 5a also does three things before
+   Phase 4 runs:
+
+   - **Resolve the tracking level** on the
+     `flag > CLAUDE.md ## Tracking Level: none|issues|issues-and-milestone > mode default`
+     stack, with `none` as coordinated's default (an unrecognized value falls
+     through to `none`), and record it as `tracking_level` in the
+     decomposition frontmatter. Phase 4 reads it to pick body depth, and
+     Phase 7 writes it into the PLAN.
+   - **Tag every work item with its repository and PR group.** Add
+     `- **Repo**: <owner/repo>` and `- **Group**: <slug>` to each outline in the
+     decomposition artifact. `<owner/repo>` is the repository the item's change
+     lands in: the current repository (its `nameWithOwner`) for work in this
+     repo, or the repository the source document names for work elsewhere. The
+     group is a slug matching `^[a-z][a-z0-9-]*$`, one distinct group per split
+     unit, so a split inside one repository always yields at least two groups.
+     A multi-repo split may use `default` for every item, one group per
+     repository. Phase 7 writes these as `**Repo**:` / `**Group**:` lines on
+     each outline at tracking level `none`, and as the
+     `_Repo: <owner/repo> | Group: <slug>_` annotation row under each issue's
+     table row at `issues` or `issues-and-milestone`.
+   - **Declare any non-PR gate** (a merge gate, a manual step between two
+     groups) in the decomposition artifact. At tracking level `none` it is a
+     `### Gate: <name>` block under `## Issue Outlines`, with
+     `**After**: Issue <N>[, Issue <M>...]`, `**Before**: Issue <N>[, ...]`, and
+     `**Condition**: <text>` lines, in the form
+     `../quality/plan-doc-structure.md` documents under "Coordinated Mode"; an
+     outline's `**Dependencies**:` never names a gate. At `issues` levels it is
+     the `_Gate: <name> | After: ... | Before: ..._` row. The gate name matches
+     `^[a-z][a-z0-9-]*$`.
+
 6. **Present the recommendation to the user using AskUserQuestion** (interactive
    mode):
 
 ```
 Based on the decomposition and the value-confirmation guard, I recommend
-**<single-pr|multi-pr>** execution mode.
+**<single-pr|multi-pr|coordinated>** execution mode.
 
 Reasoning: <one-sentence rationale citing the branch that fired -- Hard
-Constraint, Incremental Value, or Stated Preference -- or the default>
+Constraint, Incremental Value, or Stated Preference -- or the default; on a
+split, also the split_mode_source step 5a recorded>
 
 - **single-pr**: the work lands in one pull request. Phase 4 agents produce
   lighter structured outlines.
-- **multi-pr**: the work lands in several. Phase 4 agents produce full issue
-  bodies.
+- **multi-pr**: the work lands in several independently tracked PRs. Phase 4
+  agents produce full issue bodies.
+- **coordinated** (offered only when the work splits): the work lands as one PR
+  per group, in one or more repositories, in a recorded merge order behind a
+  coordination PR that merges last. At the default tracking level its work
+  items are outlines tagged with Repo and Group, and nothing is filed.
 
 This choice is about how the code lands, not about what gets tracked on
 GitHub. The resolved tracking level decides whether Phase 7 files issues and
@@ -574,16 +662,27 @@ a milestone, and it is a separate question asked separately.
 Use <recommended mode>, or override?
 ```
 
+   **An override re-runs step 5a.** An override to single-pr is `--split no`
+   (single-pr, source `none`, and the branch-field cleanup below). An override
+   that keeps a split re-runs the script with `--split yes` and the run's intent
+   and header. Choosing between `multi-pr` and `coordinated` here is itself an
+   explicit coordination flag: pass `--coordinated` or `--no-coordinated` for
+   the option chosen, in place of any coordination flag on the command line, so
+   the record reads `split_mode_source: flag`. Copy the output as in step 5a; do
+   not write the mode by hand.
+
 7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in `wip/plan_<topic>_decisions.md` if the rationale is clear, or
-   `assumed` at high review priority if multi-pr was chosen without a hard
+   `assumed` at high review priority if a split was chosen without a hard
    constraint or a clear incremental-value rationale for every unit.
 
 8. **Record the confirmed selection** in the decomposition artifact's YAML
    frontmatter:
 
 ```yaml
-execution_mode: single-pr  # or multi-pr
+execution_mode: coordinated  # single-pr | multi-pr | coordinated
+split_mode_source: intent    # none | flag | intent | header | default
+tracking_level: none         # coordinated only; set by step 5a
 ```
 
 If the frontmatter was already written in step 3.5 or 3.R4 with a placeholder,
@@ -637,6 +736,10 @@ Before proceeding:
 - [ ] Each issue is atomic and complete
 - [ ] Value-confirmation guard (step 3.5a) ran and classified every unit
 - [ ] Execution mode finalized against the SKILL-surface rule, with rationale recorded
+- [ ] `execution_mode` and `split_mode_source` copied from `resolve-split-mode.sh`
+      on a split, or `single-pr` / `none` on no split
+- [ ] On `coordinated`: `tracking_level` recorded, and every outline tagged with
+      `**Repo**:` and `**Group**:`
 
 ## Next Phase
 

@@ -33,9 +33,12 @@
 # execution_mode enum re-validates and before the loop dispatches a child.
 #
 # gh drives the home PR throughout (pr list, pr create, pr edit, pr ready, pr
-# checks, pr view, issue view); git creates and pushes the shared branch and
-# stages the cascade's transitions, and fetches, diffs, and rebases for the drift
-# check; jq builds the cascade report and the drift facts; python3 is
+# checks, pr view, issue view) and the opt-in merge: merge-verdict.sh reads
+# the PR, its checks, and the base's rules through `pr view`, `pr checks`, and
+# `api`, and merge-exec.sh makes the repository's one `pr merge` call. git
+# creates and pushes the shared branch and stages the cascade's transitions,
+# and fetches, diffs, and rebases for the drift check; jq builds the cascade
+# report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
 # The `shirabe validate --lifecycle .` line in SKILL.md describes the reusable
