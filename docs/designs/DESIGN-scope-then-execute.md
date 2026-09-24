@@ -1149,14 +1149,17 @@ paragraph below is the contract shirabe consumes. The code-level detail
   writes `outcome=ready-awaiting-merge` and `reason=merge-state:DIRTY`, and
   `ci_monitor`'s `failing_unresolvable` edge maps to `execute:ci`.
 - The coordinated loop (Decision 6) inside a new `execute-coordinated.md`
-  envelope: agent-run `coord_setup` records the write set; agent-run
+  envelope: agent-run `coord_setup` records the write set as `repos` and
+  the repository holding the coordination branch as `home_repo`; agent-run
   `coord_loop` runs `coordinated-next.sh` and the action it names until it
   prints `done:`, `pause`, or `error:`; `coord_verdict`'s default action
   runs `coordination-verdict.sh` and writes its verdict, `pr`, `waiting`,
   `resume`, and `reason` to context with `koto context add` (clearing them
   first, so a failed or timed-out run can't replay old values), and the
   state routes on non-overridable `context-matches` gates over the verdict
-  to `merged` (through the same confirm read), `ready_awaiting_merge`,
+  to `merged` (through the same confirm read, run as
+  `record-merge-verdict.sh --confirm` with `home_repo` and the coordination
+  branch as its explicit inputs), `ready_awaiting_merge`,
   `paused_awaiting_merges`, or `done_blocked`. The envelope has no
   `done_refused` terminal. Each node PR is titled `feat(<slug>): <node-id>` with a
   fixed body template, and its branch runs the single-pr `wip/` sweep
@@ -1219,9 +1222,12 @@ paragraph below is the contract shirabe consumes. The code-level detail
     creates the new one with each leg's role, template, and inputs, and
     prints its id;
   - `deliver-probe.sh`: the `scoped`, `executed`, and `merged` re-checks,
-    each finding the owned PR itself and writing its verdict and the PR's
-    URL (and `pr_state`) to context with `koto context add`, since it runs
-    as a default action;
+    each finding the owned PR itself. It runs as a default action, so it
+    clears its verdict, `checked_pr`, and the result key `pr` first, then
+    writes its verdict and, when the lookup succeeds, the owned PR's URL as
+    both `checked_pr` and `pr` (and `pr_state`) with `koto context add`. A
+    stale `pr` copied from a leg is replaced or left cleared, never
+    reported;
   - `deliver-report.sh`: prints the exit lines from the terminal result,
     validating each value against a closed pattern (PR URL, `owner/repo`
     list, enumerated outcome, step, and reason) and dropping anything else.
@@ -1348,11 +1354,22 @@ arguments, and neither reads koto context or state files:
   prints `merge-called:<method>:<sha>` or `merge-refused:<verdict>`. The
   caller confirms with `merge-verdict.sh --confirm`; `merge-called` is never
   read as merged.
+- `record-merge-verdict.sh --repo <owner/repo> --head-branch <branch>
+  [--confirm]` is the default action that resolves the owned PR and records
+  a verdict (`merge_verdict`, or `confirm_verdict` with `--confirm`) in
+  context. The repository and head branch are explicit arguments in both
+  modes, each pattern-checked; `--repo` is a single `owner/repo`, never the
+  comma-joined `repos` write set, which the script doesn't read. Single-pr
+  passes its one repository and the run's branch; the coordinated
+  envelope's confirm read passes `home_repo` and the coordination branch.
 - `owned-pr.sh` is the one shared ownership-filtered lookup, added by
   `/execute`'s single-pr work and called unchanged by `/scope` and
   `/deliver`. It keeps only PRs that pass the ownership filter below (same
   repository, the authenticated author, the expected base, and the expected
-  head branch). When exactly one survives, it prints that PR's URL and
+  head branch). `--state open` considers OPEN PRs; `--state all` considers
+  OPEN and MERGED PRs and drops CLOSED-unmerged ones, so a PR the user
+  closed never counts beside the open one that replaced it. When exactly
+  one survives, it prints that PR's URL and
   exits 0. When none survives, it prints nothing and exits 0; a branch whose
   only PRs come from forks or other authors counts as none. When several
   survive, it exits 3. When the read fails, it exits 2. The script names no
@@ -1522,7 +1539,13 @@ koto's request store or run a read-only probe whose output the state needs.
 A command gate yields only an exit code, so each durable re-check runs
 `deliver-probe.sh` as a default action that clears, then writes its verdict
 and the PR it found to context with `koto context add`, and the state routes
-on `context-matches` gates over those keys. The two leg gates and the
+on `context-matches` gates over those keys. The PR it found is written both
+as `checked_pr` and as the result key `pr`, replacing the value the leg
+copied. That's the only way a re-checked PR reaches a result: a
+transition's `context_assignments` can't read `${context.<key>}`, so edges
+assign only literals, `{{VAR}}` values, and `${gates.<leg>.payload.*}`
+paths, and each terminal's `result:` map reads its keys as
+`${context.<key>}`. The two leg gates and the
 re-checks' `context-matches` gates are `overridable: false` (K8).
 
 | State | Kind | Gate | Transitions |
@@ -1531,13 +1554,13 @@ re-checks' `context-matches` gates are `overridable: false` (K8).
 | `open_request` | default action (koto request store only; safe to re-run) | `deliver-open-request.sh` abandons open requests for this coordinator, creates `REQ` with legs `scope` and `execute` (role, template, inputs) | `scope_run` |
 | `scope_run` | agent-run: `Skill /scope <topic> --intent=continue --<mode> --koto-leg=REQ:scope` plus forwarded flags | `scope_leg`: `request-leg` on `scope`, with the scope outcome set, `refused` included, as `expect` | An open leg waits. Every arm copies `outcome`, `plan_path`, `plan_execution_mode`, `pr`, `pr_state`, `startable`, `wip_paths`, and `next` from the leg's `payload` into context (K2). Promoted and valid: `scoped` or `handed-off-multi-pr` go to `scoped_check`; `executed` to `executed_check`; `re-evaluation`, `abandonment`, `cancelled` to `done_stopped` (`scope-ended-early`); `error` to `done_error` with the step; `refused` with `intent-mismatch` to `done_error` (`deliver:intent-mismatch`), and any other promoted `refused` to `done_error` (`scope:refused`). Source `refused` with `var-mismatch:INTENT_FLAG` goes to `done_error` (`deliver:intent-mismatch`); other source refusals to `done_error` (`scope:refused`). Invalid goes to `deliver:child-outcome`; explicit to `deliver:child-absent`; disposition `abandoned` to `done_error` (`deliver:request-abandoned`). Evidence `child_returned: yes` on an open, unbound leg goes to `scope_absent` |
 | `scope_absent` | default action: resolve the `scope` leg with the fixed `{outcome: error, step: deliver:child-absent}` | none | back to `scope_run`; if the leg was bound meanwhile, the resolve is refused and `scope_run` keeps waiting |
-| `scoped_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh scoped`: PLAN tracked and unchanged at HEAD, and `publish-scoping-pr.sh --verify --expect-intent continue`; writes `scoped_verdict` and the verified PR's URL to context | pass goes to `mode_route`; fail to `done_error` (`deliver:child-outcome`) |
+| `scoped_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh scoped`: PLAN tracked and unchanged at HEAD, and `publish-scoping-pr.sh --verify --expect-intent continue`; clears, then writes `scoped_verdict` and the verified PR's URL as `checked_pr` and `pr` | pass goes to `mode_route`; fail to `done_error` (`deliver:child-outcome`) |
 | `mode_route` | gate-only | `plan-mode.sh` (0 single-pr, 10 coordinated, 20 multi-pr, 4 invalid) | 0 and 10 go to `confirm`; 20 to `done_stopped` (`handed-off-multi-pr`, with the `startable` value `scope_run` copied); 4 to `deliver:child-outcome` |
 | `confirm` | gate plus agent | `test "{{MODE}}" = auto` | auto goes to `execute_run`, ignoring stray evidence; otherwise `decision: proceed` goes to `execute_run` and `decision: stop` to `done_stopped` (`scoped`, `next=/deliver <topic>`) |
 | `execute_run` | agent-run: `Skill /execute docs/plans/PLAN-<topic>.md --<mode> [--merge] --koto-leg=REQ:execute` | `exec_leg`: `request-leg` on `execute` | Every arm copies `pr`, `repos`, `resume`, and `waiting` from the leg's `payload`. Promoted and valid: `merged` goes to `merged_check`; `ready-awaiting-merge` to `done`; the two pauses to `done_stopped`; `error` to `done_error` with the step. Refused goes to `done_error` (`execute:refused`). Invalid, explicit, absent, and abandoned arms as in `scope_run`, through `execute_absent` |
-| `executed_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh executed`: PLAN absent, DESIGN under `current/`, and the owned PR found by `owned-pr.sh` on the topic's branch; writes `executed_verdict`, the PR's URL, and `pr_state` to context | merged goes to `done` (`merged`); open to `done` (`ready-awaiting-merge`); anything else, including an empty verdict, to `deliver:child-outcome` |
-| `merged_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh merged`: `merge-verdict.sh --confirm` on the PR it finds itself with `owned-pr.sh --state all`, never the leg's `pr`: for single-pr on the topic branch `/scope` published (the branch whose PR `/execute` adopts on a `/deliver` run), for coordinated on the coordination branch; writes `merged_verdict` and the PR's URL to context | `merged` goes to `done`; anything else, including an empty verdict, can only downgrade, to `done` with `ready-awaiting-merge` |
-| `done`, `done_stopped`, `done_error` (failure), `done_refused` (failure) | terminal | none | a result with `outcome`, `step`, `reason`, `pr`, `pr_state`, `repos`, `resume`, `waiting`, `next`, `startable`, and `wip_paths`, all assigned on the edges; where a re-check resolved the PR, its `pr` replaces the leg's |
+| `executed_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh executed`: PLAN absent, DESIGN under `current/`, and the owned PR found by `owned-pr.sh` on the topic's branch; clears, then writes `executed_verdict`, the PR's URL as `checked_pr` and `pr`, and `pr_state` | merged goes to `done` (`merged`); open to `done` (`ready-awaiting-merge`); anything else, including an empty verdict, to `deliver:child-outcome` |
+| `merged_check` | default action (read-only) plus `context-matches` gates | `deliver-probe.sh merged`: `merge-verdict.sh --confirm` on the PR it finds itself with `owned-pr.sh --state all`, never the leg's `pr`: for single-pr on the topic branch `/scope` published (the branch whose PR `/execute` adopts on a `/deliver` run), for coordinated on the coordination branch; clears, then writes `merged_verdict` and, when the lookup succeeds, the PR's URL as `checked_pr` and `pr` (a failed lookup leaves `pr` empty) | `merged` goes to `done`; anything else, including an empty verdict, can only downgrade, to `done` with `ready-awaiting-merge` |
+| `done`, `done_stopped`, `done_error` (failure), `done_refused` (failure) | terminal | none | a result with `outcome`, `step`, `reason`, `pr`, `pr_state`, `repos`, `resume`, `waiting`, `next`, `startable`, and `wip_paths`, read as `${context.<key>}` (`pr` as `${context.pr}`). Keys are assigned on the edges where literal or leg-derived, otherwise written by `deliver-probe.sh`. Into `done`, `execute_run`'s `ready-awaiting-merge` arm carries the leg's own `pr`; `executed_check` and `merged_check` carry the owned PR the probe wrote, or none after a failed lookup |
 
 Because a topic with a PLAN still passes through `/scope`, a run whose
 publish failed after the PLAN was written gets its PR opened on the retry
