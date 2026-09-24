@@ -43,6 +43,8 @@
 #      outside fenced code blocks. Cross-repo upstreams (`owner/repo:path`) are
 #      skipped, since they name another repository's tree. Tokens containing
 #      `{{`, `$`, `*`, or `://` are rejected, as is anything under `wip/`.
+#      A trailing line or anchor suffix (`:10`, `:10-20`, `:10,20`, `#L10`,
+#      `#L10-L20`) is stripped, so the base path still counts.
 #   5. Resolves each surviving token against the base tree, at file or
 #      directory granularity. A path that doesn't exist at the base (a file the
 #      PLAN will create) maps to its nearest existing ancestor directory; one
@@ -212,6 +214,9 @@ obj_type() {
     git ls-tree "$1" -- "$2" | awk '{ print $2; exit }'
 }
 
+ANCHOR_SUFFIX_RE='^(.+)#L[0-9]+(-L[0-9]+)?$'
+LINE_SUFFIX_RE='^(.+):[0-9]+([-,][0-9]+)?$'
+
 # Normalizes a token to a repository-relative path, or prints nothing when the
 # token is not path-shaped or is one of the rejected shapes.
 normalize() {
@@ -219,6 +224,15 @@ normalize() {
     case "$t" in
         *'{{'*|*'$'*|*'*'*|*'://'*) return 0 ;;
     esac
+    # A line or anchor suffix still names the file: `a.go#L10-L20` and
+    # `a.go:10`, `a.go:10-20`, `a.go:10,20` all reference `a.go`. The regexes
+    # live in variables so bash 3.2 and later read them the same way.
+    if [[ $t =~ $ANCHOR_SUFFIX_RE ]]; then
+        t=${BASH_REMATCH[1]}
+    fi
+    if [[ $t =~ $LINE_SUFFIX_RE ]]; then
+        t=${BASH_REMATCH[1]}
+    fi
     case "$t" in
         *[!A-Za-z0-9._/@+-]*|'') return 0 ;;
     esac

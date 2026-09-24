@@ -357,6 +357,34 @@ else
     fail "wip exclusion: facts $FACTS"
 fi
 
+# --- line and anchor suffixes -----------------------------------------------------
+#
+# `src/b.go` is a second code reference, so without the suffix fix the run
+# would route none: the deletion of src/a.go would go unseen.
+
+fixture linesuffix
+plan '# PLAN: t
+
+Edits `src/a.go:1` and `src/b.go`.'
+upstream 'git rm -q src/a.go' 'drop a'
+run
+if [ "$RC" -eq 0 ] && [ "$(jf .route)" = '"judge"' ] && [ "$(jf .deleted_referenced_paths)" = '["src/a.go"]' ]; then
+    pass "a token with a :line suffix keeps its base path, so deleting it routes judge"
+else
+    fail "line suffix: rc $RC, facts $FACTS"
+fi
+
+fixture suffixshapes
+plan '# PLAN: t
+
+Tokens: `src/a.go:10-20`, `src/b.go#L10`, `docs/guide.md:3,4`, `README.md#L1-L9`.'
+run
+if [ "$(jf ".referenced_paths | sort")" = '["README.md","docs/guide.md","docs/plans/PLAN-t.md","src/a.go","src/b.go"]' ]; then
+    pass "the :a-b, :a,b, #La, and #La-Lb suffixes are stripped to the base path"
+else
+    fail "suffix shapes: facts $FACTS"
+fi
+
 # --- rejected token shapes ------------------------------------------------------
 
 fixture rejected
