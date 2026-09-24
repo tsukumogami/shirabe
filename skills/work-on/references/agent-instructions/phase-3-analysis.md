@@ -178,27 +178,12 @@ Use the appropriate template above. Ensure:
   existed)
 - No blocking questions remain unanswered
 
-### 7. Classify Issue Type
-
-Confirm the issue type to be included in the next evidence submission:
-
-- `code` — changes to executable source, tests, or CI configs; runs
-  through scrutiny / review / QA
-- `docs` — markdown, design docs, skills, or spec files; skips code
-  review panels
-- `task` — operational work (run scripts, commands) with no review
-  artifact; skips code review panels
-
-If the plan context supplied an `ISSUE_TYPE` hint, use it unless the
-assessment clearly differs. Note any override in the closing summary.
-
-### 8. Closing Summary
+### 7. Closing Summary
 
 Produce a brief summary (2-3 sentences) covering:
 
 - How many files identified for modification/creation
 - Which approach was chosen and why
-- Confirmed `issue_type` (`code`, `docs`, or `task`)
 - Any blocking questions
 
 **Do not include the full plan content** — that's in koto context.
@@ -206,6 +191,12 @@ Produce a brief summary (2-3 sentences) covering:
 For full-plan delegation: return this summary to the main agent.
 For simplified-plan inline: this becomes the rationale on the next
 `koto next` evidence submission.
+
+Don't classify the issue as `code`, `docs`, or `task` here, and don't
+include `issue_type` in the summary or the evidence: `analysis` doesn't
+accept it. The workflow asks for the type exactly once, at the
+`issue_type_routing` state after implementation, when the changed paths
+are known. Any `ISSUE_TYPE` hint from the plan context is read there.
 
 ## Success Criteria
 

@@ -180,6 +180,8 @@ Read one of these next to your own state; they are the worked examples.
 | `drift_facts` | `skills/execute/koto-templates/execute.md` | A read that writes its findings to context, where a later state's gate routes on them |
 | `worktree_sync` | `skills/execute/koto-templates/execute.md` | A local mutation, gated on whether the mutation's goal holds |
 | `pr_precheck` | `skills/work-on/koto-templates/work-on.md` | A read, captured, gated ahead of the step it feeds |
+| `analysis` | `skills/work-on/koto-templates/work-on.md` | A write-once record on a state that still asks for judgment; the action's failure is recoverable by submitting the state's own evidence |
+| `changed_paths_record` | `skills/work-on/koto-templates/work-on.md` | A write gated by `context-exists` on its key, whose failure path removes a stale key so the gate can't pass on an earlier lap |
 
 `docs/designs/current/DESIGN-koto-default-action-adoption.md` records why each of those
 converted, and -- more useful when you are deciding about a new step -- the

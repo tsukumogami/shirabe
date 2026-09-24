@@ -144,6 +144,9 @@ suite_scripts() {
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
+            # Its script cases write through a koto stand-in and need only git,
+            # so they run on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/record-changed-paths_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

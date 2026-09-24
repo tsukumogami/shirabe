@@ -23,6 +23,9 @@ stateDiagram-v2
     cascade_run --> done_blocked : cascade_status: skipped, post_state: wrong_status
     cascade_run --> done_blocked : cascade_status: skipped, post_state: not_in_commit
     cascade_run --> done_blocked : cascade_status: skipped, post_state: undecided
+    changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: true
+    changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: false, paths_status: override
+    changed_paths_record --> done_blocked : gates.changed_paths_recorded.exists: false, paths_status: blocked
     ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: root
     ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: child
     ci_monitor --> done_blocked : ci_outcome: passing, gates.merge_state_clean.exit_code: 1
@@ -42,9 +45,7 @@ stateDiagram-v2
     finalization --> implementation : finalization_status: issues_found
     finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> deferral_approval : finalization_status: deferral_requested
-    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: code
-    implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
-    implementation --> verification : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
+    implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> analysis : implementation_status: scope_expanded_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
@@ -53,6 +54,9 @@ stateDiagram-v2
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
+    issue_type_routing --> scrutiny : issue_type: code
+    issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs
+    issue_type_routing --> verification : issue_type: task
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -84,7 +88,7 @@ stateDiagram-v2
     review --> qa_validation : gates.review_results.exists: true, review_outcome: passed
     review --> implementation : review_outcome: blocking_retry
     review --> done_blocked : review_outcome: blocking_escalate
-    scrutiny --> review : gates.scrutiny_results.exists: true, scrutiny_outcome: passed
+    scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_results.exists: true, scrutiny_outcome: passed
     scrutiny --> implementation : scrutiny_outcome: blocking_retry
     scrutiny --> done_blocked : scrutiny_outcome: blocking_escalate
     setup_free_form --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed
@@ -120,6 +124,9 @@ stateDiagram-v2
     note left of cascade_entry
         gate: anchor_present
     end note
+    note left of changed_paths_record
+        gate: changed_paths_recorded
+    end note
     note left of ci_monitor
         gate: ci_passing
     end note
@@ -136,13 +143,13 @@ stateDiagram-v2
         gate: summary_exists
     end note
     note left of implementation
-        gate: has_commits
-    end note
-    note left of implementation
         gate: on_feature_branch_impl
     end note
     note left of introspection
         gate: introspection_artifact
+    end note
+    note left of issue_type_routing
+        gate: has_commits
     end note
     note left of plan_context_injection
         gate: context_artifact
@@ -170,6 +177,9 @@ stateDiagram-v2
     end note
     note left of review
         gate: review_results
+    end note
+    note left of scrutiny
+        gate: has_commits
     end note
     note left of scrutiny
         gate: scrutiny_results

@@ -22,7 +22,7 @@
 # worth anything. That is separate work from landing the lint, and a lint that
 # cannot land until the defects it finds are fixed does not land.
 
-unguarded-evidence	skills/work-on/koto-templates/work-on.md	research	tsukumogami/shirabe#333	The research state is silently skipped: koto advances through it on entry, so the directive asking for codebase research never reaches the agent and context_gathered is never submitted. Fixing it changes a shipped skill's behaviour and belongs in its own change.
+unguarded-evidence	skills/work-on/koto-templates/work-on.md	research	tsukumogami/shirabe#333	The research state is silently skipped: koto advances through it on entry, so the directive asking for codebase research never reaches the agent and its context_summary is never submitted. Fixing it changes a shipped skill's behaviour and belongs in its own change.
 unguarded-evidence	skills/execute/koto-templates/execute.md	escalate	tsukumogami/koto#202	Collects failure_reason for the batch view and hands it to done_blocked through a context assignment. Unguarded, so the state advances before the agent supplies it and the assignment interpolates an empty value.
 unguarded-evidence	skills/execute/koto-templates/execute.md	escalate_dirty_merge_state	tsukumogami/koto#202	Same shape: accepts a rationale naming the conflict files for the operator, then assigns it into failure_reason. The operator-facing text is lost for the same reason.
 unguarded-evidence	skills/execute/koto-templates/execute.md	escalate_upstream_drift	tsukumogami/koto#202	Same shape: accepts a rationale for why the upstream change invalidates the chain's intent, then assigns it into failure_reason.
