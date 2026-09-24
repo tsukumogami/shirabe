@@ -119,12 +119,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- issue 3 (wire auth to user model) fails",
-      "expected_output": "When the child for issue 3 reaches done_blocked, koto's failure_policy: skip_dependents marks issue 4 (e2e auth flow, blocked by issue 3) as skipped -- it enters with mode: skipped and routes directly to skipped_due_to_dep_failure without doing implementation work. The orchestrator submits batch_outcome: needs_attention and routes to escalate, where it reads batch_final_view, names the failed child and the skipped dependent (with its skipped_because_chain), and writes a failure_reason. It does NOT retry the failed child. A failed issue skips its dependents under /execute.",
+      "expected_output": "When the child for issue 3 reaches done_blocked, koto's failure_policy: skip_dependents marks issue 4 (e2e auth flow, blocked by issue 3) as skipped -- it enters with mode: skipped and routes directly to skipped_due_to_dep_failure without doing implementation work. The orchestrator submits no evidence at tick 2: the batch_done gate sees needs_attention and routes to escalate on its own, where it reads batch_final_view, names the failed child and the skipped dependent (with its skipped_because_chain), and writes a failure_reason. It does NOT retry the failed child. A failed issue skips its dependents under /execute.",
       "files": [],
       "expectations": [
         "Agent recognizes that a failed issue (issue 3 done_blocked) causes its dependent (issue 4) to be skipped via failure_policy: skip_dependents",
         "Agent describes that the skipped dependent (issue 4) is marked skipped due to its dependency's failure and does no implementation work for it (the koto runtime routes it to the work-on skipped terminal; the agent need not reproduce the runtime tokens mode: skipped / skipped_due_to_dep_failure verbatim)",
-        "Agent submits batch_outcome: needs_attention and routes to escalate (not pr_finalization)",
+        "Agent advances tick 2 with a bare koto next (no outcome or other evidence) and the batch_done gate routes to escalate (not pr_finalization) because needs_attention is true",
         "Agent names the failed child and the skipped dependent (with skipped_because_chain) in the failure_reason",
         "Agent does NOT retry the failed child"
       ]
@@ -172,13 +172,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/work-on/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
+      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed advances tick 2 with a bare koto next (no evidence) so the batch_done gate routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/work-on/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
       "files": [],
       "expectations": [
         "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
         "Agent creates a shared branch (impl/<plan-slug>) and a draft PR in orchestrator_setup before spawning children",
         "Agent runs plan-to-tasks.sh to produce tasks JSON and injects SHARED_BRANCH into each task's vars",
-        "Agent submits batch_outcome: all_success when all children succeed and routes to pr_finalization",
+        "When all children succeed, Agent advances tick 2 with no evidence and the batch_done gate (all_complete and all_success true) routes to pr_finalization",
         "Agent updates the PR description in pr_finalization but does NOT mark the PR ready in that state",
         "Agent routes from pr_finalization to plan_completion, which runs the cascade (skills/work-on/scripts/run-cascade.sh) and marks the PR ready via gh pr ready, then routes to ci_monitor"
       ]
@@ -189,11 +189,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- one child fails",
-      "expected_output": "Agent detects a single-pr PLAN, initializes execute.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent submits batch_outcome: needs_attention and routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked. The run terminates through the abandonment-forced exit path with the forced-stop operator summary.",
+      "expected_output": "Agent detects a single-pr PLAN, initializes execute.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent advances tick 2 with a bare koto next and no evidence; the batch_done gate (all_success false, needs_attention true) routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked. The run terminates through the abandonment-forced exit path with the forced-stop operator summary.",
       "files": [],
       "expectations": [
-        "Agent submits batch_outcome: needs_attention when a child reaches done_blocked",
-        "Agent routes to escalate state (not pr_finalization) when needs_attention",
+        "Agent submits no outcome evidence at tick 2 when a child reaches done_blocked; the batch_done gate's needs_attention route decides the batch",
+        "The run reaches escalate state (not pr_finalization) when the gate reports needs_attention",
         "Agent reads batch_final_view in escalate state for per-child failure details",
         "Agent describes surfacing the failed child's name and reason (drawn from the batch_final_view per-child data it plans to read) in the failure_reason summary, rather than producing the runtime-read values verbatim",
         "Agent routes to done_blocked after escalate (no retry) and records the abandonment-forced forced-stop summary"
@@ -463,14 +463,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- already on a /scope docs/<topic> branch with an open PR",
-      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: override (skipping the impl/<slug> creation script), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It does NOT record the settled branch itself: the override transition lands in settled_branch_record, whose default_action runs {{PLUGIN_ROOT}}/skills/execute/scripts/record-settled-branch.sh \"execute-{{PLAN_SLUG}}\". That script reads HEAD, refuses a detached HEAD (64), a name outside ^[A-Za-z0-9._/-]+$ (65), and the repository's default branch (66) -- the last being the wrong value no pattern match can catch -- then writes the name to the settled_branch context key via printf '%s' \"$BRANCH\" | koto context add <session> settled_branch and prints it for capture_stdout_as: SETTLED_BRANCH. The settled_branch_recorded gate (context-matches on that key, anchored at both ends) reads the value back through koto's own evaluator rather than the command comparing against itself, and is named in BOTH transitions, so a run that could not record its branch reaches done_blocked instead of drift_facts. There is no override edge here. On the passing path the agent submits no evidence at all. In spawn_and_await both ticks interpolate SETTLED_BRANCH=\"{{SETTLED_BRANCH}}\" and inject it as SHARED_BRANCH into every child's vars, with no impl/<slug> fallback left in the block, so per-issue children commit to the adopted branch. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
+      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: override (skipping the impl/<slug> creation script), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It does NOT record the settled branch itself: the override transition lands in settled_branch_record, whose default_action runs {{PLUGIN_ROOT}}/skills/execute/scripts/record-settled-branch.sh \"execute-{{PLAN_SLUG}}\". That script reads HEAD, refuses a detached HEAD (64), a name outside ^[A-Za-z0-9._/-]+$ (65), and the repository's default branch (66) -- the last being the wrong value no pattern match can catch -- then writes the name to the settled_branch context key via printf '%s' \"$BRANCH\" | koto context add <session> settled_branch and prints it for capture_stdout_as: SETTLED_BRANCH. The settled_branch_recorded gate (context-matches on that key, anchored at both ends) reads the value back through koto's own evaluator rather than the command comparing against itself, and is named in BOTH transitions, so a run that could not record its branch reaches done_blocked instead of drift_facts. There is no override edge here. On the passing path the agent submits no evidence at all. In spawn_and_await tick 1 interpolates SETTLED_BRANCH=\"{{SETTLED_BRANCH}}\" and inject it as SHARED_BRANCH into every child's vars, with no impl/<slug> fallback left in the block, so per-issue children commit to the adopted branch. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
       "files": [],
       "expectations": [
         "Agent detects the non-main branch with an open PR and submits status: override (not the impl/<slug> creation path)",
         "Agent ADOPTS the existing docs/<topic> PR as the home PR and does NOT open or link a second PR",
         "The settled branch (HEAD, the scoping branch, NOT impl/<slug>) is recorded into a koto context key by settled_branch_record's default_action, not by the agent -- the agent submits no evidence for the record on the passing path",
         "The recorded branch name is refused unless it matches ^[A-Za-z0-9._/-]+$ AND is not the repository's default branch; the default-branch refusal is the one no pattern match can catch, and record-settled-branch.sh exits 66 on it",
-        "Both spawn_and_await ticks inject the settled branch as SHARED_BRANCH from the {{SETTLED_BRANCH}} capture, with no impl/<slug> fallback left in the block, so children land on the adopted branch",
+        "Tick 1 of spawn_and_await injects the settled branch as SHARED_BRANCH from the {{SETTLED_BRANCH}} capture, with no impl/<slug> fallback left in the block, so children land on the adopted branch",
         "The record is verified by the settled_branch_recorded gate reading the key back through koto's own evaluator rather than by the command comparing against itself; the gate is named in both of settled_branch_record's transitions, so a run that could not record its branch reaches done_blocked instead of spawn_and_await"
       ]
     },
@@ -480,12 +480,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a fresh run with no existing-PR context (on main)",
-      "expected_output": "A fresh single-pr run with no existing-PR context (the override predicate -- non-main branch + open PR -- is false) behaves byte-identically to before. orchestrator_setup runs the unchanged creation script, checks out / creates impl/<slug>, pushes, opens the draft PR, and submits status: completed; the recorded settled branch is impl/<slug> (the branch just checked out). In spawn_and_await both ticks read that value -- and the || impl/$PLAN_SLUG fallback guarantees the identical string even if the context key is absent (crash/re-run) -- and inject impl/<slug> as SHARED_BRANCH. The jq filter, the task array, and the child contract are unchanged. No new flag is added, so a fresh /execute invocation parses identically. This is R7 parity: the default path is preserved.",
+      "expected_output": "A fresh single-pr run with no existing-PR context (the override predicate -- non-main branch + open PR -- is false) behaves byte-identically to before. orchestrator_setup runs the unchanged creation script, checks out / creates impl/<slug>, pushes, opens the draft PR, and submits status: completed; the recorded settled branch is impl/<slug> (the branch just checked out). In spawn_and_await tick 1 reads that value -- and the || impl/$PLAN_SLUG fallback guarantees the identical string even if the context key is absent (crash/re-run) -- and inject impl/<slug> as SHARED_BRANCH. The jq filter, the task array, and the child contract are unchanged. No new flag is added, so a fresh /execute invocation parses identically. This is R7 parity: the default path is preserved.",
       "files": [],
       "expectations": [
         "Agent runs the unchanged orchestrator_setup creation script and creates the impl/<slug> branch + draft PR on a fresh run",
         "The recorded settled branch is impl/<slug> on the create path (byte-identical to the previous hardcode)",
-        "Both spawn_and_await ticks inject impl/<slug> as SHARED_BRANCH, and the || impl/$PLAN_SLUG fallback is unchanged byte-for-byte -- it now yields that value on a path the settled_branch_recorded gate guarantees was reached with the key present, rather than being what rescues an absent key",
+        "Tick 1 of spawn_and_await injects impl/<slug> as SHARED_BRANCH, and the || impl/$PLAN_SLUG fallback is unchanged byte-for-byte -- it now yields that value on a path the settled_branch_recorded gate guarantees was reached with the key present, rather than being what rescues an absent key",
         "No new invocation flag is introduced; a fresh /execute on a single-pr PLAN parses and runs identically (R7 parity)",
         "The override/settled-branch path is reached ONLY when the non-main-branch + open-PR predicate is already true"
       ]

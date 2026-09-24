@@ -93,7 +93,8 @@ T=$(new_tree)
 drop_nth_occurrence "$T/$SKILL_DOC" "var PLUGIN_ROOT=" 2
 expect "second SKILL.md init site missing PLUGIN_ROOT is caught" 1 "$T" "init site 2 does not pass required variable PLUGIN_ROOT"
 
-# Case 4 — the spawn tick in execute.md stops injecting into child vars.
+# Case 4 — the spawn tick in execute.md stops injecting into child vars. It is
+# the only task build: the complete tick advances bare and submits no tasks.
 T=$(new_tree)
 # python3 rather than `sed -i '0,/re/s///'`: that address form and in-place
 # flag are GNU extensions, and this suite also runs under the bash 3.2 floor.
@@ -106,26 +107,13 @@ i = s.find(needle)
 assert i != -1, "injection text not found; the test's mutation is stale"
 open(p, "w").write(s[:i] + s[i + len(needle):])
 PY
-expect "first child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .vars.PLUGIN_ROOT into 1 of them"
+expect "child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .vars.PLUGIN_ROOT into 0 of them"
 
-# Case 5 — the complete tick stops injecting. Same mutation, other occurrence.
-T=$(new_tree)
-python3 - "$T/$EXECUTE_TEMPLATE" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p).read()
-needle = " | .vars.PLUGIN_ROOT = $p"
-i = s.rfind(needle)
-assert i != -1, "injection text not found; the test's mutation is stale"
-open(p, "w").write(s[:i] + s[i + len(needle):])
-PY
-expect "second child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .vars.PLUGIN_ROOT into 1 of them"
-
-# Case 6 — a THIRD tick is added later and forgets the injection entirely. This
-# is the drift the counting exists for: both existing sites are still correct.
+# Case 6 — a SECOND tick is added later and forgets the injection entirely. This
+# is the drift the counting exists for: the existing site is still correct.
 T=$(new_tree)
 printf 'TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})\n' >> "$T/$EXECUTE_TEMPLATE"
-expect "a new task build with no injection is caught" 1 "$T" "builds 3 task array(s)"
+expect "a new task build with no injection is caught" 1 "$T" "builds 2 task array(s)"
 
 # Case 9 — A TEST HARNESS that inits the shipped template and forgets the
 # variable. This category was missed by the first version of this check, and the

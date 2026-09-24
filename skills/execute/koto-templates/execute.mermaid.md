@@ -23,8 +23,8 @@ stateDiagram-v2
     pr_finalization --> done_blocked : finalization_status: update_failed
     settled_branch_record --> drift_facts : gates.settled_branch_recorded.matches: true
     settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
-    spawn_and_await --> pr_finalization : batch_outcome: all_success, gates.batch_done.all_complete: true
-    spawn_and_await --> escalate : batch_outcome: needs_attention, gates.batch_done.all_complete: true
+    spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true
+    spawn_and_await --> escalate : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true
     worktree_discipline_check --> spawn_and_await : impact: informational
     worktree_discipline_check --> escalate_upstream_drift : impact: intent-changing
     worktree_sync --> spawn_and_await : gates.drift_clear.matches: true, gates.rebased_on_main.exit_code: 0

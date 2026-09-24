@@ -244,9 +244,10 @@ does.
 **Including the two ticks in `spawn_and_await`, which look non-terminal and are
 not.** A tick does not stop at the state it routes to; a state halts the chain
 only if it declares at least one conditional transition, and `escalate` declares
-required evidence but exits unconditionally to `done_blocked`. So
-`batch_outcome: needs_attention` chains through to that terminal in one
-invocation, and bare it destroys the record of the batch that failed.
+required evidence but exits unconditionally to `done_blocked`. So when the
+`batch_done` gate takes its attention route (a child failed or was skipped, so
+`needs_attention` is true), the tick chains through `escalate` to that terminal
+in one invocation, and bare it destroys the record of the batch that failed.
 
 **This does not extend to the children.** A per-issue `/work-on` child must not
 carry the flag — on a child it also suppresses the `request_store.result` and

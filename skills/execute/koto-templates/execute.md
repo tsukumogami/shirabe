@@ -390,24 +390,24 @@ states:
       tasks:
         type: tasks
         required: true
-      batch_outcome:
-        type: enum
-        values: [all_success, needs_attention]
-        required: false
     materialize_children:
       from_field: tasks
       failure_policy: skip_dependents
       default_template: ../../work-on/koto-templates/work-on.md
     transitions:
-      # Gate guards ensure children are complete; evidence routes success vs attention.
+      # The batch_done gate alone routes the batch: no agent inspects children
+      # or submits an outcome. The two routes are exclusive because they share
+      # all_success with different values; needs_attention on the failure
+      # route is what keeps koto's W4 unrouted-failure warning quiet.
       - target: pr_finalization
         when:
-          batch_outcome: all_success
           gates.batch_done.all_complete: true
+          gates.batch_done.all_success: true
       - target: escalate
         when:
-          batch_outcome: needs_attention
           gates.batch_done.all_complete: true
+          gates.batch_done.all_success: false
+          gates.batch_done.needs_attention: true
 
   pr_finalization:
     accepts:
@@ -739,34 +739,13 @@ rm -f "$TMP"
 
 koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md` so each child sees what prior children found, decided, or changed.
 
-**Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
+**Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks and routes the batch itself. Do not inspect children or choose an outcome, and submit no evidence: the gate sends the batch to `pr_finalization` when every child succeeded, and to `escalate` when any child failed or was skipped (its `needs_attention` field is true). Advance with a bare tick:
 
 ```bash
-TMP=$(mktemp)
-TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-# The settled branch arrives as a capture from settled_branch_record, which
-# every path into this state passes through, and whose gate has already
-# verified the stored value against ^[A-Za-z0-9._/-]+$. There is nothing to
-# read back, no exit status to branch on, and no impl/<slug> fallback: the
-# fallback existed because the key might be absent, and the gate is what
-# makes it present.
-SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-# PLUGIN_ROOT is required by work-on.md and is not part of plan-to-tasks.sh's
-# contract, so it is injected here the same way SHARED_BRANCH is: a child koto
-# materializes receives only the variables its task entry lists, and a child
-# missing this one fails to spawn with a variable-resolution error in the
-# batch's errored ledger.
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
-# Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
-OUTCOME="all_success"  # replace with "needs_attention" if any child failed
-echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
-koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
-rm -f "$TMP"
+koto next {{SESSION_NAME}} --no-cleanup
 ```
 
-Check progress at any time with `koto status {{SESSION_NAME}}`. Set `batch_outcome` to:
-- `all_success` if all children reached a non-failure terminal state
-- `needs_attention` if any children reached `done_blocked` or were skipped
+Check progress at any time with `koto status {{SESSION_NAME}}`. If the tick returns the gate still blocked, children are still running; tick again once they reach terminal states.
 
 ## pr_finalization
 
