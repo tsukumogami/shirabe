@@ -43,15 +43,16 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 PHASES="$SKILL_DIR/references/phases"
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
-# The template requires PLUGIN_ROOT: cascade_entry's gate resolves the anchor
-# finder against it. This test never reaches that state, but koto resolves every
-# required variable at init, so a session cannot be created without it.
+# The template requires PLUGIN_ROOT, and this walk needs it to resolve: analysis
+# and changed_paths_record run record-changed-paths.sh from it as their
+# default_action, and an action that cannot run stops the tick at its state.
 #
-# A literal rather than this checkout's own path, because koto validates a
-# variable value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the whole init if it
-# does not match. A checkout under a directory containing, say, a "+" would fail
-# here for a reason that has nothing to do with what this test covers.
-PLUGIN_ROOT=/nonexistent/plugin-root
+# koto validates a variable value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the
+# whole init if it does not match, and a checkout under a directory containing,
+# say, a "+" would fail that for a reason that has nothing to do with what this
+# test covers. So the checkout is reached through a symlink in the temp tree
+# when its own path falls outside the pattern (set up below, once WORKDIR exists).
+PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -85,6 +86,13 @@ trap cleanup EXIT
 # the next run then finds.
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+
+case "$PLUGIN_ROOT" in
+    *[!a-zA-Z0-9._/:@\ -]*)
+        ln -s "$PLUGIN_ROOT" "$WORKDIR/plugin"
+        PLUGIN_ROOT="$WORKDIR/plugin"
+        ;;
+esac
 
 # --- extract the shipped blocks ----------------------------------------------
 
@@ -134,9 +142,10 @@ render() { printf '%s\n' "$1" | sed "s|<WF>|$2|g"; }
 
 # --- the repository the command gates read ------------------------------------
 #
-# `implementation` gates on `git log --oneline main..HEAD`, so the base branch has
-# to be main. A repo initialized with git's own default would leave has_commits
-# failing and every walk stuck short of the panels.
+# `scrutiny` gates its passed edge on `git log --oneline main..HEAD`, so the base
+# branch has to be main. A repo initialized with git's own default would leave
+# has_commits failing and every walk stuck at scrutiny, short of the other
+# panels.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -191,12 +200,22 @@ to_analysis() {
 to_implementation() {
     to_analysis "$1"
     seed "$1" plan.md
-    submit "$1" '{"plan_outcome":"plan_ready","issue_type":"code"}'
+    submit "$1" '{"plan_outcome":"plan_ready"}'
+}
+
+# A finished implementation crosses changed_paths_record on its own and stops at
+# issue_type_routing, the one state that asks for the type; code goes on to
+# scrutiny. Sets NEXT_STATE to scrutiny on success, like a single submit would.
+complete_as_code() {
+    submit "$1" '{"implementation_status":"complete"}'
+    if [ "$NEXT_STATE" = "issue_type_routing" ]; then
+        submit "$1" '{"issue_type":"code"}'
+    fi
 }
 
 to_scrutiny() {
     to_implementation "$1"
-    submit "$1" '{"implementation_status":"complete","issue_type":"code"}'
+    complete_as_code "$1"
 }
 
 to_review() {
@@ -280,7 +299,7 @@ echo "--- Case 3/4: the plan_artifact gate"
 to_analysis plan-hold
 seed plan-hold plan.md
 koto context remove plan-hold plan.md >/dev/null 2>&1
-submit plan-hold '{"plan_outcome":"plan_ready","issue_type":"code"}'
+submit plan-hold '{"plan_outcome":"plan_ready"}'
 if [ "$NEXT_STATE" = "analysis" ]; then
     pass "analysis: plan.md cleared + plan_ready -> state holds"
 else
@@ -294,7 +313,7 @@ fi
 
 to_analysis plan-adv
 seed plan-adv plan.md
-submit plan-adv '{"plan_outcome":"plan_ready","issue_type":"code"}'
+submit plan-adv '{"plan_outcome":"plan_ready"}'
 if [ "$NEXT_STATE" = "implementation" ]; then
     pass "analysis: plan.md present + plan_ready -> advances to implementation"
 else
@@ -462,7 +481,7 @@ seed consequence qa_results.json
 render "$QA_BLOCK" consequence | bash >/dev/null 2>&1
 # The block's own `koto next` submitted blocking_retry, so the session is back
 # at implementation. Walk forward and try to pass each panel on its stale key.
-submit consequence '{"implementation_status":"complete","issue_type":"code"}'
+complete_as_code consequence
 if [ "$NEXT_STATE" = "scrutiny" ]; then
     submit consequence '{"scrutiny_outcome":"passed"}'
     if [ "$NEXT_STATE" = "scrutiny" ]; then
@@ -513,7 +532,7 @@ check_analysis_edge edge-self to_analysis       ANALYSIS_BLOCK "analysis self-lo
 check_analysis_edge edge-impl to_implementation IMPL_BLOCK     "implementation (scope_expanded_retry)"
 
 # The consequence at the analysis gate itself.
-submit edge-impl '{"plan_outcome":"plan_ready","issue_type":"code"}'
+submit edge-impl '{"plan_outcome":"plan_ready"}'
 if [ "$NEXT_STATE" = "analysis" ]; then
     pass "implementation (scope_expanded_retry): analysis then refuses plan_ready"
 else
@@ -524,9 +543,9 @@ fi
 # implementation and on to scrutiny, and try to pass it on the round-1 verdict.
 # Without the panel keys in the analysis blocks' lists, this advances.
 seed edge-impl plan.md
-submit edge-impl '{"plan_outcome":"plan_ready","issue_type":"code"}'
+submit edge-impl '{"plan_outcome":"plan_ready"}'
 if [ "$NEXT_STATE" = "implementation" ]; then
-    submit edge-impl '{"implementation_status":"complete","issue_type":"code"}'
+    complete_as_code edge-impl
     if [ "$NEXT_STATE" = "scrutiny" ]; then
         submit edge-impl '{"scrutiny_outcome":"passed"}'
         if [ "$NEXT_STATE" = "scrutiny" ]; then
@@ -594,7 +613,7 @@ check_edge_traversal() {
     # And the consequence, driven: walk back to scrutiny and try to pass it on
     # the verdict that was there before. Clearing the keys is only interesting
     # because of this.
-    submit "$1" '{"implementation_status":"complete","issue_type":"code"}'
+    complete_as_code "$1"
     if [ "$NEXT_STATE" = "scrutiny" ]; then
         submit "$1" '{"scrutiny_outcome":"passed"}'
         if [ "$NEXT_STATE" = "scrutiny" ]; then

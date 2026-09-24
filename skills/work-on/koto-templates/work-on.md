@@ -38,8 +38,10 @@ variables:
   ISSUE_TYPE:
     description: >
       Issue type hint supplied by the plan orchestrator (code, docs, or task).
-      The analysis agent confirms or overrides this value during analysis and
-      re-submits it with implementation evidence for routing.
+      A starting point only. The type is asked once, at issue_type_routing,
+      after implementation, where the agent confirms or overrides this hint
+      with changed_paths.txt in context. It is not submitted at analysis or
+      implementation.
     required: false
     default: code
   ARTIFACT_PREFIX:
@@ -170,9 +172,6 @@ states:
 
   research:
     accepts:
-      context_gathered:
-        type: enum
-        values: [sufficient, insufficient]
       context_summary:
         type: string
         description: Summary of research findings and codebase observations
@@ -428,6 +427,39 @@ states:
       - target: analysis
 
   analysis:
+    # Records impl_base, the commit this issue's work starts from, so
+    # changed_paths_record can later diff exactly this run's commits. All three
+    # entry modes converge here, which is why the base is taken here and not in
+    # a mode's own setup state: every run passes through it, and every run
+    # passes through it before implementation commits anything.
+    #
+    # The script writes the key once and leaves it alone on every later entry.
+    # analysis is re-entered on scope_changed_retry and on implementation's
+    # scope_expanded_retry, both after commits may exist, and the action re-runs
+    # on each of those entries; a base that moved forward there would drop the
+    # earlier commits from the record. On a SHARED_BRANCH, the base is also what
+    # keeps the commits siblings made before this run out of it.
+    #
+    # The action's failure is not the run's failure. It stops the tick with the
+    # fallback below, and submitting the analysis evidence skips the action;
+    # changed_paths_record then falls back to a merge-base.
+    #
+    # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
+    # is both initialized directly and materialized as a child, so no declared
+    # variable carries the session's name. koto 0.12.2 substitutes it inside a
+    # default_action command.
+    default_action:
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not record impl_base, the commit this issue's work starts
+        from. Read the command's own output above: the script exits 64 when
+        HEAD names no commit or this is not a git repository, 66 when writing
+        the context key failed, and 127 or 126 when PLUGIN_ROOT does not reach
+        the plugin. Fix the cause and tick again -- the action re-runs on entry
+        and never overwrites a base it already recorded. Or carry on: do the
+        analysis and submit `plan_outcome` as usual, which skips the action.
+        The changed-paths record then diffs from the merge-base with the
+        default branch instead.
     gates:
       plan_artifact:
         type: context-exists
@@ -440,12 +472,6 @@ states:
       approach_summary:
         type: string
         description: Summary of the implementation approach
-      issue_type:
-        type: enum
-        values: [code, docs, task]
-        description: >
-          Issue type classification confirmed during analysis. Flows as ISSUE_TYPE context
-          for downstream routing. Defaults to code when omitted.
       decisions:
         type: string
         description: >
@@ -479,9 +505,11 @@ states:
       on_feature_branch_impl:
         type: command
         command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
-      has_commits:
-        type: command
-        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+      # has_commits used to sit here and gate the code and docs routes. It
+      # moved when the issue-type question moved out of this state: the code
+      # route now checks it at scrutiny's passed edge, the docs route at
+      # issue_type_routing, and the task route never did.
+      #
       # A `tests_passing` gate used to sit here, running `go test ./...` before
       # the review panels. It was removed (#376) pending a safer design, not
       # because the idea was wrong: a machine-checked proof that the change works,
@@ -504,12 +532,6 @@ states:
         type: enum
         values: [complete, partial_tests_failing_retry, partial_tests_failing_escalate, scope_expanded_retry, blocked]
         required: true
-      issue_type:
-        type: enum
-        values: [code, docs, task]
-        description: >
-          Issue type confirmed during analysis. Required when submitting complete —
-          determines post-implementation routing. Use code if unsure.
       rationale:
         type: string
         description: What was accomplished or what is blocking progress
@@ -520,25 +542,12 @@ states:
           alternatives_considered fields. Captures non-obvious judgment calls
           made during implementation.
     transitions:
-      # code: run scrutiny/review/QA panels (all gates must pass)
-      - target: scrutiny
+      # One edge for a finished implementation, whatever the issue's type.
+      # The type is asked once, at issue_type_routing, after
+      # changed_paths_record has put the changed paths in context.
+      - target: changed_paths_record
         when:
           implementation_status: complete
-          issue_type: code
-          gates.on_feature_branch_impl.exit_code: 0
-          gates.has_commits.exit_code: 0
-      # docs: skip panels, go to verification before finalization
-      - target: verification
-        when:
-          implementation_status: complete
-          issue_type: docs
-          gates.on_feature_branch_impl.exit_code: 0
-          gates.has_commits.exit_code: 0
-      # task: skip panels, go to verification before finalization (no commits required)
-      - target: verification
-        when:
-          implementation_status: complete
-          issue_type: task
           gates.on_feature_branch_impl.exit_code: 0
       - target: implementation
         when:
@@ -558,6 +567,105 @@ states:
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
 
+  changed_paths_record:
+    # Mechanical, and normally invisible. The action writes changed_paths.txt
+    # -- the base, the commit count, and one `git diff --name-status -M` line
+    # per changed path, capped at 200 lines and 8192 bytes -- and the gate
+    # passes on the key, so the state advances with no evidence.
+    #
+    # It sits apart from issue_type_routing so the question state stays a
+    # single field with no gate on its code route. The file is facts only: the
+    # script never names a type, and the question is still asked.
+    #
+    # The action re-runs on every entry without evidence, which includes each
+    # lap back through implementation, so the record describes the latest
+    # commits rather than the first round's. When it cannot resolve a base it
+    # removes the previous lap's key before failing, so the gate below never
+    # passes on a stale record.
+    #
+    # Every transition names the gate, per
+    # references/default-action-conversion.md: the passing path needs none of
+    # the optional evidence, and the failing path gets the full schema.
+    default_action:
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --write "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not record the paths this implementation changed. Read the
+        command's own output above: the script exits 64 when no base resolves
+        (impl_base is unset and HEAD shares no history with the default branch
+        or local main), 66 when writing the context key failed, and 127 or 126
+        when PLUGIN_ROOT does not reach the plugin. Fix the cause and tick
+        again -- the action re-runs on entry, so nothing needs submitting.
+        Submit `paths_status: override` to go on to the issue-type question
+        without the record, or `paths_status: blocked` with `detail` to stop
+        the run.
+    gates:
+      changed_paths_recorded:
+        type: context-exists
+        key: changed_paths.txt
+    accepts:
+      paths_status:
+        type: enum
+        values: [override, blocked]
+        description: >-
+          Absent on the passing path. The state advances with no evidence when
+          the gate passes, so the agent never sees it.
+      detail:
+        type: string
+        description: Why the changed paths could not be recorded.
+    transitions:
+      - target: issue_type_routing
+        when:
+          gates.changed_paths_recorded.exists: true
+      - target: issue_type_routing
+        when:
+          gates.changed_paths_recorded.exists: false
+          paths_status: override
+      - target: done_blocked
+        when:
+          gates.changed_paths_recorded.exists: false
+          paths_status: blocked
+        context_assignments:
+          failure_reason: "changed_paths_record blocked: ${evidence.detail}"
+
+  issue_type_routing:
+    # The one place /work-on asks for the issue's type. A single field, so the
+    # answer is not bundled with a generative one, and no gate on the code or
+    # task route: code's commit check moved to scrutiny's passed edge, and task
+    # never had one. Only docs keeps has_commits here, because docs goes
+    # straight to verification with no later state that would notice a branch
+    # carrying no commits.
+    #
+    # has_commits is byte-identical to scrutiny's copy, and to what
+    # implementation carried before the question moved here.
+    gates:
+      has_commits:
+        type: command
+        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+    accepts:
+      issue_type:
+        type: enum
+        values: [code, docs, task]
+        required: true
+        description: >-
+          What kind of change this issue turned out to be, judged from the
+          changed paths in changed_paths.txt, the issue's context in
+          context.md, and the ISSUE_TYPE hint. code: behaviour changes that
+          run through the scrutiny, review, and QA panels. docs: writing or
+          structural documentation changes that skip the panels. task:
+          operational work with no reviewable change set. Use code when
+          unsure; it is the route that checks the most.
+    transitions:
+      - target: scrutiny
+        when:
+          issue_type: code
+      - target: verification
+        when:
+          issue_type: docs
+          gates.has_commits.exit_code: 0
+      - target: verification
+        when:
+          issue_type: task
+
   scrutiny:
     gates:
       scrutiny_results:
@@ -566,6 +674,14 @@ states:
         override_default:
           exists: true
           error: ""
+      # Moved here from implementation with the issue-type question, so the
+      # code route out of issue_type_routing carries no gate. It still stands
+      # between a code-typed issue and the panels after this one: a branch
+      # with no commits over main cannot pass scrutiny, whatever the panel
+      # reported. Identical to issue_type_routing's copy.
+      has_commits:
+        type: command
+        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
     accepts:
       scrutiny_outcome:
         type: enum
@@ -579,6 +695,7 @@ states:
         when:
           scrutiny_outcome: passed
           gates.scrutiny_results.exists: true
+          gates.has_commits.exit_code: 0
       - target: implementation
         when:
           scrutiny_outcome: blocking_retry
@@ -1346,12 +1463,12 @@ modify. Focus on:
 - Dependencies and interfaces that constrain the approach
 - Tests that cover the affected area
 
-Submit `context_gathered` with a `context_summary` describing what you found.
-The summary carries forward to inform the post-research validation and
-subsequent analysis.
+Submit a `context_summary` describing what you found. The summary carries
+forward to inform the post-research validation and subsequent analysis. Whether
+what you found is enough to proceed is post_research_validation's question, not
+this state's.
 
 Evidence schema:
-- `context_gathered`: `sufficient` or `insufficient`
 - `context_summary`: description of findings and relevant codebase observations
 
 ## post_research_validation
@@ -1467,13 +1584,9 @@ already fully satisfied by current code. If all acceptance criteria are already 
 submit `plan_outcome: already_complete` — no implementation needed. Routes to
 `done_already_complete` (a non-failure terminal).
 
-**Issue type classification**: confirm or override the `ISSUE_TYPE` hint from the
-plan context. Set `issue_type` to:
-- `code` — implementation work that runs through scrutiny/review/QA
-- `docs` — writing or structural changes that skip code review panels
-- `task` — operational work (scripts, commands) with no meaningful review artifact
-
-When `issue_type` is omitted, downstream states treat it as `code`.
+koto records `impl_base`, the commit this work starts from, as it enters this
+state. You don't submit it, and you don't classify the issue's type here: that
+question is asked once, at `issue_type_routing`, after implementation.
 
 Self-loop with `scope_changed_retry` (up to 3 times). After 3,
 use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
@@ -1484,26 +1597,63 @@ Capture non-obvious decisions in the `decisions` field.
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
 code review guidance, and commit patterns.
 
-
-When submitting `implementation_status: complete`, also submit `issue_type` as the
-value confirmed during analysis (from `analysis.accepts.issue_type`). This determines
-post-implementation routing:
-- `code` (default) — proceeds through scrutiny → review → qa_validation
-- `docs` — skips panels, goes directly to finalization
-- `task` — skips panels, goes directly to finalization
-
-**`issue_type` is required when submitting `complete`.** Omitting it means no transition
-fires and the workflow stalls with no error. Use `code` if the issue type is unclear.
+Submit `implementation_status: complete` when the work is committed. The issue's
+type is not part of this submission: koto records the changed paths next and then
+asks for the type once, at `issue_type_routing`.
 
 Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
 use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
 Capture non-obvious judgment calls in the `decisions` field.
 
+## changed_paths_record
+
+Recording the paths this implementation changed. koto runs the record itself on
+entry and advances on its own; you only see this state if it could not.
+
+The record is `changed_paths.txt`: the base commit, the number of commits since
+it, and one `git diff --name-status -M` line per changed path. It lists paths
+and statuses only and never names a type.
+
+Submit `paths_status: override` to go on to the issue-type question without the
+record, or `paths_status: blocked` with `detail` to stop. On the passing path
+submit nothing -- the run advances on its own.
+
+## issue_type_routing
+
+Say what kind of change this issue turned out to be. This is the only place the
+workflow asks, and it routes what happens next.
+
+Read `changed_paths.txt` for what the implementation actually touched, alongside
+the issue context in `context.md`:
+
+```bash
+koto context get {{SESSION_NAME}} changed_paths.txt
+```
+
+The first two lines are the base commit and the number of commits since it; each
+line after that is one `git diff --name-status -M` entry, and a final
+`... N more paths` line means the list was cut. The plan's hint is `{{ISSUE_TYPE}}`; treat it as
+a starting point and override it when the changed paths say otherwise.
+
+- `code` -- behaviour changes: source, tests, build or CI logic, templates that
+  drive a workflow. Goes through the scrutiny, review, and QA panels. Scrutiny
+  will not pass on a branch with no commits over main.
+- `docs` -- writing or structural documentation changes. Skips the panels and
+  goes to verification. Needs at least one commit over main: submitted on a
+  branch with none, the state holds; commit the work, then submit it again.
+- `task` -- operational work (running scripts or commands) with no reviewable
+  change set. Skips the panels, goes to verification, and needs no commits.
+
+Use `code` when unsure; it's the route that checks the most.
+
+Evidence schema:
+- `issue_type`: `code`, `docs`, or `task`
+
 ## scrutiny
 
 Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
 
-Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix).
+Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while the branch has no commits over main. If the work really has none, submit `blocking_retry` and commit it in implementation.
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
@@ -1767,7 +1917,8 @@ were required. This is a successful terminal state — it is not a failure.
 The workflow reached a blocking condition that requires human intervention.
 This state is reachable from multiple points in the workflow: analysis
 (scope too large or missing context), implementation (persistent test failures
-or external blockers), pr_creation (repeated creation failures), ci_monitor
+or external blockers), changed_paths_record (the changed paths could not be
+recorded), pr_creation (repeated creation failures), ci_monitor
 (unresolvable CI failures), and introspection (issue superseded).
 
 If the blocker has been resolved externally, use `koto rewind <name>` to walk

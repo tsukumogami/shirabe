@@ -40,8 +40,7 @@ enough that the main agent writes it directly:
 3. Write the plan to a local file under the per-session tmp directory
    (see phase-1 for the path convention).
 4. Store it in koto context: `koto context add <WF> plan.md --from-file <path>`.
-5. Proceed to phase 4 with `plan_outcome: plan_ready` and `issue_type: docs|task|code`
-   as appropriate.
+5. Proceed to phase 4 with `plan_outcome: plan_ready`.
 
 Delegate for simplified plans only when the main agent's context is genuinely
 too limited to write the plan accurately (e.g., resuming a session with no
@@ -60,18 +59,17 @@ This check is especially important for plan-backed children where an orchestrato
 schedule issues before earlier issues have run. An issue whose AC is satisfied by a
 sibling's commit should exit via `already_complete` rather than writing a redundant plan.
 
-## Issue Type Classification
+## Issue Type Is Not Asked Here
 
-After reading the issue (or plan outline), confirm the issue type. The PLAN outline may
-supply an `ISSUE_TYPE` hint; treat it as a starting point, not a binding constraint.
+Don't classify the issue's type in this phase, and don't submit `issue_type` with
+the analysis evidence: `analysis` doesn't accept it. The type is asked exactly
+once, at `issue_type_routing`, after implementation, when `changed_paths.txt`
+shows what the work actually touched. The PLAN outline's `ISSUE_TYPE` hint is
+read there, not here.
 
-Classify as:
-- `code` — changes to executable source, tests, or CI configs; runs through full scrutiny/review/QA
-- `docs` — changes to markdown, design docs, skills, or spec files; skips code review panels
-- `task` — operational work (run a migration, execute a script) that produces no review artifact
-
-Set `issue_type` in evidence. When the PLAN hint and your assessment agree, use it as-is.
-When they differ, use your classification and note the override in `decisions`.
+koto records `impl_base` -- the commit this issue's work starts from -- as it
+enters this state. That's the base the changed-paths record diffs from, so there's
+nothing to submit for it.
 
 ## Retry Loop
 
@@ -105,7 +103,7 @@ The rule that falls out, and the reason there is no `exists` guard *before* the 
 
 ## Evidence
 
-- `plan_outcome: plan_ready` — plan complete, submit with `issue_type`
+- `plan_outcome: plan_ready` — plan complete
 - `plan_outcome: already_complete` — all acceptance criteria already satisfied; routes to `done_already_complete`
 - `plan_outcome: scope_changed_retry` — scope changed, revising (up to 3 times)
 - `plan_outcome: scope_changed_escalate` — too many scope changes

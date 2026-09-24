@@ -109,6 +109,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/terminal-retention_test.sh
 
+      # record-changed-paths_test.sh runs the script against git fixtures
+      # through a koto stand-in, which needs only git, so those cases run on
+      # both legs. Its second half drives the shipped template through
+      # changed_paths_record and issue_type_routing, and skips where koto is
+      # absent -- the macOS leg -- so the Linux leg is where that half runs.
+      - name: Run changed-paths record tests
+        run: bash skills/work-on/scripts/record-changed-paths_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.
