@@ -82,6 +82,15 @@ case "$ARGS" in
     fi
     ;;
   *"context get"*)
+    # A key-named fixture wins: koto-context-<key> answers `context get <WF>
+    # <key>` for that key alone. The drift check reads two keys koto's own
+    # drift_facts action wrote (drift_facts.json, plan_intent.md), and the
+    # batch view below would be the wrong answer for either.
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$SCENARIO_DIR/koto-context-$(printf '%s' "$4" | tr '/' '_')" ]; then
+      cat "$SCENARIO_DIR/koto-context-$(printf '%s' "$4" | tr '/' '_')"
+      exit 0
+    fi
     if [ -f "$SCENARIO_DIR/koto-context-batch-final-view.json" ]; then
       cat "$SCENARIO_DIR/koto-context-batch-final-view.json"
       exit 0
