@@ -226,17 +226,17 @@ above). The steps that do write to GitHub, `merge_attempt`'s
 |---|---|---|---|
 | `merge_readiness` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh` | A read of the PR, recorded as a verdict line the next state routes on; writes no GitHub state |
 | `merge_confirm` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh --confirm` | A confirm read after a merge, recorded because the confirm exits 0 on both outcomes; writes no GitHub state |
-| `coord_merge_confirm` | `skills/execute/koto-templates/execute-coordinated.md` | `record-merge-verdict.sh --confirm` | The same confirm read on the coordination PR; writes no GitHub state |
-| `coord_verdict` | `skills/execute/koto-templates/execute-coordinated.md` | `record-coordination-verdict.sh` | A read of the coordination PR and its index, recorded as the run's verdict; writes no GitHub state |
+| `coord_merge_confirm` | `/execute`'s `execute-coordinated.md` | `record-merge-verdict.sh --confirm` | The same confirm read on the coordination PR; writes no GitHub state |
+| `coord_verdict` | `/execute`'s `execute-coordinated.md` | `record-coordination-verdict.sh` | A read of the coordination PR and its index, recorded as the run's verdict; writes no GitHub state |
 | `republish_record` | `skills/scope/koto-templates/scope.md` | `record-scope-exit.sh` | A read-back of the republished PR, recorded for the terminal result; writes no GitHub state |
 | `intake` | `skills/scope/koto-templates/scope.md` | `run-intake.sh` | Read-only checks over the arguments and working tree, recorded as a verdict and reason; writes no GitHub state |
 | `executed_report` | `skills/scope/koto-templates/scope.md` | `record-executed-report.sh` | A read of the topic's owned PR, recorded as its URL and state; writes no GitHub state |
-| `open_request` | `skills/deliver/koto-templates/deliver.md` | `deliver-open-request.sh` | Abandons the coordinator's open requests and creates this run's, in koto's request store only; writes no GitHub state |
-| `scope_absent` | `skills/deliver/koto-templates/deliver.md` | resolves the `scope` leg | Resolves an unbound leg with a fixed error, in koto's request store only; writes no GitHub state |
-| `execute_absent` | `skills/deliver/koto-templates/deliver.md` | resolves the `execute` leg | The same, for the `execute` leg; writes no GitHub state |
-| `scoped_check` | `skills/deliver/koto-templates/deliver.md` | `deliver-probe.sh scoped` | A durable re-check of the PLAN and the owned PR, recorded as a verdict; writes no GitHub state |
-| `executed_check` | `skills/deliver/koto-templates/deliver.md` | `deliver-probe.sh executed` | A durable re-check of an executed topic's owned PR; writes no GitHub state |
-| `merged_check` | `skills/deliver/koto-templates/deliver.md` | `deliver-probe.sh merged` | A confirm read of the PR the probe finds itself, never the leg's; writes no GitHub state |
+| `open_request` | `/deliver`'s `deliver.md` | `deliver-open-request.sh` | Abandons the coordinator's open requests and creates this run's, in koto's request store only; writes no GitHub state |
+| `scope_absent` | `/deliver`'s `deliver.md` | resolves the `scope` leg | Resolves an unbound leg with a fixed error, in koto's request store only; writes no GitHub state |
+| `execute_absent` | `/deliver`'s `deliver.md` | resolves the `execute` leg | The same, for the `execute` leg; writes no GitHub state |
+| `scoped_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh scoped` | A durable re-check of the PLAN and the owned PR, recorded as a verdict; writes no GitHub state |
+| `executed_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh executed` | A durable re-check of an executed topic's owned PR; writes no GitHub state |
+| `merged_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh merged` | A confirm read of the PR the probe finds itself, never the leg's; writes no GitHub state |
 
 `docs/designs/current/DESIGN-koto-default-action-adoption.md` records why each of
 the first four converted, and -- more useful when you are deciding about a new step -- the
