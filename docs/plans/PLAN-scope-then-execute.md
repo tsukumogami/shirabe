@@ -9,7 +9,8 @@ split_rationale: |
   flags, root request attach, the request-leg gate, non-overridable gates)
   can't merge until those features exist in a koto release that shirabe's
   CI pins. The work therefore lands as a koto PR, a koto release, and a
-  shirabe PR, with the coordination PR merging last.
+  shirabe PR behind that release, plus an earlier shirabe PR for the items
+  that need no new koto feature, with the coordination PR merging last.
 upstream: docs/designs/DESIGN-scope-then-execute.md
 milestone: "Scope-then-execute delivery"
 issue_count: 20
@@ -48,13 +49,13 @@ and behavior apart from the koto floor and corrected wording.
 
 ## Decomposition Strategy
 
-Horizontal across two repositories, one PR group per repository (the
-coarsest legal grouping): `tsukumogami/koto` group `runtime` holds Issues
-1-7; `tsukumogami/shirabe` group `default` holds Issues 8-20. The
-`koto-release` gate sits between them, before shirabe's koto floor (Issue
-8). Shirabe items that use no new koto feature (Issues 9, 10, 11, 12, 16)
-have no path through the gate and can be built in parallel with the koto
-work, though they land in the same shirabe PR. Each issue ships its own eval
+Horizontal across two repositories. `tsukumogami/koto` group `runtime`
+holds Issues 1-7. shirabe splits at the `koto-release` gate, a recorded
+split trigger under the coarsest-legal-grouping rule: group `default` holds
+the items that use no new koto feature (Issues 9, 10, 11, 12, 16) and can
+land in parallel with the koto work, and group `koto-features` holds the
+items behind the gate (Issues 8, 13-15, 17-20), starting with shirabe's koto
+floor (Issue 8). Each issue ships its own eval
 or test scenarios naming the PRD requirement IDs it covers.
 
 Grouping rules: one issue per koto feature; in shirabe, one issue per skill
@@ -616,7 +617,7 @@ shirabe marks the gates that decide progress, a merge, or a `merged` report as n
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Move shirabe onto the koto release that carries K1-K6 and K8: pin CI to it, declare the new koto surface as `/scope`'s and `/execute`'s prerequisite, sweep every shirabe template and eval for health now that `context_assignments` execute, and add the shared `scripts/koto-open.sh` entry script with its `_test.sh` (Phase 2).
 
@@ -1036,7 +1037,7 @@ Downstream deliverables:
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Take `/execute`'s single-pr path to a recorded, optionally merged outcome: four merge states and two terminals after `ci_monitor`, a `record-merge-verdict.sh` default action, an expected-head record written only by push scripts, `MERGE` and `PAUSE_BEFORE_FINALIZE` rebound per invocation, `--koto-leg` entry through `koto-open.sh`, the `owned-pr.sh` ownership filter at every PR lookup, result maps with `outcome` assigned on every terminal edge and `step`/`reason` either assigned as literals or written by a record script, exit lines rendered by `print-exit.sh`, and the write-set addition.
 
@@ -1156,7 +1157,7 @@ The pinned eval route `ci_monitor -> escalate_dirty_merge_state -> done_blocked`
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Run a coordinated PLAN, in one repository or several, through a new `execute-coordinated.md` koto envelope that drives the script-decided loop (`coordinated-next.sh`, `node-cut.sh`, `node-push.sh`, `coordination-verdict.sh`), gives every PR node its own `impl/<slug>-<node-id>` branch and PR, dispatches outline-sourced children with `PLAN_DOC` pointing into the coordination checkout, merges node PRs in merge order and the coordination PR last, pauses and resumes from the coordination PR, and ends in result-declaring terminals.
 
@@ -1263,7 +1264,7 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R6, R21, R22, R24, R27)
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Make "merged" in `/execute`'s and `/work-on`'s SKILL.md describe only the `merged` final state (or a PR GitHub reports as merged), and enforce that with a new `scripts/check-merged-wording.sh`, its test, and an allowlist wired into CI, all written against the final single-pr and coordinated text from Issue 13 and Issue 14.
 
@@ -1374,7 +1375,7 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R24, R27)
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Move `/scope`'s argument checks into constrained koto variables and a new `intake` state, enter through `scope-open.sh` with `--koto-leg` support, forward intent and the caller's coordination flags to the `/plan` hop behind a plan-mode consistency gate, and stop creating up-front coordination PRs on intent runs.
 
@@ -1467,7 +1468,7 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R1, R2, R3, R5, R8, R13, R30, R31; I
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Route every `/scope` re-entry through a table-tested `resume_route` state, publish one owned PR on intent runs through gated publish states, end every run at a terminal that declares its result, and render the printed exit block from that result.
 
@@ -1564,7 +1565,7 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R3, R9, R10, R11, R12, R13, R17, R23
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Add `/deliver` as a koto-driven skill whose `deliver.md` template opens a fresh koto request per run, runs `/scope --intent=continue` and then `/execute` as leg-attached root children read only through `request-leg` gates, re-checks every forward step against durable state, asks one confirmation when interactive, and ends in a result-declaring terminal rendered by `deliver-report.sh`.
 
@@ -1645,7 +1646,7 @@ Evals (`skills/deliver/evals/`, real koto, per-skill `gh` shim with a call log, 
 
 **Repo**: tsukumogami/shirabe
 
-**Group**: default
+**Group**: koto-features
 
 **Goal**: Update `docs/guides/coordinated-multi-repo.md` and `docs/guides/execute-friction.md`, and add a `/deliver` row to `README.md`, so the guides describe single-repo coordinated PLANs, the intent route, `/deliver`, `/scope --intent`, `/execute --merge`, the resume model, `--koto-leg`, and the koto floor as shipped.
 
@@ -1774,8 +1775,10 @@ graph TD
 
 Merge order: the koto PR (group `runtime`, Issues 1-7) merges first; the
 `koto-release` gate then holds until a release with those features is
-published; the shirabe PR (group `default`, Issues 8-20) merges
-next; the coordination PR merges last.
+published; the second shirabe PR (group `koto-features`, Issues 8,
+13-15, 17-20) merges after it. The first shirabe PR (group `default`,
+Issues 9-12, 16) has no path through the gate and merges whenever it's
+reviewed. The coordination PR merges last.
 
 Critical path: Issue 3 -> 4 -> 5 -> gate -> 8 -> 13 -> 14 -> 15 -> 19 -> 20.
 The koto side's longest chain runs through variable constraints, root attach,
