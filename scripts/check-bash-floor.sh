@@ -117,6 +117,10 @@ suite_scripts() {
             # Same koto-absent contract: its two static cases still run on the
             # macOS leg, and the engine-backed ones skip there.
             echo "skills/execute/scripts/terminal-retention_test.sh"
+            # Need no engine and no network: both drive the merge scripts
+            # through a test-local gh stub, so every case executes on 3.2.
+            echo "skills/execute/scripts/merge-verdict_test.sh"
+            echo "skills/execute/scripts/merge-exec_test.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key

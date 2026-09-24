@@ -33,7 +33,9 @@
 # execution_mode enum re-validates and before the loop dispatches a child.
 #
 # gh drives the home PR throughout (pr list, pr create, pr edit, pr ready, pr
-# checks, pr view, issue view); git creates and pushes the shared branch and
+# checks, pr view, issue view) and the opt-in merge: merge-verdict.sh reads
+# the PR, its checks, and the base's rules through `pr view`, `pr checks`, and
+# `api`, and merge-exec.sh makes the repository's one `pr merge` call. git creates and pushes the shared branch and
 # stages the cascade's transitions; jq builds the cascade report; python3 is
 # the portable realpath in run-cascade.sh.
 #
