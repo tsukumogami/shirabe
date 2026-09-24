@@ -20,6 +20,9 @@
 #   drift_facts.json -- compact JSON, `route` first, schema drift-facts/v1.
 #                       At most 8192 bytes.
 #
+# Before anything else, once the arguments check out, both keys are removed,
+# so a failed run never leaves an earlier run's facts behind for the gates.
+#
 # Diagnostics go to stderr.
 #
 # Exit codes:
@@ -27,12 +30,14 @@
 #   64 -- no base resolves: not a git repository, `git fetch origin` failed,
 #         `origin/main` is absent, or it shares no history with the PLAN
 #   65 -- the PLAN doc is missing, unreadable, or outside the repository
-#   66 -- a `koto context add` failed; koto's own stderr says why
+#   66 -- a `koto context add` or `koto context remove` failed; koto's own
+#         stderr says why
 #   67 -- an argument is missing
 #
 # ## What the script does
 #
-#   1. Checks its arguments (67) and finds the PLAN inside the repository (65).
+#   1. Checks its arguments (67), removes any earlier drift_facts.json and
+#      plan_intent.md (66), and finds the PLAN inside the repository (65).
 #   2. Fetches `origin` and resolves `origin/main` (64). The rebase in
 #      `worktree_sync` doesn't fetch; it uses what this step fetched.
 #   3. Resolves the base: `merge-base(<last commit touching the PLAN>,
@@ -95,6 +100,15 @@ if [ -z "$SESSION" ] || [ -z "$PLAN" ]; then
     echo "usage: drift-facts.sh <koto-session-name> <plan-doc>" >&2
     die 67 "missing argument"
 fi
+
+# Facts from an earlier run (a `koto rewind` back into drift_facts) must not
+# survive a failed recompute: the gates would find the old route and pass on
+# it. drift_facts.json goes first, so plan_intent.md never outlives it.
+# `koto context remove` succeeds when the key is already absent.
+for key in drift_facts.json plan_intent.md; do
+    koto context remove "$SESSION" "$key" >/dev/null \
+        || die 66 "koto context remove failed for $key on session [$SESSION]"
+done
 
 command -v jq >/dev/null || die 64 "jq is required and not on PATH"
 

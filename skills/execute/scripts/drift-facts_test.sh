@@ -64,13 +64,18 @@ git config --global advice.detachedHead false
 #
 # `koto context add <session> <key>` stores stdin at $SHIM_STORE/<session>/<key>
 # and appends the key to $SHIM_STORE/order. A session named `fail-*` makes the
-# write fail, which is how exit 66 is reached.
+# write fail, which is how exit 66 is reached. `koto context remove` deletes
+# the stored file and succeeds whether or not it was there, as koto's does.
 
 SHIM_BIN="$WORKDIR/shim-bin"
 SHIM_STORE="$WORKDIR/shim-store"
 mkdir -p "$SHIM_BIN" "$SHIM_STORE"
 cat > "$SHIM_BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
+if [ "$1 $2" = "context remove" ]; then
+    rm -f "$SHIM_STORE/$3/$4"
+    exit 0
+fi
 [ "$1 $2" = "context add" ] || { echo "koto shim: unsupported: $*" >&2; exit 2; }
 case "$3" in fail-*) echo "koto shim: refusing session $3" >&2; exit 9 ;; esac
 mkdir -p "$SHIM_STORE/$3"
@@ -478,6 +483,18 @@ if [ "$rc" -eq 64 ] && [ -z "$o" ] && [ ! -d "$SHIM_STORE/s64" ]; then
     pass "a failed fetch (no base) exits 64 and writes nothing"
 else
     fail "failed fetch: exit $rc"
+fi
+
+# A rewind back into drift_facts: keys from the earlier run must not survive a
+# failed recompute, or the stale route:none would satisfy the gates.
+mkdir -p "$SHIM_STORE/s-stale"
+printf '{"route":"none","schema":"drift-facts/v1"}' > "$SHIM_STORE/s-stale/drift_facts.json"
+printf '# PLAN: stale\n' > "$SHIM_STORE/s-stale/plan_intent.md"
+o=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" s-stale docs/plans/PLAN-t.md 2>/dev/null); rc=$?
+if [ "$rc" -eq 64 ] && [ ! -e "$SHIM_STORE/s-stale/drift_facts.json" ] && [ ! -e "$SHIM_STORE/s-stale/plan_intent.md" ]; then
+    pass "a failed recompute removes drift_facts.json and plan_intent.md left by an earlier run"
+else
+    fail "stale keys: exit $rc, left [$(ls "$SHIM_STORE/s-stale" 2>/dev/null | tr '\n' ' ')]"
 fi
 (cd "$FX/repo" && git remote set-url origin "$FX/origin.git") >/dev/null 2>&1
 
