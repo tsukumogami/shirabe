@@ -68,6 +68,18 @@
 # tool-declaration policy says a declaration cannot catch on its own. Keep them
 # in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
+#
+# The koto floor stays where it was. /scope and /execute declare the koto init
+# entry flags (--vars-file, --attach-live, --replace-terminal, --koto-leg) as
+# their floor; /work-on does not, because it calls none of them and nothing it
+# routes on changed. work-on.md's transition context_assignments execute from
+# koto 0.13.0 on, writing `failure_reason` (and the other
+# assigned keys) into the session's context on a blocked or escalating edge,
+# where koto's batch view shows it for a failed child. An older koto drops
+# those assignments at compile time: the run takes the same transitions and
+# reaches the same terminals, and only the recorded reason is missing. A
+# missing reason is not worth refusing a run over, so /work-on keeps the
+# v0.12.2 floor the README states and check-koto-floor.yml checks.
 koto	init	--template,--var	always
 koto	next	--with-data,--no-cleanup	always
 koto	workflows	-	always

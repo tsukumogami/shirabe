@@ -1,0 +1,20 @@
+# /deliver's refusal wording for koto's typed `koto init` errors, read by
+# scripts/koto-open.sh through deliver-open.sh. Format: <code>[:<VAR>]<TAB><text>.
+# A <code>:<VAR> line applies only when koto's refusal names that variable and
+# wins over the plain <code> line. In <text>, \n is a newline, and {session}
+# {var} {value} {constraint} {recorded} {requested} {state} {error} are
+# replaced with koto's fields, never evaluated.
+invalid_var:TOPIC	Topic slug `{value}` does not match the required pattern `^[a-z0-9-]+$`.\nA slug is taken AS PROVIDED, with no normalization, and may not begin with `-`. Re-invoke `/deliver <topic-slug>`.
+duplicate_var:MODE	`--auto` and `--interactive` are mutually exclusive, and neither may be repeated.\nRe-invoke with at most one of them.
+duplicate_var:MERGE	`--no-merge` may be given at most once.
+duplicate_var:COORDINATION	`--coordinated` and `--no-coordinated` are mutually exclusive, and neither may be repeated.\nRe-invoke with at most one of them.
+invalid_var:MAX_ROUNDS	`--max-rounds` must be an integer from 1 to 50, got `{value}`.\nRe-invoke with `--max-rounds=N`, or omit it for /scope's default.
+duplicate_var:MAX_ROUNDS	`--max-rounds` may be given at most once.
+invalid_var:UPSTREAM	`--upstream` requires a path argument naming the upstream artifact the chain consumes, for example `--upstream docs/roadmaps/ROADMAP-<name>.md` (or `owner/repo:docs/roadmaps/ROADMAP-<name>.md`), with no `..` segment; got `{value}`.\nRe-invoke `/deliver <topic-slug> --upstream <path>`.
+duplicate_var:UPSTREAM	`--upstream` may appear at most once.\nRe-invoke with a single `--upstream <path>`.
+invalid_var:PLUGIN_ROOT	The shirabe plugin root `{value}` is not usable: it must be an absolute path with no `..` segment, written only in koto's allowed characters ({constraint}).\nInstall or link the plugin at such a path and re-invoke `/deliver`.
+invalid_var	Invalid value `{value}` for {var}: it must satisfy {constraint}.
+duplicate_var	{var} was given more than once.
+unknown_var	{var} is not a /deliver variable.
+template_mismatch	A session named {session} was built from a different template, so it is not a /deliver run of this topic.\n/deliver does not remove or cancel it; finish or remove that session first.
+origin_mismatch	A session named {session} belongs to another worktree or session store.\n/deliver does not remove or cancel it; run /deliver from the worktree that started it, or finish that run first.

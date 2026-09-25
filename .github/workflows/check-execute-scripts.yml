@@ -23,6 +23,19 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      # The engine-backed suites run the newest koto 0.x, checked against the floor.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+      # The "merged" wording check over /execute's, /work-on's, and /deliver's
+      # SKILL.md (all already covered by skills/** above).
+      - 'scripts/check-merged-wording.sh'
+      - 'scripts/check-merged-wording_test.sh'
+      - 'scripts/check-merged-wording.allow'
+
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   test-execute-scripts:
@@ -40,6 +53,17 @@ jobs:
       - name: Install jq (macOS)
         if: runner.os == 'macOS'
         run: brew install jq
+
+      # "merged" in /execute's, /work-on's, and /deliver's SKILL.md describes only the
+      # `merged` final state or a PR GitHub reports MERGED. Pure text checks,
+      # so they run before any toolchain installs.
+      - name: Run merged-wording tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-merged-wording_test.sh
+
+      - name: Check merged wording (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-merged-wording.sh
 
       - name: Run cascade tests (Linux)
         if: runner.os == 'Linux'
@@ -59,6 +83,49 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/merge-exec_test.sh
 
+      # The single-pr merge step's scripts. Each drives test-local gh and koto
+      # stubs (and real git where it pushes), so none needs the engine.
+      - name: Run owned-pr tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/owned-pr_test.sh
+
+      - name: Run push-and-record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/push-and-record_test.sh
+
+      - name: Run record-merge-verdict tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/record-merge-verdict_test.sh
+
+      - name: Run adopt-or-create-pr and write-set tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/adopt-or-create-pr_test.sh
+
+      - name: Run print-exit tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/print-exit_test.sh
+
+      # The eval gh shim, and the verdict each merge-step eval fixture makes
+      # the real scripts reach.
+      - name: Run eval gh shim tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/eval-gh-shim_test.sh
+
+      # The coordinated loop's scripts: the next action, the verdict and its
+      # record, the setup record, node branches, node pushes and their head=
+      # records, and the merge. Each drives the eval gh shim's repository
+      # model, a koto context stub, and real git, so none needs the engine.
+      - name: Run coordinated loop script tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash skills/execute/scripts/coordinated-next_test.sh
+          bash skills/execute/scripts/coordination-verdict_test.sh
+          bash skills/execute/scripts/record-coordination-verdict_test.sh
+          bash skills/execute/scripts/record-coord-setup_test.sh
+          bash skills/execute/scripts/node-cut_test.sh
+          bash skills/execute/scripts/node-push_test.sh
+          bash skills/execute/scripts/coord-merge_test.sh
+
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch
       # was not recorded, which cannot be checked without the engine that
@@ -77,9 +144,49 @@ jobs:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
 
+      # The engine-backed suites below skip with exit 0 when koto is absent.
+      # This fails the job instead, and also when koto is older than shirabe's
+      # floor.
+      - name: Assert koto meets the floor (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/assert-koto-floor.sh
+
       - name: Run settled-branch-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/settled-branch-record_test.sh
+
+      # The merge step's structural guarantees, read from the compiled
+      # execute.md: merge_attempt's non-overridable MERGE gate and no default
+      # action, non-overridable context-matches gates on merge_route and
+      # merge_confirm, no edge into `done`, merge_confirm as the only way into
+      # `merged`, no assignment writing home_pr, and the DIRTY route.
+      - name: Run execute template structure tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-template-structure_test.sh
+
+      # The coordinated envelope's shape, read from the compiled
+      # execute-coordinated.md: every edge into `merged` from
+      # coord_merge_confirm alone, non-overridable context-matches gates on
+      # coord_verdict and coord_merge_confirm and no command gate there, no
+      # reason assigned out of coord_verdict and only its absent-or-unmatched
+      # edge assigning a step, and no done_refused state.
+      - name: Run coordinated envelope structure tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-structure_test.sh
+
+      # The same envelope on the engine: each terminal reached with
+      # --no-cleanup and its result keys, the override refusals, and the
+      # promoted leg result under --koto-leg.
+      - name: Run coordinated envelope engine tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-engine_test.sh
+
+      # /execute's koto entry: the flags reach koto as variables, and koto's
+      # refusals (duplicate or invalid --merge, another template's live
+      # session, a stale --koto-leg) leave the session and its MERGE unchanged.
+      - name: Run execute-open tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-open_test.sh
 
       # terminal-retention_test.sh drives the shipped execute.md to its real
       # terminals to assert the session's context survives them, which needs the

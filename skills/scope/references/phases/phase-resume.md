@@ -10,69 +10,137 @@ every value recovered from the workflow session passes at the
 resume entry, and the dual-check drift-detection contract `/scope`
 runs against `child_snapshots:` on every ladder match.
 
-## Slot 5 — Status-Aware Re-Entry (9 rows, most-downstream-first)
+## How the Ladder Runs
 
-The 9 rows are evaluated in first-match-wins order, most-downstream
+The ladder runs in the workflow, not as agent prose. After
+`branch_check`, the `resume_route` state's one gate runs
+`skills/scope/scripts/resume-probe.sh --topic <topic> --intent
+<RUN_INTENT>`. The probe reads the artifact tree, the state file,
+the child partials and the `/explore` handoff, makes no write and no
+`gh` call, and exits with the code of the first row that matches;
+`resume_route` sends each code to a state. The rows below name their
+code as **[code]**. This file stays the normative spec: the probe's
+header, its `_test.sh` (one fixture per row), and the routing table
+in `skills/scope/koto-templates/scope.md` follow it.
+
+The meta-ladder head and tail (rows 1-4 and 8-9 of the template) map
+to these codes:
+
+| Row | Condition | Code | State |
+|-----|-----------|------|-------|
+| 1 | state file malformed | [25] | `resume_malformed` (names the malformation, offers Discard) |
+| 2 | exit set, a `publish_error:` recorded, intent set | [27] / [28] / [29] | `publish_full_run` / `publish_re_evaluation` / `publish_abandonment` (the publish retry) |
+| 2 | exit set, nothing to publish | [26] | `resume_exit_set` (revise-equivalent / start fresh) |
+| 4 | stale (7 days or more) | [24] | `resume_stale` (Resume / Force-materialize / Discard; `--auto` takes Resume and announces it) |
+| 3 | fresh, `phase_pointer` 0-1 / 2 / 3 | [20] / [21] / [22] | `discovery` / `hop_select` / `finalize` |
+| 8 | nothing on disk, on a branch naming the topic | [11] | `setup` |
+| 9 | nothing on disk, any other branch | [10] | `setup` |
+| — | the probe cannot tell | [2] | `done_error` with `step=scope:resume-probe` |
+
+The publish retry sits under row 2 because it is an exit already
+recorded: the run ended at `done_error` before cleanup, so the state
+file still holds `exit:` and `publish_error:`, and the retry goes
+straight back to the publish state rather than asking.
+
+## Slot 5 — Status-Aware Re-Entry (11 rows, most-downstream-first)
+
+The 11 rows are evaluated in first-match-wins order, most-downstream
 first so a settled-downstream artifact's lifecycle dominates the
-upstream re-entry:
+upstream re-entry. Rows 5.1a and 5.3a are the two `--intent`
+shortcuts; they fire only when the run's effective intent is
+`continue` or `stop`.
 
-- **5.1 PLAN-Active detected.** `docs/plans/PLAN-<topic>.md` exists
-  with status Active. The PLAN's Active lifecycle is owned by
-  `/work-on`, not by `/scope`. The prompt **refuses re-entry and
-  emits a redirect to /work-on**: "/scope cannot resume against a
-  PLAN already under implementation; redirect to /work-on
-  <topic-slug>". The Re-evaluate / Revise / Bail triad MUST NOT
+- **5.1a PLAN present, intent set [40].** `docs/plans/PLAN-<topic>.md`
+  exists at Active or Draft and the run has an intent. `/scope`
+  re-publishes rather than re-scoping: the `republish` state re-runs
+  the publish script for the PLAN's mode, which reuses or opens the
+  owned PR and rewrites its body's `intent=` field, and the run ends
+  at `done_republished`. No child runs and no BRIEF, PRD or DESIGN
+  commit is made. A finished run whose PR records `intent=stop`,
+  re-invoked with `--intent=continue`, is not a mismatch.
+- **5.1 PLAN-Active detected [41].** `docs/plans/PLAN-<topic>.md`
+  exists with status Active and the run has no intent. The PLAN's
+  Active lifecycle is owned by its executor, not by `/scope`. The run
+  **refuses re-entry and emits a redirect**, by the PLAN's mode:
+  "/scope cannot resume against a PLAN already under implementation;
+  redirect to /execute docs/plans/PLAN-<topic>.md" for `single-pr`
+  and `coordinated`, and "...; redirect to /work-on #<first
+  startable>" for `multi-pr`. The command is also the result's
+  `next=` (R23). The Re-evaluate / Revise / Bail triad MUST NOT
   appear here — refuse-and-redirect is not a re-evaluation exit;
   the downstream skill owns the artifact.
-- **5.2 PLAN-Done detected.** `docs/plans/PLAN-<topic>.md` exists
-  with status Done. The PLAN's Done lifecycle is owned by
-  `/release`, not by `/scope`. The prompt **refuses re-entry and
+- **5.2 PLAN-Done detected [42].** `docs/plans/PLAN-<topic>.md`
+  exists with status Done. The PLAN's Done lifecycle is owned by
+  `/release`, not by `/scope`. The run **refuses re-entry and
   emits a redirect to /release**: "/scope cannot resume against a
-  completed PLAN; redirect to /release <topic-slug>". Same triad
-  rule — no Re-evaluate / Revise / Bail; refuse-and-redirect is
-  not a re-evaluation exit.
-- **5.3 PLAN-Draft detected.** A Draft PLAN exists. `/scope` offers
-  a Continue / Discard / Bail prompt aligned with the chain's
-  re-entry semantics; a Draft PLAN is the most-downstream
-  intermediate `/scope` itself owns.
-- **5.4 DESIGN-Accepted detected.** `docs/designs/current/DESIGN-<topic>.md`
-  exists with status Accepted. This is a settled-upstream boundary;
-  the prompt offers the **Re-evaluate / Revise / Bail** triad and
-  identifies the boundary as the **DESIGN-boundary** so the
+  completed PLAN; redirect to /release <topic-slug>", with
+  `next=/release <topic>`. Same triad rule — no Re-evaluate /
+  Revise / Bail; refuse-and-redirect is not a re-evaluation exit.
+- **5.3 PLAN-Draft detected [43].** A Draft PLAN exists and the run
+  has no intent. `/scope` offers a Continue / Discard / Bail prompt
+  aligned with the chain's re-entry semantics; a Draft PLAN is the
+  most-downstream intermediate `/scope` itself owns.
+- **5.3a Executed topic, intent set [44].** No PLAN exists and
+  `docs/designs/current/DESIGN-<topic>.md` does: the cascade executed
+  the PLAN and removed it. The `executed_report` state reads the
+  branch's owned PR through the shared ownership filter and ends at
+  `done_executed` with the PR and whether it is merged or open, or at
+  `done_error` with `step=scope:pr-create` when there is no single
+  owned merged or open PR. Without intent the same topic falls
+  through to row 5.4.
+- **5.4 DESIGN-Accepted detected [45].** A DESIGN at Accepted,
+  Planned or Current exists at `docs/designs/current/DESIGN-<topic>.md`
+  or `docs/designs/DESIGN-<topic>.md`. This is a settled-upstream
+  boundary; the prompt offers the **Re-evaluate / Revise / Bail**
+  triad and identifies the boundary as the **DESIGN-boundary** so the
   resulting Decision Record (if Re-evaluate fires) attaches at
   `boundary: design`. This row MUST NOT contain a "Continue /
   Start fresh" prompt — that vocabulary belongs to a child's own
   resume ladder, not to `/scope`'s boundary re-evaluation.
-- **5.5 DESIGN-Proposed detected.** A Proposed DESIGN exists.
+- **5.5 DESIGN-Proposed detected [46].** A Proposed DESIGN exists.
   `/scope` offers the Continue / Discard / Bail prompt against the
   draft.
-- **5.6 PRD-Accepted detected.** `docs/prds/PRD-<topic>.md` exists
-  with status Accepted. This is the second settled-upstream
-  boundary; the prompt offers the **Re-evaluate / Revise / Bail**
-  triad and identifies the boundary as the **PRD-boundary** so the
-  resulting Decision Record attaches at `boundary: prd`.
-- **5.7 PRD-Draft detected.** A Draft PRD exists. `/scope` offers
+- **5.6 PRD-Accepted detected [47].** `docs/prds/PRD-<topic>.md`
+  exists with status Accepted (or In Progress, or Done). This is the
+  second settled-upstream boundary; the prompt offers the
+  **Re-evaluate / Revise / Bail** triad and identifies the boundary
+  as the **PRD-boundary** so the resulting Decision Record attaches
+  at `boundary: prd`.
+- **5.7 PRD-Draft detected [48].** A Draft PRD exists. `/scope` offers
   the Continue / Discard / Bail prompt against the draft.
-- **5.8 BRIEF-Accepted (or BRIEF-Done) detected.** An Accepted (or
-  Done) BRIEF exists. `/scope` proceeds with the BRIEF as the
+- **5.8 BRIEF-Accepted (or BRIEF-Done) detected [49].** An Accepted
+  (or Done) BRIEF exists. `/scope` proceeds with the BRIEF as the
   chain's anchor; no prompt fires.
-- **5.9 BRIEF-Draft detected.** A Draft BRIEF exists. `/scope`
+- **5.9 BRIEF-Draft detected [50].** A Draft BRIEF exists. `/scope`
   offers the Continue / Discard / Bail prompt against the draft.
 
 Row 5.4 fires before row 5.6 when both Accepted artifacts exist:
-the most-downstream settled-upstream boundary wins (AC17b).
+the most-downstream settled-upstream boundary wins (AC17b). An
+artifact whose status is outside the sets above (a Superseded
+DESIGN, say) is not a row of its own, and the ladder falls through
+to the rows below it; one whose status cannot be read at all is the
+probe's cannot-tell [2].
+
+The prompts are states: `resume_draft` carries the Continue /
+Discard / Bail prompt of rows 5.3, 5.5, 5.7 and 5.9, and
+`resume_boundary` the triad of rows 5.4 and 5.6. Continue and Revise
+re-enter the chain at the row's own hop through `setup` and
+`hop_select`.
 
 ## Slot 6 — Partial-Child-Run (4 rows, most-downstream-first)
 
 The 4 rows detect a child's wip-partial intermediate and re-invoke
 the child against its own resume ladder, most-downstream first:
 
-- **6.1 `wip/plan_<topic>_*` exists.** Re-invoke `/plan` against
+- **6.1 `wip/plan_<topic>_*` exists [60].** Re-invoke `/plan` against
   its own resume logic; do not re-run from scratch.
-- **6.2 `wip/design_<topic>_coordination.json` exists.** Re-invoke
+- **6.2 `wip/design_<topic>_coordination.json` exists [61].** Re-invoke
   `/design`.
-- **6.3 `wip/prd_<topic>_decisions.md` exists.** Re-invoke `/prd`.
-- **6.4 `wip/brief_<topic>_*` exists.** Re-invoke `/brief`.
+- **6.3 `wip/prd_<topic>_decisions.md` exists [62].** Re-invoke `/prd`.
+- **6.4 `wip/brief_<topic>_*` exists [63].** Re-invoke `/brief`.
+
+Each code routes to `setup`, and `hop_select` then enters the
+partial's hop.
 
 **Why 6.2 and 6.3 name one file where 6.1 and 6.4 glob a prefix.**
 A child's scoping artifact is the one file in its namespace that a
@@ -125,7 +193,7 @@ author's argument.
 
 ## Slot 7 — Feeder-Doc-Detected (the `/explore` handoff)
 
-**Match condition.** `wip/scope_<topic>_handoff.md` exists on disk,
+**Match condition [12].** `wip/scope_<topic>_handoff.md` exists on disk,
 and no row above matched — no state file at
 `wip/scope_<topic>_state.md`, no child doc at a status Slot 5
 recognizes, and no child wip partial Slot 6 matches. Beyond the
@@ -314,10 +382,10 @@ anchored pattern for their type.
   Several exit-path required fields are path-valued strings and
   several of them reach a write path, which is what makes this limb
   load-bearing rather than defensive.
-- **The origin record** is not parsed and not interpolated. Its
-  session name is recomputed from the validated slug and compared
-  for equality; its worktree and store are compared against the
-  values this invocation computes for itself.
+- **The origin record** is koto's own, and `koto init --attach-live`
+  compares its worktree and store with this invocation's before it
+  attaches; nothing here parses or interpolates it. The session name
+  is recomputed from the validated slug and compared for equality.
 
 Out-of-pattern values are refused with a diagnostic naming the field
 and route to R8 bail-handling, which is what the equivalent
@@ -420,8 +488,8 @@ walks its own `child_snapshots:` — the state file is internal to
   Slug re-validation on resume; State-file enum re-validation, the
   rule the session-recovered values above are validated under.
 - `skills/scope/references/phases/phase-0-setup.md` — the Workflow
-  Session section, which states the probe, the origin check and the
-  naming rule this ladder's re-validation assumes.
+  Session section, which states the entry through `scope-open.sh` and
+  the naming rule this ladder's re-validation assumes.
 - `skills/scope/references/state-schema.md` — the
   `child_snapshots:`, `drift_acknowledged:`, and `worktree_rebases:`
   fields the drift-detection prompt writes against, and the

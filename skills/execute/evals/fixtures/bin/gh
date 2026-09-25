@@ -11,9 +11,21 @@ if [ -z "${EVAL_SCENARIO:-}" ]; then
   echo "Error: EVAL_SCENARIO not set" >&2
   exit 1
 fi
+# A test can point the shim at a scenario directory of its own.
+if [ -n "${EVAL_SCENARIO_DIR:-}" ]; then
+  SCENARIO_DIR="$EVAL_SCENARIO_DIR"
+fi
 
 # Normalize args: join all arguments for pattern matching
 ARGS="$*"
+
+# The call log. When GH_CALL_LOG is set, every call's argument list is appended
+# to it, one call per line, before anything is served, so a scenario can assert
+# on what was (and wasn't) called: exactly one `pr merge`, never `--admin`, no
+# `pr create` on an adopted branch.
+if [ -n "${GH_CALL_LOG:-}" ] && [ "${1:-}" != "shim-mark-merged" ]; then
+  printf '%s\n' "$ARGS" >> "$GH_CALL_LOG"
+fi
 
 # emit_fixture <fixture-file> "$@": print canned JSON, honoring a trailing
 # `--jq <filter>` from the original gh args exactly as real gh does. The gate
@@ -42,6 +54,372 @@ emit_fixture() {
     cat "$fixture"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# A stateful repository model (scenarios with gh/db.json)
+# ---------------------------------------------------------------------------
+#
+# The coordinated scenarios drive several PRs, in one repository or more, whose
+# state changes during the run: a node PR is created, readied, and merged, and
+# the next layer's PR only exists after that. A keyed fixture answers one PR;
+# this model answers any number. A scenario that carries gh/db.json is served
+# from it, and only from it. The file seeds a JSON database the shim copies to
+# "$GH_CALL_LOG.d/db.json" on the first call (so GH_CALL_LOG is required) and
+# then reads and updates:
+#
+#   login              the authenticated user (`gh api user`)
+#   default_repo       what `gh repo view` names
+#   next_number        the number the next `gh pr create` takes
+#   repos.<o/r>        default_branch, allow_*_merge, branch (the branch
+#                      endpoint's object), rules (the rules endpoint's list)
+#   created_defaults   mergeStateStatus, reviewDecision, checks, files, merge
+#                      for a PR `gh pr create` opens
+#   prs[]              repo, number, headRefName, baseRefName, author,
+#                      isCrossRepository, state, isDraft, title, body,
+#                      headRefOid, mergeStateStatus, reviewDecision, checks
+#                      ([{name, bucket}]), files ([path]), merge
+#                      (ok | fail | stays-open)
+#
+# In the seed, @HEAD_SHA@ is the commit checked out where the shim first runs
+# and @BRANCH@ that checkout's branch. A created PR's headRefOid is the commit
+# checked out where `gh pr create` runs, which is the commit just pushed.
+#
+# What each call does: `pr list`, `pr view`, `pr checks`, and the `api` reads
+# answer from the database (a head commit's committedDate is ten minutes ago,
+# so no grace window is open; `api repos/<r>/issues/<n>` is the state read
+# `shirabe validate --merge-gate` makes, closed once the PR merged; `auth
+# status` succeeds); `pr create` adds a draft PR and prints its URL;
+# `pr edit --body-file` replaces the body; `pr ready` clears isDraft; `pr merge`
+# sets MERGED when the PR's merge is `ok`, exits 0 and changes nothing when it
+# is `stays-open` (a queue that accepted it), and exits 1 when it is `fail`;
+# `pr close` sets CLOSED. Every `issue` call fails, so a scenario that must
+# make none can assert it from the log. `gh shim-mark-merged <repo> <number>`
+# is the scenario's own hook for a merge a human made between two runs; it is
+# not logged.
+if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
+  if [ -z "${GH_CALL_LOG:-}" ]; then
+    echo "gh shim: a gh/db.json scenario needs GH_CALL_LOG" >&2
+    exit 1
+  fi
+  STATE_DIR="$GH_CALL_LOG.d"
+  mkdir -p "$STATE_DIR"
+  DB="$STATE_DIR/db.json"
+  if [ ! -f "$DB" ]; then
+    seed_head=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    seed_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)
+    sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" > "$DB"
+  fi
+
+  # The value after a flag in the original arguments.
+  flag_value() {
+    local want="$1" prev="" a
+    shift
+    for a in "$@"; do
+      if [ "$prev" = "$want" ]; then printf '%s' "$a"; return 0; fi
+      prev="$a"
+    done
+    return 1
+  }
+  db_update() { # db_update <jq program> [jq args...]
+    local prog="$1" tmp
+    shift
+    tmp="$DB.tmp.$$"
+    jq "$@" "$prog" "$DB" > "$tmp" && mv "$tmp" "$DB"
+  }
+  pr_json() { # pr_json <repo> <number> -> the PR's public shape, or nothing
+    jq -c --arg r "$1" --argjson n "$2" '
+      (now - 600 | todate) as $date
+      | .prs[] | select(.repo == $r and .number == $n)
+      | {url: ("https://github.com/" + .repo + "/pull/" + (.number | tostring)),
+         number, state, isDraft, title, body, headRefName, baseRefName,
+         isCrossRepository, author: {login: .author}, headRefOid,
+         mergeStateStatus, reviewDecision, changedFiles: (.files | length),
+         commits: [{oid: .headRefOid, committedDate: $date}]}' "$DB"
+  }
+  numeric_arg() { # the first all-digit argument
+    local a
+    for a in "$@"; do
+      case "$a" in ''|*[!0-9]*) ;; *) printf '%s' "$a"; return 0 ;; esac
+    done
+    return 1
+  }
+
+  if [ "${1:-}" = "shim-mark-merged" ]; then
+    db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "MERGED"' \
+      --arg r "${2:-}" --arg n "${3:-0}"
+    exit 0
+  fi
+
+  out=""
+  case "${1:-} ${2:-}" in
+    "issue "*)
+      echo "gh shim: this scenario makes no issue call (got: $ARGS)" >&2
+      exit 1
+      ;;
+    "api user")
+      out=$(jq -c '{login: .login}' "$DB")
+      ;;
+    "auth status")
+      exit 0
+      ;;
+    "api "*)
+      path="${2:-}"
+      repo=$(printf '%s' "$path" | sed -n 's#^repos/\([^/]*/[^/]*\).*#\1#p')
+      case "$path" in
+        repos/*/*/pulls/*/files)
+          n=$(printf '%s' "$path" | sed -n 's#^repos/[^/]*/[^/]*/pulls/\([0-9]*\)/files$#\1#p')
+          out=$(jq -c --arg r "$repo" --argjson n "${n:-0}" '[.prs[] | select(.repo == $r and .number == $n) | .files[] | {filename: .}]' "$DB")
+          ;;
+        repos/*/*/pulls/*)
+          n=$(printf '%s' "$path" | sed -n 's#^repos/[^/]*/[^/]*/pulls/\([0-9]*\)$#\1#p')
+          out=$(pr_json "$repo" "${n:-0}")
+          ;;
+        repos/*/*/issues/*)
+          # shirabe validate --merge-gate reads a PR's state through the
+          # issues endpoint: closed once merged.
+          n=$(printf '%s' "$path" | sed -n 's#^repos/[^/]*/[^/]*/issues/\([0-9]*\)$#\1#p')
+          out=$(jq -c --arg r "$repo" --argjson n "${n:-0}" '.prs[] | select(.repo == $r and .number == $n)
+            | {number, state: (if .state == "OPEN" then "open" else "closed" end)}' "$DB")
+          ;;
+        repos/*/*/rules/branches/*)
+          out=$(jq -c --arg r "$repo" '.repos[$r].rules // []' "$DB")
+          ;;
+        repos/*/*/branches/*)
+          out=$(jq -c --arg r "$repo" '.repos[$r].branch // {protected: false}' "$DB")
+          ;;
+        repos/*/*/commits/*)
+          out=$(jq -nc '{commit: {committer: {date: (now - 600 | todate)}}}')
+          ;;
+        repos/*/*)
+          out=$(jq -c --arg r "$repo" '.repos[$r] // empty | {default_branch, allow_squash_merge, allow_merge_commit, allow_rebase_merge, full_name: $r, visibility: (.visibility // "public")}' "$DB")
+          ;;
+      esac
+      [ -n "$out" ] || { echo "gh shim: no repository model for [$ARGS]" >&2; exit 1; }
+      ;;
+    "repo view")
+      out=$(jq -c '{nameWithOwner: .default_repo}' "$DB")
+      ;;
+    "pr list")
+      repo=$(flag_value --repo "$@") || repo=""
+      head=$(flag_value --head "$@") || head=""
+      state=$(flag_value --state "$@") || state="open"
+      out=$(jq -c --arg r "$repo" --arg h "$head" --arg s "$state" '
+        [.prs[] | select(.repo == $r and .headRefName == $h
+                         and ($s == "all" or ($s == "open" and .state == "OPEN")
+                              or ($s == "merged" and .state == "MERGED")
+                              or ($s == "closed" and .state == "CLOSED")))
+         | {url: ("https://github.com/" + .repo + "/pull/" + (.number | tostring)),
+            number, state, isCrossRepository, author: {login: .author},
+            baseRefName, headRefName}]' "$DB")
+      ;;
+    "pr view")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=""
+      [ -n "$n" ] || { echo "gh shim: pr view needs a PR number here" >&2; exit 1; }
+      out=$(pr_json "$repo" "$n")
+      [ -n "$out" ] || { echo "gh shim: no PR $repo#$n" >&2; exit 1; }
+      ;;
+    "pr checks")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=0
+      out=$(jq -c --arg r "$repo" --argjson n "$n" '[.prs[] | select(.repo == $r and .number == $n) | .checks[]]' "$DB")
+      ;;
+    "pr create")
+      repo=$(flag_value --repo "$@") || repo=""
+      head=$(flag_value --head "$@") || head=""
+      base=$(flag_value --base "$@") || base="main"
+      title=$(flag_value --title "$@") || title=""
+      bodyf=$(flag_value --body-file "$@") || bodyf=""
+      body=""
+      [ -n "$bodyf" ] && [ -f "$bodyf" ] && body=$(cat -- "$bodyf")
+      sha=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+      n=$(jq -r '.next_number' "$DB")
+      db_update '.next_number += 1 | .prs += [(.created_defaults + {repo: $r, number: ($n | tonumber),
+                   headRefName: $h, baseRefName: $b, author: .login, isCrossRepository: false,
+                   state: "OPEN", isDraft: true, title: $t, body: $body, headRefOid: $sha})]' \
+        --arg r "$repo" --arg n "$n" --arg h "$head" --arg b "$base" --arg t "$title" \
+        --arg body "$body" --arg sha "$sha"
+      echo "https://github.com/$repo/pull/$n"
+      exit 0
+      ;;
+    "pr edit")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=0
+      bodyf=$(flag_value --body-file "$@") || bodyf=""
+      body=""
+      [ -n "$bodyf" ] && [ -f "$bodyf" ] && body=$(cat -- "$bodyf")
+      db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .body) = $body' \
+        --arg r "$repo" --arg n "$n" --arg body "$body"
+      exit 0
+      ;;
+    "pr ready")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=0
+      db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .isDraft) = false' \
+        --arg r "$repo" --arg n "$n"
+      exit 0
+      ;;
+    "pr close")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=0
+      db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "CLOSED"' \
+        --arg r "$repo" --arg n "$n"
+      exit 0
+      ;;
+    "pr merge")
+      repo=$(flag_value --repo "$@") || repo=""
+      n=$(numeric_arg "${@:3}") || n=0
+      how=$(jq -r --arg r "$repo" --argjson n "$n" '.prs[] | select(.repo == $r and .number == $n) | (.merge // "ok")' "$DB")
+      case "$how" in
+        ok)
+          db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "MERGED"' \
+            --arg r "$repo" --arg n "$n"
+          exit 0
+          ;;
+        stays-open) exit 0 ;;
+        *) echo "gh shim: the merge of $repo#$n failed" >&2; exit 1 ;;
+      esac
+      ;;
+    *)
+      echo "gh shim: no repository-model route for args: $ARGS" >&2
+      exit 1
+      ;;
+  esac
+  tmp_fixture=$(mktemp "${TMPDIR:-/tmp}/gh-shim.XXXXXX")
+  printf '%s\n' "$out" > "$tmp_fixture"
+  emit_fixture "$tmp_fixture" "$@"
+  rm -f "$tmp_fixture"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Keyed fixtures (scenarios with a gh/ directory)
+# ---------------------------------------------------------------------------
+#
+# A scenario that carries fixtures/scenarios/<scenario>/gh/ is served from it by
+# key, and only from it; a scenario without one falls through to the older
+# per-command arms below, which answer exactly as they always have. The keys:
+#
+#   pr-list          gh pr list ...            (the ownership fields owned-pr.sh reads)
+#   pr-view          gh pr view ...            (the verdict snapshot; --jq applied)
+#   pr-view-state    gh pr view ... --json state   (the confirm read)
+#   pr-checks        gh pr checks ...          (--jq applied)
+#   pr-ready         gh pr ready ...           (default: success)
+#   pr-merge         gh pr merge ...           (default: success)
+#   pr-create        gh pr create ...          (default: success)
+#   pr-edit          gh pr edit ...            (default: success)
+#   api-user         gh api user               (default: {"login":"eval-user"})
+#   api-files        gh api repos/<r>/pulls/<n>/files --paginate
+#   api-rules        gh api repos/<r>/rules/branches/<b> ...
+#   api-branch       gh api repos/<r>/branches/<b>
+#   api-commit       gh api repos/<r>/commits/<sha>
+#   api-repo         gh api repos/<r>          (default branch and merge methods)
+#   repo-view        gh repo view ...          (--jq applied)
+#
+# For a key, gh/<key>.json is stdout, gh/<key>.err stderr, gh/<key>.rc the exit
+# status. gh/<key>.<N>.json (and .rc, .err) answers the Nth call to that key,
+# which needs GH_CALL_LOG: the counters live in "$GH_CALL_LOG.d". A key with no
+# fixture and no default fails like a read error.
+#
+# One piece of state models the merge itself: after a `pr merge` that exits 0,
+# pr-view-state answers {"state":"MERGED"} (and pr-view's state reads MERGED),
+# unless the scenario carries gh/pr-merge-stays-open, the accepted-but-still-
+# OPEN case. That also needs GH_CALL_LOG, for the same directory.
+if [ -d "$SCENARIO_DIR/gh" ]; then
+  GH_DIR="$SCENARIO_DIR/gh"
+  STATE_DIR=""
+  if [ -n "${GH_CALL_LOG:-}" ]; then
+    STATE_DIR="$GH_CALL_LOG.d"
+    mkdir -p "$STATE_DIR"
+  fi
+
+  key=""
+  case "${1:-} ${2:-}" in
+    "pr list") key=pr-list ;;
+    "pr view")
+      case " $ARGS " in
+        *" --json state "*) key=pr-view-state ;;
+        *) key=pr-view ;;
+      esac
+      ;;
+    "pr checks") key=pr-checks ;;
+    "pr ready") key=pr-ready ;;
+    "pr merge") key=pr-merge ;;
+    "pr create") key=pr-create ;;
+    "pr edit") key=pr-edit ;;
+    "repo view") key=repo-view ;;
+    "api user") key=api-user ;;
+    "api "*)
+      case "${2:-}" in
+        repos/*/*/pulls/*/files) key=api-files ;;
+        repos/*/*/rules/branches/*) key=api-rules ;;
+        repos/*/*/branches/*) key=api-branch ;;
+        repos/*/*/commits/*) key=api-commit ;;
+        repos/*/*) key=api-repo ;;
+      esac
+      ;;
+  esac
+
+  if [ -z "$key" ]; then
+    echo "gh shim: no keyed fixture route for args: $ARGS" >&2
+    exit 1
+  fi
+
+  n=1
+  if [ -n "$STATE_DIR" ]; then
+    count_file="$STATE_DIR/$key.count"
+    [ -f "$count_file" ] && n=$(( $(cat "$count_file") + 1 ))
+    echo "$n" > "$count_file"
+  fi
+  pick() { # pick <ext> -> the numbered fixture for this call if present, else the plain one
+    if [ -f "$GH_DIR/$key.$n.$1" ]; then echo "$GH_DIR/$key.$n.$1"; else echo "$GH_DIR/$key.$1"; fi
+  }
+  out=$(pick json); err=$(pick err); rcf=$(pick rc)
+
+  merged=0
+  if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/merged" ] && [ ! -f "$GH_DIR/pr-merge-stays-open" ]; then
+    merged=1
+  fi
+
+  # The confirm read after a merge that landed.
+  if [ "$key" = pr-view-state ] && [ "$merged" -eq 1 ]; then
+    echo '{"state":"MERGED"}'
+    exit 0
+  fi
+
+  rc=0
+  [ -f "$rcf" ] && rc=$(cat "$rcf")
+
+  if [ -f "$out" ]; then
+    # @HEAD_SHA@ in a fixture is the commit checked out where gh runs, which
+    # is the commit this run's own push recorded as its expected head. A
+    # scenario whose PR head must differ from it names a literal sha instead.
+    head_sha=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    tmp_fixture=$(mktemp "${TMPDIR:-/tmp}/gh-shim.XXXXXX")
+    sed "s/@HEAD_SHA@/$head_sha/g" "$out" > "$tmp_fixture"
+    if [ "$key" = pr-view ] && [ "$merged" -eq 1 ]; then
+      body=$(jq -c '.state = "MERGED"' "$tmp_fixture")
+      printf '%s\n' "$body" > "$tmp_fixture"
+    fi
+    emit_fixture "$tmp_fixture" "$@"
+    rm -f "$tmp_fixture"
+  elif [ ! -f "$rcf" ]; then
+    case "$key" in
+      api-user) echo '{"login":"eval-user"}' ;;
+      pr-ready|pr-merge|pr-create|pr-edit) : ;;
+      *)
+        echo "gh shim: no fixture gh/$key.json in scenario ${EVAL_SCENARIO}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+  [ -f "$err" ] && cat "$err" >&2
+
+  if [ "$key" = pr-merge ] && [ "$rc" -eq 0 ] && [ -n "$STATE_DIR" ]; then
+    : > "$STATE_DIR/merged"
+  fi
+  exit "$rc"
+fi
 
 # Match on argument patterns
 case "$ARGS" in

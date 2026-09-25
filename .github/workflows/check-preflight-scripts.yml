@@ -18,6 +18,13 @@ on:
       # into a no-op.
       - 'skills/inflight/evals/fixtures/preflight-liveness/**'
       - '.github/workflows/check-preflight-scripts.yml'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   test-preflight-scripts:
@@ -37,7 +44,7 @@ jobs:
       # ---------------------------------------------------------------------
       # Provisioning
       #
-      # Two suites end by running the real entry point over all twenty shipped
+      # Two suites end by running the real entry point over all twenty-one shipped
       # declarations and asserting zero bytes. That assertion is the contract
       # -- a provisioned host hears nothing -- and it only holds on a host that
       # actually has the declared tools. So this workflow provisions rather
@@ -85,6 +92,12 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # /scope's and /execute's declarations name the koto init entry flags
+      # only koto 0.13.0 and later have, so the zero-bytes assertions hold only
+      # from that release on.
+      - name: Assert koto meets the floor
+        run: bash scripts/assert-koto-floor.sh
 
       # ---------------------------------------------------------------------
       # The suites

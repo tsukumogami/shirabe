@@ -2148,6 +2148,106 @@ EOF
     cd "$SCRIPT_DIR"
 }
 
+# ── --session: the push records /execute's expected head ──────────────────────
+#
+# /execute's merge decision compares the PR's head with the commit the run
+# pushed, and that record must come from the push itself. With --session the
+# cascade writes `git rev-parse HEAD` into the session's expected_head key after
+# a successful push, and only then. A `koto` stub on PATH logs what it receives,
+# so no workflow engine is needed. Three controls: no --session means no koto
+# call at all (the /work-on caller's behavior is unchanged), a failed push
+# records nothing, and a malformed session name is a usage error.
+scenario_push_session_records_expected_head() {
+    local scenario="Scenario 30: --push --session records expected_head after the push"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local stub_dir="$tmpdir/koto-stub"
+    mkdir -p "$stub_dir"
+    cat > "$stub_dir/koto" <<'EOF'
+#!/usr/bin/env bash
+data=""
+[ -t 0 ] || data=$(cat)
+printf '%s|%s\n' "$*" "$data" >> "$(dirname "$0")/koto.log"
+exit 0
+EOF
+    chmod +x "$stub_dir/koto"
+    local saved_stub="${GH_STUB_DIR:-}"
+    GH_STUB_DIR="$stub_dir"
+
+    local ok=true
+    local repo output head
+
+    # With --session and a push that succeeds.
+    repo="$tmpdir/with-session"
+    setup_test_repo "$repo"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_and_push_all
+    : > "$stub_dir/koto.log"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    head=$(git rev-parse HEAD)
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "with --session the cascade still completes" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(cat "$stub_dir/koto.log")" == "context add execute-cascade-test-short expected_head|$head" ]] && echo true || echo false)" \
+        "expected_head is recorded as exactly the pushed HEAD" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action | test("expected_head"))] | length == 0' \
+        "the record adds no step to the report" || ok=false
+    cd "$SCRIPT_DIR"
+
+    # Without --session: exactly today's behavior, no koto call.
+    repo="$tmpdir/without-session"
+    setup_test_repo "$repo"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_and_push_all
+    : > "$stub_dir/koto.log"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "without --session the cascade completes as before" || ok=false
+    assert_shell "$scenario" "$([[ ! -s "$stub_dir/koto.log" ]] && echo true || echo false)" \
+        "without --session nothing calls koto" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
+    cd "$SCRIPT_DIR"
+
+    # A failed push records nothing.
+    repo="$tmpdir/push-fails"
+    setup_test_repo "$repo"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+    : > "$stub_dir/koto.log"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push" and .status == "failed")] | length == 1' \
+        "the push failed" || ok=false
+    assert_shell "$scenario" "$([[ ! -s "$stub_dir/koto.log" ]] && echo true || echo false)" \
+        "a failed push records no expected_head" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
+
+    # A malformed session name is a usage error before anything runs.
+    local rc_file="$tmpdir/rc"
+    run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push --session 'a;b' >/dev/null
+    assert_shell "$scenario" "$([[ "$(cat "$rc_file")" == "1" ]] && echo true || echo false)" \
+        "a malformed --session exits 1" "rc=$(cat "$rc_file")" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    GH_STUB_DIR="$saved_stub"
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── A failed push still produces a report ─────────────────────────────────────
 #
 # setup_test_repo makes a bare origin but sets no tracking branch, so the
@@ -2862,6 +2962,9 @@ scenario_roadmap_feature_not_found
 cd "$ORIG_DIR"
 
 scenario_roadmap_feature_no_heading
+cd "$ORIG_DIR"
+
+scenario_push_session_records_expected_head
 cd "$ORIG_DIR"
 
 echo ""

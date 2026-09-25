@@ -1,0 +1,11 @@
+# /execute's wording for koto's init refusals, read by scripts/koto-open.sh
+# through execute-open.sh. One `<code><TAB><text>` line per code; `{var}`,
+# `{value}`, `{constraint}`, `{recorded}`, `{requested}`, and `{session}` are
+# koto's fields, substituted and never evaluated. A code with no line here
+# prints koto's own message.
+invalid_var	/execute: {value} is not a valid value for {var} (allowed: {constraint}). Nothing was started.
+duplicate_var	/execute: {var} was given more than once (for --merge, pass the flag once). Nothing was started.
+unknown_var	/execute: {var} is not an /execute setting. Nothing was started.
+var_mismatch	/execute: {session} is already running with {var}={recorded}, not {requested}. Finish or remove that run first; nothing was changed.
+template_mismatch	/execute: {session} is a live run of a different /execute template (a single-pr and a coordinated run share the name). Finish that run first; nothing was changed.
+origin_mismatch	/execute: {session} belongs to another worktree or session store. Continue it there, or remove it with `koto session cleanup {session}`; nothing was changed.

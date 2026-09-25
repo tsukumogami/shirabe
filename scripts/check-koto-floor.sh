@@ -2,8 +2,11 @@
 #
 # check-koto-floor.sh - check shirabe's templates against the koto v0.12.2 floor
 #
-# shirabe's README says /work-on and /execute need koto v0.12.2 or later. A
-# template can carry `decider` blocks that only a newer koto understands; koto
+# shirabe's README says /work-on needs koto v0.12.2 or later. (/execute's and
+# /scope's templates need koto 0.13.0 or later; each carries a
+# `# koto-floor: pinned` line and is left out, see list_templates in
+# scripts/koto-floor/lib.sh.) A template can carry `decider` blocks that only a
+# newer koto understands; koto
 # v0.12.2 drops them as unknown keys. This check is what makes "drops them"
 # a tested claim rather than an assumption, in three steps:
 #

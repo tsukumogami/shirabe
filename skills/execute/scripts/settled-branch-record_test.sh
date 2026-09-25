@@ -85,6 +85,9 @@ make_repo() {
         git config user.name t
         git commit -q --allow-empty -m init
         git checkout -q -b "$2"
+        # write_set_record, the template's initial state, records the write
+        # set from origin's URL. It is never fetched here.
+        git remote add origin https://github.com/o/r.git
     ) >/dev/null 2>&1
 }
 
@@ -101,8 +104,25 @@ make_repo "$REPO" "$ADOPT_BRANCH"
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
         ln -s "$PLUGIN_ROOT" "$WORKDIR/plugin"
-        PLUGIN_ROOT="$WORKDIR/plugin"
-        echo "  note: plugin root reached through $PLUGIN_ROOT (real path is outside koto's --var allowlist)"
+        case "$WORKDIR/plugin" in
+            *[!a-zA-Z0-9._/:@\ -]*)
+                # The temp tree is itself under such a directory (a TMPDIR
+                # inside the checkout). Run a copy of the template with the real
+                # path written where {{PLUGIN_ROOT}} stood, beside a link to
+                # /work-on so its relative child-template path still resolves.
+                mkdir -p "$WORKDIR/derived/skills/execute/koto-templates"
+                ln -s "$PLUGIN_ROOT/skills/work-on" "$WORKDIR/derived/skills/work-on"
+                sed "s#{{PLUGIN_ROOT}}#$PLUGIN_ROOT#g" "$TEMPLATE" \
+                    > "$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                TEMPLATE="$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                PLUGIN_ROOT=/koto-probe
+                echo "  note: running a copy of execute.md with the plugin path written in (no allowlist-clean path exists)"
+                ;;
+            *)
+                PLUGIN_ROOT="$WORKDIR/plugin"
+                echo "  note: plugin root reached through $PLUGIN_ROOT (real path is outside koto's --var allowlist)"
+                ;;
+        esac
         ;;
 esac
 
@@ -118,12 +138,17 @@ esac
 # koto. Either way the action writes to `execute-<slug>`, so a harness that
 # named its sessions freely would test a session the action never writes to --
 # exactly the failure that finding produced.
+#
+# The first bare tick runs write_set_record, the template's initial state, which
+# records the write set and advances to orchestrator_setup, where the cases
+# below submit their evidence.
 new_session() {
     (cd "${2:-$REPO}" && koto init "execute-$1" --template "$TEMPLATE" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
         --var PLAN_SLUG="$1" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT" \
-        --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1)
+        --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1 \
+        && koto next "execute-$1" --no-cleanup >/dev/null 2>&1)
 }
 
 NEXT_RESPONSE=""
@@ -140,10 +165,15 @@ submit() {
 # impl/settled-branch-record here and fail the comparison. A fixture named
 # impl/<slug> would pass against the very defect this tests.
 
+# The recorder is handed the session new_session opened, execute-round-trip.
+# An earlier version handed it the bare slug, a session new_session never
+# opened, and koto (0.13.0 and later) refuses a context write to a session that does
+# not exist, so these two cases failed under it for a reason unrelated to the
+# record.
 new_session round-trip
-out=$(cd "$REPO" && "$RECORDER" round-trip 2>/dev/null)
+out=$(cd "$REPO" && "$RECORDER" execute-round-trip 2>/dev/null)
 rc=$?
-stored=$(koto context get round-trip settled_branch 2>/dev/null)
+stored=$(koto context get execute-round-trip settled_branch 2>/dev/null)
 
 echo "  recorded:  [$ADOPT_BRANCH]"
 echo "  stored:    [$stored]"
@@ -158,7 +188,7 @@ fi
 # `echo` instead of `printf '%s'` would leave -- makes the value a different
 # branch and also fails the gate's anchored pattern. The same holds for stdout,
 # which koto trims but whose allowlist forbids the newline outright.
-stored_len=$(koto context get round-trip settled_branch 2>/dev/null | wc -c | tr -d ' ')
+stored_len=$(koto context get execute-round-trip settled_branch 2>/dev/null | wc -c | tr -d ' ')
 if [ "$stored_len" = "${#ADOPT_BRANCH}" ]; then
     pass "stored value is exactly ${#ADOPT_BRANCH} bytes: no trailing newline"
 else
@@ -170,10 +200,10 @@ fi
 # The action re-runs on every entry to the state without evidence, including
 # each gate-blocked retry, so a second run must be harmless.
 
-(cd "$REPO" && "$RECORDER" round-trip >/dev/null 2>&1)
+(cd "$REPO" && "$RECORDER" execute-round-trip >/dev/null 2>&1)
 rc=$?
-again=$(koto context get round-trip settled_branch 2>/dev/null)
-keys=$(koto context list round-trip 2>/dev/null)
+again=$(koto context get execute-round-trip settled_branch 2>/dev/null)
+keys=$(koto context list execute-round-trip 2>/dev/null)
 if [ "$rc" -eq 0 ] && [ "$again" = "$ADOPT_BRANCH" ]; then
     pass "re-running the recorder is idempotent (exit 0, same value)"
 else

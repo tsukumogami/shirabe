@@ -40,25 +40,34 @@ for bin in koto shirabe; do
 done
 [ -f "$TEMPLATE" ] || { echo "FAIL: no template at $TEMPLATE" >&2; exit 1; }
 
-# Every session below passes this checkout as PLUGIN_ROOT, and koto validates a
-# --var value against ^[a-zA-Z0-9._/:@ \-]*$ before it stores anything. A
-# checkout under a path holding a character outside that set -- a `+`, a `~`, a
-# comma -- is refused at `koto init`, and every assertion downstream then reads
-# `state=` for a reason that has nothing to do with the substrate. Say so here
-# instead, and fail rather than skip: this is the environment being wrong, not
-# the suite being inapplicable.
-case "$REPO" in
-    *[!a-zA-Z0-9._/:@\ -]*)
-        echo "FAIL: koto rejects a --var value outside ^[a-zA-Z0-9._/:@ \\-]*\$," >&2
-        echo "      and this checkout's path carries a character outside it:" >&2
-        echo "      $REPO" >&2
-        echo "      Move or symlink the checkout somewhere the pattern admits." >&2
-        exit 1 ;;
-esac
-
 PASS=0
 FAIL=0
 SANDBOX="$(mktemp -d)"
+
+# Every session below passes this checkout as PLUGIN_ROOT, and koto validates a
+# --var value against ^[a-zA-Z0-9._/:@ \-]*$ before it stores anything. A
+# checkout under a path holding a character outside that set -- a `+`, a `~`, a
+# comma -- would be refused at `koto init`, and every assertion downstream would
+# then read `state=` for a reason that has nothing to do with the substrate.
+# So, in order: this checkout's path when koto admits it (CI), a symlink in the
+# sandbox when that is admitted, and otherwise a copy of the template with this
+# checkout's path written where {{PLUGIN_ROOT}} stood, under a stand-in
+# PLUGIN_ROOT. The copy is the one departure from "the shipped template", and
+# the note below says so.
+PLUGIN_ROOT_VAR="$REPO"
+case "$REPO" in
+    *[!a-zA-Z0-9._/:@\ -]*)
+        ln -s "$REPO" "$SANDBOX/plugin"
+        PLUGIN_ROOT_VAR="$SANDBOX/plugin"
+        case "$PLUGIN_ROOT_VAR" in
+            *[!a-zA-Z0-9._/:@\ -]*)
+                sed "s#{{PLUGIN_ROOT}}#$REPO#g" "$TEMPLATE" >"$SANDBOX/scope.md"
+                TEMPLATE="$SANDBOX/scope.md"
+                PLUGIN_ROOT_VAR=/koto-probe
+                echo "note: this checkout's path is outside koto's --var allowlist, so these walks run a"
+                echo "      copy of scope.md with the path written in for {{PLUGIN_ROOT}}" ;;
+        esac ;;
+esac
 REAL_HOME="$HOME"
 trap 'rm -rf "$SANDBOX"' EXIT
 
@@ -85,17 +94,37 @@ k() {
 # The init runs INSIDE the fixture tree. koto binds a session to the directory it
 # was initialized in and refuses a later `koto next` from anywhere else with
 # `execution_anchor_mismatch`, so initializing here and ticking there leaves every
-# assertion reading `state=branch_check` with the reason buried in a discarded
+# assertion reading `state=intake` with the reason buried in a discarded
 # error. It is also what a real run does: /scope opens its session in the
 # repository being scoped.
+#
+# PLUGIN_ROOT_PLACEMENT is what scope-open.sh computes for a plugin root outside
+# the tree being scoped, which $REPO is for every fixture tree here.
+#
+# The first tick runs `intake` (the template's initial state, which checks the
+# arguments against the working tree and takes no evidence) and `branch_check`,
+# both of which advance on their own, and stops at `setup`. Taking it here
+# means every walk below starts where it always has: at the first state that
+# asks for evidence.
+#
+# The first tick also runs `resume_route`, which reads the artifact tree to
+# decide where a topic stopped: a tree already holding an Active PLAN is a
+# topic under implementation, and resume routing refuses it before setup. The
+# fixtures stand in for what the hops produce, so they are held aside for that
+# first tick and put back once the run stands at `setup`, the moment a real run
+# starts producing them.
 new_run() {
     local tag="$1" tree="$2"
     local home="$SANDBOX/$tag"
     mkdir -p "$home"
     (
         cd "$tree" || exit 1
+        [ -d docs ] && mv docs .docs-held
         HOME="$home" koto init "$PFX-$tag" --template "$TEMPLATE" \
-            --var TOPIC="$tag" --var PLUGIN_ROOT="$REPO" >/dev/null 2>&1
+            --var TOPIC="$tag" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
+            --var PLUGIN_ROOT_PLACEMENT=outside >/dev/null 2>&1
+        HOME="$home" koto next "$PFX-$tag" --no-cleanup >/dev/null 2>&1
+        [ -d .docs-held ] && mv .docs-held docs
     )
     printf '%s %s-%s' "$home" "$PFX" "$tag"
 }
@@ -133,7 +162,7 @@ print(d.get("current_state", ""))' 2>/dev/null
 # refusal. That is the failure this layout is built to produce.
 #
 # The tree is a git repository on a named non-default branch because
-# `branch_check`, the template's initial state, gates on exactly that: outside a
+# `branch_check`, the state after `intake`, gates on exactly that: outside a
 # repository `git symbolic-ref` prints nothing, the gate fails, and the walk never
 # reaches the first hop. A bare `mkdir` here is a suite that asserts nothing.
 make_tree() {

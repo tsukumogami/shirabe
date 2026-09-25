@@ -1,0 +1,96 @@
+{
+  "login": "eval-user",
+  "default_repo": "eval-org/eval-repo",
+  "next_number": 11,
+  "repos": {
+    "eval-org/eval-repo": {
+      "default_branch": "main",
+      "allow_squash_merge": true,
+      "allow_merge_commit": true,
+      "allow_rebase_merge": true,
+      "visibility": "public",
+      "branch": {
+        "name": "main",
+        "protected": false
+      },
+      "rules": [
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "required_status_checks": [
+              {
+                "context": "build"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "created_defaults": {
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "checks": [
+      {
+        "name": "build",
+        "bucket": "pass"
+      }
+    ],
+    "files": [
+      "src/parser.go"
+    ],
+    "merge": "ok"
+  },
+  "prs": [
+    {
+      "repo": "eval-org/eval-repo",
+      "number": 10,
+      "headRefName": "@BRANCH@",
+      "baseRefName": "main",
+      "author": "eval-user",
+      "isCrossRepository": false,
+      "state": "OPEN",
+      "isDraft": true,
+      "title": "docs: coordination",
+      "body": "# Coordination PR: coord-outline-test\n\n> This is a **coordination PR** for a coordinated effort. It is docs-only and\n> merges **last**, once every indexed PR has merged and finalization is\n> complete. See `references/coordination-strategy.md`.\n\n## Artifact Chain\n\n- docs/plans/PLAN-coord-outline-test.md\n\n## PR Index\n\n- pr-eval-repo-core | eval-org/eval-repo:docs/plans/PLAN-coord-outline-test.md#11 | open | head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n\n## Merge Order\n\n```merge-order\n# Two-node merge-order DAG (PR nodes + non-PR gate nodes), one node per line.\npr-eval-repo-core | open\npr-eval-repo-cli | open\n```",
+      "headRefOid": "@HEAD_SHA@",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "checks": [
+        {
+          "name": "build",
+          "bucket": "pass"
+        }
+      ],
+      "files": [
+        "docs/plans/PLAN.md"
+      ],
+      "merge": "ok"
+    },
+    {
+      "repo": "eval-org/eval-repo",
+      "number": 11,
+      "headRefName": "impl/coord-outline-test-pr-eval-repo-core",
+      "baseRefName": "main",
+      "author": "eval-user",
+      "isCrossRepository": false,
+      "state": "OPEN",
+      "isDraft": false,
+      "title": "feat",
+      "body": "",
+      "headRefOid": "@HEAD_SHA@",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "checks": [
+        {
+          "name": "build",
+          "bucket": "pass"
+        }
+      ],
+      "files": [
+        "src/parser.go"
+      ],
+      "merge": "ok"
+    }
+  ]
+}

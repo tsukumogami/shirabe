@@ -1,0 +1,15 @@
+# The modes shirabe's decider declarations ship with: one row per declared
+# value. scripts/check-decider-declarations.sh fails when a template's
+# effective mode for a value (shadow when the template sets none) differs from
+# its row here, when a declared value has no row, or when a row names a value
+# no template declares. Promoting a value means editing its mode in the
+# template and here, in the same change.
+#
+# Columns, tab-separated: template path, state, field, value, mode.
+skills/work-on/koto-templates/work-on.md	plan_validation	verdict	proceed	shadow
+skills/work-on/koto-templates/work-on.md	plan_validation	verdict	exit	never
+skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	code	shadow
+skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	docs	never
+skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	task	never
+skills/execute/koto-templates/execute.md	worktree_discipline_check	impact	informational	never
+skills/execute/koto-templates/execute.md	worktree_discipline_check	impact	intent-changing	never

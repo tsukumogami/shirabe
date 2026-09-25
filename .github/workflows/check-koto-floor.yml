@@ -1,7 +1,11 @@
 name: Check koto floor
 
-# shirabe's README states koto v0.12.2 as the minimum for /work-on and
-# /execute. A template may carry `decider` blocks that only a newer koto reads;
+# shirabe's README states koto v0.12.2 as the minimum for /work-on. (/execute's,
+# /scope's and /deliver's templates need koto 0.13.0 or later, so each carries
+# a `# koto-floor: pinned` line and is left out of this check; see
+# list_templates in scripts/koto-floor/lib.sh. check-koto-entry-floor.yml runs
+# those skills on exactly 0.13.0.) A template may
+# carry `decider` blocks that only a newer koto reads;
 # v0.12.2 drops them as unknown keys. This job is what keeps that claim true:
 # it installs v0.12.2, strips every decider block, requires the stripped and
 # original templates to compile to the same form, and diffs scripted runs of
@@ -13,6 +17,14 @@ name: Check koto floor
 #
 # ubuntu-latest only: the runner image ships mikefarah yq v4 and jq, which the
 # script needs, and the check is about koto's behaviour, not the host's.
+#
+# The release job is the other half. v0.12.2 ignoring a decider block says
+# nothing about whether the block is right, so scripts/check-koto-release.sh
+# installs koto v0.13.0, the first release that reads the blocks, through the
+# same pinned installer and binary SHA-256 table. It compiles every template
+# that declares a decider, and proves the release's floor rule bites: setting
+# plan_validation.verdict's exit to auto in a temp copy must fail with
+# E-DECIDER-FLOOR while the unmodified copy compiles.
 
 on:
   pull_request:
@@ -22,6 +34,7 @@ on:
       # change to one can change a transcript without touching a template.
       - 'skills/*/scripts/**'
       - 'scripts/check-koto-floor*.sh'
+      - 'scripts/check-koto-release.sh'
       - 'scripts/koto-floor/**'
       - '.github/workflows/check-koto-floor.yml'
 
@@ -39,3 +52,11 @@ jobs:
 
       - name: Check templates against the koto v0.12.2 floor
         run: bash scripts/check-koto-floor.sh
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile the declared templates with koto v0.13.0 and check its floor rule
+        run: bash scripts/check-koto-release.sh

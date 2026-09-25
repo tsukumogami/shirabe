@@ -750,7 +750,14 @@ for ev in data["evals"]:
         continue
     if tier == 2:
         scenario = ev.get("scenario", "")
-        lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH. "
+        # An eval may declare extra environment for its run (a call log for the
+        # gh shim, a CI wait limit), as a flat map of names to string values.
+        # Relative paths resolve against the scenario's working directory.
+        extra = ev.get("env") or {}
+        env_text = ""
+        if isinstance(extra, dict) and extra:
+            env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
+        lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
                      f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'")
     else:
         lines.append(f"- {name}: TIER 1 (plan_only) — "

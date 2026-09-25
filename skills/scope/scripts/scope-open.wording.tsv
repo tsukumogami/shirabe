@@ -1,0 +1,28 @@
+# /scope's refusal wording for koto's typed `koto init` errors, read by
+# scripts/koto-open.sh through scope-open.sh. Format: <code>[:<VAR>]<TAB><text>.
+# A <code>:<VAR> line applies only when koto's refusal names that variable and
+# wins over the plain <code> line. In <text>, \n is a newline, and {session}
+# {var} {value} {constraint} {recorded} {requested} {state} {error} are
+# replaced with koto's fields, never evaluated. The wording follows what Phase 0
+# printed when it validated these flags in prose; `--intent=bogus`,
+# `--intent=none` and `--intent=unset` print the same text apart from the value.
+invalid_var:TOPIC	Topic slug `{value}` does not match the required pattern `^[a-z0-9-]+$`.\nA slug is taken AS PROVIDED, with no normalization, and may not begin with `-`. Re-invoke `/scope <topic-slug>`.
+invalid_var:INTENT_FLAG	`--intent` accepts only `continue` or `stop`, got `{value}`.\nRe-invoke with `--intent=continue`, `--intent=stop`, or no `--intent` at all.
+duplicate_var:INTENT_FLAG	`--intent` may be given at most once, even with the same value.\nRe-invoke with a single `--intent=continue` or `--intent=stop`, or no `--intent` at all.
+var_mismatch:INTENT_FLAG	The live session {session} was started with `--intent={recorded}`, and this invocation passed `--intent={requested}`.\nRe-invoke with `--intent={recorded}`, or with no `--intent` to resume under the recorded intent.
+duplicate_var:EXEC_MODE	`--auto` and `--interactive` are mutually exclusive, and neither may be repeated.\nRe-invoke with at most one of them.
+duplicate_var:COORDINATION	`--coordinated` and `--no-coordinated` are mutually exclusive, and neither may be repeated.\nRe-invoke with at most one of them.
+var_mismatch:COORDINATION	The live session {session} was started with coordination `{recorded}`, and this invocation asked for `{requested}`.\nRe-invoke with the flag the run was started with, or with neither coordination flag.
+invalid_var:MAX_ROUNDS	`--max-rounds` must be an integer from 1 to 50, got `{value}`.\nRe-invoke with `--max-rounds=N`, or omit it for the default of 5.
+duplicate_var:MAX_ROUNDS	`--max-rounds` may be given at most once.
+invalid_var:UPSTREAM	`--upstream` requires a path argument naming the upstream artifact this chain consumes, for example `--upstream docs/roadmaps/ROADMAP-<name>.md` (or `owner/repo:docs/roadmaps/ROADMAP-<name>.md`), with no `..` segment; got `{value}`.\nRe-invoke `/scope <topic-slug> --upstream <path>`.
+duplicate_var:UPSTREAM	`--upstream` may appear at most once: the state field that records the value holds one path.\nRe-invoke with a single `--upstream <path>`.
+var_mismatch:UPSTREAM	The live session {session} consumes the upstream `{recorded}`, and this invocation named `{requested}`.\nRe-invoke with the same `--upstream`, or without it to resume.
+invalid_var:PLUGIN_ROOT	The shirabe plugin root `{value}` is not usable: it must be an absolute path with no `..` segment, written only in koto's allowed characters ({constraint}).\nInstall or link the plugin at such a path and re-invoke `/scope`.
+invalid_var:PLUGIN_ROOT_PLACEMENT	The shirabe plugin root lies inside the repository being scoped.\nA plugin inside the work tree could be edited by the run it is checking; run `/scope` with the plugin installed outside this repository.
+invalid_var	Invalid value `{value}` for {var}: it must satisfy {constraint}.
+duplicate_var	{var} was given more than once.
+unknown_var	{var} is not a /scope variable.
+var_mismatch	The live session {session} was started with {var}=`{recorded}`, and this invocation passed `{requested}`.\nRe-invoke with the recorded value, or without that flag to resume.
+template_mismatch	A live session named {session} was built from a different template, so this invocation cannot join it.\n/scope does not remove or cancel it; finish or remove that run first.
+origin_mismatch	A session named {session} belongs to another worktree or session store.\n/scope does not remove or cancel it; run /scope from the worktree that started it.

@@ -1,0 +1,1 @@
+[{"name": "build", "bucket": "pass"}, {"name": "lint", "bucket": "fail"}]

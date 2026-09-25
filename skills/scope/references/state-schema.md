@@ -20,14 +20,31 @@ and each is written at the site it was already written at.
 - **`session`** — the workflow session this run opened or
   reattached to, as `scope-<topic>`: the fixed prefix and the
   validated topic slug. Written at Phase 0 in the initial state-file
-  write, after the probe's open-or-reattach decision settles. It
-  records where the run's per-hop record lives, and it is the state
-  file's half of the ownership pair — the other half is the origin
-  record in the session's own context store, which is what a
-  colliding worktree can read and this file is not. The value is
+  write, after `scope-open.sh` opened or attached the session. It
+  records where the run's per-hop record lives; koto's own origin
+  record, checked at `koto init --attach-live`, is what refuses a
+  session another worktree opened. The value is
   never read back for interpolation: every use recomputes the name
   from the validated slug and compares the recorded value to it for
   equality.
+- **`intent`** — the run's effective intent: `continue`, `stop`, or
+  `none`. **Always present**, from the first state-file write
+  onward, so it is not subject to I-5 gating (see Invocation intent
+  in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`).
+  The `intake` state resolves it, and `setup` writes it: the
+  caller's `--intent` when one was given, else the value this field
+  already records, else `none`. `none` is a run with no intent, which
+  behaves exactly as `/scope` did before the flag existed. The empty
+  value exists only on the koto variable `INTENT_FLAG`, which carries
+  the caller's raw token and is empty when the flag was missing; it
+  never appears in a state file, and an empty or placeholder
+  `intent:` is a schema violation, not a run with no intent. A state
+  file written before this field existed has no `intent:` line and
+  reads as `none`. An explicit `--intent` that differs from the
+  recorded value against an unfinished run is refused by `intake` as
+  `intent-mismatch`, and the file is left unchanged. The field is
+  re-validated against `{continue, stop, none}` wherever it is read
+  back (State-File Enum Re-Validation in `phase-2-chain-orchestration.md`).
 - **`phase_pointer`** — the pattern-level pointer, with one
   `/scope`-specific derivation rule. When a session exists the value
   is the phase of the state the session now occupies, read off that
@@ -202,11 +219,30 @@ and each is written at the site it was already written at.
 - **`plan_execution_mode`** — conditional on `/plan` appearing in
   `chain_ran`. Values: `single-pr | multi-pr | coordinated`.
   Records the output-mode selection of the terminal child.
-  `coordinated` is the multi-repo generalization of `multi-pr`
+  `coordinated` is the coordinated-effort generalization of
+  `multi-pr`, whether its PR nodes sit in one repository or several,
   and is the value a coordinated chain records; the Plan format
   profile recognizes all three
   (`crates/shirabe-validate/src/formats.rs`). Gated per
   state-schema R9 Part 3's chain-membership-gated extension.
+- **`published_pr`** — conditional on an intent run whose publish
+  step succeeded (the publish states or `republish`): the URL of the
+  one owned PR `skills/scope/scripts/publish-scoping-pr.sh` reused or
+  opened, as it printed on its `pr=` line. It is a record for a reader
+  of the state file, never a routing input: every later step finds the
+  PR again through the ownership filter. Re-validated on read against
+  `^https://github\.com/<owner>/<repo>/pull/<n>$`, and joins the
+  State-File Enum Re-Validation list in `phase-2-chain-orchestration.md`.
+- **`publish_error`** — conditional on an intent run whose publish
+  step failed. Values: `scope:push | scope:pr-create`, the `step=`
+  the publish script printed; written by the publish state's
+  directive before the run ends at `done_error`, alongside the
+  recorded `exit:` and its fields, which cleanup has not removed. The
+  next invocation's resume probe reads `exit:` plus `publish_error:`
+  and routes an intent run straight back to that exit's publish
+  state. Cleared on a successful retry. Re-validated against its enum
+  wherever it is read back, and only valid beside an `exit:`; it joins
+  the same re-validation list.
 - **`referenced_artifact`** — conditional on `exit: re-evaluation`.
   The path of the settled-upstream artifact the Decision Record
   re-evaluates.
@@ -288,8 +324,10 @@ identically regardless of which parent invoked them.
   detection contract that writes `drift_acknowledged:` and the
   per-row Slot 5/6 prompts that read `child_snapshots:`; also the
   re-validation rule for values recovered from the session.
-- `skills/scope/references/phases/phase-0-setup.md` — the probe and
-  open-or-reattach decision that settles `session:` before this
-  file's initial write.
+- `skills/scope/references/phases/phase-0-setup.md` — the entry
+  through `scope-open.sh` that settles `session:` before this file's
+  initial write.
+- `skills/scope/scripts/resolve-intent.sh` — the one place the
+  effective `intent:` is resolved.
 - `skills/scope/koto-templates/scope.md` — the `# phase: N`
   comments `phase_pointer:` is derived through.

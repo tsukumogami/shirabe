@@ -70,7 +70,7 @@ rejects the file if there is more than one.
 Field six is never `-` because a discard with no incident behind it is an
 unexamined discard. For the seed batch the citation is
 `PLAN-skill-preflight-checks.md#issue-17`, the reviewed decision that adjudicated
-all 23 at once; the six entries carrying `shirabe#279` are the ones whose discard
+all 23 at once; the entries carrying `shirabe#279` are the ones whose discard
 class is the incident's own, listed under "Flagged for remediation" below. A new
 entry cites the issue that motivated it, not the seed citation.
 
@@ -201,8 +201,11 @@ redirect arm's inline-code carve-out is there to tell apart.
 
 ## Flagged for remediation
 
-Six entries are enumerated so the tree is green today, and are flagged as
-discards that should be fixed rather than kept. Each carries `shirabe#279` in
+Five entries are enumerated so the tree is green today, and are flagged as
+discards that should be fixed rather than kept. (A sixth, `execute.md`'s
+`git push -u origin impl/<slug> 2>/dev/null || true`, is fixed: the push now
+goes through `skills/execute/scripts/push-and-record.sh`, which reports a failed
+push with its own exit code and records nothing.) Each carries `shirabe#279` in
 field six because each is that incident's own class: a failure that is silenced
 and then reported as success.
 
@@ -217,10 +220,6 @@ site named in field one, which is still live.
   staged and goes on to commit, so the artifact silently does not land. The
   `|| true` is doing nothing for the caller that checking the status would not
   do better.
-- **`skills/execute/koto-templates/execute.md`, the `git push` site.** The
-  template's own prose two paragraphs below says to "submit `status: blocked`
-  with `detail` if either step fails". `|| true` makes that failure unobservable,
-  so the instruction cannot be followed.
 - **`skills/plan/scripts/create-issues-batch.sh`, the milestone lookup.** A
   `gh api` failure (auth, rate limit, network) yields an empty
   `existing_milestone`, and the very next branch creates a milestone that may
@@ -235,7 +234,6 @@ site named in field one, which is still live.
 #schema	tool-diagnostic-discards/v1
 #path	command	count	exit-status	justification	citation
 skills/execute/koto-templates/execute.md	git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}}	1	1	Branch-existence probe: exit 1 means the shared branch does not exist yet and the -b fallback creates it, reaching the same end state. Re-adjudicated unchanged when the shell-derived slug became the declared {{PLAN_SLUG}}.	DESIGN-koto-default-action-adoption.md#c5
-skills/execute/koto-templates/execute.md	git push -u origin impl/{{PLAN_SLUG}} 2>/dev/null || true	1	1,128	Re-run path expects an already-tracked branch to reject the push, but the guard also swallows a real push failure. Re-adjudicated unchanged when the shell-derived slug became the declared {{PLAN_SLUG}}; the swallowing is unchanged and still tracked by shirabe#279.	shirabe#279
 skills/execute/scripts/record-settled-branch.sh	DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)	1	1	resolving the default branch is a probe whose failure is the ordinary case: refs/remotes/origin/HEAD is absent in a clone that never fetched it. The empty result is handled by ${DEFAULT:-main} and by main and master being named literally in the same case statement, so a failed resolution cannot leave the default-branch refusal satisfied by every branch.	DESIGN-koto-default-action-adoption.md#c2
 skills/work-on/scripts/run-cascade.sh	state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || {	1	1	Handled: the block logs a named warning and returns 1, so an unreachable issue is reported rather than treated as closed.	PLAN-skill-preflight-checks.md#issue-17
 skills/work-on/scripts/run-cascade.sh	finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""	2	5	The captured output is not guaranteed to be JSON; a parse failure sets the empty sentinel the very next conditional tests for.	PLAN-skill-preflight-checks.md#issue-17

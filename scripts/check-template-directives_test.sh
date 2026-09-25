@@ -427,6 +427,49 @@ EOF
     teardown
 }
 
+# The resume ladder is defined over the state file, so the named routing script
+# may read it; nothing it invokes inherits that.
+test_scope_routing_script_read_passes() {
+    local name="the resume probe named in ROUTING_SCRIPTS may read wip/scope_"
+    setup
+    write_clean_scope_fixture
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+bash "skills/scope/scripts/resume-probe.sh" "$@"
+EOF
+    cat > "$TEST_DIR/skills/scope/scripts/resume-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+test -f "wip/scope_${2}_state.md"
+EOF
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+test_scope_routing_script_callee_still_scanned() {
+    local name="a script the routing script invokes is still scanned"
+    setup
+    write_clean_scope_fixture
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+bash "skills/scope/scripts/resume-probe.sh" "$@"
+EOF
+    cat > "$TEST_DIR/skills/scope/scripts/resume-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+bash "skills/scope/scripts/fixture-inner.sh" "$@"
+EOF
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-inner.sh" <<'EOF'
+#!/usr/bin/env bash
+grep -q landed "wip/scope_${2}_state.md"
+EOF
+    assert_fails "$name" "invoked script reads the run's own state file" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
 # The other half. A trailing comment is NOT stripped, because finding where code
 # ends needs a shell parser, so a real read keeps its finding even with a `#`
 # later on the line.
@@ -785,12 +828,19 @@ test_shipped_templates_have_four_known_violations() {
         return
     fi
 
+    # The line of each state's key, read from the template rather than written
+    # down: the findings name a line, and an edit anywhere above a state moves
+    # it without changing which states are flagged.
+    local exec_tpl="$REPO_ROOT/skills/execute/koto-templates/execute.md"
+    local workon_tpl="$REPO_ROOT/skills/work-on/koto-templates/work-on.md"
+    state_line() { grep -n "^  $2:[[:space:]]*\$" "$1" | head -1 | cut -d: -f1; }
+
     local expected
     for expected in \
-        "work-on.md:173 state 'research'" \
-        "execute.md:552 state 'escalate'" \
-        "execute.md:513 state 'escalate_dirty_merge_state'" \
-        "execute.md:374 state 'escalate_upstream_drift'"
+        "work-on.md:$(state_line "$workon_tpl" research) state 'research'" \
+        "execute.md:$(state_line "$exec_tpl" escalate) state 'escalate'" \
+        "execute.md:$(state_line "$exec_tpl" escalate_dirty_merge_state) state 'escalate_dirty_merge_state'" \
+        "execute.md:$(state_line "$exec_tpl" escalate_upstream_drift) state 'escalate_upstream_drift'"
     do
         case "$output" in
             *"$expected"*) ;;
@@ -813,6 +863,8 @@ test_scope_gate_reading_state_file_fails
 test_scope_gate_reading_evidence_fails
 test_scope_invoked_script_read_fails
 test_scope_invoked_script_comment_passes
+test_scope_routing_script_read_passes
+test_scope_routing_script_callee_still_scanned
 test_scope_invoked_script_trailing_comment_still_read
 test_scope_block_scalar_command_is_read
 test_template_variable_is_not_evidence

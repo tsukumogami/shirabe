@@ -28,6 +28,13 @@
 # The floor this repository states in its README.
 KOTO_FLOOR_VERSION="v0.12.2"
 
+# The first koto release that reads `decider` blocks: it compiles them, enforces
+# the E-DECIDER-* rules, and refuses an `auto` answer on a route the floor
+# forbids. scripts/check-koto-release.sh installs it beside the floor to prove
+# shirabe's declarations are valid where they are read, not only ignored where
+# they are not.
+KOTO_DECIDER_RELEASE_VERSION="v0.13.0"
+
 # The koto commit install.sh is fetched from: the commit koto's v0.12.2 tag
 # points at. A full SHA, never a branch name, so the script that runs cannot
 # change underneath this check. KOTO_INSTALLER_SHA256 is that file's SHA-256;
@@ -123,10 +130,15 @@ koto_platform() {
 # koto_binary_sha256 <version> <platform>: prints the recorded SHA-256 of the
 # koto-<platform> asset of release <version>, or nothing when none is
 # recorded. linux-amd64 is the CI runner; darwin-arm64 is a developer's Mac.
+# v0.13.0 records all four platforms its release publishes.
 koto_binary_sha256() {
     case "v${1#v}/$2" in
         v0.12.2/linux-amd64)  echo "a98bc2108dfd457bbfc79530ecc85f82b29801e2826682f4323c24b960e548c8" ;;
         v0.12.2/darwin-arm64) echo "73d163521733a2b8c8acfb59fb96e783f2f1314d928ab6c76371fbb9132f9739" ;;
+        v0.13.0/linux-amd64)  echo "b888f75d5647b92a796f9fdc10db3300131ab2b3476cc027ce7eba937dc25b1e" ;;
+        v0.13.0/linux-arm64)  echo "c0c2f5c2665acdab312b2f60a5bcfb3c377c2d52e09e3e5856d06e11cc288d97" ;;
+        v0.13.0/darwin-amd64) echo "24691c3507a437d2d583ff1803d4112eb0972099e848d0eb5fe140b492d6a756" ;;
+        v0.13.0/darwin-arm64) echo "e72601b8d81d349415c708c486eda676382d265ff1751117ce0f111c20bb831c" ;;
     esac
 }
 
@@ -215,11 +227,19 @@ check_jq() {
 # list_templates <root>: every template the floor check covers, as paths
 # relative to <root>, one per line. The shipped templates plus this check's own
 # fixtures; the mermaid companions are diagrams, not templates.
+#
+# A template whose skill's floor is koto 0.13.0 or later, rather
+# than v0.12.2, says so with a top-level YAML comment line starting
+# `# koto-floor: pinned` and is left out: it uses koto features v0.12.2 cannot
+# compile (constrained variables, result maps, non-overridable gates), and its
+# skill's requires.tsv declares the newer floor, which preflight enforces.
+# scope.md and execute.md both carry the marker.
 list_templates() {
     local root="$1" f rel
     for f in "$root"/skills/*/koto-templates/*.md "$root"/scripts/koto-floor/fixtures/*.md; do
         [ -f "$f" ] || continue
         case "$f" in *.mermaid.md) continue ;; esac
+        grep -q '^# koto-floor: pinned' "$f" && continue
         rel=${f#"$root"/}
         echo "$rel"
     done
@@ -441,48 +461,6 @@ expect_final() {
 }
 
 # -- shared scenario openings -------------------------------------------------
-
-EXECUTE_PLAN='---
-schema: plan/v1
----
-# PLAN: floor
-
-## Scope Summary
-
-Touches `src/a.go`.
-
-## Issue Outlines
-
-### Issue 1: feat: change a
-
-**Goal**: Change a.
-
-**Files**: `src/a.go`'
-
-# execute_start <upstream-shell> <subject>: a /execute run on impl/floor whose
-# PLAN references src/a.go and whose origin/main has moved by <upstream-shell>,
-# ticked to wherever drift_facts and worktree_sync leave it. orchestrator_setup
-# creates the draft PR, which needs GitHub, so it is crossed with --to.
-EXECUTE_SESSION="execute-floor"
-execute_start() {
-    fixture_repo impl/floor || return 1
-    commit_in_repo docs/plans/PLAN-floor.md "$EXECUTE_PLAN" "docs: plan" || return 1
-    upstream "$1" "$2" || return 1
-    koto_init "$EXECUTE_SESSION" "$TREE/skills/execute/koto-templates/execute.md" \
-        --var PLAN_DOC=docs/plans/PLAN-floor.md --var PLAN_SLUG=floor \
-        --var PLUGIN_ROOT="$TREE" --var PAUSE_BEFORE_FINALIZE=false || return 1
-    tick "$EXECUTE_SESSION"
-    expect_state orchestrator_setup "execute opening" || return 1
-    tick_to "$EXECUTE_SESSION" settled_branch_record "the draft PR needs GitHub"
-    expect_state settled_branch_record "execute opening" || return 1
-    tick "$EXECUTE_SESSION"
-}
-
-# child_task <name> <fixture>: one task entry overriding the child template
-# with one of this check's fixtures.
-child_task() {
-    printf '{"name":"%s","template":"%s/scripts/koto-floor/fixtures/%s"}' "$1" "$TREE" "$2"
-}
 
 # workon_init <session>: a /work-on session, plan-backed by its variables, in
 # a fresh fixture on impl/<session>.
