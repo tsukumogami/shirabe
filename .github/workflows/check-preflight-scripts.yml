@@ -44,7 +44,7 @@ jobs:
       # ---------------------------------------------------------------------
       # Provisioning
       #
-      # Two suites end by running the real entry point over all twenty shipped
+      # Two suites end by running the real entry point over all twenty-one shipped
       # declarations and asserting zero bytes. That assertion is the contract
       # -- a provisioned host hears nothing -- and it only holds on a host that
       # actually has the declared tools. So this workflow provisions rather

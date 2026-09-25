@@ -938,7 +938,7 @@ else
     SAT_CMD=$(extract_injected_line "$SAT_MD") || SAT_CMD=""
 
     # The shape is asserted before the behaviour. A fixture whose line had
-    # drifted from the twenty shipped ones would still be a live injection, and
+    # drifted from the twenty-one shipped ones would still be a live injection, and
     # it would stop being evidence about them.
     if [ "$UNSAT_CMD" = 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-unsat 2>&1 || true' ]; then
         pass "the unsatisfiable fixture carries the canonical injected line"

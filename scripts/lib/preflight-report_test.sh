@@ -804,7 +804,7 @@ run_preflight "$ROOT" "modeonly" "$OSPATH_LINUX" "/nonexistent"
 assert_eq "a mode-scoped record emits nothing at load, not even a deferral marker" \
     "0" "$RUN_BYTES"
 
-# The twenty shipped declarations, against this checkout, on this host. The
+# The twenty-one shipped declarations, against this checkout, on this host. The
 # reporter is in the load path for all of them, and R12's rule is that a
 # provisioned host hears nothing.
 REAL_TOTAL=0
@@ -827,8 +827,8 @@ for SKILL_DIR in "$REPO"/skills/*/; do
         REAL_NOISY="$REAL_NOISY $SKILL($BYTES)"
     fi
 done
-assert_eq "every shipped declaration was exercised" "20" "$REAL_TOTAL"
-assert_eq "the twenty shipped declarations emit zero bytes on this host" "" "$REAL_NOISY"
+assert_eq "every shipped declaration was exercised" "21" "$REAL_TOTAL"
+assert_eq "the twenty-one shipped declarations emit zero bytes on this host" "" "$REAL_NOISY"
 
 echo
 echo "preflight-report_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
