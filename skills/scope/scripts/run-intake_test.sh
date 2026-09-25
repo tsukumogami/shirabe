@@ -16,8 +16,10 @@
 #   requested intents). koto admits a --var value only inside
 #   ^[a-zA-Z0-9._/:@ \-]*$, so PLUGIN_ROOT is reached through a symlink under
 #   TMPDIR when the checkout's own path falls outside it; when the symlink's
-#   path does too, the engine cases SKIP with a message naming the character.
-#   The CI job runs with a clean TMPDIR and asserts koto is present first.
+#   path does too, the engine cases run a copy of scope.md with the checkout's
+#   path written in for {{PLUGIN_ROOT}}, and say so. The CI job runs with a
+#   clean TMPDIR, so it runs the shipped template, and asserts koto is present
+#   first.
 #
 # Exit 0 when every case that ran passed.
 set -uo pipefail
@@ -246,13 +248,13 @@ case "$PLUGIN_ROOT" in
 esac
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
-        echo
-        echo "SKIP: the engine cases need a plugin root koto admits as a --var value"
-        echo "      (^[a-zA-Z0-9._/:@ \\-]*\$), and both the checkout and TMPDIR hold a"
-        echo "      character outside it: $PLUGIN_ROOT"
-        echo "passed: $PASS   failed: $FAIL"
-        [ "$FAIL" -eq 0 ]
-        exit ;;
+        # Both the checkout and TMPDIR hold a character koto refuses in a
+        # --var value: run a copy of scope.md with this checkout's path
+        # written where {{PLUGIN_ROOT}} stood, under a stand-in PLUGIN_ROOT.
+        sed "s#{{PLUGIN_ROOT}}#$REPO#g" "$TEMPLATE" >"$T/scope.md"
+        TEMPLATE="$T/scope.md"
+        PLUGIN_ROOT=/koto-probe
+        echo "note: the engine cases run a copy of scope.md with this checkout's path written in" ;;
 esac
 
 echo

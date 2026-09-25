@@ -67,9 +67,13 @@
 # otherwise: koto refuses the TOPIC value before any session is looked at, so
 # the placeholder only has to be a name koto-open.sh accepts.
 #
-# Every call passes --attach-live: a live session with the same template,
-# origin, and fixed variables is joined, and its rebind variables (PLUGIN_ROOT,
-# PLUGIN_ROOT_PLACEMENT, EXEC_MODE, MAX_ROUNDS) take this invocation's values.
+# Every call passes --attach-live and --replace-terminal: a live session with
+# the same template, origin, and fixed variables is joined, and its rebind
+# variables (PLUGIN_ROOT, PLUGIN_ROOT_PLACEMENT, EXEC_MODE, MAX_ROUNDS) take
+# this invocation's values; a session that already reached a terminal is
+# replaced by a fresh one (koto-open.sh prints opened=replaced and the old
+# run's result), so a second /scope <topic> after a finished run starts over at
+# intake rather than ticking the finished session.
 #
 # Output. stdout carries koto-open.sh's machine-readable lines, then:
 #
@@ -286,10 +290,12 @@ printf '%s' "$MAPPED" | jq -c --arg root "$PLUGIN_ROOT" --arg placement "$PLACEM
 
 # --- the one koto init ----------------------------------------------------------------
 
+# --replace-terminal beside --attach-live: a scope-<topic> session that already
+# reached a terminal is replaced by a fresh one, which walks intake and
+# resume_route like any new run, instead of being ticked into nothing. A live
+# session is never replaced; --attach-live joins it or koto refuses.
 set -- "$SESSION" "$PLUGIN_ROOT/skills/scope/koto-templates/scope.md" "$VARS_FILE" \
-    --attach-live --wording "$WORDING"
-# Slot: --replace-terminal goes here, beside --attach-live, when a finished
-# session should be replaced by a fresh one instead of refused.
+    --attach-live --replace-terminal --wording "$WORDING"
 [ -n "$KOTO_LEG" ] && set -- "$@" --koto-leg "$KOTO_LEG"
 
 OUT=$(bash "$KOTO_OPEN" "$@")
