@@ -167,22 +167,35 @@ mkdir -p "$T/root/skills/alpha/koto-templates" "$T/root/skills/beta/koto-templat
 : > "$T/root/skills/alpha/koto-templates/alpha.mermaid.md"
 : > "$T/root/skills/beta/koto-templates/beta.md"
 : > "$T/root/scripts/koto-floor/fixtures/f.md"
+mkdir -p "$T/root/skills/gamma/koto-templates"
+printf -- '---\nname: gamma\n# koto-floor: pinned -- needs the pinned koto\ninitial_state: a\n---\n' \
+    > "$T/root/skills/gamma/koto-templates/gamma.md"
 got=$(list_templates "$T/root" | tr '\n' ' ')
 if [ "$got" = "skills/alpha/koto-templates/alpha.md skills/beta/koto-templates/beta.md scripts/koto-floor/fixtures/f.md " ]; then
-    pass "templates are discovered by glob, mermaid companions excluded"
+    pass "templates are discovered by glob, mermaid companions and pinned-floor templates excluded"
 else
-    fail "templates are discovered by glob, mermaid companions excluded" "[$got]"
+    fail "templates are discovered by glob, mermaid companions and pinned-floor templates excluded" "[$got]"
 fi
 
 got=$(list_templates "$REPO_ROOT")
-if printf '%s\n' "$got" | grep -qx 'skills/execute/koto-templates/execute.md' \
-    && printf '%s\n' "$got" | grep -qx 'skills/work-on/koto-templates/work-on.md' \
+if printf '%s\n' "$got" | grep -qx 'skills/work-on/koto-templates/work-on.md' \
     && printf '%s\n' "$got" | grep -qx 'scripts/koto-floor/fixtures/decider.md' \
     && ! printf '%s\n' "$got" | grep -q 'mermaid'; then
-    pass "the checkout's templates and the decider fixture are all covered"
+    pass "the checkout's templates and the decider fixture are covered"
 else
-    fail "the checkout's templates and the decider fixture are all covered" "[$got]"
+    fail "the checkout's templates and the decider fixture are covered" "[$got]"
 fi
+
+# execute.md's and scope.md's floor is koto 0.13.0, not v0.12.2;
+# each is left out by its own `# koto-floor: pinned` marker, not by accident.
+for t in skills/execute/koto-templates/execute.md skills/scope/koto-templates/scope.md; do
+    if ! printf '%s\n' "$got" | grep -qx "$t" \
+        && grep -q '^# koto-floor: pinned' "$REPO_ROOT/$t"; then
+        pass "$t, whose floor is koto 0.13.0, is left out by its koto-floor marker"
+    else
+        fail "$t is left out by its koto-floor marker" "[$got]"
+    fi
+done
 
 # -- transcripts --------------------------------------------------------------
 

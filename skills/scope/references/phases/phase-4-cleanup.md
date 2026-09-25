@@ -108,6 +108,33 @@ deletion is enumerated in the same closed set for that reason;
 Phase 4 reads it back here so a reader checking the set against
 this file's sweeps does not find an unaccounted removal.
 
+**The Publish group runs before Phase 4, on intent runs only.** Its
+verbs and targets are the ones SKILL.md's Security Considerations
+and Phase 3's Closed Write-Target Set name:
+
+- **untrack** — `git rm --cached` of the topic's own
+  `wip/{scope,brief,prd,design,plan}_<topic>_*` and
+  `wip/research/{prd,design}_<topic>_*`, committed as exactly that
+  removal and nothing else staged; the files stay on disk for this
+  phase's removals above
+- **push** — `git push origin HEAD:refs/heads/<branch>`, with no
+  force option and no `+` refspec, refused for a detached HEAD, for a
+  branch failing `git check-ref-format --branch`, and for the
+  remote's default branch
+- **create** — one `gh pr create --head <branch> --base <default>
+  --title <title> --body-file <file>`, only when the ownership filter
+  finds no owned PR on the branch
+- **edit** — `gh pr edit --body-file` on the one owned PR, only to
+  rewrite its `intent=` field
+
+`gh pr create` and that `gh pr edit` are the only `gh` writes, every
+PR lookup goes through the ownership filter, the body is a fixed
+template, unpushed `wip/` paths are reported as `wip_paths=`, and the
+public-content visibility check over them stops the push on a hit.
+Phase 4 adds nothing to the group: when the publish fails the run
+ends before this phase, and the state file keeps `exit:` and
+`publish_error:` for the retry.
+
 **Two groups in that set are outside Phase 4's reach, and the
 reader checking the enumeration against this file should not go
 looking for them here.** The Commits group — the four canonical
@@ -136,12 +163,44 @@ here.
 
 ## Success Summary
 
-Phase 4 emits a single-line success summary naming the terminal
-artifact path and the `exit:` value:
+The exit block is rendered from the terminal result by
+`skills/scope/scripts/print-scope-exit.sh`, and the agent composes no
+exit line. Once the `koto next` that reaches the terminal returns,
+run
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
+```
+
+and print its output verbatim. The script reads the result koto
+recorded (`koto status`) and prints, one `key=value` per line:
 
 ```
 /scope finished: exit=<full-run|re-evaluation|abandonment-forced>; artifact=<terminal-artifact-path>
+intent=<continue|stop|none>                   always
+outcome=<scoped|handed-off-multi-pr|executed|error>
+                                              full-run, executed, or error
+step=<scope:push|scope:pr-create|scope:intake|scope:resume-probe|scope:refused>
+                                              error only
+next=<command>                                full-run only
+pr=<url>                                      intent runs only
+pr_state=<merged|open>                        executed only
+wip_paths=<comma-separated paths>             when set
+#<N> <title>                                  multi-pr startable items,
+<closing line>                                then one closing line
 ```
+
+`next=` is `/execute docs/plans/PLAN-<topic>.md` for a `single-pr` or
+`coordinated` PLAN and `/work-on #<first startable>` for a `multi-pr`
+one (R10). A `multi-pr` run lists every work item with no dependency
+inside the PLAN, in PLAN order, and closes with one line: with intent,
+that they can start once the scoping PR merges, naming it; without,
+that they can start once the PLAN is on the default branch (R11).
+Re-evaluation, abandonment and cancelled runs print today's exit
+record with no `outcome=` line. A refusal prints its refusal text,
+then `intent=`, `outcome=error` and `step=scope:refused`; `refused`
+is never printed after `outcome=`. Every value is checked against a
+closed pattern and dropped if it fails.
 
 Example summaries:
 

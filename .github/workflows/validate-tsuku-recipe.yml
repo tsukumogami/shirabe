@@ -21,6 +21,11 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
 
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -82,8 +87,6 @@ jobs:
           echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
 
       - name: Install shirabe via tsuku (latest)
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: tsuku install tsukumogami/shirabe
 
       - name: Confirm shirabe runs

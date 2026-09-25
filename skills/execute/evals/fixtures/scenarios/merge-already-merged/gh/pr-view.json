@@ -1,0 +1,1 @@
+{"state": "MERGED", "isDraft": false, "mergeStateStatus": "CLEAN", "reviewDecision": "", "headRefOid": "@HEAD_SHA@", "baseRefName": "main", "changedFiles": 1, "commits": [{"oid": "@HEAD_SHA@", "committedDate": "2026-01-01T00:00:00Z"}]}

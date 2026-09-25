@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# A koto context stand-in for /deliver's script tests: each key is a file
+# under $KOTO_STORE/<session>/, and every call is logged to
+# "$KOTO_STORE/calls". Only `koto context add|remove|get|exists` is served;
+# with KOTO_FAIL_ADD set, `context add` fails. Not shipped behaviour.
+set -uo pipefail
+[ -n "${KOTO_STORE:-}" ] || { echo "koto stub: KOTO_STORE is not set" >&2; exit 9; }
+printf '%s\n' "$*" >>"$KOTO_STORE/calls"
+[ "${1:-}" = context ] || { echo "koto stub: unexpected: $*" >&2; exit 9; }
+d="$KOTO_STORE/${3:-none}"
+case "${2:-}" in
+    add)
+        [ -z "${KOTO_FAIL_ADD:-}" ] || exit 1
+        mkdir -p "$d"; cat >"$d/$4" ;;
+    remove) rm -f "$d/$4" ;;
+    exists) [ -f "$d/$4" ] ;;
+    get) cat "$d/$4" 2>/dev/null || exit 1 ;;
+    *) exit 9 ;;
+esac

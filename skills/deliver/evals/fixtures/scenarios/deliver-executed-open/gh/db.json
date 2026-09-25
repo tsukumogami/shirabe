@@ -1,0 +1,91 @@
+{
+  "login": "eval-user",
+  "default_repo": "eval-org/eval-repo",
+  "next_number": 42,
+  "repos": {
+    "eval-org/eval-repo": {
+      "default_branch": "main",
+      "allow_squash_merge": true,
+      "allow_merge_commit": true,
+      "allow_rebase_merge": true,
+      "visibility": "public",
+      "branch": {
+        "name": "main",
+        "protected": true
+      },
+      "rules": [
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "required_status_checks": [
+              {
+                "context": "build"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "created_defaults": {
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "checks": [
+      {
+        "name": "build",
+        "bucket": "pass"
+      }
+    ],
+    "files": [
+      "NOTES.md"
+    ],
+    "merge": "ok"
+  },
+  "prs": [
+    {
+      "repo": "eval-org/eval-repo",
+      "number": 77,
+      "headRefName": "unrelated/work",
+      "baseRefName": "main",
+      "author": "eval-user",
+      "isCrossRepository": false,
+      "state": "MERGED",
+      "isDraft": false,
+      "title": "chore: an unrelated merged PR",
+      "body": "",
+      "headRefOid": "1111111111111111111111111111111111111111",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "checks": [],
+      "files": [
+        "x"
+      ],
+      "merge": "ok"
+    },
+    {
+      "repo": "eval-org/eval-repo",
+      "number": 41,
+      "headRefName": "@BRANCH@",
+      "baseRefName": "main",
+      "author": "eval-user",
+      "isCrossRepository": false,
+      "state": "OPEN",
+      "isDraft": false,
+      "title": "docs: scoping PR",
+      "body": "# Scoping PR\n\nexit=full-run\noutcome=scoped\nintent=continue\nmode=single-pr\n",
+      "headRefOid": "@HEAD_SHA@",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "checks": [
+        {
+          "name": "build",
+          "bucket": "pass"
+        }
+      ],
+      "files": [
+        "docs/plans/PLAN.md"
+      ],
+      "merge": "ok"
+    }
+  ]
+}

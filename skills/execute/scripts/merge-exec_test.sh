@@ -371,7 +371,7 @@ prefix_with() {
 }
 find "$REPO_ROOT" -type f -name '*.sh' ! -name '*_test.sh' \
     -not -path '*/.git/*' -not -path '*/target/*' -not -path '*/node_modules/*' \
-    -not -path '*/.claude/worktrees/*' > "$WORK/sh-files"
+    -not -path "$REPO_ROOT/.claude/worktrees/*" > "$WORK/sh-files"
 while IFS= read -r f; do
     grep -n 'gh pr merge' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | prefix_with "$f" >> "$SITES"
 done < "$WORK/sh-files"

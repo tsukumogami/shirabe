@@ -4,6 +4,16 @@ on:
   pull_request:
     paths:
       - '**/koto-templates/**'
+      # The koto version .tsuku.toml resolves decides which compiler checks
+      # the templates, so changing it or the floor has to recompile them.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+      - '.github/workflows/validate-templates.yml'
+
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   validate-templates:
@@ -21,6 +31,13 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # The templates are compiled by the newest koto 0.x, under which
+      # context_assignments are executed and strictly validated. Fail here,
+      # not later, if tsuku installed a koto older than shirabe's floor.
+      # check-koto-entry-floor.yml compiles them on exactly the floor release.
+      - name: Assert koto meets the floor
+        run: bash scripts/assert-koto-floor.sh
 
       - name: Validate all koto templates
         run: |

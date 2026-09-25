@@ -1,8 +1,8 @@
 ---
 name: work-on
 description: >-
-  Take one known piece of work from where it stands now to a merged pull
-  request: branch, read the surrounding code, implement, test, open the PR,
+  Take one known piece of work from where it stands now to a ready pull
+  request with passing CI: branch, read the surrounding code, implement, test, open the PR,
   watch CI. Use it when asked to work on, implement, fix, build, tackle, pick
   up, close, or ship something that is already specified — a GitHub issue by
   number or URL, the next unblocked issue on a milestone, a red CI run or a
@@ -340,7 +340,10 @@ koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "a
 
 ## Output
 
-A merged PR with passing CI, referenced back to the source issue.
+An open, ready PR with passing CI, referencing the source issue (or, for a
+PLAN outline, the outline it implements). `/work-on` does not merge it; that
+is left to a reviewer. A plan-backed child on a shared branch opens no PR of
+its own: its commits land on the branch `/execute` owns.
 
 ## Begin
 

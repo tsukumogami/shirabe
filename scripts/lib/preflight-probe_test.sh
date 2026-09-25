@@ -756,6 +756,126 @@ if command -v pkill >/dev/null 2>&1; then
     pkill -f "sleep 3733" >/dev/null 2>&1 || true
 fi
 
+# --- the koto floor /scope and /execute declare ------------------------------
+#
+# The tool-declaration policy allows no version number, so /scope's and
+# /execute's koto floor is the `koto init` entry-flag surface their shared
+# entry script (scripts/koto-open.sh) passes. These cases take the SHIPPED
+# declarations' koto records -- read out of the committed requires.tsv, not
+# retyped -- and run them against a koto whose `init --help` predates those
+# flags, then against one that has them. The rest of each declaration is
+# covered on a provisioned host by preflight-report_test.sh's shipped-
+# declarations case; here only koto varies, so a finding can only be about
+# koto.
+#
+# koto_stub <dir> <init-options> -- a koto answering every level the two
+# declarations probe, with <init-options> as `init --help`'s option lines.
+koto_stub() {
+    local dir="$1" init_opts="$2"
+    mkdir -p "$dir"
+    {
+        printf '#!/bin/bash\n'
+        printf 'case "$*" in\n'
+        printf '  "--help") printf "Commands:\\n  init  Init\\n  next  Next\\n  status  Status\\n  session  Session\\n  context  Context\\n  workflows  Workflows\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "init --help") printf "Options:\\n%s  -h, --help  Print help\\n" ;;\n' "$init_opts"
+        printf '  "next --help") printf "Options:\\n      --with-data <DATA>  Evidence\\n      --no-cleanup  Keep\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "status --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "workflows --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "session --help") printf "Commands:\\n  cleanup  Cleanup\\n  dir  Dir\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "session cleanup --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n  remove  Remove\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context add --help") printf "Options:\\n      --from-file <FROM_FILE>  File\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context get --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context remove --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  *) printf "error: unrecognized subcommand\\n" >&2; exit 2 ;;\n'
+        printf 'esac\n'
+    } >"$dir/koto"
+    chmod +x "$dir/koto"
+}
+
+OLD_INIT='      --template <TEMPLATE>  Template\n      --var <KEY=VALUE>  Variable\n'
+NEW_INIT='      --template <TEMPLATE>  Template\n      --var <KEY=VALUE>  Variable\n      --vars-file <PATH>  Vars\n      --replace-terminal  Replace\n      --attach-live  Attach\n      --koto-leg <REQ:LEG>  Leg\n'
+OLDKOTO=$(mktmp)
+NEWKOTO=$(mktmp)
+koto_stub "$OLDKOTO" "$OLD_INIT"
+koto_stub "$NEWKOTO" "$NEW_INIT"
+# The install route koto's block names is tsuku's, available when tsuku
+# resolves and knows koto. A stand-in answers that probe; it is never asked to
+# install anything.
+printf '#!/bin/sh\n[ "$1" = info ] && [ "$2" = koto ] && exit 0\nexit 1\n' >"$OLDKOTO/tsuku"
+chmod +x "$OLDKOTO/tsuku"
+
+# koto_records_root <skill> -- a root carrying only the shipped declaration's
+# koto records, under the skill's own name.
+koto_records_root() {
+    local skill="$1" root
+    root=$(new_root)
+    # The reporter resolves the install route the block has to name.
+    cp "$REPO/scripts/lib/preflight-report.sh" "$root/scripts/lib/preflight-report.sh"
+    mkdir -p "$root/skills/$skill"
+    grep -E '^(#schema|koto	)' "$REPO/skills/$skill/requires.tsv" >"$root/skills/$skill/requires.tsv"
+    printf '%s' "$root"
+}
+
+# run_with_koto <root> <skill> <koto-dir>
+run_with_koto() {
+    local root="$1" skill="$2" kdir="$3" capture
+    capture=$(mktmp)/capture
+    RUN_RC=0
+    (
+        cd "$REPO" || exit 111
+        PATH="$kdir:/usr/bin:/bin"
+        export PATH
+        SHIRABE_PREFLIGHT_ROOTS="/nonexistent"
+        export SHIRABE_PREFLIGHT_ROOTS
+        CLAUDE_PLUGIN_ROOT="$root"
+        export CLAUDE_PLUGIN_ROOT
+        "$BASH_BIN" "$root/scripts/skill-preflight.sh" "$skill"
+    ) >"$capture" 2>&1 || RUN_RC=$?
+    RUN_BYTES=$(wc -c <"$capture" | tr -d ' ')
+    RUN_OUT=$(cat "$capture")
+    if [ "$RUN_RC" -ne 0 ]; then
+        fail "$skill: the check exited $RUN_RC; it must exit 0 on every path"
+    fi
+}
+
+for SKILL in scope execute; do
+    INIT_REC=$(grep -E '^koto	init	' "$REPO/skills/$SKILL/requires.tsv" || true)
+    for FLAG in --vars-file --attach-live --replace-terminal --koto-leg; do
+        case "$INIT_REC" in
+            *"$FLAG"*) pass "/$SKILL's koto init record declares $FLAG" ;;
+            *) fail "/$SKILL's koto init record does not declare $FLAG: [$INIT_REC]" ;;
+        esac
+    done
+    case "$INIT_REC" in
+        *[0-9].[0-9]*) fail "/$SKILL's koto init record carries a version number: [$INIT_REC]" ;;
+        *) pass "/$SKILL's koto init record carries no version number" ;;
+    esac
+
+    ROOT=$(koto_records_root "$SKILL")
+    run_with_koto "$ROOT" "$SKILL" "$OLDKOTO"
+    FLAT=$(prose "$RUN_OUT")
+    assert_has "an older koto: /$SKILL's preflight prints a block" "$FLAT" "shirabe /$SKILL"
+    for FLAG in --vars-file --attach-live --replace-terminal --koto-leg; do
+        assert_has "an older koto: /$SKILL's block names the missing koto init flag $FLAG" "$FLAT" "$FLAG"
+    done
+    assert_has "an older koto: /$SKILL's block names koto init" "$FLAT" "koto init"
+    assert_has "an older koto: /$SKILL's block gives the install route" "$FLAT" "tsuku install koto"
+
+    run_with_koto "$ROOT" "$SKILL" "$NEWKOTO"
+    assert_eq "a koto with the entry flags: /$SKILL's koto records print zero bytes" "0" "$RUN_BYTES"
+
+    REAL_KOTO=$(command -v koto 2>/dev/null || true)
+    if [ -n "$REAL_KOTO" ] && "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--koto-leg'; then
+        REALKOTO_DIR=$(mktmp)
+        ln -s "$REAL_KOTO" "$REALKOTO_DIR/koto"
+        run_with_koto "$ROOT" "$SKILL" "$REALKOTO_DIR"
+        assert_eq "the installed koto ($("$REAL_KOTO" version 2>/dev/null | head -1)): /$SKILL's koto records print zero bytes" "0" "$RUN_BYTES"
+    else
+        echo "SKIP: no koto with the entry flags on PATH -- /$SKILL's zero-bytes case against a real koto did not run"
+    fi
+done
+
 echo
 echo "preflight-probe_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

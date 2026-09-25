@@ -1,0 +1,22 @@
+# Lines scripts/check-merged-wording.sh accepts even though they say "merged"
+# outside the accepted tokens (`merged`, outcome=merged, pr_state=merged,
+# MERGED, unmerged, not-merged).
+#
+# Format, tab-separated, three fields:
+#
+#   <file>  <match>  <reason>
+#
+#   file    repository-relative path; must be one of the files the check scans
+#   match   a fixed string (not a regex) that matches exactly one line of file
+#   reason  why that line describes GitHub PR state rather than a run outcome;
+#           required, an empty reason is an error
+#
+# Blank lines and #-comments are ignored. The check fails on a record whose
+# match finds zero lines or more than one, on a stale record (its line no
+# longer says "merged" outside the accepted tokens), on an empty reason, and on
+# a file outside the scanned list, so a record here stays tied to one line
+# that still needs it.
+#
+# Prefer rewording over a record. A record belongs only where the natural
+# sentence is about what GitHub reports for a PR and the accepted tokens would
+# read worse. The scanned files currently need none.

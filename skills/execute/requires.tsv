@@ -48,10 +48,48 @@
 # an exemption that stops matching its line fails as stale.
 #not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
 #not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
-koto	init	--template,--var	always
+#
+# The koto floor. /execute enters its orchestrator session through
+# skills/execute/scripts/execute-open.sh and the shared scripts/koto-open.sh,
+# which is the call site for `koto init --vars-file`, `--attach-live`,
+# `--replace-terminal`, and `--koto-leg`. Those flags exist only in koto
+# 0.13.0 and later, and so do the template's result maps, transition
+# context_assignments, constrained and rebindable variables, and
+# `overridable: false` gates, so the `koto init` record below is /execute's
+# declared koto floor: the tool-declaration policy allows no version number
+# here, and preflight on an older koto names these missing flags and the install
+# route instead. As with run-cascade.sh's records, the call site lives in a
+# shared script, which the one-directional requires check does not treat as a
+# finding.
+#
+# The merge step adds calls without new flags. record-merge-verdict.sh clears
+# its keys with `koto context remove` and reads `expected_head` with
+# `koto context get`; push-and-record.sh and `run-cascade.sh --push --session`
+# write `expected_head` with `koto context add`; record-write-set.sh and
+# adopt-or-create-pr.sh write `repos`, `home_pr`, and `waiting` the same way;
+# print-exit.sh renders the result `koto status` reports. On the gh side,
+# owned-pr.sh reads `gh api user`, `gh api repos/<repo>`, and `gh pr list`;
+# record-write-set.sh falls back to `gh repo view`; adopt-or-create-pr.sh makes
+# the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`. git adds
+# `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
+# of those fall under the gh, git, and jq records.
+#
+# The coordinated envelope (execute-coordinated.md) adds no koto verb or flag:
+# record-coord-setup.sh, record-coordination-verdict.sh, and coord-merge.sh
+# read and write context with `koto context get/add/remove`. Its scripts add gh
+# and git calls under the same records: node-push.sh's node-PR
+# `gh pr create --draft`, the coordination body's `gh pr edit --body-file`, and
+# `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
+# coordinated mode record below covers the two shirabe modes they run:
+# node-push.sh validates each new coordination body with
+# `--coordination-body`, and coord-merge.sh and the loop's
+# evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
+# per indexed ref.
+koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
 koto	context get	-	always
+koto	context remove	-	always
 koto	workflows	-	always
 koto	status	-	always
 koto	session cleanup	-	always

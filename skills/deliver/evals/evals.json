@@ -1,0 +1,443 @@
+{
+  "skill_name": "deliver",
+  "description": "Eval suite for /deliver, the koto-driven driver that runs /scope --intent=continue and then /execute in one session. Every scenario runs the real koto, serves GitHub from the per-skill gh shim (skills/deliver/evals/fixtures/bin/gh, which logs every call to GH_CALL_LOG), and builds its repository with skills/deliver/evals/fixtures/setup-deliver.sh. Outcomes are asserted from the deliver-<topic> session's terminal result (`koto status`), never from printed lines. The deterministic assertions about the same routes live in skills/deliver/scripts/deliver-engine_test.sh, which gates.",
+  "substrate_scenarios": {
+    "min_runs": 3,
+    "pass_rate_threshold": 1.0,
+    "gating": false,
+    "note": "Each scenario is run with `scripts/run-evals.sh --scenario <name> --runs 3 deliver` and must pass 3 of 3 (R26)."
+  },
+  "evals": [
+    {
+      "id": 1,
+      "name": "auto-merged-no-split",
+      "requirements": ["R14", "R15", "R19"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-merge`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-merge --auto` to its end. Then print `koto status deliver-dlv-merge`, `koto context get deliver-dlv-merge checked_pr`, and `git branch --list 'impl/*'`.",
+      "expected_output": "/scope finalizes the no-split PLAN, publishes the topic branch, and opens PR #42 on it; /deliver's re-check verifies it, the PLAN is single-pr, --auto asks nothing, and /execute adopts #42 and merges it. merged_check re-reads GitHub and the run ends done with outcome merged. The merged PR's head is the topic branch /scope published; no impl/<slug> branch exists.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "The `koto status deliver-dlv-merge` result payload has outcome `merged`",
+        "The result payload's pr is `https://github.com/eval-org/eval-repo/pull/42`, equal to the printed checked_pr",
+        "No question was asked of the author between /scope finishing and /execute starting",
+        "`git branch --list 'impl/*'` prints nothing"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "interactive-confirm-stop",
+      "requirements": ["R15"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-stop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-stop --interactive`. Answer /scope's own questions with its recommended default. When /deliver asks whether to run /execute, answer stop. Print `koto status deliver-dlv-stop` and `koto status execute-dlv-stop`.",
+      "expected_output": "/deliver asks exactly one confirmation before /execute starts, naming the PLAN's mode (single-pr). Declining ends the run at done_stopped with outcome scoped and next=/deliver dlv-stop; no /execute session exists.",
+      "files": [],
+      "expectations": [
+        "/deliver asked one confirmation before /execute, and it named `single-pr`",
+        "The deliver-dlv-stop result payload has outcome `scoped` and next `/deliver dlv-stop`",
+        "`koto status execute-dlv-stop` reports no such session",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "interactive-review-pause",
+      "requirements": ["R15"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-pause`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-pause --interactive`. Answer /scope's own questions with its recommended default, answer proceed to /deliver's confirmation, and when /execute pauses for review before finalization, decline to finalize. Print `koto status deliver-dlv-pause` and `gh pr view 42 --repo eval-org/eval-repo --json isDraft`.",
+      "expected_output": "/execute stops at its review pause with the home PR still draft; /deliver relays paused-for-review from the execute leg.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-pause result payload has outcome `paused-for-review`",
+        "PR 42 reads isDraft true",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "header-auto-asks-nothing",
+      "requirements": ["R15"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-hdr --exec-mode auto`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-hdr` with no mode flag to its end. Print `koto status deliver-dlv-hdr`.",
+      "expected_output": "The repository's `## Execution Mode: auto` header makes the run non-interactive: no question from /deliver or its children, and the run ends merged.",
+      "files": [],
+      "expectations": [
+        "No question was asked of the author at any point",
+        "The deliver-dlv-hdr result payload has outcome `merged`"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "auto-no-merge",
+      "requirements": ["R14", "R20"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-nomerge`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-nomerge --auto --no-merge` to its end. Print `koto status deliver-dlv-nomerge` and the report deliver-report.sh prints.",
+      "expected_output": "/execute runs without --merge, so its verdict is awaiting:merge-not-requested and it ends ready-awaiting-merge; /deliver reports the same, listing PR #42 as waiting on a human.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The deliver-dlv-nomerge result payload has outcome `ready-awaiting-merge`",
+        "The printed report lists `pr=https://github.com/eval-org/eval-repo/pull/42 waiting=human`"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "forced-split-no-coordinated",
+      "requirements": ["R16"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-split --state split`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-split --auto --no-coordinated` to its end. Print `koto status deliver-dlv-split`, `koto status execute-dlv-split`, and the report deliver-report.sh prints.",
+      "expected_output": "The DESIGN's hard delivery constraint splits the work and --no-coordinated resolves it to multi-pr. /deliver ends handed-off-multi-pr with the root-issue list and never starts /execute.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-split result payload has outcome `handed-off-multi-pr` and a non-empty startable list",
+        "`koto status execute-dlv-split` reports no such session",
+        "The printed report lists the startable items as `#<N> <title>` lines"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "scope-re-evaluation-ends-early",
+      "requirements": ["R18"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-reeval --state mid-hop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-reeval --interactive`. When /scope reaches its DESIGN boundary, choose re-evaluation. Print `koto status deliver-dlv-reeval` and `koto status execute-dlv-reeval`.",
+      "expected_output": "/scope ends at its re-evaluation exit. /deliver ends at done_stopped with outcome scope-ended-early naming re-evaluation, and no /execute session exists.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-reeval result payload has outcome `scope-ended-early` and reason `re-evaluation`",
+        "`koto status execute-dlv-reeval` reports no such session"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "ci-red-ends-error",
+      "requirements": ["R18"],
+      "scenario": "deliver-ci-red",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-red`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-red --auto` to its end. Print `koto status deliver-dlv-red`.",
+      "expected_output": "The adopted PR's required check fails; /execute ends error with step execute:ci, and /deliver relays that step.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-red result payload has outcome `error` and step `execute:ci`",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "coordinated-not-mergeable-pauses",
+      "requirements": ["R18", "R22"],
+      "scenario": "deliver-not-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-coord --mode coordinated`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-coord --auto` to its end. Print `koto status deliver-dlv-coord` and the report deliver-report.sh prints.",
+      "expected_output": "The coordinated PLAN's first group's PR needs a human review, so nothing merges and the second group waits on it. /deliver ends paused-awaiting-merges, listing each unmerged PR with waiting=human or waiting=predecessor, and prints the resume command.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-coord result payload has outcome `paused-awaiting-merges`",
+        "The printed report has one `pr=<url> waiting=human` or `waiting=predecessor` line per unmerged PR",
+        "The printed report has a `resume=/execute docs/plans/PLAN-dlv-coord.md` line",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "stale-run-fence-resumes-scope",
+      "requirements": ["R17", "R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-fence --state mid-hop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-fence --auto`, and stop as soon as /scope's session scope-dlv-fence exists and is mid-hop, as if the session were interrupted; note the request id from `koto request list --coordinator-of-record deliver-dlv-fence --state open`. Then invoke `/deliver dlv-fence --auto` again and run it to its end. Print `koto request get <old-request-id>`, `koto session list`, and `koto status deliver-dlv-fence`.",
+      "expected_output": "The second invocation opens a fresh session and a fresh request, abandoning the old one. /scope's live session is re-pointed to the new scope leg and resumes at the hop it stopped; no second scope-* session appears for the topic. The run reports its own result.",
+      "files": [],
+      "expectations": [
+        "The old request's request_state is `closed` and its scope leg is `abandoned`",
+        "`koto session list` shows exactly one session whose name starts `scope-dlv-fence`",
+        "The deliver-dlv-fence result payload has outcome `merged`"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "late-result-from-superseded-run",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-late --state mid-hop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Create an old request as an earlier /deliver run would: `bash skills/deliver/scripts/deliver-open-request.sh --topic dlv-late`, and note its id. Start `/scope dlv-late --intent=continue --auto --koto-leg=<old-id>:scope` and stop after its first tick. Now run `/deliver dlv-late --auto` to its end. Print `koto request get <old-id>` and `koto status deliver-dlv-late`.",
+      "expected_output": "The new run abandons the old request before creating its own, so the old leg never takes a result: the /scope run finishes under the new request's leg, and /deliver reports its own /scope result.",
+      "files": [],
+      "expectations": [
+        "The old request's scope leg has no result (`result` is null) and disposition `abandoned`",
+        "The deliver-dlv-late result payload has outcome `merged`"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "live-intent-stop-is-a-mismatch",
+      "requirements": ["R17"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-stopintent --state mid-hop --intent stop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/scope dlv-stopintent --intent=stop --auto` and stop after its first `koto next`, leaving scope-dlv-stopintent live. Record `git status --porcelain` and `git rev-parse HEAD`. Run `/deliver dlv-stopintent --auto` to its end, then print `koto status deliver-dlv-stopintent`, `git status --porcelain`, and `git rev-parse HEAD`.",
+      "expected_output": "koto refuses /scope's attach with var-mismatch:INTENT_FLAG and records it on the leg; /deliver ends error with step deliver:intent-mismatch, and the working tree is exactly as it was.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-stopintent result payload has outcome `error` and step `deliver:intent-mismatch`",
+        "`git status --porcelain` and `git rev-parse HEAD` are unchanged by the /deliver run",
+        "gh-calls.log contains no line starting `pr create`"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "republish-shortcut-opens-one-pr",
+      "requirements": ["R17"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-repub --state plan`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Record `git rev-parse HEAD`. Run `/deliver dlv-repub --auto` to its end. Print `koto status deliver-dlv-repub` and `git log --name-only --format=%s <recorded-head>..HEAD`.",
+      "expected_output": "The PLAN already exists, so /scope takes its republish shortcut: it pushes the branch and opens one PR on it before /execute starts, and /execute adopts that PR. No BRIEF, PRD, or DESIGN is written.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, and it carries `--head docs/dlv-repub`",
+        "The `pr create` line comes before every line /execute's adopt makes (the first `pr ready`)",
+        "No commit after the recorded head touches docs/briefs/, docs/prds/, or docs/designs/DESIGN-dlv-repub.md",
+        "The deliver-dlv-repub result payload has outcome `merged`"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "republish-shortcut-adopts-open-pr",
+      "requirements": ["R17"],
+      "scenario": "deliver-open-pr",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-adopt --state plan`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Push the branch first with `git push origin HEAD:refs/heads/docs/dlv-adopt`. Run `/deliver dlv-adopt --auto` to its end. Print `koto status deliver-dlv-adopt`.",
+      "expected_output": "The branch's owned PR #41 is already open: /scope reuses it and /execute adopts it, so no PR is created and the run ends merged on #41.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr create`",
+        "The deliver-dlv-adopt result payload has outcome `merged` and pr `https://github.com/eval-org/eval-repo/pull/41`"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "executed-shortcut-merged",
+      "requirements": ["R17"],
+      "scenario": "deliver-executed-merged",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-done --state executed`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Record `git rev-parse HEAD`. Run `/deliver dlv-done --auto` to its end. Print `koto status deliver-dlv-done`, `koto status execute-dlv-done`, and `git log --format=%s <recorded-head>..HEAD`.",
+      "expected_output": "/scope reports the topic executed; /deliver re-reads the owned PR #41, finds it MERGED, and relays merged without running /execute. Nothing is committed.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-done result payload has outcome `merged`, pr `https://github.com/eval-org/eval-repo/pull/41`, and pr_state `merged`",
+        "`koto status execute-dlv-done` reports no such session",
+        "No commit was added after the recorded head"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "executed-shortcut-open",
+      "requirements": ["R17"],
+      "scenario": "deliver-executed-open",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-done-open --state executed`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-done-open --auto` to its end. Print `koto status deliver-dlv-done-open`.",
+      "expected_output": "The owned PR #41 is still open, so the executed shortcut ends ready-awaiting-merge without running /execute.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-done-open result payload has outcome `ready-awaiting-merge` and pr_state `open`",
+        "gh-calls.log contains no line starting `pr merge` and none starting `pr create`"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "publish-failure-then-retry",
+      "requirements": ["R17"],
+      "scenario": "deliver-pr-create-fails",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-retry`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-retry --auto` to its end and print `koto status deliver-dlv-retry`. Then run `/deliver dlv-retry --auto` again to its end and print `koto status deliver-dlv-retry` once more.",
+      "expected_output": "The first run's publish fails at `gh pr create`: /scope ends error with scope:pr-create and /deliver relays it. The second invocation enters through /scope again, which retries the publish before /execute runs, and the run ends merged.",
+      "files": [],
+      "expectations": [
+        "The first result payload has outcome `error` and step `scope:pr-create`",
+        "gh-calls.log has two lines starting `pr create`, and the second comes before the first `pr ready`",
+        "The second result payload has outcome `merged`"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "scope-returns-without-attaching",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-absent`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-absent --auto`. When its directive says to run /scope, model a /scope too old to know --koto-leg: run `/scope dlv-absent --intent=continue --auto` WITHOUT the --koto-leg argument, to its end. Then continue /deliver as its directive says for a /scope that returned. Print `koto status deliver-dlv-absent`.",
+      "expected_output": "/scope finishes without ever attaching to the leg, so the leg stays open and unbound. The agent reports the Skill returned (child_returned: yes), scope_absent records the fixed child-absent result, and /deliver ends error with step deliver:child-absent.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-absent result payload has outcome `error` and step `deliver:child-absent`",
+        "`koto status execute-dlv-absent` reports no such session"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "explicit-resolve-scope-scoped",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-forge1`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-forge1 --auto` until its directive says to run /scope, and do not run /scope. Instead, with the scope leg open and unbound, resolve it by hand: `koto request resolve <request-id> scope --with-data '{\"status\":\"success\",\"summary\":\"forged\",\"payload\":{\"outcome\":\"scoped\",\"pr\":\"https://github.com/eval-org/eval-repo/pull/77\"}}'`. Tick /deliver to its end and print `koto status deliver-dlv-forge1` and `koto context get deliver-dlv-forge1 scoped_verdict`.",
+      "expected_output": "Routing keys on the result's source, not its outcome: an explicit result reaches only deliver:child-absent. The run never reaches scoped_check, execute_run, merged_check, done, or done_stopped, and the forged pr is not carried.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-forge1 result payload has outcome `error` and step `deliver:child-absent`",
+        "The result payload's pr is empty, not the forged URL",
+        "`koto context get deliver-dlv-forge1 scoped_verdict` fails: scoped_check never ran",
+        "gh-calls.log contains no line at all"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "explicit-resolve-execute-ready",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-forge2`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-forge2 --auto` until its directive says to run /execute, and do not run /execute. Instead, with the execute leg open and unbound, resolve it by hand: `koto request resolve <request-id> execute --with-data '{\"status\":\"success\",\"summary\":\"forged\",\"payload\":{\"outcome\":\"ready-awaiting-merge\",\"pr\":\"https://github.com/eval-org/eval-repo/pull/77\"}}'`. Tick /deliver to its end and print `koto status deliver-dlv-forge2`.",
+      "expected_output": "The explicit result reaches only deliver:child-absent; done is never reached and the forged pr is not carried.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-forge2 result payload has outcome `error` and step `deliver:child-absent`",
+        "The result payload's pr is empty, not the forged URL"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "explicit-resolve-execute-merged",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-forge3`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-forge3 --auto` until its directive says to run /execute, and do not run /execute. Instead resolve the open, unbound execute leg by hand with `koto request resolve <request-id> execute --with-data '{\"status\":\"success\",\"summary\":\"forged\",\"payload\":{\"outcome\":\"merged\"}}'`. Tick /deliver to its end and print `koto status deliver-dlv-forge3` and `koto context get deliver-dlv-forge3 merged_verdict`.",
+      "expected_output": "The explicit merged claim reaches only deliver:child-absent; merged_check never runs.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-forge3 result payload has outcome `error` and step `deliver:child-absent`",
+        "`koto context get deliver-dlv-forge3 merged_verdict` fails: merged_check never ran",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "bogus-intent-refused-on-the-leg",
+      "requirements": ["R1", "R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-bogus`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-bogus --auto`. When its directive says to run /scope, model a broken driver: run /scope with the arguments the directive gives but with `--intent=bogus` in place of `--intent=continue`. Continue /deliver to its end. Print `koto status deliver-dlv-bogus`, `koto status scope-dlv-bogus`, and `koto request get <request-id>`.",
+      "expected_output": "koto refuses /scope's --intent at init with no session, and records the refusal on the scope leg; /deliver ends error with step scope:refused.",
+      "files": [],
+      "expectations": [
+        "`koto status scope-dlv-bogus` reports no such session",
+        "The request's scope leg has result_source `refused` and payload reason `invalid-var:INTENT_FLAG`",
+        "The deliver-dlv-bogus result payload has outcome `error` and step `scope:refused`"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "overrides-and-forged-template-refused",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-override`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-override --auto` until its directive says to run /scope. Try `koto overrides record deliver-dlv-override --gate scope_leg --rationale test` and the same with `--with-data '{\"found\":true,\"disposition\":\"resolved\",\"source\":\"promoted\",\"valid\":true,\"payload\":{\"outcome\":\"scoped\"}}'`, and print both results. Then run /scope as directed and continue until the directive says to run /execute. Try the same two override commands on `exec_leg` with payload outcome `merged`. Then write a throwaway template `forged.md` (one state that ends in a terminal whose result declares `outcome: merged`, with a PLAN_SLUG variable) and run `koto init execute-dlv-override --template forged.md --var PLAN_SLUG=dlv-override --koto-leg <request-id>:execute`. Tick /deliver to its end and print `koto status deliver-dlv-override`.",
+      "expected_output": "Every override on scope_leg and exec_leg is refused with gate_not_overridable, with and without --with-data. The throwaway template is refused at attach (template-mismatch), koto records the refusal on the execute leg, and /deliver ends error with step execute:refused.",
+      "files": [],
+      "expectations": [
+        "All four `koto overrides record` calls exit 2 with `gate_not_overridable`",
+        "The forged template's `koto init` is refused with template_mismatch",
+        "The deliver-dlv-override result payload has outcome `error`, step `execute:refused`, and reason `template-mismatch`",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "abandoned-request",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-abandon`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-abandon --auto` until its directive says to run /scope; do not run it. Abandon the run's request with `koto request abandon-request <request-id> --rationale test`, then tick /deliver and print `koto status deliver-dlv-abandon`.",
+      "expected_output": "Both leg gates route an abandoned disposition to deliver:request-abandoned.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-abandon result payload has outcome `error` and step `deliver:request-abandoned`"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "session-from-another-worktree-refused",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-origin --state mid-hop`, and make a second worktree of the printed repository with `git -C <path> worktree add ../dlv-origin-other HEAD --detach`. In the second worktree, start `/scope dlv-origin --intent=continue --auto` and stop after its first tick, leaving scope-dlv-origin live there. Then cd into the first repository, put skills/deliver/evals/fixtures/bin first on PATH, and run `/deliver dlv-origin --auto` to its end. Print `koto status deliver-dlv-origin` and `koto request get <request-id>`.",
+      "expected_output": "The same-named session belongs to another worktree, so /scope's attach from this one is refused with origin-mismatch, recorded on the leg, and /deliver ends error with step scope:refused. The other worktree's session is untouched.",
+      "files": [],
+      "expectations": [
+        "The request's scope leg has result_source `refused` and reason `origin-mismatch`",
+        "The deliver-dlv-origin result payload has outcome `error` and step `scope:refused`",
+        "scope-dlv-origin is still live and unchanged"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "merged-claim-contradicted-by-github",
+      "requirements": ["R19", "R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-contra`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-contra --auto`. After /execute ends merged and before you tick /deliver again, model GitHub disagreeing: run `gh shim-mark-open eval-org/eval-repo 42`. Then tick /deliver to its end and print `koto status deliver-dlv-contra` and `koto context get deliver-dlv-contra checked_pr`.",
+      "expected_output": "merged_check finds the owned PR itself and reads it OPEN, so the leg's merged is downgraded to ready-awaiting-merge. The reported pr is the owned PR #42, never the unrelated merged PR #77.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-contra result payload has outcome `ready-awaiting-merge`",
+        "The result payload's pr is `https://github.com/eval-org/eval-repo/pull/42`, equal to checked_pr, and not pull/77"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "stale-attach-leaves-merge-unchanged",
+      "requirements": ["R17"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-stale --state plan`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Create a request with `bash skills/deliver/scripts/deliver-open-request.sh --topic dlv-stale` and abandon it with `koto request abandon-request <id> --rationale test`. Start `/execute docs/plans/PLAN-dlv-stale.md --auto` (no --merge) and stop after its first tick, leaving execute-dlv-stale live. Then invoke `/execute docs/plans/PLAN-dlv-stale.md --auto --merge --koto-leg=<id>:execute` as a stale driver would, and print what execute-open.sh printed. Finally invoke `/execute docs/plans/PLAN-dlv-stale.md --auto` once more, stop after the entry, and print what execute-open.sh printed.",
+      "expected_output": "The stale invocation is refused at attach (the leg is abandoned) before any rebind, so MERGE stays false: the last, accepted invocation's rebind report shows MERGE was not changed from false by the refused one.",
+      "files": [],
+      "expectations": [
+        "The stale invocation prints a `refused=` line and `step=execute:refused`",
+        "The last invocation's `rebound=` line does not show MERGE changing from `true`",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "private-repo-refused",
+      "requirements": ["R29"],
+      "scenario": "deliver-private",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "In an empty directory run `bash skills/deliver/evals/fixtures/setup-deliver.sh dlv-private --visibility private`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-private --auto` to its end. Print `koto status deliver-dlv-private`, the report deliver-report.sh prints, and `koto request list --coordinator-of-record deliver-dlv-private`.",
+      "expected_output": "/deliver inherits /scope's public-repo binding: preflight refuses the private repository before any request is opened or child runs, and the report prints outcome=error with step=deliver:refused and reason=private-repo.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-private result payload has reason `private-repo`",
+        "The printed report is `outcome=error`, `step=deliver:refused`, `reason=private-repo`",
+        "No request exists for coordinator deliver-dlv-private",
+        "gh-calls.log contains no line at all"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "compiled-template-has-every-step",
+      "requirements": ["R30"],
+      "scenario": "deliver-mergeable",
+      "env": {"GH_CALL_LOG": "gh-calls.log"},
+      "prompt": "Run `koto template compile skills/deliver/koto-templates/deliver.md` and list the compiled template's states with `jq -r '.states | keys[]' <compiled-path>`.",
+      "expected_output": "The compiled template has a state for each step of the run: scope (scope_run), check (scoped_check), mode route (mode_route), confirm (confirm), execute (execute_run), merged re-check (merged_check), and report (the done terminals).",
+      "files": [],
+      "expectations": [
+        "The state list includes scope_run, scoped_check, mode_route, confirm, execute_run, merged_check, and done",
+        "The state list includes done_stopped, done_error, and done_refused"
+      ]
+    }
+  ]
+}

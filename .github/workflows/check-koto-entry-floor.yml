@@ -1,0 +1,153 @@
+name: Check koto entry floor
+
+# /scope, /execute and /deliver require koto 0.13.0 or later, the floor
+# scripts/assert-koto-floor.sh holds. .tsuku.toml tracks the newest koto 0.x
+# rather than pinning a release, so every other workflow runs whatever 0.x is
+# newest, and nothing else would notice shirabe starting to depend on something
+# the floor release lacks. This job installs exactly the floor release -- the
+# version is read from assert-koto-floor.sh, its one definition -- and runs
+# those skills' template compiles and koto-backed suites on it.
+#
+# It lives apart from check-koto-floor.yml (the /work-on v0.12.2 floor) because
+# that workflow may download nothing itself: its koto comes only from an
+# installer fetched at a pinned commit and checked against a SHA-256, and its
+# test enforces that. This job installs koto through tsuku, like the rest of CI.
+
+on:
+  pull_request:
+    paths:
+      - 'skills/scope/**'
+      - 'skills/execute/**'
+      - 'skills/deliver/**'
+      # The scope and execute suites call /plan's and /work-on's scripts.
+      - 'skills/plan/scripts/**'
+      - 'skills/work-on/scripts/**'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/koto-open.sh'
+      - 'scripts/koto-open_test.sh'
+      - 'scripts/plan-mode.sh'
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/skill-preflight_test.sh'
+      - 'scripts/lib/**'
+      - 'crates/**'
+      - '.tsuku.toml'
+      - '.github/workflows/check-koto-entry-floor.yml'
+
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
+permissions:
+  contents: read
+
+jobs:
+  entry-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the floor
+        run: |
+          set -euo pipefail
+          floor=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' scripts/assert-koto-floor.sh | head -1)
+          if [ -z "$floor" ]; then
+            echo "cannot read the floor from scripts/assert-koto-floor.sh" >&2
+            exit 1
+          fi
+          echo "koto floor: $floor"
+          echo "KOTO_FLOOR_RELEASE=$floor" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # The scope suites and the preflight entry point call the validator.
+      - name: Build and install shirabe
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$HOME/.floor-bin"
+          install -m 0755 target/release/shirabe "$HOME/.floor-bin/shirabe"
+          echo "$HOME/.floor-bin" >> "$GITHUB_PATH"
+
+      - name: Install tsuku
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.tsuku/tools/current" >> "$GITHUB_PATH"
+
+      # Exactly the floor release, not the newest 0.x .tsuku.toml resolves to.
+      - name: Install koto at the floor
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y "tsukumogami/koto@$KOTO_FLOOR_RELEASE"
+
+      # The suites below skip with exit 0 without koto, and assert-koto-floor.sh
+      # alone would also accept a newer koto; require the floor exactly.
+      - name: Assert koto is exactly the floor release
+        run: |
+          set -euo pipefail
+          command -v shirabe
+          bash scripts/assert-koto-floor.sh
+          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          if [ "$got" != "$KOTO_FLOOR_RELEASE" ]; then
+            echo "koto on PATH is ${got:-unknown}, expected exactly $KOTO_FLOOR_RELEASE" >&2
+            exit 1
+          fi
+
+      - name: Compile the /scope, /execute and /deliver templates
+        run: |
+          set -euo pipefail
+          for t in skills/scope/koto-templates/scope.md \
+                   skills/execute/koto-templates/execute.md \
+                   skills/execute/koto-templates/execute-coordinated.md \
+                   skills/deliver/koto-templates/deliver.md; do
+            echo "Compiling $t..."
+            koto template compile "$t" >/dev/null
+          done
+
+      - name: Run the shared entry and preflight suites
+        run: |
+          bash scripts/koto-open_test.sh
+          bash scripts/skill-preflight_test.sh
+          bash scripts/lib/preflight-probe_test.sh
+
+      - name: Run /scope's koto-backed suites
+        run: |
+          bash skills/scope/scripts/scope-substrate_test.sh
+          bash skills/scope/scripts/scope-open_test.sh
+          bash skills/scope/scripts/run-intake_test.sh
+          bash skills/scope/scripts/scope-template_test.sh
+          bash skills/scope/scripts/scope-result_test.sh
+          bash skills/scope/scripts/publish-scoping-pr_test.sh
+
+      - name: Run /execute's koto-backed suites
+        run: |
+          bash skills/execute/scripts/settled-branch-record_test.sh
+          bash skills/execute/scripts/execute-template-structure_test.sh
+          bash skills/execute/scripts/execute-coordinated-structure_test.sh
+          bash skills/execute/scripts/execute-coordinated-engine_test.sh
+          bash skills/execute/scripts/execute-open_test.sh
+          bash skills/execute/scripts/terminal-retention_test.sh
+          bash skills/execute/scripts/drift-facts_test.sh
+
+      - name: Run /deliver's koto-backed suites
+        run: |
+          bash skills/deliver/scripts/deliver-template-structure_test.sh
+          bash skills/deliver/scripts/deliver-open-request_test.sh
+          bash skills/deliver/scripts/deliver-absent_test.sh
+          bash skills/deliver/scripts/deliver-open_test.sh
+          bash skills/deliver/scripts/deliver-engine_test.sh
+          bash skills/deliver/scripts/deliver-requires_test.sh

@@ -27,13 +27,25 @@
 # Coordination Intent section verifies them with `skill-preflight.sh scope
 # --mode coordinated`, the moment intent resolves and before the coordination
 # PR is authored.
-# The workflow session. /scope probes for an existing session with `koto status`
-# before opening one, opens it with `koto init` against its own template, writes
-# and reads the origin-worktree record through the context verbs, and advances
-# it with `koto next`. The retention flag on the terminal-reaching ticks is what
-# keeps the per-hop record readable after the run ends, so it is a call site
-# rather than a debugging convenience.
-koto	init	--template,--var	always
+# The workflow session. /scope opens or attaches to its session with one
+# `koto init` through scope-open.sh, whose intake state's default action writes
+# its verdict through the context verbs, reads a lost directive back with
+# `koto status`, and advances it with `koto next`. The retention flag rides on
+# every tick; it is what keeps the per-hop record readable after the run ends,
+# so it is a call site rather than a debugging convenience.
+#
+# jq is scope-open.sh's token mapper: every flag occurrence becomes one
+# variable pair in the vars file koto reads, with no shell expansion.
+#
+# The koto floor. /scope enters its session through the shared
+# scripts/koto-open.sh, which is the call site for `koto init --vars-file`,
+# `--attach-live`, `--replace-terminal`, and `--koto-leg`. Those flags exist
+# only in koto 0.13.0 and later, so the `koto init` record below
+# is /scope's declared koto floor: the tool-declaration policy allows no version
+# number here, and preflight on an older koto names these missing flags and the
+# install route instead. The one-directional requires check does not look for
+# them in this skill's own files, because the call site is the shared script.
+koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	status	-	always
 koto	session	-	always
@@ -41,5 +53,16 @@ koto	context	-	always
 shirabe	slug-prefix-detect	--docs-root	always
 shirabe	validate	--format,--visibility,--check	always
 git	-	-	always
+jq	-	-	always
 shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
 gh	-	-	mode:coordinated
+#
+# The publish surface fires only on intent runs (RUN_INTENT is continue or
+# stop): publish-scoping-pr.sh pushes the branch and reuses or opens the one
+# owned PR with `gh pr create` / `gh pr edit`, and reads PRs through
+# skills/execute/scripts/owned-pr.sh; executed_report and the exit records read
+# the owned PR the same way. A run with no intent makes no gh call, so the
+# record is mode:intent and not checked at load. SKILL.md's Intent Flag
+# section verifies it with `skill-preflight.sh scope --mode intent` before
+# any work when the intent is set.
+gh	-	-	mode:intent

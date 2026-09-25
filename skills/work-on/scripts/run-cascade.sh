@@ -9,12 +9,24 @@
 # roadmap node finalize-chain hands off, and translates finalize-chain's typed
 # report into the cascade's preserved external contract.
 #
-# Usage: run-cascade.sh [--push] <plan-doc-path>
+# Usage: run-cascade.sh [--push] [--session <koto-session>] <plan-doc-path>
 #
 # Options:
 #   --push    Commit and push staged changes. Without this flag, the script
 #             stages changes and prints a per-file status summary but does not
 #             commit or push. Use --push for automated cascade; omit for dry-run.
+#   --session <koto-session>
+#             /execute's expected-head record. After a successful push, write
+#             `git rev-parse HEAD` into that koto session's `expected_head`
+#             context key, exactly as skills/execute/scripts/push-and-record.sh
+#             does, so the merge decision compares the PR's head with the
+#             commit this run pushed. The name must match
+#             ^[A-Za-z0-9][A-Za-z0-9._-]*$. Nothing is recorded when there is
+#             no push or the push fails. A failed record is logged to stderr
+#             and changes neither the steps nor the verdict: with no record,
+#             the merge decision refuses to merge (head-moved), which is the
+#             safe side. A caller that passes no --session (/work-on) gets
+#             exactly the behavior it had before the option existed.
 #
 # Output: JSON on stdout for every run that reaches the cascade -- success,
 # partial or skipped alike. Two classes of run do not reach it: a usage error
@@ -57,6 +69,7 @@ _realpath_m() { python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" 
 PUSH=false
 PLAN_DOC=""
 REPO_ROOT=""
+SESSION=""
 
 # Outline-AC completeness suppression. When WORK_ON_ALLOW_UNTRACKED_ACS=1 is
 # set in the environment, the validator's --allow-untracked-acs flag is added
@@ -710,7 +723,7 @@ handle_roadmap_deletion() {
 
 usage() {
     cat >&2 <<'EOF'
-Usage: run-cascade.sh [--push] <plan-doc-path>
+Usage: run-cascade.sh [--push] [--session <koto-session>] <plan-doc-path>
 
 Walks the upstream frontmatter chain from a completed PLAN doc and applies
 the appropriate lifecycle transition at each node.
@@ -718,6 +731,9 @@ the appropriate lifecycle transition at each node.
 Options:
   --push    Commit and push all staged changes. Without this flag,
             changes are staged but not committed (dry-run-safe).
+  --session <koto-session>
+            After a successful push, record the pushed HEAD as that koto
+            session's expected_head context key.
 
 Output: JSON describing each step and the overall cascade_status. It goes to
 stdout for any run that reaches the cascade; a precondition failure puts it on
@@ -742,6 +758,18 @@ while [[ $# -gt 0 ]]; do
         --push)
             PUSH=true
             shift
+            ;;
+        --session)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --session needs a koto session name" >&2
+                usage
+            fi
+            SESSION="$2"
+            if ! [[ "$SESSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+                echo "Error: --session [$SESSION] is not a koto session name" >&2
+                usage
+            fi
+            shift 2
             ;;
         --help|-h)
             usage
@@ -1073,6 +1101,19 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
         else
             if [[ -n "$git_out" ]]; then log_info "git push: $git_out"; fi
             add_step "push" "null" "null" "ok" ""
+            # /execute's expected-head record, written by the push itself and
+            # only after it succeeded. Not a step: a missing record already
+            # makes the merge decision refuse (head-moved), so a failed write
+            # is logged rather than turned into a partial verdict.
+            if [[ -n "$SESSION" ]]; then
+                pushed_sha=$(git rev-parse HEAD || true)
+                if [[ "$pushed_sha" =~ ^[0-9a-f]{40}$ ]] \
+                    && printf '%s' "$pushed_sha" | koto context add "$SESSION" expected_head >/dev/null; then
+                    log_info "recorded expected_head $pushed_sha in session $SESSION"
+                else
+                    log_warn "pushed, but could not record expected_head in session $SESSION"
+                fi
+            fi
         fi
     fi
 elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then

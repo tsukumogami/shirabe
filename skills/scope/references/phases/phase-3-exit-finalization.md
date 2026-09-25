@@ -42,10 +42,22 @@ the R9 hard-finalization check (see below).
 ### Full-Run Exit
 
 The chain completed through `/plan`. The PLAN already lives at
-`docs/plans/PLAN-<topic>.md` (Draft when `plan_execution_mode:
-single-pr`; Active when `plan_execution_mode: multi-pr` or
-`coordinated`, with an accompanying GitHub milestone created by
-`/plan`). Phase 3 populates the state file with:
+`docs/plans/PLAN-<topic>.md`, committed at the status `/plan` writes
+for it. A committed PLAN is never Draft: its Draft -> Active
+transition fires when `/plan` finishes authoring, or, when the
+transition files GitHub issues, after the filing approval. By mode:
+
+- **`single-pr`** — Active. The work lives in `## Issue Outlines`;
+  no issue or milestone is filed.
+- **`multi-pr`** — Active, with the issues (and, at
+  `issues-and-milestone`, the milestone) `/plan` filed; an issueless
+  `multi-pr` PLAN at tracking level `none` is Active with outlines.
+- **`coordinated`** — Active. The outline-shaped coordinated PLAN
+  (tracking level `none`, the coordinated default) files nothing and
+  is authored at Active; at `issues` or `issues-and-milestone` it is
+  Active once its filing approval has run.
+
+Phase 3 populates the state file with:
 
 ```yaml
 exit: full-run
@@ -53,8 +65,17 @@ chain_completed: <ISO-8601 timestamp>
 plan_execution_mode: single-pr | multi-pr | coordinated
 exit_artifacts:
   - path: docs/plans/PLAN-<topic>.md
-    status: Draft | Active
+    status: Active
 ```
+
+On an intent run the exit is followed by the publish step before
+cleanup (the publish states in `skills/scope/koto-templates/scope.md`):
+the branch is pushed and one PR opened, a draft for `single-pr` and
+`coordinated` and ready for `multi-pr` (R9). A publish that fails
+records `publish_error: scope:push` or `publish_error:
+scope:pr-create` in the state file and ends the run with that step;
+the state file keeps `exit:` and its fields, and the next invocation
+retries the publish.
 
 `exit_artifacts:` lists every durable artifact the run leaves
 behind, not only the PLAN: a chain that produced a BRIEF, a PRD,
@@ -70,7 +91,12 @@ in
 
 Phase 4 removes the state file, so the record of which artifacts
 were produced and which were absorbed has to leave `wip/` before
-then. Phase 3 writes it into the run's pull-request body: every
+then. On an intent run the PR body is the publish script's fixed
+template -- the slug, exit, outcome, `intent=`, mode, the `docs/`
+artifact paths that survive, and the work-item IDs, with no
+free-text field -- so the list of surviving artifacts is what it
+carries. On a run without intent, where the author opens the PR,
+Phase 3 writes the fuller record into the run's pull-request body: every
 artifact in `chain_ran:`, every entry in `chain_skipped:` with its
 `child` and its vocabulary `reason`, and every entry in
 `consolidation_judgments:` with its verdict, its finding, and —
@@ -175,6 +201,14 @@ the closed PR's durable body records what was coordinated, and the
 force-materialized Draft records how far the chain got.
 
 A single-repo run has no coordination PR and skips this.
+
+An intent run skips it too, and makes no `gh pr close` call at all. A run
+whose recorded `intent:` is `continue` or `stop` never creates a
+coordination PR up front (see Coordination Intent in `SKILL.md`): the
+publish step opens one at exit, once the PLAN's mode is known, and an
+abandoned run has not reached it. So before exit there is no coordination
+PR to close. Only a run with `intent: none` whose coordination intent
+resolved on, which did create one up front, closes it here.
 
 ## R8 Bail Route
 
@@ -407,8 +441,36 @@ an undeclared target.
   `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`,
   `docs/designs/current/DESIGN-<topic>.md`,
   `docs/plans/PLAN-<topic>.md`. The `.git/` writes are confined to
-  `git add` and `git commit` restricted to those pathspecs. Nothing
-  pushes.
+  `git add` and `git commit` restricted to those pathspecs.
+
+The publish step adds a fourth group, on intent runs only (a run
+with no intent makes no push and no `gh` call), written by
+`skills/scope/scripts/publish-scoping-pr.sh` in the publish states
+and in `republish`:
+
+- **Publish:**
+  - **untrack** — `git rm --cached` of the topic's own
+    `wip/{scope,brief,prd,design,plan}_<topic>_*` and
+    `wip/research/{prd,design}_<topic>_*`, committed as exactly that
+    removal and nothing else staged; the files stay on disk for
+    Phase 4
+  - **push** — `git push origin HEAD:refs/heads/<branch>`, with no
+    force option and no `+` refspec, refused for a detached HEAD, for
+    a branch failing `git check-ref-format --branch`, and for the
+    remote's default branch
+  - **create** — one `gh pr create --head <branch> --base <default>
+    --title <title> --body-file <file>`, only when the ownership
+    filter finds no owned PR on the branch
+  - **edit** — `gh pr edit --body-file` on the one owned PR, only to
+    rewrite its `intent=` field
+
+  `gh pr create` and that `gh pr edit` are the only `gh` writes. Every
+  PR lookup goes through the ownership filter in
+  `skills/execute/scripts/owned-pr.sh`. The body is a fixed template
+  over the slug, exit, outcome, `intent=`, mode, `docs/` artifact
+  paths and work-item IDs. Every `wip/` path in unpushed history is
+  reported as `wip_paths=`, and the public-content visibility check
+  over those files stops the push with `scope:push` on a hit.
 
 The workflow session adds an out-of-repo group, neither member of
 which is version-controlled or referenced from a committed
@@ -460,7 +522,16 @@ against their declared enums:
 - `plan_execution_mode:` against
   `{single-pr, multi-pr, coordinated}` (when
   the field is interpolated into any post-finalization commit
-  body).
+  body). `coordinated` is accepted in a single repository as in
+  several; anything else (`bogus`, an empty value) is refused.
+- `publish_error:` against `{scope:push, scope:pr-create}`, and
+  only beside a recorded `exit:`.
+- `published_pr:` against
+  `^https://github\.com/<owner>/<repo>/pull/<n>$`.
+
+`skills/scope/scripts/resume-probe.sh` applies the same checks on
+every re-entry and reports a failure as the malformed-state row
+[25].
 
 Out-of-enum values fail finalization and route to R8 bail-
 handling. The re-validation is the second of the two enum-

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# gh shim for /scope's eval scenarios.
+#
+# Reads EVAL_SCENARIO and serves the fake repository described by
+# fixtures/scenarios/<scenario>/gh/. Every invocation's argument list is
+# appended to $GH_CALL_LOG (one call per line) before anything is served, so a
+# scenario can assert what was and was not called: no call at all on a
+# no-intent run, exactly one `pr create`, never a merge. A trailing `--jq
+# <filter>` is applied to the JSON served, exactly as real gh does.
+#
+# The scenario's pull requests start as gh/prs.json and live, once the first
+# call is made, in "$GH_CALL_LOG.d/prs.json", so a `pr create` or `pr edit`
+# changes what the next `pr list` or `pr view` sees. Keys:
+#
+#   gh/prs.json        the repository's PRs (url, state, isCrossRepository,
+#                      author.login, baseRefName, headRefName, body, isDraft)
+#   gh/pr-create.rc    when present, `pr create` fails with this status
+#   gh/repo.json       {"nameWithOwner": ..., "default_branch": ...};
+#                      default eval-org/eval-repo on main
+#   gh/login           the authenticated login; default eval-user
+#
+# Served calls: api user, api repos/<r>, repo view, pr list, pr view,
+# pr create, pr edit, auth status. Anything else fails loudly: a scenario that
+# reaches an unserved call has left the path it was written for.
+set -uo pipefail
+
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -z "${EVAL_SCENARIO:-}" ]; then
+    echo "gh shim: EVAL_SCENARIO not set" >&2
+    exit 1
+fi
+SCEN="$FIXTURES_DIR/scenarios/$EVAL_SCENARIO/gh"
+[ -d "$SCEN" ] || { echo "gh shim: no scenario $EVAL_SCENARIO" >&2; exit 1; }
+
+[ -n "${GH_CALL_LOG:-}" ] && printf '%s\n' "$*" >>"$GH_CALL_LOG"
+
+STATE="${GH_CALL_LOG:+$GH_CALL_LOG.d}"
+[ -n "$STATE" ] || STATE="${TMPDIR:-/tmp}/scope-gh-shim.$EVAL_SCENARIO"
+mkdir -p "$STATE"
+PRS="$STATE/prs.json"
+# @HEAD_BRANCH@ in a scenario's prs.json is the branch checked out where gh
+# first runs, which is the topic branch setup-topic.sh made.
+if [ ! -f "$PRS" ]; then
+    if [ -f "$SCEN/prs.json" ]; then
+        head_branch=$(git symbolic-ref --quiet --short HEAD || echo none)
+        sed "s#@HEAD_BRANCH@#$head_branch#g" "$SCEN/prs.json" >"$PRS"
+    else
+        printf '[]' >"$PRS"
+    fi
+fi
+
+REPO=eval-org/eval-repo
+DEFAULT=main
+if [ -f "$SCEN/repo.json" ]; then
+    REPO=$(jq -r '.nameWithOwner // "eval-org/eval-repo"' "$SCEN/repo.json")
+    DEFAULT=$(jq -r '.default_branch // "main"' "$SCEN/repo.json")
+fi
+LOGIN=eval-user
+[ -f "$SCEN/login" ] && LOGIN=$(tr -d '\n' <"$SCEN/login")
+
+argval() {
+    local want="$1" prev="" a
+    shift
+    for a in "$@"; do
+        [ "$prev" = "$want" ] && { printf '%s' "$a"; return 0; }
+        prev="$a"
+    done
+    return 1
+}
+has_flag() {
+    local want="$1" a
+    shift
+    for a in "$@"; do [ "$a" = "$want" ] && return 0; done
+    return 1
+}
+emit() {
+    local json="$1" f
+    shift
+    if f=$(argval --jq "$@"); then printf '%s' "$json" | jq -r "$f"; else printf '%s\n' "$json"; fi
+}
+
+case "${1:-} ${2:-}" in
+    "auth status") exit 0 ;;
+    "api user") printf '{"login":"%s"}\n' "$LOGIN" ;;
+    "api repos/"*) printf '{"default_branch":"%s"}\n' "$DEFAULT" ;;
+    "repo view")
+        emit "$(jq -nc --arg r "$REPO" --arg d "$DEFAULT" '{nameWithOwner: $r, defaultBranchRef: {name: $d}}')" "$@"
+        ;;
+    "pr list")
+        head=$(argval --head "$@") || head=""
+        state=$(argval --state "$@") || state=open
+        emit "$(jq -c --arg h "$head" --arg s "$state" \
+            'map(select(.headRefName == $h and (if $s == "open" then .state == "OPEN" else true end)))' "$PRS")" "$@"
+        ;;
+    "pr view")
+        emit "$(jq -c --arg u "${3:-}" 'map(select(.url == $u)) | .[0] // {}' "$PRS")" "$@"
+        ;;
+    "pr create")
+        if [ -f "$SCEN/pr-create.rc" ]; then
+            echo "gh shim: pr create failed (scenario $EVAL_SCENARIO)" >&2
+            exit "$(tr -d '\n' <"$SCEN/pr-create.rc")"
+        fi
+        head=$(argval --head "$@") || exit 2
+        base=$(argval --base "$@") || exit 2
+        bodyf=$(argval --body-file "$@") || exit 2
+        draft=false; has_flag --draft "$@" && draft=true
+        n=$(( $(jq 'length' "$PRS") + 100 ))
+        url="https://github.com/$REPO/pull/$n"
+        jq --arg u "$url" --arg h "$head" --arg b "$base" --arg l "$LOGIN" \
+           --rawfile body "$bodyf" --argjson d "$draft" \
+           '. + [{url: $u, state: "OPEN", isCrossRepository: false, author: {login: $l},
+                  baseRefName: $b, headRefName: $h, body: $body, isDraft: $d}]' \
+           "$PRS" >"$PRS.new" && mv "$PRS.new" "$PRS"
+        printf '%s\n' "$url"
+        ;;
+    "pr edit")
+        bodyf=$(argval --body-file "$@") || exit 2
+        jq --arg u "${3:-}" --rawfile body "$bodyf" 'map(if .url == $u then .body = $body else . end)' \
+            "$PRS" >"$PRS.new" && mv "$PRS.new" "$PRS"
+        ;;
+    *)
+        echo "gh shim: no route for: $*" >&2
+        exit 1
+        ;;
+esac

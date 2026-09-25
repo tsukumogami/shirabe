@@ -111,7 +111,7 @@ mktempdir() {
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency"
+SUITES="plan execute work-on preflight templates template-consistency koto-open"
 
 suite_scripts() {
     case "$1" in
@@ -132,9 +132,38 @@ suite_scripts() {
             # through a test-local gh stub, so every case executes on 3.2.
             echo "skills/execute/scripts/merge-verdict_test.sh"
             echo "skills/execute/scripts/merge-exec_test.sh"
+            # The single-pr merge step's scripts, each driven through test-local
+            # gh and koto stubs (and real git), so every case runs on 3.2.
+            echo "skills/execute/scripts/owned-pr_test.sh"
+            echo "skills/execute/scripts/push-and-record_test.sh"
+            echo "skills/execute/scripts/record-merge-verdict_test.sh"
+            echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
+            echo "skills/execute/scripts/print-exit_test.sh"
+            echo "skills/execute/scripts/eval-gh-shim_test.sh"
+            # Its own refusals run on a koto stub; its engine cases, like the
+            # structure test's compile, skip without koto.
+            echo "skills/execute/scripts/execute-open_test.sh"
+            echo "skills/execute/scripts/execute-template-structure_test.sh"
             # Its script cases write through a koto stand-in and need only git
             # and jq, so they run on the macOS leg; its engine cases skip there.
             echo "skills/execute/scripts/drift-facts_test.sh"
+            # The coordinated loop's scripts. Each drives the eval gh shim's
+            # repository model, a koto context stub, and real git, so every
+            # case runs on 3.2; the envelope's structure test compiles with
+            # koto and its engine test runs it, each skipping without koto.
+            echo "skills/execute/scripts/coordinated-next_test.sh"
+            echo "skills/execute/scripts/coordination-verdict_test.sh"
+            echo "skills/execute/scripts/record-coordination-verdict_test.sh"
+            echo "skills/execute/scripts/record-coord-setup_test.sh"
+            echo "skills/execute/scripts/node-cut_test.sh"
+            echo "skills/execute/scripts/node-push_test.sh"
+            echo "skills/execute/scripts/coord-merge_test.sh"
+            echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
+            echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
+            # The "merged" wording check and its test: text only, so every
+            # case runs on 3.2.
+            echo "scripts/check-merged-wording_test.sh"
+            echo "scripts/check-merged-wording.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key
@@ -204,6 +233,15 @@ suite_scripts() {
             # left to check lives with the script that does the recording, in
             # the `execute` suite.
             ;;
+        koto-open)
+            # The shared koto entry. Its stand-in cases need only jq and git,
+            # so they execute on the floor wherever it runs; its engine cases
+            # skip without koto, which the macOS runner lacks, and a developer
+            # running this locally with koto gets them on 3.2 as well.
+            echo "scripts/koto-open_test.sh"
+            # A stub koto answers every case, so all of them run on 3.2.
+            echo "scripts/assert-koto-floor_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -225,6 +263,7 @@ suite_workflow() {
         preflight)            echo ".github/workflows/check-preflight-scripts.yml" ;;
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
+        koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
