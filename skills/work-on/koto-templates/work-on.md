@@ -1092,7 +1092,10 @@ states:
       # Don't rewrite this as "nothing is in the fail bucket" -- that would let
       # an all-queued PR report green.
       #   semantics: scripts/ci-gate-expression_test.sh
-      #   kept identical to execute.md: scripts/validate-template-mermaid.sh check 4
+      #   execute.md's counterpart is owned_ci_passing: the same filter over the
+      #   PR its ownership filter resolves, under its own name because
+      #   scripts/validate-template-mermaid.sh check 4 holds one gate name to one
+      #   command across templates
       ci_passing:
         type: command
         command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
@@ -1100,10 +1103,10 @@ states:
       # check-runs for one. `ci_passing` asks whether nothing is failing, and
       # zero check-runs satisfies that, so the same gate fires for a genuinely
       # green PR and for a DIRTY one whose checks never ran. This gate is what
-      # tells the two apart (#162). Byte-identical to execute.md's, which
-      # validate-template-mermaid.sh check 4 enforces for a gate name shared
-      # across templates: when one copy is fixed and the other is not, the two
-      # workflows disagree about what the gate means.
+      # tells the two apart (#162). execute.md carries the same check as
+      # owned_merge_state_clean, over the PR its ownership filter resolves; the
+      # name differs because validate-template-mermaid.sh check 4 holds a gate
+      # name shared across templates to one command.
       merge_state_clean:
         type: command
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"

@@ -37,12 +37,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS=0
 FAIL=0
 
-# Every koto template carrying a ci_passing gate belongs here. The validator's
-# check 4 holds them all to the same command, so a template added there and
-# forgotten here would be gated but never exercised.
+# Every koto template carrying a CI-green gate belongs here, as
+# "<template>:<gate>". work-on.md's is ci_passing. execute.md's is
+# owned_ci_passing: it resolves the PR through owned-pr.sh rather than the first
+# `gh pr list --head` hit, so its command differs, and the validator's check 4
+# (one gate name, one command) is why it carries its own name. The jq filter
+# that decides green is the same in both, and that filter is what this file
+# drives, so a template added there and forgotten here would be gated but never
+# exercised.
 TEMPLATES=(
-    "skills/work-on/koto-templates/work-on.md"
-    "skills/execute/koto-templates/execute.md"
+    "skills/work-on/koto-templates/work-on.md:ci_passing"
+    "skills/execute/koto-templates/execute.md:owned_ci_passing"
 )
 
 # ---------------------------------------------------------------------------
@@ -133,7 +138,9 @@ assert_gate() {
 # Run the fixture set against every template's live expression
 # ---------------------------------------------------------------------------
 
-for template in "${TEMPLATES[@]}"; do
+for entry in "${TEMPLATES[@]}"; do
+    template="${entry%%:*}"
+    gate="${entry#*:}"
     label="$(basename "$template")"
     path="$REPO_ROOT/$template"
 
@@ -143,9 +150,9 @@ for template in "${TEMPLATES[@]}"; do
         continue
     fi
 
-    raw=$(koto_gate_command "$path" ci_passing)
+    raw=$(koto_gate_command "$path" "$gate")
     if [[ -z "$raw" ]]; then
-        echo "FAIL: [$label] no readable ci_passing gate command found."
+        echo "FAIL: [$label] no readable $gate gate command found."
         echo "       Either the gate was renamed or scripts/lib/koto-gates.sh no"
         echo "       longer matches koto's template layout."
         FAIL=$((FAIL + 1))

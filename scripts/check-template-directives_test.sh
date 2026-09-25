@@ -785,12 +785,19 @@ test_shipped_templates_have_four_known_violations() {
         return
     fi
 
+    # The line of each state's key, read from the template rather than written
+    # down: the findings name a line, and an edit anywhere above a state moves
+    # it without changing which states are flagged.
+    local exec_tpl="$REPO_ROOT/skills/execute/koto-templates/execute.md"
+    local workon_tpl="$REPO_ROOT/skills/work-on/koto-templates/work-on.md"
+    state_line() { grep -n "^  $2:[[:space:]]*\$" "$1" | head -1 | cut -d: -f1; }
+
     local expected
     for expected in \
-        "work-on.md:173 state 'research'" \
-        "execute.md:552 state 'escalate'" \
-        "execute.md:513 state 'escalate_dirty_merge_state'" \
-        "execute.md:374 state 'escalate_upstream_drift'"
+        "work-on.md:$(state_line "$workon_tpl" research) state 'research'" \
+        "execute.md:$(state_line "$exec_tpl" escalate) state 'escalate'" \
+        "execute.md:$(state_line "$exec_tpl" escalate_dirty_merge_state) state 'escalate_dirty_merge_state'" \
+        "execute.md:$(state_line "$exec_tpl" escalate_upstream_drift) state 'escalate_upstream_drift'"
     do
         case "$output" in
             *"$expected"*) ;;

@@ -1,7 +1,9 @@
 ---
-# A fixture for scripts/check-koto-floor.sh: the child a batch scenario
-# materializes when the task should fail. It reaches a `failure: true` terminal
-# on its first tick.
+# A fixture for scripts/check-koto-floor.sh: a batch child that should fail. It
+# reaches a `failure: true` terminal on its first tick. The /execute batch
+# scenarios that materialized it left when execute.md's floor moved to the
+# pinned koto release; it stays as a compiled template and as a helper-test
+# input (a template with no declarations).
 name: koto-floor-child-failure
 version: "1.0"
 description: A batch child that fails on its first tick.

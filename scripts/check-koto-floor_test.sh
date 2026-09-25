@@ -171,13 +171,21 @@ else
 fi
 
 got=$(list_templates "$REPO_ROOT")
-if printf '%s\n' "$got" | grep -qx 'skills/execute/koto-templates/execute.md' \
-    && printf '%s\n' "$got" | grep -qx 'skills/work-on/koto-templates/work-on.md' \
+if printf '%s\n' "$got" | grep -qx 'skills/work-on/koto-templates/work-on.md' \
     && printf '%s\n' "$got" | grep -qx 'scripts/koto-floor/fixtures/decider.md' \
     && ! printf '%s\n' "$got" | grep -q 'mermaid'; then
-    pass "the checkout's templates and the decider fixture are all covered"
+    pass "the checkout's templates and the decider fixture are covered"
 else
-    fail "the checkout's templates and the decider fixture are all covered" "[$got]"
+    fail "the checkout's templates and the decider fixture are covered" "[$got]"
+fi
+
+# execute.md's floor is the pinned koto release, not v0.12.2, and it is left
+# out by name rather than by accident.
+if ! printf '%s\n' "$got" | grep -qx 'skills/execute/koto-templates/execute.md' \
+    && [ "$ABOVE_FLOOR" = "skills/execute/koto-templates/execute.md" ]; then
+    pass "execute.md, whose floor is the pinned release, is left out by name (ABOVE_FLOOR)"
+else
+    fail "execute.md is left out by name" "[$got] ABOVE_FLOOR=[$ABOVE_FLOOR]"
 fi
 
 # -- transcripts --------------------------------------------------------------

@@ -21,11 +21,25 @@
 #     every koto next command line in the template carries the flag
 #     escalate still has the shape that chains
 #
-#   engine-backed, against the SHIPPED execute.md:
+#   engine-backed, against the SHIPPED execute.md (or, in a checkout whose path
+#   koto's --var allowlist refuses, a copy with that path written in):
 #     the blocked terminal keeps its context, and a control without the flag
 #     the PAUSE terminal keeps its context, and a control
-#     retention does not block the resume it exists to protect
+#     retention does not block the resume it exists to protect: a plain init
+#       is refused, and koto-open.sh --replace-terminal replaces the session
+#     each terminal's result payload (outcome, step, reason), walked along
+#       declared edges to merged, ready_awaiting_merge, the DIRTY done_blocked,
+#       a verdict-error done_blocked, and paused_for_review, each with a
+#       no-flag control
+#     the merge step on the engine: a PR still OPEN after the merge call ends
+#       merge-not-observed; a run resumed at merge_attempt without --merge ends
+#       merge-not-requested with no pr merge; overrides on merge_route's and
+#       merge_confirm's gates are refused and the run doesn't reach merged
 #     the chain itself, driven in both directions on a minimal template
+#
+#   The engine-backed cases drive the real verdict scripts: a `gh` stub on PATH
+#   serves the PR, its checks, and its base's rules, and koto hands that PATH to
+#   the actions it runs.
 #
 # The tripwire matters most: if a future change makes `/execute` spawnable as a
 # child, the unconditional flag would withhold its result from its parent, as
@@ -298,7 +312,7 @@ command -v koto >/dev/null 2>&1 || skip_engine_cases "koto not on PATH"
 # installs both so the cases genuinely run where it matters.
 command -v jq >/dev/null 2>&1 || skip_engine_cases "jq not on PATH"
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX")
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
@@ -307,36 +321,166 @@ trap cleanup EXIT
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
 
-# PLUGIN_ROOT is a fixed literal rather than this checkout's path. koto validates
-# a variable's value against `^[a-zA-Z0-9._/:@ \-]*$`, and a checkout sitting
-# under a directory with a `+` in it fails that -- silently, since the failure is
-# on `koto init` and every later call then reports the session missing. The
-# states these cases touch never read PLUGIN_ROOT, so a stand-in is honest here;
-# what would not be honest is a suite whose init failed and whose assertions
-# therefore proved nothing, which is why init_or_die exists.
+# The merge confirm read polls for up to 20 s by default; no case here needs to
+# wait for a merge to land.
+export MERGE_CONFIRM_WAIT_SECS=0
+
+# --- the fixture the sessions run in ------------------------------------------
+#
+# koto binds a session to the directory `koto init` ran in and runs every action
+# there, so each session opens in a small fixture repository. Its origin names a
+# GitHub repository (never fetched), which is what write_set_record, the
+# template's initial state, reads to record the write set `o/r`.
+FIXREPO="$WORKDIR/repo"
+mkdir -p "$FIXREPO"
+(
+    cd "$FIXREPO" || exit 1
+    git init -q .
+    git config user.email t@example.com
+    git config user.name t
+    git commit -q --allow-empty -m init
+    git checkout -q -b impl/probe
+    git remote add origin https://github.com/o/r.git
+) >/dev/null 2>&1
+k() { (cd "$FIXREPO" && koto "$@"); }
+
+# --- the plugin root ------------------------------------------------------------
+#
+# koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
+# checkout under a directory with a `+` in it fails that. The actions these cases
+# run (the write set, the verdict, the confirm read) live in the plugin, so the
+# plugin root has to be real: this checkout's path when it is clean, a symlink in
+# the temp tree when that is clean, and otherwise -- a temp tree that is itself
+# under such a directory -- a copy of the template with this checkout's path
+# written where {{PLUGIN_ROOT}} stood, under a stand-in PLUGIN_ROOT. The copy is
+# the one departure from "the shipped template", and the note says so.
+KOTO_ALLOW='^[a-zA-Z0-9._/:@ -]*$'
+TPL="$TEMPLATE"
+if [[ $REPO_ROOT =~ $KOTO_ALLOW ]]; then
+    PLUGIN_ROOT_VAR="$REPO_ROOT"
+else
+    ln -s "$REPO_ROOT" "$WORKDIR/plugin"
+    if [[ $WORKDIR/plugin =~ $KOTO_ALLOW ]]; then
+        PLUGIN_ROOT_VAR="$WORKDIR/plugin"
+    else
+        mkdir -p "$WORKDIR/derived/skills/execute/koto-templates"
+        ln -s "$REPO_ROOT/skills/work-on" "$WORKDIR/derived/skills/work-on"
+        TPL="$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+        sed "s#{{PLUGIN_ROOT}}#$REPO_ROOT#g" "$TEMPLATE" > "$TPL"
+        PLUGIN_ROOT_VAR=/koto-probe
+        echo "  note: this checkout's path is outside koto's --var allowlist, so these cases run a"
+        echo "        copy of execute.md with the path written in for {{PLUGIN_ROOT}}"
+    fi
+fi
+
+# --- a gh stub, for the verdict and confirm reads -----------------------------
+#
+# Serves $GH_FIX/<key>.out / .rc, a numbered file (<key>.out.N, <key>.rc.N)
+# answering the Nth call to a key, and logs every call. koto hands its PATH to
+# the actions it runs, so the verdict scripts reach this stub, never GitHub.
+mkdir -p "$WORKDIR/bin"
+cat > "$WORKDIR/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+fix="${GH_FIX:?}"
+printf '%s\n' "$*" >> "$fix/gh.log"
+key=unknown
+case "$1 ${2:-}" in
+    "api user") key=user ;;
+    "pr list") key=list ;;
+    "pr merge") key=merge ;;
+    "pr view")
+        case " $* " in *" --json state "*) key=confirm ;; *) key=view ;; esac ;;
+    "pr checks") key=checks ;;
+    "api "*)
+        case "$2" in
+            repos/*/*/rules/branches/*) key=rules ;;
+            repos/*/*/pulls/*/files) key=files ;;
+            repos/*/*/commits/*) key=commit ;;
+            repos/*/*/branches/*) key=branch ;;
+            repos/*/*) key=repo ;;
+        esac ;;
+esac
+n=0; [ -f "$fix/$key.count" ] && n=$(cat "$fix/$key.count"); n=$((n + 1)); echo "$n" > "$fix/$key.count"
+out="$fix/$key.out"; [ -f "$fix/$key.out.$n" ] && out="$fix/$key.out.$n"
+rcf="$fix/$key.rc"; [ -f "$fix/$key.rc.$n" ] && rcf="$fix/$key.rc.$n"
+[ -f "$out" ] || [ -f "$rcf" ] || { echo "gh stub: no fixture for [$key]" >&2; exit 1; }
+[ -f "$out" ] && cat "$out"
+rc=0; [ -f "$rcf" ] && rc=$(cat "$rcf")
+exit "$rc"
+STUB
+chmod +x "$WORKDIR/bin/gh"
+export PATH="$WORKDIR/bin:$PATH"
+
+HEAD_SHA=1111111111111111111111111111111111111111
+PR_URL="https://github.com/o/r/pull/7"
+
+# gh_fixture <name> — a fresh fixture set for one session: an owned PR on
+# impl/probe that is mergeable by squash at HEAD_SHA, and a confirm read that
+# reports MERGED. Cases edit the files they are about.
+gh_fixture() {
+    GH_FIX="$WORKDIR/gh/$1"
+    export GH_FIX
+    rm -rf "$GH_FIX"; mkdir -p "$GH_FIX"; : > "$GH_FIX/gh.log"
+    echo '{"login":"octo"}' > "$GH_FIX/user.out"
+    echo '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true}' > "$GH_FIX/repo.out"
+    jq -nc --arg url "$PR_URL" '[{url: $url, state: "OPEN", isCrossRepository: false,
+        author: {login: "octo"}, baseRefName: "main", headRefName: "impl/probe"}]' > "$GH_FIX/list.out"
+    jq -nc --arg head "$HEAD_SHA" '{state: "OPEN", isDraft: false, mergeStateStatus: "CLEAN",
+        reviewDecision: "", headRefOid: $head, baseRefName: "main", changedFiles: 1,
+        commits: [{oid: $head, committedDate: ((now - 600) | todate)}]}' > "$GH_FIX/view.out"
+    echo '[{"name":"build","bucket":"pass"}]' > "$GH_FIX/checks.out"
+    echo '{"name":"main","protected":false}' > "$GH_FIX/branch.out"
+    echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"build"}]}}]' > "$GH_FIX/rules.out"
+    echo '[{"filename":"src/main.go"}]' > "$GH_FIX/files.out"
+    echo '{"state":"MERGED"}' > "$GH_FIX/confirm.out"
+}
+gh_fixture default
+
+# init_orchestrator <slug> [MERGE] — open execute-<slug> the way the session is
+# named in production (the actions rebuild the name as execute-{{PLAN_SLUG}}),
+# and take the first tick, which runs write_set_record and lands on
+# orchestrator_setup. A session that did not get there fails the suite rather
+# than letting later assertions prove nothing.
 init_orchestrator() {
-    koto init "$1" --template "$TEMPLATE" \
-        --var PLAN_DOC=docs/plans/PLAN-probe.md \
-        --var PLAN_SLUG=probe \
-        --var PLUGIN_ROOT=/koto-probe \
-        --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1
-    if ! koto status "$1" >/dev/null 2>&1; then
-        echo "FAIL: koto init did not produce session '$1' -- the engine-backed cases cannot run" >&2
-        koto init "$1" --template "$TEMPLATE" \
-            --var PLAN_DOC=docs/plans/PLAN-probe.md \
-            --var PLAN_SLUG=probe \
-            --var PLUGIN_ROOT=/koto-probe \
-            --var PAUSE_BEFORE_FINALIZE=false 2>&1 | tail -2 >&2
+    local s="execute-$1" merge="${2:-false}" st
+    k init "$s" --template "$TPL" \
+        --var PLAN_DOC="docs/plans/PLAN-$1.md" \
+        --var PLAN_SLUG="$1" \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
+        --var PAUSE_BEFORE_FINALIZE=false \
+        --var MERGE="$merge" >/dev/null 2>&1
+    if ! k status "$s" >/dev/null 2>&1; then
+        echo "FAIL: koto init did not produce session '$s' -- the engine-backed cases cannot run" >&2
+        k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$1.md" --var PLAN_SLUG="$1" \
+            --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false --var MERGE="$merge" 2>&1 | tail -2 >&2
         exit 1
     fi
-    printf 'the orchestrator record\n' | koto context add "$1" summary.md >/dev/null 2>&1
+    printf 'the orchestrator record\n' | k context add "$s" summary.md >/dev/null 2>&1
+    k next "$s" --no-cleanup >/dev/null 2>&1
+    st=$(k status "$s" 2>/dev/null | jq -r '.current_state // "gone"')
+    if [ "$st" != "orchestrator_setup" ]; then
+        echo "FAIL: the first tick of '$s' stopped at '$st', not orchestrator_setup -- write_set_record did not record the write set" >&2
+        k next "$s" --no-cleanup 2>&1 | head -c 1500 >&2
+        exit 1
+    fi
 }
+
+# walk <session> <state>... — directed hops along declared edges, flag on each.
+walk() {
+    local s="$1" t
+    shift
+    for t in "$@"; do
+        k next "$s" --to "$t" --rationale "terminal-retention probe" --no-cleanup >/dev/null 2>&1
+    done
+}
+
+state_of() { k status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
 
 # --- the blocked terminal keeps its context ----------------------------------
 
-init_orchestrator block_keep
-koto next block_keep --with-data '{"status":"blocked","detail":"probe"}' --no-cleanup >/dev/null 2>&1
-if [ "$(koto context get block_keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+init_orchestrator block-keep
+k next execute-block-keep --with-data '{"status":"blocked","detail":"probe"}' --no-cleanup >/dev/null 2>&1
+if [ "$(k context get execute-block-keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
     pass "an orchestrator run reaching done_blocked with the flag keeps its context"
 else
     fail "an orchestrator run reaching done_blocked with the flag lost its context"
@@ -344,9 +488,9 @@ fi
 
 # Without the control this suite would pass on a koto that had stopped cleaning
 # up at all, and the flag would look load-bearing while doing nothing.
-init_orchestrator block_drop
-koto next block_drop --with-data '{"status":"blocked","detail":"probe"}' >/dev/null 2>&1
-if koto context get block_drop summary.md >/dev/null 2>&1; then
+init_orchestrator block-drop
+k next execute-block-drop --with-data '{"status":"blocked","detail":"probe"}' >/dev/null 2>&1
+if k context get execute-block-drop summary.md >/dev/null 2>&1; then
     fail "an orchestrator run reaching done_blocked without the flag kept its context -- the control did not fire"
 else
     pass "an orchestrator run reaching done_blocked without the flag loses its context (control)"
@@ -371,27 +515,27 @@ walk_to_pause() {
     local target
     for target in $PAUSE_PATH; do
         if [ -n "$2" ]; then
-            koto next "$1" --to "$target" --rationale "terminal-retention probe" "$2" >/dev/null 2>&1
+            k next "$1" --to "$target" --rationale "terminal-retention probe" "$2" >/dev/null 2>&1
         else
-            koto next "$1" --to "$target" --rationale "terminal-retention probe" >/dev/null 2>&1
+            k next "$1" --to "$target" --rationale "terminal-retention probe" >/dev/null 2>&1
         fi
     done
 }
 
-init_orchestrator pause_keep
-walk_to_pause pause_keep --no-cleanup
-PAUSE_STATE=$(koto status pause_keep 2>/dev/null | jq -r '.current_state // "gone"')
+init_orchestrator pause-keep
+walk_to_pause execute-pause-keep --no-cleanup
+PAUSE_STATE=$(state_of execute-pause-keep)
 if [ "$PAUSE_STATE" != "paused_for_review" ]; then
     fail "the walk did not reach paused_for_review (stopped at '$PAUSE_STATE') -- the pause path in execute.md has changed and this case is no longer testing it"
-elif [ "$(koto context get pause_keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+elif [ "$(k context get execute-pause-keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
     pass "an orchestrator run reaching paused_for_review with the flag keeps its context"
 else
     fail "an orchestrator run reaching paused_for_review with the flag lost its context"
 fi
 
-init_orchestrator pause_drop
-walk_to_pause pause_drop ""
-if koto context get pause_drop summary.md >/dev/null 2>&1; then
+init_orchestrator pause-drop
+walk_to_pause execute-pause-drop ""
+if k context get execute-pause-drop summary.md >/dev/null 2>&1; then
     fail "an orchestrator run reaching paused_for_review without the flag kept its context -- the control did not fire"
 else
     pass "an orchestrator run reaching paused_for_review without the flag loses its context (control)"
@@ -399,38 +543,286 @@ fi
 
 # --- retention must not block the resume it exists to protect ----------------
 #
-# The pause terminal is retained so a resume can read its record. But a retained
-# session keeps its name, and `koto init execute-<plan-slug>` -- the only
-# documented entry point for a single-pr run -- refuses a name already in use.
-# So retention would break the very resume that justifies it unless the Resume
-# step recognises the finished session first. These pin the signal it reads and
-# the fact that reading it is non-destructive.
+# The pause terminal is retained so a resume can read its record. A retained
+# session keeps its name, and a plain `koto init` refuses a name already in use,
+# so /execute enters through koto-open.sh with --replace-terminal: a finished
+# session is replaced, and its old result comes back for the caller to print.
+# These pin the signal, the refusal a plain init would still hit, and the
+# replacement.
 
-if [ "$(koto status pause_keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
-    pass "the retained pause session reports is_terminal: true, the signal the Resume guard reads"
+if [ "$(k status execute-pause-keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+    pass "the retained pause session reports is_terminal: true"
 else
-    fail "koto status no longer reports is_terminal: true for the retained pause session -- the Resume guard's signal is gone"
+    fail "koto status no longer reports is_terminal: true for the retained pause session"
 fi
 
-if koto init pause_keep --template "$TEMPLATE" \
-        --var PLAN_DOC=docs/plans/PLAN-probe.md --var PLAN_SLUG=probe \
-        --var PLUGIN_ROOT=/koto-probe --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1; then
-    fail "koto init accepted a name still held by the retained session -- re-check whether the Resume guard is still needed"
+if k init execute-pause-keep --template "$TPL" \
+        --var PLAN_DOC=docs/plans/PLAN-pause-keep.md --var PLAN_SLUG=pause-keep \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1; then
+    fail "a plain koto init accepted a name still held by the retained session -- re-check whether --replace-terminal is still needed"
 else
-    pass "koto init refuses the retained session's name, which is why Resume must check before initializing"
+    pass "a plain koto init refuses the retained session's name, which is why /execute enters with --replace-terminal"
 fi
 
-if [ "$(koto context get pause_keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+if [ "$(k context get execute-pause-keep summary.md 2>/dev/null)" = "the orchestrator record" ]; then
     pass "koto status and the refused init left the record intact"
 else
     fail "inspecting the retained session destroyed or altered its record"
 fi
 
-if grep -q 'is_terminal' "$SKILL_MD"; then
-    pass "SKILL.md's Resume step reads is_terminal (grep, not an executed agent run)"
+ARGS_DIR="$WORKDIR/args"
+mkdir -p "$ARGS_DIR"
+jq -nc --arg root "$PLUGIN_ROOT_VAR" '[["PLAN_DOC","docs/plans/PLAN-pause-keep.md"],["PLAN_SLUG","pause-keep"],
+    ["PLUGIN_ROOT",$root],["PAUSE_BEFORE_FINALIZE","false"],["MERGE","false"]]' > "$ARGS_DIR/vars.json"
+OPEN_OUT=$(cd "$FIXREPO" && bash "$REPO_ROOT/scripts/koto-open.sh" execute-pause-keep "$TPL" "$ARGS_DIR/vars.json" \
+    --attach-live --replace-terminal 2>/dev/null)
+if printf '%s\n' "$OPEN_OUT" | grep -qx 'opened=replaced' \
+    && printf '%s\n' "$OPEN_OUT" | grep -qx 'replaced_state=paused_for_review' \
+    && [ "$(state_of execute-pause-keep)" = "write_set_record" ]; then
+    pass "koto-open.sh --replace-terminal replaces the retained pause session and reports its old state"
 else
-    fail "SKILL.md no longer reads is_terminal on re-entry -- the Resume guard has been dropped"
+    fail "--replace-terminal did not replace the retained session: [$OPEN_OUT], state [$(state_of execute-pause-keep)]"
 fi
+
+if grep -q -- '--replace-terminal' "$SKILL_MD" \
+    && ! grep -n 'session cleanup' "$SKILL_MD" | grep -qi 'resume\|terminal\|clear\|recover'; then
+    pass "SKILL.md's Resume enters with --replace-terminal, with no clean-up-before-init recovery"
+else
+    fail "SKILL.md's Resume must enter with --replace-terminal and must not clean a terminal before init"
+fi
+
+# --- each terminal's result payload -------------------------------------------
+#
+# Every edge into a terminal assigns `outcome` (and `step` or `reason` when the
+# edge fixes it), and every terminal's result map reads those keys. These walk
+# the declared edges -- directed hops up to the state that decides, then the
+# real evidence or the real verdict -- and read the payload back. Each has a
+# control without --no-cleanup on the deciding tick: the tick's own response
+# still carries the result, and the session is gone, which is what the flag
+# exists to prevent.
+
+TO_CI="settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization plan_completion ci_monitor"
+
+# at_ci_monitor <slug> [MERGE] — a session standing at ci_monitor with the
+# settled branch and the expected head recorded, as the skipped states and the
+# push would have left them.
+at_ci_monitor() {
+    init_orchestrator "$1" "${2:-false}"
+    walk "execute-$1" $TO_CI
+    printf 'impl/probe' | k context add "execute-$1" settled_branch >/dev/null 2>&1
+    printf '%s' "$HEAD_SHA" | k context add "execute-$1" expected_head >/dev/null 2>&1
+    if [ "$(state_of "execute-$1")" != "ci_monitor" ]; then
+        echo "FAIL: the walk to ci_monitor stopped at $(state_of "execute-$1")" >&2
+        exit 1
+    fi
+}
+
+# decide <session> <json> <flag|""> — the deciding tick; sets RESP.
+decide() {
+    if [ -n "$3" ]; then
+        RESP=$(k next "$1" --with-data "$2" "$3" 2>/dev/null)
+    else
+        RESP=$(k next "$1" --with-data "$2" 2>/dev/null)
+    fi
+}
+
+# expect_payload <label> <session> <final state> <outcome> <step> <reason>
+# — with the flag: the retained session's `koto status` result.
+expect_payload() {
+    local label="$1" s="$2" st="$3" want="$4|$5|$6" got
+    got=$(k status "$s" 2>/dev/null | jq -r '.result.payload | "\(.outcome)|\(.step)|\(.reason)"')
+    if [ "$(state_of "$s")" = "$st" ] && [ "$got" = "$want" ]; then
+        pass "$label: $st, payload outcome|step|reason = $want"
+    else
+        fail "$label: state [$(state_of "$s")], payload [$got], want $st with [$want]"
+    fi
+}
+
+# expect_control <label> <outcome> — without the flag: the response carries the
+# result and the session is gone.
+expect_control() {
+    local s="$2" got
+    got=$(printf '%s' "$RESP" | jq -r '.result.payload.outcome // "none"' 2>/dev/null)
+    if [ "$got" = "$3" ] && ! k status "$s" >/dev/null 2>&1; then
+        pass "$1 without the flag: the tick's response carries outcome=$3 and the session is gone (control)"
+    else
+        fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no)"
+    fi
+}
+
+# paused_for_review, by pr_finalization's pause edge.
+init_orchestrator payload-pause
+walk execute-payload-pause settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
+decide execute-payload-pause '{"finalization_status":"updated","pause_decision":"pause"}' --no-cleanup
+expect_payload "paused_for_review" execute-payload-pause paused_for_review paused-for-review "" ""
+if [ "$(k status execute-payload-pause | jq -r .result.payload.resume)" = "/execute docs/plans/PLAN-payload-pause.md" ]; then
+    pass "paused_for_review carries the resume command"
+else
+    fail "paused_for_review resume: [$(k status execute-payload-pause | jq -r .result.payload.resume)]"
+fi
+init_orchestrator payload-pause-ctl
+walk execute-payload-pause-ctl settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
+decide execute-payload-pause-ctl '{"finalization_status":"updated","pause_decision":"pause"}' ""
+expect_control "paused_for_review" execute-payload-pause-ctl paused-for-review
+
+# The DIRTY route: ci_monitor -> escalate_dirty_merge_state -> done_blocked.
+at_ci_monitor payload-dirty
+decide execute-payload-dirty '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' --no-cleanup
+expect_payload "the DIRTY done_blocked" execute-payload-dirty done_blocked ready-awaiting-merge "" "merge-state:DIRTY"
+if k status execute-payload-dirty | jq -e '.result.status == "failure"' >/dev/null; then
+    pass "the DIRTY route still ends at the failure terminal (abandonment-forced)"
+else
+    fail "the DIRTY route's result status is not failure"
+fi
+at_ci_monitor payload-dirty-ctl
+decide execute-payload-dirty-ctl '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' ""
+expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge
+
+# A verdict error: a failed check makes the verdict error:execute:ci, and the
+# step reaches the result through the key the record script wrote.
+gh_fixture verdict-error
+echo '[{"name":"build","bucket":"fail"}]' > "$GH_FIX/checks.out"
+at_ci_monitor payload-error
+decide execute-payload-error '{"ci_outcome":"failing_fixed"}' --no-cleanup
+expect_payload "a verdict-error done_blocked" execute-payload-error done_blocked error "execute:ci" ""
+if [ "$(k context get execute-payload-error merge_verdict)" = "error:execute:ci" ]; then
+    pass "the verdict-error run routed on the recorded verdict error:execute:ci"
+else
+    fail "verdict-error: merge_verdict [$(k context get execute-payload-error merge_verdict 2>/dev/null)]"
+fi
+gh_fixture verdict-error-ctl
+echo '[{"name":"build","bucket":"fail"}]' > "$GH_FIX/checks.out"
+at_ci_monitor payload-error-ctl
+decide execute-payload-error-ctl '{"ci_outcome":"failing_fixed"}' ""
+expect_control "a verdict-error done_blocked" execute-payload-error-ctl error
+
+# ready_awaiting_merge: no --merge, so the verdict is awaiting:merge-not-requested.
+gh_fixture no-merge
+at_ci_monitor payload-ready false
+decide execute-payload-ready '{"ci_outcome":"pending"}' --no-cleanup
+expect_payload "ready_awaiting_merge" execute-payload-ready ready_awaiting_merge ready-awaiting-merge "" "merge-not-requested"
+if [ "$(k status execute-payload-ready | jq -r '.result.payload | "\(.pr) \(.repos)"')" = "$PR_URL o/r" ]; then
+    pass "ready_awaiting_merge carries the owned PR and the write set"
+else
+    fail "ready_awaiting_merge pr/repos: [$(k status execute-payload-ready | jq -r '.result.payload | "\(.pr) \(.repos)"')]"
+fi
+gh_fixture no-merge-ctl
+at_ci_monitor payload-ready-ctl false
+decide execute-payload-ready-ctl '{"ci_outcome":"pending"}' ""
+expect_control "ready_awaiting_merge" execute-payload-ready-ctl ready-awaiting-merge
+
+# merged: --merge, a mergeable verdict, merge_attempt, and a confirm read of
+# MERGED. The merge call itself is not made here (merge-exec.sh has its own
+# suite); what is under test is that merge_confirm alone leads to merged.
+gh_fixture merged
+at_ci_monitor payload-merged true
+k next execute-payload-merged --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+if [ "$(state_of execute-payload-merged)" = "merge_attempt" ]; then
+    pass "a mergeable verdict with MERGE=true presents merge_attempt and asks for evidence"
+else
+    fail "mergeable with MERGE=true stopped at [$(state_of execute-payload-merged)]"
+fi
+decide execute-payload-merged '{"merge_exec":"called","merge_line":"merge-called:squash:'"$HEAD_SHA"'"}' --no-cleanup
+expect_payload "merged" execute-payload-merged merged merged "" ""
+if [ "$(k status execute-payload-merged | jq -r '.result.payload.pr')" = "$PR_URL" ]; then
+    pass "merged carries the owned PR"
+else
+    fail "merged pr: [$(k status execute-payload-merged | jq -r '.result.payload.pr')]"
+fi
+gh_fixture merged-ctl
+at_ci_monitor payload-merged-ctl true
+k next execute-payload-merged-ctl --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+decide execute-payload-merged-ctl '{"merge_exec":"called","merge_line":"merge-called:squash:'"$HEAD_SHA"'"}' ""
+expect_control "merged" execute-payload-merged-ctl merged
+
+# --- the merge step's guarantees, on the engine --------------------------------
+
+# A merge call that exits 0 while GitHub keeps reporting OPEN never reads as
+# merged: merge_confirm's recorded read decides.
+gh_fixture stays-open
+echo '{"state":"OPEN"}' > "$GH_FIX/confirm.out"
+at_ci_monitor stays-open true
+k next execute-stays-open --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+k next execute-stays-open --with-data '{"merge_exec":"called"}' --no-cleanup >/dev/null 2>&1
+expect_payload "merge called, PR still OPEN" execute-stays-open ready_awaiting_merge ready-awaiting-merge "" "merge-not-observed"
+
+# A run stopped at merge_attempt with a recorded mergeable verdict, resumed
+# without --merge: the rebind puts MERGE back to false, the merge_intent gate
+# fails before any evidence is asked for, and nothing merges.
+gh_fixture resume-without-merge
+at_ci_monitor resume-no-merge true
+k next execute-resume-no-merge --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+jq -nc --arg root "$PLUGIN_ROOT_VAR" '[["PLAN_DOC","docs/plans/PLAN-resume-no-merge.md"],["PLAN_SLUG","resume-no-merge"],
+    ["PLUGIN_ROOT",$root],["PAUSE_BEFORE_FINALIZE","false"],["MERGE","false"]]' > "$ARGS_DIR/vars.json"
+OPEN_OUT=$(cd "$FIXREPO" && bash "$REPO_ROOT/scripts/koto-open.sh" execute-resume-no-merge "$TPL" "$ARGS_DIR/vars.json" \
+    --attach-live --replace-terminal 2>/dev/null)
+k next execute-resume-no-merge --no-cleanup >/dev/null 2>&1
+if printf '%s\n' "$OPEN_OUT" | grep -qx 'opened=attached' && ! grep -q '^pr merge' "$GH_FIX/gh.log"; then
+    pass "resumed at merge_attempt without --merge: the attach rebinds MERGE and no pr merge is made"
+else
+    fail "resume without --merge: [$OPEN_OUT], gh: $(grep '^pr merge' "$GH_FIX/gh.log")"
+fi
+expect_payload "resumed at merge_attempt without --merge" execute-resume-no-merge ready_awaiting_merge ready-awaiting-merge "" "merge-not-requested"
+
+# Overrides on the gates that decide the merge are refused, with and without
+# --with-data. A session held at merge_route by a pending verdict:
+gh_fixture pending
+echo '[{"name":"build","bucket":"pending"}]' > "$GH_FIX/checks.out"
+at_ci_monitor override-route true
+k next execute-override-route --with-data '{"ci_outcome":"pending"}' --no-cleanup >/dev/null 2>&1
+if [ "$(state_of execute-override-route)" = "merge_route" ]; then
+    pass "a pending verdict holds the run at merge_route, asking for recheck"
+else
+    fail "pending verdict: state [$(state_of execute-override-route)]"
+fi
+for g in verdict_merged verdict_mergeable verdict_awaiting verdict_error verdict_pending verdict_present; do
+    out=$(k overrides record execute-override-route --gate "$g" --rationale probe --with-data '{"matches":true,"exists":true}' 2>&1)
+    rc=$?
+    out2=$(k overrides record execute-override-route --gate "$g" --rationale probe 2>&1)
+    rc2=$?
+    if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && printf '%s' "$out" | grep -q gate_not_overridable; then
+        pass "merge_route's $g refuses an override, with and without --with-data"
+    else
+        fail "merge_route's $g accepted an override: [$out] [$out2]"
+    fi
+done
+k next execute-override-route --no-cleanup >/dev/null 2>&1
+if [ "$(state_of execute-override-route)" = "merge_route" ] && ! grep -q '^pr merge' "$GH_FIX/gh.log"; then
+    pass "after the refused overrides the run is still at merge_route and nothing merged"
+else
+    fail "after refused overrides: state [$(state_of execute-override-route)]"
+fi
+
+# A session held at merge_confirm by a confirm read that cannot find the PR:
+# the lookup serves the verdict, then starts failing before the confirm read.
+gh_fixture confirm-held
+at_ci_monitor override-confirm true
+k next execute-override-confirm --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+rm -f "$GH_FIX/list.out"
+echo 1 > "$GH_FIX/list.rc"
+k next execute-override-confirm --with-data '{"merge_exec":"called"}' --no-cleanup >/dev/null 2>&1
+if [ "$(state_of execute-override-confirm)" = "merge_confirm" ]; then
+    pass "a confirm read that fails holds the run at merge_confirm"
+else
+    fail "confirm held: state [$(state_of execute-override-confirm)]"
+fi
+out=$(k overrides record execute-override-confirm --gate confirmed_merged --rationale probe --with-data '{"matches":true}' 2>&1)
+rc=$?
+out2=$(k overrides record execute-override-confirm --gate confirmed_merged --rationale probe 2>&1)
+rc2=$?
+if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && printf '%s' "$out" | grep -q gate_not_overridable; then
+    pass "merge_confirm's gate refuses an override, with and without --with-data"
+else
+    fail "merge_confirm's gate accepted an override: [$out] [$out2]"
+fi
+k next execute-override-confirm --no-cleanup >/dev/null 2>&1
+if [ "$(state_of execute-override-confirm)" != "merged" ]; then
+    pass "after the refused override the run does not reach merged"
+else
+    fail "the run reached merged after an override attempt"
+fi
+k next execute-override-confirm --with-data '{"confirm_status":"unreadable"}' --no-cleanup >/dev/null 2>&1
+expect_payload "an unreadable confirm read" execute-override-confirm ready_awaiting_merge ready-awaiting-merge "" "merge-not-observed"
 
 # --- the chain is real, not just a shape in the template --------------------
 #

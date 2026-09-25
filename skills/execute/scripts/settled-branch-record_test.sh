@@ -85,6 +85,9 @@ make_repo() {
         git config user.name t
         git commit -q --allow-empty -m init
         git checkout -q -b "$2"
+        # write_set_record, the template's initial state, records the write
+        # set from origin's URL. It is never fetched here.
+        git remote add origin https://github.com/o/r.git
     ) >/dev/null 2>&1
 }
 
@@ -101,8 +104,25 @@ make_repo "$REPO" "$ADOPT_BRANCH"
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
         ln -s "$PLUGIN_ROOT" "$WORKDIR/plugin"
-        PLUGIN_ROOT="$WORKDIR/plugin"
-        echo "  note: plugin root reached through $PLUGIN_ROOT (real path is outside koto's --var allowlist)"
+        case "$WORKDIR/plugin" in
+            *[!a-zA-Z0-9._/:@\ -]*)
+                # The temp tree is itself under such a directory (a TMPDIR
+                # inside the checkout). Run a copy of the template with the real
+                # path written where {{PLUGIN_ROOT}} stood, beside a link to
+                # /work-on so its relative child-template path still resolves.
+                mkdir -p "$WORKDIR/derived/skills/execute/koto-templates"
+                ln -s "$PLUGIN_ROOT/skills/work-on" "$WORKDIR/derived/skills/work-on"
+                sed "s#{{PLUGIN_ROOT}}#$PLUGIN_ROOT#g" "$TEMPLATE" \
+                    > "$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                TEMPLATE="$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                PLUGIN_ROOT=/koto-probe
+                echo "  note: running a copy of execute.md with the plugin path written in (no allowlist-clean path exists)"
+                ;;
+            *)
+                PLUGIN_ROOT="$WORKDIR/plugin"
+                echo "  note: plugin root reached through $PLUGIN_ROOT (real path is outside koto's --var allowlist)"
+                ;;
+        esac
         ;;
 esac
 
@@ -118,12 +138,17 @@ esac
 # koto. Either way the action writes to `execute-<slug>`, so a harness that
 # named its sessions freely would test a session the action never writes to --
 # exactly the failure that finding produced.
+#
+# The first bare tick runs write_set_record, the template's initial state, which
+# records the write set and advances to orchestrator_setup, where the cases
+# below submit their evidence.
 new_session() {
     (cd "${2:-$REPO}" && koto init "execute-$1" --template "$TEMPLATE" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
         --var PLAN_SLUG="$1" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT" \
-        --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1)
+        --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1 \
+        && koto next "execute-$1" --no-cleanup >/dev/null 2>&1)
 }
 
 NEXT_RESPONSE=""

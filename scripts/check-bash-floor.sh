@@ -130,6 +130,18 @@ suite_scripts() {
             # through a test-local gh stub, so every case executes on 3.2.
             echo "skills/execute/scripts/merge-verdict_test.sh"
             echo "skills/execute/scripts/merge-exec_test.sh"
+            # The single-pr merge step's scripts, each driven through test-local
+            # gh and koto stubs (and real git), so every case runs on 3.2.
+            echo "skills/execute/scripts/owned-pr_test.sh"
+            echo "skills/execute/scripts/push-and-record_test.sh"
+            echo "skills/execute/scripts/record-merge-verdict_test.sh"
+            echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
+            echo "skills/execute/scripts/print-exit_test.sh"
+            echo "skills/execute/scripts/eval-gh-shim_test.sh"
+            # Its own refusals run on a koto stub; its engine cases, like the
+            # structure test's compile, skip without koto.
+            echo "skills/execute/scripts/execute-open_test.sh"
+            echo "skills/execute/scripts/execute-template-structure_test.sh"
             # Its script cases write through a koto stand-in and need only git
             # and jq, so they run on the macOS leg; its engine cases skip there.
             echo "skills/execute/scripts/drift-facts_test.sh"
