@@ -26,8 +26,8 @@ on:
       # The engine-backed suites run the koto release .tsuku.toml pins.
       - '.tsuku.toml'
       - 'scripts/assert-koto-pin.sh'
-      # The "merged" wording check over /execute's and /work-on's SKILL.md
-      # (both already covered by skills/** above).
+      # The "merged" wording check over /execute's, /work-on's, and /deliver's
+      # SKILL.md (all already covered by skills/** above).
       - 'scripts/check-merged-wording.sh'
       - 'scripts/check-merged-wording_test.sh'
       - 'scripts/check-merged-wording.allow'
@@ -54,7 +54,7 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install jq
 
-      # "merged" in /execute's and /work-on's SKILL.md describes only the
+      # "merged" in /execute's, /work-on's, and /deliver's SKILL.md describes only the
       # `merged` final state or a PR GitHub reports MERGED. Pure text checks,
       # so they run before any toolchain installs.
       - name: Run merged-wording tests (Linux)

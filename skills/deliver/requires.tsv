@@ -1,0 +1,60 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# The koto floor. /deliver enters its session through
+# skills/deliver/scripts/deliver-open.sh and the shared scripts/koto-open.sh,
+# which is the call site for `koto init --vars-file`, `--attach-live`,
+# `--replace-terminal` and `--koto-leg`. Those flags exist only from the koto
+# release .tsuku.toml pins, and so do everything deliver.md is built from:
+# request-leg gates, transition context_assignments reading a leg's payload,
+# result maps, constrained variables, and `overridable: false` gates. So the
+# `koto init` record below, with the same flags /scope and /execute declare, is
+# /deliver's declared koto floor: the tool-declaration policy allows no version
+# number here, and preflight on an older koto names these missing flags and
+# the install route before any work starts. The one-directional requires check
+# does not look for them in this skill's own files, because the call site is
+# the shared script.
+#
+# The request verbs are /deliver's one write of its own, the per-run koto
+# request, and the reads of it. deliver-open-request.sh (open_request's
+# default action) lists this topic's open requests with `request list
+# --coordinator-of-record --state`, abandons each with `request
+# abandon-request --rationale`, and creates this run's with `request create
+# --with-data --requested-by --coordinator-of-record`. deliver-absent.sh
+# (scope_absent and execute_absent) records the fixed child-absent result with
+# `request resolve --with-data` and reads the leg back with `request get`.
+# SKILL.md closes the run's request on the way out with `request close`, after
+# finding it with `request list`. The leg gates read the request inside koto
+# and need no verb.
+#
+# The session: every tick is `koto next --no-cleanup` (evidence with
+# --with-data), the report reads `koto status`, deliver-open.sh removes this
+# worktree's earlier deliver-<topic> with `koto session cleanup`, and
+# deliver-probe.sh writes its verdicts with `koto context add` after clearing
+# them with `koto context remove`.
+koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
+koto	next	--with-data,--no-cleanup	always
+koto	status	-	always
+koto	session cleanup	-	always
+koto	context add	-	always
+koto	context remove	-	always
+koto	request create	--with-data,--requested-by,--coordinator-of-record	always
+koto	request list	--coordinator-of-record,--state	always
+koto	request abandon-request	--rationale	always
+koto	request resolve	--with-data	always
+koto	request get	-	always
+koto	request close	-	always
+#
+# The re-checks read git and GitHub and write neither. deliver-probe.sh reads
+# refs, the index and origin's HEAD with git; through the shared
+# skills/execute/scripts/owned-pr.sh it reads `gh api user`,
+# `gh api repos/<repo>` and `gh pr list`; it reads `gh repo view` and
+# `gh pr view`; through skills/scope/scripts/publish-scoping-pr.sh --verify it
+# reads `git ls-remote` and the PR body; through
+# skills/execute/scripts/merge-verdict.sh --confirm the PR's state.
+# deliver-preflight.sh reads the work-tree root with git. jq maps the
+# invocation's tokens and reads koto's and gh's JSON. Every repository write
+# happens inside /scope and /execute, under their own declarations.
+gh	-	-	always
+git	-	-	always
+jq	-	-	always
