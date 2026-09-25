@@ -225,8 +225,12 @@ Claude Code session:
   anyway, but it is real and it is stated rather than papered over.
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
-- [koto](https://github.com/tsukumogami/koto): `/work-on` and `/execute` need
-  koto v0.12.2 or later. The `check-koto-floor.yml` CI job checks that floor on
+- [koto](https://github.com/tsukumogami/koto): `/scope` and `/execute` need
+  koto v0.13.0 or later, the release CI is pinned to in `.tsuku.toml`. They
+  enter their session through `scripts/koto-open.sh`, which uses `koto init`'s
+  entry flags (`--vars-file`, `--attach-live`, `--replace-terminal`,
+  `--koto-leg`), and those first shipped in v0.13.0. `/work-on` needs koto
+  v0.12.2 or later. The `check-koto-floor.yml` CI job checks that floor on
   every pull request that touches a template or the scripts a template runs.
 
 Each skill declares the tools it calls in its own `skills/<name>/requires.tsv`,
@@ -234,10 +238,26 @@ and the preflight line checks that declaration when the skill loads. A satisfied
 host sees nothing. An unmet prerequisite gets one plain-prose block naming the
 tool, what is wrong, and the single command that fixes it on this machine.
 Neither `requires.tsv` nor the preflight carries a version: floors go stale
-silently, and a floor nobody rechecks is worse than no floor at all. The one
-stated floor is the koto minimum above, and it is stated only because CI
-rechecks it: `check-koto-floor.yml` installs koto v0.12.2, compiles the
-templates with it, and replays scripted runs to confirm they route the same.
+silently, and a floor nobody rechecks is worse than no floor at all. The koto
+minimums above are stated only because something rechecks them. For `/work-on`,
+`check-koto-floor.yml` installs koto v0.12.2, compiles the templates with it,
+and replays scripted runs to confirm they route the same. For `/scope` and
+`/execute`, the floor is declared as surface rather than as a number: their
+`koto init` records name the four entry flags, so the preflight on an older
+koto names the missing flags and the install route before the skill does any
+work, and every CI job that installs koto from `.tsuku.toml` asserts it got
+the pinned release (`scripts/assert-koto-pin.sh`).
+
+### Upgrading koto to v0.13.0
+
+Sessions created by an older koto have no origin record, and v0.13.0 refuses
+to attach a session without one: `koto-open.sh` reports it as
+`origin_mismatch` and prints koto's instruction to finish the session with the
+koto that started it or remove it with `koto session cleanup <name>`. So a
+`/scope` or `/execute` run that is still in flight when you upgrade can't be
+resumed afterwards. Finish it on the old koto, or clean up its session
+(`koto session cleanup scope-<topic>` or `koto session cleanup
+execute-<plan-slug>`), before you upgrade. There is no automatic migration.
 
 ## CLI and doc validation
 

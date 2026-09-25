@@ -48,7 +48,17 @@
 # an exemption that stops matching its line fails as stale.
 #not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
 #not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
-koto	init	--template,--var	always
+#
+# The koto floor. /execute enters its orchestrator session through the shared
+# scripts/koto-open.sh, which is the call site for `koto init --vars-file`,
+# `--attach-live`, `--replace-terminal`, and `--koto-leg`. Those flags exist
+# only from the koto release .tsuku.toml pins, so the `koto init` record below
+# is /execute's declared koto floor: the tool-declaration policy allows no
+# version number here, and preflight on an older koto names these missing
+# flags and the install route instead. As with run-cascade.sh's records, the
+# call site lives in a shared script, which the one-directional requires check
+# does not treat as a finding.
+koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
 koto	context get	-	always
