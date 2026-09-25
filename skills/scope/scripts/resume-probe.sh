@@ -17,8 +17,9 @@
 #
 #   state file present (meta-ladder rows 1-4)
 #     25  malformed: unreadable, a duplicate or missing required field, or a
-#         value outside its enum (exit, phase_pointer, intent, publish_error,
-#         and the exit path's sub-shape fields)
+#         value outside its enum or pattern (exit, phase_pointer, intent,
+#         plan_execution_mode, publish_error, published_pr, and the exit
+#         path's sub-shape fields)
 #     27  exit: full-run with publish_error: recorded, intent set
 #     28  exit: re-evaluation with publish_error: recorded, intent set
 #     29  exit: abandonment-forced with publish_error: recorded, intent set
@@ -74,6 +75,7 @@ set -uo pipefail
 PROG=resume-probe
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
+RE_PR_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
 STALE_SECS=$((7 * 24 * 3600))
 
 usage() {
@@ -187,7 +189,7 @@ probe_state() {
 
     local f v exitv pointer updated intentv perr now then
     for f in topic phase_pointer last_updated exit intent publish_error boundary \
-             decision_record_sub_shape triggering_child plan_execution_mode; do
+             decision_record_sub_shape triggering_child plan_execution_mode published_pr; do
         sfield "$f" >/dev/null || malformed "$f: appears more than once"
     done
 
@@ -238,6 +240,15 @@ probe_state() {
     if [ -n "$perr" ] && [ -z "$exitv" ]; then
         malformed "publish_error: is recorded but exit: is not"
     fi
+    v=$(sfield published_pr)
+    if [ -n "$v" ] && ! [[ "$v" =~ $RE_PR_URL ]]; then
+        malformed "published_pr: is not a pull request URL"
+    fi
+    v=$(sfield plan_execution_mode)
+    case "$v" in
+        ''|single-pr|multi-pr|coordinated) ;;
+        *) malformed "plan_execution_mode: [$v] is not single-pr, multi-pr or coordinated" ;;
+    esac
 
     if [ -n "$exitv" ]; then
         if [ -n "$perr" ] && [ "$HAS_INTENT" -eq 1 ]; then
@@ -364,9 +375,9 @@ has_prefix "wip/brief_${TOPIC}_" && row 63 brief-partial
 
 present "$HANDOFF" && row 12 explore-handoff
 
-BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || BRANCH=""
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || BRANCH=""
 if [ -z "$BRANCH" ]; then
-    git rev-parse --git-dir >/dev/null 2>&1 || cannot_tell "not inside a git repository"
+    git rev-parse --git-dir >/dev/null || cannot_tell "not inside a git repository"
 fi
 case "$BRANCH" in
     *"$TOPIC"*) row 11 topic-branch ;;

@@ -2170,6 +2170,12 @@ A run resumed at a child partial, a draft's Continue or a boundary's Revise
 goes on from here to that hop rather than to discovery; koto decides that from
 what `resume_route` recorded, so submit `ready` either way.
 
+**An intent run checks its publish prerequisites now.** This run's intent is
+`{{RUN_INTENT}}`. When it is not `none`, run `skill-preflight.sh scope --mode
+intent` (the Intent Flag section of `skills/scope/SKILL.md` has the command):
+the run publishes at exit, and a missing `gh` is better found before the first
+hop than after the last. A run with no intent skips it and makes no `gh` call.
+
 Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
@@ -2757,8 +2763,9 @@ edit a PR any other way.
 Write that value into the state file as `publish_error: <step>` before you
 submit; the run then ends at the error terminal without cleanup, the state
 file keeps `exit:` and its fields, and the next `/scope {{TOPIC}}` routes
-straight back here to retry. **When it succeeds**, remove any `publish_error:`
-line from the state file.
+straight back here to retry. **When it succeeds**, record its `pr=` URL as
+`published_pr: <url>` and remove any `publish_error:` line from the state
+file.
 
 Submit `publish_result: attempted` either way. The `published` gate re-checks
 with the script's read-only `--verify` -- origin's branch equals `HEAD`, exactly
@@ -2783,7 +2790,8 @@ pull request with the Decision Record. Run the publish script, then submit
 
 Everything in `publish_full_run` applies: on a `step=` failure write
 `publish_error: <step>` to the state file before submitting, and on success
-remove it. The PR is always a draft on this exit.
+record `published_pr:` and remove `publish_error:`. The PR is always a draft
+on this exit.
 
 Evidence schema:
 - `publish_result`: `attempted`
@@ -2803,7 +2811,8 @@ script, then submit `publish_result: attempted`.
 
 Everything in `publish_full_run` applies: on a `step=` failure write
 `publish_error: <step>` to the state file before submitting, and on success
-remove it. The PR is always a draft on this exit.
+record `published_pr:` and remove `publish_error:`. The PR is always a draft
+on this exit.
 
 Evidence schema:
 - `publish_result`: `attempted`

@@ -77,15 +77,15 @@ if [ -n "$SESSION" ] && [ -n "$FILE" ]; then usage "give --session or --result-f
 if [ -z "$SESSION" ] && [ -z "$FILE" ]; then usage "--session or --result-file is required"; fi
 
 if [ -n "$SESSION" ]; then
-    JSON=$(koto status "$SESSION" 2>/dev/null) || { echo "$PROG: koto status $SESSION failed" >&2; exit 1; }
+    JSON=$(koto status "$SESSION") || { echo "$PROG: koto status $SESSION failed" >&2; exit 1; }
 else
     [ -f "$FILE" ] && [ -r "$FILE" ] || { echo "$PROG: cannot read $FILE" >&2; exit 1; }
     JSON=$(cat "$FILE")
 fi
 
-STATE=$(printf '%s' "$JSON" | jq -r '(.current_state // .state // "") | strings' 2>/dev/null) \
+STATE=$(printf '%s' "$JSON" | jq -r '(.current_state // .state // "") | strings') \
     || { echo "$PROG: the result is not JSON" >&2; exit 1; }
-PAYLOAD=$(printf '%s' "$JSON" | jq -c '.result.payload // {} | if type == "object" then . else {} end' 2>/dev/null) || PAYLOAD='{}'
+PAYLOAD=$(printf '%s' "$JSON" | jq -c '.result.payload // {} | if type == "object" then . else {} end') || PAYLOAD='{}'
 
 # get <key> <pattern> -- the payload's string value, or empty when it is
 # absent, not a string, or outside the pattern.
@@ -111,14 +111,14 @@ REQUESTED=$(get requested '^(continue|stop)$')
 BOUNDARY=$(get boundary '^(prd|design)$')
 
 # wip_paths: each comma-separated entry a plain wip/ path, else dropped whole.
-WIP=$(printf '%s' "$PAYLOAD" | jq -r '.wip_paths // "" | strings' 2>/dev/null) || WIP=""
+WIP=$(printf '%s' "$PAYLOAD" | jq -r '.wip_paths // "" | strings') || WIP=""
 if [ -n "$WIP" ]; then
     printf '%s\n' "$WIP" | tr ',' '\n' | grep -Evq '^wip/[A-Za-z0-9._/-]+$' && WIP=""
     case "$WIP" in *..*|*[[:cntrl:]]*) WIP="" ;; esac
 fi
 
 # startable: `#<N> <title>` lines, each dropped when it holds anything else.
-STARTABLE=$(printf '%s' "$PAYLOAD" | jq -r '.startable // "" | strings' 2>/dev/null \
+STARTABLE=$(printf '%s' "$PAYLOAD" | jq -r '.startable // "" | strings' \
     | LC_ALL=C grep -E '^#[1-9][0-9]* [^[:cntrl:]]+$' || true)
 
 case "$STATE" in

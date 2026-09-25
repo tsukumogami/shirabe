@@ -148,7 +148,7 @@ ctx_add startable "$START"
 
 # --- the scoping PR ---------------------------------------------------------------
 
-koto context exists "$SESSION" wip_paths >/dev/null 2>&1 || ctx_add wip_paths ""
+koto context exists "$SESSION" wip_paths >/dev/null || ctx_add wip_paths ""
 
 if [ "$INTENT" = none ]; then
     ctx_add pr ""
@@ -165,8 +165,8 @@ record_error() {
     exit 0
 }
 
-BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || record_error "HEAD is not on a named branch"
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null 2>/dev/null) || REPO=""
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || record_error "HEAD is not on a named branch"
+REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null) || REPO=""
 [[ "$REPO" =~ $RE_REPO ]] || record_error "could not read the repository name"
 
 URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open </dev/null)

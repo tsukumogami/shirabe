@@ -96,13 +96,13 @@ ctx_remove executed_verdict
 ctx_remove executed_pr
 ctx_remove executed_pr_state
 
-BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || BRANCH=""
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || BRANCH=""
 if [ -z "$BRANCH" ]; then
     printf '%s: HEAD is not on a named branch\n' "$PROG" >&2
     verdict read-failed
 fi
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null 2>/dev/null) || REPO=""
+REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null) || REPO=""
 if ! [[ "$REPO" =~ $RE_REPO ]]; then
     printf '%s: could not read the repository name\n' "$PROG" >&2
     verdict read-failed
@@ -121,7 +121,7 @@ if ! [[ "$URL" =~ $RE_PR_URL ]]; then
     verdict read-failed
 fi
 
-STATE=$(gh pr view "$URL" --json state --jq .state </dev/null 2>/dev/null) || STATE=""
+STATE=$(gh pr view "$URL" --json state --jq .state </dev/null) || STATE=""
 case "$STATE" in
     MERGED) PR_STATE=merged ;;
     OPEN) PR_STATE=open ;;

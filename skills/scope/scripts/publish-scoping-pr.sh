@@ -165,16 +165,16 @@ frontmatter_field() { # frontmatter_field <file> <key>
 # what GitHub reports. Empty when neither can be read.
 default_branch() {
     local d
-    d=$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub(/^refs\/heads\//, "", $2); print $2; exit }')
+    d=$(git ls-remote --symref origin HEAD | awk '$1 == "ref:" && $3 == "HEAD" { sub(/^refs\/heads\//, "", $2); print $2; exit }')
     if [ -z "$d" ]; then
-        d=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name </dev/null 2>/dev/null) || d=""
+        d=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name </dev/null) || d=""
     fi
     printf '%s' "$d"
 }
 
 repo_name() {
     local r
-    r=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null 2>/dev/null) || r=""
+    r=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null) || r=""
     [[ "$r" =~ $RE_REPO ]] || return 1
     printf '%s' "$r"
 }
@@ -182,7 +182,7 @@ repo_name() {
 # body_intent <url> -- the value of the PR body's `intent=` line.
 body_intent() {
     local body
-    body=$(gh pr view "$1" --json body --jq .body </dev/null 2>/dev/null) || return 1
+    body=$(gh pr view "$1" --json body --jq .body </dev/null) || return 1
     printf '%s\n' "$body" | tr -d '\r' | sed -nE 's/^intent=(continue|stop|none)$/\1/p' | sed -n '1p'
 }
 
@@ -192,10 +192,10 @@ if [ "$VERIFY" -eq 1 ]; then
     not_verified() { printf '%s: not verified: %s\n' "$PROG" "$1" >&2; exit 1; }
     unreadable()   { printf '%s: cannot verify: %s\n' "$PROG" "$1" >&2; exit 2; }
 
-    BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || not_verified "HEAD is detached"
-    git remote get-url origin >/dev/null 2>&1 || not_verified "no origin remote"
-    HEAD_SHA=$(git rev-parse HEAD 2>/dev/null) || unreadable "git rev-parse HEAD failed"
-    REMOTE=$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null) || unreadable "git ls-remote origin failed"
+    BRANCH=$(git symbolic-ref --quiet --short HEAD) || not_verified "HEAD is detached"
+    git remote get-url origin >/dev/null || not_verified "no origin remote"
+    HEAD_SHA=$(git rev-parse HEAD) || unreadable "git rev-parse HEAD failed"
+    REMOTE=$(git ls-remote origin "refs/heads/$BRANCH") || unreadable "git ls-remote origin failed"
     REMOTE_SHA=$(printf '%s\n' "$REMOTE" | awk 'NR == 1 { print $1 }')
     [ "$REMOTE_SHA" = "$HEAD_SHA" ] || not_verified "origin's $BRANCH is [$REMOTE_SHA], HEAD is $HEAD_SHA"
 
@@ -248,7 +248,7 @@ ctx remove wip_paths
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/publish-scoping-pr.XXXXXX") || fail scope:push "could not make a scratch directory"
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail scope:push "not inside a git work tree"
+git rev-parse --is-inside-work-tree >/dev/null || fail scope:push "not inside a git work tree"
 TOP=$(git rev-parse --show-toplevel) || fail scope:push "the work tree root cannot be read"
 cd "$TOP" || fail scope:push "cannot enter $TOP"
 
@@ -264,10 +264,10 @@ fi
 printf 'mode=%s\n' "${MODE:-none}"
 
 # 2. the branch
-BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || fail scope:push "HEAD is detached; nothing is pushed from a detached HEAD"
-git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || fail scope:push "[$BRANCH] fails git check-ref-format --branch"
+BRANCH=$(git symbolic-ref --quiet --short HEAD) || fail scope:push "HEAD is detached; nothing is pushed from a detached HEAD"
+git check-ref-format --branch "$BRANCH" >/dev/null || fail scope:push "[$BRANCH] fails git check-ref-format --branch"
 case "$BRANCH" in -*) fail scope:push "[$BRANCH] starts with -" ;; esac
-git remote get-url origin >/dev/null 2>&1 || fail scope:push "there is no origin remote"
+git remote get-url origin >/dev/null || fail scope:push "there is no origin remote"
 DEFAULT=$(default_branch)
 [ -n "$DEFAULT" ] || fail scope:push "origin's default branch cannot be read"
 case "$BRANCH" in
@@ -290,16 +290,18 @@ if [ -n "$UNTRACK" ]; then
     MSG="chore(scope): untrack ${TOPIC} wip/ artifacts"
     NEW=$(git commit-tree "$TREE" -p "$OLD" -m "$MSG") || fail scope:push "could not commit the untrack"
     git update-ref -m "$MSG" "refs/heads/$BRANCH" "$NEW" "$OLD" || fail scope:push "could not move $BRANCH"
+    # The real index still lists the paths the new HEAD dropped; untrack them
+    # there too, or the next commit would add them back.
     printf '%s\n' "$UNTRACK" | while IFS= read -r p; do
-        git rm --cached -q -- "$p" >/dev/null 2>&1 || true
-    done
+        git rm --cached -q -- "$p" || exit 1
+    done || fail scope:push "the untrack commit landed, but the index still tracks the topic's wip/"
 fi
 
 # 4. wip/ in unpushed history, and the visibility check
-COMMITS=$(git rev-list HEAD --not --remotes=origin 2>/dev/null) || fail scope:push "cannot list unpushed commits"
+COMMITS=$(git rev-list HEAD --not --remotes=origin) || fail scope:push "cannot list unpushed commits"
 WIP_PATHS=""
 if [ -n "$COMMITS" ]; then
-    WIP_PATHS=$(git log --format= --name-only HEAD --not --remotes=origin -- wip/ 2>/dev/null | sed '/^$/d' | sort -u)
+    WIP_PATHS=$(git log --format= --name-only HEAD --not --remotes=origin -- wip/ | sed '/^$/d' | sort -u)
 fi
 
 PUBLIC=0
@@ -313,16 +315,20 @@ if [ -n "$WIP_PATHS" ]; then
     ctx add wip_paths "$JOINED"
     if [ "$PUBLIC" -eq 1 ]; then
         HIT=""
-        # Every version of every listed path that an unpushed commit holds.
+        # Every version of every listed path that an unpushed commit holds:
+        # each commit's own wip/ tree, filtered to the listed paths, so no
+        # path is asked of a commit that does not have it.
         for c in $COMMITS; do
+            TREE_PATHS=$(git ls-tree -r --name-only "$c" -- wip/) || fail scope:push "cannot read the tree of $c"
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
-                if git cat-file -p "$c:$p" 2>/dev/null \
+                printf '%s\n' "$WIP_PATHS" | grep -qxF -- "$p" || continue
+                if git cat-file -p "$c:$p" \
                     | grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private'; then
                     HIT="$p"; break
                 fi
             done <<EOF
-$WIP_PATHS
+$TREE_PATHS
 EOF
             [ -z "$HIT" ] || break
         done
@@ -332,7 +338,7 @@ fi
 
 # 5. the push, skipped when origin already holds HEAD (a re-run after success)
 HEAD_SHA=$(git rev-parse HEAD) || fail scope:push "git rev-parse HEAD failed"
-REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | awk 'NR == 1 { print $1 }')
+REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk 'NR == 1 { print $1 }')
 if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
     git push -q origin "HEAD:refs/heads/$BRANCH" </dev/null >&2 \
         || fail scope:push "the push of HEAD to origin's $BRANCH failed"

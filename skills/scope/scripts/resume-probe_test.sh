@@ -107,6 +107,16 @@ plan_execution_mode: single-pr
 publish_error: scope:elsewhere
 ";                                 expect "publish_error outside its enum" 25 t continue
 repo; state t "exit: full-run
+plan_execution_mode: bogus
+";                                 expect "plan_execution_mode: bogus is refused" 25 t none
+repo; state t "exit: full-run
+plan_execution_mode: coordinated
+";                                 expect "plan_execution_mode: coordinated is accepted" 26 t none
+repo; state t "exit: full-run
+plan_execution_mode: single-pr
+published_pr: https://evil.example/acme/w/pull/1
+";                                 expect "published_pr outside the URL pattern" 25 t continue
+repo; state t "exit: full-run
 plan_execution_mode: single-pr
 ";                                 expect "exit set, no publish pending" 26 t continue
 repo; state t "exit: full-run
