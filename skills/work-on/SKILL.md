@@ -171,12 +171,12 @@ When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new b
 
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
 
-**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. During `analysis`, the analysis agent confirms or overrides this value based on what the work actually entails, then includes `issue_type` in its evidence. During `implementation`, the agent re-submits the confirmed `issue_type` to route post-implementation:
-- `code` (default) — proceeds through scrutiny → review → qa_validation
-- `docs` — skips panels, goes directly to finalization
-- `task` — skips panels, goes directly to finalization
+**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. The type is asked exactly once, at the `issue_type_routing` state, after implementation. It is not submitted during `analysis` or `implementation`. When `implementation_status: complete` is submitted, koto records the changed paths itself (`changed_paths_record`, which writes `changed_paths.txt` from the `impl_base` commit `analysis` recorded on entry) and stops at `issue_type_routing`, where the agent confirms or overrides the hint against those paths and submits `issue_type`:
+- `code` — proceeds through scrutiny → review → qa_validation; scrutiny won't pass on a branch with no commits over main
+- `docs` — skips the panels and goes to verification; needs at least one commit over main
+- `task` — skips the panels and goes to verification; needs no commits
 
-When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), omitting `issue_type` from evidence defaults to `code` behavior.
+When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), the hint defaults to `code`; the question at `issue_type_routing` is asked either way.
 
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
@@ -228,8 +228,15 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   **treat any answer that is not exactly `root` as `child`** — that is what
   makes its fail-safe hold. The script's header covers calling it from a
   `work-on.md` state directive, where `{{SESSION_NAME}}` supplies the name.
-- `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh` — the
-  two harnesses; see each file's header.
+- `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
+  itself, never by the agent: `analysis` runs `--base` on entry to record
+  `impl_base` once, and `changed_paths_record` runs `--write` to put
+  `changed_paths.txt` in context before `issue_type_routing` asks for the type.
+  Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
+  missing argument. The script's header has the base rules and the caps.
+- `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
+  `scripts/record-changed-paths_test.sh` — the harnesses; see each file's
+  header.
 
 ### Execution Loop
 

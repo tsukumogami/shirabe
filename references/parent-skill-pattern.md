@@ -364,6 +364,21 @@ child's API and break the moment the child refactors its inputs;
 passing through existing modes plus the pattern-level convention
 keeps the parent loosely coupled across child revisions.
 
+**`--koto-leg=<request-id>:<leg>` is a pattern-level, child-owned
+flag.** A koto-backed skill that can run as a child declares it in
+its own SKILL.md, and it works with any koto coordinator, not with
+one named parent: whoever holds a koto request can hand a child one
+of that request's legs. It changes **only where the child's terminal
+result goes**. With the flag, the child attaches its own root session
+to the named leg, and koto promotes the child's declared terminal
+result to that leg; without it, the result stays on the child's own
+session. Arguments, phases, prompts, printed output, and retention are
+identical either way, so the flag passes the test above: it works
+when no parent is present, and it's a shipped mode rather than a
+per-parent input. `/scope` and `/execute` own it. The driver that
+uses it is described under Parent-of-the-Parent Binding in the
+Dispatch Contract below.
+
 ## Named Substitution Surfaces
 
 The design names two substitution variables whose v1 values are
@@ -519,8 +534,9 @@ parent layer. v1 carries **two** Layer-2 bindings for that element:
   children to a koto session that materializes one child per issue
   against `/work-on`'s child template, and drives that loop rather
   than blocking on a single call. Its coordinated path dispatches the
-  same `/work-on` single-issue run per repo through a plain
-  durable-state loop instead of a koto session.
+  same `/work-on` run for each work item of a PR node, on that node's
+  own branch, through a script-driven loop inside a thin koto envelope
+  rather than through materialized children.
 
 The mechanism statement is widened to carry both rather than
 admitting `/execute` as a named variance. The layering already treats
@@ -541,6 +557,42 @@ child's inbox, or any sub-team the child spawns. The Skill tool gives
 the parent no privileged view into the child's internals, and a
 materialized child is reached through the same durable surfaces plus
 `gh` metadata on the child's own pull request.
+
+### Parent-of-the-Parent Binding
+
+Some work needs two parents in sequence: `/deliver` runs `/scope` and
+then `/execute` on one topic. The skill that sequences them is a
+**driver**, a parent of parents, and it binds differently from the
+two bindings above.
+
+- **The driver is a koto template.** Its sequencing, confirmation,
+  resume, and outcome mapping are template states and gates, not
+  skill prose.
+- **One koto request per run.** Each driver invocation opens a fresh
+  session and one fresh koto request with one leg per child (for
+  `/deliver`, `scope` and `execute`), each leg declaring its role and
+  the template it accepts. It abandons any request still open under
+  the same coordinator first, so a late result from an earlier run is
+  refused rather than read as this run's.
+- **Children are leg-attached root sessions.** The driver invokes each
+  child with `--koto-leg=<request-id>:<leg>`. The child keeps its own
+  stable-named root session (no `--parent` link) and its own resume
+  ladder, whoever launched it. A session a direct run started is
+  picked up by attaching it to the leg.
+- **Children report through declared results.** Every terminal of a
+  leg-attachable child declares a `result:` map, and koto promotes it
+  to the leg at the terminal tick. A refusal at `koto init` or attach
+  lands on the leg as a refused result. The driver reads each leg
+  only through a `request-leg` gate, routes on the child's `outcome`,
+  and never parses a child's printed lines. Before it moves forward on
+  a child's word, it re-checks durable state (the PLAN, the owned PR,
+  GitHub) itself.
+
+**No parent skill invokes another.** `/scope` doesn't call
+`/execute`, and `/execute` doesn't call `/scope`; only the driver
+sequences them, and each child's surface stays exactly what a direct
+invocation sees. The driver is itself a skill a person invokes
+directly, so it has no parent of its own in this pattern.
 
 ### Pre-Dispatch State
 

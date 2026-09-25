@@ -99,6 +99,15 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
+#   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
+#   scripts/koto-floor/ (check-koto-floor.yml)
+#       The koto version-floor check. It runs only on ubuntu runners, from its
+#       own workflow, and no skill invokes it, so it never reaches a macOS
+#       /bin/bash on a user's machine. Its test needs mikefarah yq v4, which the
+#       floor container does not carry, and the check itself installs koto over
+#       the network, which a container run here cannot do. Both are written
+#       for bash 3.2 and were run under macOS /bin/bash when they landed; run
+#       them there by hand after changing them.
 
 SUITES="plan execute work-on preflight templates template-consistency"
 
@@ -117,6 +126,13 @@ suite_scripts() {
             # Same koto-absent contract: its two static cases still run on the
             # macOS leg, and the engine-backed ones skip there.
             echo "skills/execute/scripts/terminal-retention_test.sh"
+            # Need no engine and no network: both drive the merge scripts
+            # through a test-local gh stub, so every case executes on 3.2.
+            echo "skills/execute/scripts/merge-verdict_test.sh"
+            echo "skills/execute/scripts/merge-exec_test.sh"
+            # Its script cases write through a koto stand-in and need only git
+            # and jq, so they run on the macOS leg; its engine cases skip there.
+            echo "skills/execute/scripts/drift-facts_test.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key
@@ -141,6 +157,9 @@ suite_scripts() {
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
+            # Its script cases write through a koto stand-in and need only git,
+            # so they run on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/record-changed-paths_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

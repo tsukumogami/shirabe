@@ -207,12 +207,13 @@ resolve shell variables, and `scripts/check-template-interpolation.sh` rejects
 the field for exactly that reason. The agent's own shell expands it once, here.
 
 `PLAN_SLUG` is the same slug already derived for the session name, passed
-again as a template variable because the `worktree_discipline_check` gate
-interpolates it into a command koto runs itself. koto resolves only `{{KEY}}`
-references and validates them against the template's `variables:` block at
-compile time, so passing the slug this way makes a future typo in the
-reference a template error rather than an empty expansion that silently tests
-the wrong path.
+again as a template variable because the `settled_branch_record` and
+`drift_facts` actions interpolate it into commands koto runs itself: each
+rebuilds the session name as `execute-{{PLAN_SLUG}}`. koto resolves only
+`{{KEY}}` references and validates them against the template's `variables:`
+block at compile time, so passing the slug this way makes a future typo in the
+reference a template error rather than an empty expansion that silently writes
+to the wrong session.
 
 On a **resume** of a paused run, `PAUSE_BEFORE_FINALIZE` is `false` regardless of
 mode — re-invoking `/execute` on a paused topic is a finalize invocation (the
@@ -243,9 +244,10 @@ does.
 **Including the two ticks in `spawn_and_await`, which look non-terminal and are
 not.** A tick does not stop at the state it routes to; a state halts the chain
 only if it declares at least one conditional transition, and `escalate` declares
-required evidence but exits unconditionally to `done_blocked`. So
-`batch_outcome: needs_attention` chains through to that terminal in one
-invocation, and bare it destroys the record of the batch that failed.
+required evidence but exits unconditionally to `done_blocked`. So when the
+`batch_done` gate takes its attention route (a child failed or was skipped, so
+`needs_attention` is true), the tick chains through `escalate` to that terminal
+in one invocation, and bare it destroys the record of the batch that failed.
 
 **This does not extend to the children.** A per-issue `/work-on` child must not
 carry the flag — on a child it also suppresses the `request_store.result` and
@@ -283,6 +285,22 @@ now). The states and their tick mechanics:
   settled on. The captured name reaches `spawn_and_await` as
   `{{SETTLED_BRANCH}}`. On the passing path the state advances with no evidence
   and the agent never sees it.
+- `drift_facts` — koto runs `skills/execute/scripts/drift-facts.sh` itself on
+  entry, before any rebase: it fetches `origin`, takes the PLAN's base as the
+  merge-base of the PLAN's last commit and `origin/main`, and compares what main
+  changed since then against the paths the PLAN references. It writes
+  `plan_intent.md` and then `drift_facts.json` (`route` first: `none` or
+  `judge`) to the session's context. It has to run before the rebase, which
+  moves a branch-only PLAN's fork point.
+- `worktree_sync` — koto runs `git rebase origin/main` itself on entry, onto the
+  `origin/main` that `drift_facts` fetched. A clean rebase with facts that say
+  `route: none` goes straight to `spawn_and_await`, so a run with no drift is
+  never asked about it. Anything else goes to `worktree_discipline_check`.
+- `worktree_discipline_check` — the one drift question, asked only when the
+  facts couldn't rule drift out. The agent reads the two context keys and
+  submits `impact: informational` (continue) or `impact: intent-changing` with a
+  `rationale` (stop at `done_blocked`); see
+  `skills/work-on/references/phases/phase-2.5-worktree-discipline.md`.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
   into each task from `{{SETTLED_BRANCH}}`, the capture the previous state
   delivered — no read-back, no exit-status branching, and no `impl/<slug>`

@@ -1,0 +1,24 @@
+name: Check coordination gate refs
+
+# Tests scripts/coordination-gate-refs.sh, the ref extraction and
+# self-reference filter that lifecycle.yml's coordination merge-last gate runs
+# before building its `--pr` arguments. The filter drops the index entry that
+# names the coordination PR itself, so a single-repo coordination PR does not
+# wait on its own merge.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/coordination-gate-refs.sh'
+      - 'scripts/coordination-gate-refs_test.sh'
+      - '.github/workflows/lifecycle.yml'
+      - '.github/workflows/check-coordination-gate-refs.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the coordination gate ref filter
+        run: bash scripts/coordination-gate-refs_test.sh

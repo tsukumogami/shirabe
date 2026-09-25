@@ -1,13 +1,9 @@
 {
   "action": "execute",
-  "state": "implementation",
-  "directive": "Write code and commit changes. Gate 'has_commits' is currently failing (exit code 1): no commits found on branch above main. You cannot transition to finalization until this gate passes. Make at least one commit before submitting implementation_status: complete.",
+  "state": "issue_type_routing",
+  "directive": "Say what kind of change this issue turned out to be. The agent submitted issue_type: docs, but gate 'has_commits' is failing (exit code 1): no commits found on branch above main. docs needs at least one commit over main; the state holds and does not route to verification until the work is committed and issue_type: docs is submitted again.",
   "advanced": false,
   "gates": {
-    "on_feature_branch_impl": {
-      "exit_code": 0,
-      "error": ""
-    },
     "has_commits": {
       "exit_code": 1,
       "error": "no commits found on this branch above main"
@@ -16,14 +12,13 @@
   "expects": {
     "event_type": "evidence_submitted",
     "fields": {
-      "implementation_status": {
+      "issue_type": {
         "type": "enum",
         "required": true,
         "values": [
-          "complete",
-          "partial_tests_failing_retry",
-          "partial_tests_failing_escalate",
-          "blocked"
+          "code",
+          "docs",
+          "task"
         ]
       }
     }

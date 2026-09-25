@@ -123,10 +123,11 @@ Every PLAN artifact has these 7 sections, in order:
 
 ## Execution Mode Differences
 
-| Section | single-pr | multi-pr | coordinated |
-|---------|-----------|----------|-------------|
-| Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted | Empty or omitted |
-| Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table | Populated with issue table + per-issue Repo/Group tags |
+| Section | single-pr | multi-pr | coordinated, outline-shaped (`tracking_level: none`) | coordinated, issue-carrying |
+|---------|-----------|----------|------------------------------------------------------|-----------------------------|
+| Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted (populated at `tracking_level: none`) | Populated with outlines, each with `**Repo**:` and `**Group**:`, plus any `### Gate:` blocks | Empty or omitted |
+| Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table | Empty or omitted | Populated with issue table + per-issue Repo/Group rows and `_Gate:` rows |
+| Dependency Graph | Omitted | Populated | Populated | Populated |
 
 In single-pr mode, Phase 4 agents produce structured outlines that
 become sub-sections under Issue Outlines. These give /work-on the
@@ -137,21 +138,95 @@ In multi-pr mode, Phase 4 agents write full issue body files. Phase 7
 creates GitHub issues and milestones, populates the Implementation
 Issues table with links, and transitions the PLAN doc to Active.
 
-In coordinated mode, the work spans more than one repository.
-Coordinated is the multi-repo generalization of multi-pr: it shares
-multi-pr's section shape (Implementation Issues table + Dependency
-Graph) and adds two things — per-issue `Repo`/`pr_group` tags and a
-two-node merge-order DAG that `/plan` derives by collapsing the
-issue-level dependency graph. See the canonical contract at
+In coordinated mode, the work lands as several PRs, one per PR group,
+in one or more repositories, in a recorded merge order with a
+coordination PR that merges last. Every work item names its repository
+and PR group, and `/plan` derives a two-node merge-order DAG by
+collapsing the work-item dependency graph. Coordinated follows the
+resolved tracking level with `none` as its default, so it has two
+shapes:
+
+- **Outline-shaped** (explicit `tracking_level: none`) -- nothing is
+  filed. Work items are outlines under `## Issue Outlines`, each with
+  `**Repo**:` and `**Group**:` lines; non-PR gates are `### Gate:
+  <name>` blocks; a `## Dependency Graph` draws the order; there is no
+  Implementation Issues table. The PLAN is authored at `Active`,
+  because activation creates no GitHub artifacts.
+- **Issue-carrying** (`tracking_level: issues` or
+  `issues-and-milestone`, or no `tracking_level` field at all) -- the
+  Implementation Issues table links the filed issues and carries a
+  Repo/Group annotation row per issue and `_Gate:` rows, alongside the
+  Dependency Graph. A coordinated PLAN written before coordinated
+  followed the tracking level has no field and is read this way.
+
+See the canonical contract at
 `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
 
-### Coordinated Mode: Per-Repo Grouping and the Two-Node DAG
+### Coordinated Mode: Per-Group Nodes and the Two-Node DAG
 
-Each issue in a coordinated PLAN carries a `repo` + `pr_group` tag,
-declared as an annotation row directly under the issue's entity row in
-the Implementation Issues table. The annotation mirrors the existing
-`^_Child: ..._` child-reference convention; the two fields are
-separated by an escaped pipe (`\|`) so the row stays one table cell:
+#### Outline-shaped form
+
+Each outline names its repository and PR group on its own lines, and a
+gate is its own `###` block inside `## Issue Outlines`:
+
+```markdown
+### Issue 1: feat: add api surface
+
+**Repo**: owner/repo-a
+
+**Group**: core
+
+**Goal**: ...
+
+**Acceptance Criteria**:
+- [ ] ...
+
+**Dependencies**: None
+
+### Gate: publish-core
+
+**After**: Issue 1
+
+**Before**: Issue 2
+
+**Condition**: the core package is published at the new version.
+
+### Issue 2: feat: consume api
+
+**Repo**: owner/repo-a
+
+**Group**: cli
+
+**Goal**: ...
+
+**Acceptance Criteria**:
+- [ ] ...
+
+**Dependencies**: None
+```
+
+- **`**Repo**:`** and **`**Group**:`** follow the same rules as the
+  annotation row below (values may be wrapped in backticks). `shirabe
+  validate` flags, per outline, a missing or invalid value (FC14), and
+  `plan-to-tasks.sh` refuses to extract such a PLAN.
+- **`### Gate: <name>`** declares a non-PR gate. `**After**:` names the
+  outlines (`Issue <N>` or `<<ISSUE:N>>`) that must land before the
+  gate, `**Before**:` the outlines that wait on it, and
+  `**Condition**:` states the verifiable condition in prose. Gate edges
+  live only on the gate block: an outline's `**Dependencies**:` never
+  names a gate. The name matches `^[a-z][a-z0-9-]*$`, and a gate that
+  names no outline is flagged by FC14 and refused at extraction. The
+  gate heading closes the outline above it, so nothing under it changes
+  that outline's fields.
+
+#### Issue-carrying form
+
+Each issue in an issue-carrying coordinated PLAN carries a `repo` +
+`pr_group` tag, declared as an annotation row directly under the
+issue's entity row in the Implementation Issues table. The annotation
+mirrors the existing `^_Child: ..._` child-reference convention; the
+two fields are separated by an escaped pipe (`\|`) so the row stays
+one table cell:
 
 ```markdown
 | [#1: feat: add api surface](url) | None | testable |
@@ -166,7 +241,9 @@ separated by an escaped pipe (`\|`) so the row stays one table cell:
 - **`Group`** (the `pr_group`) — a slug matching `^[a-z][a-z0-9-]*$`.
   The default grouping is **one PR per repository** (`Group: default`);
   a repo splits into more than one `pr_group` only on a recorded
-  trigger (see the coarsest-legal-grouping rule in the contract).
+  trigger (see the coarsest-legal-grouping rule in the contract). All
+  of a PLAN's groups may sit in one repository; each group is still its
+  own PR node.
 
 **Non-PR gate nodes** (a named, verifiable condition that is not a PR,
 such as a package publish) are declared with a gate annotation row,
@@ -176,11 +253,14 @@ also escaped-pipe-separated:
 | ^_Gate: publish-lib \| After: pr-lib-default \| Before: pr-app-default_ | | |
 ```
 
-`/plan` collapses the issue-level dependency graph into a
+#### Contraction (both forms)
+
+`/plan` collapses the work-item dependency graph into a
 `(repo, pr_group)`-level **two-node DAG** (PR nodes + gate nodes),
 checks it for cycles **after contraction** (R13), and serializes a
 merge order. The contraction lives in
-`scripts/plan-to-tasks.sh` (the `coordinated` execution-mode branch).
+`scripts/plan-to-tasks.sh` (the `coordinated` execution-mode branch),
+which reads either form and runs one contraction over both.
 
 **Acyclicity and the R16-vs-R13 discriminator.** An issue-level graph
 can be acyclic yet contract to a cycle — e.g. issue #1 (repo-x) →
@@ -188,8 +268,9 @@ issue #2 (repo-y) → issue #3 (repo-x) contracts to
 `repo-x → repo-y → repo-x`. When this happens, `/plan` applies the
 discriminator: if splitting a repo at the seam (re-sequencing its
 issues into separate PR nodes) yields an acyclic order, it resolves
-the cycle that way; if no acyclic order exists (true cross-repo
-atomicity — two repos that would have to merge simultaneously),
+the cycle that way; if no acyclic order exists (atomicity across PR
+groups — two groups, in one repository or two, that would have to
+merge simultaneously),
 `/plan` **refuses** and emits guidance to reshape into a
 compatible-intermediate sequence. A cyclic merge order is never
 emitted.

@@ -95,7 +95,7 @@ fi
 # --- Site 2: programmatic child materialization from /execute ----------------
 # Each tick that builds a task array must inject the variables the child needs
 # and plan-to-tasks.sh does not emit. Counting both sides is what catches a
-# third tick added later that forgets the injection.
+# second tick added later that forgets the injection.
 TASK_BUILDS=$(grep -c 'plan-to-tasks.sh {{PLAN_DOC}}' "$EXECUTE_TEMPLATE")
 if [[ "$TASK_BUILDS" -eq 0 ]]; then
     note_failure "no task array build found in $EXECUTE_TEMPLATE — children are materialized somewhere this check does not see"

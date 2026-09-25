@@ -122,3 +122,47 @@ fn coordination_body_rejects_positional_files() {
             "--coordination-body is mutually exclusive with positional file arguments",
         ));
 }
+
+/// A single-repo coordination body: the unchanged declaration prefix without
+/// "multi-repo", and every PR-index ref in the same `owner/repo`.
+fn single_repo_body() -> String {
+    format!(
+        "# Coordination PR: scope-then-execute\n\n\
+         > {MARKER} for a coordinated effort. It merges last. \
+         See references/coordination-strategy.md.\n\n\
+         ## PR Index\n\n\
+         - pr-1 | tsukumogami/shirabe:docs/plans/PLAN-x.md#301 | open\n\
+         - pr-2 | tsukumogami/shirabe:docs/plans/PLAN-x.md#302 | merged\n\n\
+         ## Merge Order\n\n\
+         ```merge-order\n\
+         pr-1 | open\n\
+         pr-2 | merged\n\
+         ```\n"
+    )
+}
+
+#[test]
+fn coordination_body_single_repo_body_passes() {
+    let body = single_repo_body();
+    assert!(!body.contains("multi-repo"));
+    let path = write_temp("singlerepo", &body);
+    shirabe()
+        .args(["validate", "--coordination-body"])
+        .arg(&path)
+        .assert()
+        .code(0);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn coordination_body_single_repo_missing_marker_fails() {
+    let body = single_repo_body().replace(MARKER, "This is an ordinary PR");
+    let path = write_temp("singlerepo-nomarker", &body);
+    shirabe()
+        .args(["validate", "--coordination-body"])
+        .arg(&path)
+        .assert()
+        .code(2)
+        .stdout(contains("declaration marker"));
+    let _ = std::fs::remove_file(&path);
+}

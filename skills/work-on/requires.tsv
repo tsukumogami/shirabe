@@ -7,8 +7,11 @@
 # loop over the same template, differing only in the entry evidence they submit
 # to `koto next`. A reader looking for a mode: record should stop looking.
 #
-# `koto context remove` is deliberately absent: the corrected call site keeps
-# the extracted context under its own key rather than removing one.
+# `koto context remove` and `koto context exists` are declared for
+# scripts/record-changed-paths.sh, which koto runs as a default_action: it tests
+# for impl_base with `exists`, and removes a stale changed_paths.txt with
+# `remove` when no base resolves. The context-extraction call site still keeps
+# its extracted context under its own key rather than removing one.
 #
 # Subcommands and their depended-on flags:
 #   init            --template picks the work-on template, --var carries
@@ -30,7 +33,11 @@
 #   context add     --from-file for the file-backed keys (context.md,
 #                   introspection.md, plan.md); the stdin heredoc form of the
 #                   same subcommand takes no flag
-#   context get     reads plan.md and context.md in Phase 4, no flag
+#   context get     reads plan.md and context.md in Phase 4, and impl_base in
+#                   record-changed-paths.sh, no flag
+#   context exists  record-changed-paths.sh's impl_base test, no flag
+#   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
+#                   no flag
 #   decisions record  --with-data carries the decision object
 #
 # gh reads the issue and drives the PR; git rebases, pushes, and inspects the
@@ -70,6 +77,8 @@ koto	session cleanup	-	always
 koto	rewind	-	always
 koto	context add	--from-file	always
 koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
 koto	decisions record	--with-data	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs	always
 shirabe	finalize-chain	-	always

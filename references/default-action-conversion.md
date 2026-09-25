@@ -148,6 +148,40 @@ The refusal is loud and lands before any work, which is the right failure; it is
 worth knowing about because a canonical install under `~/.claude/plugins/cache/`
 is clean and a developer's checkout may not be.
 
+## Routing on a script's output
+
+**A script's output reaches koto context, and so a route or a result, only
+through a default action's `koto context add`. Never through a command gate.**
+A command gate exposes exactly two things to transitions, `exit_code` and
+`error`; whatever the script printed is gone. A state that needs to route on
+what a script found therefore runs the script as its default action, and the
+script (or a thin record script wrapping it) writes the values to context
+itself.
+
+The state then routes on those keys with `context-matches` gates marked
+`overridable: false`, so no `koto overrides record` can stand in for the
+script's answer. The record script **clears the keys it owns before
+rewriting them**. The action re-runs on every entry, and one that fails or
+times out partway must leave an empty key the gates route to a pending or
+error arm, never a stale value from an earlier entry that the gates would
+read as current.
+
+A command gate is still the right tool where the script's exit code itself
+carries the decision. It's the wrong one wherever the decision is in the
+output. `merge-verdict.sh --confirm` is the case that shows the difference: it
+exits 0 whether or not the PR merged and prints which, so a command gate over
+it would always pass. The confirm states run it through
+`record-merge-verdict.sh --confirm` as a default action and route on the line
+it records.
+
+Transition `context_assignments` don't close this gap. An assignment's value
+may be a literal, `{{VAR}}`, `${evidence.<field>}`, or `${gates.<gate>.<path>}`,
+but not `${context.<key>}`, and a command gate's path holds no output. So a
+`reason` or `step` that comes from a script's output is written to context by
+the record script, and the terminal's `result:` map reads it as
+`${context.<key>}`. An edge assigns `reason` or `step` itself only when the
+edge fixes the value as a literal.
+
 ## One check before converting anything
 
 **Would the command's output write a secret into the session log?** Every run
@@ -177,10 +211,37 @@ Read one of these next to your own state; they are the worked examples.
 |---|---|---|
 | `branch_check` | `skills/scope/koto-templates/scope.md` | A read, captured, gated on the world the read describes |
 | `settled_branch_record` | `skills/execute/koto-templates/execute.md` | A write, gated by a `context-matches` read-back the action cannot influence |
+| `drift_facts` | `skills/execute/koto-templates/execute.md` | A read that writes its findings to context, where a later state's gate routes on them |
 | `worktree_sync` | `skills/execute/koto-templates/execute.md` | A local mutation, gated on whether the mutation's goal holds |
 | `pr_precheck` | `skills/work-on/koto-templates/work-on.md` | A read, captured, gated ahead of the step it feeds |
+| `analysis` | `skills/work-on/koto-templates/work-on.md` | A write-once record on a state that still asks for judgment; the action's failure is recoverable by submitting the state's own evidence |
+| `changed_paths_record` | `skills/work-on/koto-templates/work-on.md` | A write gated by `context-exists` on its key, whose failure path removes a stale key so the gate can't pass on an earlier lap |
 
-`docs/designs/current/DESIGN-koto-default-action-adoption.md` records why each of those
-converted, and -- more useful when you are deciding about a new step -- the
+The states below convert with `/deliver`, `/execute`'s merge step, and
+`/scope`'s intake and intent shortcuts. Each one's action **writes no GitHub
+state**: it reads `git`, `gh`, or the working tree, or touches only koto's own
+request store, then writes what it found to koto context for the state's
+non-overridable `context-matches` gates (see Routing on a script's output
+above). The steps that do write to GitHub, `merge_attempt`'s
+`merge-exec.sh` call and `/scope`'s publish, stay agent-run.
+
+| State | Template | Action | Shape |
+|---|---|---|---|
+| `merge_readiness` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh` | A read of the PR, recorded as a verdict line the next state routes on; writes no GitHub state |
+| `merge_confirm` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh --confirm` | A confirm read after a merge, recorded because the confirm exits 0 on both outcomes; writes no GitHub state |
+| `coord_merge_confirm` | `/execute`'s `execute-coordinated.md` | `record-merge-verdict.sh --confirm` | The same confirm read on the coordination PR; writes no GitHub state |
+| `coord_verdict` | `/execute`'s `execute-coordinated.md` | `record-coordination-verdict.sh` | A read of the coordination PR and its index, recorded as the run's verdict; writes no GitHub state |
+| `republish_record` | `skills/scope/koto-templates/scope.md` | `record-scope-exit.sh` | A read-back of the republished PR, recorded for the terminal result; writes no GitHub state |
+| `intake` | `skills/scope/koto-templates/scope.md` | `run-intake.sh` | Read-only checks over the arguments and working tree, recorded as a verdict and reason; writes no GitHub state |
+| `executed_report` | `skills/scope/koto-templates/scope.md` | `record-executed-report.sh` | A read of the topic's owned PR, recorded as its URL and state; writes no GitHub state |
+| `open_request` | `/deliver`'s `deliver.md` | `deliver-open-request.sh` | Abandons the coordinator's open requests and creates this run's, in koto's request store only; writes no GitHub state |
+| `scope_absent` | `/deliver`'s `deliver.md` | resolves the `scope` leg | Resolves an unbound leg with a fixed error, in koto's request store only; writes no GitHub state |
+| `execute_absent` | `/deliver`'s `deliver.md` | resolves the `execute` leg | The same, for the `execute` leg; writes no GitHub state |
+| `scoped_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh scoped` | A durable re-check of the PLAN and the owned PR, recorded as a verdict; writes no GitHub state |
+| `executed_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh executed` | A durable re-check of an executed topic's owned PR; writes no GitHub state |
+| `merged_check` | `/deliver`'s `deliver.md` | `deliver-probe.sh merged` | A confirm read of the PR the probe finds itself, never the leg's; writes no GitHub state |
+
+`docs/designs/current/DESIGN-koto-default-action-adoption.md` records why each of
+the first four converted, and -- more useful when you are deciding about a new step -- the
 thirteen candidates that were examined and stayed with the agent, each with its
 reason.

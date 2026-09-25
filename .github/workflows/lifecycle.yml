@@ -152,8 +152,10 @@ jobs:
         #
         # Coordination-PR detection: the coordination PR body (authored by the
         # workflow skill from the template in references/coordination-strategy.md)
-        # carries a fixed declaration line — the blockquote "This is a
-        # **coordination PR** for a coordinated multi-repo effort." We grep the
+        # carries a fixed declaration line — a blockquote starting "This is a
+        # **coordination PR**". The effort may span several repositories or run
+        # inside this one; only the fixed prefix is matched, so the wording after
+        # it does not matter. We grep the
         # PR body for that marker rather than relying on a label, so the signal
         # travels with the durable skill-authored body. A PR without the marker
         # is not a coordination PR and the gate is skipped (a no-op for ordinary
@@ -217,21 +219,30 @@ jobs:
           # `validate --merge-gate` recomputes each ref's merged status LIVE via
           # `gh` (F4); the `| merged`/`| open` cell in the body is NOT consulted.
           # A public index line shape is: `- <node> | <owner/repo>:<path>#<n> | ...`
-          # We pull the `owner/repo:path#number` token from each index line.
+          #
+          # scripts/coordination-gate-refs.sh pulls the `owner/repo:path#number`
+          # token from each index line and drops the one entry that names this
+          # coordination PR itself (same repository, same number). In a
+          # single-repo effort the index can list the coordination PR, and
+          # gating on it would make the PR wait for its own merge and never
+          # pass. Other PRs in this repository, and the same number in another
+          # repository, are kept. The script lives in the shirabe checkout so
+          # it matches the called workflow's ref.
           mapfile -t PR_REFS < <(
             printf '%s\n' "$BODY" \
-              | grep -oE '[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+:[^ |]+#[0-9]+' \
-              | sort -u
+              | bash .shirabe-src/scripts/coordination-gate-refs.sh \
+                  "${{ github.repository }}" "$PR_NUMBER"
           )
 
           GATE_ARGS=()
           for ref in "${PR_REFS[@]}"; do
-            GATE_ARGS+=(--pr "$ref")
+            [ -n "$ref" ] && GATE_ARGS+=(--pr "$ref")
           done
 
-          # No indexed PRs found in the body means the index is empty; a
-          # coordination PR with an empty index has nothing to gate on yet, but
-          # fail closed: an empty ready coordination PR should not merge silently.
+          # No indexed PRs found in the body means the index is empty (an index
+          # holding only the self-reference counts as empty too); a coordination
+          # PR with an empty index has nothing to gate on yet, but fail closed:
+          # an empty ready coordination PR should not merge silently.
           if [ "${#GATE_ARGS[@]}" -eq 0 ]; then
             echo "::error::Coordination PR is ready but its PR-index is empty; merge-last gate blocks."
             exit 1
