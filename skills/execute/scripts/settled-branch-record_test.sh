@@ -167,7 +167,7 @@ submit() {
 
 # The recorder is handed the session new_session opened, execute-round-trip.
 # An earlier version handed it the bare slug, a session new_session never
-# opened, and the pinned koto refuses a context write to a session that does
+# opened, and koto (0.13.0 and later) refuses a context write to a session that does
 # not exist, so these two cases failed under it for a reason unrelated to the
 # record.
 new_session round-trip

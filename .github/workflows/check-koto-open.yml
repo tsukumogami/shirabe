@@ -3,7 +3,7 @@ name: Check koto-open
 # scripts/koto-open.sh is the one koto entry /scope, /execute, and /deliver go
 # through. Its suite drives the real koto for the four outcomes and every
 # refusal kind, and skips those cases with exit 0 when koto is absent. The
-# Linux leg installs the pinned koto and asserts it before the suite runs, so a
+# Linux leg installs koto and asserts it meets the floor before the suite runs, so a
 # skip cannot pass as green. The macOS leg runs the suite on the bash 3.2 floor
 # through scripts/check-bash-floor.sh; koto is absent there, so the stand-in
 # cases run on 3.2 and the engine cases run on Linux.
@@ -13,8 +13,8 @@ on:
     paths:
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
-      - 'scripts/assert-koto-pin.sh'
-      - 'scripts/assert-koto-pin_test.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/assert-koto-floor_test.sh'
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
@@ -55,17 +55,17 @@ jobs:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
 
-      - name: Assert koto is the pinned release (Linux)
+      - name: Assert koto meets the floor (Linux)
         if: runner.os == 'Linux'
-        run: bash scripts/assert-koto-pin.sh
+        run: bash scripts/assert-koto-floor.sh
 
       - name: Run koto-open tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/koto-open_test.sh
 
-      - name: Run koto pin assertion tests (Linux)
+      - name: Run koto floor assertion tests (Linux)
         if: runner.os == 'Linux'
-        run: bash scripts/assert-koto-pin_test.sh
+        run: bash scripts/assert-koto-floor_test.sh
 
       - name: Run koto-open suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

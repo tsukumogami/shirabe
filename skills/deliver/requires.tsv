@@ -4,8 +4,8 @@
 # The koto floor. /deliver enters its session through
 # skills/deliver/scripts/deliver-open.sh and the shared scripts/koto-open.sh,
 # which is the call site for `koto init --vars-file`, `--attach-live`,
-# `--replace-terminal` and `--koto-leg`. Those flags exist only from the koto
-# release .tsuku.toml pins, and so do everything deliver.md is built from:
+# `--replace-terminal` and `--koto-leg`. Those flags exist only in koto
+# 0.13.0 and later, and so do everything deliver.md is built from:
 # request-leg gates, transition context_assignments reading a leg's payload,
 # result maps, constrained variables, and `overridable: false` gates. So the
 # `koto init` record below, with the same flags /scope and /execute declare, is

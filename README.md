@@ -234,8 +234,9 @@ Claude Code session:
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`, and
-  `/deliver` need koto v0.13.0 or later, the release CI is pinned to in
-  `.tsuku.toml`. They
+  `/deliver` require koto 0.13.0 or later. `.tsuku.toml` tracks the newest
+  koto 0.x rather than pinning a release, so `tsuku install` never downgrades
+  a newer koto you already have. They
   enter their session through `scripts/koto-open.sh`, which uses `koto init`'s
   entry flags (`--vars-file`, `--attach-live`, `--replace-terminal`,
   `--koto-leg`), and those first shipped in v0.13.0. `/work-on` needs koto
@@ -254,10 +255,13 @@ and replays scripted runs to confirm they route the same. For `/scope`,
 `/execute`, and `/deliver`, the floor is declared as surface rather than as a
 number: their `koto init` records name the four entry flags, so the preflight
 on an older koto names the missing flags and the install route before the skill does any
-work, and every CI job that installs koto from `.tsuku.toml` asserts it got
-the pinned release (`scripts/assert-koto-pin.sh`).
+work. CI runs the newest koto 0.x: every job that installs koto from
+`.tsuku.toml` asserts it is at least the floor (`scripts/assert-koto-floor.sh`,
+which holds the one copy of the 0.13.0 floor). A separate job in
+`check-koto-entry-floor.yml` installs exactly koto 0.13.0 and runs these skills'
+template compiles and koto-backed suites on it, so the floor stays tested.
 
-### Upgrading koto to v0.13.0
+### Upgrading koto to 0.13.0 or later from an older koto
 
 Sessions created by an older koto have no origin record, and v0.13.0 refuses
 to attach a session without one: `koto-open.sh` reports it as

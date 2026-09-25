@@ -2,8 +2,8 @@
 name: scope
 version: "1.0"
 # koto-floor: pinned -- constrained variables, a default action writing context
-# behind non-overridable gates, and result maps need the koto release
-# .tsuku.toml pins, the floor skills/scope/requires.tsv declares. The v0.12.2
+# behind non-overridable gates, and result maps need koto 0.13.0
+# or later, the floor skills/scope/requires.tsv declares. The v0.12.2
 # floor check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
   Tactical-chain orchestrator for /scope. Forty states across five phases:

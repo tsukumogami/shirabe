@@ -3,8 +3,8 @@ name: deliver
 version: "1.0"
 # koto-floor: pinned -- constrained variables, request-leg gates, transition
 # context_assignments reading leg payloads, non-overridable gates, default
-# actions writing context, and result maps need the koto release .tsuku.toml
-# pins, the floor skills/deliver/requires.tsv declares. The v0.12.2 floor
+# actions writing context, and result maps need koto 0.13.0 or
+# later, the floor skills/deliver/requires.tsv declares. The v0.12.2 floor
 # check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
   /deliver's driver: /scope then /execute in one session, each reached as a

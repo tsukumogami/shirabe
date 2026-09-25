@@ -28,8 +28,8 @@
 name: execute-coordinated
 version: "1.0"
 # koto-floor: pinned -- result maps, constrained and rebindable variables,
-# transition context_assignments, and non-overridable gates need the koto
-# release .tsuku.toml pins, the floor skills/execute/requires.tsv declares. The
+# transition context_assignments, and non-overridable gates need koto
+# 0.13.0 or later, the floor skills/execute/requires.tsv declares. The
 # v0.12.2 floor check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
   Coordinated-PLAN envelope. Records the write set and the coordination home,

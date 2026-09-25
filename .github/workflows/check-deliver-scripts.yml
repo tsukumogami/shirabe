@@ -20,9 +20,9 @@ on:
       - 'skills/execute/evals/fixtures/bin/gh'
       - 'skills/scope/koto-templates/scope.md'
       - '.github/workflows/check-deliver-scripts.yml'
-      # The engine-backed suites run the koto release .tsuku.toml pins.
+      # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
-      - 'scripts/assert-koto-pin.sh'
+      - 'scripts/assert-koto-floor.sh'
 
 env:
   # tsuku's installer and `tsuku install` call the GitHub API; the token
@@ -80,11 +80,11 @@ jobs:
 
       # Every suite below SKIPS with exit 0 when koto is missing, which would
       # report green having asserted nothing. Fail here instead, and also when
-      # koto is not the release .tsuku.toml pins.
-      - name: Assert koto is the pinned release
+      # koto is older than shirabe's floor.
+      - name: Assert koto meets the floor
         run: |
           command -v koto
-          bash scripts/assert-koto-pin.sh
+          bash scripts/assert-koto-floor.sh
 
       - name: Run deliver engine suites
         run: |

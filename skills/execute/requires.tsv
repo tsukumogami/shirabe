@@ -52,8 +52,8 @@
 # The koto floor. /execute enters its orchestrator session through
 # skills/execute/scripts/execute-open.sh and the shared scripts/koto-open.sh,
 # which is the call site for `koto init --vars-file`, `--attach-live`,
-# `--replace-terminal`, and `--koto-leg`. Those flags exist only from the koto
-# release .tsuku.toml pins, and so do the template's result maps, transition
+# `--replace-terminal`, and `--koto-leg`. Those flags exist only in koto
+# 0.13.0 and later, and so do the template's result maps, transition
 # context_assignments, constrained and rebindable variables, and
 # `overridable: false` gates, so the `koto init` record below is /execute's
 # declared koto floor: the tool-declaration policy allows no version number

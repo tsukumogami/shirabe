@@ -397,9 +397,9 @@ fi
 
 # --- a blocked edge's context_assignments execute --------------------------------
 #
-# koto releases before the one .tsuku.toml pins dropped a transition's
+# koto releases before 0.13.0 dropped a transition's
 # context_assignments at compile time, so work-on.md's `failure_reason` blocks
-# compiled and did nothing. Under the pinned release they execute: the
+# compiled and did nothing. From koto 0.13.0 on they execute: the
 # blocked edge out of context_injection writes `failure_reason` into the
 # session's context with the submitted evidence interpolated, and koto's batch
 # view reads that key for a failed child. Compiling proves only that the blocks

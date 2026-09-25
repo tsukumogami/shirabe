@@ -18,9 +18,9 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
-      # The engine-backed suites run the koto release .tsuku.toml pins.
+      # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
-      - 'scripts/assert-koto-pin.sh'
+      - 'scripts/assert-koto-floor.sh'
 
 env:
   # tsuku's installer and `tsuku install` call the GitHub API; the token
@@ -62,11 +62,11 @@ jobs:
         run: tsuku install -y
 
       # The harnesses skip with exit 0 when koto is absent. This fails the job
-      # instead, and also when koto is not the release .tsuku.toml pins, so a
-      # silent skip or a stale koto cannot pass as green.
-      - name: Assert koto is the pinned release (Linux)
+      # instead, and also when koto is older than shirabe's floor, so a silent
+      # skip or a stale koto cannot pass as green.
+      - name: Assert koto meets the floor (Linux)
         if: runner.os == 'Linux'
-        run: bash scripts/assert-koto-pin.sh
+        run: bash scripts/assert-koto-floor.sh
 
       - name: Run retry-clearing tests (Linux)
         if: runner.os == 'Linux'

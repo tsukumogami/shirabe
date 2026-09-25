@@ -216,7 +216,7 @@ check_jq() {
 # relative to <root>, one per line. The shipped templates plus this check's own
 # fixtures; the mermaid companions are diagrams, not templates.
 #
-# A template whose skill's floor is the koto release .tsuku.toml pins, rather
+# A template whose skill's floor is koto 0.13.0 or later, rather
 # than v0.12.2, says so with a top-level YAML comment line starting
 # `# koto-floor: pinned` and is left out: it uses koto features v0.12.2 cannot
 # compile (constrained variables, result maps, non-overridable gates), and its

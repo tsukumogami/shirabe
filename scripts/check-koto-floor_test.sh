@@ -182,12 +182,12 @@ else
     fail "the checkout's templates and the decider fixture are covered" "[$got]"
 fi
 
-# execute.md's and scope.md's floor is the pinned koto release, not v0.12.2;
+# execute.md's and scope.md's floor is koto 0.13.0, not v0.12.2;
 # each is left out by its own `# koto-floor: pinned` marker, not by accident.
 for t in skills/execute/koto-templates/execute.md skills/scope/koto-templates/scope.md; do
     if ! printf '%s\n' "$got" | grep -qx "$t" \
         && grep -q '^# koto-floor: pinned' "$REPO_ROOT/$t"; then
-        pass "$t, whose floor is the pinned release, is left out by its koto-floor marker"
+        pass "$t, whose floor is koto 0.13.0, is left out by its koto-floor marker"
     else
         fail "$t is left out by its koto-floor marker" "[$got]"
     fi

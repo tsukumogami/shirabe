@@ -216,15 +216,16 @@ person running `/scope` or `/execute` directly never needs it.
 
 ## koto version
 
-`/scope`, `/execute`, and `/deliver` need koto v0.13.0 or later, the release
-shirabe's CI is pinned to. Each skill's `requires.tsv` declares the koto
+`/scope`, `/execute`, and `/deliver` require koto 0.13.0 or later. shirabe's
+CI runs the newest koto 0.x, plus one job that runs these skills' suites on
+exactly 0.13.0, so both the floor and current releases stay tested. Each skill's `requires.tsv` declares the koto
 surface it calls, including the `koto init` entry flags (`--vars-file`,
 `--attach-live`, `--replace-terminal`, `--koto-leg`) that first shipped in
 v0.13.0; the declaration names flags rather than a version number. On an older
 koto, the preflight that runs when the skill loads names the missing flags and
 the command that installs a new enough koto, before the skill does any work.
 
-Before you upgrade koto to v0.13.0, finish any `/scope` or `/execute` run
+Before you upgrade from a koto older than v0.13.0, finish any `/scope` or `/execute` run
 that's still in flight on the old koto, or remove its session with
 `koto session cleanup scope-<topic>` or
 `koto session cleanup execute-<plan-slug>`. v0.13.0 refuses to attach a

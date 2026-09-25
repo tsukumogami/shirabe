@@ -1,9 +1,10 @@
 name: Check koto floor
 
-# shirabe's README states koto v0.12.2 as the minimum for /work-on. (/execute's
-# and /scope's templates need the koto release .tsuku.toml pins, so each carries
+# shirabe's README states koto v0.12.2 as the minimum for /work-on. (/execute's,
+# /scope's and /deliver's templates need koto 0.13.0 or later, so each carries
 # a `# koto-floor: pinned` line and is left out of this check; see
-# list_templates in scripts/koto-floor/lib.sh.) A template may
+# list_templates in scripts/koto-floor/lib.sh. check-koto-entry-floor.yml runs
+# those skills on exactly 0.13.0.) A template may
 # carry `decider` blocks that only a newer koto reads;
 # v0.12.2 drops them as unknown keys. This job is what keeps that claim true:
 # it installs v0.12.2, strips every decider block, requires the stripped and

@@ -19,7 +19,7 @@ on:
       - 'skills/inflight/evals/fixtures/preflight-liveness/**'
       - '.github/workflows/check-preflight-scripts.yml'
       - '.tsuku.toml'
-      - 'scripts/assert-koto-pin.sh'
+      - 'scripts/assert-koto-floor.sh'
 
 env:
   # tsuku's installer and `tsuku install` call the GitHub API; the token
@@ -94,10 +94,10 @@ jobs:
         run: tsuku install -y
 
       # /scope's and /execute's declarations name the koto init entry flags
-      # only the pinned release has, so the zero-bytes assertions hold only on
-      # that release.
-      - name: Assert koto is the pinned release
-        run: bash scripts/assert-koto-pin.sh
+      # only koto 0.13.0 and later have, so the zero-bytes assertions hold only
+      # from that release on.
+      - name: Assert koto meets the floor
+        run: bash scripts/assert-koto-floor.sh
 
       # ---------------------------------------------------------------------
       # The suites

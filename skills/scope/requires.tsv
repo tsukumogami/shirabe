@@ -40,7 +40,7 @@
 # The koto floor. /scope enters its session through the shared
 # scripts/koto-open.sh, which is the call site for `koto init --vars-file`,
 # `--attach-live`, `--replace-terminal`, and `--koto-leg`. Those flags exist
-# only from the koto release .tsuku.toml pins, so the `koto init` record below
+# only in koto 0.13.0 and later, so the `koto init` record below
 # is /scope's declared koto floor: the tool-declaration policy allows no version
 # number here, and preflight on an older koto names these missing flags and the
 # install route instead. The one-directional requires check does not look for

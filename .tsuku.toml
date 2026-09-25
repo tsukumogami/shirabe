@@ -1,13 +1,15 @@
 # Project tools managed by tsuku.
 # See: https://tsuku.dev/docs/project-config
 [tools]
-# koto is pinned to an exact release, not "latest". /scope and /execute enter
-# through scripts/koto-open.sh, which needs the koto init entry flags
-# (--vars-file, --attach-live, --replace-terminal, --koto-leg), and the
-# templates' context_assignments only execute from this release on. Every
-# workflow that runs koto installs it from this line and then runs
-# scripts/assert-koto-pin.sh, so CI tests exactly this release. Move the pin
-# when shirabe adopts a koto feature from a newer release, in the same pull
-# request that adopts it.
-"tsukumogami/koto" = "0.13.0"
+# "0" is the koto major version shirabe tracks: tsuku resolves it to the newest
+# 0.x release, so it never downgrades a newer koto already installed and never
+# jumps to a 1.0 shirabe has not been tested against. An exact pin such as
+# "0.13.0" would make `tsuku install` replace a newer koto with that release.
+# The real requirement is a floor, not a pin: koto 0.13.0 or later, the release
+# that shipped the koto init entry flags (--vars-file, --attach-live,
+# --replace-terminal, --koto-leg) /scope, /execute and /deliver enter through.
+# The floor lives in scripts/assert-koto-floor.sh, which every workflow that
+# installs koto runs; check-koto-entry-floor.yml also runs the koto-backed suites on
+# exactly the floor release.
+"tsukumogami/koto" = "0"
 # gh = "latest"  # disabled: segfaults on Linux (tsukumogami/tsuku#2245)
