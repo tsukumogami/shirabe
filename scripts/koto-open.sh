@@ -91,7 +91,10 @@
 # Rendering. A refusal is rendered from the caller's wording table when it
 # maps the code, and from koto's own `error` message otherwise, so an unmapped
 # code never prints nothing. The table is a file of `<code><TAB><text>` lines
-# (`#` lines and blank lines ignored; the first line for a code wins). In
+# (`#` lines and blank lines ignored; the first line for a code wins). A key
+# may also be `<code>:<VAR>`, which applies only when koto's refusal names that
+# variable and wins over the plain `<code>` line, so one table can word an
+# invalid topic and an invalid intent differently. In
 # <text>, `\n` is a newline, `\t` a tab, `\\` a backslash, and these
 # placeholders are replaced with koto's fields, never evaluated:
 #   {session} {var} {value} {constraint} {recorded} {requested} {state} {error}
@@ -486,9 +489,13 @@ NO_ORIGIN=0
 if [ "$CODE" = "origin_mismatch" ] && [ -z "$K_RECORDED" ]; then
     NO_ORIGIN=1
 fi
-if [ "$NO_ORIGIN" -eq 0 ] && lookup_wording "$CODE"; then
-    render "$REPLACED"
-    MESSAGE="$REPLACED"
+if [ "$NO_ORIGIN" -eq 0 ]; then
+    # A variable-specific line (`<code>:<VAR>`) wins over the code's own line,
+    # so a caller can word an invalid topic and an invalid intent differently.
+    if { [ -n "$K_VAR" ] && lookup_wording "$CODE:$K_VAR"; } || lookup_wording "$CODE"; then
+        render "$REPLACED"
+        MESSAGE="$REPLACED"
+    fi
 fi
 
 printf 'refused=%s\n' "$CODE"

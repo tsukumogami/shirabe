@@ -367,6 +367,19 @@ STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"invalid_var","command":"init"
 assert_eq "a value is substituted as bytes: its own placeholders, escapes, and \$(...) print literally" \
     'Invalid value "{var} $(id) \n &" for TOPIC; it must satisfy pattern:^[a-z]+$.' "$STDERR"
 
+cp "$T/wording.tsv" "$T/wording-var.tsv"
+printf 'invalid_var:INTENT_FLAG\t--intent takes continue or stop, got "{value}".\n' >>"$T/wording-var.tsv"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"invalid_var","command":"init","error":"x","var":"INTENT_FLAG","value":"bogus","constraint":"pattern:^(continue|stop)?$"}' \
+    run_stub s1 "$T/t.md" "$A" --wording "$T/wording-var.tsv"
+assert_eq "a <code>:<VAR> line wins over the plain <code> line for that variable" \
+    '--intent takes continue or stop, got "bogus".' "$STDERR"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"invalid_var","command":"init","error":"x","var":"TOPIC","value":"Bad","constraint":"pattern:^[a-z]+$"}' \
+    run_stub s1 "$T/t.md" "$A" --wording "$T/wording-var.tsv"
+assert_eq "another variable still gets the plain <code> line" \
+    'Invalid value "Bad" for TOPIC; it must satisfy pattern:^[a-z]+$.' "$STDERR"
+
 A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
 STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"command":"init","error":"workflow '"'"'s1'"'"' already exists; run `koto session cleanup s1` to reuse the name"}' \
     run_stub s1 "$T/t.md" "$A" --wording "$T/wording.tsv"
