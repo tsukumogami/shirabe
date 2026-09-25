@@ -1,7 +1,7 @@
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> branch_check
+    [*] --> intake
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 0
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 1
     bail --> exit_abandonment : bail_ack: force_materialize, gates.child_intermediate_present.exit_code: 2
@@ -54,19 +54,25 @@ stateDiagram-v2
     hop_design --> hop_plan : outcome: skipped
     hop_design --> exit_re_evaluation : outcome: rejected
     hop_design --> bail : outcome: bail
-    hop_plan --> fold : gates.plan_complete.exit_code: 0, outcome: landed
+    hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 1, outcome: landed
     hop_plan --> finalize : outcome: skipped
     hop_plan --> bail : outcome: bail
     hop_prd --> fold : gates.prd_complete.exit_code: 0, outcome: landed
     hop_prd --> hop_design : outcome: skipped
     hop_prd --> exit_re_evaluation : outcome: rejected
     hop_prd --> bail : outcome: bail
+    intake --> branch_check : gates.intake_ok.matches: true
+    intake --> done_refused : gates.intake_ok.matches: false, gates.intake_refused.matches: true
+    intake --> done_error : gates.intake_ok.matches: false, gates.intake_refused.matches: false
     setup --> discovery : setup_result: ready
     setup --> bail : setup_result: blocked
     done_abandonment --> [*]
     done_cancelled --> [*]
+    done_error --> [*]
     done_full_run --> [*]
     done_re_evaluation --> [*]
+    done_refused --> [*]
     note left of bail
         gate: child_intermediate_present
     end note
@@ -100,7 +106,16 @@ stateDiagram-v2
     note left of hop_plan
         gate: plan_complete
     end note
+    note left of hop_plan
+        gate: plan_mode_consistent
+    end note
     note left of hop_prd
         gate: prd_complete
+    end note
+    note left of intake
+        gate: intake_ok
+    end note
+    note left of intake
+        gate: intake_refused
     end note
 ```

@@ -19,6 +19,10 @@ on:
       - 'crates/shirabe-validate/src/frontmatter.rs'
       - 'crates/shirabe/src/main.rs'
       - '.github/workflows/check-scope-scripts.yml'
+      # scope-open.sh enters koto through the shared koto-open.sh, and
+      # check-plan-mode.sh re-runs /plan's split-mode resolver.
+      - 'scripts/koto-open.sh'
+      - 'skills/plan/scripts/resolve-split-mode.sh'
       # The substrate job runs the koto release .tsuku.toml pins.
       - '.tsuku.toml'
       - 'scripts/assert-koto-pin.sh'
@@ -37,6 +41,19 @@ jobs:
       # scripts need. Both platforms run to keep that true.
       - name: Run check-citations tests
         run: bash skills/scope/scripts/check-citations_test.sh
+
+      # intake's scripts and the /plan hop's consistency check need bash, git
+      # and jq only, and run on both platforms so the bash 3.2 floor holds.
+      # run-intake_test.sh and scope-template_test.sh skip their koto cases
+      # here; the substrate job below runs them with koto installed.
+      - name: Run intake and plan-mode script tests
+        run: |
+          bash skills/scope/scripts/resolve-intent_test.sh
+          bash skills/scope/scripts/check-recorded-intent_test.sh
+          bash skills/scope/scripts/check-upstream_test.sh
+          bash skills/scope/scripts/check-plan-mode_test.sh
+          bash skills/scope/scripts/run-intake_test.sh
+          bash skills/scope/scripts/scope-template_test.sh
 
       # The document-path shape has one owner and two readers: this script
       # (the gate, the only site that can stop a deletion) and the validator's
@@ -174,3 +191,13 @@ jobs:
 
       - name: Run scope substrate sessions
         run: bash skills/scope/scripts/scope-substrate_test.sh
+
+      # The entry and intake against the same pinned koto: every argument
+      # refusal, the leg records, attach and mismatch, and intake routing each
+      # verdict to its terminal. TMPDIR is /tmp here, so PLUGIN_ROOT is a path
+      # koto admits and the shipped template runs unmodified.
+      - name: Run scope entry and intake sessions
+        run: |
+          bash skills/scope/scripts/scope-open_test.sh
+          bash skills/scope/scripts/run-intake_test.sh
+          bash skills/scope/scripts/scope-template_test.sh

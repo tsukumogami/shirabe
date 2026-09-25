@@ -85,9 +85,18 @@ k() {
 # The init runs INSIDE the fixture tree. koto binds a session to the directory it
 # was initialized in and refuses a later `koto next` from anywhere else with
 # `execution_anchor_mismatch`, so initializing here and ticking there leaves every
-# assertion reading `state=branch_check` with the reason buried in a discarded
+# assertion reading `state=intake` with the reason buried in a discarded
 # error. It is also what a real run does: /scope opens its session in the
 # repository being scoped.
+#
+# PLUGIN_ROOT_PLACEMENT is what scope-open.sh computes for a plugin root outside
+# the tree being scoped, which $REPO is for every fixture tree here.
+#
+# The first tick runs `intake` (the template's initial state, which checks the
+# arguments against the working tree and takes no evidence) and `branch_check`,
+# both of which advance on their own, and stops at `setup`. Taking it here
+# means every walk below starts where it always has: at the first state that
+# asks for evidence.
 new_run() {
     local tag="$1" tree="$2"
     local home="$SANDBOX/$tag"
@@ -95,7 +104,9 @@ new_run() {
     (
         cd "$tree" || exit 1
         HOME="$home" koto init "$PFX-$tag" --template "$TEMPLATE" \
-            --var TOPIC="$tag" --var PLUGIN_ROOT="$REPO" >/dev/null 2>&1
+            --var TOPIC="$tag" --var PLUGIN_ROOT="$REPO" \
+            --var PLUGIN_ROOT_PLACEMENT=outside >/dev/null 2>&1
+        HOME="$home" koto next "$PFX-$tag" --no-cleanup >/dev/null 2>&1
     )
     printf '%s %s-%s' "$home" "$PFX" "$tag"
 }
@@ -133,7 +144,7 @@ print(d.get("current_state", ""))' 2>/dev/null
 # refusal. That is the failure this layout is built to produce.
 #
 # The tree is a git repository on a named non-default branch because
-# `branch_check`, the template's initial state, gates on exactly that: outside a
+# `branch_check`, the state after `intake`, gates on exactly that: outside a
 # repository `git symbolic-ref` prints nothing, the gate fails, and the walk never
 # reaches the first hop. A bare `mkdir` here is a suite that asserts nothing.
 make_tree() {

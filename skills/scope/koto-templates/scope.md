@@ -1,14 +1,19 @@
 ---
 name: scope
 version: "1.0"
+# koto-floor: pinned -- constrained variables, a default action writing context
+# behind non-overridable gates, and result maps need the koto release
+# .tsuku.toml pins, the floor skills/scope/requires.tsv declares. The v0.12.2
+# floor check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
-  Tactical-chain orchestrator for /scope. Twenty-one states across five phases:
-  setup, discovery and the chain proposal, four hop states plus one shared fold
-  state, six exit states, three cleanup states and four terminals. Each hop
-  delivers its own directive on entry and carries a command gate that decides
-  completion from the artifact tree through skills/scope/scripts/hop-complete.sh;
-  the full-run exit re-runs that predicate for every hop and refuses unless each
-  one has either its artifact or a declared fold.
+  Tactical-chain orchestrator for /scope. Twenty-five states across five
+  phases: setup (intake, the branch check, setup), discovery and the chain
+  proposal, four hop states plus one shared fold state, six exit states, three
+  cleanup states and six terminals. Each hop delivers its own directive on
+  entry and carries a command gate that decides completion from the artifact
+  tree through skills/scope/scripts/hop-complete.sh; the full-run exit re-runs
+  that predicate for every hop and refuses unless each one has either its
+  artifact or a declared fold.
 
   Two authoring rules bind every state here, and a reviewer should check both
   before reading the states. First, every non-terminal state carries at least one
@@ -21,43 +26,187 @@ description: >
   either, and a gate no when clause references is evaluated, reported and
   ignored.
 
+  The two default-action states are the deliberate exceptions, and both are
+  meant to resolve without the agent. `intake` takes no evidence at all: its
+  script writes a verdict to context and non-overridable context-matches gates
+  route on it, so no agent answer can stand in for the check. `branch_check`
+  advances on its gate alone on the passing path and asks for evidence only
+  when the gate fails.
+
   Each state also carries a `# phase: N` comment naming the /scope phase it
   belongs to, so a run can report its phase from its position. koto rejects an
   undeclared state field, so the map is a comment rather than a `phase:` key.
-initial_state: branch_check
+
+  Arguments are checked by koto, not by prose. scripts/scope-open.sh maps each
+  flag occurrence to one variable pair and passes them with --vars-file, so a
+  value outside a variable's constraint, or a repeated flag, is refused at
+  `koto init` with exit 2 and no session, and under --koto-leg the refusal is
+  recorded on the leg. Every gate command quotes each {{VAR}} it uses.
+initial_state: intake
 
 variables:
   TOPIC:
     description: >
-      The run's topic slug, matching ^[a-z0-9-]+$. Declared as a template
-      variable because every gate command below interpolates it into a command
-      koto runs itself, and koto resolves and compile-time-validates only
-      {{KEY}} references -- a shell-style ${TOPIC} is passed to sh -c untouched
-      and expands to the empty string. koto's own --var allowlist is not a
-      second line of defence here: it rejects shell metacharacters but permits
-      dots and slashes, so the slug is validated at Phase 0, re-validated on
-      resume, and re-asserted by the predicate before it composes any path.
+      The run's topic slug. Pattern ^[a-z0-9][a-z0-9-]*$: the pattern-level
+      slug regex ^[a-z0-9-]+$ with no leading `-`, so a slug can never be read
+      as an option. Required and not rebindable: it is the session's identity,
+      and the session name scope-<topic> is composed from it. koto refuses any
+      other value at `koto init` (exit 2, no session), and every gate command
+      below interpolates it quoted.
+    pattern: '^[a-z0-9][a-z0-9-]*$'
     required: true
   PLUGIN_ROOT:
     description: >-
-      Absolute path to the shirabe plugin root, passed at koto init as
-      --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} where the agent's own shell
-      expands it once. Every gate below invokes hop-complete.sh, which ships in
-      the plugin, and koto runs a gate command with the working directory of the
-      `koto next` process -- for /scope that is the repository being scoped, not
-      this checkout. A repo-relative path therefore resolves only when /scope
-      runs against shirabe itself; anywhere else the shell exits 127, and koto
-      reports a failed command gate as an exit code with the command's own
-      output discarded, so the run holds at its first hop with no diagnostic.
-      Declared as a template variable rather than written as a shell-style
-      ${CLAUDE_PLUGIN_ROOT} because koto resolves only {{KEY}} references: the
-      shell form reaches sh -c untouched and expands to the empty string, which
-      scripts/check-template-interpolation.sh rejects for exactly that reason.
-      settled_branch_record in skills/execute/koto-templates/execute.md carries
-      the same variable for the same reason.
+      Absolute path to the shirabe plugin root, with no `..` segment (the same
+      literal pattern /execute's template declares). scope-open.sh passes the
+      plugin root the agent's own shell expanded once. Every gate below invokes
+      a script that ships in the plugin, and koto runs a gate command with the
+      working directory of the `koto next` process -- for /scope that is the
+      repository being scoped, not this checkout. A repo-relative path therefore
+      resolves only when /scope runs against shirabe itself; anywhere else the
+      shell exits 127, and koto reports a failed command gate as an exit code
+      with the command's own output discarded. Declared as a template variable
+      rather than written as a shell-style ${CLAUDE_PLUGIN_ROOT} because koto
+      resolves only {{KEY}} references. Rebindable: a later invocation, from
+      another plugin install, re-applies its own value on attach. Whether the
+      root lies inside the work tree is a fact a pattern cannot see, so it is
+      carried by PLUGIN_ROOT_PLACEMENT below rather than refused by a script.
+    pattern: '^/([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+|\.)?(/([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+|\.)?)*$'
     required: true
+    rebind: true
+  PLUGIN_ROOT_PLACEMENT:
+    description: >-
+      Where PLUGIN_ROOT lies relative to the repository being scoped, computed
+      by scope-open.sh on every invocation from the resolved PLUGIN_ROOT and
+      `git rev-parse --show-toplevel`, symlinks followed: `outside`, or
+      `inside-worktree`. The pattern admits only `outside`, so koto refuses a
+      plugin root inside the work tree at `koto init` (exit 2, no session;
+      under --koto-leg, `invalid-var:PLUGIN_ROOT_PLACEMENT` on the leg). A
+      plugin inside the work tree could be edited by the run its gates check.
+      Required and rebindable, recomputed with PLUGIN_ROOT.
+    pattern: '^outside$'
+    required: true
+    rebind: true
+  INTENT_FLAG:
+    description: >-
+      The caller's `--intent` token, unmodified: `continue`, `stop`, or empty
+      when the flag was not given (scope-open.sh leaves the variable out, and a
+      lone explicitly empty `--intent=` is treated the same way). Pattern
+      ^(continue|stop)?$, so koto itself refuses every other token --
+      `none`, `unset`, `absent`, a bare `--intent` -- at `koto init`, and a
+      repeated --intent is a duplicate it refuses too. Not rebindable: on a
+      live session a differing explicit value is refused as var_mismatch,
+      while an omitted one is not compared. This is not the effective intent:
+      `intake` derives RUN_INTENT (continue|stop|none) from it and the state
+      file's recorded `intent:`, and every later intent check keys on that.
+    pattern: '^(continue|stop)?$'
+    default: ""
+  COORDINATION:
+    description: >-
+      The coordination flag the caller passed: `coordinated` for
+      --coordinated, `no-coordinated` for --no-coordinated, `none` when
+      neither was given. Both flags together are a duplicate koto refuses.
+      Not rebindable. A CLAUDE.md coordination header never sets it: the
+      /plan hop forwards only what the caller passed.
+    values: [none, coordinated, no-coordinated]
+    default: none
+  EXEC_MODE:
+    description: >-
+      This invocation's execution mode: `auto` for --auto, `interactive` for
+      --interactive; `interactive` when neither was given, and `default` is
+      admitted as a synonym a caller may pass for that. Both flags together
+      are a duplicate koto refuses. Rebindable, so a run picked up by a later
+      invocation takes that invocation's mode rather than inheriting one.
+    values: [auto, interactive, default]
+    default: interactive
+    rebind: true
+  MAX_ROUNDS:
+    description: >-
+      The --max-rounds cap on re-evaluation re-entries: an integer from 1 to
+      50, or empty for the default of 5. Rebindable, so a run picked up with a
+      different value resumes rather than refusing.
+    pattern: '^([1-9]|[1-4][0-9]|50)?$'
+    default: ""
+    rebind: true
+  UPSTREAM:
+    description: >-
+      The --upstream value: empty, a repository-relative
+      docs/roadmaps/.../ROADMAP-*.md path, or `owner/repo:` followed by such a
+      path, with no `..` segment anywhere. A bare --upstream reaches koto as
+      the literal token and fails the pattern. The checks that need the
+      working tree (under wip/, tracked by git, confined after symlinks,
+      basename) run in `intake`. Not rebindable.
+    pattern: '^(([A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*:)?docs/roadmaps/(([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)/)*ROADMAP-[^/]*\.md)?$'
+    default: ""
 
 states:
+  intake:
+    # phase: 0
+    # The checks koto's variable constraints cannot express, because they need
+    # the working tree: the --upstream battery, and an explicit --intent that
+    # differs from the intent an unfinished run whose session is gone already
+    # recorded. It also resolves the effective intent, RUN_INTENT, which every
+    # later intent check keys on and which is delivered to every later state.
+    #
+    # Script output reaches routing only through context. A command gate
+    # exposes an exit code and nothing else, so a refusal's reason and the
+    # recorded intent would never reach the terminal's result through one.
+    # run-intake.sh clears intake_verdict, reason and recorded, runs the
+    # checks, and writes the verdict with `koto context add`; the gates below
+    # read it. They are overridable: false, so no `koto overrides record` can
+    # stand in for the script's answer, and the state takes no evidence.
+    #
+    # An absent verdict (a run interrupted before the write) matches neither
+    # gate and routes to done_error, never to branch_check. The session name is
+    # rebuilt from {{TOPIC}}, which is exactly the name scope-open.sh opens.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/run-intake.sh" --session "scope-{{TOPIC}}" --topic "{{TOPIC}}" --intent-flag "{{INTENT_FLAG}}" --upstream "{{UPSTREAM}}"'
+      capture_stdout_as: RUN_INTENT
+      fallback: >-
+        koto could not record the intake verdict. Read the command's own output
+        above: exit 66 means a `koto context` call failed, and exit 64 a usage
+        error in the command itself. There is no evidence to submit here -- the
+        verdict is the script's to write, and its gates refuse overrides -- so
+        fix the cause and tick again; the checks re-run on entry. If it keeps
+        failing, stop and report the output: the run cannot start.
+    gates:
+      intake_ok:
+        type: context-matches
+        key: intake_verdict
+        pattern: '^ok$'
+        overridable: false
+      intake_refused:
+        type: context-matches
+        key: intake_verdict
+        pattern: '^refused$'
+        overridable: false
+    transitions:
+      - target: branch_check
+        when:
+          gates.intake_ok.matches: true
+      # The refusal. Only literals and a variable are assigned here: an
+      # assignment cannot read context, so `reason` and `recorded`, which the
+      # script wrote, are read by done_refused's result map instead.
+      - target: done_refused
+        when:
+          gates.intake_ok.matches: false
+          gates.intake_refused.matches: true
+        context_assignments:
+          outcome: refused
+          step: "scope:refused"
+          requested: "{{INTENT_FLAG}}"
+          failure_reason: "intake: the invocation was refused; the result's reason names the check"
+      # `error`, or no verdict at all.
+      - target: done_error
+        when:
+          gates.intake_ok.matches: false
+          gates.intake_refused.matches: false
+        context_assignments:
+          outcome: error
+          step: "scope:intake"
+          requested: "{{INTENT_FLAG}}"
+          failure_reason: "intake: a check could not read what it needs, or no verdict was recorded"
+
   branch_check:
     # phase: 0
     # The branch this run commits its hops to, read once and delivered to every
@@ -186,7 +335,7 @@ states:
       # not done" with "I cannot tell whether it is done".
       brief_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop brief --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -215,7 +364,7 @@ states:
     gates:
       prd_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop prd --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -249,7 +398,7 @@ states:
       # unreachable.
       design_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}"'
     accepts:
       outcome:
         type: enum
@@ -278,7 +427,21 @@ states:
     gates:
       plan_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop plan --topic "{{TOPIC}}"'
+      # koto cannot see the Skill call, only what it produced. This re-runs
+      # /plan's own resolve-split-mode.sh over the PLAN's split verdict, the
+      # forwarded intent and coordination flag, and the CLAUDE.md headers, and
+      # compares the answer with the PLAN's execution_mode and
+      # split_mode_source. A hop that dropped or invented a flag resolves
+      # differently and routes to bail. It exits 0 at once when RUN_INTENT is
+      # none: a no-intent hop sends today's argument string. Exit 2 is
+      # cannot-tell (an unreadable PLAN, a missing resolver) and no arm names
+      # it, so the run holds with the gate reported. Not overridable: nothing
+      # after this hop re-checks the mode against what the caller asked for.
+      plan_mode_consistent:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/check-plan-mode.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --intent "{{RUN_INTENT}}" --coordination "{{COORDINATION}}"'
+        overridable: false
     accepts:
       outcome:
         type: enum
@@ -292,6 +455,14 @@ states:
         when:
           outcome: landed
           gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+      - target: bail
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 1
+        context_assignments:
+          failure_reason: "hop_plan: the PLAN's execution_mode or split_mode_source differs from what the forwarded intent and coordination flag resolve to (plan_mode_consistent exit 1)"
       - target: finalize
         when:
           outcome: skipped
@@ -310,10 +481,10 @@ states:
       # design_complete does.
       plan_present:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop plan --topic "{{TOPIC}}"'
       design_present:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}"'
     accepts:
       verdict:
         type: enum
@@ -461,7 +632,7 @@ states:
       # be credited for walking it.
       chain_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop brief --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop prd --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop plan --topic "{{TOPIC}}"'
     accepts:
       exit_artifacts:
         type: string
@@ -505,7 +676,7 @@ states:
       # refusal is this state's whole reason to exist, so it carries the gate.
       chain_complete:
         type: command
-        command: '{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop brief --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop prd --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop design --topic "{{TOPIC}}" && {{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh --hop plan --topic "{{TOPIC}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop brief --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop prd --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}" && "{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop plan --topic "{{TOPIC}}"'
     accepts:
       next_move:
         type: enum
@@ -590,7 +761,7 @@ states:
       # reason the design hop's gate reads the pair.
       forced_artifact_present:
         type: command
-        command: 'grep -lF -- "scope-status-block: abandonment-forced" docs/briefs/BRIEF-{{TOPIC}}.md docs/prds/PRD-{{TOPIC}}.md docs/designs/DESIGN-{{TOPIC}}.md docs/designs/current/DESIGN-{{TOPIC}}.md docs/plans/PLAN-{{TOPIC}}.md 2>/dev/null | grep -q .'
+        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" "docs/plans/PLAN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
     accepts:
       triggering_child:
         type: enum
@@ -721,7 +892,60 @@ states:
   done_cancelled:
     # phase: 4
     terminal: true
+
+  # The two failure terminals. Their result maps are the pattern every later
+  # terminal follows: `outcome`, `step` and `requested` are written by the
+  # edge that lands here, as literals or a variable; `reason` and `recorded`
+  # are written by a script with `koto context add` and read here as
+  # ${context.<key>}, because an assignment cannot read context. No agent
+  # evidence supplies any of them. `outcome: refused` is a result-payload
+  # value only: the printed exit line for this terminal is `outcome=error`
+  # with `step=scope:refused`.
+  done_refused:
+    # phase: 4
+    terminal: true
+    failure: true
+    result:
+      outcome: "${context.outcome}"
+      reason: "${context.reason}"
+      step: "${context.step}"
+      intent: "{{RUN_INTENT}}"
+      recorded: "${context.recorded}"
+      requested: "${context.requested}"
+
+  done_error:
+    # phase: 4
+    terminal: true
+    failure: true
+    result:
+      outcome: "${context.outcome}"
+      reason: "${context.reason}"
+      step: "${context.step}"
+      intent: "{{RUN_INTENT}}"
+      recorded: "${context.recorded}"
+      requested: "${context.requested}"
 ---
+
+## intake
+
+Checking the invocation against the working tree. koto runs the checks itself
+on entry and routes on their verdict; you only see this state if the checks
+could not record one.
+
+<!-- details -->
+
+koto already refused, at `koto init`, every argument a variable's constraint
+can express. What runs here needs the working tree: the `--upstream` battery
+(not under `wip/`, tracked by git, confined to `docs/roadmaps/` after symlinks,
+a `ROADMAP-` basename), and an explicit `--intent` that differs from the intent
+an unfinished run already recorded in its state file. The script also resolves
+the run's effective intent, which later states receive.
+
+The verdict routes the run without you: `ok` to the branch check, `refused` to
+the refused terminal with the check's reason, anything else to the error
+terminal. The gates refuse overrides and this state takes no evidence, so there
+is nothing to submit. If the response above shows the action failed, read its
+output, fix the cause, and tick again.
 
 ## branch_check
 
@@ -756,16 +980,33 @@ Evidence schema (both optional; the passing path submits neither):
 
 ## setup
 
-Establish the run: validate the topic slug, write the state file, and confirm
-the worktree is the one this run owns. The branch is already settled and
-available as `{{BRANCH}}`. Submit `setup_result: ready`, or `blocked` with
-`detail`.
+Establish the run: write the state file, recording `intent: {{RUN_INTENT}}`,
+and confirm the worktree is the one this run owns. The arguments were checked
+at `koto init` and in `intake`; the branch is settled as `{{BRANCH}}`. Submit
+`setup_result: ready`, or `blocked` with `detail`.
 
 <!-- details -->
 
 Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
+
+**The argument checks ran before this state.** koto refused, at `koto init`,
+every value its variables do not admit -- the topic slug, `--intent`,
+`--max-rounds`, the `--upstream` shape, and any repeated or conflicting flag --
+and `intake` ran the `--upstream` checks that need the working tree and the
+recorded-intent check. Do not re-validate them here. This run's settings are
+the session's variables: execution mode `{{EXEC_MODE}}`, coordination flag
+`{{COORDINATION}}`, re-evaluation cap `{{MAX_ROUNDS}}` (empty means the
+default of 5), and upstream `{{UPSTREAM}}` (empty means none was given; the
+visibility check in the Phase 0 reference still decides whether it is
+recorded).
+
+**Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the state
+file, on the initial write and on every later write that rewrites the file.
+The value is `continue`, `stop`, or `none`, always present, never empty:
+`intake` resolved it from the invocation's `--intent`, else the intent the
+state file already recorded, else `none`.
 
 **The branch check ran before this state.** `branch_check` reads HEAD and gates
 on a named non-default branch, so a run that reaches `setup` is already on a
@@ -774,9 +1015,8 @@ used to live here as an instruction with nothing enforcing it, which meant a
 run that started on the default branch did `/brief`'s whole hop and then could
 not keep it -- the first commit happens after a document exists.
 
-`blocked` here no longer covers the branch. It covers a slug that fails its pattern, a state file that cannot be
-written, or a session collision reported against another worktree. Anything
-else, fix and submit `ready`.
+`blocked` here covers neither the branch nor the arguments. It covers a state
+file that cannot be written. Anything else, fix and submit `ready`.
 
 Ignore koto's discovery warnings about sessions other than this run's —
 `migration skipped`, and `state file corrupted`, which reads as an invitation
@@ -963,6 +1203,30 @@ artifact's path — and, when the state file carries `consumed_upstream:`, also
 because a ROADMAP is deleted when its features land and the PLAN the cascade
 deletes first is the only document whose link cannot outlive its target. Quote
 it and pass it after `--`. Keep the artifact path for the fold state.
+
+**Forward the run's intent and the caller's coordination flag.** This run's
+effective intent is `{{RUN_INTENT}}` and the caller's coordination flag is
+`{{COORDINATION}}`. When the intent is `continue` or `stop`, the `/plan`
+arguments carry, all before the `--` that precedes the artifact path:
+
+- `--intent={{RUN_INTENT}}`;
+- `--coordinated` when the coordination flag is `coordinated`, or
+  `--no-coordinated` when it is `no-coordinated`, and neither when it is
+  `none`. Never forward a `--coordinated` derived from a CLAUDE.md header:
+  `/plan` reads the headers itself, and a header-derived flag would outrank the
+  intent;
+- this run's own mode flag: `--auto` when the execution mode is `auto`,
+  `--interactive` otherwise.
+
+When the intent is `none`, send exactly today's argument string: no `--intent`,
+no coordination flag, no mode flag.
+
+The `plan_mode_consistent` gate re-runs `/plan`'s split-mode resolver over the
+PLAN it produced and the flags above. A PLAN whose `execution_mode` or
+`split_mode_source` does not match what the forwarded flags resolve to routes
+the run to `bail` rather than on: the hop dropped or invented a flag. Exit 2
+means the check could not read the PLAN or run the resolver; the run holds with
+the gate reported.
 
 Record the execution mode `/plan` settled on -- `single-pr`, `multi-pr`, or
 `coordinated`. The full-run exit requires it.
@@ -1211,7 +1475,10 @@ never merges that PR and never leaves it open: an open coordination PR is
 merge-eligible, and merging it would land a plan the run just abandoned. The
 closed PR's durable body and the force-materialized Draft together record the
 partial state for a reviewer to audit. Skip this on a single-repo run, where
-there is no coordination PR to close.
+there is no coordination PR to close. Skip it too on an intent run -- this run's
+intent is `{{RUN_INTENT}}`, and anything but `none` is one: an intent run never
+creates a coordination PR up front, so none exists before exit, and there is
+nothing to close.
 
 The `forced_artifact_present` gate looks for that marker in the five canonical
 artifact paths, both DESIGN locations included. It is the marker rather than the
@@ -1341,3 +1608,15 @@ Status section.
 
 The run was cancelled. Nothing was force-materialized and no exit was recorded:
 a cancel finalizes nothing.
+
+## done_refused
+
+The invocation was refused before any work. The result names the check in
+`reason`, and for an intent mismatch the recorded and requested intents. The
+state file, if one exists, is unchanged. The printed exit line is
+`outcome=error` with `step=scope:refused`; `refused` is only a result value.
+
+## done_error
+
+The run stopped on an error it could not resolve. The result's `step` names
+where, and the state file, if one exists, is unchanged.
