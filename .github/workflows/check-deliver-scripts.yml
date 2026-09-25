@@ -1,0 +1,92 @@
+name: Check deliver scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/deliver/**'
+      - 'scripts/plan-mode.sh'
+      - 'scripts/plan-mode_test.sh'
+      # /deliver enters koto through the shared koto-open.sh, and its
+      # re-checks call /execute's ownership filter and merge-verdict script
+      # and /scope's publish --verify unchanged.
+      - 'scripts/koto-open.sh'
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/lib/**'
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/merge-verdict.sh'
+      - 'skills/scope/scripts/publish-scoping-pr.sh'
+      # The eval gh shim delegates to /execute's repository model, and the
+      # structure test compares variables with scope.md's.
+      - 'skills/execute/evals/fixtures/bin/gh'
+      - 'skills/scope/koto-templates/scope.md'
+      - '.github/workflows/check-deliver-scripts.yml'
+      # The engine-backed suites run the koto release .tsuku.toml pins.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
+
+jobs:
+  test-deliver-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      # The report, the probes, the binding check, the mode map, and the eval
+      # gh shim need bash, git and jq only (the probes and the shim drive
+      # test-local gh and koto stand-ins), so they run on both platforms and
+      # keep the bash 3.2 floor honest on macOS.
+      - name: Run script tests without koto
+        run: |
+          bash scripts/plan-mode_test.sh
+          bash skills/deliver/scripts/deliver-report_test.sh
+          bash skills/deliver/scripts/deliver-probe_test.sh
+          bash skills/deliver/scripts/deliver-preflight_test.sh
+          bash skills/deliver/scripts/eval-gh-shim_test.sh
+          bash skills/deliver/scripts/deliver-requires_test.sh
+
+  # Drives real koto: the request store (open_request, the absent resolver),
+  # the entry (deliver-open.sh's probe and fresh session), the compiled graph,
+  # and deliver.md walked route by route with stand-in children attached to its
+  # legs. TMPDIR is /tmp here, so PLUGIN_ROOT is a path koto admits and the
+  # shipped template runs unmodified.
+  test-deliver-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tsuku
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TSUKU_TELEMETRY: "0"
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.tsuku/tools/current" >> "$GITHUB_PATH"
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      # Every suite below SKIPS with exit 0 when koto is missing, which would
+      # report green having asserted nothing. Fail here instead, and also when
+      # koto is not the release .tsuku.toml pins.
+      - name: Assert koto is the pinned release
+        run: |
+          command -v koto
+          bash scripts/assert-koto-pin.sh
+
+      - name: Run deliver engine suites
+        run: |
+          bash skills/deliver/scripts/deliver-template-structure_test.sh
+          bash skills/deliver/scripts/deliver-open-request_test.sh
+          bash skills/deliver/scripts/deliver-absent_test.sh
+          bash skills/deliver/scripts/deliver-open_test.sh
+          bash skills/deliver/scripts/deliver-engine_test.sh
+          bash skills/deliver/scripts/deliver-requires_test.sh
