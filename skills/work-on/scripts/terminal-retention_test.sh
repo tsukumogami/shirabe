@@ -395,6 +395,34 @@ else
     pass "a root run reaching done_blocked without the flag loses plan.md (control)"
 fi
 
+# --- a blocked edge's context_assignments execute --------------------------------
+#
+# koto releases before the one .tsuku.toml pins dropped a transition's
+# context_assignments at compile time, so work-on.md's `failure_reason` blocks
+# compiled and did nothing. Under the pinned release they execute: the
+# blocked edge out of context_injection writes `failure_reason` into the
+# session's context with the submitted evidence interpolated, and koto's batch
+# view reads that key for a failed child. Compiling proves only that the blocks
+# are well-formed; this drives one edge and reads the key back, so it proves
+# they run. The retained terminal is what makes the key readable afterwards.
+koto init assign_probe --template "$TEMPLATE" \
+    --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=assign_probe \
+    --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
+init_or_die assign_probe
+koto next assign_probe --with-data '{"mode":"issue_backed","issue_number":"360"}' >/dev/null 2>&1
+koto next assign_probe --with-data '{"status":"blocked","detail":"issue body could not be read"}' --no-cleanup >/dev/null 2>&1
+ASSIGNED=$(koto context get assign_probe failure_reason 2>/dev/null)
+if [ "$ASSIGNED" = "context_injection blocked: issue body could not be read" ]; then
+    pass "the blocked edge's context_assignments wrote failure_reason with the evidence interpolated"
+else
+    fail "failure_reason after the blocked edge was [$ASSIGNED], expected the interpolated context_injection wording -- the assignments did not execute"
+fi
+if [ "$(koto status assign_probe 2>/dev/null | jq -r '.current_state')" = "done_blocked" ]; then
+    pass "the edge that wrote failure_reason is the one that reached done_blocked"
+else
+    fail "the assignment probe did not reach done_blocked"
+fi
+
 # The flag is read only on the tick that lands on a terminal, so carrying it
 # earlier retains nothing. This is why the rule cannot be "pass it once".
 koto init retain_early --template "$TEMPLATE" \
