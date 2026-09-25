@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   An author can't hand one agent session a feature with the goal "scope it,
   then build it, done when merged": the execution mode that decides whether
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-scope-then-execute](docs/briefs/BRIEF-scope-then-execute.md); carried in Absorbed Brief.
 
