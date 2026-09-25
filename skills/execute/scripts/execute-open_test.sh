@@ -29,6 +29,10 @@
 #       an accepted run bound to the leg
 #     a retained paused_for_review session: replaced, and the resume passes
 #       PAUSE_BEFORE_FINALIZE=false
+#     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
+#       name; on a live execute.md session koto's template_mismatch (session
+#       unchanged, outcome=error step=execute:refused, recorded on the leg
+#       under --koto-leg); a retained terminal execute.md session replaced
 #
 # koto status does not print a session's variables, so the effective value is
 # read from the session's own log: the init event's variables with every
@@ -301,6 +305,83 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
     fi
 else
     fail "could not walk execute-paused to paused_for_review"
+fi
+
+# --- the coordinated template ------------------------------------------------------
+#
+# A PLAN whose execution_mode is coordinated enters execute-coordinated.md
+# under the same execute-<slug> name. A live execute.md session of that name is
+# koto's template_mismatch; a retained terminal one is replaced.
+
+coord_plan() { # coord_plan <slug>
+    mkdir -p "$FIXREPO/docs/plans"
+    printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\ntracking_level: none\n---\n\n# PLAN: %s\n' \
+        "$1" > "$FIXREPO/docs/plans/PLAN-$1.md"
+}
+built_from() { # built_from <session> -> the template file name the session was built from
+    cat "$(k session dir "$1")"/*.state.jsonl 2>/dev/null \
+        | grep -o 'execute-coordinated\.md\|koto-templates/execute\.md\|"execute\.md"' | head -1
+}
+
+coord_plan cfresh
+run_open '["docs/plans/PLAN-cfresh.md","--merge"]'
+if [ "$RC" -eq 0 ] && line 'opened=new' && line 'session=execute-cfresh' \
+    && [ "$(built_from execute-cfresh)" = execute-coordinated.md ] \
+    && [ "$(session_var execute-cfresh MERGE)" = true ] \
+    && [ "$(k status execute-cfresh | jq -r .current_state)" = coord_setup ]; then
+    pass "a coordinated PLAN opens execute-coordinated.md under execute-<slug>, MERGE from --merge"
+else
+    fail "coordinated open: exit $RC, out [$OUT], template [$(built_from execute-cfresh)]; $ERR"
+fi
+
+# A live execute.md session, then a coordinated invocation of the same topic.
+run_open '["docs/plans/PLAN-mix.md"]'
+[ "$(built_from execute-mix)" != execute-coordinated.md ] && line 'opened=new' \
+    || fail "could not open a single-pr execute-mix session: [$OUT]"
+coord_plan mix
+LOG_BEFORE=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+STATE_BEFORE=$(k status execute-mix | jq -r .current_state)
+run_open '["docs/plans/PLAN-mix.md","--merge"]'
+LOG_AFTER=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+if [ "$RC" -eq 2 ] && line 'refused=template_mismatch' && line 'outcome=error' && line 'step=execute:refused' \
+    && [ "$LOG_BEFORE" = "$LOG_AFTER" ] && [ "$(k status execute-mix | jq -r .current_state)" = "$STATE_BEFORE" ] \
+    && [ "$(session_var execute-mix MERGE)" = false ]; then
+    pass "a coordinated invocation on a live execute.md session: template_mismatch, outcome=error step=execute:refused, session unchanged"
+else
+    fail "template mismatch: exit $RC, out [$OUT], log $LOG_BEFORE -> $LOG_AFTER; $ERR"
+fi
+if printf '%s' "$OUT" | grep -q "outcome=""refused"; then
+    fail "the refusal printed the refused token after outcome="
+else
+    pass "the refusal never prints the refused token after outcome="
+fi
+REQ3=$(k request create --with-data '{"legs":[{"name":"execute","role":"execute","template":["execute.md","execute-coordinated.md"],"inputs":{}}]}' \
+    --requested-by execute-open-test --coordinator-of-record execute-open-test 2>/dev/null \
+    | jq -r 'if type == "object" then (.id // .request_id // .request // "") else . end' 2>/dev/null)
+run_open '["docs/plans/PLAN-mix.md","--koto-leg='"$REQ3"':execute"]'
+SOURCE=$(k request get "$REQ3" 2>/dev/null | jq -r '[.. | objects | select(has("result_source")) | .result_source][0] // ""')
+if [ "$RC" -eq 2 ] && line 'refused=template_mismatch' && [ "$SOURCE" = refused ]; then
+    pass "under --koto-leg the template mismatch is recorded on the leg (source refused)"
+else
+    fail "--koto-leg template mismatch: exit $RC, out [$OUT], source [$SOURCE]"
+fi
+
+# A retained terminal execute.md session is replaced by the coordinated run.
+run_open '["docs/plans/PLAN-swap.md"]'
+for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
+         spawn_and_await pr_finalization paused_for_review; do
+    k next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+done
+coord_plan swap
+if [ "$(k status execute-swap | jq -r .current_state)" = paused_for_review ]; then
+    run_open '["docs/plans/PLAN-swap.md"]'
+    if [ "$RC" -eq 0 ] && line 'opened=replaced' && [ "$(built_from execute-swap)" = execute-coordinated.md ]; then
+        pass "a retained terminal execute.md session is replaced by the coordinated run"
+    else
+        fail "replace: exit $RC, out [$OUT], template [$(built_from execute-swap)]; $ERR"
+    fi
+else
+    fail "could not walk execute-swap to paused_for_review"
 fi
 
 echo

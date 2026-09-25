@@ -145,6 +145,19 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git
             # and jq, so they run on the macOS leg; its engine cases skip there.
             echo "skills/execute/scripts/drift-facts_test.sh"
+            # The coordinated loop's scripts. Each drives the eval gh shim's
+            # repository model, a koto context stub, and real git, so every
+            # case runs on 3.2; the envelope's structure test compiles with
+            # koto and its engine test runs it, each skipping without koto.
+            echo "skills/execute/scripts/coordinated-next_test.sh"
+            echo "skills/execute/scripts/coordination-verdict_test.sh"
+            echo "skills/execute/scripts/record-coordination-verdict_test.sh"
+            echo "skills/execute/scripts/record-coord-setup_test.sh"
+            echo "skills/execute/scripts/node-cut_test.sh"
+            echo "skills/execute/scripts/node-push_test.sh"
+            echo "skills/execute/scripts/coord-merge_test.sh"
+            echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
+            echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key

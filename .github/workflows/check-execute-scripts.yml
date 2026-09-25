@@ -90,6 +90,21 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/eval-gh-shim_test.sh
 
+      # The coordinated loop's scripts: the next action, the verdict and its
+      # record, the setup record, node branches, node pushes and their head=
+      # records, and the merge. Each drives the eval gh shim's repository
+      # model, a koto context stub, and real git, so none needs the engine.
+      - name: Run coordinated loop script tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash skills/execute/scripts/coordinated-next_test.sh
+          bash skills/execute/scripts/coordination-verdict_test.sh
+          bash skills/execute/scripts/record-coordination-verdict_test.sh
+          bash skills/execute/scripts/record-coord-setup_test.sh
+          bash skills/execute/scripts/node-cut_test.sh
+          bash skills/execute/scripts/node-push_test.sh
+          bash skills/execute/scripts/coord-merge_test.sh
+
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch
       # was not recorded, which cannot be checked without the engine that
@@ -127,6 +142,23 @@ jobs:
       - name: Run execute template structure tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-template-structure_test.sh
+
+      # The coordinated envelope's shape, read from the compiled
+      # execute-coordinated.md: every edge into `merged` from
+      # coord_merge_confirm alone, non-overridable context-matches gates on
+      # coord_verdict and coord_merge_confirm and no command gate there, no
+      # reason assigned out of coord_verdict and only its absent-or-unmatched
+      # edge assigning a step, and no done_refused state.
+      - name: Run coordinated envelope structure tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-structure_test.sh
+
+      # The same envelope on the engine: each terminal reached with
+      # --no-cleanup and its result keys, the override refusals, and the
+      # promoted leg result under --koto-leg.
+      - name: Run coordinated envelope engine tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-engine_test.sh
 
       # /execute's koto entry: the flags reach koto as variables, and koto's
       # refusals (duplicate or invalid --merge, another template's live
