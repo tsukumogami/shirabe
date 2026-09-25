@@ -36,11 +36,12 @@ in one sitting, plus the child skills you can also reach for directly.
 | `/design` | Produce a technical design document by decomposing the problem into decision questions and evaluating trade-offs; for a feature whose requirements are already settled |
 | `/plan` | Decompose a design doc, PRD, or roadmap into atomic, sequenced issues with dependency graphs and complexity labels |
 
-### Execute chain -- implementation altitude (plan to merged code)
+### Execute chain -- implementation altitude (plan to pull requests)
 
 | Skill | What it does |
 |-------|-------------|
-| `/execute` | Parent skill: drives a finished PLAN to merged code, delegating each issue to `/work-on`; owns single-pr and coordinated multi-repo plans (a multi-pr plan runs under `/work-on` instead) |
+| `/deliver` | Driver skill: scopes a topic with `/scope --intent=continue`, then executes its PLAN with `/execute --merge` in one session, so the run ends `merged` wherever the repository's rules let it merge (`--no-merge` stops at ready PRs); re-run it to pick a topic up where it stopped |
+| `/execute` | Parent skill: drives a finished PLAN to ready PRs with passing CI, delegating each issue to `/work-on`, and merges them only when run with `--merge`; owns single-pr plans and coordinated plans in one repository or several (a multi-pr plan runs under `/work-on` instead) |
 | `/work-on` | Implement a GitHub issue, the next unblocked issue on a milestone, or a task stated plainly, end-to-end: branch, analysis, code, three-panel review, tests, and pull request. Also runs a `multi-pr` plan, one issue at a time, each landing its own PR |
 
 ### Standalone skills
@@ -60,6 +61,8 @@ Skills chain together within each altitude, and each chain has a parent skill
 that walks the whole thing in one sitting: `/charter` drives VISION ->
 STRATEGY -> ROADMAP, `/scope` drives BRIEF -> PRD -> DESIGN -> PLAN, and
 `/execute` drives a finished PLAN through `/work-on` for every issue.
+`/deliver` runs `/scope` and then `/execute` back to back when you want a topic
+taken from framing to its PRs without stopping in between.
 `/explore` helps you figure out where to start if you're not sure which
 altitude you need, and `/review-plan` runs inside `/plan` to catch problems
 before issues get created.
@@ -125,18 +128,23 @@ each upstream node to its terminal status (DESIGN to Current, PRD to Done,
 BRIEF to Done) and, if the chain traces back to a ROADMAP, updates that
 roadmap's progress.
 
-## Coordinated multi-repo
+## Coordinated efforts
 
-`/scope --coordinated` extends the chain across repositories, and `/execute`
-drives the resulting coordinated plan: a single coordination PR is created up
-front to hold the plan and its framing, per-repo work is grouped to the coarsest
-legal unit and merged in a derived order, and the coordination PR merges last as
-the one completion signal.
-A non-bypassable merge-last gate (`shirabe validate --merge-gate`) enforces it in
-CI -- the coordination PR cannot merge until every indexed per-repo PR has.
+When a plan's work splits into PRs that must land in order, in one repository
+or across several, it can run in coordinated mode. `/plan` picks it for a split
+when you pass `--coordinated`, when `/scope --intent=continue` (or `/deliver`)
+forwards its intent, or when `CLAUDE.md` declares
+`## PR Grouping Policy: coordinated`. A single coordination PR holds the plan
+and its framing, each `(repo, group)` unit of work lands as its own PR on its
+own branch in a derived order, and the coordination PR merges last as the one
+completion signal. `/execute` drives the plan, and with `--merge` merges each PR
+when the repository's rules allow it.
+A non-bypassable merge-last gate (`shirabe validate --merge-gate`) enforces the
+order in CI -- the coordination PR can't merge until every indexed PR has.
 See [`docs/guides/coordinated-multi-repo.md`](docs/guides/coordinated-multi-repo.md)
-for the end-to-end walkthrough, including how `--merge-gate` and
-`--coordination-body` are used.
+for the end-to-end walkthrough, and
+[`docs/guides/execute-friction.md`](docs/guides/execute-friction.md) for
+`/deliver`, merging, and resuming a run.
 
 ## Example: building a plugin system from scratch
 
@@ -225,8 +233,9 @@ Claude Code session:
   anyway, but it is real and it is stated rather than papered over.
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
-- [koto](https://github.com/tsukumogami/koto): `/scope` and `/execute` need
-  koto v0.13.0 or later, the release CI is pinned to in `.tsuku.toml`. They
+- [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`, and
+  `/deliver` need koto v0.13.0 or later, the release CI is pinned to in
+  `.tsuku.toml`. They
   enter their session through `scripts/koto-open.sh`, which uses `koto init`'s
   entry flags (`--vars-file`, `--attach-live`, `--replace-terminal`,
   `--koto-leg`), and those first shipped in v0.13.0. `/work-on` needs koto
@@ -241,10 +250,10 @@ Neither `requires.tsv` nor the preflight carries a version: floors go stale
 silently, and a floor nobody rechecks is worse than no floor at all. The koto
 minimums above are stated only because something rechecks them. For `/work-on`,
 `check-koto-floor.yml` installs koto v0.12.2, compiles the templates with it,
-and replays scripted runs to confirm they route the same. For `/scope` and
-`/execute`, the floor is declared as surface rather than as a number: their
-`koto init` records name the four entry flags, so the preflight on an older
-koto names the missing flags and the install route before the skill does any
+and replays scripted runs to confirm they route the same. For `/scope`,
+`/execute`, and `/deliver`, the floor is declared as surface rather than as a
+number: their `koto init` records name the four entry flags, so the preflight
+on an older koto names the missing flags and the install route before the skill does any
 work, and every CI job that installs koto from `.tsuku.toml` asserts it got
 the pinned release (`scripts/assert-koto-pin.sh`).
 
@@ -257,7 +266,10 @@ koto that started it or remove it with `koto session cleanup <name>`. So a
 `/scope` or `/execute` run that is still in flight when you upgrade can't be
 resumed afterwards. Finish it on the old koto, or clean up its session
 (`koto session cleanup scope-<topic>` or `koto session cleanup
-execute-<plan-slug>`), before you upgrade. There is no automatic migration.
+execute-<plan-slug>`), before you upgrade. `/deliver` needs v0.13.0 to run at
+all, so it has no older sessions of its own, but it resumes a topic through
+`/scope` and `/execute` and can't pick up their old sessions either. There is
+no automatic migration.
 
 ## CLI and doc validation
 
