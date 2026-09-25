@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# gh shim for /deliver's eval scenarios.
+#
+# A /deliver run makes the gh calls of three skills: /scope's publish step,
+# /execute's adopt, verdict, and merge, and /deliver's own re-checks. This shim
+# serves all of them from one repository model: /execute's eval shim
+# (skills/execute/evals/fixtures/bin/gh) in its stateful gh/db.json mode, which
+# models pull requests being created, edited, readied, and merged, and logs
+# every call to $GH_CALL_LOG. This file adapts the calls the other two skills
+# make to that model and then hands over:
+#
+#   - a PR named by URL (`gh pr view https://github.com/<o>/<r>/pull/<n>`, as
+#     /scope's publish step and /deliver's probe name it) becomes `<n> --repo
+#     <o>/<r>`;
+#   - a `gh pr ...` call with no --repo (as /scope's publish step makes them,
+#     inside the checkout) gets the scenario's default repository;
+#   - before any `pr` read, each open PR's headRefOid is refreshed from the
+#     branch origin holds, the way GitHub follows a push, so a PR /scope opened
+#     reports the commit /execute pushed on top of it;
+#   - with gh/fail-pr-create-once in the scenario, the first `gh pr create`
+#     fails (a publish failure), and every later one succeeds.
+#
+# Scenarios live in skills/deliver/evals/fixtures/scenarios/<scenario>/, each
+# with gh/db.json and a README.md saying what it models. GH_CALL_LOG is
+# required, as it is for the repository model.
+set -uo pipefail
+
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXECUTE_SHIM="$(cd "$FIXTURES_DIR/../../../execute/evals/fixtures/bin" && pwd)/gh"
+if [ -z "${EVAL_SCENARIO:-}" ]; then
+    echo "gh shim: EVAL_SCENARIO not set" >&2
+    exit 1
+fi
+SCENARIO_DIR="$FIXTURES_DIR/scenarios/$EVAL_SCENARIO"
+[ -f "$SCENARIO_DIR/gh/db.json" ] || { echo "gh shim: no gh/db.json in scenario $EVAL_SCENARIO" >&2; exit 1; }
+[ -n "${GH_CALL_LOG:-}" ] || { echo "gh shim: GH_CALL_LOG is required" >&2; exit 1; }
+export EVAL_SCENARIO_DIR="$SCENARIO_DIR"
+
+DEFAULT_REPO=$(jq -r '.default_repo' "$SCENARIO_DIR/gh/db.json")
+STATE_DIR="$GH_CALL_LOG.d"
+DB="$STATE_DIR/db.json"
+
+# `gh shim-mark-open <repo> <number>`: the scenario's own hook for GitHub
+# contradicting a merge a child reported (the PR reads OPEN again). Not
+# logged, like the repository model's shim-mark-merged.
+if [ "${1:-}" = shim-mark-open ]; then
+    [ -f "$DB" ] || { echo "gh shim: no repository model yet" >&2; exit 1; }
+    jq --arg r "${2:-}" --argjson n "${3:-0}" \
+        '(.prs[] | select(.repo == $r and .number == $n) | .state) = "OPEN"' "$DB" >"$DB.tmp.$$" \
+        && mv "$DB.tmp.$$" "$DB"
+    exit 0
+fi
+
+if [ "${1:-}" = pr ]; then
+    verb="${2:-}"
+    shift 2
+    args=()
+    repo=""
+    prev=""
+    for a in "$@"; do
+        [ "$prev" = "--repo" ] && repo="$a"
+        case "$a" in
+            https://github.com/*/*/pull/*)
+                n="${a##*/}"
+                r="${a#https://github.com/}"
+                r="${r%/pull/*}"
+                args+=("$n")
+                [ -n "$repo" ] || repo="$r"
+                ;;
+            *) args+=("$a") ;;
+        esac
+        prev="$a"
+    done
+    has_repo=0
+    for a in "${args[@]+"${args[@]}"}"; do [ "$a" = "--repo" ] && has_repo=1; done
+    if [ "$has_repo" -eq 0 ]; then
+        args+=(--repo "${repo:-$DEFAULT_REPO}")
+    fi
+
+    if [ "$verb" = create ] && [ -f "$SCENARIO_DIR/gh/fail-pr-create-once" ]; then
+        mkdir -p "$STATE_DIR"
+        if [ ! -f "$STATE_DIR/pr-create-failed" ]; then
+            : >"$STATE_DIR/pr-create-failed"
+            printf '%s\n' "pr create ${args[*]}" >>"$GH_CALL_LOG"
+            echo "gh shim: pr create failed (the scenario's one publish failure)" >&2
+            exit 1
+        fi
+    fi
+
+    # GitHub follows pushes: refresh each open PR's head from origin.
+    if [ -f "$DB" ]; then
+        tmp="$DB.refresh.$$"
+        cp "$DB" "$tmp"
+        for head in $(jq -r '.prs[] | select(.state == "OPEN") | .headRefName' "$DB" | sort -u); do
+            sha=$(git ls-remote origin "refs/heads/$head" | awk 'NR == 1 { print $1 }')
+            [ -n "$sha" ] || continue
+            jq --arg h "$head" --arg s "$sha" \
+                '(.prs[] | select(.state == "OPEN" and .headRefName == $h) | .headRefOid) = $s' "$tmp" >"$tmp.2" \
+                && mv "$tmp.2" "$tmp"
+        done
+        mv "$tmp" "$DB"
+    fi
+
+    exec "$EXECUTE_SHIM" pr "$verb" "${args[@]+"${args[@]}"}"
+fi
+
+exec "$EXECUTE_SHIM" "$@"
