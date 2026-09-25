@@ -9,7 +9,10 @@
 # run end to end against a stub curl and a fake install.sh), and the script's
 # refusals -- a
 # missing checksum tool, a missing or wrong yq, a missing jq, and a koto that
-# reports the wrong version. None of those refusals reaches a download: each
+# reports the wrong version. It also covers scripts/check-koto-release.sh, the
+# leg that compiles the declared templates with the koto release that reads
+# them, against a stub koto: the v0.13.0 pins, a wrong version, a declaration
+# error, and a floor that fails to refuse an auto answer. None of those refusals reaches a download: each
 # one fails before install.sh would be fetched, and curl is kept off PATH in
 # the one case that would otherwise get that far.
 #
@@ -27,6 +30,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CHECK="$SCRIPT_DIR/check-koto-floor.sh"
+RELEASE_CHECK="$SCRIPT_DIR/check-koto-release.sh"
 FIXTURES="$SCRIPT_DIR/koto-floor/fixtures"
 WORKFLOW="$REPO_ROOT/.github/workflows/check-koto-floor.yml"
 
@@ -377,13 +381,105 @@ fi
 # Every koto call in the script, the library, and the scenarios goes through
 # $KOTO_BIN. Comments are dropped first; what is left must never start a
 # command with a bare `koto <subcommand>`.
-bare=$(for f in "$CHECK" "$SCRIPT_DIR/koto-floor/lib.sh" "$SCRIPT_DIR"/koto-floor/scenarios/*.sh; do
+bare=$(for f in "$CHECK" "$RELEASE_CHECK" "$SCRIPT_DIR/koto-floor/lib.sh" "$SCRIPT_DIR"/koto-floor/scenarios/*.sh; do
     sed -e 's/^[[:space:]]*#.*$//' "$f" | grep -nE '(^|[[:space:];|&(`])koto[[:space:]]+(init|next|status|context|template|session|version|rewind|cancel|workflows)([[:space:]]|$)' | sed "s|^|${f##*/}:|"
 done)
 if [ -z "$bare" ]; then
-    pass "no bare koto invocation in the script, the library, or the scenarios"
+    pass "no bare koto invocation in the scripts, the library, or the scenarios"
 else
-    fail "no bare koto invocation in the script, the library, or the scenarios" "$bare"
+    fail "no bare koto invocation in the scripts, the library, or the scenarios" "$bare"
+fi
+
+# -- the release leg ------------------------------------------------------------
+
+if [ "$KOTO_DECIDER_RELEASE_VERSION" = v0.13.0 ] \
+    && [ "$(koto_binary_sha256 v0.13.0 linux-amd64)" = "b888f75d5647b92a796f9fdc10db3300131ab2b3476cc027ce7eba937dc25b1e" ] \
+    && [ "$(koto_binary_sha256 v0.13.0 linux-arm64)" = "c0c2f5c2665acdab312b2f60a5bcfb3c377c2d52e09e3e5856d06e11cc288d97" ] \
+    && [ "$(koto_binary_sha256 v0.13.0 darwin-amd64)" = "24691c3507a437d2d583ff1803d4112eb0972099e848d0eb5fe140b492d6a756" ] \
+    && [ "$(koto_binary_sha256 0.13.0 darwin-arm64)" = "e72601b8d81d349415c708c486eda676382d265ff1751117ce0f111c20bb831c" ]; then
+    pass "the release leg installs v0.13.0, pinned for all four platforms"
+else
+    fail "the release leg installs v0.13.0, pinned for all four platforms" "[$KOTO_DECIDER_RELEASE_VERSION] [$(koto_binary_sha256 v0.13.0 linux-amd64)]"
+fi
+
+# A stub koto for the release leg. STUB_MODE picks its behaviour:
+#   floor  -- refuses plan_validation.verdict exit in auto with E-DECIDER-FLOOR,
+#             as koto v0.13.0 does, and compiles everything else
+#   lax    -- compiles everything, the mutation included
+#   input  -- fails every compile with an E-DECIDER-INPUT error
+cat > "$T/koto-release" <<'STUB'
+#!/bin/bash
+case "$1" in
+    version) echo "koto ${STUB_VERSION:-0.13.0} (0000000 2026-01-01T00:00:00Z)"; exit 0 ;;
+    template)
+        mode=$(yq --front-matter=extract '.states.plan_validation.accepts.verdict.decider.answers.exit.mode // ""' "$3" 2>/dev/null)
+        case "$STUB_MODE" in
+            floor)
+                if [ "$mode" = auto ]; then
+                    echo '{"command":"template compile","error":"validation error: E-DECIDER-FLOOR: state \"plan_validation\" field \"verdict\" value \"exit\": mode auto is not allowed on the transition to \"validation_exit\": the target is a terminal state"}'
+                    exit 1
+                fi ;;
+            input)
+                echo '{"command":"template compile","error":"validation error: E-DECIDER-INPUT: state \"x\" field \"y\": input names an ungated key"}'
+                exit 1 ;;
+        esac
+        echo "$HOME/.cache/koto/0000.json"
+        exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$T/koto-release"
+
+# run_release [env assignments...]: runs the release leg. Sets OUT and RC.
+run_release() {
+    OUT=$(env -u RUNNER_TEMP -u KOTO_RELEASE_BIN HOME="$T/home" "$@" /bin/bash "$RELEASE_CHECK" 2>&1)
+    RC=$?
+}
+
+mkdir -p "$T/home"
+run_release KOTO_RELEASE_BIN="$T/koto-release" STUB_MODE=floor
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'refused with E-DECIDER-FLOOR on the route to validation_exit' \
+    && printf '%s' "$OUT" | grep -q 'unmodified copy: compiles' \
+    && printf '%s' "$OUT" | grep -qF 'skills/work-on/koto-templates/work-on.md: 2 declaration(s), compiles' \
+    && printf '%s' "$OUT" | grep -qF 'skills/execute/koto-templates/execute.md: 1 declaration(s), compiles'; then
+    pass "the release leg passes when the declared templates compile and the floor refuses an auto exit"
+else
+    fail "the release leg passes when the declared templates compile and the floor refuses an auto exit" "rc $RC, output [$OUT]"
+fi
+
+run_release KOTO_RELEASE_BIN="$T/koto-release" STUB_MODE=lax
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'the floor did not refuse the route to validation_exit'; then
+    pass "a koto that compiles an auto exit fails the release leg"
+else
+    fail "a koto that compiles an auto exit fails the release leg" "rc $RC, output [$OUT]"
+fi
+
+run_release KOTO_RELEASE_BIN="$T/koto-release" STUB_MODE=input
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'work-on.md: koto 0.13.0 does not compile it' \
+    && printf '%s' "$OUT" | grep -q 'E-DECIDER-INPUT'; then
+    pass "a declaration koto refuses fails the release leg, naming the template and the error"
+else
+    fail "a declaration koto refuses fails the release leg, naming the template and the error" "rc $RC, output [$OUT]"
+fi
+
+run_release KOTO_RELEASE_BIN="$T/koto-release" STUB_MODE=floor STUB_VERSION=0.12.2
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'want 0.13.0'; then
+    pass "a release-leg koto reporting the wrong version fails"
+else
+    fail "a release-leg koto reporting the wrong version fails" "rc $RC, output [$OUT]"
+fi
+
+run_release KOTO_RELEASE_BIN="koto"
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'absolute path'; then
+    pass "a KOTO_RELEASE_BIN that is not an absolute path is refused"
+else
+    fail "a KOTO_RELEASE_BIN that is not an absolute path is refused" "rc $RC, output [$OUT]"
+fi
+
+if [ "$(yq --front-matter=extract '.states.plan_validation.accepts.verdict.decider.answers.exit.mode' "$REPO_ROOT/skills/work-on/koto-templates/work-on.md")" = never ]; then
+    pass "the release leg mutates a copy, never the checkout"
+else
+    fail "the release leg mutates a copy, never the checkout" "exit's mode in the checkout is no longer never"
 fi
 
 # -- the script's refusals ----------------------------------------------------
