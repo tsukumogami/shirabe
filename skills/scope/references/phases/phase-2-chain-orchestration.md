@@ -191,12 +191,34 @@ for that child:
   |---|---|
   | `/prd` | `docs/briefs/BRIEF-<topic>.md` |
   | `/design` | `docs/prds/PRD-<topic>.md` |
-  | `/plan` | `docs/designs/DESIGN-<topic>.md`, plus `--upstream <roadmap-path>` when the state file carries `consumed_upstream:` |
+  | `/plan` | `docs/designs/DESIGN-<topic>.md`, plus `--upstream <roadmap-path>` when the state file carries `consumed_upstream:`. When the run's effective intent (`RUN_INTENT`) is `continue` or `stop`, also `--intent=<value>`; `--coordinated` or `--no-coordinated` only when `COORDINATION` says the caller passed it; and `/scope`'s own resolved mode flag (`--auto` when `EXEC_MODE` is `auto`, `--interactive` otherwise), all before the `--` that precedes the DESIGN path. A no-intent hop sends exactly the argument string above and nothing more. |
 
   When an artifact above the child was absorbed at an earlier
   hop, the argument is the surviving artifact's path — that is
   what "nearest artifact this chain produced" resolves to once
   an absorb has happened.
+
+**What the `/plan` hop forwards, and what it never forwards.** `/plan`
+owns `--intent=continue|stop`, `--coordinated` and `--no-coordinated` as
+flags it documents for direct use, and resolves a split's mode from them
+by its own precedence. `/scope` forwards the caller's intent and the
+coordination flag exactly as the caller passed it, read from the
+session's `COORDINATION` variable. It never forwards a `--coordinated`
+derived from a CLAUDE.md coordination header: `/plan` reads the headers
+itself, and a header-derived flag would outrank the intent. On a run
+with no intent the hop is today's invocation, unchanged, so a no-intent
+chain produces exactly the PLAN it always did.
+
+The `plan_mode_consistent` gate on `hop_plan`'s `landed` edge checks the
+hop's result rather than its arguments, since koto cannot see a Skill
+call. `skills/scope/scripts/check-plan-mode.sh` exits 0 at once when the
+intent is `none`; otherwise it re-runs `/plan`'s
+`skills/plan/scripts/resolve-split-mode.sh` over the PLAN's split
+verdict (read from its `execution_mode`: `single-pr` is no split), the
+forwarded intent and coordination flag, and the repository's CLAUDE.md,
+and compares the answer with the PLAN's `execution_mode` and
+`split_mode_source`. A hop that dropped or invented a flag resolves
+differently, and the run routes to `bail` instead of on.
 
 These are input modes each child already ships: `/prd`'s Input
 Mode 2 takes a BRIEF path and transitions it Draft to Accepted,
@@ -923,6 +945,10 @@ The fields:
   state file and drive the absorb's control flow, and `verdict:`
   decides whether a deletion happens at all, so a tampered value
   reaches a `git rm`.
+- `intent:` against `{continue, stop, none}`. It is read back to
+  resolve the run's effective intent, which decides what the `/plan`
+  hop forwards; an empty or placeholder value is out of the enum, not
+  a run with no intent.
 - `visibility:` against `{Public, Private}`. It is read back from
   the state file and interpolated into
   `shirabe validate --format json --visibility=<value>`, so a

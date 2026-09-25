@@ -176,6 +176,14 @@ force-materialized Draft records how far the chain got.
 
 A single-repo run has no coordination PR and skips this.
 
+An intent run skips it too, and makes no `gh pr close` call at all. A run
+whose recorded `intent:` is `continue` or `stop` never creates a
+coordination PR up front (see Coordination Intent in `SKILL.md`): the
+publish step opens one at exit, once the PLAN's mode is known, and an
+abandoned run has not reached it. So before exit there is no coordination
+PR to close. Only a run with `intent: none` whose coordination intent
+resolved on, which did create one up front, closes it here.
+
 ## R8 Bail Route
 
 A bail routes on what a child produced. The abandonment-forced

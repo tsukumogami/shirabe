@@ -314,10 +314,10 @@ anchored pattern for their type.
   Several exit-path required fields are path-valued strings and
   several of them reach a write path, which is what makes this limb
   load-bearing rather than defensive.
-- **The origin record** is not parsed and not interpolated. Its
-  session name is recomputed from the validated slug and compared
-  for equality; its worktree and store are compared against the
-  values this invocation computes for itself.
+- **The origin record** is koto's own, and `koto init --attach-live`
+  compares its worktree and store with this invocation's before it
+  attaches; nothing here parses or interpolates it. The session name
+  is recomputed from the validated slug and compared for equality.
 
 Out-of-pattern values are refused with a diagnostic naming the field
 and route to R8 bail-handling, which is what the equivalent
@@ -420,8 +420,8 @@ walks its own `child_snapshots:` — the state file is internal to
   Slug re-validation on resume; State-file enum re-validation, the
   rule the session-recovered values above are validated under.
 - `skills/scope/references/phases/phase-0-setup.md` — the Workflow
-  Session section, which states the probe, the origin check and the
-  naming rule this ladder's re-validation assumes.
+  Session section, which states the entry through `scope-open.sh` and
+  the naming rule this ladder's re-validation assumes.
 - `skills/scope/references/state-schema.md` — the
   `child_snapshots:`, `drift_acknowledged:`, and `worktree_rebases:`
   fields the drift-detection prompt writes against, and the
