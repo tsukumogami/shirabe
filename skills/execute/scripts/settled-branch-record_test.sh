@@ -141,9 +141,9 @@ submit() {
 # impl/<slug> would pass against the very defect this tests.
 
 new_session round-trip
-out=$(cd "$REPO" && "$RECORDER" round-trip 2>/dev/null)
+out=$(cd "$REPO" && "$RECORDER" execute-round-trip 2>/dev/null)
 rc=$?
-stored=$(koto context get round-trip settled_branch 2>/dev/null)
+stored=$(koto context get execute-round-trip settled_branch 2>/dev/null)
 
 echo "  recorded:  [$ADOPT_BRANCH]"
 echo "  stored:    [$stored]"
@@ -158,7 +158,7 @@ fi
 # `echo` instead of `printf '%s'` would leave -- makes the value a different
 # branch and also fails the gate's anchored pattern. The same holds for stdout,
 # which koto trims but whose allowlist forbids the newline outright.
-stored_len=$(koto context get round-trip settled_branch 2>/dev/null | wc -c | tr -d ' ')
+stored_len=$(koto context get execute-round-trip settled_branch 2>/dev/null | wc -c | tr -d ' ')
 if [ "$stored_len" = "${#ADOPT_BRANCH}" ]; then
     pass "stored value is exactly ${#ADOPT_BRANCH} bytes: no trailing newline"
 else
@@ -170,10 +170,10 @@ fi
 # The action re-runs on every entry to the state without evidence, including
 # each gate-blocked retry, so a second run must be harmless.
 
-(cd "$REPO" && "$RECORDER" round-trip >/dev/null 2>&1)
+(cd "$REPO" && "$RECORDER" execute-round-trip >/dev/null 2>&1)
 rc=$?
-again=$(koto context get round-trip settled_branch 2>/dev/null)
-keys=$(koto context list round-trip 2>/dev/null)
+again=$(koto context get execute-round-trip settled_branch 2>/dev/null)
+keys=$(koto context list execute-round-trip 2>/dev/null)
 if [ "$rc" -eq 0 ] && [ "$again" = "$ADOPT_BRANCH" ]; then
     pass "re-running the recorder is idempotent (exit 0, same value)"
 else
