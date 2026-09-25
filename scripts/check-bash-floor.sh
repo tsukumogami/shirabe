@@ -158,6 +158,10 @@ suite_scripts() {
             echo "skills/execute/scripts/coord-merge_test.sh"
             echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
             echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
+            # The "merged" wording check and its test: text only, so every
+            # case runs on 3.2.
+            echo "scripts/check-merged-wording_test.sh"
+            echo "scripts/check-merged-wording.sh"
             ;;
         work-on)
             # Drives real koto sessions to assert that a cleared context key
