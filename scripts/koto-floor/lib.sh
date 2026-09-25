@@ -221,6 +221,7 @@ check_jq() {
 # `# koto-floor: pinned` and is left out: it uses koto features v0.12.2 cannot
 # compile (constrained variables, result maps, non-overridable gates), and its
 # skill's requires.tsv declares the newer floor, which preflight enforces.
+# scope.md and execute.md both carry the marker.
 list_templates() {
     local root="$1" f rel
     for f in "$root"/skills/*/koto-templates/*.md "$root"/scripts/koto-floor/fixtures/*.md; do
@@ -448,48 +449,6 @@ expect_final() {
 }
 
 # -- shared scenario openings -------------------------------------------------
-
-EXECUTE_PLAN='---
-schema: plan/v1
----
-# PLAN: floor
-
-## Scope Summary
-
-Touches `src/a.go`.
-
-## Issue Outlines
-
-### Issue 1: feat: change a
-
-**Goal**: Change a.
-
-**Files**: `src/a.go`'
-
-# execute_start <upstream-shell> <subject>: a /execute run on impl/floor whose
-# PLAN references src/a.go and whose origin/main has moved by <upstream-shell>,
-# ticked to wherever drift_facts and worktree_sync leave it. orchestrator_setup
-# creates the draft PR, which needs GitHub, so it is crossed with --to.
-EXECUTE_SESSION="execute-floor"
-execute_start() {
-    fixture_repo impl/floor || return 1
-    commit_in_repo docs/plans/PLAN-floor.md "$EXECUTE_PLAN" "docs: plan" || return 1
-    upstream "$1" "$2" || return 1
-    koto_init "$EXECUTE_SESSION" "$TREE/skills/execute/koto-templates/execute.md" \
-        --var PLAN_DOC=docs/plans/PLAN-floor.md --var PLAN_SLUG=floor \
-        --var PLUGIN_ROOT="$TREE" --var PAUSE_BEFORE_FINALIZE=false || return 1
-    tick "$EXECUTE_SESSION"
-    expect_state orchestrator_setup "execute opening" || return 1
-    tick_to "$EXECUTE_SESSION" settled_branch_record "the draft PR needs GitHub"
-    expect_state settled_branch_record "execute opening" || return 1
-    tick "$EXECUTE_SESSION"
-}
-
-# child_task <name> <fixture>: one task entry overriding the child template
-# with one of this check's fixtures.
-child_task() {
-    printf '{"name":"%s","template":"%s/scripts/koto-floor/fixtures/%s"}' "$1" "$TREE" "$2"
-}
 
 # workon_init <session>: a /work-on session, plan-backed by its variables, in
 # a fresh fixture on impl/<session>.

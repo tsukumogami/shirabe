@@ -110,6 +110,11 @@ fixture() {
         git add -A && git commit -q -m init && git push -q origin main
         cd .. && git clone -q origin.git repo 2>/dev/null
         cd repo && git checkout -q -b "impl/$1"
+        # The run's origin names a GitHub repository, which is what the
+        # template's initial state, write_set_record, records as the write set;
+        # insteadOf sends every fetch to the bare repository above.
+        git remote set-url origin https://github.com/o/r.git
+        git config url."$FX/origin.git".insteadOf https://github.com/o/r.git
     ) >/dev/null 2>&1
 }
 
@@ -549,11 +554,23 @@ fi
 
 # koto validates --var values against ^[a-zA-Z0-9._/:@ \-]*$; a checkout path
 # may not be inside that set, so the plugin root is reached through a clean
-# symlink when it isn't.
+# symlink when it isn't, and, when the temp tree is not clean either, through a
+# copy of the template with the real path written where {{PLUGIN_ROOT}} stood.
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
         ln -s "$PLUGIN_ROOT" "$WORKDIR/plugin"
-        PLUGIN_ROOT="$WORKDIR/plugin"
+        case "$WORKDIR/plugin" in
+            *[!a-zA-Z0-9._/:@\ -]*)
+                mkdir -p "$WORKDIR/derived/skills/execute/koto-templates"
+                ln -s "$PLUGIN_ROOT/skills/work-on" "$WORKDIR/derived/skills/work-on"
+                sed "s#{{PLUGIN_ROOT}}#$PLUGIN_ROOT#g" "$TEMPLATE" \
+                    > "$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                TEMPLATE="$WORKDIR/derived/skills/execute/koto-templates/execute.md"
+                PLUGIN_ROOT=/koto-probe
+                echo "  note: running a copy of execute.md with the plugin path written in (no allowlist-clean path exists)"
+                ;;
+            *) PLUGIN_ROOT="$WORKDIR/plugin" ;;
+        esac
         ;;
 esac
 
@@ -570,10 +587,13 @@ tick() {
 }
 
 start() {
-    # $1 fixture/slug; the PLAN is committed on the branch only
+    # $1 fixture/slug; the PLAN is committed on the branch only. The first bare
+    # tick runs write_set_record, the initial state, and stops at
+    # orchestrator_setup, where each case submits its evidence.
     (cd "$FX/repo" && koto init "execute-$1" --template "$TEMPLATE" \
         --var PLAN_DOC=docs/plans/PLAN-t.md --var PLAN_SLUG="$1" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT" --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1)
+        --var PLUGIN_ROOT="$PLUGIN_ROOT" --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1 \
+        && koto next "execute-$1" --no-cleanup >/dev/null 2>&1)
 }
 
 # No drift: one override tick at orchestrator_setup reaches spawn_and_await.

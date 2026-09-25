@@ -18,6 +18,29 @@ if [ "$EVAL_SCENARIO" = "koto-missing" ]; then
   exit 127
 fi
 
+# A scenario that runs a real koto. The merge-step scenarios need the engine
+# itself: its gates, its default actions, its result maps, and its refusals are
+# what they assert on, and a canned answer would assert nothing. A scenario that
+# carries a `koto-passthrough` file hands every call to the next `koto` on PATH
+# after this shim's own directory.
+if [ -f "$SCENARIO_DIR/koto-passthrough" ]; then
+  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  OLD_IFS=$IFS
+  IFS=:
+  for d in $PATH; do
+    [ -n "$d" ] || continue
+    real_dir=$(cd "$d" 2>/dev/null && pwd) || continue
+    [ "$real_dir" = "$SELF_DIR" ] && continue
+    if [ -x "$real_dir/koto" ]; then
+      IFS=$OLD_IFS
+      exec "$real_dir/koto" "$@"
+    fi
+  done
+  IFS=$OLD_IFS
+  echo "koto shim: the scenario asks for a real koto, and none is on PATH" >&2
+  exit 127
+fi
+
 # Normalize args for pattern matching
 ARGS="$*"
 
@@ -46,8 +69,10 @@ case "$ARGS" in
       cat "$SCENARIO_DIR/koto-init.json"
       exit 0
     fi
-    # Default: successful init
-    echo '{"status":"initialized","workflow":"work-on"}'
+    # Default: successful init. `outcome` is the field scripts/koto-open.sh
+    # reads (/execute enters through it), and `created` is its new-session
+    # answer; the older fields stay for anything that read them.
+    echo '{"status":"initialized","workflow":"work-on","outcome":"created"}'
     exit 0
     ;;
   *"transition"*)

@@ -227,6 +227,7 @@ above). The steps that do write to GitHub, `merge_attempt`'s
 
 | State | Template | Action | Shape |
 |---|---|---|---|
+| `write_set_record` | `skills/execute/koto-templates/execute.md` | `record-write-set.sh` | A read of the origin remote, recorded once as the run's write set `repos`; a non-overridable `context-matches` gate reads it back; writes no GitHub state |
 | `merge_readiness` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh` | A read of the PR, recorded as a verdict line the next state routes on; writes no GitHub state |
 | `merge_confirm` | `skills/execute/koto-templates/execute.md` | `record-merge-verdict.sh --confirm` | A confirm read after a merge, recorded because the confirm exits 0 on both outcomes; writes no GitHub state |
 | `coord_merge_confirm` | `/execute`'s `execute-coordinated.md` | `record-merge-verdict.sh --confirm` | The same confirm read on the coordination PR; writes no GitHub state |
