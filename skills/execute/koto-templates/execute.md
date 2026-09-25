@@ -346,6 +346,13 @@ states:
     # question from ever being settled without the agent. There is no `none`
     # value either -- the script owns that answer, and worktree_sync routes it
     # straight to spawn_and_await.
+    #
+    # impact is decider-eligible, with both values never: a decider may be
+    # consulted and its answer recorded, but a wrong `informational` would
+    # dispatch children against a PLAN that no longer holds, so neither value
+    # is ever applied. The inputs are the two keys drift_facts wrote and gated.
+    # Fixtures: execute.worktree_discipline_check.impact.decider.jsonl, every
+    # upstream_facts value in it real drift-facts.sh output.
     accepts:
       impact:
         type: enum
@@ -357,6 +364,14 @@ states:
           `informational`: main touched paths the PLAN references, but the PLAN
           still holds as written. `intent-changing`: a file, contract, or fact
           the PLAN depends on was removed or changed so the PLAN no longer holds.
+        decider:
+          answers:
+            informational:     {description: "Main touched paths the PLAN references, but the PLAN still holds as written.", mode: never}
+            intent-changing:   {description: "A file, contract, or fact the PLAN depends on was removed or changed so the PLAN no longer holds.", mode: never}
+          escape: {value: unclear, description: "The facts are missing or truncated, or they don't show whether the change affects what the PLAN depends on."}
+          inputs:
+            - {context: drift_facts.json, label: upstream_facts}
+            - {context: plan_intent.md, label: plan_intent}
       rationale:
         type: string
         required: false
