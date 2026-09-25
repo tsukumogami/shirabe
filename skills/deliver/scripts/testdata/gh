@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# A gh stand-in for /deliver's script tests. Not shipped behaviour: the tests
+# put this directory first on PATH.
+#
+# It serves one repository from the JSON file $GH_DB and appends every call's
+# arguments to "$GH_DB.calls", so a test asserts both what a script read and
+# that it wrote nothing to GitHub. A trailing `--jq <filter>` is applied the
+# way real gh applies it.
+#
+#   {"login": "me", "repo": "acme/widgets", "default_branch": "main",
+#    "prs": [{"url", "number", "state", "isCrossRepository", "author",
+#             "baseRefName", "headRefName", "body"}],
+#    "fail": {"pr list": 1, "pr view": 1, ...}}
+#
+# A key under "fail" makes that command exit with the given status. Served:
+# api user, api repos/<r>, repo view, pr list, pr view (by URL or number).
+# Anything else exits 9.
+set -uo pipefail
+
+[ -n "${GH_DB:-}" ] && [ -f "$GH_DB" ] || { echo "gh stub: GH_DB is not set" >&2; exit 9; }
+printf '%s\n' "$*" >>"$GH_DB.calls"
+
+cmd="${1:-} ${2:-}"
+case "$cmd" in
+    "api repos/"*) key="api repos" ;;
+    *) key="$cmd" ;;
+esac
+rc=$(jq -r --arg k "$key" '(.fail // {})[$k] // 0' "$GH_DB")
+[ "$rc" = 0 ] || exit "$rc"
+
+flag() { # flag <name> "$@" -- the value after a flag
+    local want="$1" prev="" a
+    shift
+    for a in "$@"; do
+        [ "$prev" = "$want" ] && { printf '%s' "$a"; return 0; }
+        prev="$a"
+    done
+    return 1
+}
+JQF=$(flag --jq "$@") || JQF=""
+emit() {
+    if [ -n "$JQF" ]; then printf '%s' "$1" | jq -r "$JQF"; else printf '%s\n' "$1"; fi
+}
+
+case "$cmd" in
+    "api user")
+        emit "$(jq -c '{login}' "$GH_DB")"
+        ;;
+    "api repos/"*)
+        emit "$(jq -c '{default_branch, full_name: .repo}' "$GH_DB")"
+        ;;
+    "repo view "*|"repo view")
+        emit "$(jq -c '{nameWithOwner: .repo, defaultBranchRef: {name: .default_branch}, visibility: "PUBLIC"}' "$GH_DB")"
+        ;;
+    "pr list")
+        repo=$(flag --repo "$@") || repo=""
+        head=$(flag --head "$@") || head=""
+        state=$(flag --state "$@") || state=open
+        emit "$(jq -c --arg r "$repo" --arg h "$head" --arg s "$state" '
+            .repo as $own
+            | [.prs[] | select($r == $own and .headRefName == $h
+                  and ($s == "all" or ($s == "open" and .state == "OPEN")))
+               | {url, number, state, isCrossRepository, author: {login: .author},
+                  baseRefName, headRefName}]' "$GH_DB")"
+        ;;
+    "pr view")
+        target="${3:-}"
+        pr=$(jq -c --arg t "$target" '[.prs[] | select(.url == $t or (.number | tostring) == $t)][0] // empty
+            | {url, number, state, body, headRefName, baseRefName, isDraft: false}' "$GH_DB")
+        [ -n "$pr" ] || { echo "gh stub: no PR $target" >&2; exit 1; }
+        emit "$pr"
+        ;;
+    *)
+        echo "gh stub: unexpected call: $*" >&2
+        exit 9
+        ;;
+esac
