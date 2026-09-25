@@ -7,13 +7,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 check (scripts/assert-child-template.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
+      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 check (scripts/assert-child-template.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single ready PR, ending outcome=ready-awaiting-merge: the prompt has no --merge, so the run does not merge it. The agent does NOT edit the PLAN doc.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: single-pr and re-validates it against {single-pr, coordinated, multi-pr} before path or branch interpolation",
         "Agent runs the Step 1 check (scripts/assert-child-template.sh) before spawning any child",
         "Agent runs koto init with skills/execute/koto-templates/execute.md and PLAN_DOC pointing at the fixture",
-        "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one merged PR",
+        "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one ready PR and ends outcome=ready-awaiting-merge without merging it",
         "Agent does NOT edit or rewrite the PLAN doc to run it through /execute"
       ]
     },

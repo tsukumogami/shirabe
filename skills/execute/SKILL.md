@@ -1,9 +1,10 @@
 ---
 name: execute
 description: >-
-  Drive a finished plan all the way to merged code without stopping between
-  issues: take the next unblocked one, hand it to `/work-on`, land it, repeat,
-  across one repo or several. Use it when the plan exists and the next thing
+  Drive a finished plan to ready pull requests with passing CI, merging them
+  only when run with `--merge`, without stopping between issues: take the
+  next unblocked one, hand it to `/work-on`, land it, repeat, across one repo
+  or several. Use it when the plan exists and the next thing
   is doing it — "we have the plan, go", "build everything in the plan", "ship
   the whole milestone", "start on the plugin-system work" — and for "pick up
   where we left off", since a run already in flight resumes from its own
@@ -22,9 +23,9 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Ba
 
 `/execute` is the third parent skill in the trio, at the implementation altitude
 (alongside `/charter` strategic and `/scope` tactical). It owns **plan-level
-execution**: given a finished PLAN, it drives the plan's issues to merged code and
-delegates each single issue to `/work-on`'s single-issue engine. `/work-on` itself
-stays the canonical single-issue executor; `/execute` does not reimplement
+execution**: given a finished PLAN, it drives the plan's issues to ready pull
+requests (and, with `--merge`, through the merge) and delegates each single issue
+to `/work-on`'s single-issue engine. `/work-on` itself stays the canonical single-issue executor; `/execute` does not reimplement
 single-issue mechanics.
 
 `/execute` runs a single-pr PLAN end-to-end by lifting `/work-on`'s plan-orchestrator
@@ -464,8 +465,8 @@ than in anything the agent asserts:
 - `merge_confirm` — koto runs `record-merge-verdict.sh --confirm` itself, which
   finds the owned PR again and re-reads it. Only a recorded `merged` reaches the
   `merged` terminal; anything else ends `ready-awaiting-merge` with
-  `reason=merge-not-observed`. `merge-called` is never read as merged, and this is
-  the only state with an edge into `merged`.
+  `reason=merge-not-observed`. `merge-called` is never read as a `merged`
+  verdict, and this is the only state with an edge into `merged`.
 
 **The expected head is written by the push, never by the agent.**
 `push-and-record.sh` (the initial push and every fix push) and
@@ -491,7 +492,7 @@ contract names no step; this table is the one place `/execute` maps it:
 | a failed read (exit 2) | `step=execute:status-read` | `step=execute:status-read` |
 
 A branch whose only PRs come from forks, other authors, or another base has zero
-survivors: it is never adopted, edited, readied, or merged.
+survivors: it is never adopted, edited, readied, or passed to `gh pr merge`.
 
 ## Coordinated Execution Path
 
@@ -837,7 +838,8 @@ Body slots 5-7: Slot 5 (status-aware re-entry) carries the PLAN-lifecycle handof
 `/execute` owns as the downstream skill `/scope`'s resume ladder redirects to — when
 the run has already terminated, the home PR / PLAN status routes between the exit
 re-entries below rather than re-running issues. Slot 6 (partial-child-run) resumes
-into a `/work-on` child that started but did not reach its merged-PR terminal, by
+into a `/work-on` child that started but did not reach `/work-on`'s `done` terminal
+(its work committed and CI passing; a plan-backed child opens no PR of its own), by
 re-dispatching that child against its own resume ladder rather than re-running it from
 scratch. Slot 7 (feeder-doc) is vacuous for `/execute`.
 
@@ -848,12 +850,18 @@ scratch. Slot 7 (feeder-doc) is vacuous for `/execute`.
 Three Exit Paths), each bound to an EXECUTION outcome and recorded in the `exit:`
 field at finalization:
 
-- **`full-run`** — the plan is driven to its **merged-PR done-signal**. For single-pr
-  the single PR merges (after the `plan_completion` finalization cascade runs
-  DRAFT-before-READY and the PR flips ready); for coordinated the coordination PR
-  merges **last**, gated on `shirabe validate --merge-gate --mode=ready`. There is no
-  separate "complete" marker — the merged home PR is it. `exit_artifacts:` records the
-  merged PR(s) and the finalized durable docs.
+- **`full-run`** — the run reached a completed final state, and its outcome says
+  which one (see **Outcome versus exit** below): `outcome=merged` at the `merged`
+  terminal, or `outcome=ready-awaiting-merge` at `ready_awaiting_merge`. Without
+  `--merge` a run that finishes ends `ready-awaiting-merge`: for single-pr the
+  `plan_completion` finalization cascade has run DRAFT-before-READY and the PR is
+  ready; for coordinated nothing is left to start and a node PR or the
+  coordination PR waits on a human. The `merged` terminal is reached only with
+  `--merge` and only through a confirm read that sees the PR `MERGED`; for
+  coordinated that is the coordination PR, whose merge comes **last** and is gated
+  on `shirabe validate --merge-gate --mode=ready`. `exit: full-run` on its own
+  never says a PR is `MERGED`; a caller reads `outcome=`. `exit_artifacts:`
+  records the run's PR(s) and the finalized durable docs.
 - **`abandonment-forced`** — a **forced stop** before completion: an unmergeable PR, a
   failed gate node, or an escalation the run could not auto-resolve or isolate by
   skip-dependents (the genuine blockers the **Autonomy** section enumerates). The run
@@ -873,7 +881,7 @@ These bindings are consistent with the **Autonomy** section's blocker handling: 
 upstream-must-change boundary routes to `re-evaluation`; the other genuine blockers
 (failed/blocked child needing human judgment, merge conflict, dirty or destructive
 state) route to `abandonment-forced` with the forced-stop summary; reaching the
-done-signal routes to `full-run`.
+`merged` or `ready_awaiting_merge` terminal routes to `full-run`.
 
 ### Outcome versus exit, and the exit lines
 
@@ -924,8 +932,8 @@ itself); `refused` is never printed after `outcome=`. Set the state file's
 
 **Interactive pause is a suspension, not a termination (D2).** The mode-driven
 interactive pause (the `paused_for_review` terminal, single-pr path) is **not** one of
-the three exits. A solicited pause is neither `full-run` (the PR is not merged and the
-chain is not finalized), nor `abandonment-forced` (nothing was abandoned — the run
+the three exits. A solicited pause is neither `full-run` (the PR is still a draft and
+the chain is not finalized), nor `abandonment-forced` (nothing was abandoned — the run
 succeeded at exactly what was asked), nor `re-evaluation` (no upstream-must-change
 boundary). It is a resumable **suspension**: `exit:` stays **UNSET** and the state file
 carries a resumable `paused_for_review: true` marker (I-5 gated: present only while
@@ -933,7 +941,8 @@ paused, so resume distinguishes a solicited pause from a crash). The R9
 hard-finalization check fires only at one of the three terminal exits, so an UNSET
 `exit:` at a solicited pause does **not** trip it — the run has not terminated. Resume
 re-enters `plan_completion` (Single-PR path, mode-driven pause); when the resumed run
-reaches its merged-PR done-signal it sets `exit: full-run` then. Under `--auto` no
+reaches the `merged` or `ready_awaiting_merge` terminal (`outcome=merged` or
+`outcome=ready-awaiting-merge`) it sets `exit: full-run` then. Under `--auto` no
 pause fires and the run terminates normally through `full-run` (or a genuine-blocker
 exit).
 
@@ -1073,7 +1082,7 @@ surface per child shape follows
 [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md`](../../references/parent-skill-child-inspection.md):
 
 - For a `/work-on` execution child (a PR, no doc), the surface is the PR state
-  (Open / Closed / Merged), its labels, and its CI check rollup — read through `gh`
+  (`OPEN` / `CLOSED` / `MERGED`), its labels, and its CI check rollup — read through `gh`
   metadata. The merge/head state feeds the child's content-fingerprint in
   `child_snapshots:`; individual CI logs, comment threads, and the child's own
   `wip/` state are internals `/execute` never reads.
