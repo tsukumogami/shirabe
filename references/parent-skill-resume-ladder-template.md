@@ -41,7 +41,7 @@ A parent MAY expand a body slot into more than one numbered row. The slot
 is a position and a semantics, not a row count: what binds is that the
 slot's rows sit between the meta-ladder head and the meta-ladder tail, in
 slot order, and that every row inside a slot carries that slot's
-semantics. `/scope` expands slot 5 into nine sub-numbered rows and slot 6
+semantics. `/scope` expands slot 5 into eleven sub-numbered rows and slot 6
 into four; `/charter` expands slot 5 into rows 5-6, slot 6 into rows 7-8,
 and slot 7 into a single row.
 
