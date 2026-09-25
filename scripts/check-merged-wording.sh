@@ -47,7 +47,7 @@ set -euo pipefail
 
 # The files this check scans, repository-relative and space-separated. Adding
 # a skill is a one-line change here.
-SCANNED_FILES="skills/execute/SKILL.md skills/work-on/SKILL.md"
+SCANNED_FILES="skills/execute/SKILL.md skills/work-on/SKILL.md skills/deliver/SKILL.md"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${MERGED_WORDING_ROOT:-$SCRIPT_DIR/..}"

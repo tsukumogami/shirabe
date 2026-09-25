@@ -25,11 +25,13 @@ FAIL_COUNT=0
 setup() {
     # macOS mktemp ignores TMPDIR without an explicit template.
     TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/check-merged-wording.XXXXXX")
-    mkdir -p "$TEST_DIR/skills/execute" "$TEST_DIR/skills/work-on" "$TEST_DIR/scripts"
+    mkdir -p "$TEST_DIR/skills/execute" "$TEST_DIR/skills/work-on" "$TEST_DIR/skills/deliver" "$TEST_DIR/scripts"
     printf '%s\n' '# Execute' '' 'Drives a plan to ready pull requests.' \
         > "$TEST_DIR/skills/execute/SKILL.md"
     printf '%s\n' '# Work on' '' 'Leaves a ready PR with passing CI.' \
         > "$TEST_DIR/skills/work-on/SKILL.md"
+    printf '%s\n' '# Deliver' '' 'Scopes a topic, then runs its PLAN.' \
+        > "$TEST_DIR/skills/deliver/SKILL.md"
     printf '%s\n' '# allowlist' '' > "$TEST_DIR/scripts/check-merged-wording.allow"
 }
 
@@ -101,6 +103,14 @@ test_work_on_is_scanned() {
     add_line skills/work-on/SKILL.md 'A merged PR with passing CI.'
     run_check
     expect "the work-on SKILL.md is scanned too" 1 "skills/work-on/SKILL.md:4"
+    teardown
+}
+
+test_deliver_is_scanned() {
+    setup
+    add_line skills/deliver/SKILL.md 'Takes a feature all the way to merged code.'
+    run_check
+    expect "the deliver SKILL.md is scanned too" 1 "skills/deliver/SKILL.md:4"
     teardown
 }
 
@@ -205,6 +215,7 @@ echo ""
 test_clean_file_passes
 test_unallowlisted_line_fails
 test_work_on_is_scanned
+test_deliver_is_scanned
 test_accepted_tokens
 test_accepted_token_does_not_hide_a_second_occurrence
 test_record_covers_line
