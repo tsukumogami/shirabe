@@ -145,7 +145,7 @@ fixture() {
 OUT=""
 RC=0
 run_check() {
-    OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$STUBS:$PATH" /bin/bash "$CHECK" --root "$ROOT" --table "$TABLE" 2>&1)
+    OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$STUBS:$PATH" "$BASH" "$CHECK" --root "$ROOT" --table "$TABLE" 2>&1)
     RC=$?
 }
 
@@ -349,7 +349,7 @@ fi
 
 # -- this repository ----------------------------------------------------------
 
-OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$STUBS:$PATH" /bin/bash "$CHECK" 2>&1)
+OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$STUBS:$PATH" "$BASH" "$CHECK" 2>&1)
 RC=$?
 if [ "$RC" -eq 0 ] && [ "$(awk -F '\t' '!/^#/ && NF' "$REPO_ROOT/scripts/decider-declarations.tsv" | wc -l | tr -d ' ')" = 7 ]; then
     pass "this repository's declarations match its seven-row table and fixtures"
