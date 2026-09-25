@@ -1,10 +1,10 @@
 ---
 # A fixture for scripts/check-koto-floor.sh, not a shipped template. It carries
-# the one thing no shipped template carries yet: an accepts field with a
-# `decider` block. The strip, compile-identity, and escape-collection steps all
-# run against it, so their code is exercised before any shipped declaration
-# exists, and the decider-fixture scenario drives it to show that koto v0.12.2
-# never offers the escape value.
+# an accepts field with a `decider` block in its smallest form. The strip,
+# compile-identity, and escape-collection steps run against it as well as
+# against the shipped declarations, so the test has a fixed case whose expected
+# results don't move when a shipped template changes, and the decider-fixture
+# scenario drives it to show that koto v0.12.2 never offers the escape value.
 name: koto-floor-decider
 version: "1.0"
 description: A single question whose field declares a decider.

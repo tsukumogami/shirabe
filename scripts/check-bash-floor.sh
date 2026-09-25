@@ -100,14 +100,16 @@ mktempdir() {
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
 #   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
-#   scripts/koto-floor/ (check-koto-floor.yml)
-#       The koto version-floor check. It runs only on ubuntu runners, from its
-#       own workflow, and no skill invokes it, so it never reaches a macOS
-#       /bin/bash on a user's machine. Its test needs mikefarah yq v4, which the
-#       floor container does not carry, and the check itself installs koto over
-#       the network, which a container run here cannot do. Both are written
-#       for bash 3.2 and were run under macOS /bin/bash when they landed; run
-#       them there by hand after changing them.
+#   scripts/check-koto-release.sh, scripts/koto-floor/ (check-koto-floor.yml)
+#       The koto version-floor check and its release leg. They run only on
+#       ubuntu runners, from their own workflow, and no skill invokes them, so
+#       they never reach a macOS /bin/bash on a user's machine. Both checks
+#       install koto over the network, which a container run here cannot do.
+#       The floor image now carries yq (for the decider-declarations check),
+#       but the test has never been run inside it and stays exempt with the
+#       checks it covers. All three are written for bash 3.2 and were run under
+#       macOS /bin/bash when they changed; run them there by hand after
+#       changing them.
 
 SUITES="plan execute work-on preflight templates template-consistency koto-open"
 
@@ -210,6 +212,10 @@ suite_scripts() {
             echo "scripts/check-template-directives.sh"
             echo "scripts/check-init-site-vars_test.sh"
             echo "scripts/check-init-site-vars.sh"
+            # Read the templates' front matter with yq, which the floor image
+            # carries for them (see build_floor_image).
+            echo "scripts/check-decider-declarations_test.sh"
+            echo "scripts/check-decider-declarations.sh"
             ;;
         template-consistency)
             echo "scripts/validate-template-mermaid.sh"
@@ -347,12 +353,30 @@ resolve_shirabe_bin() {
 # The base image ships bash 3.2, busybox, and nothing else. jq, git and python3
 # are what the suites shell out to; without them a floor run reports
 # missing-tool failures that have nothing to do with the bash version.
+#
+# yq is the mikefarah v4 release binary, the same version check-templates.yml
+# pins, checked against the SHA-256 that release's checksums file records.
+# Alpine's own package is not used: its name and version move with the base
+# image, and the decider-declarations check needs mikefarah's v4 syntax.
+FLOOR_YQ_VERSION="v4.47.1"
+FLOOR_YQ_SHA256_AMD64="0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb"
+FLOOR_YQ_SHA256_ARM64="b7f7c991abe262b0c6f96bbcb362f8b35429cefd59c8b4c2daa4811f1e9df599"
+
 build_floor_image() {
     command -v docker >/dev/null 2>&1 || die "docker is required for the docker backend (on macOS use --backend system: /bin/bash is already 3.2)"
     echo "check-bash-floor: building $FLOOR_IMAGE" >&2
     docker build -q -t "$FLOOR_IMAGE" - >/dev/null <<EOF || die "could not build $FLOOR_IMAGE from $BASE_IMAGE"
 FROM $BASE_IMAGE
 RUN apk add --no-cache jq git python3
+RUN case "\$(uname -m)" in \\
+        x86_64) a=amd64; s=$FLOOR_YQ_SHA256_AMD64 ;; \\
+        aarch64) a=arm64; s=$FLOOR_YQ_SHA256_ARM64 ;; \\
+        *) echo "no pinned yq for \$(uname -m)" >&2; exit 1 ;; \\
+    esac \\
+    && wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/$FLOOR_YQ_VERSION/yq_linux_\$a" \\
+    && echo "\$s  /usr/local/bin/yq" | sha256sum -c - \\
+    && chmod +x /usr/local/bin/yq \\
+    && yq --version
 EOF
 }
 

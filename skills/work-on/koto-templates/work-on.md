@@ -311,11 +311,28 @@ states:
       - target: setup_plan_backed
 
   plan_validation:
+    # verdict is decider-eligible. The decider block lives inside the field,
+    # where koto v0.12.2 drops it unread, so a user without a decider sees this
+    # state exactly as before. `proceed` is shadow and `exit` is never: exit
+    # routes to the validation_exit terminal, which no answer may take on a
+    # model's word. Golden fixtures sit beside this template as
+    # work-on.plan_validation.verdict.decider.jsonl, and
+    # scripts/check-decider-declarations.sh holds the modes to
+    # scripts/decider-declarations.tsv.
     accepts:
       verdict:
         type: enum
         values: [proceed, exit]
         required: true
+        description: Is the plan outline item clear and scoped enough to implement?
+        decider:
+          answers:
+            proceed: {description: "Names a concrete change with checkable criteria."}
+            exit:    {description: "Vague, contradictory, or needs design first.", mode: never}
+          escape:  {value: unclear, description: "Missing, truncated, or unjudgeable."}
+          inputs:
+            - {context: context.md, label: outline_item, max_bytes: 12000}
+            - {var: PLAN_DOC, label: plan_path}
       rationale:
         type: string
         description: Reasoning behind the validation verdict
@@ -637,6 +654,12 @@ states:
     #
     # has_commits is byte-identical to scrutiny's copy, and to what
     # implementation carried before the question moved here.
+    #
+    # issue_type is decider-eligible: `code` is shadow, and `docs` and `task`
+    # are never. The code route tests no gate, so promoting `code` later clears
+    # koto's floor; the docs route's gate is one reason docs stays never. The
+    # inputs are the two keys the directive already points the agent at, both
+    # gated upstream. Fixtures: work-on.issue_type_routing.issue_type.decider.jsonl.
     gates:
       has_commits:
         type: command
@@ -654,6 +677,15 @@ states:
           structural documentation changes that skip the panels. task:
           operational work with no reviewable change set. Use code when
           unsure; it is the route that checks the most.
+        decider:
+          answers:
+            code: {description: "Changes behaviour: source, tests, build or CI logic, or a skill or koto template that drives a workflow, even when every changed path ends in .md."}
+            docs: {description: "Changes only writing or structural documentation that no workflow executes, such as READMEs, guides, and design or planning docs.", mode: never}
+            task: {description: "Operational work, such as running scripts or commands, that left no reviewable change set.", mode: never}
+          escape: {value: unclear, description: "The issue context or the changed paths are missing, truncated, or contradict each other too much to judge."}
+          inputs:
+            - {context: context.md, label: issue_context}
+            - {context: changed_paths.txt, label: changed_paths}
     transitions:
       - target: scrutiny
         when:

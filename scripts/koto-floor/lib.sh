@@ -28,6 +28,13 @@
 # The floor this repository states in its README.
 KOTO_FLOOR_VERSION="v0.12.2"
 
+# The first koto release that reads `decider` blocks: it compiles them, enforces
+# the E-DECIDER-* rules, and refuses an `auto` answer on a route the floor
+# forbids. scripts/check-koto-release.sh installs it beside the floor to prove
+# shirabe's declarations are valid where they are read, not only ignored where
+# they are not.
+KOTO_DECIDER_RELEASE_VERSION="v0.13.0"
+
 # The koto commit install.sh is fetched from: the commit koto's v0.12.2 tag
 # points at. A full SHA, never a branch name, so the script that runs cannot
 # change underneath this check. KOTO_INSTALLER_SHA256 is that file's SHA-256;
@@ -123,10 +130,15 @@ koto_platform() {
 # koto_binary_sha256 <version> <platform>: prints the recorded SHA-256 of the
 # koto-<platform> asset of release <version>, or nothing when none is
 # recorded. linux-amd64 is the CI runner; darwin-arm64 is a developer's Mac.
+# v0.13.0 records all four platforms its release publishes.
 koto_binary_sha256() {
     case "v${1#v}/$2" in
         v0.12.2/linux-amd64)  echo "a98bc2108dfd457bbfc79530ecc85f82b29801e2826682f4323c24b960e548c8" ;;
         v0.12.2/darwin-arm64) echo "73d163521733a2b8c8acfb59fb96e783f2f1314d928ab6c76371fbb9132f9739" ;;
+        v0.13.0/linux-amd64)  echo "b888f75d5647b92a796f9fdc10db3300131ab2b3476cc027ce7eba937dc25b1e" ;;
+        v0.13.0/linux-arm64)  echo "c0c2f5c2665acdab312b2f60a5bcfb3c377c2d52e09e3e5856d06e11cc288d97" ;;
+        v0.13.0/darwin-amd64) echo "24691c3507a437d2d583ff1803d4112eb0972099e848d0eb5fe140b492d6a756" ;;
+        v0.13.0/darwin-arm64) echo "e72601b8d81d349415c708c486eda676382d265ff1751117ce0f111c20bb831c" ;;
     esac
 }
 
