@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install tsuku
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           curl -fsSL https://get.tsuku.dev/now | bash
           echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
