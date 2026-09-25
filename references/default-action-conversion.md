@@ -235,6 +235,8 @@ above). The steps that do write to GitHub, `merge_attempt`'s
 | `republish_record` | `skills/scope/koto-templates/scope.md` | `record-scope-exit.sh` | A read-back of the republished PR, recorded for the terminal result; writes no GitHub state |
 | `intake` | `skills/scope/koto-templates/scope.md` | `run-intake.sh` | Read-only checks over the arguments and working tree, recorded as a verdict and reason; writes no GitHub state |
 | `executed_report` | `skills/scope/koto-templates/scope.md` | `record-executed-report.sh` | A read of the topic's owned PR, recorded as its URL and state; writes no GitHub state |
+| `resume_route` | `skills/scope/koto-templates/scope.md` | `record-scope-exit.sh --stage resume` | A read of the PLAN's path and mode, recorded so a plan-active refusal can name the next command; its gate, `resume-probe.sh`, routes the resume ladder; makes no `gh` call |
+| `cleanup_full_run`, `cleanup_re_evaluation`, `cleanup_abandonment` | `skills/scope/koto-templates/scope.md` | `record-scope-exit.sh --stage exit` | A write-once record of what the terminal reports, on states that still ask for the cleanup; on an intent run a read of the owned PR; writes no GitHub state |
 | `open_request` | `/deliver`'s `deliver.md` | `deliver-open-request.sh` | Abandons the coordinator's open requests and creates this run's, in koto's request store only; writes no GitHub state |
 | `scope_absent` | `/deliver`'s `deliver.md` | resolves the `scope` leg | Resolves an unbound leg with a fixed error, in koto's request store only; writes no GitHub state |
 | `execute_absent` | `/deliver`'s `deliver.md` | resolves the `execute` leg | The same, for the `execute` leg; writes no GitHub state |

@@ -56,3 +56,13 @@ git	-	-	always
 jq	-	-	always
 shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
 gh	-	-	mode:coordinated
+#
+# The publish surface fires only on intent runs (RUN_INTENT is continue or
+# stop): publish-scoping-pr.sh pushes the branch and reuses or opens the one
+# owned PR with `gh pr create` / `gh pr edit`, and reads PRs through
+# skills/execute/scripts/owned-pr.sh; executed_report and the exit records read
+# the owned PR the same way. A run with no intent makes no gh call, so the
+# record is mode:intent and not checked at load. SKILL.md's Intent Flag
+# section verifies it with `skill-preflight.sh scope --mode intent` before
+# any work when the intent is set.
+gh	-	-	mode:intent

@@ -189,8 +189,13 @@ violation.
 ## Intent Flag
 
 `--intent=continue|stop` declares what the caller wants done once
-the chain ends. Omitting it means today's behavior, exactly: the same
-artifacts, the same execution-mode selection, no push and no PR. Only
+the chain ends: with either value, `/scope` pushes its branch and
+opens one pull request at exit, once the PLAN's mode is known -- a
+draft for a `single-pr` or `coordinated` PLAN and for the
+re-evaluation and abandonment exits, a ready PR for a `multi-pr`
+PLAN. Omitting it means today's behavior, exactly: the same
+artifacts, the same execution-mode selection, no push, no PR, and no
+`gh` call from `/scope`. Only
 the two values are accepted. The token reaches koto unmodified as the
 `INTENT_FLAG` variable, whose pattern refuses anything else —
 `--intent=none`, `--intent=unset`, a bare `--intent` — at `koto init`
@@ -212,6 +217,37 @@ and the gate that checks the hop's result are in the `/plan` row of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 `/scope` never invokes `/execute`, with any intent: what happens after
 the PLAN is the caller's decision.
+
+When the effective intent is `continue` or `stop`, verify the
+intent-scoped prerequisites at `setup`, before any hop, because a
+missing `gh` found at exit would strand a finished chain unpublished:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || true
+```
+
+Two re-invocations with intent take shortcuts rather than re-scoping.
+A topic whose PLAN already exists goes to `republish`, which re-runs
+the publish step for the PLAN's mode, reuses or opens the owned PR,
+and rewrites the PR body's `intent=` field to this run's intent, so a
+finished `--intent=stop` run re-invoked with `--intent=continue` is
+not a mismatch. A topic whose PLAN was executed and removed goes to
+`executed_report`, which names the owned PR and whether it is merged
+or open. Without intent, an Active PLAN is refused with a redirect to
+`/execute docs/plans/PLAN-<topic>.md` (`single-pr`, `coordinated`) or
+`/work-on` (`multi-pr`).
+
+**Owned-PR lookup.** Every PR lookup `/scope` makes goes through
+`${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh`, the one
+shared ownership filter, called unchanged; `/scope` has no lookup of
+its own. Its results map to `/scope`'s steps in one place:
+
+| `owned-pr.sh` | Publish (`publish-scoping-pr.sh`) | `executed_report` |
+|---------------|-----------------------------------|-------------------|
+| one URL (exit 0) | reuse it | report it |
+| none (empty, exit 0), a foreign-only branch included | create the PR | `scope:pr-create` |
+| several (exit 3) | `scope:pr-create` | `scope:pr-create` |
+| read failure (exit 2) | `scope:pr-create` | `scope:pr-create` |
 
 ## Request Leg Flag
 
@@ -336,8 +372,11 @@ so when it applies.
 and Workflow Session sections: write the invocation's raw tokens to an args
 file outside the work tree and run
 `bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>`.
-koto checks every argument there, and opens a new session or attaches to this
-worktree's live one in the same call. A refusal prints its text followed by
+koto checks every argument there, and in the same call opens a new session,
+attaches to this worktree's live one, or -- when an earlier run of the topic
+already reached a terminal -- replaces that finished session with a fresh one
+(`--replace-terminal`), which starts again at `intake` and `resume_route`. A
+live session is never replaced. A refusal prints its text followed by
 `outcome=error` and `step=scope:refused`; print them and stop. There is no
 session to tick until that has run, so this is the one procedure you need
 before the workflow can tell you anything. The session is named
@@ -352,7 +391,26 @@ whether or not `--koto-leg` was given. The session is always a root, so the flag
 keeps the run's per-hop record after its terminal tick, and under `--koto-leg`
 koto still promotes the terminal result to the leg. Deciding per tick is wrong
 in both directions; see
-`${CLAUDE_PLUGIN_ROOT}/references/koto-session-retention.md`.
+`${CLAUDE_PLUGIN_ROOT}/references/koto-session-retention.md`. The retained
+session is read where it lives and is never resumed: the next `/scope <topic>`
+gets a fresh session from the entry itself, so there is no read-then-clean-up
+step, and a finished session is never ticked.
+
+**The run ends at a terminal whose result koto recorded, and the printed exit
+block comes from that result.** Every outcome, refusals and errors included,
+is a terminal with a `result:` map. When a `koto next` answers
+`"action": "done"`, print what this prints, verbatim, and compose no exit line
+of your own:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
+```
+
+It prints `/scope finished: exit=<exit>; artifact=<path>`, then `intent=`,
+and, as the run calls for them, `outcome=`, `step=`, `next=`, `pr=`,
+`pr_state=`, `wip_paths=`, and a multi-pr run's startable items; the Success
+Summary in `skills/scope/references/phases/phase-4-cleanup.md` lists which line
+appears when.
 
 Two things about what you receive. Each state's `directive` arrives on every
 tick and is short. Longer procedure arrives once, as `details`, when you first
@@ -400,16 +458,32 @@ pattern-level meta-ladder; rows 5-7 are parent-specific body slots
 inherits the default `/charter` chose for R16; the tactical chain
 spans the same conversational profile as the strategic chain.
 
-The full Slot 5 / Slot 6 / Slot 7 row body and the drift-detection
-contract (Re-run / Accept / Proceed-without — the three literal
-substrings the eval surface grades against) live in
+The ladder runs in the workflow, not in prose. The `resume_route`
+state, right after the branch check, runs
+`skills/scope/scripts/resume-probe.sh` as its one gate: a read-only
+probe over the artifact tree, the state file, the child partials and
+the handoff, which exits with the code of the first row that matches,
+and `resume_route` sends each code to a state. The ladder's prompts
+are states too (`resume_stale`, `resume_malformed`, `resume_exit_set`,
+`resume_draft`, `resume_boundary`), with the ladder's wording and
+choices. A state file that records an exit together with a
+`publish_error:` routes an intent run straight back to its publish
+state, which is how a failed publish is retried.
+
+The full Slot 5 / Slot 6 / Slot 7 row body, each row's probe exit
+code, and the drift-detection contract (Re-run / Accept /
+Proceed-without — the three literal substrings the eval surface
+grades against) live in
 `skills/scope/references/phases/phase-resume.md`. The high-order
-shape: Slot 5 has 9 rows evaluated most-downstream-first (with
+shape: Slot 5 has 11 rows evaluated most-downstream-first (with
 PLAN-Active and PLAN-Done as refuse-and-redirect rows owned by
-downstream skills, and DESIGN-Accepted / PRD-Accepted as the two
-settled-upstream boundary rows offering the **Re-evaluate /
-Revise / Bail** triad); Slot 6 has 4 partial-child-run rows; Slot 7
-is the feeder-doc clause, matching the `/explore` handoff at
+downstream skills, the Active redirect naming `/execute` or
+`/work-on` by the PLAN's mode; two `--intent` shortcuts, `republish`
+for an existing PLAN and `executed_report` for an executed topic;
+and DESIGN-Accepted / PRD-Accepted as the two settled-upstream
+boundary rows offering the **Re-evaluate / Revise / Bail** triad);
+Slot 6 has 4 partial-child-run rows; Slot 7 is the feeder-doc
+clause, matching the `/explore` handoff at
 `wip/scope_<topic>_handoff.md` and entering Phase 1 with it
 pre-loaded.
 
@@ -576,8 +650,38 @@ other path in this section is named.
 
 `.git/` writes are confined to `git add` and `git commit` restricted to those
 pathspecs — no `-A`, no `commit -a`, nothing staged the pathspec does not name.
-Nothing pushes. The preconditions and branch checks are in the Per-Hop Commit
-section of `skills/scope/references/phases/phase-2-chain-orchestration.md`.
+The preconditions and branch checks are in the Per-Hop Commit section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`.
+
+**Publish**, on intent runs only (a run with no intent makes no push and no
+`gh` call), by `skills/scope/scripts/publish-scoping-pr.sh`, which the agent
+runs in the publish states and in `republish` and never as a default action:
+
+- **untrack** — `git rm --cached` of the topic's own
+  `wip/{scope,brief,prd,design,plan}_<topic>_*` and
+  `wip/research/{prd,design}_<topic>_*`, committed as exactly that removal and
+  nothing else staged; the files stay on disk for Phase 4
+- **push** — `git push origin HEAD:refs/heads/<branch>`, with no force option
+  and no `+` refspec, refused for a detached HEAD, for a branch failing
+  `git check-ref-format --branch`, and for the remote's default branch
+- **create** — one `gh pr create --head <branch> --base <default> --title
+  <title> --body-file <file>`, only when the ownership filter finds no owned PR
+  on the branch
+- **edit** — `gh pr edit --body-file` on the one owned PR, only to rewrite its
+  `intent=` field
+
+`gh pr create` and that `gh pr edit` are the only `gh` writes. Every PR lookup
+goes through the ownership filter in `skills/execute/scripts/owned-pr.sh`
+(same repository, the authenticated author, the default base, the topic
+branch), so a fork's or another author's PR on the same branch name is never
+edited or reported. The body is a fixed template over the slug, exit, outcome,
+`intent=`, mode, `docs/` artifact paths and work-item IDs, with no free-text
+field. Every `wip/` path in unpushed history is reported as `wip_paths=`, and
+the public-content visibility check runs over those files: a line naming a
+`private/` path component, or declaring `Repo Visibility: Private`, in a
+repository whose CLAUDE.md declares `## Repo Visibility: Public` stops the push
+with `scope:push`. A failed publish writes `publish_error:` into the state file
+under the parent's own prefix, which is already in this set.
 
 **Out-of-repo ephemera**, by the workflow session: the koto session store
 (`~/.koto/sessions/` under the default local backend) and koto's template
@@ -585,7 +689,9 @@ compile cache (`$XDG_CACHE_HOME/koto`, or `~/.cache/koto` when unset). Neither
 is in the repository and neither is cleaned by this skill. The entry adds one
 more: the args file of raw tokens and the vars file `scope-open.sh` derives
 from it, both in a private `mktemp -d` directory (or the koto session
-directory) outside the work tree, and both removed on every exit path.
+directory) outside the work tree, and both removed on every exit path. The
+publish step adds another: the private index its untrack commit is built in and
+the rendered PR body, in a `mktemp -d` directory removed on every exit path.
 
 **No argument reaches a shell.** The invocation's tokens travel as JSON data
 from the args file to koto's `--vars-file`, mapped by `jq`; nothing evaluates
@@ -607,5 +713,5 @@ literal value that its variable's constraint then refuses.
 | `skills/scope/references/phases/phase-2-chain-orchestration.md` | Phase 2 — includes Phase-N Reject in-chain mechanism |
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
-| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
+| `skills/scope/references/phases/phase-resume.md` | Resume Logic — each row's probe exit code, Slot 5 (11 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
 | `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`intent:`, `visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |

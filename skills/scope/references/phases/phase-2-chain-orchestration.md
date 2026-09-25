@@ -599,8 +599,11 @@ here. Any rationale text, now or later, goes through `git commit -F
 -` instead, per the `git commit -F` discipline in
 `skills/scope/references/phases/phase-3-exit-finalization.md`.
 
-**Nothing pushes.** The commits stay local; a branch reaches a
-remote when the author or a downstream skill puts it there.
+**Nothing pushes here.** The per-hop commits stay local. On a run
+with no intent a branch reaches a remote when the author or a
+downstream skill puts it there; on an intent run the publish step
+pushes it once, at exit (the Publish group in SKILL.md's Security
+Considerations), and never from a hop.
 
 The absorb's own commit (step 8 of Stage 3 below) is a different
 commit with its own pathspecs, carrying the deletion, the re-point
@@ -935,10 +938,17 @@ The fields:
 - `triggering_child:` against `{brief, prd, design, plan}`.
 - `plan_execution_mode:` against
   `{single-pr, multi-pr, coordinated}`. `coordinated` is the
-  multi-repo generalization of `multi-pr`; a coordinated chain
-  records it, and omitting it from the enum would fail the
-  re-validation on exactly the runs `/scope`'s coordination
-  intent produces.
+  coordinated-effort generalization of `multi-pr`, in one repository
+  or several; a coordinated chain records it, and omitting it from
+  the enum would fail the re-validation on exactly the runs `/scope`'s
+  coordination intent produces. Any other value, `bogus` or empty, is
+  refused.
+- `publish_error:` against `{scope:push, scope:pr-create}`, and only
+  beside a recorded `exit:`. It routes the next invocation back to a
+  publish state, so a tampered value would pick where the run goes.
+- `published_pr:` against
+  `^https://github\.com/<owner>/<repo>/pull/<n>$`, the same pattern
+  the printed `pr=` line is held to.
 - `chain_ran:` entry names against `{brief, prd, design, plan}`.
 - `verdict:` against `{absorb, keep}` and `stage:` against
   `{preflight, judgment, carry}` — both are read back from the

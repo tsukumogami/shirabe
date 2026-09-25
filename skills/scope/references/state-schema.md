@@ -219,11 +219,30 @@ and each is written at the site it was already written at.
 - **`plan_execution_mode`** — conditional on `/plan` appearing in
   `chain_ran`. Values: `single-pr | multi-pr | coordinated`.
   Records the output-mode selection of the terminal child.
-  `coordinated` is the multi-repo generalization of `multi-pr`
+  `coordinated` is the coordinated-effort generalization of
+  `multi-pr`, whether its PR nodes sit in one repository or several,
   and is the value a coordinated chain records; the Plan format
   profile recognizes all three
   (`crates/shirabe-validate/src/formats.rs`). Gated per
   state-schema R9 Part 3's chain-membership-gated extension.
+- **`published_pr`** — conditional on an intent run whose publish
+  step succeeded (the publish states or `republish`): the URL of the
+  one owned PR `skills/scope/scripts/publish-scoping-pr.sh` reused or
+  opened, as it printed on its `pr=` line. It is a record for a reader
+  of the state file, never a routing input: every later step finds the
+  PR again through the ownership filter. Re-validated on read against
+  `^https://github\.com/<owner>/<repo>/pull/<n>$`, and joins the
+  State-File Enum Re-Validation list in `phase-2-chain-orchestration.md`.
+- **`publish_error`** — conditional on an intent run whose publish
+  step failed. Values: `scope:push | scope:pr-create`, the `step=`
+  the publish script printed; written by the publish state's
+  directive before the run ends at `done_error`, alongside the
+  recorded `exit:` and its fields, which cleanup has not removed. The
+  next invocation's resume probe reads `exit:` plus `publish_error:`
+  and routes an intent run straight back to that exit's publish
+  state. Cleared on a successful retry. Re-validated against its enum
+  wherever it is read back, and only valid beside an `exit:`; it joins
+  the same re-validation list.
 - **`referenced_artifact`** — conditional on `exit: re-evaluation`.
   The path of the settled-upstream artifact the Decision Record
   re-evaluates.

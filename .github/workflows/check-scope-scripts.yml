@@ -23,6 +23,11 @@ on:
       # check-plan-mode.sh re-runs /plan's split-mode resolver.
       - 'scripts/koto-open.sh'
       - 'skills/plan/scripts/resolve-split-mode.sh'
+      # The publish and executed-report scripts call /execute's shared
+      # ownership filter unchanged, and startable-issues.sh wraps /plan's
+      # task-graph parser.
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/plan/scripts/plan-to-tasks.sh'
       # The substrate job runs the koto release .tsuku.toml pins.
       - '.tsuku.toml'
       - 'scripts/assert-koto-pin.sh'
@@ -54,6 +59,19 @@ jobs:
           bash skills/scope/scripts/check-plan-mode_test.sh
           bash skills/scope/scripts/run-intake_test.sh
           bash skills/scope/scripts/scope-template_test.sh
+
+      # Resume routing, the publish step, the exit records, and the printed
+      # exit block. A gh stub and a local bare origin stand in for GitHub;
+      # the coordinated-body case skips without shirabe, which the substrate
+      # job below has.
+      - name: Run resume, publish, and exit script tests
+        run: |
+          bash skills/scope/scripts/resume-probe_test.sh
+          bash skills/scope/scripts/startable-issues_test.sh
+          bash skills/scope/scripts/record-executed-report_test.sh
+          bash skills/scope/scripts/record-scope-exit_test.sh
+          bash skills/scope/scripts/publish-scoping-pr_test.sh
+          bash skills/scope/scripts/print-scope-exit_test.sh
 
       # The document-path shape has one owner and two readers: this script
       # (the gate, the only site that can stop a deletion) and the validator's
@@ -201,3 +219,11 @@ jobs:
           bash skills/scope/scripts/scope-open_test.sh
           bash skills/scope/scripts/run-intake_test.sh
           bash skills/scope/scripts/scope-template_test.sh
+
+      # Every terminal's result through real sessions: the executed report
+      # (also through a request leg), the plan-active refusal, republish, the
+      # intent_declared split, and a failed publish with its retry.
+      - name: Run scope result sessions
+        run: |
+          bash skills/scope/scripts/scope-result_test.sh
+          bash skills/scope/scripts/publish-scoping-pr_test.sh

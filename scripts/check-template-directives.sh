@@ -461,6 +461,36 @@ resolve_script() {
     return 0
 }
 
+# ROUTING_SCRIPTS -- the two scripts in /scope's tree that name the parent's
+# own wip/scope_ prefix and are nonetheless invoked by a gate. Neither decides
+# a hop's completion, which is what rule two protects:
+#
+#   skills/scope/scripts/resume-probe.sh
+#       resume_route's gate. It IS the resume ladder, whose meta-ladder rows
+#       (malformed, exit set, fresh, stale) are defined over the state file
+#       and whose Slot 7 is the /explore handoff under the same prefix. Where
+#       a run resumes is a different question from whether a hop landed; every
+#       hop gate still reads the artifact tree alone.
+#   skills/scope/scripts/publish-scoping-pr.sh
+#       the publish states' `published` gate runs its --verify mode, which
+#       reads git and the owned PR only. The prefix appears in its publish
+#       mode as a pathspec of paths to untrack, never read.
+#
+# Matched by path relative to the template root, so a copy elsewhere, or a new
+# script, is scanned as before. Reads in the scripts these invoke are still
+# followed and scanned.
+ROUTING_SCRIPTS="skills/scope/scripts/resume-probe.sh skills/scope/scripts/publish-scoping-pr.sh"
+
+is_ladder_script() {
+    local p="$1" s
+    for s in $ROUTING_SCRIPTS; do
+        case "$p" in
+            */"$s") return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # scan_invoked_script <path> <template-rel> <state> <gate>
 #
 # Reports a finding for each offending line, and returns the `.sh` tokens it
@@ -653,7 +683,13 @@ $path
 $path
 "
 
-        scan_invoked_script "$path" "$rel" "$state" "$gate"
+        if is_ladder_script "$path"; then
+            # Not a completion decision: see ROUTING_SCRIPTS. Its own lines
+            # are not scanned, but the scripts it invokes still are.
+            INVOKED_TOKENS=$(grep -v '^[[:space:]]*#' "$path" | while IFS= read -r l; do script_tokens "$l"; done)
+        else
+            scan_invoked_script "$path" "$rel" "$state" "$gate"
+        fi
 
         while IFS= read -r token; do
             [ -n "$token" ] || continue

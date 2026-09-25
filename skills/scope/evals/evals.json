@@ -109,7 +109,7 @@
       "id": 8,
       "name": "us-2-prd-auto-skip",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the sentinel's invoking_child; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the sentinel's invoking_child; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation with no --intent fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt whose redirect names the command by the PLAN's mode (R23): 'redirect to /execute docs/plans/PLAN-test-topic.md' for single-pr or coordinated, 'redirect to /work-on' for multi-pr (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
       "files": [
         "docs/prds/PRD-test-topic.md"
       ],
@@ -118,7 +118,7 @@
         "Plan MUST NOT silently overwrite the Accepted PRD; the auto-skip protects settled artifacts from being clobbered",
         "Plan states that re-entry protection is not a judgment about whether the artifact was worth producing",
         "Plan runs /design and /plan; neither is declined on a predicate evaluated before its artifact exists",
-        "Plan ensures a later invocation against PLAN-Active fires Slot 5 row 5.1 and surfaces a prompt containing 'redirect to /work-on' (case-insensitive)",
+        "Plan ensures a later invocation against PLAN-Active with no --intent fires Slot 5 row 5.1 and surfaces a redirect naming the PLAN's executor by mode: 'redirect to /execute docs/plans/PLAN-test-topic.md' for single-pr or coordinated, 'redirect to /work-on' for multi-pr (case-insensitive)",
         "Plan ensures a later invocation against PLAN-Done fires Slot 5 row 5.2 and surfaces a prompt containing 'redirect to /release' (case-insensitive)",
         "Plan ensures neither PLAN-Active nor PLAN-Done rows contain the 'Re-evaluate / Revise / Bail' triad -- refuse-and-redirect is not a re-evaluation exit per AC17c"
       ]
@@ -665,6 +665,459 @@
         "The run makes no Skill call to /execute",
         "`koto workflows` lists no execute-hands-off session",
         "No wip/execute_* state file exists after the run"
+      ]
+    },
+    {
+      "id": 44,
+      "name": "retained-terminal-replaced-without-intent",
+      "requirements": [
+        "R31"
+      ],
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh rerun-plain --docs all --mode single-pr` and cd into the path it prints. Run `/scope rerun-plain` and let it end (the Active PLAN is refused). Print `koto status scope-rerun-plain`. Then run `/scope rerun-plain` a second time and print the second scope-open.sh output, the first `koto next` response of the second run, and `koto status scope-rerun-plain` again.",
+      "expected_output": "The first run ends at done_refused (plan-active) and the session is retained at that terminal. The second /scope rerun-plain does not tick the finished session: scope-open.sh prints opened=replaced with replaced_state=done_refused, and the fresh session starts again at intake, walks resume_route, and reaches its own terminal from a fresh record. The second run's printed block is rendered from its own terminal result.",
+      "files": [],
+      "notes": "Covers R31 of the scope-then-execute PRD (the retained-terminal fix) on the no-intent path.",
+      "expectations": [
+        "The second scope-open.sh output contains `opened=replaced` and `replaced_state=done_refused`",
+        "The second run's first `koto next` does not answer `action: done` from the old session; the fresh session walks intake and resume_route",
+        "`koto status scope-rerun-plain` after the second run shows a result recorded by the second run's terminal",
+        "The agent never ticks the finished session to report its outcome"
+      ]
+    },
+    {
+      "id": 45,
+      "name": "retained-terminal-replaced-with-intent",
+      "requirements": [
+        "R31"
+      ],
+      "scenario": "scope-owned-pr",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh rerun-intent --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope rerun-intent --intent=continue --auto` to its end, then run `/scope rerun-intent --intent=continue --auto` again. Print both scope-open.sh outputs, both printed exit blocks, and `koto status scope-rerun-intent`.",
+      "expected_output": "The first run republishes the existing PLAN and ends at done_republished. The second invocation replaces the finished session (opened=replaced, replaced_state=done_republished) instead of ticking it, walks intake and resume_route again, republishes, and ends at a fresh done_republished whose result names the same owned PR. Neither run opens a second PR.",
+      "files": [],
+      "notes": "Covers R31 on the intent path.",
+      "expectations": [
+        "The second scope-open.sh output contains `opened=replaced` and `replaced_state=done_republished`",
+        "Both printed blocks contain `intent=continue` and `pr=https://github.com/eval-org/eval-repo/pull/42`",
+        "gh-calls.log contains no line starting `pr create`",
+        "`koto status scope-rerun-intent` shows current_state done_republished with result.payload.outcome `scoped`"
+      ]
+    },
+    {
+      "id": 46,
+      "name": "no-intent-makes-no-gh-call",
+      "requirements": [
+        "R2"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh quiet-topic --docs all --mode single-pr --pointer 3`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope quiet-topic --auto` to its end (record the full-run exit). Then print gh-calls.log, the output of `git ls-remote origin`, the printed exit block, and `koto status scope-quiet-topic`.",
+      "expected_output": "With no --intent the run behaves as /scope always has: it records the full-run exit, passes no publish state (intent_declared fails, so exit_full_run goes straight to cleanup_full_run), and makes no gh call of its own. gh-calls.log is empty apart from the plan validator's read-only `auth status` probe, and `git ls-remote origin` lists main only, without docs/quiet-topic. The printed block is `/scope finished: exit=full-run; artifact=docs/plans/PLAN-quiet-topic.md`, `intent=none`, `outcome=scoped`, `next=/execute docs/plans/PLAN-quiet-topic.md`, and no pr= line.",
+      "files": [],
+      "notes": "Covers R2 of the scope-then-execute PRD. The shirabe validator's FC09 check runs `gh auth status` read-only inside the chain gate, as it did before intent existed; it is the one line the log may hold.",
+      "expectations": [
+        "gh-calls.log holds no line other than `auth status` (no pr, repo or api call)",
+        "`git ls-remote origin` shows no refs/heads/docs/quiet-topic",
+        "The run never enters publish_full_run",
+        "The printed block contains `intent=none` and `outcome=scoped` and no `pr=` line",
+        "`koto status scope-quiet-topic` shows result.payload.outcome `scoped` and an empty result.payload.pr"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "intent-continue-single-pr-opens-one-draft",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh nosplit-topic --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope nosplit-topic --intent=continue --auto` to its end. Print gh-calls.log, `git ls-remote origin`, the printed exit block, and `koto status scope-nosplit-topic`.",
+      "expected_output": "The no-split PLAN is single-pr. After the full-run exit the run passes publish_full_run: publish-scoping-pr.sh untracks the topic's wip/, pushes docs/nosplit-topic with HEAD:refs/heads/docs/nosplit-topic, and opens exactly one draft PR whose title contains the slug. The published gate verifies it and the run ends at done_full_run with outcome=scoped, next=/execute docs/plans/PLAN-nosplit-topic.md and pr= the new PR.",
+      "files": [],
+      "notes": "Covers the single-pr limb of R9.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, and it carries `--draft` and a `--title` containing `nosplit-topic`",
+        "`git ls-remote origin` lists refs/heads/docs/nosplit-topic",
+        "No gh-calls.log line is a merge or review call, and none carries a force, admin-override or auto-merge flag",
+        "The printed block contains `intent=continue`, `outcome=scoped` and `pr=https://github.com/eval-org/eval-repo/pull/100`",
+        "`koto status scope-nosplit-topic` shows current_state done_full_run and result.payload.pr equal to the printed pr="
+      ]
+    },
+    {
+      "id": 48,
+      "name": "forced-split-continue-opens-one-coordination-draft",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh split-continue --docs upstreams --split --pointer 2 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope split-continue --intent=continue --auto` to its end: the /plan hop runs against the DESIGN, whose delivery constraint forces a split. Print gh-calls.log with line numbers, the body of the PR the log created (from gh-calls.log.d/prs.json), the printed exit block, and `koto status scope-split-continue`.",
+      "expected_output": "The run resumes into the /plan hop, forwarding --intent=continue. The work splits and continue resolves the mode to coordinated, so the full-run exit publishes one draft coordination PR at exit (no coordination PR was opened up front). Its body starts with the fixed coordination-PR declaration prefix and passes shirabe validate --coordination-body. The run ends at done_full_run with outcome=scoped and next=/execute docs/plans/PLAN-split-continue.md.",
+      "files": [],
+      "notes": "Covers the coordinated limb of R9 on the forced-split fixture.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, and it carries `--draft`",
+        "The created PR's body starts with `# Coordination PR:` followed by the `> This is a **coordination PR**` declaration line",
+        "No `pr create` line appears before the /plan hop ran",
+        "The printed block contains `outcome=scoped` and `next=/execute docs/plans/PLAN-split-continue.md`",
+        "`koto status scope-split-continue` shows result.payload.plan_execution_mode `coordinated`"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "forced-split-stop-opens-a-ready-pr",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh split-stop --docs upstreams --split --pointer 2 --intent stop`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope split-stop --intent=stop --auto` to its end. Print gh-calls.log, the printed exit block, and `koto status scope-split-stop`.",
+      "expected_output": "The work splits and stop resolves the mode to multi-pr, so the publish step opens one ready (non-draft) PR, meant to merge and land the Active PLAN. The run ends at done_full_run with outcome=handed-off-multi-pr, lists the startable items, and says they can start once that scoping PR merges.",
+      "files": [],
+      "notes": "Covers the multi-pr limb of R9.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, and that line does not contain `--draft`",
+        "The printed block contains `intent=stop` and `outcome=handed-off-multi-pr`",
+        "`koto status scope-split-stop` shows result.payload.plan_execution_mode `multi-pr`"
+      ]
+    },
+    {
+      "id": 50,
+      "name": "coordinated-multi-repo-opens-one-pr-after-the-plan-hop",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh multi-repo-coord --docs upstreams --split --pointer 2 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope multi-repo-coord --intent=continue --coordinated --auto` to its end. Print gh-calls.log with line numbers, and say at which point of the run each gh call was made.",
+      "expected_output": "--coordinated wins the mode, but with --intent set no coordination PR is opened up front: the only PR the run opens is the coordination PR, created once, in publish_full_run, after the /plan hop landed and the exit was recorded.",
+      "files": [],
+      "notes": "Covers the up-front half of R9 with a call-logging shim (R8's coordinated precedence).",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`",
+        "That `pr create` was made after the /plan hop, in the publish state",
+        "The /plan Skill call carries both --intent=continue and --coordinated"
+      ]
+    },
+    {
+      "id": 51,
+      "name": "re-evaluation-intent-publishes-a-draft",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh reeval-topic --docs upstreams`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope reeval-topic --intent=continue`; at the DESIGN-boundary prompt choose Re-evaluate and write the Decision Record. Print gh-calls.log, `git ls-remote origin`, the printed exit block, and `koto status scope-reeval-topic`.",
+      "expected_output": "resume_route finds the settled DESIGN and offers the Re-evaluate / Revise / Bail triad. Re-evaluate records the re-evaluation exit with a Decision Record; the intent run then passes publish_re_evaluation, which pushes the branch and opens one draft PR. The run ends at done_re_evaluation; the printed block is today's exit record (no outcome= line) plus intent=continue and the PR.",
+      "files": [],
+      "notes": "Covers R9's re-evaluation limb.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, carrying `--draft`",
+        "`git ls-remote origin` lists refs/heads/docs/reeval-topic",
+        "The printed block starts `/scope finished: exit=re-evaluation` and has no `outcome=` line",
+        "`koto status scope-reeval-topic` shows result.payload.outcome `re-evaluation` and result.payload.boundary `design`"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "abandonment-intent-publishes-a-draft",
+      "requirements": [
+        "R9"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh abandon-topic --docs none`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope abandon-topic --intent=continue`; once /brief has written its intermediate, bail and choose Force-materialize. Print gh-calls.log, `git ls-remote origin`, the printed exit block, and `koto status scope-abandon-topic`.",
+      "expected_output": "The bail's Force-materialize records the abandonment-forced exit with the Draft BRIEF carrying the abandonment marker. The intent run passes publish_abandonment, which pushes the branch and opens one draft PR, and ends at done_abandonment with no outcome= line in the printed block.",
+      "files": [],
+      "notes": "Covers R9's abandonment-forced limb.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`, carrying `--draft`",
+        "`git ls-remote origin` lists refs/heads/docs/abandon-topic",
+        "The printed block starts `/scope finished: exit=abandonment-forced` and has no `outcome=` line",
+        "`koto status scope-abandon-topic` shows result.payload.outcome `abandonment`"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "failing-pr-create-ends-at-scope-pr-create",
+      "requirements": [
+        "R12"
+      ],
+      "scenario": "scope-pr-create-fails",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh create-fails --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope create-fails --intent=continue --auto` to its end. Print the state file, the printed exit block, and `koto status scope-create-fails`.",
+      "expected_output": "The push succeeds and `gh pr create` fails. publish-scoping-pr.sh prints step=scope:pr-create and records publish_step; the agent writes publish_error: scope:pr-create to the state file, and the published gate fails, so the run ends at done_error before cleanup. The state file keeps exit: full-run and its fields. The printed block has outcome=error and step=scope:pr-create.",
+      "files": [],
+      "notes": "Covers R12 (the exit is recorded and the run does not fall back to the no-intent behavior).",
+      "expectations": [
+        "The state file still exists and records `exit: full-run` and `publish_error: scope:pr-create`",
+        "The printed block contains `outcome=error` and `step=scope:pr-create`",
+        "`koto status scope-create-fails` shows current_state done_error, result.payload.step `scope:pr-create` and result.payload.exit `full-run`"
+      ]
+    },
+    {
+      "id": 54,
+      "name": "no-origin-ends-at-scope-push",
+      "requirements": [
+        "R12"
+      ],
+      "scenario": "scope-no-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh no-origin --docs all --mode single-pr --pointer 3 --intent continue --no-origin`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope no-origin --intent=continue --auto` to its end. Print gh-calls.log, the state file, the printed exit block, and `koto status scope-no-origin`.",
+      "expected_output": "The repository has no origin, so the publish step stops before any push or gh write with step=scope:push. The run ends at done_error with the exit still recorded in the state file and publish_error: scope:push.",
+      "files": [],
+      "notes": "Covers R12's scope:push limb.",
+      "expectations": [
+        "gh-calls.log contains no line starting `pr create` or `pr edit`",
+        "The state file records `exit: full-run` and `publish_error: scope:push`",
+        "The printed block contains `outcome=error` and `step=scope:push`",
+        "`koto status scope-no-origin` shows result.payload.step `scope:push`"
+      ]
+    },
+    {
+      "id": 55,
+      "name": "publish-retry-routes-back-to-the-publish-state",
+      "requirements": [
+        "R12"
+      ],
+      "scenario": "scope-pr-create-fails",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh retry-topic --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope retry-topic --intent=continue --auto` to its end (the PR create fails). Then `export EVAL_SCENARIO=scope-local-origin`, remove gh-calls.log.d, and run `/scope retry-topic --intent=continue --auto` again. Print the second run's first `koto next` response, gh-calls.log, the second printed exit block, and `koto status scope-retry-topic`.",
+      "expected_output": "The first run ends at done_error with exit: full-run and publish_error: scope:pr-create in the state file. The second invocation gets a fresh session (the first is terminal), and resume_route reads exit: plus publish_error: and routes straight to publish_full_run, without re-running any hop. The publish now succeeds, cleanup runs, and the run ends at done_full_run with outcome=scoped and the new PR.",
+      "files": [],
+      "notes": "Covers R12's retry.",
+      "expectations": [
+        "The second run's first `koto next` response names state publish_full_run",
+        "No hop state (hop_brief, hop_prd, hop_design, hop_plan) is entered on the second run",
+        "The second printed block contains `outcome=scoped` and a `pr=` line",
+        "`koto status scope-retry-topic` shows current_state done_full_run"
+      ]
+    },
+    {
+      "id": 56,
+      "name": "multi-pr-intent-lists-the-roots-and-names-the-pr",
+      "requirements": [
+        "R10",
+        "R11"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh mixed-stop --docs all --mode mixed --pointer 3 --intent stop`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope mixed-stop --intent=stop --auto` to its end. Print the printed exit block and `koto status scope-mixed-stop`.",
+      "expected_output": "The mixed-dependency PLAN has two roots (#107 and #102, in that PLAN order), a chain and a diamond. The run publishes one ready PR and prints outcome=handed-off-multi-pr, next=/work-on #107, pr=<the PR>, then exactly `#107 feat: add the config loader` and `#102 feat: add the event log`, and one closing line saying they can start once the scoping PR merges, naming that PR.",
+      "files": [],
+      "notes": "Covers R10 and R11 with intent.",
+      "expectations": [
+        "The printed block lists exactly two `#<N> <title>` lines, `#107 ...` then `#102 ...`",
+        "The printed block contains `next=/work-on #107` and `outcome=handed-off-multi-pr`",
+        "The closing line names the scoping PR's URL",
+        "`koto status scope-mixed-stop` shows result.payload.startable holding the same two lines and result.payload.next `/work-on #107`"
+      ]
+    },
+    {
+      "id": 57,
+      "name": "multi-pr-without-intent-lists-the-roots-and-names-no-pr",
+      "requirements": [
+        "R10",
+        "R11"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh mixed-plain --docs all --mode mixed --pointer 3`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope mixed-plain --auto` to its end. Print the printed exit block, gh-calls.log, and `koto status scope-mixed-plain`.",
+      "expected_output": "Without intent the run publishes nothing, but its exit block still lists the same two roots in PLAN order with next=/work-on #107, and its closing line says they can start once the PLAN is on the default branch, naming no PR.",
+      "files": [],
+      "notes": "Covers R10 and R11 without intent.",
+      "expectations": [
+        "The printed block lists exactly `#107 ...` then `#102 ...`",
+        "The closing line mentions the default branch and contains no PR URL",
+        "The printed block contains `intent=none` and no `pr=` line",
+        "`koto status scope-mixed-plain` shows result.payload.outcome `handed-off-multi-pr`"
+      ]
+    },
+    {
+      "id": 58,
+      "name": "republish-active-plan-without-an-owned-pr",
+      "requirements": [
+        "R17"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh republish-new --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope republish-new --intent=continue --auto`. Print gh-calls.log, `git log --oneline -5`, the printed exit block, and `koto status scope-republish-new`.",
+      "expected_output": "resume_route finds the Active PLAN on an intent run and goes to republish: no child runs and no BRIEF, PRD or DESIGN commit is made. The publish script pushes the branch and opens the PR (none was owned), and the run ends at done_republished with outcome=scoped.",
+      "files": [],
+      "notes": "Covers R17 (the intent shortcut for an existing PLAN, opening the PR /execute will adopt).",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr create`",
+        "No commit made by the run touches docs/briefs/, docs/prds/ or docs/designs/",
+        "No child skill is invoked",
+        "`koto status scope-republish-new` shows current_state done_republished and a non-empty result.payload.pr"
+      ]
+    },
+    {
+      "id": 59,
+      "name": "republish-active-plan-with-an-owned-pr",
+      "requirements": [
+        "R17"
+      ],
+      "scenario": "scope-owned-pr",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh republish-owned --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope republish-owned --intent=continue --auto`. Print gh-calls.log, the printed exit block, and `koto status scope-republish-owned`.",
+      "expected_output": "The branch already carries one owned PR recording intent=continue, so republish reuses it: no pr create and no pr edit. The printed block names that PR.",
+      "files": [],
+      "notes": "Covers R17 with an owned PR.",
+      "expectations": [
+        "gh-calls.log contains no line starting `pr create`",
+        "The printed block contains `pr=https://github.com/eval-org/eval-repo/pull/42`",
+        "`koto status scope-republish-owned` shows result.payload.pr `https://github.com/eval-org/eval-repo/pull/42`"
+      ]
+    },
+    {
+      "id": 60,
+      "name": "executed-topic-reports-its-merged-pr",
+      "requirements": [
+        "R17"
+      ],
+      "scenario": "scope-executed-merged",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh executed-topic --docs executed`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope executed-topic --intent=continue`. Print gh-calls.log, the printed exit block, and `koto status scope-executed-topic`.",
+      "expected_output": "No PLAN exists and the DESIGN sits under docs/designs/current/, so resume_route sends the intent run to executed_report, whose default action finds the owned PR through owned-pr.sh --state all and reads its state. The run ends at done_executed and prints outcome=executed, pr_state=merged and the PR's URL. Nothing is written to GitHub.",
+      "files": [],
+      "notes": "Covers R17 (the executed-topic shortcut).",
+      "expectations": [
+        "The printed block contains `outcome=executed`, `pr_state=merged` and `pr=https://github.com/eval-org/eval-repo/pull/42`",
+        "gh-calls.log contains no line starting `pr create`, `pr edit` or `pr merge`",
+        "`koto status scope-executed-topic` shows result.payload.pr_state `merged` and result.payload.pr equal to the printed pr="
+      ]
+    },
+    {
+      "id": 61,
+      "name": "executed-topic-with-only-a-fork-pr-is-an-error",
+      "requirements": [
+        "R17"
+      ],
+      "scenario": "scope-executed-foreign",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh executed-fork --docs executed`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope executed-fork --intent=continue`. Print the printed exit block and `koto status scope-executed-fork`.",
+      "expected_output": "The branch's only PR is cross-repository, so the ownership filter finds no owned PR and executed_report ends at done_error with step=scope:pr-create. The fork's URL never appears in the printed block or the result.",
+      "files": [],
+      "notes": "Covers R17's ownership limb.",
+      "expectations": [
+        "The printed block contains `outcome=error` and `step=scope:pr-create`",
+        "Neither the printed block nor `koto status` output contains `fork-org`",
+        "`koto status scope-executed-fork` shows current_state done_error"
+      ]
+    },
+    {
+      "id": 62,
+      "name": "republish-over-intent-stop-is-not-a-mismatch",
+      "requirements": [
+        "R17"
+      ],
+      "scenario": "scope-owned-pr-intent-stop",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh stop-then-continue --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. The owned PR on the branch records intent=stop from an earlier finished run. Run `/scope stop-then-continue --intent=continue --auto`. Print gh-calls.log, the PR body afterwards (from gh-calls.log.d/prs.json), and the printed exit block.",
+      "expected_output": "A finished run whose PR records intent=stop, re-invoked with --intent=continue, is not a mismatch: republish rewrites the PR body's intent= field with one gh pr edit --body-file, and publish-scoping-pr.sh --verify --expect-intent continue passes. No new PR is opened.",
+      "files": [],
+      "notes": "Covers R17 and the Decision Outcome seam 'Intent mismatch'.",
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr edit` carrying `--body-file`, and no line starting `pr create`",
+        "The PR body afterwards contains the line `intent=continue`",
+        "The run is not refused: the printed block contains `outcome=scoped`"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "active-plan-redirect-names-the-command-by-mode",
+      "requirements": [
+        "R23"
+      ],
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh active-single --docs all --mode single-pr` and `bash skills/scope/evals/fixtures/setup-topic.sh active-multi --docs all --mode mixed`. In each repository run `/scope <topic>` with no --intent and print its exit block and `koto status scope-<topic>`.",
+      "expected_output": "Without intent an Active PLAN is refused at resume_route as plan-active. The single-pr topic's refusal redirects to /execute docs/plans/PLAN-active-single.md and prints next= with that command; the multi-pr topic's refusal redirects to /work-on #107. Both print outcome=error and step=scope:refused, never outcome=refused.",
+      "files": [],
+      "notes": "Covers R23.",
+      "expectations": [
+        "The single-pr block contains `next=/execute docs/plans/PLAN-active-single.md`",
+        "The multi-pr block contains `next=/work-on #107`",
+        "Both blocks contain `outcome=error` and `step=scope:refused`, and neither contains `outcome=refused`",
+        "Both `koto status` results show result.payload.reason `plan-active`"
+      ]
+    },
+    {
+      "id": 64,
+      "name": "every-exit-prints-its-intent-and-never-runs-execute",
+      "requirements": [
+        "R3",
+        "R13",
+        "R31"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh line-none --docs all --mode single-pr --pointer 3` and `bash skills/scope/evals/fixtures/setup-topic.sh line-stop --docs all --mode single-pr --pointer 3 --intent stop`, and put skills/scope/evals/fixtures/bin first on PATH. In each repository run `/scope <topic>` (with `--intent=stop` for line-stop) and `--auto`, to its end. Print both exit blocks, `koto workflows`, and whether any wip/execute_* file exists.",
+      "expected_output": "Each block prints the matching intent= line (intent=none, intent=stop), rendered by print-scope-exit.sh from the terminal result rather than composed. Neither run invokes /execute: no execute-<topic> session exists and no /execute state file is written.",
+      "files": [],
+      "notes": "Covers R3, R13 and R31.",
+      "expectations": [
+        "The line-none block contains `intent=none` and the line-stop block contains `intent=stop`",
+        "`koto workflows` lists no execute-line-none or execute-line-stop session",
+        "No wip/execute_* file exists in either repository",
+        "Each block matches the terminal result `koto status` reports (outcome and intent)"
+      ]
+    },
+    {
+      "id": 65,
+      "name": "terminal-result-reaches-the-koto-leg",
+      "requirements": [
+        "R31"
+      ],
+      "scenario": "scope-local-origin",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `bash skills/scope/evals/fixtures/setup-topic.sh leg-topic --docs all --mode mixed --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Create a koto request with one leg named scope (`koto request create --with-data '{\"legs\":[{\"name\":\"scope\",\"role\":\"scope\",\"template\":\"scope.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval`), then run `/scope leg-topic --intent=continue --auto --koto-leg=<request-id>:scope` to its end. Print `koto request get <request-id>`.",
+      "expected_output": "The run's terminal result is promoted to the scope leg. The leg's payload carries outcome handed-off-multi-pr and the keys /deliver routes on and copies: plan_path, plan_execution_mode, pr, startable, wip_paths, next, and an empty step and reason.",
+      "files": [],
+      "notes": "Covers the must-deliver result keys Issue 19 reads from the leg (R31).",
+      "expectations": [
+        "The leg's result.payload.outcome is `handed-off-multi-pr`",
+        "The leg's result.payload carries plan_path `docs/plans/PLAN-leg-topic.md`, plan_execution_mode `multi-pr`, a non-empty pr, and next `/work-on #107`",
+        "The leg's result.payload.startable holds the two `#<N> <title>` roots"
       ]
     }
   ],

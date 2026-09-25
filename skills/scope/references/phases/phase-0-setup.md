@@ -145,10 +145,15 @@ no koto call can be built.
 
 **Ticking.** Every `koto next` carries `--no-cleanup`, on every tick,
 whether or not `--koto-leg` is given; see Running the Workflow in
-`skills/scope/SKILL.md`. The first tick runs `intake` and
-`branch_check`, both of which advance on their own, and stops at
-`setup`, or at `done_refused` or `done_error` when `intake` refused
-the invocation or could not check it.
+`skills/scope/SKILL.md`. The first tick runs `intake`,
+`branch_check` and `resume_route`, each of which advances on its own.
+On a fresh topic it stops at `setup`. `resume_route` runs the resume
+ladder (`skills/scope/references/phases/phase-resume.md`) and may
+instead stop at a ladder prompt, re-enter a resumed chain, go to a
+publish retry or one of the `--intent` shortcuts, or end the run at
+`done_refused` for a PLAN under way; `intake` ends it at
+`done_refused` or `done_error` when it refused the invocation or could
+not check it.
 
 ## The Intake and Branch Checks Are States, Not Steps Here
 

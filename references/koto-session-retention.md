@@ -157,5 +157,5 @@ read as instruction.
 |---|---|
 | `/work-on` | Root runs pass it on every tick; children pass it nowhere. Decided per run by `session-role.sh`, because `work-on.md` is also `/execute`'s child template. |
 | `/execute` | Every tick, unconditionally. An orchestrator session is always a root, including under `--koto-leg`, where its result reaches the leg by promotion. |
-| `/scope` | Every tick, unconditionally. Its session is always a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. |
+| `/scope` | Every tick, unconditionally. Its session is always a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. Its entry, `scope-open.sh`, passes `--attach-live --replace-terminal`, so a re-run after a finished run gets a fresh session and never ticks the retained one. |
 | `/deliver` | Every tick, unconditionally. Its session is a root and a request coordinator; its children report through their legs, not through its session. |

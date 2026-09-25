@@ -293,6 +293,42 @@ eq "a lone --intent= attaches exactly as a bare call does" "opened=attached" "$(
 open_scope '["t-live","--intent=stop"]'
 eq "the same explicit intent attaches" "opened=attached" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
 
+echo "== a finished session is replaced, never ticked (R31) =="
+
+# Drive a session to a terminal the cheap way: intake refuses an explicit
+# --intent that differs from the one an unfinished run recorded.
+mkdir -p "$R/wip"
+finish_topic() { # finish_topic <topic> -- leaves scope-<topic> at done_refused
+    printf 'topic: %s\nintent: stop\n' "$1" >"$R/wip/scope_$1_state.md"
+    open_scope "[\"$1\",\"--intent=continue\"]"
+    k next "scope-$1" --no-cleanup >/dev/null 2>&1
+    rm -f "$R/wip/scope_$1_state.md"
+}
+
+finish_topic t-fin
+eq "the first run reached a terminal" "done_refused|true" \
+    "$(k status scope-t-fin | jq -r '"\(.current_state)|\(.is_terminal)"')"
+open_scope '["t-fin"]'
+eq "no intent: a second /scope <topic> replaces the finished session" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+has "no intent: the old run's final state is reported" "replaced_state=done_refused" "$STDOUT"
+has "no intent: the session is named as usual" "session=scope-t-fin" "$STDOUT"
+eq "no intent: the fresh session is not terminal" "intake|false" \
+    "$(k status scope-t-fin | jq -r '"\(.current_state)|\(.is_terminal)"')"
+NEXT=$(k next scope-t-fin --no-cleanup 2>/dev/null)
+eq "no intent: the fresh session walks intake and resume_route to setup" "setup" "$(printf '%s' "$NEXT" | jq -r '.state')"
+has "no intent: under the effective intent none" "intent: none" "$(printf '%s' "$NEXT" | jq -r '.directive')"
+
+finish_topic t-fin2
+open_scope '["t-fin2","--intent=continue"]'
+eq "intent: a second /scope <topic> --intent=continue replaces the finished session" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+NEXT=$(k next scope-t-fin2 --no-cleanup 2>/dev/null)
+eq "intent: the fresh session reaches setup" "setup" "$(printf '%s' "$NEXT" | jq -r '.state')"
+has "intent: under the effective intent continue" "intent: continue" "$(printf '%s' "$NEXT" | jq -r '.directive')"
+
+open_scope '["t-fin2"]'
+eq "a live session is attached, never replaced" "opened=attached" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+has "every call passes --replace-terminal" "--replace-terminal" "$(cat "$T/koto.argv")"
+
 echo "== the few refusals scope-open.sh makes itself =="
 
 for badleg in "--koto-leg=BAD:scope" "--koto-leg=req1:execute" "--koto-leg=req1" "--koto-leg"; do
