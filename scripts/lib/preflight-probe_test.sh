@@ -783,9 +783,10 @@ koto_stub() {
         printf '  "workflows --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "session --help") printf "Commands:\\n  cleanup  Cleanup\\n  dir  Dir\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "session cleanup --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
-        printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n  remove  Remove\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context add --help") printf "Options:\\n      --from-file <FROM_FILE>  File\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context get --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "context remove --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  *) printf "error: unrecognized subcommand\\n" >&2; exit 2 ;;\n'
         printf 'esac\n'
     } >"$dir/koto"
