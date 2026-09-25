@@ -109,7 +109,7 @@ mktempdir() {
 #       for bash 3.2 and were run under macOS /bin/bash when they landed; run
 #       them there by hand after changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency"
+SUITES="plan execute work-on preflight templates template-consistency koto-open"
 
 suite_scripts() {
     case "$1" in
@@ -198,6 +198,15 @@ suite_scripts() {
             # left to check lives with the script that does the recording, in
             # the `execute` suite.
             ;;
+        koto-open)
+            # The shared koto entry. Its stand-in cases need only jq and git,
+            # so they execute on the floor wherever it runs; its engine cases
+            # skip without koto, which the macOS runner lacks, and a developer
+            # running this locally with koto gets them on 3.2 as well.
+            echo "scripts/koto-open_test.sh"
+            # A stub koto answers every case, so all of them run on 3.2.
+            echo "scripts/assert-koto-pin_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -219,6 +228,7 @@ suite_workflow() {
         preflight)            echo ".github/workflows/check-preflight-scripts.yml" ;;
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
+        koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
