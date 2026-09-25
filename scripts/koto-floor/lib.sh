@@ -215,11 +215,18 @@ check_jq() {
 # list_templates <root>: every template the floor check covers, as paths
 # relative to <root>, one per line. The shipped templates plus this check's own
 # fixtures; the mermaid companions are diagrams, not templates.
+#
+# A template whose skill's floor is the koto release .tsuku.toml pins, rather
+# than v0.12.2, says so with a top-level YAML comment line starting
+# `# koto-floor: pinned` and is left out: it uses koto features v0.12.2 cannot
+# compile (constrained variables, result maps, non-overridable gates), and its
+# skill's requires.tsv declares the newer floor, which preflight enforces.
 list_templates() {
     local root="$1" f rel
     for f in "$root"/skills/*/koto-templates/*.md "$root"/scripts/koto-floor/fixtures/*.md; do
         [ -f "$f" ] || continue
         case "$f" in *.mermaid.md) continue ;; esac
+        grep -q '^# koto-floor: pinned' "$f" && continue
         rel=${f#"$root"/}
         echo "$rel"
     done

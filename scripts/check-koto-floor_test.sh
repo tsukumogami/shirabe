@@ -163,11 +163,14 @@ mkdir -p "$T/root/skills/alpha/koto-templates" "$T/root/skills/beta/koto-templat
 : > "$T/root/skills/alpha/koto-templates/alpha.mermaid.md"
 : > "$T/root/skills/beta/koto-templates/beta.md"
 : > "$T/root/scripts/koto-floor/fixtures/f.md"
+mkdir -p "$T/root/skills/gamma/koto-templates"
+printf -- '---\nname: gamma\n# koto-floor: pinned -- needs the pinned koto\ninitial_state: a\n---\n' \
+    > "$T/root/skills/gamma/koto-templates/gamma.md"
 got=$(list_templates "$T/root" | tr '\n' ' ')
 if [ "$got" = "skills/alpha/koto-templates/alpha.md skills/beta/koto-templates/beta.md scripts/koto-floor/fixtures/f.md " ]; then
-    pass "templates are discovered by glob, mermaid companions excluded"
+    pass "templates are discovered by glob, mermaid companions and pinned-floor templates excluded"
 else
-    fail "templates are discovered by glob, mermaid companions excluded" "[$got]"
+    fail "templates are discovered by glob, mermaid companions and pinned-floor templates excluded" "[$got]"
 fi
 
 got=$(list_templates "$REPO_ROOT")
