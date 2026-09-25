@@ -169,6 +169,22 @@ repos=o/r,o/s
 pr=$URL2 waiting=predecessor
 resume=/execute docs/plans/PLAN-topic.md"
 
+check "coordinated: a pause naming its condition, resumed with --merge" \
+    "$(result success '{outcome: "paused-awaiting-merges", repos: "o/r", reason: "merge-not-observed", resume: "/execute docs/plans/PLAN-topic.md --merge", waiting: "https://github.com/o/r/pull/7:human,https://github.com/o/s/pull/9:predecessor", pr: "https://github.com/o/s/pull/9"}')" \
+"outcome=paused-awaiting-merges
+repos=o/r
+pr=$URL waiting=human reason=merge-not-observed
+pr=$URL2 waiting=predecessor reason=merge-not-observed
+resume=/execute docs/plans/PLAN-topic.md --merge
+note=the PR may still be queued and may merge later"
+
+check "coordinated: a pause whose only condition is the pause itself" \
+    "$(result success '{outcome: "paused-awaiting-merges", repos: "o/r", reason: "predecessor-unmerged", resume: "/execute docs/plans/PLAN-topic.md", waiting: "https://github.com/o/s/pull/9:predecessor"}')" \
+"outcome=paused-awaiting-merges
+repos=o/r
+pr=$URL2 waiting=predecessor reason=predecessor-unmerged
+resume=/execute docs/plans/PLAN-topic.md"
+
 # --- refusals -----------------------------------------------------------------
 
 got=$(bash "$PRINT" --refused)

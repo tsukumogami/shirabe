@@ -73,6 +73,18 @@
 # the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`. git adds
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
 # of those fall under the gh, git, and jq records.
+#
+# The coordinated envelope (execute-coordinated.md) adds no koto verb or flag:
+# record-coord-setup.sh, record-coordination-verdict.sh, and coord-merge.sh
+# read and write context with `koto context get/add/remove`. Its scripts add gh
+# and git calls under the same records: node-push.sh's node-PR
+# `gh pr create --draft`, the coordination body's `gh pr edit --body-file`, and
+# `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
+# coordinated mode record below covers the two shirabe modes they run:
+# node-push.sh validates each new coordination body with
+# `--coordination-body`, and coord-merge.sh and the loop's
+# evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
+# per indexed ref.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always

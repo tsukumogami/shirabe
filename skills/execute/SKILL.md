@@ -29,8 +29,10 @@ single-issue mechanics.
 
 `/execute` runs a single-pr PLAN end-to-end by lifting `/work-on`'s plan-orchestrator
 template (now `execute.md`) and pointing each per-issue child at `/work-on`'s `work-on.md`
-over a cross-skill reference; it runs a coordinated multi-repo PLAN as a plain
-durable-state loop over the coordination PR's merge-order DAG. State, cross-branch resume
+over a cross-skill reference. It runs a coordinated PLAN, whose PR nodes sit in
+one or more repositories, node by node: the PR node `(repo, pr_group)` is the unit
+of branching, and the loop runs inside the `execute-coordinated.md` koto envelope,
+driven by `coordinated-next.sh`. State, cross-branch resume
 over the durable home PR, and the three exit-path bindings are in the **State**,
 **Resume**, and **Exit Paths** sections; parent-skill conformance and the six security
 surfaces are in **Child Inspection** and **Security Considerations**; the autonomy
@@ -100,10 +102,11 @@ rule, `/execute` does not add flags to any `/work-on` child's `$ARGUMENTS`; the
 autonomy decision reaches children only through the pattern-level
 `parent_orchestration:` convention, never a child-named flag.
 
-Two more flags, both single-pr:
+Two more flags, on both paths:
 
 - `--merge` (boolean, default off) — let this run merge its PR once the merge
-  decision says it may (see **Merging**). It becomes the koto variable `MERGE`,
+  decision says it may (see **Merging**); on a coordinated PLAN, each node PR in
+  merge order and then the coordination PR. It becomes the koto variable `MERGE`,
   passed explicitly on every invocation (`false` without the flag) and re-applied
   by koto on every accepted attach, so it is **never remembered across runs**: a
   run resumed without `--merge` does not merge, whatever an earlier invocation
@@ -144,15 +147,18 @@ Phase 0: SETUP        -> Phase 1: DRIVE             -> Phase 2: FINALIZE        
 (slug re-validation;     (single-pr: orchestrator      (single-pr: interactive    (set exit: field;
  state-file projection;   loop over the lifted          PAUSES at paused_for_      write exit_artifacts;
  stale parent_orch        koto template.                review; --auto runs the    R9 hard-finalization
- self-heal; home-PR       coordinated: track-to-        cascade DRAFT-before-      check. A solicited
- resume lookup)           merge-last loop)              READY + gh pr ready.       interactive pause
-                                                        coordinated: merge-gate    SUSPENDS with exit:
-                                                        --mode=ready, merge last)  UNSET, not terminated)
+ self-heal; home-PR       coordinated: the per-node     cascade DRAFT-before-      check. A solicited
+ resume lookup)           loop coordinated-next.sh      READY + gh pr ready.       pause SUSPENDS with
+                          decides, inside the           coordinated: cascade on    exit: UNSET, not
+                          execute-coordinated.md        the coordination branch,   terminated)
+                          envelope)                     merge-gate --mode=ready,
+                                                        coordination PR last)
 ```
 
-The two execution paths share this phase spine but differ in Phase 1's loop
-substrate (koto session for single-pr, plain durable-state loop for coordinated, per
-the **Single-PR** and **Coordinated** sections). Phase 0's slug re-validation,
+The two execution paths share this phase spine and both run in a koto session:
+single-pr in the lifted `execute.md`, coordinated in the `execute-coordinated.md`
+envelope around a script-decided loop (see the **Single-PR** and **Coordinated**
+sections). Phase 0's slug re-validation,
 stale-sentinel self-heal, and home-PR resume lookup are the security-relevant entry
 steps bound in **Security Considerations**.
 
@@ -160,20 +166,22 @@ steps bound in **Security Considerations**.
 
 `/execute` runs its phases through the sections of this SKILL.md rather than separate
 per-phase reference files (it carries no `references/phases/` directory; its
-Phase-1 mechanics live in the lifted koto template and the **Coordinated** loop):
+Phase-1 mechanics live in the two koto templates and the coordinated scripts):
 
 0. **Setup** — re-validate the topic slug; build the `wip-yaml-md` projection;
    unconditionally clear any stale `parent_orchestration:` sentinel; run the home-PR
    resume lookup. See **State**, **Resume**, **Security Considerations**.
 1. **Drive** — single-pr: drive the lifted `execute` koto loop (**Single-PR
-   Execution Path**, Step 3). coordinated: drive the track-to-merge-last loop
-   (**Coordinated Execution Path**, Step 2). Autonomy binds at every tick.
+   Execution Path**, Step 3). coordinated: drive the per-node loop inside
+   `execute-coordinated.md` (**Coordinated Execution Path**, Step 3). Autonomy binds
+   at every tick.
 2. **Finalize** — single-pr: in interactive mode, PAUSE at `paused_for_review` after
    the PR body is assembled and hand the DRAFT PR back for review (resume re-enters to
    finalize); under `--auto`, run the finalization cascade DRAFT-before-READY then
-   `gh pr ready`. coordinated: gate on `shirabe validate --merge-gate --mode=ready`
-   and merge the coordination PR last. See **Single-PR Execution Path** (mode-driven
-   pause) and **Exit Paths**.
+   `gh pr ready`. coordinated: once every node PR reports `MERGED`, run the cascade
+   once on the coordination branch, gate on `shirabe validate --merge-gate
+   --mode=ready`, mark the coordination PR ready, and, with `--merge`, merge it last.
+   See **Single-PR Execution Path** (mode-driven pause) and **Exit Paths**.
 3. **Exit** — set `exit:` to one of `{full-run, re-evaluation, abandonment-forced}`;
    write `exit_artifacts:`; run the R9 hard-finalization check. See **Exit Paths**.
 
@@ -487,102 +495,183 @@ survivors: it is never adopted, edited, readied, or merged.
 
 ## Coordinated Execution Path
 
-A `coordinated` PLAN spans more than one repository, so there is no single shared
-branch and no plan-spanning koto session (koto has no cross-repo session). The
-coordinated path is therefore a **plain durable-state loop** the SKILL drives
-directly: the durable state lives on the **coordination PR** itself (its PR-Index
-and fenced merge-order block), and each pass refreshes from live `gh`, advances the
-merge-order DAG, and re-gates. The full coordinated contract — the coordination PR,
-the create → track → finalize → merge-last lifecycle, the coarsest-legal-grouping
-rule, the two-node merge-order DAG, the done-signal, and the load-bearing F1/F2/F4
-rules — is canonical in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](../../references/coordination-strategy.md).
-This path **binds** to that contract and does not restate it; the `shirabe validate`
-mode args (`--coordination-body`, `--merge-gate`) and their fail-closed behavior are
-owned by the CLI.
+A `coordinated` PLAN spans one or more repositories. Its work is split into PR
+nodes, one per `(repo, pr_group)`, and **the PR node is the unit of branching**:
+two groups in one repository get two branches and two PRs, and a PLAN spread over
+several repositories whose items all carry `Group: default` gets one node per
+repository. The run is a
+loop over those nodes whose decisions live in scripts, not prose, inside a thin
+koto envelope, `skills/execute/koto-templates/execute-coordinated.md`, so it ends
+in the same result-declaring terminals as a single-pr run. The contract it binds
+to (the coordination PR, its PR index and merge-order block, the two-node DAG,
+the merge step and the pause, the done-signal, and the F1/F2/F4 rules) is
+canonical in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](../../references/coordination-strategy.md);
+this section binds to it rather than restating it. The `shirabe validate` modes
+(`--coordination-body`, `--merge-gate`) and their fail-closed behavior are owned
+by the CLI.
 
-This path is **metadata-only**: it reads issue/PR status and the merge-gate result,
-never child PR bodies. It runs against an existing coordination PR (creating the
-coordination home up front stays `/scope`'s responsibility; `/execute` consumes it).
+The loop reads **work items and PR status** and the merge-gate result, never a
+child PR's body. It runs against an existing coordination PR, found by an
+ownership-filtered head-branch lookup on the coordination branch (never by title)
+and required to carry the `This is a **coordination PR**` marker; creating it
+stays `/scope`'s job. The PLAN comes from `plan-to-tasks.sh`, which gives every PR
+node its `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`, so `/execute` never
+re-parses the PLAN. A coordinated PLAN at `tracking_level: none` carries no GitHub
+issue at all: its work items are outlines, and the run makes no `gh issue` call.
 
-**Code never lands on the coordination branch.** Each repo that needs changes is
-worked in its own worktree on that repo's own branch and lands its own per-repo PR
-(Step 2 item 3). The coordination branch carries **only** scoping-document updates —
-the re-authored coordination PR body (PR-Index and fenced merge-order block, Step 2
-item 2). There is no shared code branch across repos; cross-unit carry-forward flows
-through the coordination PR's durable state, not a branch.
+**Nothing lands on the coordination branch except the scoping documents and the
+finalization cascade.** A node branch is cut from the default branch, never from
+the coordination branch, a predecessor's branch, or `HEAD`, so no node PR carries
+the PLAN to the default branch ahead of the coordination PR.
 
 ### Step 1 — Assert the child template
 
-Assert the same cross-skill `work-on.md` child template resolves (per-repo PR nodes
-dispatch to it):
+Assert the same cross-skill `work-on.md` child template resolves (each node's
+work items dispatch to it):
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
-A non-zero exit halts the run. Locate the coordination PR for this effort (the
-home PR carrying the verbatim `This is a **coordination PR**` declaration marker)
-before entering the loop.
+A non-zero exit halts the run.
 
-### Step 2 — Drive the track-to-merge-last loop
+### Step 2 — Enter the envelope
 
-Loop the following pass until the done-signal fires. Every step that goes through
-`gh` is **fail-closed**: a `gh` failure halts and surfaces the failed step (R21); it
-never papers over a failed step as success and never advances past a coordination
-step it could not complete.
+Enter exactly as the single-pr path does (**Single-PR Execution Path**, Step 2):
+write this invocation's tokens to a file outside the work tree and run
+`execute-open.sh`. It reads the PLAN's `execution_mode`, and for `coordinated` it
+opens `execute-<plan-slug>` from `execute-coordinated.md` through
+`scripts/koto-open.sh` with `--attach-live --replace-terminal` (plus
+`--koto-leg=<request-id>:execute` when given), passing `PLAN_DOC`, `PLAN_SLUG`,
+`PLUGIN_ROOT`, `MERGE` from this invocation's `--merge`, and
+`PAUSE_BEFORE_FINALIZE`. The session stays a root, and every `koto next` on it
+carries `--no-cleanup`, as on the single-pr path.
 
-1. **Refresh coordination state from live `gh`.** Read each indexed PR's live
-   merged/open status on the operator's own `gh` credentials. Re-validate the
-   `repo` / `pr_group` tags on this read (not only at authoring time), because the
-   index is re-derived from the editable body each pass.
-2. **Re-author the coordination body and re-validate on write.** Rewrite the
-   PR-Index and the fenced merge-order block from the template in
-   `coordination-strategy.md`, derived from the PLAN and the live `gh` reads, keeping
-   the declaration marker verbatim. Run the **full**
-   `shirabe validate --coordination-body <file>` on the rewritten body (declaration
-   marker present, every reference passes F2, merge-order acyclic) — the offline
-   authoring surface runs on every write, not just the merge-gate on read — then post
-   with `gh pr edit`. A public coordination PR never embeds private-repo content
-   (F1); a reference that fails F2 component validation halts with a diagnostic
-   (R21), never silently skipped.
-3. **Walk the merge-order DAG.** A node is unblocked when every predecessor is
-   satisfied (a PR node when its PR has merged; a gate node when its condition
-   verifies live). For each unblocked **PR node**, dispatch its issue(s) to
-   `/work-on`'s `work-on.md` per repo, on that repo's own branch (the same per-issue
-   delegation contract the single-pr path uses, minus the shared branch — each repo's
-   work lands as its own PR). Cross-unit carry-forward flows through the coordination
-   PR's durable state, not a shared branch.
-4. **Resolve gate nodes before dependents advance.** A non-PR gate node (e.g. a
-   package publish) is satisfied only when its condition verifies **live** at
-   recompute time. An unsatisfiable or unverifiable gate fails closed and blocks
-   every node ordered after it — do not advance its dependents.
-5. **Re-gate.** Run `shirabe validate --merge-gate` (live status, never the editable
-   body text) to recompute merge state. Under `--mode=draft` an unmerged-indexed-PR
-   state is a tolerable notice mid-effort; the gate is the only authority on live
-   merge state.
+The two templates share the `execute-<plan-slug>` name. A live session of that
+name built from `execute.md` is **refused** by koto (`template_mismatch`), the
+session is left as it was, and the run prints `outcome=error` and
+`step=execute:refused` through `print-exit.sh`; under `--koto-leg` koto records
+the refusal on the leg with source `refused`. A finished (retained terminal)
+session of either template is replaced.
 
-### Step 3 — Done-signal (merge last, fail-closed)
+### Step 3 — Drive the envelope
 
-The single done-signal is the **coordination PR merging last**. It is gated on
-`shirabe validate --merge-gate --mode=ready`: the gate recomputes from authoritative
-`gh` queries at gate time, and **fails closed** — any PR it cannot resolve is treated
-as not-merged, and a `gh` failure halts rather than falsely signaling done. Only once
-every indexed per-repo PR has merged, every gate node is satisfied, and finalization
-is complete (each repo finalizes its own artifacts repo-locally; the cross-repo
-boundary is a read-only verification gate, never a cross-repo write) does the gate
-pass under `--mode=ready` and the coordination PR merge. There is no separate "effort
-complete" marker — the merged coordination PR is it.
+The envelope's states:
+
+- `coord_setup` — agent-run. In the coordination checkout (the checkout holding
+  the coordination branch and the PLAN), run
+  `record-coord-setup.sh --session execute-<plan-slug> --plan <PLAN>`, then tick. It
+  records the write set as `repos` (the sorted, comma-joined `owner/repo` list of
+  every node's `REPO`), `home_repo` (this checkout's repository, which must be one
+  of them), `coord_branch`, and `plan_abs` (the PLAN's absolute path), each fixed
+  for the run. Non-overridable gates read them back.
+- `coord_loop` — agent-run. Run `coordinated-next.sh` with the recorded values and
+  `--merge {{MERGE}}`, do exactly the action it prints, and run it again, until it
+  prints `done:<outcome>`, `pause`, or `error:<step>`; then submit `loop_exit` and
+  the line. The evidence only says the loop stopped. Where the run ends is decided
+  by the next state from live reads, never by what the agent reports.
+- `coord_verdict` — koto runs `record-coordination-verdict.sh` itself. It clears
+  `coord_verdict`, `pr`, `waiting`, `resume`, `reason`, and `step`, runs
+  `coordination-verdict.sh`, and writes its fields only when every one matches its
+  closed pattern. Non-overridable `context-matches` gates route it: `merged` to
+  `coord_merge_confirm`, `ready` to `ready_awaiting_merge`, `paused` to
+  `paused_awaiting_merges`, `dirty` and `error` to `done_blocked`, and a key
+  holding none of those to `done_blocked` with `step=execute:status-read`.
+- `coord_merge_confirm` — koto runs `record-merge-verdict.sh --confirm` with
+  `--repo` set to `home_repo` (a single `owner/repo`, never the comma-joined
+  `repos`) and `--head-branch` set to the coordination branch. It finds the
+  coordination PR itself through `owned-pr.sh --state all` and records the confirm
+  line. Only a recorded `merged` reaches the `merged` terminal; anything else ends
+  `ready_awaiting_merge` with `reason=merge-not-observed`. It is the only way into
+  `merged`.
+
+The actions `coordinated-next.sh` prints, each performed exactly as the
+`coord_loop` directive gives it:
+
+- `dispatch:<node>` — every predecessor of the node is satisfied and it has no
+  PR. `node-cut.sh <slug> <node-id>` cuts `impl/<slug>-<node-id>` from the default
+  branch's tip in its own `git worktree` (`--repo-dir <clone>` for a node in
+  another repository; a re-run reuses the worktree and never re-cuts or rebases).
+  In that worktree, `/execute` **dispatches a node's work items**, in `ISSUES`
+  order, each as a `/work-on` plan-backed child with
+  `SHARED_BRANCH=impl/<slug>-<node-id>`. Each child commits to the node branch and
+  submits `pr_status: shared`; no child opens a PR. For an outline-shaped PLAN a
+  child gets `ISSUE_SOURCE=plan_outline` and **`PLAN_DOC` set to the PLAN's
+  absolute path in the coordination checkout** (the recorded `plan_abs`), because a
+  node branch doesn't carry the PLAN; it reads its outline from there. For an
+  issue-carrying PLAN the child reads its GitHub issue as today. Then
+  `node-push.sh node ...` sweeps `wip/`, pushes, opens the node's draft PR against
+  the default branch (titled `feat(<slug>): <node-id>`, body from a fixed template
+  of the node id, its work-item IDs, and the coordination PR's link, passed with
+  `--body-file`), or adopts the one owned PR on the branch, and writes the node's
+  index line with `head=<sha>`.
+- `evaluate:<node>` — the node's PR is a draft, or its checks are pending. Mark it
+  ready with `gh pr ready` only once every check passed and
+  `git ls-tree -r --name-only <pushed head> -- wip/` prints nothing (the same `wip/`
+  sweep single-pr finalization runs, done by `node-push.sh` before every push).
+- `merge:<node>` — printed only with `--merge`. `coord-merge.sh --node <node-id>`
+  reads the node's index line, checks that the indexed PR is the one owned PR on
+  `impl/<slug>-<node-id>`, and merges it only through
+  `merge-exec.sh <owner/repo> <pr> <expected-head>`, with the expected head taken
+  from the index's `head=` field, never from the live PR. `merge-exec.sh` runs
+  `merge-verdict.sh --repo <owner/repo> --pr <n> --merge <true|false> --expected-head <sha|none> [--confirm]`
+  itself before its one call, and `coord-merge.sh` then confirms with the same
+  script's `--confirm` read.
+  A merge that returned `merge-called` but whose confirm read never saw `MERGED`
+  is recorded (`merge_attempts`), so the loop doesn't call it again and the node's
+  successors stay blocked.
+- `cascade` — every node PR reports `MERGED` on a live read. Run the
+  chain-finalization cascade exactly once, on the coordination branch
+  (`run-cascade.sh --push <PLAN>`), then `node-push.sh coordination ...`, which
+  pushes the coordination branch and records the coordination PR's own `head=`.
+- `evaluate-coordination` — run `shirabe validate --merge-gate --mode=ready` over
+  the index's refs, after dropping any entry that points at the coordination PR
+  itself (`scripts/coordination-gate-refs.sh` does both halves); only when it
+  passes, mark the coordination PR ready.
+- `merge-coordination` — printed only with `--merge`: `coord-merge.sh --node
+  coordination` runs the same merge-last gate itself and merges the coordination PR
+  through `merge-exec.sh` at its recorded `head=`, last.
+
+A PR node is **satisfied** only when a live read reports its PR `MERGED`; a
+`merge-called` result never counts. A gate node's condition is prose no script can
+verify, so it fails closed and the nodes after it wait. Node PRs merge only after
+all their predecessors, and the coordination PR merges last.
+
+**Ownership and the write set.** Every PR number read from the index and every
+head-branch lookup goes through `owned-pr.sh`, keeping only PRs with
+`isCrossRepository == false`, the authenticated author, the default branch as
+base, and, for index entries, head branch `impl/<slug>-<node-id>` for that node.
+Zero survivors let `node-push.sh` open a node's PR; where an existing PR must be
+adopted (an index entry, the coordination PR) zero survivors end
+`step=execute:pr-adopt`, several end `step=execute:pr-adopt`, and a failed read
+ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
+`_Repo:` row naming a repository outside `repos` ends the run `outcome=error` with
+`step=execute:write-set`.
+
+**The pause.** When a node can't start because a predecessor's PR is unmerged,
+the run ends `paused_awaiting_merges`. The coordination PR is **left open**, never
+closed: it is the durable record the pause rests on. The exit lines carry
+`outcome=paused-awaiting-merges`, one `pr=<url> waiting=human|predecessor
+reason=<condition>` line per unmerged PR, the `repos=` line, and
+`resume=/execute docs/plans/PLAN-<topic>.md`, with ` --merge` appended exactly when
+this invocation had `--merge`.
+
+**Resume.** A later `/execute` (or `/deliver`) on the same PLAN replaces the
+retained paused session, reads node state from the coordination PR's index and
+live `gh`, doesn't re-dispatch the work items of a node whose PR is `MERGED`,
+opens no PR for a node already indexed, and makes no scoping commit: nothing
+under `docs/briefs/`, `docs/prds/`, `docs/designs/`, or `docs/plans/` changes
+outside the cascade.
 
 ### Abandonment (R20)
 
 When a coordinated effort is abandoned mid-flight — the loop reaches a genuine
 blocker and the operator elects to abandon rather than resolve — close the
-coordination PR **unmerged** with `gh pr close` (the same `gh` surface used to author
-the body) and document the partial state, rather than leaving it open and
-merge-eligible. The coordination PR is the durable home of the chain, so abandoning
-the chain closes that home. The lifecycle this short-cuts is the canonical contract
-in `coordination-strategy.md` (R20).
+coordination PR **unmerged** with `gh pr close` and document the partial state,
+rather than leaving it open and merge-eligible. This is the operator's decision,
+never the loop's: a pause leaves the coordination PR open. The lifecycle this
+short-cuts is the canonical contract in `coordination-strategy.md` (R20).
 
 ## State
 
@@ -609,18 +698,26 @@ The projection carries:
 - the five-field minimum. `phase_pointer` is an `/execute` phase enum
   (`orchestrator_setup`, `spawn_and_await`, `pr_finalization`, `paused_for_review`,
   `plan_completion`, `merge_readiness`, `merge_route`, `merge_attempt`,
-  `merge_confirm` for single-pr; the track-to-merge-last pass for coordinated).
+  `merge_confirm` for single-pr; `coord_setup`, `coord_loop`, `coord_verdict`,
+  `coord_merge_confirm` for coordinated).
   `exit` is UNSET while the run is in flight and SET to one of `{full-run,
   re-evaluation, abandonment-forced}` at finalization; the R9 hard-finalization check
   fires when it is unset or out-of-enum **at termination** — a solicited interactive
-  pause (`paused_for_review`) is a suspension, not a termination, so its UNSET `exit:`
-  does not trip the check (see **Exit Paths**). `exit_artifacts` lists the durable
-  files the run produced (`{path, status}` per entry).
+  pause (`paused_for_review`) and a coordinated pause (`paused_awaiting_merges`) are
+  suspensions, not terminations, so their UNSET `exit:` does not trip the check (see
+  **Exit Paths**). `exit_artifacts` lists the durable files the run produced
+  (`{path, status}` per entry).
 - **`paused_for_review:`** — a resumable suspension marker (I-5 gated: present ONLY
   while the single-pr run is paused at the `paused_for_review` terminal in interactive
   mode). It lets a resume distinguish a solicited pause (re-enter `plan_completion`
   with `PAUSE_BEFORE_FINALIZE=false` to finalize) from a crash. Absent under `--auto`
   and absent once the run is finalized.
+- **`paused_awaiting_merges:`** — present ONLY while a coordinated run is paused at
+  the `paused_awaiting_merges` terminal, waiting on a predecessor's PR; absent
+  otherwise. The coordination PR, its index, and live `gh` are what a resume reads,
+  so nothing else about the pause is stored. No CI-deadline bookkeeping is stored
+  either: the merge verdict measures the deadline from the head commit's own date on
+  every read.
 - **`child_snapshots:`** — one entry per dispatched `/work-on` child, each carrying
   the child's durable status AND a content-fingerprint, so drift fires when EITHER
   changes between resumes (the per-child dual-check, I-3). For an execution child the
@@ -664,9 +761,9 @@ both copies in lockstep is the cross-repo follow-up.
 
 ## Resume
 
-**On a single-pr re-entry there is no separate session check.** Step 2's entry
-(`execute-open.sh`, which calls `koto init ... --attach-live --replace-terminal`)
-decides it in the one call:
+**On a re-entry, single-pr or coordinated, there is no separate session check.**
+Step 2's entry (`execute-open.sh`, which calls `koto init ... --attach-live
+--replace-terminal`) decides it in the one call:
 
 - a live `execute-<plan-slug>` session from this template, worktree, and store
   is **attached**, with `MERGE` and `PAUSE_BEFORE_FINALIZE` re-applied from this
@@ -683,7 +780,9 @@ decides it in the one call:
 
 So retention buys a record that can be read after the fact, not a session a
 later run resumes in place: the replacement starts at `write_set_record` and
-re-adopts the home PR. Initializing under a different session name does NOT work:
+re-adopts the home PR (on a coordinated PLAN, at `coord_setup`, and the loop
+re-reads every node's state from the coordination PR's index and live `gh`; see
+**Coordinated Execution Path**). Initializing under a different session name does NOT work:
 `settled_branch_record`'s action writes the settled branch into
 `execute-{{PLAN_SLUG}}` while its gate reads the *current* session, so a run under
 any other name blocks there with no override edge and routes to `done_blocked`.
@@ -778,12 +877,13 @@ done-signal routes to `full-run`.
 
 ### Outcome versus exit, and the exit lines
 
-Every single-pr run ends in a terminal that declares a `result:` map, so the
-outcome comes from the template, not from anything composed by hand. Each edge
-into a terminal assigns `outcome` (and `step` or `reason` when the edge fixes the
-value); a `reason` or `step` that comes from a script's output is written to
-context by the script. The table below is the one mapping, and the engine-backed
-cases in `scripts/terminal-retention_test.sh` walk it:
+Every run, single-pr or coordinated, ends in a terminal that declares a `result:`
+map, so the outcome comes from the template, not from anything composed by hand.
+Each edge into a terminal assigns `outcome` (and `step` or `reason` when the edge
+fixes the value); a `reason` or `step` that comes from a script's output is written
+to context by the script. The table below is the one mapping, and the
+engine-backed cases in `scripts/terminal-retention_test.sh` (single-pr) and
+`scripts/execute-coordinated-engine_test.sh` (coordinated) walk it:
 
 | Stop point | `exit:` | `outcome=` | `step=` / `reason=` |
 |------------|---------|------------|---------------------|
@@ -796,6 +896,12 @@ cases in `scripts/terminal-retention_test.sh` walk it:
 | `done_blocked` via an owned-PR lookup | `abandonment-forced` | `error` | `step=execute:pr-adopt` or `execute:status-read` |
 | `done_blocked` via any other blocker | `abandonment-forced` | `error` | `step=execute:<state>` |
 | `re-evaluation` (`escalate_upstream_drift`) | `re-evaluation` | `error` | `step=execute:re-evaluation` |
+| coordinated: `merged` terminal (only through `coord_merge_confirm`), the coordination PR `MERGED` | `full-run` | `merged` | |
+| coordinated: `ready_awaiting_merge`, nothing left to start and a node PR or the coordination PR unmerged | `full-run` | `ready-awaiting-merge` | the first unmerged PR's condition, or `merge-not-observed` |
+| coordinated: `paused_awaiting_merges`, a node waiting on an unmerged predecessor | unset (suspension) | `paused-awaiting-merges` | the unmerged predecessor's condition, or `predecessor-unmerged`, `gate-unverified` |
+| coordinated: `done_blocked` via a DIRTY node PR | `abandonment-forced` | `ready-awaiting-merge` | `reason=merge-state:DIRTY` |
+| coordinated: `done_blocked` via any other blocker | `abandonment-forced` | `error` | its step: `execute:pr-adopt`, `status-read`, `write-set`, `ci`, `dispatch`, ... |
+| coordinated: `done_error` (`coord_setup` could not record the write set) | `abandonment-forced` | `error` | `step=execute:coord_setup` |
 | a refused invocation (no session) | unchanged | `error` | `step=execute:refused` |
 
 **The agent never composes the exit lines.** `skills/execute/scripts/print-exit.sh`
@@ -809,8 +915,8 @@ koto status execute-<plan-slug> | bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scri
 
 It prints `outcome=` always, `step=` on `error`, `exit=` (the state file's value
 above), `repos=` (the write set), `pr=<url>` on `merged`, one
-`pr=<url> waiting=human reason=<condition>` line per unmerged PR, the resume
-command on a pause, and, on `merge-not-observed`, a line saying the PR may still
+`pr=<url> waiting=human|predecessor reason=<condition>` line per unmerged PR, the
+resume command on a pause, and, on `merge-not-observed`, a line saying the PR may still
 be queued and may merge later. A refusal prints `outcome=error` and
 `step=execute:refused` (`print-exit.sh --refused`, which `execute-open.sh` runs
 itself); `refused` is never printed after `outcome=`. Set the state file's
@@ -830,6 +936,12 @@ re-enters `plan_completion` (Single-PR path, mode-driven pause); when the resume
 reaches its merged-PR done-signal it sets `exit: full-run` then. Under `--auto` no
 pause fires and the run terminates normally through `full-run` (or a genuine-blocker
 exit).
+
+**A coordinated pause is a suspension too.** `paused_awaiting_merges` leaves the
+coordination PR open and records `paused_awaiting_merges: true` in the state file,
+with `exit:` UNSET: the run stopped because a human (or a later `/execute --merge`)
+has to merge a predecessor first, not because anything failed. The printed
+`resume=` line is the command that continues it.
 
 ## Finalization-Not-Done Guard (R5)
 
@@ -965,8 +1077,11 @@ surface per child shape follows
   metadata. The merge/head state feeds the child's content-fingerprint in
   `child_snapshots:`; individual CI logs, comment threads, and the child's own
   `wip/` state are internals `/execute` never reads.
-- For the coordinated path, the loop reads each indexed PR's live merged/open status
-  and the `shirabe validate --merge-gate` result, never the per-repo child PR bodies.
+- For the coordinated path, the loop reads the PLAN's nodes through
+  `plan-to-tasks.sh`, each indexed PR's live state, draft flag, and checks, the merge
+  verdict, and the `shirabe validate --merge-gate` result, never a node PR's body.
+  The one body it reads is the coordination PR's, for its index lines, each checked
+  against a closed grammar.
 
 The validator and merge-gate results, lifecycle status, and content fingerprints are
 the only inspection inputs; the metadata-only rule holds identically whether a child
@@ -989,38 +1104,52 @@ against its chain shape:
    silently.
 2. **Closed write-target set.** `/execute`'s filesystem and remote writes are confined
    to: its state file and scratch under `wip/execute_<topic>_*`; the skill's own
-   files; the home PR / coordination body via `gh` (`gh pr create` through
-   `adopt-or-create-pr.sh`, `gh pr edit`, `gh pr ready`, `gh pr close`); the
+   files; the home PR via `gh` (`gh pr create` through `adopt-or-create-pr.sh`,
+   `gh pr edit`, `gh pr ready`, and `gh pr close` on abandonment); the
    finalization cascade's atomic chain transitions (PLAN deletion +
    BRIEF/PRD/DESIGN/ROADMAP transitions under `docs/`); and Decision Records under
-   `docs/decisions/` on `re-evaluation`. Three further entries, each through one
+   `docs/decisions/` on `re-evaluation`. On a coordinated PLAN: `gh pr create` for
+   node PRs (through `node-push.sh`), `gh pr edit` for the coordination PR's body
+   (through `node-push.sh`, after `shirabe validate --coordination-body` passes),
+   `gh pr ready` for node PRs and the coordination PR, local `git worktree`s for
+   node branches (through `node-cut.sh`), and `gh pr close` on the coordination PR
+   only when the operator abandons the effort. Further entries, each through one
    path only:
    - **`gh pr merge`**, reached only through `scripts/merge-exec.sh`, the one call
-     site in the repository, and only from `merge_attempt` on a run invoked with
-     `--merge`. No other script or directive merges.
+     site in the repository, and only on a run invoked with `--merge`: from
+     `merge_attempt` on single-pr, and through `coord-merge.sh` for each node PR and
+     then the coordination PR on coordinated. No other script or directive merges.
    - **Pushes**, only through `scripts/push-and-record.sh` (the shared branch's
-     first push and every fix push) and `run-cascade.sh --push` (the finalization
-     commit). Neither force-pushes.
+     first push and every fix push), `run-cascade.sh --push` (the finalization
+     commit), and `scripts/node-push.sh` (each `impl/<slug>-<node-id>` branch, and
+     the coordination branch after its cascade). None force-pushes, and none pushes
+     the default branch.
+   - **`head=` fields** on the coordination PR's index, written only by
+     `node-push.sh` from the commit it just pushed.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
      `expected_head` (only after a successful push), `merge_verdict`,
-     `confirm_verdict`, `reason`, and `step`; and the `outcome`, `step`,
-     `reason`, and `resume` keys the template's own edges assign.
+     `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
+     `coord_branch`, `plan_abs`, `merge_attempts`, `coord_verdict`, `pr`, and
+     `resume`; and the `outcome`, `step`, `reason`, `loop_line`, and `waiting` keys
+     the templates' own edges assign.
 
    `gh pr review` is outside the set: `/execute` never approves or reviews a PR,
    its own or anyone's. No default action writes to GitHub; the ones koto runs
    (`write_set_record`, `settled_branch_record`, `drift_facts`, `worktree_sync`,
-   `merge_readiness`, `merge_confirm`) read GitHub and write local state or koto
-   context only. The repository write set is fixed at start as `repos`, and every
-   PR lookup and merge call receives its repository from that record. A write
-   outside this set fails the R9 hard-finalization check.
+   `merge_readiness`, `merge_confirm`, `coord_verdict`, `coord_merge_confirm`) read
+   GitHub and write local state or koto context only. The repository write set is
+   fixed at start as `repos`, and every PR lookup and merge call receives its
+   repository from that record. A write outside this set fails the R9
+   hard-finalization check.
 3. **`execution_mode` enum re-validation at both consumers.** The PLAN's
    `execution_mode` is re-validated against `{single-pr, coordinated, multi-pr}` at
    `/execute` entry BEFORE it selects a path or interpolates into any branch name, and
    again at the `/work-on` dispatcher — the dispatcher is the **second** untrusted-enum
-   consumer and re-validates independently. The coordinated path likewise re-validates
-   the `repo` / `pr_group` tags on every refresh read, since the PR-Index is re-derived
-   from the editable body each pass.
+   consumer and re-validates independently. The coordinated path likewise re-checks
+   every index entry on every `coordinated-next.sh` read, since the index lives in an
+   editable body: each line against a closed grammar, its repository against the
+   write set, and its PR against the ownership filter.
 4. **Stale `parent_orchestration:` self-heal.** At session start, `/execute`
    **unconditionally and silently** clears any `parent_orchestration:` sentinel found
    in the state file — no prompt, no warning, no `last_updated` condition. A sentinel
@@ -1057,9 +1186,10 @@ Two `/execute`-specific surfaces are also security-relevant:
 Single-agent parent — no team is spawned at the `/execute` layer. In
 single-pr, the per-issue children are koto-materialized `/work-on` single-issue
 workflows on the shared branch (the same dispatch `/work-on`'s plan-orchestrator uses
-today). In coordinated, each unblocked PR node dispatches a `/work-on` single-issue
-run per repo on that repo's own branch, driven by the plain durable-state loop rather
-than a koto session. The parent-skill conformance binding (the seven required
+today). In coordinated, each unblocked PR node dispatches its work items, one
+`/work-on` plan-backed run each, on the node's own `impl/<slug>-<node-id>` branch,
+driven by the script-decided loop inside the `execute-coordinated.md` session. The
+parent-skill conformance binding (the seven required
 structural elements, state schema, resume ladder, three exit paths, metadata-only
 inspection, and the six security surfaces) is complete across the **Workflow Phases**,
 **Phase Execution**, **State**, **Resume**, **Exit Paths**, **Child Inspection**, and
@@ -1080,6 +1210,14 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/record-merge-verdict.sh` | `merge_readiness`'s and `merge_confirm`'s action: finds the owned PR and records the verdict, `reason`, `step`, or `confirm_verdict` |
 | `skills/execute/scripts/merge-verdict.sh`, `merge-exec.sh` | the read-only merge decision, and the one `gh pr merge` call site |
 | `skills/execute/scripts/print-exit.sh` | renders the exit lines from the terminal result |
+| `skills/execute/koto-templates/execute-coordinated.md` | the coordinated envelope: `coord_setup`, `coord_loop`, `coord_verdict`, `coord_merge_confirm`, and its terminals |
+| `skills/execute/scripts/record-coord-setup.sh` | `coord_setup`'s record: `repos`, `home_repo`, `coord_branch`, `plan_abs` |
+| `skills/execute/scripts/coordinated-next.sh` | the coordinated loop's one next action, stateless and read-only |
+| `skills/execute/scripts/node-cut.sh`, `node-push.sh` | a node's branch in its own worktree; its push, draft PR, and `head=` record (and the coordination PR's after the cascade) |
+| `skills/execute/scripts/coord-merge.sh` | `merge:<node>` and `merge-coordination`: the merge through `merge-exec.sh` at the recorded `head=`, then the confirm read |
+| `skills/execute/scripts/coordination-verdict.sh`, `record-coordination-verdict.sh` | where a coordinated run ended, and `coord_verdict`'s action that records it |
+| `skills/execute/scripts/coord-common.sh` | the shared computation and PR-index parser the coordinated scripts source |
+| `scripts/coordination-gate-refs.sh` | the index's refs for the merge-last gate, minus the coordination PR itself |
 | `references/default-action-conversion.md` | the rule deciding which of this skill's steps koto runs and which stay with the agent |
 | `skills/work-on/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |

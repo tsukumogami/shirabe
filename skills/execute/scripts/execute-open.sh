@@ -7,8 +7,14 @@
 # work tree, and this script builds the variable pairs with jq -- never eval --
 # and makes the one `koto init` call:
 #
-#   koto init execute-<slug> --template <execute.md> --vars-file <pairs>
-#             --attach-live --replace-terminal [--koto-leg <request-id>:execute]
+#   koto init execute-<slug> --template <execute.md | execute-coordinated.md>
+#             --vars-file <pairs> --attach-live --replace-terminal
+#             [--koto-leg <request-id>:execute]
+#
+# The template follows the PLAN's `execution_mode:` frontmatter:
+# `coordinated` enters execute-coordinated.md, anything else execute.md. Both
+# share the session name, so a live session from the other template is koto's
+# template_mismatch refusal, and a finished one is replaced.
 #
 # koto then decides everything a variable can express, so /execute refuses
 # nothing of its own that koto could: a repeated --merge is koto's
@@ -117,6 +123,28 @@ PLAN=$(printf '%s' "$TOKENS" | jq -r '. as $t | [range(0; length) as $i
     | $t[$i]][0] // ""')
 SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
+
+# The template, from the PLAN's execution_mode, re-validated against the enum:
+# exactly `coordinated` selects execute-coordinated.md; anything else, a PLAN
+# that doesn't exist included, stays on execute.md, as before. Both templates
+# share the execute-<slug> session name, so koto's --attach-live refuses a live
+# session built from the other one (template_mismatch) and --replace-terminal
+# replaces a finished one.
+MODE=""
+if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
+    MODE=$(awk '
+        NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit; next }
+        /^---[[:space:]]*$/ { exit }
+        /^execution_mode:/ {
+            sub(/^execution_mode:[[:space:]]*/, "")
+            gsub(/["\047[:space:]]/, "")
+            print
+            exit
+        }' "$PLAN")
+fi
+case "$MODE" in
+    coordinated) TEMPLATE="$SKILL_DIR/koto-templates/execute-coordinated.md" ;;
+esac
 
 # A slug outside the pattern is koto's to refuse (invalid_var on PLAN_SLUG), and
 # koto validates variables before it looks at the session name, so the call is
