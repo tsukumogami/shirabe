@@ -22,6 +22,11 @@ on:
       - '.tsuku.toml'
       - 'scripts/assert-koto-pin.sh'
 
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
 jobs:
   test-work-on-scripts:
     strategy:
@@ -45,8 +50,6 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           curl -fsSL https://get.tsuku.dev/now | bash
           echo "$HOME/.tsuku/bin" >> $GITHUB_PATH

@@ -19,6 +19,11 @@ on:
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
 
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
 jobs:
   test-koto-open:
     strategy:
@@ -39,8 +44,6 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           curl -fsSL https://get.tsuku.dev/now | bash
           echo "$HOME/.tsuku/bin" >> $GITHUB_PATH

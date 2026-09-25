@@ -10,6 +10,11 @@ on:
       - 'scripts/assert-koto-pin.sh'
       - '.github/workflows/validate-templates.yml'
 
+env:
+  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
 jobs:
   validate-templates:
     runs-on: ubuntu-latest
@@ -17,8 +22,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install tsuku
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           curl -fsSL https://get.tsuku.dev/now | bash
           echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
