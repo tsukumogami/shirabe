@@ -76,3 +76,44 @@ jobs:
 
       - name: Check every init site passes the template's required variables
         run: bash scripts/check-init-site-vars.sh
+
+  # A decider declaration is only as good as its modes and its golden
+  # fixtures, and koto checks neither: it can't know which mode shirabe meant
+  # a value to ship in, or whether the fixture file beside the template meets
+  # the minimums koto's promotion report applies. This job holds every
+  # declaration to scripts/decider-declarations.tsv and to its fixture file.
+  # The check reads files only; it runs no koto and makes no network call, so a
+  # pull request from a fork can't spend anyone's decider key.
+  #
+  # yq is pinned here rather than taken from the runner image, so the image
+  # moving to another yq can't change what the check parses. The download is
+  # checked against the SHA-256 the release's own checksums file records, and
+  # the version the binary reports is checked before anything runs.
+  decider-declarations:
+    runs-on: ubuntu-latest
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Run check-decider-declarations tests
+        run: bash scripts/check-decider-declarations_test.sh
+
+      - name: Check decider declarations against their modes table and fixtures
+        run: bash scripts/check-decider-declarations.sh
