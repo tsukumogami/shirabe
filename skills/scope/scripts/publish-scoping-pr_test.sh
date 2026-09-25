@@ -239,13 +239,13 @@ for x in re-evaluation abandonment-forced; do
 done
 setup coordinated
 run --topic topic --exit full-run --intent continue
-if grep '^pr create' "$GHF/calls" | grep -q -- '--draft'; then ok "coordinated full-run: a draft"; else bad "coordinated full-run: a draft" "$(cat "$GHF/calls")"; fi
-BODY=$(jq -r '.[0].body // ""' "$GHF/prs.json")
-case "$BODY" in
-    *"> This is a **coordination PR**"*) ok "coordinated: the body carries the declaration prefix" ;;
-    *) bad "coordinated: the body carries the declaration prefix" "$BODY $(cat "$T/err")" ;;
-esac
 if command -v shirabe >/dev/null 2>&1; then
+    if grep '^pr create' "$GHF/calls" | grep -q -- '--draft'; then ok "coordinated full-run: a draft"; else bad "coordinated full-run: a draft" "$(cat "$GHF/calls")"; fi
+    BODY=$(jq -r '.[0].body // ""' "$GHF/prs.json")
+    case "$BODY" in
+        *"> This is a **coordination PR**"*) ok "coordinated: the body carries the declaration prefix" ;;
+        *) bad "coordinated: the body carries the declaration prefix" "$BODY $(cat "$T/err")" ;;
+    esac
     printf '%s' "$BODY" >"$T/coord-body.md"
     if shirabe validate --coordination-body "$T/coord-body.md" >/dev/null 2>&1; then
         ok "coordinated: the body passes shirabe validate --coordination-body"
@@ -253,7 +253,11 @@ if command -v shirabe >/dev/null 2>&1; then
         bad "coordinated: the body passes shirabe validate --coordination-body" "$(shirabe validate --coordination-body "$T/coord-body.md" 2>&1 | tail -3)"
     fi
 else
-    echo "SKIP: shirabe not on PATH -- the coordination-body validation did not run"
+    # Without the validator a coordinated publish refuses rather than posting
+    # an unchecked body.
+    eq "coordinated, no shirabe: scope:pr-create" "scope:pr-create" "$(line step)"
+    eq "coordinated, no shirabe: no pr create" "0" "$(calls create)"
+    echo "SKIP: shirabe not on PATH -- the coordinated body was not rendered or validated"
 fi
 
 echo "== --verify =="

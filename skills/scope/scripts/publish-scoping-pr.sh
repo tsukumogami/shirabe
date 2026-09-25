@@ -413,6 +413,8 @@ render_body() {
         fi
     } >"$f"
     if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
+        command -v shirabe >/dev/null 2>&1 \
+            || fail scope:pr-create "shirabe is not on PATH; a coordination body cannot be validated without it"
         shirabe validate --coordination-body "$f" >&2 \
             || fail scope:pr-create "the coordination body fails shirabe validate --coordination-body"
     fi
