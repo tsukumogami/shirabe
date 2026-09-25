@@ -156,13 +156,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- the PLAN's execution_mode is coordinated",
-      "expected_output": "The agent reads execution_mode: coordinated, re-validates the enum, and runs the plain durable-state track-to-merge-last loop. The durable state lives on the coordination PR (its PR-Index and fenced merge-order block), NOT a shared branch. Cross-unit carry-forward between issue 1 (library repo) and issue 2 (app repo, blocked by issue 1) flows through the coordination PR's durable state -- the coordinated payload, which is not inherited from the single-pr shared-branch path. Each pass refreshes from live gh, re-authors the coordination body and re-validates with shirabe validate --coordination-body, walks the merge-order DAG dispatching each unblocked PR node to work-on.md per repo, and re-gates with shirabe validate --merge-gate. The agent does NOT write across a repo boundary.",
+      "expected_output": "The agent reads execution_mode: coordinated, re-validates the enum, and runs the coordinated loop inside the execute-coordinated.md koto envelope, driven by coordinated-next.sh. The durable state lives on the coordination PR (its PR-Index and fenced merge-order block), NOT a shared branch. Cross-unit carry-forward between issue 1 (library repo) and issue 2 (app repo, blocked by issue 1) flows through the coordination PR's durable state -- the coordinated payload, which is not inherited from the single-pr shared-branch path. Each pass reads live gh through coordinated-next.sh; node-push.sh re-validates the coordination body with shirabe validate --coordination-body before editing it; the loop dispatches each unblocked PR node's work items to work-on.md on that node's own impl/<slug>-<node-id> branch, and re-gates with shirabe validate --merge-gate. The agent does NOT write across a repo boundary.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: coordinated and re-validates the enum before path interpolation",
-        "Agent runs the plain durable-state track-to-merge-last loop (not a koto plan session)",
+        "Agent runs the coordinated loop inside the execute-coordinated.md envelope, taking each action from coordinated-next.sh",
         "Agent recognizes cross-unit carry-forward flows through the coordination PR's durable state, NOT a shared branch",
-        "Agent dispatches each unblocked PR node to work-on.md per repo on that repo's own branch",
+        "Agent dispatches each unblocked PR node's work items to work-on.md on that node's own impl/<slug>-<node-id> branch",
         "Agent re-gates with shirabe validate --merge-gate and does NOT write across a repo boundary"
       ]
     },
@@ -400,11 +400,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- the PLAN's execution_mode is coordinated",
-      "expected_output": "Agent detects execution_mode: coordinated and runs the coordinated track-to-merge-last loop. As per-repo PRs open and progress, the agent re-authors the coordination PR body itself on each pass -- recomputing the durable PR-index and the merge-order from live gh against the template in references/coordination-strategy.md and posting it with gh pr edit -- and calls shirabe validate --merge-gate as the merge-last check. There is no shirabe coordination subcommand: the body is skill-authored, and shirabe validate --coordination-body checks it offline. The shirabe validate mode args and their fail-closed behavior are owned by the CLI; the agent binds to references/coordination-strategy.md and does not restate the contract.",
+      "expected_output": "Agent detects execution_mode: coordinated and runs the coordinated loop inside the execute-coordinated.md envelope. As node PRs open and progress, the coordination PR body is re-authored from the template in references/coordination-strategy.md -- node-push.sh rewrites the node's PR-index line with its head= record, validates the new body with shirabe validate --coordination-body, and posts it with gh pr edit -- and shirabe validate --merge-gate is the merge-last check. There is no shirabe coordination subcommand: the body is skill-authored, and shirabe validate --coordination-body checks it offline. The shirabe validate mode args and their fail-closed behavior are owned by the CLI; the agent binds to references/coordination-strategy.md and does not restate the contract.",
       "files": [],
       "expectations": [
-        "Agent detects execution_mode: coordinated and runs the coordinated track-to-merge-last loop",
-        "Agent re-authors the coordination PR body on each pass (recomputing the durable index and merge-order from live gh against the template, posting with gh pr edit) rather than calling a coordination subcommand",
+        "Agent detects execution_mode: coordinated and runs the coordinated loop inside the execute-coordinated.md envelope",
+        "The coordination PR body is re-authored as node PRs progress (the node's index line rewritten, validated, and posted with gh pr edit) rather than through a coordination subcommand",
         "Agent calls shirabe validate --merge-gate as the merge-last check before the coordination PR can merge",
         "Agent binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md and does NOT restate the contract or the validate-mode fail-closed behavior",
         "Agent does NOT write across a repo boundary; the cross-repo boundary is the read-only verification gate"
@@ -416,11 +416,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- coordinated effort where one indexed per-repo PR is still open",
-      "expected_output": "Agent runs shirabe validate --merge-gate, which recomputes merge state from authoritative live gh api queries at gate time (never by parsing the editable PR body). One indexed per-repo PR is still open, so the merge-last gate fails and the coordination PR is kept unmerged. The gate fails closed: any PR it cannot resolve is treated as not-merged. The non-bypassable lifecycle.yml strict-mode check (draft == false trigger) is the backstop that keeps the coordination PR unmerged while any indexed PR is open or finalization is incomplete. A coordination step that cannot complete halts and surfaces the error rather than advancing. The agent does not merge the coordination PR while any indexed PR is unmerged.",
+      "expected_output": "Agent runs shirabe validate --merge-gate, which recomputes merge state from authoritative live gh api queries at gate time (never by parsing the editable PR body). One indexed node PR is still open, so the merge-last gate fails and the coordination PR is kept unmerged. The gate fails closed: any PR it cannot resolve is treated as not-merged. The non-bypassable lifecycle.yml strict-mode check (draft == false trigger) is the backstop that keeps the coordination PR unmerged while any indexed PR is open or finalization is incomplete. A coordination step that cannot complete halts and surfaces the error rather than advancing. The agent does not merge the coordination PR while any indexed PR is unmerged.",
       "files": [],
       "expectations": [
         "Agent runs shirabe validate --merge-gate, recomputing merge state from live gh api queries at gate time, never from the editable PR body",
-        "Agent recognizes the merge-last gate FAILS while any indexed per-repo PR is unmerged, keeping the coordination PR unmerged",
+        "Agent recognizes the merge-last gate FAILS while any indexed node PR is unmerged, keeping the coordination PR unmerged",
         "Agent understands the gate fails closed: any unresolvable PR is treated as not-merged",
         "Agent identifies the non-bypassable lifecycle.yml strict-mode check (draft == false trigger) as the merge-last backstop",
         "Agent halts and surfaces the error on a coordination step that cannot complete rather than advancing, and does NOT merge the coordination PR while any indexed PR is unmerged"
@@ -1229,6 +1229,313 @@
       "expectations": [
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`",
         "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`"
+      ]
+    },
+    {
+      "id": 65,
+      "name": "coordinated-outline-one-repo-end-to-end-merged",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-outline-one-repo",
+      "requirements": [
+        "R6",
+        "R7",
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The PLAN is coordinated at tracking_level: none, in one repository, with two PR groups: core (outlines 1, 2) and cli (outline 3, which waits on core). The scenario's gh shim models the repository (the coordination PR is #10 on the checked-out branch) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The run enters execute-coordinated.md, records the write set eval-org/eval-repo at coord_setup, and loops on coordinated-next.sh: it cuts impl/coord-outline-test-pr-eval-repo-core from main in its own worktree, dispatches outlines 1 and 2 as /work-on children with ISSUE_SOURCE=plan_outline and PLAN_DOC set to the PLAN's absolute path in the coordination checkout, pushes with node-push.sh (one draft PR, index line with head=), readies it once checks pass, and merges it through coord-merge.sh. Only then does it cut and dispatch the cli node, the same way. With every node PR MERGED it runs the cascade on the coordination branch, records the coordination PR's head=, passes the merge-last gate, readies the coordination PR, and merges it last. coord_merge_confirm reads it MERGED and the run ends at merged; print-exit.sh prints outcome=merged.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting with `issue`",
+        "gh-calls.log contains exactly one `pr create` for each of the two nodes and none for the coordination PR",
+        "The `pr merge` of the cli node's PR comes after the `pr merge` of the core node's PR, and the coordination PR's (#10) `pr merge` is the last `pr merge` in the log",
+        "Every `pr merge` line carries `--match-head-commit` equal to that PR's `head=` in the coordination PR's index, and none carries `--admin` or `--auto`",
+        "Each /work-on child ran with ISSUE_SOURCE=plan_outline and an absolute PLAN_DOC inside the coordination checkout",
+        "The printed exit lines include `outcome=merged`"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "coordinated-multi-repo-merged",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-multi-repo",
+      "requirements": [
+        "R6",
+        "R19",
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-multi-test.md --merge --auto -- The PLAN's two nodes sit in eval-org/eval-repo (this checkout) and eval-org/eval-app (a second clone the harness provides; pass it to node-cut.sh with --repo-dir). The scenario's gh shim models both repositories and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal, print the exit lines with print-exit.sh, and show koto status for the session.",
+      "expected_output": "Both node PRs are opened, readied, and merged, each in its own repository, and then the coordination PR. coord_merge_confirm runs record-merge-verdict.sh --confirm with --repo eval-org/eval-repo (home_repo), finds the coordination PR on the coordination branch there, and reads it MERGED. The run ends at merged: koto status shows the merged terminal with pr naming the coordination PR and repos listing both repositories.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log has a `pr merge` for each node PR, each in its own repository, followed by the coordination PR's `pr merge`",
+        "The confirm read's `pr list` is on `--repo eval-org/eval-repo`, and no gh call in the log names the comma-joined `eval-org/eval-app,eval-org/eval-repo`",
+        "koto status shows the session at `merged`, with a result whose `pr` is https://github.com/eval-org/eval-repo/pull/10 and whose `repos` lists both eval-org/eval-app and eval-org/eval-repo",
+        "The printed exit lines include `outcome=merged`"
+      ]
+    },
+    {
+      "id": 67,
+      "name": "coordinated-node-branch-base",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-outline-one-repo",
+      "requirements": [
+        "R6"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --auto -- The scenario's gh shim models the repository and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal. Then, for each node branch node-cut.sh created, report the base= it printed and run: git merge-base <node-branch> <that base>; git merge-base --is-ancestor <c> <node-branch> for every commit c on the coordination branch that is not on main; and git ls-tree -r --name-only <node-branch> -- skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md.",
+      "expected_output": "Each node branch was cut from main's tip at cut time, in its own worktree: its merge-base with that tip is the tip, no coordination-branch commit is its ancestor, and it does not carry the PLAN.",
+      "files": [],
+      "expectations": [
+        "For each node branch, `git merge-base <node-branch> <base>` prints the base node-cut.sh recorded",
+        "`git merge-base --is-ancestor <c> <node-branch>` fails for every coordination-branch commit not on main",
+        "`git ls-tree` of each node branch prints nothing for the PLAN's path"
+      ]
+    },
+    {
+      "id": 68,
+      "name": "coordinated-pause-and-resume",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-outline-one-repo",
+      "requirements": [
+        "R22"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --auto -- (no --merge). The scenario's gh shim models the repository and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines. Then run `gh shim-mark-merged eval-org/eval-repo 11` (a human merged the core node's PR), note the log's length, and run `/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --auto` again to its terminal.",
+      "expected_output": "The first run opens and readies only the core node's PR; with no --merge it stays open, the cli node waits on it, and the run ends paused_awaiting_merges, leaving the coordination PR open and printing a resume= line. The second run replaces the retained paused session, reads the core PR as MERGED from live gh, opens exactly one PR, for the cli node, and makes no scoping commit.",
+      "files": [],
+      "expectations": [
+        "The first run prints `outcome=paused-awaiting-merges` and a `resume=/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md` line with no ` --merge`",
+        "Before the second run, gh-calls.log has exactly one `pr create` (the core node's) and no `pr close`",
+        "The second run's part of gh-calls.log has exactly one `pr create`, for impl/coord-outline-test-pr-eval-repo-cli",
+        "The second run commits nothing under docs/briefs/, docs/prds/, docs/designs/, or docs/plans/ outside the cascade"
+      ]
+    },
+    {
+      "id": 69,
+      "name": "coordinated-node-merge-not-observed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-merge-not-observed",
+      "requirements": [
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The scenario's gh shim accepts every node PR's merge call and never merges it; every later read says OPEN. It logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "The core node's PR is merged once through coord-merge.sh; the confirm read never sees MERGED, so the attempt is recorded and not repeated. The cli node never starts and the coordination PR is never merged. The run pauses with the core PR's line reading reason=merge-not-observed.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log has exactly one `pr merge`, on the core node's PR, and none on #10",
+        "gh-calls.log has no `pr create` for impl/coord-outline-test-pr-eval-repo-cli",
+        "The printed exit lines include the core node PR's `pr=` line with `reason=merge-not-observed`",
+        "No output anywhere in the run reports `outcome=merged`"
+      ]
+    },
+    {
+      "id": 70,
+      "name": "coordinated-coordination-merge-not-observed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-coordination-not-observed",
+      "requirements": [
+        "R19",
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- Both node PRs are already MERGED and indexed. The coordination PR's merge call is accepted and never lands; every later read says OPEN. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal, print the exit lines, and show koto status for the session.",
+      "expected_output": "The run cascades on the coordination branch, readies the coordination PR, and merges it once through coord-merge.sh. The confirm read keeps seeing OPEN; coord_verdict routes to coord_merge_confirm, which records not-merged:merge-not-observed, and the run ends at ready_awaiting_merge with reason=merge-not-observed and the line saying the PR may still be queued.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log has exactly one `pr merge 10`",
+        "No output anywhere in the run reports `outcome=merged`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`, `reason=merge-not-observed`, and the may-still-be-queued line",
+        "koto status shows the session's terminal is `ready_awaiting_merge`, not `merged`"
+      ]
+    },
+    {
+      "id": 71,
+      "name": "coordinated-head-moved",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-head-moved",
+      "requirements": [
+        "R19",
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The core node's PR (#11) is ready and green, but its index head= is not its live head. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "The merge verdict for #11 is awaiting:head-moved, so no merge is called; the cli node waits and the run pauses with #11's line reading reason=head-moved.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log has no `pr merge 11`",
+        "The printed exit lines include #11's `pr=` line with `reason=head-moved`"
+      ]
+    },
+    {
+      "id": 72,
+      "name": "coordinated-head-missing",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-head-missing",
+      "requirements": [
+        "R19",
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The core node's PR (#11) is ready and green, but its index line carries no head= field. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "With no recorded head the verdict is awaiting:head-moved: no merge is called, and #11's line reads reason=head-moved.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log has no `pr merge 11`",
+        "The printed exit lines include #11's `pr=` line with `reason=head-moved`"
+      ]
+    },
+    {
+      "id": 73,
+      "name": "coordinated-index-foreign-author",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-index-foreign-author",
+      "requirements": [
+        "R19",
+        "R28"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, and #11 was opened by another author. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "The ownership filter finds no owned PR for the indexed entry; the run ends outcome=error with step=execute:pr-adopt and never edits, readies, merges, or closes #11.",
+      "files": [],
+      "expectations": [
+        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:pr-adopt`)",
+        "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming 11"
+      ]
+    },
+    {
+      "id": 74,
+      "name": "coordinated-index-wrong-head-branch",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-index-wrong-branch",
+      "requirements": [
+        "R19",
+        "R28"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, but #11's head branch is feature/elsewhere. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "#11 is not the owned PR on impl/coord-outline-test-pr-eval-repo-core, so the run ends outcome=error with step=execute:pr-adopt and touches nothing.",
+      "files": [],
+      "expectations": [
+        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:pr-adopt`)",
+        "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming 11"
+      ]
+    },
+    {
+      "id": 75,
+      "name": "coordinated-index-out-of-set-repository",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-index-out-of-set",
+      "requirements": [
+        "R28"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names a PR in eval-org/stranger, a repository outside the run's write set. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "The run refuses the entry: outcome=error with step=execute:write-set, and nothing in eval-org/stranger is read or written.",
+      "files": [],
+      "expectations": [
+        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:write-set`)",
+        "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming eval-org/stranger"
+      ]
+    },
+    {
+      "id": 76,
+      "name": "coordinated-without-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-multi-repo",
+      "requirements": [
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-multi-test.md --auto -- (no --merge). The PLAN's two independent nodes sit in eval-org/eval-repo and eval-org/eval-app (pass the second clone to node-cut.sh with --repo-dir). The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "Both node PRs are opened and readied but never merged; nothing is left to start, so the run ends ready-awaiting-merge with reason=merge-not-requested on each open PR.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "Each open node PR's `pr=` line carries `reason=merge-not-requested`"
+      ]
+    },
+    {
+      "id": 77,
+      "name": "coordinated-cascade-order",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-outline-one-repo",
+      "requirements": [
+        "R21"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The scenario's gh shim models the repository and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal. Then report when the cascade commit landed on the coordination branch relative to the gh calls, and show the coordination PR's final index.",
+      "expected_output": "The cascade commit lands on the coordination branch once, after both node PRs' merges and before `pr ready 10`. The index carries the coordination PR's own line (a self-reference), which the merge-last gate drops before it runs, so the gate passes and the coordination PR merges.",
+      "files": [],
+      "expectations": [
+        "The cascade ran once, after the last node `pr merge` in gh-calls.log and before `pr ready 10`",
+        "The coordination PR's index holds a `- coordination | eval-org/eval-repo:...#10 | ... | head=` line, and the run still ends `outcome=merged`",
+        "No `shirabe validate --merge-gate` call in the run was given `#10` as a `--pr`"
+      ]
+    },
+    {
+      "id": 78,
+      "name": "coordinated-template-mismatch-refused",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "coord-outline-one-repo",
+      "requirements": [
+        "R17",
+        "R30"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "First open a live single-pr session under the same name: `koto init execute-coord-outline-test --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/execute.md --var PLAN_DOC=skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --var PLAN_SLUG=coord-outline-test --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} --var MERGE=false`. Record `git status --porcelain`. Then invoke `/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto` and report its output, its exit status, `git status --porcelain` again, and koto status for the session.",
+      "expected_output": "execute-open.sh selects execute-coordinated.md for the coordinated PLAN, and koto refuses the attach to the live execute.md session (template_mismatch). The run prints outcome=error and step=execute:refused through print-exit.sh and exits 2; the live session and the working tree are unchanged.",
+      "files": [],
+      "expectations": [
+        "execute-open.sh prints `refused=template_mismatch` and exits 2",
+        "The printed exit lines are `outcome=error` and `step=execute:refused`, and nothing prints the refused token after `outcome=`",
+        "`git status --porcelain` is the same before and after",
+        "koto status shows the execute.md session where it was, with MERGE still false"
       ]
     }
   ]
