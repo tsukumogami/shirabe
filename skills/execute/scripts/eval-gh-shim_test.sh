@@ -19,6 +19,13 @@
 #     confirm read MERGED unless the scenario keeps the PR open
 #   @HEAD_SHA@ is the commit checked out where gh runs
 #   no fixture makes a merge call carry --admin or --auto
+#   the repository model the coordinated scenarios use (gh/db.json): a PR
+#     created at the checked-out commit, found by branch, readied, edited,
+#     merged (or left open by a stays-open merge), the merge gate's state
+#     read, no issue call, and the unlogged mark-merged hook
+#   the first action each coordinated scenario makes the real
+#     coordinated-next.sh print (skipped without a shirabe binary that has
+#     `plan outlines`, which the outline PLANs need)
 #
 # Usage: eval-gh-shim_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -218,6 +225,131 @@ if [ -z "$FIRST" ] && [ "$(printf '%s' "$SECOND" | jq -r .state)" = CLOSED ]; th
     pass "a numbered fixture answers the Nth call to its key"
 else
     fail "numbered: first [$FIRST], second [$SECOND]"
+fi
+
+# --- the repository model (gh/db.json) ------------------------------------------
+#
+# The coordinated scenarios' shim state: a PR created, found by its branch,
+# readied, edited, and merged; a merge that stays open or fails; no issue
+# call; the scenario's own mark-merged hook, unlogged.
+
+MODEL="$WORK/model"
+mkdir -p "$MODEL/gh"
+cp "$FIXTURES/scenarios/coord-outline-one-repo/gh/db.json" "$MODEL/gh/db.json"
+mshim() { # mshim <command...> -- against the model scenario, sets OUT, RC
+    OUT=$(cd "$REPO" && env EVAL_SCENARIO=model EVAL_SCENARIO_DIR="$MODEL" GH_CALL_LOG="$LOG" \
+        PATH="$SHIM_BIN:$PATH" "$@" 2>/dev/null)
+    RC=$?
+}
+new_log
+BR=$(git -C "$REPO" symbolic-ref --short HEAD)
+mshim gh pr list --repo "$R" --head "$BR" --state all --json url,state,isCrossRepository,author,baseRefName,headRefName --limit 100
+if [ "$(printf '%s' "$OUT" | jq -r '.[0].url')" = "https://github.com/eval-org/eval-repo/pull/10" ]; then
+    pass "model: @BRANCH@ is the branch checked out where the shim first runs (the coordination PR is found on it)"
+else
+    fail "model: coordination PR lookup [$OUT]"
+fi
+printf 'node body\n' > "$WORK/body.md"
+mshim gh pr create --repo "$R" --draft --base main --head impl/x-pr-eval-repo-core --title "feat(x): pr-eval-repo-core" --body-file "$WORK/body.md"
+NEWURL="$OUT"
+mshim gh pr view 11 --repo "$R" --json state,isDraft,headRefOid,body
+if [ "$NEWURL" = "https://github.com/eval-org/eval-repo/pull/11" ] \
+    && [ "$(printf '%s' "$OUT" | jq -r '.isDraft')" = true ] \
+    && [ "$(printf '%s' "$OUT" | jq -r '.headRefOid')" = "$HEAD_SHA" ] \
+    && [ "$(printf '%s' "$OUT" | jq -r '.body')" = "node body" ]; then
+    pass "model: pr create opens a draft PR at the checked-out commit and prints its URL"
+else
+    fail "model: create [$NEWURL] view [$OUT]"
+fi
+mshim gh pr ready 11 --repo "$R"
+mshim gh pr view 11 --repo "$R" --json isDraft --jq .isDraft
+[ "$OUT" = false ] && pass "model: pr ready clears isDraft" || fail "model: ready [$OUT]"
+printf 'edited\n' > "$WORK/body2.md"
+mshim gh pr edit 10 --repo "$R" --body-file "$WORK/body2.md"
+mshim gh pr view 10 --repo "$R" --json body --jq .body
+[ "$OUT" = edited ] && pass "model: pr edit --body-file replaces the body" || fail "model: edit [$OUT]"
+mshim gh api "repos/$R/issues/11"
+[ "$(printf '%s' "$OUT" | jq -r .state)" = open ] && pass "model: the merge gate's state read is open before a merge" || fail "model: issues [$OUT]"
+mshim gh pr merge 11 --repo "$R" --squash --match-head-commit "$HEAD_SHA"
+mshim gh pr view 11 --repo "$R" --json state
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r .state)" = MERGED ]; then
+    pass "model: a merge with merge ok leaves the PR MERGED"
+else
+    fail "model: merge [$OUT]"
+fi
+mshim gh api "repos/$R/issues/11"
+[ "$(printf '%s' "$OUT" | jq -r .state)" = closed ] && pass "model: ... and the merge gate's state read closed" || fail "model: issues after merge [$OUT]"
+mshim gh issue view 3
+[ "$RC" -ne 0 ] && pass "model: an issue call fails" || fail "model: issue view succeeded"
+BEFORE=$(wc -l < "$LOG" | tr -d ' ')
+mshim gh shim-mark-merged "$R" 10
+AFTER=$(wc -l < "$LOG" | tr -d ' ')
+mshim gh pr view 10 --repo "$R" --json state --jq .state
+if [ "$OUT" = MERGED ] && [ "$BEFORE" = "$AFTER" ]; then
+    pass "model: shim-mark-merged marks a PR MERGED and is not logged"
+else
+    fail "model: mark-merged [$OUT], log $BEFORE -> $AFTER"
+fi
+
+new_log
+cp "$FIXTURES/scenarios/coord-merge-not-observed/gh/db.json" "$MODEL/gh/db.json"
+mshim gh pr create --repo "$R" --draft --base main --head impl/x-y --title t --body-file "$WORK/body.md"
+mshim gh pr merge 11 --repo "$R" --squash --match-head-commit "$HEAD_SHA"
+RC1=$RC
+mshim gh pr view 11 --repo "$R" --json state --jq .state
+[ "$RC1" -eq 0 ] && [ "$OUT" = OPEN ] && pass "model: a stays-open merge exits 0 and the PR stays OPEN" \
+    || fail "model: stays-open rc=$RC1 state=[$OUT]"
+
+# The verdict each coordinated scenario makes coordinated-next.sh reach, from a
+# checkout holding the scenario's PLAN. The outline PLANs need the shirabe
+# binary (plan-to-tasks.sh's outline path); without one these cases skip.
+SHIRABE_FOR_OUTLINES="${SHIRABE_BIN:-}"
+if [ -z "$SHIRABE_FOR_OUTLINES" ]; then
+    # This checkout's own build first: an installed shirabe can predate the
+    # outline envelope's repo and group keys.
+    for cand in "$SCRIPT_DIR/../../../target/release/shirabe" "$SCRIPT_DIR/../../../target/debug/shirabe" \
+                "$(command -v shirabe || true)"; do
+        [ -n "$cand" ] && [ -x "$cand" ] && { SHIRABE_FOR_OUTLINES="$cand"; break; }
+    done
+fi
+if [ -n "$SHIRABE_FOR_OUTLINES" ] && "$SHIRABE_FOR_OUTLINES" plan outlines --help >/dev/null 2>&1; then
+    COORD="$WORK/coord"
+    mkdir -p "$COORD/docs/plans"
+    cp "$FIXTURES/plans/PLAN-coord-outline-test.md" "$FIXTURES/plans/PLAN-coord-multi-test.md" "$COORD/docs/plans/"
+    (cd "$COORD" && git init -q . && git -c user.email=t@example.com -c user.name=t add docs \
+        && git -c user.email=t@example.com -c user.name=t commit -q -m plan && git checkout -q -b docs/coord) >/dev/null 2>&1
+    SCENARIO_LOGS=""
+    scenario_next() { # scenario_next <scenario> <plan-slug> <repos> <merge> <want>
+        new_log
+        SCENARIO_LOGS="$SCENARIO_LOGS $LOG"
+        local out
+        out=$(cd "$COORD" && env EVAL_SCENARIO="$1" GH_CALL_LOG="$LOG" PATH="$SHIM_BIN:$PATH" \
+            SHIRABE_BIN="$SHIRABE_FOR_OUTLINES" MERGE_CONFIRM_WAIT_SECS=0 \
+            bash "$SCRIPT_DIR/coordinated-next.sh" --plan "docs/plans/PLAN-$2.md" --slug "$2" --repos "$3" \
+            --home-repo eval-org/eval-repo --coord-branch docs/coord --merge "$4" 2>/dev/null)
+        if [ "$out" = "$5" ]; then
+            pass "$1: coordinated-next.sh prints $5"
+        else
+            fail "$1: coordinated-next.sh printed [$out], the eval expects [$5]"
+        fi
+    }
+    scenario_next coord-outline-one-repo coord-outline-test eval-org/eval-repo true dispatch:pr-eval-repo-core
+    scenario_next coord-multi-repo coord-multi-test eval-org/eval-app,eval-org/eval-repo true dispatch:pr-eval-repo-default
+    scenario_next coord-merge-not-observed coord-outline-test eval-org/eval-repo true dispatch:pr-eval-repo-core
+    scenario_next coord-coordination-not-observed coord-outline-test eval-org/eval-repo true cascade
+    scenario_next coord-head-moved coord-outline-test eval-org/eval-repo true pause
+    scenario_next coord-head-missing coord-outline-test eval-org/eval-repo true pause
+    scenario_next coord-index-foreign-author coord-outline-test eval-org/eval-repo true error:execute:pr-adopt
+    scenario_next coord-index-wrong-branch coord-outline-test eval-org/eval-repo true error:execute:pr-adopt
+    scenario_next coord-index-out-of-set coord-outline-test eval-org/eval-repo true error:execute:write-set
+    # shellcheck disable=SC2086
+    if cat $SCENARIO_LOGS | grep -q '^issue'; then
+        fail "a coordinated scenario made a gh issue call"
+    else
+        pass "no coordinated scenario makes a gh issue call"
+    fi
+else
+    echo "SKIP: no shirabe binary with 'plan outlines' -- the coordinated scenarios' first actions were not checked"
 fi
 
 # --- no merge call carries --admin or --auto ------------------------------------

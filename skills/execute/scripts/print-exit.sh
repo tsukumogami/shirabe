@@ -52,7 +52,9 @@ RE_OUTCOME='^(merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merg
 RE_STEP='^execute:[a-z][a-z0-9_-]*$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed)$'
+# The merge decision table's conditions, the two merge-step outcomes, and the
+# coordinated pause conditions.
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified)$'
 RE_ROLE='^(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --[a-z][a-z-]*)*$'
 
