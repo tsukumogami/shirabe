@@ -97,41 +97,41 @@ Resolved semantics this issue pins (the design leaves them implicit):
 
 Compile-time:
 
-- [ ] `SourceTransition` rejects unknown keys: a template with `transitions: [{target: done, context_assignment: {a: b}}]` (typo) fails `koto template compile` with an error naming the state, the target and the unknown field. The same template compiled on the base commit succeeds, and a unit test in `src/template/compile.rs` pins the failure.
-- [ ] A transition may declare `context_assignments:` as a map of context key to string. Each key must pass `crate::session::validate::unusable_context_key_reason`; a key that fails (for example one containing a space) fails compilation with that reason in the message.
-- [ ] A mapping or sequence as an assignment value fails compilation.
-- [ ] `${evidence.<field>}` must name a field declared in the source state's `accepts` block. A reference to an undeclared field fails compilation naming the state, the transition target and the field, including on a state with no `accepts` block at all.
-- [ ] `${gates.<g>.<path>}` must name a gate declared on the source state. A reference to an undeclared gate fails compilation, using the same message shape as the existing when-clause check for undeclared gates.
-- [ ] `{{VAR}}` inside an assignment value must name a declared variable. An undeclared one fails compilation with the existing "is not declared in the template's variables block" wording.
-- [ ] Any other `${...}` namespace inside an assignment value (for example `${context.x}` or `${foo.bar}`) fails compilation.
-- [ ] `Transition` in `src/template/types.rs` gains a `context_assignments` field that is omitted from the compiled JSON when empty, so the compiled output of a template without assignments is byte-identical to the base commit's.
-- [ ] All three shirabe templates (`skills/work-on/koto-templates/work-on.md`, `skills/scope/koto-templates/scope.md`, `skills/execute/koto-templates/execute.md`, at the shirabe commit named in the PR) compile under the new rules, or the PR description lists each block that fails and why. The list is an input to Issue 8.
+- [x] `SourceTransition` rejects unknown keys: a template with `transitions: [{target: done, context_assignment: {a: b}}]` (typo) fails `koto template compile` with an error naming the state, the target and the unknown field. The same template compiled on the base commit succeeds, and a unit test in `src/template/compile.rs` pins the failure.
+- [x] A transition may declare `context_assignments:` as a map of context key to string. Each key must pass `crate::session::validate::unusable_context_key_reason`; a key that fails (for example one containing a space) fails compilation with that reason in the message.
+- [x] A mapping or sequence as an assignment value fails compilation.
+- [x] `${evidence.<field>}` must name a field declared in the source state's `accepts` block. A reference to an undeclared field fails compilation naming the state, the transition target and the field, including on a state with no `accepts` block at all.
+- [x] `${gates.<g>.<path>}` must name a gate declared on the source state. A reference to an undeclared gate fails compilation, using the same message shape as the existing when-clause check for undeclared gates.
+- [x] `{{VAR}}` inside an assignment value must name a declared variable. An undeclared one fails compilation with the existing "is not declared in the template's variables block" wording.
+- [x] Any other `${...}` namespace inside an assignment value (for example `${context.x}` or `${foo.bar}`) fails compilation.
+- [x] `Transition` in `src/template/types.rs` gains a `context_assignments` field that is omitted from the compiled JSON when empty, so the compiled output of a template without assignments is byte-identical to the base commit's.
+- [x] All three shirabe templates (`skills/work-on/koto-templates/work-on.md`, `skills/scope/koto-templates/scope.md`, `skills/execute/koto-templates/execute.md`, at the shirabe commit named in the PR) compile under the new rules, or the PR description lists each block that fails and why. The list is an input to Issue 8.
 
 Runtime:
 
-- [ ] On every path that appends a `Transitioned` event (skip_if, gate-resolved auto-advance, evidence-resolved), the transition's assignments are resolved and written, and `koto context get <session> <key>` returns the resolved value afterwards. An integration test under `tests/` covers each of the three paths.
-- [ ] A literal value is written as-is. `{{VAR}}` resolves through the session's variables, including one captured earlier in the same tick through `VariableOverlay`.
-- [ ] `${evidence.<field>}` resolves to the value submitted in the evidence that drove the transition. A reference embedded in a string literal (`"blocked: ${evidence.detail}"`, the form shirabe's `execute.md` uses) resolves inside the literal.
-- [ ] `${gates.<g>.<path>}` resolves a dot path into the gate's structured output for that tick (for example `${gates.ci.exit_code}` on a command gate). A unit test over a synthetic nested output (`{"payload": {"pr": "x"}}`) resolves `${gates.g.payload.pr}` to `x`, so the `request-leg` gate in Issue 6 needs no assignment-side changes.
-- [ ] An optional evidence field that wasn't submitted and a gate path absent from the output both resolve to the empty string, and the transition still happens. Each case has a test.
-- [ ] A resolved value containing `{{X}}` or `${context.y}` is stored literally; a test submits evidence `detail: "{{TOPIC}}"` and asserts the stored value is the literal string `{{TOPIC}}`.
-- [ ] The `Transitioned` event carries the resolved assignments as an additive field, omitted when empty. A log written by the base commit still deserializes, and a new log's event round-trips through `src/engine/types.rs`'s serde tests.
-- [ ] Atomicity: assignments land in the same event append as the transition. If the context-store write fails after that append, the next read (`koto context get`, or a context gate on the next tick) returns the assigned value. A test forces the store write to fail after the event append and asserts the value is readable afterwards.
-- [ ] A transition that doesn't fire writes nothing. On a state with two guarded edges, only the taken edge's assignments are present afterwards.
-- [ ] A later assignment to the same key replaces the earlier value, matching `koto context add` semantics.
+- [x] On every path that appends a `Transitioned` event (skip_if, gate-resolved auto-advance, evidence-resolved), the transition's assignments are resolved and written, and `koto context get <session> <key>` returns the resolved value afterwards. An integration test under `tests/` covers each of the three paths.
+- [x] A literal value is written as-is. `{{VAR}}` resolves through the session's variables, including one captured earlier in the same tick through `VariableOverlay`.
+- [x] `${evidence.<field>}` resolves to the value submitted in the evidence that drove the transition. A reference embedded in a string literal (`"blocked: ${evidence.detail}"`, the form shirabe's `execute.md` uses) resolves inside the literal.
+- [x] `${gates.<g>.<path>}` resolves a dot path into the gate's structured output for that tick (for example `${gates.ci.exit_code}` on a command gate). A unit test over a synthetic nested output (`{"payload": {"pr": "x"}}`) resolves `${gates.g.payload.pr}` to `x`, so the `request-leg` gate in Issue 6 needs no assignment-side changes.
+- [x] An optional evidence field that wasn't submitted and a gate path absent from the output both resolve to the empty string, and the transition still happens. Each case has a test.
+- [x] A resolved value containing `{{X}}` or `${context.y}` is stored literally; a test submits evidence `detail: "{{TOPIC}}"` and asserts the stored value is the literal string `{{TOPIC}}`.
+- [x] The `Transitioned` event carries the resolved assignments as an additive field, omitted when empty. A log written by the base commit still deserializes, and a new log's event round-trips through `src/engine/types.rs`'s serde tests.
+- [x] Atomicity: assignments land in the same event append as the transition. If the context-store write fails after that append, the next read (`koto context get`, or a context gate on the next tick) returns the assigned value. A test forces the store write to fail after the event append and asserts the value is readable afterwards.
+- [x] A transition that doesn't fire writes nothing. On a state with two guarded edges, only the taken edge's assignments are present afterwards.
+- [x] A later assignment to the same key replaces the earlier value, matching `koto context add` semantics.
 
 Lint and docs:
 
-- [ ] W5 no longer warns for a `failure: true` terminal when every transition into it assigns `failure_reason`. It still warns when at least one incoming edge doesn't. The `TODO(issue-8/W5)` comment is resolved for the assignment path, and unit tests pin both cases.
-- [ ] `docs/guides/custom-skill-authoring.md` documents `context_assignments`: the four value forms, the compile-time rules, the empty-string rule for absent evidence or gate paths, and that values aren't re-expanded.
-- [ ] `cargo test` and `cargo clippy --all-targets` pass.
+- [x] W5 no longer warns for a `failure: true` terminal when every transition into it assigns `failure_reason`. It still warns when at least one incoming edge doesn't. The `TODO(issue-8/W5)` comment is resolved for the assignment path, and unit tests pin both cases.
+- [x] `docs/guides/custom-skill-authoring.md` documents `context_assignments`: the four value forms, the compile-time rules, the empty-string rule for absent evidence or gate paths, and that values aren't re-expanded.
+- [x] `cargo test` and `cargo clippy --all-targets` pass.
 
 Downstream deliverables:
 
-- [ ] Must deliver: assignments that write `outcome` (and literal `step` and `reason`) on edges into terminals, readable as `${context.<key>}` by the result map (required by Issue 2's consumers Issue 13, Issue 14, Issue 18, Issue 19).
-- [ ] Must deliver: `${gates.<g>.<path>}` resolution over arbitrary nested gate output, so `/deliver` can copy `${gates.scope_leg.payload.<k>}` and `${gates.exec_leg.payload.<k>}` into context once the leg gate exists (required by Issue 6 and Issue 19).
-- [ ] Must deliver: strict compile validation plus the list of shirabe assignment blocks that fail it, so the template sweep knows what to fix (required by Issue 8).
-- [ ] Must deliver: the feature in the koto release the `koto-release` gate waits on (required by Issue 8 through the gate).
+- [x] Must deliver: assignments that write `outcome` (and literal `step` and `reason`) on edges into terminals, readable as `${context.<key>}` by the result map (required by Issue 2's consumers Issue 13, Issue 14, Issue 18, Issue 19).
+- [x] Must deliver: `${gates.<g>.<path>}` resolution over arbitrary nested gate output, so `/deliver` can copy `${gates.scope_leg.payload.<k>}` and `${gates.exec_leg.payload.<k>}` into context once the leg gate exists (required by Issue 6 and Issue 19).
+- [x] Must deliver: strict compile validation plus the list of shirabe assignment blocks that fail it, so the template sweep knows what to fix (required by Issue 8).
+- [x] Must deliver: the feature in the koto release the `koto-release` gate waits on (required by Issue 8 through the gate).
 
 **Dependencies**: None
 
@@ -177,40 +177,40 @@ Resolved semantics this issue pins (the design says "listed in `missing`" withou
 
 Compile-time (`src/template/compile.rs`, `src/template/types.rs`):
 
-- [ ] `SourceState` and `TemplateState` gain an optional `result` map. It's omitted from compiled JSON when absent, so a template without it compiles byte-identically to the base commit.
-- [ ] `result:` on a non-terminal state fails compilation naming the state.
-- [ ] A map with 32 keys compiles. A map with 33 keys fails compilation with a message naming the state, the count and the limit (32). Unit tests pin both sides of the boundary.
-- [ ] A key that fails `crate::session::validate::unusable_context_key_reason`, or the reserved key `missing`, fails compilation.
-- [ ] Values must be strings. A mapping or sequence value fails compilation.
-- [ ] An undeclared `{{VAR}}` in a value fails compilation with the existing "is not declared in the template's variables block" wording.
-- [ ] `${context.<key>}` with a key that fails the context-key grammar fails compilation. Any other `${...}` namespace (`${evidence.x}`, `${gates.g.x}`) fails compilation, because only literals, `{{VAR}}` and `${context.<key>}` are allowed here.
+- [x] `SourceState` and `TemplateState` gain an optional `result` map. It's omitted from compiled JSON when absent, so a template without it compiles byte-identically to the base commit.
+- [x] `result:` on a non-terminal state fails compilation naming the state.
+- [x] A map with 32 keys compiles. A map with 33 keys fails compilation with a message naming the state, the count and the limit (32). Unit tests pin both sides of the boundary.
+- [x] A key that fails `crate::session::validate::unusable_context_key_reason`, or the reserved key `missing`, fails compilation.
+- [x] Values must be strings. A mapping or sequence value fails compilation.
+- [x] An undeclared `{{VAR}}` in a value fails compilation with the existing "is not declared in the template's variables block" wording.
+- [x] `${context.<key>}` with a key that fails the context-key grammar fails compilation. Any other `${...}` namespace (`${evidence.x}`, `${gates.g.x}`) fails compilation, because only literals, `{{VAR}}` and `${context.<key>}` are allowed here.
 
 Runtime:
 
-- [ ] With a declared map, `payload` is exactly the resolved map (plus `missing` when non-empty). Terminal evidence fields aren't merged in. `status` is still projected from `failure`/`skipped_marker`, and `summary` keeps today's derivation.
-- [ ] Without a declared map, `synthesize_workflow_result` behaves exactly as today. The existing `synthesize_workflow_result_*` unit tests pass unchanged.
-- [ ] Literals are copied as-is. `{{VAR}}` resolves through the session's variables. `${context.<key>}` resolves to the context content for that key read as UTF-8, and references may sit inside a string literal (`"merge-state:${context.state}"`).
-- [ ] Missing context key: `${context.absent}` resolves to the empty string and the result key is listed in `payload.missing`. Context content that isn't valid UTF-8 is treated the same way. A test covers each case and asserts the terminal tick still succeeds (exit 0).
-- [ ] A resolved value containing `{{X}}` or `${context.y}` is copied literally and not expanded again (test: context content `{{TOPIC}}` comes through unchanged).
-- [ ] The same resolved payload appears in all five carriers, and an integration test under `tests/` asserts each one against a single template: the child's `request_store.result` event; the leg's result after promotion (a session bound to a leg with the existing dispatch-child attach in `tests/request_cli.rs`'s harness); the parent's `ChildCompleted.result` for a `--parent` child; the `koto next` response on reaching the terminal; and `koto status` on the retained session.
-- [ ] Both terminal write sites (the advance-loop path and `koto next --to <terminal>`) produce the declared payload. There's a test for each.
-- [ ] `NextResponse::Terminal` gains a `result` field carrying the `WorkflowResult`. `tests/next_response_baseline.rs` fixtures are updated for the new field and no other response variant changes.
-- [ ] `koto status` on a terminal session prints the recorded result under a `result` key. A non-terminal session's status output doesn't change.
-- [ ] Under `--no-cleanup` with no leg pointer, the first terminal tick records the resolved result once. Ticking the parked terminal three more times appends no further result, `ChildCompleted` or terminal-index events (count the events in the state log), and `koto status` still returns the recorded result. The existing tests asserting that a parked terminal child emits no parent event pass unchanged.
-- [ ] A `koto context add` on the key after the terminal tick doesn't change what `koto status` or a later leg read returns.
+- [x] With a declared map, `payload` is exactly the resolved map (plus `missing` when non-empty). Terminal evidence fields aren't merged in. `status` is still projected from `failure`/`skipped_marker`, and `summary` keeps today's derivation.
+- [x] Without a declared map, `synthesize_workflow_result` behaves exactly as today. The existing `synthesize_workflow_result_*` unit tests pass unchanged.
+- [x] Literals are copied as-is. `{{VAR}}` resolves through the session's variables. `${context.<key>}` resolves to the context content for that key read as UTF-8, and references may sit inside a string literal (`"merge-state:${context.state}"`).
+- [x] Missing context key: `${context.absent}` resolves to the empty string and the result key is listed in `payload.missing`. Context content that isn't valid UTF-8 is treated the same way. A test covers each case and asserts the terminal tick still succeeds (exit 0).
+- [x] A resolved value containing `{{X}}` or `${context.y}` is copied literally and not expanded again (test: context content `{{TOPIC}}` comes through unchanged).
+- [x] The same resolved payload appears in all five carriers, and an integration test under `tests/` asserts each one against a single template: the child's `request_store.result` event; the leg's result after promotion (a session bound to a leg with the existing dispatch-child attach in `tests/request_cli.rs`'s harness); the parent's `ChildCompleted.result` for a `--parent` child; the `koto next` response on reaching the terminal; and `koto status` on the retained session.
+- [x] Both terminal write sites (the advance-loop path and `koto next --to <terminal>`) produce the declared payload. There's a test for each.
+- [x] `NextResponse::Terminal` gains a `result` field carrying the `WorkflowResult`. `tests/next_response_baseline.rs` fixtures are updated for the new field and no other response variant changes.
+- [x] `koto status` on a terminal session prints the recorded result under a `result` key. A non-terminal session's status output doesn't change.
+- [x] Under `--no-cleanup` with no leg pointer, the first terminal tick records the resolved result once. Ticking the parked terminal three more times appends no further result, `ChildCompleted` or terminal-index events (count the events in the state log), and `koto status` still returns the recorded result. The existing tests asserting that a parked terminal child emits no parent event pass unchanged.
+- [x] A `koto context add` on the key after the terminal tick doesn't change what `koto status` or a later leg read returns.
 
 Docs and tests:
 
-- [ ] `docs/guides/custom-skill-authoring.md` documents `result:`: the three value forms, the 32-key limit, the reserved `missing` key and how unresolved keys are reported, that the map replaces the evidence-derived payload, and where the result appears (`koto next`, `koto status`, request legs, `ChildCompleted`).
-- [ ] `cargo test` and `cargo clippy --all-targets` pass.
+- [x] `docs/guides/custom-skill-authoring.md` documents `result:`: the three value forms, the 32-key limit, the reserved `missing` key and how unresolved keys are reported, that the map replaces the evidence-derived payload, and where the result appears (`koto next`, `koto status`, request legs, `ChildCompleted`).
+- [x] `cargo test` and `cargo clippy --all-targets` pass.
 
 Downstream deliverables:
 
-- [ ] Must deliver: a public way to build a `WorkflowResult` whose `payload` is a flat JSON object of string values, so `koto init --koto-leg` can record the refusal payload `{outcome: refused, reason, var, recorded, requested}` on the leg with `source: refused` (required by Issue 5).
-- [ ] Must deliver: a promoted leg result whose `payload` is a flat object keyed by the declared names, so the `request-leg` gate can expose `outcome`, `step`, `reason` and `payload` and apply `expect: {key: [values]}` without knowing the template (required by Issue 6).
-- [ ] Must deliver: result maps with 32 keys working end to end. `/scope`'s terminals declare up to 16 keys and `/deliver`'s about 11 (required by Issue 18, Issue 19).
-- [ ] Must deliver: the result on `koto next`'s terminal response and on `koto status`, which is what `print-scope-exit.sh`, `/execute`'s `print-exit.sh` and `deliver-report.sh` render from (required by Issue 13, Issue 14, Issue 18, Issue 19).
-- [ ] Must deliver: the feature in the koto release the `koto-release` gate waits on (required by Issue 8 through the gate).
+- [x] Must deliver: a public way to build a `WorkflowResult` whose `payload` is a flat JSON object of string values, so `koto init --koto-leg` can record the refusal payload `{outcome: refused, reason, var, recorded, requested}` on the leg with `source: refused` (required by Issue 5).
+- [x] Must deliver: a promoted leg result whose `payload` is a flat object keyed by the declared names, so the `request-leg` gate can expose `outcome`, `step`, `reason` and `payload` and apply `expect: {key: [values]}` without knowing the template (required by Issue 6).
+- [x] Must deliver: result maps with 32 keys working end to end. `/scope`'s terminals declare up to 16 keys and `/deliver`'s about 11 (required by Issue 18, Issue 19).
+- [x] Must deliver: the result on `koto next`'s terminal response and on `koto status`, which is what `print-scope-exit.sh`, `/execute`'s `print-exit.sh` and `deliver-report.sh` render from (required by Issue 13, Issue 14, Issue 18, Issue 19).
+- [x] Must deliver: the feature in the koto release the `koto-release` gate waits on (required by Issue 8 through the gate).
 
 **Dependencies**: None
 
@@ -243,56 +243,56 @@ This issue adds the declaration fields, the enforcement, and the rebind engine p
 
 *Declaration and compile-time validation*
 
-- [ ] `SourceVariable` and `VariableDecl` gain `values` (list of strings), `pattern` (string), and `rebind` (bool, default false). The compiled fields use `skip_serializing_if` so a template that declares none of them compiles to byte-identical JSON as before this change (a compile-output snapshot test over an existing fixture proves it), which keeps existing sessions' template hashes valid.
-- [ ] `SourceVariable` rejects unknown keys (`deny_unknown_fields`): a template declaring `variables: {X: {valuez: [a]}}` fails `koto template compile` with a non-zero exit and an error naming the variable and the unknown key.
-- [ ] A variable may declare at most one of `values:` and `pattern:`; declaring both is a compile error naming the variable.
-- [ ] `values:` must be non-empty, and every entry must pass `VALUE_PATTERN`; an empty list or an entry such as `a;b` is a compile error naming the variable and the entry.
-- [ ] `pattern:` must compile with the `regex` crate; an invalid expression (for example `[a-`) is a compile error naming the variable. koto matches it against the whole value (it applies the pattern as `^(?:<pattern>)$`), so `pattern: "[a-z]+"` rejects `abc-1` even without author-written anchors.
-- [ ] A non-empty `default` must satisfy the variable's constraint: `default: maybe` with `values: [yes, no]` is a compile error naming the variable, the default, and the constraint.
-- [ ] An optional variable with no default whose constraint rejects the empty string (for example `values: [yes, no]`, not required, no default) is a compile error, because `resolve_variables` would otherwise materialize an empty binding the constraint forbids. With `pattern: "([1-9]|[1-4][0-9]|50)?"` and no default it compiles.
-- [ ] `rebind` accepts only a YAML boolean; `rebind: "yes"` is a compile error.
-- [ ] The existing compile check that a `capture_stdout_as` name can't collide with a declared variable still holds, so a default action can't write a declared (including `rebind: true`) variable.
+- [x] `SourceVariable` and `VariableDecl` gain `values` (list of strings), `pattern` (string), and `rebind` (bool, default false). The compiled fields use `skip_serializing_if` so a template that declares none of them compiles to byte-identical JSON as before this change (a compile-output snapshot test over an existing fixture proves it), which keeps existing sessions' template hashes valid.
+- [x] `SourceVariable` rejects unknown keys (`deny_unknown_fields`): a template declaring `variables: {X: {valuez: [a]}}` fails `koto template compile` with a non-zero exit and an error naming the variable and the unknown key.
+- [x] A variable may declare at most one of `values:` and `pattern:`; declaring both is a compile error naming the variable.
+- [x] `values:` must be non-empty, and every entry must pass `VALUE_PATTERN`; an empty list or an entry such as `a;b` is a compile error naming the variable and the entry.
+- [x] `pattern:` must compile with the `regex` crate; an invalid expression (for example `[a-`) is a compile error naming the variable. koto matches it against the whole value (it applies the pattern as `^(?:<pattern>)$`), so `pattern: "[a-z]+"` rejects `abc-1` even without author-written anchors.
+- [x] A non-empty `default` must satisfy the variable's constraint: `default: maybe` with `values: [yes, no]` is a compile error naming the variable, the default, and the constraint.
+- [x] An optional variable with no default whose constraint rejects the empty string (for example `values: [yes, no]`, not required, no default) is a compile error, because `resolve_variables` would otherwise materialize an empty binding the constraint forbids. With `pattern: "([1-9]|[1-4][0-9]|50)?"` and no default it compiles.
+- [x] `rebind` accepts only a YAML boolean; `rebind: "yes"` is a compile error.
+- [x] The existing compile check that a `capture_stdout_as` name can't collide with a declared variable still holds, so a default action can't write a declared (including `rebind: true`) variable.
 
 *Enforcement at `koto init`*
 
-- [ ] `resolve_variables` checks each resolved value (explicit `--var`, default, or materialized empty) against the declaration's `values:` or `pattern:` in addition to `VALUE_PATTERN`. `koto init s --template t.md --var INTENT_FLAG=maybe` against `pattern: ^(continue|stop)?$` exits 2, prints no session, and leaves no session directory or state file under the test's `HOME`.
-- [ ] Variable refusals carry a typed code in the init error body alongside today's `error` and `command` fields:
+- [x] `resolve_variables` checks each resolved value (explicit `--var`, default, or materialized empty) against the declaration's `values:` or `pattern:` in addition to `VALUE_PATTERN`. `koto init s --template t.md --var INTENT_FLAG=maybe` against `pattern: ^(continue|stop)?$` exits 2, prints no session, and leaves no session directory or state file under the test's `HOME`.
+- [x] Variable refusals carry a typed code in the init error body alongside today's `error` and `command` fields:
   - `invalid_var` for a value that fails its constraint or the allowlist, with `var`, `value`, and `constraint` (`values:[...]`, `pattern:<re>`, or `allowlist`);
   - `duplicate_var` for a repeated key, with `var`;
   - `unknown_var` for an undeclared key, with `var`.
 
   Exit code stays 2 for all three. The existing `error` message text for duplicate and unknown keys is unchanged, so callers that match today's wording keep working.
-- [ ] A value that satisfies its constraint is accepted: `--var INTENT_FLAG=continue` initializes the session, and `koto status` (or the `WorkflowInitialized` event) shows `INTENT_FLAG=continue`.
-- [ ] A constrained variable that isn't passed resolves to its default and the session initializes (for example `INTENT_FLAG`, declared with `pattern: ^(continue|stop)?$`, defaults to empty).
-- [ ] The same constraint checks apply on the batch child spawn path (`init_child.rs`, which also calls `resolve_variables`): a `materialize_children` task whose `vars` violate a child template's `values:` fails with a spawn error whose message names the variable, and no child session is created.
-- [ ] `docs/reference/error-codes.md` documents the three codes under `init`.
+- [x] A value that satisfies its constraint is accepted: `--var INTENT_FLAG=continue` initializes the session, and `koto status` (or the `WorkflowInitialized` event) shows `INTENT_FLAG=continue`.
+- [x] A constrained variable that isn't passed resolves to its default and the session initializes (for example `INTENT_FLAG`, declared with `pattern: ^(continue|stop)?$`, defaults to empty).
+- [x] The same constraint checks apply on the batch child spawn path (`init_child.rs`, which also calls `resolve_variables`): a `materialize_children` task whose `vars` violate a child template's `values:` fails with a spawn error whose message names the variable, and no child session is created.
+- [x] `docs/reference/error-codes.md` documents the three codes under `init`.
 
 *Rebind engine primitive*
 
-- [ ] A new additive event, wire type `variables_rebound`, carries the map of variables it changes. It doesn't bump the state-file schema version; an older koto build reads it as `Unknown` and keeps reading the log. `docs/reference/session-feed.md` documents it next to `variable_captured`.
-- [ ] `bindings_from_events` folds `variables_rebound` in event order, so both `Variables::from_events` and the advance loop's `vars.*` view see the rebound value on the next tick. A unit test with `WorkflowInitialized {MERGE: false}` followed by `variables_rebound {MERGE: true}` resolves `MERGE` to `true`; the reverse order of two rebounds resolves to the later value.
-- [ ] A library entry point (no CLI) takes the template's declarations, the session's current bindings and state, and one invocation's explicit variable pairs, and runs every check before writing anything. It's split into a side-effect-free validate step and an apply step that appends exactly one `variables_rebound` event, so Issue 5 can run the attach checks between them.
-- [ ] The validate step resolves each `rebind: true` variable from the invocation (explicit value, else its declared default) and reports those whose value differs from the current binding. An omitted `rebind: true` variable resets to its default rather than keeping the earlier run's value: a session initialized with `MERGE=true` and validated with no `MERGE` pair yields `MERGE=false` (the "never inherited" rule in Key Interfaces > Merge intent per invocation).
-- [ ] The validate step refuses, with a typed error and no event appended:
+- [x] A new additive event, wire type `variables_rebound`, carries the map of variables it changes. It doesn't bump the state-file schema version; an older koto build reads it as `Unknown` and keeps reading the log. `docs/reference/session-feed.md` documents it next to `variable_captured`.
+- [x] `bindings_from_events` folds `variables_rebound` in event order, so both `Variables::from_events` and the advance loop's `vars.*` view see the rebound value on the next tick. A unit test with `WorkflowInitialized {MERGE: false}` followed by `variables_rebound {MERGE: true}` resolves `MERGE` to `true`; the reverse order of two rebounds resolves to the later value.
+- [x] A library entry point (no CLI) takes the template's declarations, the session's current bindings and state, and one invocation's explicit variable pairs, and runs every check before writing anything. It's split into a side-effect-free validate step and an apply step that appends exactly one `variables_rebound` event, so Issue 5 can run the attach checks between them.
+- [x] The validate step resolves each `rebind: true` variable from the invocation (explicit value, else its declared default) and reports those whose value differs from the current binding. An omitted `rebind: true` variable resets to its default rather than keeping the earlier run's value: a session initialized with `MERGE=true` and validated with no `MERGE` pair yields `MERGE=false` (the "never inherited" rule in Key Interfaces > Merge intent per invocation).
+- [x] The validate step refuses, with a typed error and no event appended:
   - an explicit pair for a non-rebind variable whose value differs from the recorded one, as `var_mismatch` naming the variable, the recorded value, and the requested one (an explicit pair equal to the recorded value is accepted);
   - a value failing its constraint or the allowlist, as `invalid_var`;
   - an undeclared key, as `unknown_var`; a repeated key, as `duplicate_var`;
   - a session whose current state is terminal, as a distinct terminal-session error.
-- [ ] Omitted non-rebind variables keep their recorded values and are never reported as a mismatch.
-- [ ] When no `rebind: true` value differs, apply appends nothing and the log length is unchanged.
-- [ ] A refused validate leaves the log byte-identical (test compares the state file before and after).
-- [ ] No CLI subcommand or flag reaches the rebind primitive in this issue: `koto --help` and `koto session --help` list the same verbs as before, and `koto session rebind` still changes only the execution anchor (an existing anchor-rebind test asserts no `variables_rebound` event is appended).
+- [x] Omitted non-rebind variables keep their recorded values and are never reported as a mismatch.
+- [x] When no `rebind: true` value differs, apply appends nothing and the log length is unchanged.
+- [x] A refused validate leaves the log byte-identical (test compares the state file before and after).
+- [x] No CLI subcommand or flag reaches the rebind primitive in this issue: `koto --help` and `koto session --help` list the same verbs as before, and `koto session rebind` still changes only the execution anchor (an existing anchor-rebind test asserts no `variables_rebound` event is appended).
 
 *Tests and docs*
 
-- [ ] Unit tests cover each compile error above in `src/template/compile.rs`'s test module, each `resolve_variables` refusal and acceptance in `src/cli/mod.rs`'s test module, and the fold plus validate/apply cases next to `bindings_from_events` in `src/engine/substitute.rs` (or a new engine module). An `assert_cmd` integration test under `tests/` (using the `HOME`-isolated `koto_cmd` helper) covers the `invalid_var` exit-2, no-session case end to end.
-- [ ] `docs/guides/custom-skill-authoring.md` documents `values:`, `pattern:` (whole-value match, `regex` crate syntax, no lookaround), and `rebind: true`, including that rebinding happens only through an accepted `koto init --attach-live`.
-- [ ] `cargo test` and `cargo clippy --all-targets -- -D warnings` pass.
+- [x] Unit tests cover each compile error above in `src/template/compile.rs`'s test module, each `resolve_variables` refusal and acceptance in `src/cli/mod.rs`'s test module, and the fold plus validate/apply cases next to `bindings_from_events` in `src/engine/substitute.rs` (or a new engine module). An `assert_cmd` integration test under `tests/` (using the `HOME`-isolated `koto_cmd` helper) covers the `invalid_var` exit-2, no-session case end to end.
+- [x] `docs/guides/custom-skill-authoring.md` documents `values:`, `pattern:` (whole-value match, `regex` crate syntax, no lookaround), and `rebind: true`, including that rebinding happens only through an accepted `koto init --attach-live`.
+- [x] `cargo test` and `cargo clippy --all-targets -- -D warnings` pass.
 
 *Downstream deliverables*
 
-- [ ] Must deliver: `VariableDecl.rebind` as a public field and `bindings_from_events` returning the post-rebind bindings, so root attach can compare a session's non-rebind variables with a leg's declared inputs (required by Issue 4).
-- [ ] Must deliver: the validate/apply rebind entry point with the typed `invalid_var`, `duplicate_var`, `unknown_var`, `var_mismatch`, and terminal-session errors, usable before any write so `--attach-live` and `--koto-leg` can run attach checks first and record a refusal payload `{outcome: refused, reason, var, recorded, requested}` from these fields (required by Issue 5).
+- [x] Must deliver: `VariableDecl.rebind` as a public field and `bindings_from_events` returning the post-rebind bindings, so root attach can compare a session's non-rebind variables with a leg's declared inputs (required by Issue 4).
+- [x] Must deliver: the validate/apply rebind entry point with the typed `invalid_var`, `duplicate_var`, `unknown_var`, `var_mismatch`, and terminal-session errors, usable before any write so `--attach-live` and `--koto-leg` can run attach checks first and record a refusal payload `{outcome: refused, reason, var, recorded, requested}` from these fields (required by Issue 5).
 
 **Dependencies**: None
 
@@ -318,64 +318,64 @@ Grounding in koto: `src/cli/request.rs` (`RequestCommand`, `bind`, `fence`, `pro
 
 Verb and admission
 
-- [ ] `koto request attach <request-id> <leg> --session <session-id> [--issued-by <id>]` exists, validates the request id, leg name and session id with the same grammar helpers `bind` uses (`request_id`, `session_identifier`), and prints the standard request envelope on success.
-- [ ] A root session (header `parent_workflow` is `None`) that passes every check below binds the leg: a `request.leg_bound` event is appended under the request lock and the session's leg pointer is written, exactly as `bind` does today.
-- [ ] A dispatched child (a header that satisfies `fence_applies_to`) attached through `attach` behaves as `bind` does today, epoch captured and fenced; `bind`'s existing behavior and tests are unchanged.
-- [ ] A session that is neither a root nor a fenceable dispatched child (for example a non-dispatched `--parent` child) is still refused with `child_not_fenceable`, and that message now names the root carve-out.
-- [ ] The `request.leg_bound` event for a root records `attach: self` and the session's template identity (the compiled template `name`, the `template_hash` from the state-file header, and the source file name from `WorkflowInitialized.template_path`), as additive serde-optional fields so existing request logs still replay; `koto request get` shows them on the leg.
+- [x] `koto request attach <request-id> <leg> --session <session-id> [--issued-by <id>]` exists, validates the request id, leg name and session id with the same grammar helpers `bind` uses (`request_id`, `session_identifier`), and prints the standard request envelope on success.
+- [x] A root session (header `parent_workflow` is `None`) that passes every check below binds the leg: a `request.leg_bound` event is appended under the request lock and the session's leg pointer is written, exactly as `bind` does today.
+- [x] A dispatched child (a header that satisfies `fence_applies_to`) attached through `attach` behaves as `bind` does today, epoch captured and fenced; `bind`'s existing behavior and tests are unchanged.
+- [x] A session that is neither a root nor a fenceable dispatched child (for example a non-dispatched `--parent` child) is still refused with `child_not_fenceable`, and that message now names the root carve-out.
+- [x] The `request.leg_bound` event for a root records `attach: self` and the session's template identity (the compiled template `name`, the `template_hash` from the state-file header, and the source file name from `WorkflowInitialized.template_path`), as additive serde-optional fields so existing request logs still replay; `koto request get` shows them on the leg.
 
 Template identity
 
-- [ ] A leg declaration's `template` accepts either one string (today's form, still valid) or a short bounded list of strings, and `koto request create` rejects an empty list or one over the bound with `invalid_submission`.
-- [ ] Attach succeeds only when the session's template identity matches an entry the leg names; the matching rule (which part of the identity an entry compares against) is stated once in the request-lifecycle amendment and in a doc comment on the comparison.
-- [ ] Negative: a session built from a template the leg doesn't name (including a same-shaped throwaway template, and a session created with `--from-stdin`, which has no template file) is refused with a new typed code `template_mismatch` (exit 2), and the request log and the session's leg pointer are byte-for-byte unchanged.
+- [x] A leg declaration's `template` accepts either one string (today's form, still valid) or a short bounded list of strings, and `koto request create` rejects an empty list or one over the bound with `invalid_submission`.
+- [x] Attach succeeds only when the session's template identity matches an entry the leg names; the matching rule (which part of the identity an entry compares against) is stated once in the request-lifecycle amendment and in a doc comment on the comparison.
+- [x] Negative: a session built from a template the leg doesn't name (including a same-shaped throwaway template, and a session created with `--from-stdin`, which has no template file) is refused with a new typed code `template_mismatch` (exit 2), and the request log and the session's leg pointer are byte-for-byte unchanged.
 
 Leg inputs versus non-rebind variables
 
-- [ ] For each key in the leg's `inputs`, the session's template must declare that variable, and when the variable isn't `rebind: true` the session's recorded value must equal the input's value; a mismatch is refused with a new typed code `input_mismatch` naming the key, the recorded value and the leg's value, and nothing is written.
-- [ ] Negative: an input key naming a variable the template doesn't declare is refused the same way; a `rebind: true` variable named in `inputs` isn't compared.
+- [x] For each key in the leg's `inputs`, the session's template must declare that variable, and when the variable isn't `rebind: true` the session's recorded value must equal the input's value; a mismatch is refused with a new typed code `input_mismatch` naming the key, the recorded value and the leg's value, and nothing is written.
+- [x] Negative: an input key naming a variable the template doesn't declare is refused the same way; a `rebind: true` variable named in `inputs` isn't compared.
 
 Terminal sessions
 
-- [ ] Negative: a session whose current state is terminal (or that was cancelled) is refused with a new typed code `session_terminal` (exit 2), with no event appended and no pointer written.
+- [x] Negative: a session whose current state is terminal (or that was cancelled) is refused with a new typed code `session_terminal` (exit 2), with no event appended and no pointer written.
 
 Pointers, idempotence, and takeover
 
-- [ ] Attaching the same session to the same leg again is a no-op success (`written: false`), with no second `request.leg_bound` event.
-- [ ] Negative: a leg already bound to a different session is refused with `leg_bound_to_different_child`, whatever the other session's state.
-- [ ] Negative: a session whose current pointer names a different leg is refused with `child_bound_to_different_leg` unless that pointer's leg is abandoned or its request is closed; in those two cases attach binds the new leg and overwrites the pointer.
-- [ ] Negative: attach on a closed request or on a resolved or abandoned leg is refused with the existing `request_closed`, `leg_already_resolved` and `leg_abandoned` codes.
-- [ ] All admission checks that read the request (leg open, bound child, pointer target's disposition) are re-evaluated inside `append_under_lock`, so an attach racing a concurrent bind or abandon can't slip past a check made on an unlocked read.
+- [x] Attaching the same session to the same leg again is a no-op success (`written: false`), with no second `request.leg_bound` event.
+- [x] Negative: a leg already bound to a different session is refused with `leg_bound_to_different_child`, whatever the other session's state.
+- [x] Negative: a session whose current pointer names a different leg is refused with `child_bound_to_different_leg` unless that pointer's leg is abandoned or its request is closed; in those two cases attach binds the new leg and overwrites the pointer.
+- [x] Negative: attach on a closed request or on a resolved or abandoned leg is refused with the existing `request_closed`, `leg_already_resolved` and `leg_abandoned` codes.
+- [x] All admission checks that read the request (leg open, bound child, pointer target's disposition) are re-evaluated inside `append_under_lock`, so an attach racing a concurrent bind or abandon can't slip past a check made on an unlocked read.
 
 Fenced verbs on a self-attached leg
 
-- [ ] Negative: `koto request progress`, `koto request resolve`, and leg-scoped `koto request abandon` on a self-attached leg are refused outright with a new typed code (for example `self_attached_leg`, exit 2) whether or not `--dispatch-epoch` is presented, and the refusal is enforced inside the store's lock as well as in `fence()`, so the request log is unchanged.
-- [ ] `koto request abandon-request` and `koto request close` stay available on a request whose legs are self-attached (the design accepts that request-scoped abandon is unfenced).
+- [x] Negative: `koto request progress`, `koto request resolve`, and leg-scoped `koto request abandon` on a self-attached leg are refused outright with a new typed code (for example `self_attached_leg`, exit 2) whether or not `--dispatch-epoch` is presented, and the refusal is enforced inside the store's lock as well as in `fence()`, so the request log is unchanged.
+- [x] `koto request abandon-request` and `koto request close` stay available on a request whose legs are self-attached (the design accepts that request-scoped abandon is unfenced).
 
 Promotion and stale runs
 
-- [ ] A self-attached root ticked to a terminal with `--no-cleanup` resolves its leg with `result_source: promoted` carrying the session's `WorkflowResult`, and the session stays on disk; a second terminal tick writes nothing more.
-- [ ] Negative: after the leg's request is abandoned, the root's terminal tick doesn't resolve the leg (the existing warn-and-drop path), the leg stays `abandoned`, and the result stays readable from the session's own log.
+- [x] A self-attached root ticked to a terminal with `--no-cleanup` resolves its leg with `result_source: promoted` carrying the session's `WorkflowResult`, and the session stays on disk; a second terminal tick writes nothing more.
+- [x] Negative: after the leg's request is abandoned, the root's terminal tick doesn't resolve the leg (the existing warn-and-drop path), the leg stays `abandoned`, and the result stays readable from the session's own log.
 
 Refused source for Issue Issue 5
 
-- [ ] `LegResultSource` gains `Refused` (wire value `refused`), and `LegView.result_source` projects it; replay of existing logs is unchanged.
-- [ ] The request store exposes a lock-guarded write that resolves a leg with `source: refused` only when the leg is open and unbound, and returns a typed rejection (no write) when the leg is bound, resolved, abandoned, or its request is closed.
-- [ ] Negative: `koto request resolve` can't write `source: refused`; only the store function above can.
+- [x] `LegResultSource` gains `Refused` (wire value `refused`), and `LegView.result_source` projects it; replay of existing logs is unchanged.
+- [x] The request store exposes a lock-guarded write that resolves a leg with `source: refused` only when the leg is open and unbound, and returns a typed rejection (no write) when the leg is bound, resolved, abandoned, or its request is closed.
+- [x] Negative: `koto request resolve` can't write `source: refused`; only the store function above can.
 
 Contract, docs, and tests
 
-- [ ] `CLI_CONTRACT_MINOR` is bumped for the new verb, the new error codes, and the new leg fields, and every new `RequestErrorCode` lands in the caller-error class (exit 2); `every_code_lands_in_one_of_four_classes_and_avoids_sysexits` is extended to cover them.
-- [ ] `docs/designs/current/DESIGN-request-lifecycle.md` gains the root carve-out amendment: roots are never redelegated and their results arrive only by promotion, so the fenced verbs are refused on a self-attached leg rather than fenced at an epoch, plus the template-identity, input and re-point rules.
-- [ ] `docs/guides/cli-usage.md` documents `koto request attach`, and `cargo test --test doc_names` passes.
-- [ ] Integration tests in `tests/request_cli.rs` (or a new `tests/request_attach.rs` using the same `koto_cmd`/`run_err` helpers and a temp `HOME`/`KOTO_SESSIONS_BASE`) cover every negative case above and assert the request log's bytes are unchanged after each refusal; unit tests in `src/engine/request_store/tests.rs` cover the refused-source write and the locked re-checks.
-- [ ] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass.
+- [x] `CLI_CONTRACT_MINOR` is bumped for the new verb, the new error codes, and the new leg fields, and every new `RequestErrorCode` lands in the caller-error class (exit 2); `every_code_lands_in_one_of_four_classes_and_avoids_sysexits` is extended to cover them.
+- [x] `docs/designs/current/DESIGN-request-lifecycle.md` gains the root carve-out amendment: roots are never redelegated and their results arrive only by promotion, so the fenced verbs are refused on a self-attached leg rather than fenced at an epoch, plus the template-identity, input and re-point rules.
+- [x] `docs/guides/cli-usage.md` documents `koto request attach`, and `cargo test --test doc_names` passes.
+- [x] Integration tests in `tests/request_cli.rs` (or a new `tests/request_attach.rs` using the same `koto_cmd`/`run_err` helpers and a temp `HOME`/`KOTO_SESSIONS_BASE`) cover every negative case above and assert the request log's bytes are unchanged after each refusal; unit tests in `src/engine/request_store/tests.rs` cover the refused-source write and the locked re-checks.
+- [x] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass.
 
 Downstream deliverables
 
-- [ ] Must deliver: the admission path (root attach with template, input, terminal and pointer checks) as a function Issue Issue 5's `--koto-leg` can call with every check running before any write, plus the lock-guarded refused-source write (required by Issue 5).
-- [ ] Must deliver: `attach: self`, the template identity, `bound`, and `result_source` values (`promoted`, `explicit`, `refused`) readable from the leg view so the `request-leg` gate can output `bound`, `source` and `template` (required by Issue 6).
-- [ ] Must deliver: legs that accept a list of templates, so `/deliver`'s `execute` leg can name both `execute.md` and `execute-coordinated.md` (required by Issue 19).
+- [x] Must deliver: the admission path (root attach with template, input, terminal and pointer checks) as a function Issue Issue 5's `--koto-leg` can call with every check running before any write, plus the lock-guarded refused-source write (required by Issue 5).
+- [x] Must deliver: `attach: self`, the template identity, `bound`, and `result_source` values (`promoted`, `explicit`, `refused`) readable from the leg view so the `request-leg` gate can output `bound`, `source` and `template` (required by Issue 6).
+- [x] Must deliver: legs that accept a list of templates, so `/deliver`'s `execute` leg can name both `execute.md` and `execute-coordinated.md` (required by Issue 19).
 
 **Dependencies**: Issue 3
 
@@ -401,57 +401,57 @@ Grounding in koto: `handle_init` and `resolve_variables` in `src/cli/mod.rs`, `i
 
 `--vars-file`
 
-- [ ] `koto init <name> --template <t> --vars-file <path>` reads variables as a JSON list of `[key, value]` pairs; a repeated key survives parsing and is refused as `duplicate_var` naming the key.
-- [ ] Values pass the same character rule as `--var`, and each pair is checked against Issue Issue 3's `values:`/`pattern:` constraints, refusing with `invalid_var` or `unknown_var` naming the variable, value and constraint.
-- [ ] Negative: a file that isn't valid JSON of that shape, is over a stated size cap, is a symlink, or isn't a regular file is refused with a typed error and exit 2; `--vars-file` combined with `--var` is a usage error.
-- [ ] Variable validation runs before the name-exists check, so an invalid or duplicate variable against an existing session is reported as the variable error, not "already exists", and creates, attaches, replaces and rebinds nothing (the R1 path: exit 2, no session, no state file).
+- [x] `koto init <name> --template <t> --vars-file <path>` reads variables as a JSON list of `[key, value]` pairs; a repeated key survives parsing and is refused as `duplicate_var` naming the key.
+- [x] Values pass the same character rule as `--var`, and each pair is checked against Issue Issue 3's `values:`/`pattern:` constraints, refusing with `invalid_var` or `unknown_var` naming the variable, value and constraint.
+- [x] Negative: a file that isn't valid JSON of that shape, is over a stated size cap, is a symlink, or isn't a regular file is refused with a typed error and exit 2; `--vars-file` combined with `--var` is a usage error.
+- [x] Variable validation runs before the name-exists check, so an invalid or duplicate variable against an existing session is reported as the variable error, not "already exists", and creates, attaches, replaces and rebinds nothing (the R1 path: exit 2, no session, no state file).
 
 `--replace-terminal`
 
-- [ ] On a terminal session, init removes it, creates a fresh session under the same name, and returns the old session's workflow result in the JSON output (for example under `replaced_result`).
-- [ ] Negative: on a live session, `--replace-terminal` alone is refused with a typed error (exit 2) and the live session's log is byte-for-byte unchanged.
-- [ ] With no existing session, it creates one as plain init does.
+- [x] On a terminal session, init removes it, creates a fresh session under the same name, and returns the old session's workflow result in the JSON output (for example under `replaced_result`).
+- [x] Negative: on a live session, `--replace-terminal` alone is refused with a typed error (exit 2) and the live session's log is byte-for-byte unchanged.
+- [x] With no existing session, it creates one as plain init does.
 
 `--attach-live`
 
-- [ ] On a live session whose template identity, origin record and explicit non-rebind variables match, init attaches without creating a session, and the output says it attached.
-- [ ] Negative: a session created from a different template (for example `execute-coordinated.md` against `execute.md` under one `execute-<topic>` name) is refused with `template_mismatch`, using the same identity rule as Issue Issue 4.
-- [ ] Every new session records an origin record: the canonical execution anchor plus the session store's identity (backend kind and canonical sessions base). Negative: a live session whose recorded origin differs from the caller's, or that has no origin record (created before this field existed), is refused with `origin_mismatch` and not adopted.
-- [ ] Sessions created before this koto version have no origin record and are refused at attach; there is no migration that backfills one. The `origin_mismatch` refusal for such a session says the session has no origin record (distinct from the text for a recorded origin that differs) and tells the user to finish the session with the koto version that started it or remove it with `koto session cleanup <name>`. An integration test builds a live session with no origin record, attaches with `--attach-live`, and asserts exit 2, that the error text contains the phrase "no origin record" and the `koto session cleanup` command naming the session, and that the session's state file is byte-for-byte unchanged.
-- [ ] Negative: an explicitly passed non-rebind variable whose value differs from the recorded one is refused with `var_mismatch` naming the variable, the recorded value and the requested one (for example `INTENT_FLAG` recorded `stop`, requested `continue`), and the session is untouched. Non-rebind variables the caller didn't pass aren't compared.
-- [ ] On an accepted attach, every `rebind: true` variable is re-resolved as init would (this invocation's value, else the declared default) and recorded through Issue Issue 3's rebind event, so an omitted `MERGE` returns to its default instead of keeping an earlier run's `true`.
-- [ ] Negative: `--attach-live` alone on a terminal session is refused with a typed error; with both `--attach-live` and `--replace-terminal`, a live session attaches, a terminal one is replaced, and a missing one is created.
-- [ ] Without either flag, an existing session still gets today's "already exists" message and exit status, so direct callers see no change.
+- [x] On a live session whose template identity, origin record and explicit non-rebind variables match, init attaches without creating a session, and the output says it attached.
+- [x] Negative: a session created from a different template (for example `execute-coordinated.md` against `execute.md` under one `execute-<topic>` name) is refused with `template_mismatch`, using the same identity rule as Issue Issue 4.
+- [x] Every new session records an origin record: the canonical execution anchor plus the session store's identity (backend kind and canonical sessions base). Negative: a live session whose recorded origin differs from the caller's, or that has no origin record (created before this field existed), is refused with `origin_mismatch` and not adopted.
+- [x] Sessions created before this koto version have no origin record and are refused at attach; there is no migration that backfills one. The `origin_mismatch` refusal for such a session says the session has no origin record (distinct from the text for a recorded origin that differs) and tells the user to finish the session with the koto version that started it or remove it with `koto session cleanup <name>`. An integration test builds a live session with no origin record, attaches with `--attach-live`, and asserts exit 2, that the error text contains the phrase "no origin record" and the `koto session cleanup` command naming the session, and that the session's state file is byte-for-byte unchanged.
+- [x] Negative: an explicitly passed non-rebind variable whose value differs from the recorded one is refused with `var_mismatch` naming the variable, the recorded value and the requested one (for example `INTENT_FLAG` recorded `stop`, requested `continue`), and the session is untouched. Non-rebind variables the caller didn't pass aren't compared.
+- [x] On an accepted attach, every `rebind: true` variable is re-resolved as init would (this invocation's value, else the declared default) and recorded through Issue Issue 3's rebind event, so an omitted `MERGE` returns to its default instead of keeping an earlier run's `true`.
+- [x] Negative: `--attach-live` alone on a terminal session is refused with a typed error; with both `--attach-live` and `--replace-terminal`, a live session attaches, a terminal one is replaced, and a missing one is created.
+- [x] Without either flag, an existing session still gets today's "already exists" message and exit status, so direct callers see no change.
 
 `--koto-leg <req>:<leg>`
 
-- [ ] The value is validated against koto's request-id grammar and leg-name grammar; a malformed value is a usage error with exit 2.
-- [ ] With `--koto-leg`, init performs Issue Issue 4's attach on the created, attached or replacement session in the same invocation, so the session ends bound to the leg and its pointer names it.
-- [ ] Every check (variables, template, origin, `var_mismatch`, and Issue Issue 4's leg checks: request open, leg open, leg unbound or bound to this session, template listed, inputs matching, pointer re-point rule, session not terminal) runs before any write. Writes then happen in a fixed order: session create or replace, leg bind, then rebind.
-- [ ] Negative: a refused attach performs no rebind. A live session with `MERGE=false` attached by an invocation passing `MERGE=true` and naming an abandoned leg or a leg bound to another session is refused, and the session's `MERGE` and its whole log are unchanged.
-- [ ] Negative: if the leg bind loses a race after the checks passed, the invocation exits with the typed refusal, a session it just created is removed, and an attached session's variables are unchanged.
-- [ ] `--attach-live`, `--replace-terminal` and `--koto-leg` are rejected with `--from-stdin` and with `--parent`.
+- [x] The value is validated against koto's request-id grammar and leg-name grammar; a malformed value is a usage error with exit 2.
+- [x] With `--koto-leg`, init performs Issue Issue 4's attach on the created, attached or replacement session in the same invocation, so the session ends bound to the leg and its pointer names it.
+- [x] Every check (variables, template, origin, `var_mismatch`, and Issue Issue 4's leg checks: request open, leg open, leg unbound or bound to this session, template listed, inputs matching, pointer re-point rule, session not terminal) runs before any write. Writes then happen in a fixed order: session create or replace, leg bind, then rebind.
+- [x] Negative: a refused attach performs no rebind. A live session with `MERGE=false` attached by an invocation passing `MERGE=true` and naming an abandoned leg or a leg bound to another session is refused, and the session's `MERGE` and its whole log are unchanged.
+- [x] Negative: if the leg bind loses a race after the checks passed, the invocation exits with the typed refusal, a session it just created is removed, and an attached session's variables are unchanged.
+- [x] `--attach-live`, `--replace-terminal` and `--koto-leg` are rejected with `--from-stdin` and with `--parent`.
 
 Refusal recorded on the leg
 
-- [ ] On any refusal under `--koto-leg` (variable, template, origin, `var_mismatch`, terminal or live-session refusal, or a leg-check refusal) where the named leg is open and unbound, koto resolves that leg through Issue Issue 4's refused-source write: `source: refused`, status `failure`, and a payload `{outcome: refused, reason, var, recorded, requested}`, where `reason` is `invalid-var:<V>`, `duplicate-var:<V>`, `unknown-var:<V>`, `var-mismatch:<V>`, `template-mismatch` or `origin-mismatch`, and any other refusal uses its error code in the same kebab form.
-- [ ] The exit code and the typed error on stdout/stderr are the same with and without `--koto-leg`; recording the refusal doesn't change them.
-- [ ] Negative: when the leg is bound, resolved or abandoned, or its request is closed or doesn't exist, nothing is written to the request log, and the invocation still refuses with its original error.
-- [ ] Negative: a refusal never binds the leg and never writes a leg pointer on the session.
+- [x] On any refusal under `--koto-leg` (variable, template, origin, `var_mismatch`, terminal or live-session refusal, or a leg-check refusal) where the named leg is open and unbound, koto resolves that leg through Issue Issue 4's refused-source write: `source: refused`, status `failure`, and a payload `{outcome: refused, reason, var, recorded, requested}`, where `reason` is `invalid-var:<V>`, `duplicate-var:<V>`, `unknown-var:<V>`, `var-mismatch:<V>`, `template-mismatch` or `origin-mismatch`, and any other refusal uses its error code in the same kebab form.
+- [x] The exit code and the typed error on stdout/stderr are the same with and without `--koto-leg`; recording the refusal doesn't change them.
+- [x] Negative: when the leg is bound, resolved or abandoned, or its request is closed or doesn't exist, nothing is written to the request log, and the invocation still refuses with its original error.
+- [x] Negative: a refusal never binds the leg and never writes a leg pointer on the session.
 
 Docs and tests
 
-- [ ] `docs/guides/cli-usage.md` and `docs/guides/custom-skill-authoring.md` document the four flags, the four outcomes, the origin record, and the refusal recording; `cargo test --test doc_names` passes.
-- [ ] Integration tests (for example `tests/init_entry_flags.rs`, following `tests/request_cli.rs`'s temp `HOME`/`KOTO_SESSIONS_BASE` pattern and running the real binary) cover each outcome and each negative case above, asserting the session's state-file bytes and the request log's bytes are unchanged after every refusal, and that a refused stale invocation leaves `MERGE` as it was.
-- [ ] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass.
+- [x] `docs/guides/cli-usage.md` and `docs/guides/custom-skill-authoring.md` document the four flags, the four outcomes, the origin record, and the refusal recording; `cargo test --test doc_names` passes.
+- [x] Integration tests (for example `tests/init_entry_flags.rs`, following `tests/request_cli.rs`'s temp `HOME`/`KOTO_SESSIONS_BASE` pattern and running the real binary) cover each outcome and each negative case above, asserting the session's state-file bytes and the request log's bytes are unchanged after every refusal, and that a refused stale invocation leaves `MERGE` as it was.
+- [x] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass.
 
 Downstream deliverables
 
-- [ ] Must deliver: a stable JSON output that tells created, attached and replaced apart (with the replaced session's result) and typed refusal codes with the variable, recorded and requested fields, for `koto-open.sh` to render in shirabe's wording (required by Issue 8).
-- [ ] Must deliver: `--koto-leg` with refusal recording and atomic attach-then-rebind, so `/execute` resumed with `--merge` merges, a stale invocation can't flip `MERGE`, and a session from the other `/execute` template is refused (required by Issue 13, Issue 14).
-- [ ] Must deliver: `--vars-file` with duplicate and constraint refusals before any session exists, `--attach-live` `var_mismatch` on `INTENT_FLAG`, and `--replace-terminal` for a finished topic (required by Issue 17).
-- [ ] Must deliver: `origin_mismatch` under `--attach-live` as the only way a caller learns that a same-named session belongs to another worktree or store; no other command prints the origin record, and `/deliver`'s `deliver-open.sh` detects a collision through `koto-open.sh --attach-live` on this refusal (required by Issue 19 through Issue 8).
-- [ ] Must deliver: refusals recorded on the leg with `source: refused` and the payload keys `/deliver`'s `scope_leg` and `exec_leg` arms route on (required by Issue 19).
+- [x] Must deliver: a stable JSON output that tells created, attached and replaced apart (with the replaced session's result) and typed refusal codes with the variable, recorded and requested fields, for `koto-open.sh` to render in shirabe's wording (required by Issue 8).
+- [x] Must deliver: `--koto-leg` with refusal recording and atomic attach-then-rebind, so `/execute` resumed with `--merge` merges, a stale invocation can't flip `MERGE`, and a session from the other `/execute` template is refused (required by Issue 13, Issue 14).
+- [x] Must deliver: `--vars-file` with duplicate and constraint refusals before any session exists, `--attach-live` `var_mismatch` on `INTENT_FLAG`, and `--replace-terminal` for a finished topic (required by Issue 17).
+- [x] Must deliver: `origin_mismatch` under `--attach-live` as the only way a caller learns that a same-named session belongs to another worktree or store; no other command prints the origin record, and `/deliver`'s `deliver-open.sh` detects a collision through `koto-open.sh --attach-live` on this refusal (required by Issue 19 through Issue 8).
+- [x] Must deliver: refusals recorded on the leg with `source: refused` and the payload keys `/deliver`'s `scope_leg` and `exec_leg` arms route on (required by Issue 19).
 
 **Dependencies**: Issue 2, Issue 3, Issue 4
 
@@ -493,56 +493,56 @@ Downstream, `/deliver` (Issue 19) declares `scope_leg` and `exec_leg` with this 
 
 **Declaration and compile-time validation**
 
-- [ ] A `GATE_TYPE_REQUEST_LEG` constant (`"request-leg"`) is added, and the compiler accepts a gate of that type with `request` and `leg` set; either field empty or absent is a compile error naming the state and gate.
-- [ ] A literal `request` or `leg` value is checked at compile time against the request store's own request-id and leg-name rules (the same validators `koto request` uses), and a value that fails is a compile error; a value with a `{{VAR}}` reference is checked after substitution at tick time, and a bad substituted value yields gate outcome `Error` with the reason in `error`, never a store read.
-- [ ] `request` and `leg` are listed in `Gate::substitutable_fields()`, so the compiler validates their `{{VAR}}` references and the tick substitutes them. The existing drift test passes and covers both new fields.
-- [ ] `expect` is optional; when present it must be a non-empty map from payload key to a non-empty list of scalar values, and anything else (a non-list value, an empty list, an object or array element) is a compile error.
-- [ ] `gate_type_schema("request-leg")` returns every output field listed in Context with its type (`found`, `bound`, `valid` boolean; `payload` a new object type; the rest string), and it stays in step with the evaluator's output shape; a unit test asserts that every key the evaluator emits is in the schema and vice versa.
-- [ ] A `request-leg` gate declared on a state with no `when` clause referencing it gets the same no-routing warning or error (D5) as the other structured gate types.
+- [x] A `GATE_TYPE_REQUEST_LEG` constant (`"request-leg"`) is added, and the compiler accepts a gate of that type with `request` and `leg` set; either field empty or absent is a compile error naming the state and gate.
+- [x] A literal `request` or `leg` value is checked at compile time against the request store's own request-id and leg-name rules (the same validators `koto request` uses), and a value that fails is a compile error; a value with a `{{VAR}}` reference is checked after substitution at tick time, and a bad substituted value yields gate outcome `Error` with the reason in `error`, never a store read.
+- [x] `request` and `leg` are listed in `Gate::substitutable_fields()`, so the compiler validates their `{{VAR}}` references and the tick substitutes them. The existing drift test passes and covers both new fields.
+- [x] `expect` is optional; when present it must be a non-empty map from payload key to a non-empty list of scalar values, and anything else (a non-list value, an empty list, an object or array element) is a compile error.
+- [x] `gate_type_schema("request-leg")` returns every output field listed in Context with its type (`found`, `bound`, `valid` boolean; `payload` a new object type; the rest string), and it stays in step with the evaluator's output shape; a unit test asserts that every key the evaluator emits is in the schema and vice versa.
+- [x] A `request-leg` gate declared on a state with no `when` clause referencing it gets the same no-routing warning or error (D5) as the other structured gate types.
 
 **Runtime evaluation**
 
-- [ ] `evaluate_gates()` evaluates `request-leg` gates through the request store rather than the "unsupported gate type" fallback. With no request store available (for example a non-unix host or the cloud backend), the gate returns outcome `Error` with a non-empty `error` and `found: false`; it does not panic or silently pass.
-- [ ] Request or leg not found: `found: false`, `disposition: missing`, gate not passing, `error` names what was missing. An arm keyed on `gates.<g>.disposition: missing` can fire.
-- [ ] Open leg (bound or unbound): `found: true`, `disposition: open`, `bound` reflecting whether a session is bound, gate outcome not passing, and `gate_blocking_category("request-leg")` is `temporal`. A state whose arms all key on a resolved result stays blocked while the leg is open and reports the blocking condition with category `temporal`. It doesn't advance, doesn't raise `UnresolvableTransition`, and doesn't mark the condition corrective.
-- [ ] An engine test covers the open-to-resolved transition: the same state blocks on an open leg, then advances down the matching arm once the leg's result is recorded.
-- [ ] Resolved leg: gate passes; `disposition: resolved`; `source` is `promoted`, `explicit`, or `refused` from the leg record; `status` is the result's `status` (`success`, `failure`, `skipped`); `payload` is the result's payload object (or `{}` when the result carries none); `outcome`, `step`, and `reason` are copied from the payload's string keys of the same name and are `""` when absent or not a string.
-- [ ] `final_state` names the terminal state a promoted result came from and `template` the bound session's template identity (as K5 records it on the leg-bound event); both are `""` for explicit and refused results. If the promotion record doesn't carry the terminal state today, this issue adds it.
-- [ ] Abandoned leg, or a leg whose request was abandoned: gate passes with `disposition: abandoned`, so `/deliver` can route it to `deliver:request-abandoned`.
-- [ ] `valid` is `true` only when the leg is resolved and every `expect` key is present in the payload with a value in that key's list. A missing key, a value outside the list, or a non-object payload makes it `false`, and so does any non-resolved disposition. With no `expect`, `valid` is `true` for any resolved leg whose payload is an object. Tests cover each of those cases, including a payload that carries an extra key `expect` doesn't name (still valid).
-- [ ] The gate is read-only: evaluating it never appends to the request log, binds, resolves, or abandons a leg; a test asserts the log's revision is unchanged after evaluation.
+- [x] `evaluate_gates()` evaluates `request-leg` gates through the request store rather than the "unsupported gate type" fallback. With no request store available (for example a non-unix host or the cloud backend), the gate returns outcome `Error` with a non-empty `error` and `found: false`; it does not panic or silently pass.
+- [x] Request or leg not found: `found: false`, `disposition: missing`, gate not passing, `error` names what was missing. An arm keyed on `gates.<g>.disposition: missing` can fire.
+- [x] Open leg (bound or unbound): `found: true`, `disposition: open`, `bound` reflecting whether a session is bound, gate outcome not passing, and `gate_blocking_category("request-leg")` is `temporal`. A state whose arms all key on a resolved result stays blocked while the leg is open and reports the blocking condition with category `temporal`. It doesn't advance, doesn't raise `UnresolvableTransition`, and doesn't mark the condition corrective.
+- [x] An engine test covers the open-to-resolved transition: the same state blocks on an open leg, then advances down the matching arm once the leg's result is recorded.
+- [x] Resolved leg: gate passes; `disposition: resolved`; `source` is `promoted`, `explicit`, or `refused` from the leg record; `status` is the result's `status` (`success`, `failure`, `skipped`); `payload` is the result's payload object (or `{}` when the result carries none); `outcome`, `step`, and `reason` are copied from the payload's string keys of the same name and are `""` when absent or not a string.
+- [x] `final_state` names the terminal state a promoted result came from and `template` the bound session's template identity (as K5 records it on the leg-bound event); both are `""` for explicit and refused results. If the promotion record doesn't carry the terminal state today, this issue adds it.
+- [x] Abandoned leg, or a leg whose request was abandoned: gate passes with `disposition: abandoned`, so `/deliver` can route it to `deliver:request-abandoned`.
+- [x] `valid` is `true` only when the leg is resolved and every `expect` key is present in the payload with a value in that key's list. A missing key, a value outside the list, or a non-object payload makes it `false`, and so does any non-resolved disposition. With no `expect`, `valid` is `true` for any resolved leg whose payload is an object. Tests cover each of those cases, including a payload that carries an extra key `expect` doesn't name (still valid).
+- [x] The gate is read-only: evaluating it never appends to the request log, binds, resolves, or abandons a leg; a test asserts the log's revision is unchanged after evaluation.
 
 **Payload key access in `when` clauses**
 
-- [ ] D3 accepts `gates.<gate>.payload.<key>` (one or more segments after `payload`) for a `request-leg` gate, and still rejects deeper paths under every other field and every other gate type with today's message.
-- [ ] A when clause on the whole `gates.<g>.payload` object is rejected at compile time (the value must be a scalar), the same way the compiler treats non-scalar when values today.
-- [ ] Runtime routing on `gates.<g>.payload.outcome: scoped` fires when the promoted payload carries `outcome: scoped` and doesn't when it carries anything else or lacks the key; `resolve_value()` and `resolve_gates_path()` stay in sync, and a test covers a nested payload key.
-- [ ] An engine test compiles a template whose transition assigns `pr: "${gates.leg.payload.pr}"` through `context_assignments` (Issue 1's K2) and shows the value lands in context on the transition. This is the end-to-end test the design defers from KA to KF.
-- [ ] Mixed when clauses combining a `request-leg` field and an agent evidence field (for example `gates.scope_leg.bound: false` with `child_returned: yes`) compile and route correctly. `/deliver`'s absent arm depends on this.
+- [x] D3 accepts `gates.<gate>.payload.<key>` (one or more segments after `payload`) for a `request-leg` gate, and still rejects deeper paths under every other field and every other gate type with today's message.
+- [x] A when clause on the whole `gates.<g>.payload` object is rejected at compile time (the value must be a scalar), the same way the compiler treats non-scalar when values today.
+- [x] Runtime routing on `gates.<g>.payload.outcome: scoped` fires when the promoted payload carries `outcome: scoped` and doesn't when it carries anything else or lacks the key; `resolve_value()` and `resolve_gates_path()` stay in sync, and a test covers a nested payload key.
+- [x] An engine test compiles a template whose transition assigns `pr: "${gates.leg.payload.pr}"` through `context_assignments` (Issue 1's K2) and shows the value lands in context on the transition. This is the end-to-end test the design defers from KA to KF.
+- [x] Mixed when clauses combining a `request-leg` field and an agent evidence field (for example `gates.scope_leg.bound: false` with `child_returned: yes`) compile and route correctly. `/deliver`'s absent arm depends on this.
 
 **Built-in default and override interaction**
 
-- [ ] `built_in_default("request-leg")` and `gate_type_builtin_default("request-leg")` return the same value, which the existing sync test now covers. The value is a schema-valid resolved record (`found: true`, `disposition: resolved`, `bound: true`, `source: promoted`, `valid: true`, `payload: {}`, empty strings elsewhere), and an `override_default` on a `request-leg` gate is validated against the schema like any other gate's (D2), including the object-typed `payload`.
-- [ ] The default resolves no specific child outcome, so a state with an overridable `request-leg` gate whose pure-gate arms all key on non-empty `payload.outcome` values still fails D4 in strict compilation unless an `override_default` makes an arm fire; a compile test asserts that error.
+- [x] `built_in_default("request-leg")` and `gate_type_builtin_default("request-leg")` return the same value, which the existing sync test now covers. The value is a schema-valid resolved record (`found: true`, `disposition: resolved`, `bound: true`, `source: promoted`, `valid: true`, `payload: {}`, empty strings elsewhere), and an `override_default` on a `request-leg` gate is validated against the schema like any other gate's (D2), including the object-typed `payload`.
+- [x] The default resolves no specific child outcome, so a state with an overridable `request-leg` gate whose pure-gate arms all key on non-empty `payload.outcome` values still fails D4 in strict compilation unless an `override_default` makes an arm fire; a compile test asserts that error.
 
 **D4 reachability for non-overridable gates (`src/template/types.rs`)**
 
-- [ ] `validate_gate_reachability()` leaves out of its "must fire on defaults" check every pure-gate transition whose `when` clause references a gate marked `overridable: false` (Issue 7's field), and a state whose pure-gate transitions all reference such a gate is exempt from D4. Transitions that reference only overridable gates are still checked exactly as today.
-- [ ] A strict `koto template compile` passes for a state whose only gate is an `overridable: false` `request-leg` gate with no `override_default` and whose every arm keys on `gates.<g>.payload.outcome` values (the `/deliver` `scope_run` shape). The same passes for a state whose only arms route on an `overridable: false` `context-matches` gate with no `override_default`.
-- [ ] A regression test compiles the same two states with the gates overridable (no `overridable` key) and asserts D4's existing "no pure-gate transition fires" error, so the old failure case is still covered and the exemption applies only to non-overridable gates.
-- [ ] A state with one overridable and one non-overridable gate, whose transitions referencing only the overridable gate all fail to fire on that gate's default, still fails D4 in strict compilation; a test covers it.
-- [ ] The D4 section of `docs/guides/custom-skill-authoring.md` (or wherever koto documents the reachability rule) states that arms routed on `overridable: false` gates are exempt, and why.
-- [ ] `koto overrides record` on an overridable `request-leg` gate resolves the override value in today's order (`--with-data`, then `override_default`, then the built-in default), and the blocking condition reports `agent_actionable` the way `next_types.rs` does for other types. Refusing overrides on `overridable: false` gates is Issue 7's job, and no special case for this gate type is added here.
+- [x] `validate_gate_reachability()` leaves out of its "must fire on defaults" check every pure-gate transition whose `when` clause references a gate marked `overridable: false` (Issue 7's field), and a state whose pure-gate transitions all reference such a gate is exempt from D4. Transitions that reference only overridable gates are still checked exactly as today.
+- [x] A strict `koto template compile` passes for a state whose only gate is an `overridable: false` `request-leg` gate with no `override_default` and whose every arm keys on `gates.<g>.payload.outcome` values (the `/deliver` `scope_run` shape). The same passes for a state whose only arms route on an `overridable: false` `context-matches` gate with no `override_default`.
+- [x] A regression test compiles the same two states with the gates overridable (no `overridable` key) and asserts D4's existing "no pure-gate transition fires" error, so the old failure case is still covered and the exemption applies only to non-overridable gates.
+- [x] A state with one overridable and one non-overridable gate, whose transitions referencing only the overridable gate all fail to fire on that gate's default, still fails D4 in strict compilation; a test covers it.
+- [x] The D4 section of `docs/guides/custom-skill-authoring.md` (or wherever koto documents the reachability rule) states that arms routed on `overridable: false` gates are exempt, and why.
+- [x] `koto overrides record` on an overridable `request-leg` gate resolves the override value in today's order (`--with-data`, then `override_default`, then the built-in default), and the blocking condition reports `agent_actionable` the way `next_types.rs` does for other types. Refusing overrides on `overridable: false` gates is Issue 7's job, and no special case for this gate type is added here.
 
 **Docs**
 
-- [ ] `docs/guides/custom-skill-authoring.md` documents the `request-leg` gate: fields, output schema, disposition meanings, the temporal block on an open leg, `expect` and `valid`, payload paths in `when` and in `context_assignments`, and the recommendation to pair it with `overridable: false`.
-- [ ] The "unsupported gate type" message in `evaluate_gates()` and the compiler's gate-type rejection name `request-leg` among the supported types.
+- [x] `docs/guides/custom-skill-authoring.md` documents the `request-leg` gate: fields, output schema, disposition meanings, the temporal block on an open leg, `expect` and `valid`, payload paths in `when` and in `context_assignments`, and the recommendation to pair it with `overridable: false`.
+- [x] The "unsupported gate type" message in `evaluate_gates()` and the compiler's gate-type rejection name `request-leg` among the supported types.
 
 **Downstream deliverables**
 
-- [ ] Must deliver: a `request-leg` gate that `/deliver`'s `scope_leg` and `exec_leg` can declare with `request: "{{REQ}}"`, `leg: scope|execute`, and an `expect` over the outcome set, whose `disposition`, `source`, `bound`, `valid`, `outcome`, `step`, `reason`, and `payload.<key>` outputs are routable in `when` clauses and readable through `${gates.<g>.payload.<key>}` assignments (required by Issue 19, through the koto-release gate).
-- [ ] Must deliver: a documented, schema-stable output so shirabe's evals can assert which arm a leg result took (required by Issue 19).
+- [x] Must deliver: a `request-leg` gate that `/deliver`'s `scope_leg` and `exec_leg` can declare with `request: "{{REQ}}"`, `leg: scope|execute`, and an `expect` over the outcome set, whose `disposition`, `source`, `bound`, `valid`, `outcome`, `step`, `reason`, and `payload.<key>` outputs are routable in `when` clauses and readable through `${gates.<g>.payload.<key>}` assignments (required by Issue 19, through the koto-release gate).
+- [x] Must deliver: a documented, schema-stable output so shirabe's evals can assert which arm a leg result took (required by Issue 19).
 
 **Dependencies**: Issue 1, Issue 2, Issue 4, Issue 7
 
@@ -571,33 +571,33 @@ shirabe marks the gates that decide progress, a merge, or a `merged` report as n
 
 *Declaration*
 
-- [ ] `SourceGate` and the compiled `Gate` in `src/template/types.rs` gain `overridable` (bool, default `true`). The compiled field is omitted from JSON when `true`, so a template that doesn't use it compiles byte-identical to before (snapshot test over an existing fixture), and existing sessions' template hashes stay valid.
-- [ ] The field applies to every gate type (`command`, `context-exists`, `context-matches`, `children-complete`, and any type added later, including the `request-leg` type from Issue 6). A test compiles `overridable: false` on each existing type.
-- [ ] `SourceGate` rejects unknown keys: a gate declaring `overrideable: false` fails `koto template compile` with a non-zero exit and an error naming the state, the gate, and the unknown key.
-- [ ] `overridable` accepts only a YAML boolean; `overridable: "no"` is a compile error.
-- [ ] Declaring `override_default` on a gate with `overridable: false` is a compile error naming the state and gate, since no override can ever apply it.
+- [x] `SourceGate` and the compiled `Gate` in `src/template/types.rs` gain `overridable` (bool, default `true`). The compiled field is omitted from JSON when `true`, so a template that doesn't use it compiles byte-identical to before (snapshot test over an existing fixture), and existing sessions' template hashes stay valid.
+- [x] The field applies to every gate type (`command`, `context-exists`, `context-matches`, `children-complete`, and any type added later, including the `request-leg` type from Issue 6). A test compiles `overridable: false` on each existing type.
+- [x] `SourceGate` rejects unknown keys: a gate declaring `overrideable: false` fails `koto template compile` with a non-zero exit and an error naming the state, the gate, and the unknown key.
+- [x] `overridable` accepts only a YAML boolean; `overridable: "no"` is a compile error.
+- [x] Declaring `override_default` on a gate with `overridable: false` is a compile error naming the state and gate, since no override can ever apply it.
 
 *Refusing the override*
 
-- [ ] `koto overrides record <s> --gate <g> --rationale r` on a gate with `overridable: false` exits 2 with an error body carrying a typed code (`gate_not_overridable`) and naming the gate and state. No `GateOverrideRecorded` event is appended: the state file is byte-identical before and after.
-- [ ] The same refusal happens with `--with-data '{...}'` and with `--with-data @file.json`, whatever the payload (a schema-valid one included), and the check runs before any `--with-data` parsing error could be reported instead.
-- [ ] `koto overrides record` on an overridable gate in the same state still succeeds and appends the event exactly as today (regression test).
-- [ ] After a refused override, `koto next` on that state evaluates the gate for real: with a failing gate the response is still blocked (or `EvidenceRequired` on a state with `accepts`), and `koto overrides list` shows no entry for it.
+- [x] `koto overrides record <s> --gate <g> --rationale r` on a gate with `overridable: false` exits 2 with an error body carrying a typed code (`gate_not_overridable`) and naming the gate and state. No `GateOverrideRecorded` event is appended: the state file is byte-identical before and after.
+- [x] The same refusal happens with `--with-data '{...}'` and with `--with-data @file.json`, whatever the payload (a schema-valid one included), and the check runs before any `--with-data` parsing error could be reported instead.
+- [x] `koto overrides record` on an overridable gate in the same state still succeeds and appends the event exactly as today (regression test).
+- [x] After a refused override, `koto next` on that state evaluates the gate for real: with a failing gate the response is still blocked (or `EvidenceRequired` on a state with `accepts`), and `koto overrides list` shows no entry for it.
 
 *Defense in depth at evaluation*
 
-- [ ] If the log already holds a `GateOverrideRecorded` event for a gate the current template marks `overridable: false` (written by an older koto or appended by hand), the tick ignores it: the gate is evaluated through `evaluate_gates`, a `GateEvaluated` event is emitted, and the override value never reaches `gates.<name>.*` in `when` resolution. A unit test in `src/engine/advance.rs` builds that log and asserts the real gate output drives routing.
-- [ ] `blocking_conditions_from_gates` reports `agent_actionable: false` for a failing non-overridable gate, and `true` for an overridable gate with a default, as today.
+- [x] If the log already holds a `GateOverrideRecorded` event for a gate the current template marks `overridable: false` (written by an older koto or appended by hand), the tick ignores it: the gate is evaluated through `evaluate_gates`, a `GateEvaluated` event is emitted, and the override value never reaches `gates.<name>.*` in `when` resolution. A unit test in `src/engine/advance.rs` builds that log and asserts the real gate output drives routing.
+- [x] `blocking_conditions_from_gates` reports `agent_actionable: false` for a failing non-overridable gate, and `true` for an overridable gate with a default, as today.
 
 *Tests and docs*
 
-- [ ] Unit tests cover the compile errors in `src/template/compile.rs` and the refusal in `src/cli/overrides.rs`'s test module. An `assert_cmd` integration test under `tests/` (using the `HOME`-isolated `koto_cmd` helper) initializes a session on a template with one non-overridable and one overridable gate on the same state, and asserts: refusal with and without `--with-data`, success on the other gate, and an unchanged state file after the refusal.
-- [ ] `docs/reference/error-codes.md` documents `gate_not_overridable` under `overrides record`; `docs/guides/custom-skill-authoring.md` documents `overridable: false` and when to use it; `docs/designs/current/DESIGN-gate-override-mechanism.md` gains a note that a gate can opt out.
-- [ ] `cargo test` and `cargo clippy --all-targets -- -D warnings` pass.
+- [x] Unit tests cover the compile errors in `src/template/compile.rs` and the refusal in `src/cli/overrides.rs`'s test module. An `assert_cmd` integration test under `tests/` (using the `HOME`-isolated `koto_cmd` helper) initializes a session on a template with one non-overridable and one overridable gate on the same state, and asserts: refusal with and without `--with-data`, success on the other gate, and an unchanged state file after the refusal.
+- [x] `docs/reference/error-codes.md` documents `gate_not_overridable` under `overrides record`; `docs/guides/custom-skill-authoring.md` documents `overridable: false` and when to use it; `docs/designs/current/DESIGN-gate-override-mechanism.md` gains a note that a gate can opt out.
+- [x] `cargo test` and `cargo clippy --all-targets -- -D warnings` pass.
 
 *Downstream deliverables*
 
-- [ ] Must deliver: `overridable: false` accepted on any gate type in template frontmatter, and refused overrides at both record time and evaluation time, so shirabe can mark `merge_route`, `merge_attempt`'s `merge_intent`, and `merge_confirm` in `execute.md` (required by Issue 13), `coord_verdict` and `coord_merge_confirm` in `execute-coordinated.md` (required by Issue 14), `intake` and `executed_report` in `scope.md` (required by Issue 17, Issue 18), and the `scope_leg`, `exec_leg`, `scoped_check`, `executed_check`, and `merged_check` gates in `deliver.md`, whose evals include an override attempt with `--with-data` that koto refuses (required by Issue 19).
+- [x] Must deliver: `overridable: false` accepted on any gate type in template frontmatter, and refused overrides at both record time and evaluation time, so shirabe can mark `merge_route`, `merge_attempt`'s `merge_intent`, and `merge_confirm` in `execute.md` (required by Issue 13), `coord_verdict` and `coord_merge_confirm` in `execute-coordinated.md` (required by Issue 14), `intake` and `executed_report` in `scope.md` (required by Issue 17, Issue 18), and the `scope_leg`, `exec_leg`, `scoped_check`, `executed_check`, and `merged_check` gates in `deliver.md`, whose evals include an override attempt with `--with-data` that koto refuses (required by Issue 19).
 
 **Dependencies**: None
 
@@ -684,7 +684,7 @@ shirabe marks the gates that decide progress, a merge, or a `merged` report as n
 - [ ] Must deliver: a `refused=origin_mismatch` (and `refused=template_mismatch`) result line under `--attach-live` that tells a foreign same-named session apart from this worktree's own, so `deliver-open.sh`, a thin wrapper over this script, detects a `deliver-<topic>` collision through it instead of reading an origin record koto doesn't expose (required by Issue 19).
 - [ ] Must deliver: CI on the pinned koto release, with all three templates compiling and their assignment blocks executing, so the shirabe items that use result maps, assignments, constraints, init flags, and leg gates can merge (required by Issue 13, Issue 14, Issue 17).
 
-**Dependencies**: None (the koto-release gate's Before line carries the edge)
+**Dependencies**: None
 
 **Type**: code
 
@@ -708,52 +708,52 @@ Relevant PRD requirements: R5 and R8 (precedence), R6 (single-repo coordinated, 
 
 *`references/coordination-strategy.md`*
 
-- [ ] States that coordinated mode spans one or more repositories; no sentence says or implies coordinated requires more than one repository (PRD AC for R6).
-- [ ] Documents the four-level mode precedence for a split: explicit `--coordinated` / `--no-coordinated` flag, then `--intent` (`continue` resolves to `coordinated`, `stop` to `multi-pr`), then a coordinated-by-default header, then `multi-pr`; and states that an unsplit PLAN is `single-pr` regardless of flags or intent.
-- [ ] Documents the `split_mode_source: none|flag|intent|header|default` values recorded alongside the mode, stating that `none` is recorded when the work doesn't split (the mode is then `single-pr`) and that `flag`, `intent`, `header`, and `default` appear only on a split.
-- [ ] Contains an explicit, closed list of the `## PR Grouping Policy:` and `## Reviewability Ceiling:` header values that mean "coordinated by default", written as the single definition (a table or enumerated list, not prose), with matching rules spelled out (case sensitivity, whitespace trimming, what an unrecognized value means).
-- [ ] The list states that it is mirrored by `skills/plan/scripts/resolve-split-mode.sh` and that the two must change together.
-- [ ] Adds a Branches paragraph: one branch per PR node (`impl/<slug>-<node-id>`), cut from the default branch, never from the coordination branch; multi-repo PLANs with `Group: default` keep one node per repository.
-- [ ] Documents the merge step (each node PR merges only after all its predecessors in merge order; the coordination PR merges last) and the `paused-awaiting-merges` pause, with the coordination PR left open and resume reading it.
-- [ ] States that a coordinated PLAN follows the resolved tracking level with `none` as its default: work items are outlines carrying `**Repo**:` and `**Group**:`, and nothing is filed unless the tracking level asks for issues.
-- [ ] The template blockquote keeps the fixed prefix `This is a **coordination PR**` unchanged and drops "multi-repo" after it.
+- [x] States that coordinated mode spans one or more repositories; no sentence says or implies coordinated requires more than one repository (PRD AC for R6).
+- [x] Documents the four-level mode precedence for a split: explicit `--coordinated` / `--no-coordinated` flag, then `--intent` (`continue` resolves to `coordinated`, `stop` to `multi-pr`), then a coordinated-by-default header, then `multi-pr`; and states that an unsplit PLAN is `single-pr` regardless of flags or intent.
+- [x] Documents the `split_mode_source: none|flag|intent|header|default` values recorded alongside the mode, stating that `none` is recorded when the work doesn't split (the mode is then `single-pr`) and that `flag`, `intent`, `header`, and `default` appear only on a split.
+- [x] Contains an explicit, closed list of the `## PR Grouping Policy:` and `## Reviewability Ceiling:` header values that mean "coordinated by default", written as the single definition (a table or enumerated list, not prose), with matching rules spelled out (case sensitivity, whitespace trimming, what an unrecognized value means).
+- [x] The list states that it is mirrored by `skills/plan/scripts/resolve-split-mode.sh` and that the two must change together.
+- [x] Adds a Branches paragraph: one branch per PR node (`impl/<slug>-<node-id>`), cut from the default branch, never from the coordination branch; multi-repo PLANs with `Group: default` keep one node per repository.
+- [x] Documents the merge step (each node PR merges only after all its predecessors in merge order; the coordination PR merges last) and the `paused-awaiting-merges` pause, with the coordination PR left open and resume reading it.
+- [x] States that a coordinated PLAN follows the resolved tracking level with `none` as its default: work items are outlines carrying `**Repo**:` and `**Group**:`, and nothing is filed unless the tracking level asks for issues.
+- [x] The template blockquote keeps the fixed prefix `This is a **coordination PR**` unchanged and drops "multi-repo" after it.
 
 *`references/parent-skill-state-schema.md`*
 
-- [ ] `plan_execution_mode` lists `single-pr`, `multi-pr`, and `coordinated` (R25).
-- [ ] Where the schema lists `split_mode_source`, its values are `none|flag|intent|header|default`, with `none` meaning the work didn't split, the same set `coordination-strategy.md` documents.
-- [ ] Documents that a parent may declare an always-present invocation-intent field (`intent: continue|stop|none`).
-- [ ] Notes that the state file's `intent:` records `continue`, `stop` or `none`, and that the empty value exists only on the koto variable (the `INTENT_FLAG` default) and never appears in a state file.
+- [x] `plan_execution_mode` lists `single-pr`, `multi-pr`, and `coordinated` (R25).
+- [x] Where the schema lists `split_mode_source`, its values are `none|flag|intent|header|default`, with `none` meaning the work didn't split, the same set `coordination-strategy.md` documents.
+- [x] Documents that a parent may declare an always-present invocation-intent field (`intent: continue|stop|none`).
+- [x] Notes that the state file's `intent:` records `continue`, `stop` or `none`, and that the empty value exists only on the koto variable (the `INTENT_FLAG` default) and never appears in a state file.
 
 *`docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`*
 
-- [ ] Adds an "Opt-in agent merge" paragraph: `/execute --merge` may merge only through `merge-exec.sh` under the verdict rules; without `--merge` the "agent marks ready, human merges" rule is unchanged.
-- [ ] Amends the coordination-PR exception so `/execute` marks the coordination PR ready once every indexed PR has merged.
+- [x] Adds an "Opt-in agent merge" paragraph: `/execute --merge` may merge only through `merge-exec.sh` under the verdict rules; without `--merge` the "agent marks ready, human merges" rule is unchanged.
+- [x] Amends the coordination-PR exception so `/execute` marks the coordination PR ready once every indexed PR has merged.
 
 *`references/parent-skill-pattern.md`*
 
-- [ ] Documents `--koto-leg=<request-id>:<leg>` as a pattern-level, child-owned flag usable with any koto coordinator, which changes only where the terminal result goes.
-- [ ] Adds a "Parent-of-the-Parent Binding" subsection: the driver is a koto template, opens one koto request per run, and its children run as leg-attached root sessions that report through declared terminal `result:` maps; no parent skill invokes another.
+- [x] Documents `--koto-leg=<request-id>:<leg>` as a pattern-level, child-owned flag usable with any koto coordinator, which changes only where the terminal result goes.
+- [x] Adds a "Parent-of-the-Parent Binding" subsection: the driver is a koto template, opens one koto request per run, and its children run as leg-attached root sessions that report through declared terminal `result:` maps; no parent skill invokes another.
 
 *`references/parent-skill-child-inspection.md`*
 
-- [ ] Adds a row for a leg-attached child: its observable surface is the leg's promoted payload, read only through the `request-leg` gate; its state file stays off-limits.
+- [x] Adds a row for a leg-attached child: its observable surface is the leg's promoted payload, read only through the `request-leg` gate; its state file stays off-limits.
 
 *`references/koto-session-retention.md`*
 
-- [ ] States that `/scope` and `/execute` retain on every tick (`--no-cleanup`), unconditionally.
-- [ ] States that a leg-attached root reports its result by promotion to the leg at its terminal tick while keeping its session.
-- [ ] Replaces the "read, then clean up" recovery for a retained terminal session with `koto init --replace-terminal`.
+- [x] States that `/scope` and `/execute` retain on every tick (`--no-cleanup`), unconditionally.
+- [x] States that a leg-attached root reports its result by promotion to the leg at its terminal tick while keeping its session.
+- [x] Replaces the "read, then clean up" recovery for a retained terminal session with `koto init --replace-terminal`.
 
 *`references/default-action-conversion.md`*
 
-- [ ] Lists `merge_readiness` (`record-merge-verdict.sh`), `merge_confirm` and `coord_merge_confirm` (`record-merge-verdict.sh --confirm`), `republish_record` (`record-scope-exit.sh`), `intake` (`run-intake.sh`), `executed_report` (`record-executed-report.sh`), `coord_verdict` (`record-coordination-verdict.sh`), `open_request`, `scope_absent`, `execute_absent`, and `/deliver`'s `scoped_check`, `executed_check`, and `merged_check` (`deliver-probe.sh`) as converted states, each noting it writes no GitHub state.
-- [ ] States the rule: a script's output reaches context, and so routing or a result, only through a default action's `koto context add`, never through a command gate, because a command gate exposes only `exit_code` and `error`. A state that routes on such output does so with `overridable: false` `context-matches` gates over the written keys, and its record script clears those keys before rewriting them. A command gate is used only where the script's exit code itself carries the decision; `merge-verdict.sh --confirm` exits 0 on both outcomes, which is why the confirm states record its line instead. Transition `context_assignments` may assign literals, `{{VAR}}`, `${evidence.*}`, and `${gates.*}` paths but not `${context.*}`, so a script-derived `reason` or `step` is written by the record script and read by the terminal's `result:` map.
+- [x] Lists `merge_readiness` (`record-merge-verdict.sh`), `merge_confirm` and `coord_merge_confirm` (`record-merge-verdict.sh --confirm`), `republish_record` (`record-scope-exit.sh`), `intake` (`run-intake.sh`), `executed_report` (`record-executed-report.sh`), `coord_verdict` (`record-coordination-verdict.sh`), `open_request`, `scope_absent`, `execute_absent`, and `/deliver`'s `scoped_check`, `executed_check`, and `merged_check` (`deliver-probe.sh`) as converted states, each noting it writes no GitHub state.
+- [x] States the rule: a script's output reaches context, and so routing or a result, only through a default action's `koto context add`, never through a command gate, because a command gate exposes only `exit_code` and `error`. A state that routes on such output does so with `overridable: false` `context-matches` gates over the written keys, and its record script clears those keys before rewriting them. A command gate is used only where the script's exit code itself carries the decision; `merge-verdict.sh --confirm` exits 0 on both outcomes, which is why the confirm states record its line instead. Transition `context_assignments` may assign literals, `{{VAR}}`, `${evidence.*}`, and `${gates.*}` paths but not `${context.*}`, so a script-derived `reason` or `step` is written by the record script and read by the terminal's `result:` map.
 
 *General*
 
-- [ ] No edited file references a `wip/` path.
-- [ ] `shirabe validate` passes on the edited design doc.
+- [x] No edited file references a `wip/` path.
+- [x] `shirabe validate` passes on the edited design doc.
 
 **Dependencies**: None
 
@@ -784,68 +784,68 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R4, R5, R6, R7, R8, R23, R26, R27, a
 
 *Flags and rejection (`skills/plan/SKILL.md`)*
 
-- [ ] Context Resolution > "1. Parse Flags" documents `--intent=continue|stop`, `--coordinated`, and `--no-coordinated` as flags usable on a direct `/plan` run, and the frontmatter `argument-hint` lists all three (R5).
-- [ ] An `--intent` value other than `continue` or `stop`, a repeated `--intent` (e.g. `--intent=stop --intent=continue`), or `--coordinated` together with `--no-coordinated` is rejected with an error naming the offending flag before any `wip/plan_<topic>_*` file is written (Interfaces table, `/plan` row).
-- [ ] `### Coordinated Mode (multi-repo)` is renamed `### Coordinated Mode`, and neither it nor "Execution Mode Decision" says coordinated requires, or is the generalization for, more than one repository; the subsection says coordinated work items are outlines with Repo/Group at the default tracking level and issues with Repo/Group rows only when the tracking level files them (R6, R7).
-- [ ] "Execution Mode Decision" gains a "Split mode" rule naming the four-level precedence, stating `continue` resolves to `coordinated` and `stop` or no intent to `multi-pr`, stating a non-split is `single-pr` regardless of intent or flags, and binding to `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md` for the header values instead of restating them (R5, R8).
-- [ ] The SKILL.md paragraph on the Draft -> Active gate and the "### Output" list include coordinated: an outline-shaped coordinated PLAN (tracking level `none`) is authored at `Active` with nothing filed; a coordinated PLAN at `issues`/`issues-and-milestone` files issues behind the filing approval.
+- [x] Context Resolution > "1. Parse Flags" documents `--intent=continue|stop`, `--coordinated`, and `--no-coordinated` as flags usable on a direct `/plan` run, and the frontmatter `argument-hint` lists all three (R5).
+- [x] An `--intent` value other than `continue` or `stop`, a repeated `--intent` (e.g. `--intent=stop --intent=continue`), or `--coordinated` together with `--no-coordinated` is rejected with an error naming the offending flag before any `wip/plan_<topic>_*` file is written (Interfaces table, `/plan` row).
+- [x] `### Coordinated Mode (multi-repo)` is renamed `### Coordinated Mode`, and neither it nor "Execution Mode Decision" says coordinated requires, or is the generalization for, more than one repository; the subsection says coordinated work items are outlines with Repo/Group at the default tracking level and issues with Repo/Group rows only when the tracking level files them (R6, R7).
+- [x] "Execution Mode Decision" gains a "Split mode" rule naming the four-level precedence, stating `continue` resolves to `coordinated` and `stop` or no intent to `multi-pr`, stating a non-split is `single-pr` regardless of intent or flags, and binding to `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md` for the header values instead of restating them (R5, R8).
+- [x] The SKILL.md paragraph on the Draft -> Active gate and the "### Output" list include coordinated: an outline-shaped coordinated PLAN (tracking level `none`) is authored at `Active` with nothing filed; a coordinated PLAN at `issues`/`issues-and-milestone` files issues behind the filing approval.
 
 *`resolve-split-mode.sh` and step 5a (`phase-3-decomposition.md`)*
 
-- [ ] Step 3.6 keeps steps 1-5 (split decision, `split_branch`, `split_rationale`) unchanged in meaning and states that `--intent` and the coordination flags are not read by them, so `split_branch` for a DESIGN is identical under `--intent=continue`, `--intent=stop`, and no intent (R4).
-- [ ] When the work doesn't split, the decomposition frontmatter records `execution_mode: single-pr` and `split_mode_source: none`, the same values `resolve-split-mode.sh --split no` prints.
-- [ ] A new step 5a runs only when the work splits. It runs `skills/plan/scripts/resolve-split-mode.sh` and copies its output into the decomposition frontmatter as `execution_mode` and `split_mode_source`; the phase text forbids the agent from resolving the precedence itself or overriding the script except through step 6's interactive override, which re-runs the script with the override as `--split yes|no`.
-- [ ] Step 5a also runs after the step 6 override (when the confirmed mode splits) and on roadmap input (whose split branch is Incremental Value).
-- [ ] `resolve-split-mode.sh --split <yes|no> [--intent <continue|stop|none>] [--coordinated|--no-coordinated] [--claude-md <path>]` prints exactly two lines, `execution_mode=<single-pr|multi-pr|coordinated>` and `split_mode_source=<none|flag|intent|header|default>`, and exits 0. `--split no` always prints `single-pr` with source `none`, and `--split yes` never prints source `none`, matching the value set Issue 9 documents in `coordination-strategy.md` and `parent-skill-state-schema.md`.
-- [ ] With `--split yes` it applies explicit flag > `--intent` > coordinated-by-default header > `multi-pr`, reading the header values defined in `references/coordination-strategy.md` (Issue 9); the script carries the value list as a constant and its test fails if the two lists differ.
-- [ ] The script rejects, with non-zero exit, empty stdout, and a stderr line naming the argument: a missing or invalid `--split`, an `--intent` outside `continue|stop|none`, a repeated flag, both coordination flags, and a `--claude-md` path that doesn't exist. It makes no network or `gh` call and runs under the repo's bash 3.2 floor.
-- [ ] `skills/plan/scripts/resolve-split-mode_test.sh` covers the precedence as a table: `--split no` with each intent/flag combination; an explicit flag beating a contrary intent and header (`--no-coordinated --intent continue`; `--coordinated --intent stop` with a non-coordinated header); intent beating a coordinated header (`--intent stop` gives `multi-pr`, source `intent`); a header alone (source `header`); nothing at all (`multi-pr`, source `default`); and every rejection case. The test is wired into `.github/workflows/check-plan-scripts.yml`.
-- [ ] The step 3.5/3.R4 templates and the step 8 example show `execution_mode: <single-pr | multi-pr | coordinated>` and `split_mode_source`, and step 6's AskUserQuestion lists `coordinated` as an option when the work splits.
+- [x] Step 3.6 keeps steps 1-5 (split decision, `split_branch`, `split_rationale`) unchanged in meaning and states that `--intent` and the coordination flags are not read by them, so `split_branch` for a DESIGN is identical under `--intent=continue`, `--intent=stop`, and no intent (R4).
+- [x] When the work doesn't split, the decomposition frontmatter records `execution_mode: single-pr` and `split_mode_source: none`, the same values `resolve-split-mode.sh --split no` prints.
+- [x] A new step 5a runs only when the work splits. It runs `skills/plan/scripts/resolve-split-mode.sh` and copies its output into the decomposition frontmatter as `execution_mode` and `split_mode_source`; the phase text forbids the agent from resolving the precedence itself or overriding the script except through step 6's interactive override, which re-runs the script with the override as `--split yes|no`.
+- [x] Step 5a also runs after the step 6 override (when the confirmed mode splits) and on roadmap input (whose split branch is Incremental Value).
+- [x] `resolve-split-mode.sh --split <yes|no> [--intent <continue|stop|none>] [--coordinated|--no-coordinated] [--claude-md <path>]` prints exactly two lines, `execution_mode=<single-pr|multi-pr|coordinated>` and `split_mode_source=<none|flag|intent|header|default>`, and exits 0. `--split no` always prints `single-pr` with source `none`, and `--split yes` never prints source `none`, matching the value set Issue 9 documents in `coordination-strategy.md` and `parent-skill-state-schema.md`.
+- [x] With `--split yes` it applies explicit flag > `--intent` > coordinated-by-default header > `multi-pr`, reading the header values defined in `references/coordination-strategy.md` (Issue 9); the script carries the value list as a constant and its test fails if the two lists differ.
+- [x] The script rejects, with non-zero exit, empty stdout, and a stderr line naming the argument: a missing or invalid `--split`, an `--intent` outside `continue|stop|none`, a repeated flag, both coordination flags, and a `--claude-md` path that doesn't exist. It makes no network or `gh` call and runs under the repo's bash 3.2 floor.
+- [x] `skills/plan/scripts/resolve-split-mode_test.sh` covers the precedence as a table: `--split no` with each intent/flag combination; an explicit flag beating a contrary intent and header (`--no-coordinated --intent continue`; `--coordinated --intent stop` with a non-coordinated header); intent beating a coordinated header (`--intent stop` gives `multi-pr`, source `intent`); a header alone (source `header`); nothing at all (`multi-pr`, source `default`); and every rejection case. The test is wired into `.github/workflows/check-plan-scripts.yml`.
+- [x] The step 3.5/3.R4 templates and the step 8 example show `execution_mode: <single-pr | multi-pr | coordinated>` and `split_mode_source`, and step 6's AskUserQuestion lists `coordinated` as an option when the work splits.
 
 *Tracking level and work-item shape for coordinated*
 
-- [ ] Step 5a, on a `coordinated` outcome, resolves the tracking level on the `flag > CLAUDE.md ## Tracking Level: > mode default` stack with `none` as coordinated's default and records it as `tracking_level` in the decomposition frontmatter, so Phase 4 can pick body depth before Phase 7 runs.
-- [ ] On a `coordinated` outcome every work item names its repository and PR group, with `<owner/repo>` the current repository and one distinct `^[a-z][a-z0-9-]*$` group slug per split unit (so a single-repo split yields at least two groups) (R6). At tracking level `none` these are `**Repo**: <owner/repo>` and `**Group**: <slug>` lines in the outline; at `issues`/`issues-and-milestone` they become the `_Repo: <owner/repo> \| Group: <slug>_` annotation row under the issue's table row.
-- [ ] A coordinated non-PR gate is declared at `none` as a `### Gate: <name>` block in `## Issue Outlines` with `**After**: Issue <N>[, Issue <M>...]`, `**Before**: Issue <N>[, ...]`, and `**Condition**: <text>` lines, in the form `plan-doc-structure.md` documents (Issue 11); at `issues` levels it is the existing `^_Gate: <name> \| After: ... \| Before: ..._` row.
+- [x] Step 5a, on a `coordinated` outcome, resolves the tracking level on the `flag > CLAUDE.md ## Tracking Level: > mode default` stack with `none` as coordinated's default and records it as `tracking_level` in the decomposition frontmatter, so Phase 4 can pick body depth before Phase 7 runs.
+- [x] On a `coordinated` outcome every work item names its repository and PR group, with `<owner/repo>` the current repository and one distinct `^[a-z][a-z0-9-]*$` group slug per split unit (so a single-repo split yields at least two groups) (R6). At tracking level `none` these are `**Repo**: <owner/repo>` and `**Group**: <slug>` lines in the outline; at `issues`/`issues-and-milestone` they become the `_Repo: <owner/repo> \| Group: <slug>_` annotation row under the issue's table row.
+- [x] A coordinated non-PR gate is declared at `none` as a `### Gate: <name>` block in `## Issue Outlines` with `**After**: Issue <N>[, Issue <M>...]`, `**Before**: Issue <N>[, ...]`, and `**Condition**: <text>` lines, in the form `plan-doc-structure.md` documents (Issue 11); at `issues` levels it is the existing `^_Gate: <name> \| After: ... \| Before: ..._` row.
 
 *Phase 4 depth (`phase-4-agent-generation.md`)*
 
-- [ ] "## Execution Mode" and step 4.4 list `coordinated`: at tracking level `none` it gets single-pr outline depth (`{{EXECUTION_MODE}}` single-pr, step 4.7's single-pr validation); when issues will be filed it gets full multi-pr issue bodies with step 4.7's multi-pr validation.
+- [x] "## Execution Mode" and step 4.4 list `coordinated`: at tracking level `none` it gets single-pr outline depth (`{{EXECUTION_MODE}}` single-pr, step 4.7's single-pr validation); when issues will be filed it gets full multi-pr issue bodies with step 4.7's multi-pr validation.
 
 *Phase 7 coordinated branch (`phase-7-creation.md`)*
 
-- [ ] This issue is the only one that edits `phase-7-creation.md`. "Resolve the Tracking Level first" replaces the paragraph beginning "`coordinated` PLANs are exempt" with text naming `none` as coordinated's default alongside `single-pr`, and states Phase 7 always writes `tracking_level` into a coordinated PLAN's frontmatter. After the change, `grep -n "PLANs are exempt" skills/plan/references/phases/phase-7-creation.md` returns nothing, and no sentence in the file says a coordinated PLAN always carries issues.
-- [ ] A new coordinated-mode section, listed in the Table of Contents, writes the PLAN with `execution_mode: coordinated`, `split_rationale`, `split_mode_source`, and `tracking_level`.
-- [ ] At `none` the section writes an outline-shaped PLAN at `status: Active`: `## Issue Outlines` with each outline's Goal, Acceptance Criteria, Dependencies, `**Repo**:`, and `**Group**:`, any `### Gate:` blocks, a `## Dependency Graph`, and no `## Implementation Issues` table. It makes no `gh issue` or `gh api` milestone call (R7). Phase 7's `shirabe validate` run on that PLAN exits 0 with no FC04 or FC14 finding.
-- [ ] Only at `issues` or `issues-and-milestone` does the section file issues, by reusing `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh`, and write the Implementation Issues table with a `_Repo: ... \| Group: ..._` row per issue and `^_Gate:` rows (R7).
-- [ ] That filing path runs an explicit approval before the first `gh issue create`: interactively through AskUserQuestion; under `--auto` resolved by `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` with a decision block in `wip/plan_<topic>_decisions.md` and no blocking prompt (R7).
-- [ ] The multi-pr and single-pr creation branches are unchanged in behavior; the approval step exists only in the coordinated filing path (D2).
-- [ ] Step 7.2 "Suggest Next Steps" and the 7.7 summaries name `/execute docs/plans/PLAN-<topic>.md` for `single-pr` and `coordinated`, and `/work-on` for `multi-pr` (R23).
+- [x] This issue is the only one that edits `phase-7-creation.md`. "Resolve the Tracking Level first" replaces the paragraph beginning "`coordinated` PLANs are exempt" with text naming `none` as coordinated's default alongside `single-pr`, and states Phase 7 always writes `tracking_level` into a coordinated PLAN's frontmatter. After the change, `grep -n "PLANs are exempt" skills/plan/references/phases/phase-7-creation.md` returns nothing, and no sentence in the file says a coordinated PLAN always carries issues.
+- [x] A new coordinated-mode section, listed in the Table of Contents, writes the PLAN with `execution_mode: coordinated`, `split_rationale`, `split_mode_source`, and `tracking_level`.
+- [x] At `none` the section writes an outline-shaped PLAN at `status: Active`: `## Issue Outlines` with each outline's Goal, Acceptance Criteria, Dependencies, `**Repo**:`, and `**Group**:`, any `### Gate:` blocks, a `## Dependency Graph`, and no `## Implementation Issues` table. It makes no `gh issue` or `gh api` milestone call (R7). Phase 7's `shirabe validate` run on that PLAN exits 0 with no FC04 or FC14 finding.
+- [x] Only at `issues` or `issues-and-milestone` does the section file issues, by reusing `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh`, and write the Implementation Issues table with a `_Repo: ... \| Group: ..._` row per issue and `^_Gate:` rows (R7).
+- [x] That filing path runs an explicit approval before the first `gh issue create`: interactively through AskUserQuestion; under `--auto` resolved by `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` with a decision block in `wip/plan_<topic>_decisions.md` and no blocking prompt (R7).
+- [x] The multi-pr and single-pr creation branches are unchanged in behavior; the approval step exists only in the coordinated filing path (D2).
+- [x] Step 7.2 "Suggest Next Steps" and the 7.7 summaries name `/execute docs/plans/PLAN-<topic>.md` for `single-pr` and `coordinated`, and `/work-on` for `multi-pr` (R23).
 
 *`gh` shim and evals*
 
-- [ ] A new executable `skills/plan/evals/fixtures/bin/gh` serves canned responses per `EVAL_SCENARIO` and appends each invocation's arguments, one line per call, to a call log named by an env var (e.g. `GH_CALL_LOG`), so a scenario can count `issue create` lines (R26).
-- [ ] Fixtures exist under `skills/plan/evals/fixtures/`: a forced-split single-repo DESIGN (split forced by a Hard Constraint stated in the DESIGN), a no-split DESIGN too small for any branch to fire, a multi-repo DESIGN, a CLAUDE.md whose coordination header resolves to coordinated, and a CLAUDE.md with `## Tracking Level: issues`.
-- [ ] `skills/plan/evals/evals.json` gains scenarios, each naming the requirement IDs it covers, asserting:
-  - [ ] `--intent=continue` on the forced-split DESIGN produces `coordinated` with every work item's Repo equal to the one repository and at least two distinct Groups; `--intent=stop` produces `multi-pr` (R5, R6).
-  - [ ] `split_branch` on the forced-split DESIGN is the same for `--intent=continue`, `--intent=stop`, and no intent (R4).
-  - [ ] On the no-split DESIGN, `--intent=continue`, `--intent=stop`, and no intent all produce `single-pr` (R5).
-  - [ ] `--intent=continue --no-coordinated` on the forced-split DESIGN produces `multi-pr` with `split_mode_source: flag`; `--intent=stop --coordinated` on the multi-repo DESIGN produces `coordinated` with `split_mode_source: flag` (R5, R8).
-  - [ ] With the coordinated-header CLAUDE.md, the forced-split DESIGN with `--intent=stop` produces `multi-pr` and with no intent produces `coordinated` (`split_mode_source: header`) (R5, R8).
-  - [ ] `--auto --intent=continue` on the forced-split DESIGN with no tracking-level header writes a coordinated PLAN with `tracking_level: none`, outlines each carrying `**Repo**:` and `**Group**:`, no Implementation Issues table, zero `issue create` lines in the shim log, and `shirabe validate` on the written PLAN exits 0 (R7).
-  - [ ] The same run with the `## Tracking Level: issues` CLAUDE.md logs exactly one `issue create` per outline and the transcript contains no approval question (R7).
-  - [ ] An interactive `--intent=continue` run with `## Tracking Level: issues` asks the filing-approval question before the first `issue create` line appears in the shim log (R7).
-  - [ ] `--intent=bogus`, `--intent=stop --intent=continue`, and `--coordinated --no-coordinated` each end with an error naming the flag and leave no `wip/plan_<topic>_*` file (Interfaces).
-  - [ ] Closing advice names `/execute` for a `single-pr` and a `coordinated` PLAN and `/work-on` for a `multi-pr` PLAN (R23).
-- [ ] Existing evals 5 (`single-pr-execution-mode`) and 7 (`auto-mode-non-interactive`) pass unchanged. Eval 26 is edited only where it asserts "Coordinated Mode (multi-repo)" or "multi-repo generalization" text, and eval 24 only there and where it asserts issue annotation rows (at the default level its multi-repo run now writes outlines with Repo/Group). All existing `/plan` evals pass (R27).
-- [ ] Each new scenario passes with `--runs 3` (R26).
+- [x] A new executable `skills/plan/evals/fixtures/bin/gh` serves canned responses per `EVAL_SCENARIO` and appends each invocation's arguments, one line per call, to a call log named by an env var (e.g. `GH_CALL_LOG`), so a scenario can count `issue create` lines (R26).
+- [x] Fixtures exist under `skills/plan/evals/fixtures/`: a forced-split single-repo DESIGN (split forced by a Hard Constraint stated in the DESIGN), a no-split DESIGN too small for any branch to fire, a multi-repo DESIGN, a CLAUDE.md whose coordination header resolves to coordinated, and a CLAUDE.md with `## Tracking Level: issues`.
+- [x] `skills/plan/evals/evals.json` gains scenarios, each naming the requirement IDs it covers, asserting:
+  - [x] `--intent=continue` on the forced-split DESIGN produces `coordinated` with every work item's Repo equal to the one repository and at least two distinct Groups; `--intent=stop` produces `multi-pr` (R5, R6).
+  - [x] `split_branch` on the forced-split DESIGN is the same for `--intent=continue`, `--intent=stop`, and no intent (R4).
+  - [x] On the no-split DESIGN, `--intent=continue`, `--intent=stop`, and no intent all produce `single-pr` (R5).
+  - [x] `--intent=continue --no-coordinated` on the forced-split DESIGN produces `multi-pr` with `split_mode_source: flag`; `--intent=stop --coordinated` on the multi-repo DESIGN produces `coordinated` with `split_mode_source: flag` (R5, R8).
+  - [x] With the coordinated-header CLAUDE.md, the forced-split DESIGN with `--intent=stop` produces `multi-pr` and with no intent produces `coordinated` (`split_mode_source: header`) (R5, R8).
+  - [x] `--auto --intent=continue` on the forced-split DESIGN with no tracking-level header writes a coordinated PLAN with `tracking_level: none`, outlines each carrying `**Repo**:` and `**Group**:`, no Implementation Issues table, zero `issue create` lines in the shim log, and `shirabe validate` on the written PLAN exits 0 (R7).
+  - [x] The same run with the `## Tracking Level: issues` CLAUDE.md logs exactly one `issue create` per outline and the transcript contains no approval question (R7).
+  - [x] An interactive `--intent=continue` run with `## Tracking Level: issues` asks the filing-approval question before the first `issue create` line appears in the shim log (R7).
+  - [x] `--intent=bogus`, `--intent=stop --intent=continue`, and `--coordinated --no-coordinated` each end with an error naming the flag and leave no `wip/plan_<topic>_*` file (Interfaces).
+  - [x] Closing advice names `/execute` for a `single-pr` and a `coordinated` PLAN and `/work-on` for a `multi-pr` PLAN (R23).
+- [x] Existing evals 5 (`single-pr-execution-mode`) and 7 (`auto-mode-non-interactive`) pass unchanged. Eval 26 is edited only where it asserts "Coordinated Mode (multi-repo)" or "multi-repo generalization" text, and eval 24 only there and where it asserts issue annotation rows (at the default level its multi-repo run now writes outlines with Repo/Group). All existing `/plan` evals pass (R27).
+- [x] Each new scenario passes with `--runs 3` (R26).
 
 *Downstream deliverables*
 
-- [ ] Must deliver: `/plan` accepts `--intent=continue|stop`, `--coordinated`, `--no-coordinated`, and `--auto` in any order after the DESIGN path, documented as direct-use flags, so `/scope` can forward them verbatim (required by Issue 17).
-- [ ] Must deliver: an invalid or repeated `--intent`, or both coordination flags, fails with an error naming the flag before any `wip/` write (required by Issue 17).
-- [ ] Must deliver: a `/plan` run with no intent and no coordination flag produces the same mode and artifacts as today, so `/scope`'s no-intent hop is unchanged (required by Issue 17).
-- [ ] Must deliver: `resolve-split-mode.sh`'s argument and two-line output interface, stable and documented in the script header, plus `split_mode_source` written into the PLAN frontmatter next to `execution_mode`, so `check-plan-mode.sh` can re-run the resolver over a PLAN's split record and compare (required by Issue 17).
+- [x] Must deliver: `/plan` accepts `--intent=continue|stop`, `--coordinated`, `--no-coordinated`, and `--auto` in any order after the DESIGN path, documented as direct-use flags, so `/scope` can forward them verbatim (required by Issue 17).
+- [x] Must deliver: an invalid or repeated `--intent`, or both coordination flags, fails with an error naming the flag before any `wip/` write (required by Issue 17).
+- [x] Must deliver: a `/plan` run with no intent and no coordination flag produces the same mode and artifacts as today, so `/scope`'s no-intent hop is unchanged (required by Issue 17).
+- [x] Must deliver: `resolve-split-mode.sh`'s argument and two-line output interface, stable and documented in the script header, plus `split_mode_source` written into the PLAN frontmatter next to `execution_mode`, so `check-plan-mode.sh` can re-run the resolver over a PLAN's split record and compare (required by Issue 17).
 
 **Dependencies**: Issue 9, Issue 11
 
@@ -876,66 +876,66 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R6, R7, R8, R27)
 
 *Rust outline parser (`crates/shirabe-validate/src/table.rs`, `crates/shirabe/src/plan_outlines.rs`)*
 
-- [ ] `OutlineBlock` gains `repo: Option<String>` and `group: Option<String>`, read from `**Repo**:` and `**Group**:` lines in the block (value trimmed, surrounding backticks stripped). Neither field is validated by the parser; it stays total.
-- [ ] `OutlineSection` gains `gates`, one entry per `### Gate: <name>` heading in `## Issue Outlines`, with `name`, `line`, the outline numbers named on its `**After**:` and `**Before**:` lines (`Issue <N>` or `<<ISSUE:N>>` references, resolved as dependencies are), any unresolved After/Before tokens verbatim, and the `**Condition**:` text.
-- [ ] A `### Gate:` heading is no longer reported in `nonconforming_headings`, and it closes the preceding outline block: lines under it don't change that outline's goal, acceptance criteria, dependencies, repo, or group.
-- [ ] The `shirabe plan outlines` envelope always emits `"repo"` and `"group"` on every outline (`null` when undeclared) and a top-level `"gates"` array (empty when none). The schema stays `shirabe-plan-outlines/v1`, since the change only adds keys; existing keys and their values are unchanged.
-- [ ] Unit tests in `table.rs` and `plan_outlines.rs` cover: an outline with both fields, with one, with neither; a gate with After/Before/Condition; a gate naming an outline that doesn't exist (reported unresolved); a gate between two outlines leaving the first outline's fields intact; and the envelope shape. Existing parser tests pass unchanged.
+- [x] `OutlineBlock` gains `repo: Option<String>` and `group: Option<String>`, read from `**Repo**:` and `**Group**:` lines in the block (value trimmed, surrounding backticks stripped). Neither field is validated by the parser; it stays total.
+- [x] `OutlineSection` gains `gates`, one entry per `### Gate: <name>` heading in `## Issue Outlines`, with `name`, `line`, the outline numbers named on its `**After**:` and `**Before**:` lines (`Issue <N>` or `<<ISSUE:N>>` references, resolved as dependencies are), any unresolved After/Before tokens verbatim, and the `**Condition**:` text.
+- [x] A `### Gate:` heading is no longer reported in `nonconforming_headings`, and it closes the preceding outline block: lines under it don't change that outline's goal, acceptance criteria, dependencies, repo, or group.
+- [x] The `shirabe plan outlines` envelope always emits `"repo"` and `"group"` on every outline (`null` when undeclared) and a top-level `"gates"` array (empty when none). The schema stays `shirabe-plan-outlines/v1`, since the change only adds keys; existing keys and their values are unchanged.
+- [x] Unit tests in `table.rs` and `plan_outlines.rs` cover: an outline with both fields, with one, with neither; a gate with After/Before/Condition; a gate naming an outline that doesn't exist (reported unresolved); a gate between two outlines leaving the first outline's fields intact; and the envelope shape. Existing parser tests pass unchanged.
 
 *Validator (`crates/shirabe-validate/src/checks.rs`)*
 
-- [ ] `plan_is_outline_shaped()` returns true for `coordinated` at an explicit `tracking_level: none`, exactly as for `multi-pr`; `coordinated` with the field absent, `issues`, or `issues-and-milestone` stays false. Its doc comment drops the "coordinated is deliberately excluded" paragraph and states this rule.
-- [ ] `outline_shape_does_not_leak_to_issue_carrying_plans` moves `("coordinated", "none")` into a positive assertion, and a new test asserts `("coordinated", "issues")`, `("coordinated", "issues-and-milestone")`, and coordinated with no field stay table-shaped.
-- [ ] An outline-shaped coordinated PLAN (outlines with Repo/Group plus a `## Dependency Graph`, no Implementation Issues table) produces no FC04 or FC14 finding, matching the issueless multi-pr shape; the same PLAN with a populated Implementation Issues table as well gets the FC14 mutual-exclusion notice (R7; PRD AC "shirabe validate accepts the outline-shaped coordinated PLAN and reports FC14 when a coordinated PLAN populates both").
-- [ ] A new FC14 sub-check flags, per outline, an outline in an outline-shaped coordinated PLAN whose `**Repo**:` or `**Group**:` is missing or invalid, using the rules `plan-to-tasks.sh` applies to the table path's annotation row (repo matches the GitHub owner/repo charset with exactly one slash; group matches `^[a-z][a-z0-9-]*$`), naming the outline key and the field. It also flags a gate whose After or Before names no outline, and a gate name outside `^[a-z][a-z0-9-]*$`. Outlines in single-pr and multi-pr PLANs are never flagged for missing Repo/Group.
-- [ ] `check_fc14_well_formed_coordinated_no_notice` and `check_fc14_coordinated_with_outlines_fires_mutual_exclusion` (coordinated with no `tracking_level`) pass unchanged, and the `check_fc14` comment calling coordinated "the multi-repo generalization of multi-pr" is reworded to "one or more repositories".
+- [x] `plan_is_outline_shaped()` returns true for `coordinated` at an explicit `tracking_level: none`, exactly as for `multi-pr`; `coordinated` with the field absent, `issues`, or `issues-and-milestone` stays false. Its doc comment drops the "coordinated is deliberately excluded" paragraph and states this rule.
+- [x] `outline_shape_does_not_leak_to_issue_carrying_plans` moves `("coordinated", "none")` into a positive assertion, and a new test asserts `("coordinated", "issues")`, `("coordinated", "issues-and-milestone")`, and coordinated with no field stay table-shaped.
+- [x] An outline-shaped coordinated PLAN (outlines with Repo/Group plus a `## Dependency Graph`, no Implementation Issues table) produces no FC04 or FC14 finding, matching the issueless multi-pr shape; the same PLAN with a populated Implementation Issues table as well gets the FC14 mutual-exclusion notice (R7; PRD AC "shirabe validate accepts the outline-shaped coordinated PLAN and reports FC14 when a coordinated PLAN populates both").
+- [x] A new FC14 sub-check flags, per outline, an outline in an outline-shaped coordinated PLAN whose `**Repo**:` or `**Group**:` is missing or invalid, using the rules `plan-to-tasks.sh` applies to the table path's annotation row (repo matches the GitHub owner/repo charset with exactly one slash; group matches `^[a-z][a-z0-9-]*$`), naming the outline key and the field. It also flags a gate whose After or Before names no outline, and a gate name outside `^[a-z][a-z0-9-]*$`. Outlines in single-pr and multi-pr PLANs are never flagged for missing Repo/Group.
+- [x] `check_fc14_well_formed_coordinated_no_notice` and `check_fc14_coordinated_with_outlines_fires_mutual_exclusion` (coordinated with no `tracking_level`) pass unchanged, and the `check_fc14` comment calling coordinated "the multi-repo generalization of multi-pr" is reworded to "one or more repositories".
 
 *`plan-to-tasks.sh` coordinated outline path*
 
-- [ ] The `coordinated)` case routes to the outline path only when the PLAN's `tracking_level` is `none`; absent, unrecognized, `issues`, and `issues-and-milestone` keep the table path.
-- [ ] The outline path reads the envelope through `resolve_shirabe_bin` and `shirabe plan outlines`, with the same failure handling as `process_single_pr` (missing binary, non-zero exit, unrecognized schema). If the envelope lacks the `repo`, `group`, or `gates` keys it exits 1 with the existing "out of step; rebuild or reinstall" guidance instead of reporting missing fields.
-- [ ] It refuses with exit 2 and empty stdout: no outlines; an outline with unresolved dependencies (same wording as `process_single_pr`); an outline missing Repo or Group, worded like the table path with the outline in place of the issue number (e.g. `coordinated outline Issue 3 is missing a Repo/Group declaration (**Repo**: owner/repo and **Group**: <pr-group>)`); an invalid repo or group, checked with `validate_repo_tag` and `validate_pr_group`; a gate name that fails `validate_pr_group`; and a gate whose After or Before names no outline.
-- [ ] `### Gate:` blocks become gate nodes exactly as `^_Gate:` rows do: node `gate-<name>`, `vars.NODE_KIND: "gate"`, an edge from the node holding each After outline to the gate, and from the gate to the node holding each Before outline. Outline references resolve to their current node on every contraction attempt, so a split at the seam retargets gate edges.
-- [ ] Contraction, Kahn ordering, split-at-seam, and the irreducible-cycle refusal run through the existing `build_contracted_graph`, `kahn_order`, and `split_repo_at_seam`; the script has no second contraction implementation.
+- [x] The `coordinated)` case routes to the outline path only when the PLAN's `tracking_level` is `none`; absent, unrecognized, `issues`, and `issues-and-milestone` keep the table path.
+- [x] The outline path reads the envelope through `resolve_shirabe_bin` and `shirabe plan outlines`, with the same failure handling as `process_single_pr` (missing binary, non-zero exit, unrecognized schema). If the envelope lacks the `repo`, `group`, or `gates` keys it exits 1 with the existing "out of step; rebuild or reinstall" guidance instead of reporting missing fields.
+- [x] It refuses with exit 2 and empty stdout: no outlines; an outline with unresolved dependencies (same wording as `process_single_pr`); an outline missing Repo or Group, worded like the table path with the outline in place of the issue number (e.g. `coordinated outline Issue 3 is missing a Repo/Group declaration (**Repo**: owner/repo and **Group**: <pr-group>)`); an invalid repo or group, checked with `validate_repo_tag` and `validate_pr_group`; a gate name that fails `validate_pr_group`; and a gate whose After or Before names no outline.
+- [x] `### Gate:` blocks become gate nodes exactly as `^_Gate:` rows do: node `gate-<name>`, `vars.NODE_KIND: "gate"`, an edge from the node holding each After outline to the gate, and from the gate to the node holding each Before outline. Outline references resolve to their current node on every contraction attempt, so a split at the seam retargets gate edges.
+- [x] Contraction, Kahn ordering, split-at-seam, and the irreducible-cycle refusal run through the existing `build_contracted_graph`, `kahn_order`, and `split_repo_at_seam`; the script has no second contraction implementation.
 
 *Node vars on both paths*
 
-- [ ] Every `NODE_KIND: "pr"` entry on both paths carries `vars.REPO` (full `owner/repo`), `vars.PR_GROUP` (the group as written), `vars.ISSUES` (a comma-separated string with no spaces or `#`, in PLAN order: GitHub issue numbers on the table path, outline numbers from the `### Issue <N>:` headings on the outline path), and `vars.ISSUE_SOURCE` (`github` on the table path, `plan_outline` on the outline path). All values are JSON strings.
-- [ ] Gate entries carry none of `REPO`, `PR_GROUP`, `ISSUES`, or `ISSUE_SOURCE`.
-- [ ] A split-at-seam node (`pr-<repo-name>-<group>-i<N>`) carries its origin node's `REPO`, `PR_GROUP`, and `ISSUE_SOURCE`, and `ISSUES` equal to `"N"`.
-- [ ] Across PR nodes, `ISSUES` partitions the PLAN's work items: each appears in exactly one node.
-- [ ] For every existing coordinated fixture (`test_coordinated_basic`, `test_coordinated_contraction_cycle_resolved`, `test_coordinated_gate_node`, `test_coordinated_invalid_tags`, and both atomicity tests), node names, `waits_on`, order, and exit codes are unchanged; only the added vars differ.
+- [x] Every `NODE_KIND: "pr"` entry on both paths carries `vars.REPO` (full `owner/repo`), `vars.PR_GROUP` (the group as written), `vars.ISSUES` (a comma-separated string with no spaces or `#`, in PLAN order: GitHub issue numbers on the table path, outline numbers from the `### Issue <N>:` headings on the outline path), and `vars.ISSUE_SOURCE` (`github` on the table path, `plan_outline` on the outline path). All values are JSON strings.
+- [x] Gate entries carry none of `REPO`, `PR_GROUP`, `ISSUES`, or `ISSUE_SOURCE`.
+- [x] A split-at-seam node (`pr-<repo-name>-<group>-i<N>`) carries its origin node's `REPO`, `PR_GROUP`, and `ISSUE_SOURCE`, and `ISSUES` equal to `"N"`.
+- [x] Across PR nodes, `ISSUES` partitions the PLAN's work items: each appears in exactly one node.
+- [x] For every existing coordinated fixture (`test_coordinated_basic`, `test_coordinated_contraction_cycle_resolved`, `test_coordinated_gate_node`, `test_coordinated_invalid_tags`, and both atomicity tests), node names, `waits_on`, order, and exit codes are unchanged; only the added vars differ.
 
 *Refusal wording*
 
-- [ ] The irreducible-cycle `log` and `die_schema` lines say "atomicity across PR groups" and no longer "cross-repo atomicity", still contain "compatible-intermediate sequence", and still name `references/coordination-strategy.md`; exit 2, empty stdout.
-- [ ] `grep -n "cross-repo atomicity"` over `skills/plan/scripts/plan-to-tasks.sh`, `skills/plan/references/plan-to-tasks-contract.md`, and `skills/plan/SKILL.md` returns nothing, and the header comment calls coordinated "one or more repositories" rather than "the multi-repo generalization".
+- [x] The irreducible-cycle `log` and `die_schema` lines say "atomicity across PR groups" and no longer "cross-repo atomicity", still contain "compatible-intermediate sequence", and still name `references/coordination-strategy.md`; exit 2, empty stdout.
+- [x] `grep -n "cross-repo atomicity"` over `skills/plan/scripts/plan-to-tasks.sh`, `skills/plan/references/plan-to-tasks-contract.md`, and `skills/plan/SKILL.md` returns nothing, and the header comment calls coordinated "one or more repositories" rather than "the multi-repo generalization".
 
 *Tests (`skills/plan/scripts/plan-to-tasks_test.sh`)*
 
-- [ ] `test_coordinated_atomicity_refused_pr_nodes` greps for "atomicity across PR groups" and "compatible-intermediate sequence".
-- [ ] `test_coordinated_basic` also asserts `REPO`/`PR_GROUP`/`ISSUES`/`ISSUE_SOURCE` on both nodes (`acme/repo-a`/`default`/`"1"`/`github` and `acme/repo-b`/`default`/`"2"`/`github`), covering the multi-repo `Group: default` shape (R8); `test_coordinated_gate_node` asserts the gate has none of the four keys; `test_coordinated_contraction_cycle_resolved` asserts each split node's single-number `ISSUES` and inherited `REPO`/`PR_GROUP`.
-- [ ] New `test_coordinated_single_repo_two_groups` (table path, all issues in `acme/repo-a`, groups `core` and `cli`) asserts two nodes `pr-repo-a-core` and `pr-repo-a-cli`, the edge between them, and `ISSUES` `"1,2"` and `"3"`.
-- [ ] New `test_coordinated_outlines_two_groups` (`tracking_level: none`, three outlines in one repo, two groups, a dependency across groups) asserts the same node names and edges as the table-path equivalent, `ISSUES` as outline numbers, and `ISSUE_SOURCE: plan_outline` (R7; PRD AC "one PR node per group with `ISSUES` listing local outline IDs").
-- [ ] New outline-path tests cover a `### Gate:` block (gate node and its edges match the equivalent `^_Gate:` row), a missing Group, an invalid repo tag, a gate naming a missing outline, and a coordinated PLAN with `tracking_level: none` and no outlines (each exit 2), plus the envelope-missing-`repo` skew case (exit 1).
-- [ ] New `test_coordinated_without_tracking_level_uses_table`: a coordinated PLAN with outlines and a table but no `tracking_level` extracts from the table.
-- [ ] Every non-coordinated test passes without edits, all new tests are in the run list, and `bash skills/plan/scripts/plan-to-tasks_test.sh` exits 0.
+- [x] `test_coordinated_atomicity_refused_pr_nodes` greps for "atomicity across PR groups" and "compatible-intermediate sequence".
+- [x] `test_coordinated_basic` also asserts `REPO`/`PR_GROUP`/`ISSUES`/`ISSUE_SOURCE` on both nodes (`acme/repo-a`/`default`/`"1"`/`github` and `acme/repo-b`/`default`/`"2"`/`github`), covering the multi-repo `Group: default` shape (R8); `test_coordinated_gate_node` asserts the gate has none of the four keys; `test_coordinated_contraction_cycle_resolved` asserts each split node's single-number `ISSUES` and inherited `REPO`/`PR_GROUP`.
+- [x] New `test_coordinated_single_repo_two_groups` (table path, all issues in `acme/repo-a`, groups `core` and `cli`) asserts two nodes `pr-repo-a-core` and `pr-repo-a-cli`, the edge between them, and `ISSUES` `"1,2"` and `"3"`.
+- [x] New `test_coordinated_outlines_two_groups` (`tracking_level: none`, three outlines in one repo, two groups, a dependency across groups) asserts the same node names and edges as the table-path equivalent, `ISSUES` as outline numbers, and `ISSUE_SOURCE: plan_outline` (R7; PRD AC "one PR node per group with `ISSUES` listing local outline IDs").
+- [x] New outline-path tests cover a `### Gate:` block (gate node and its edges match the equivalent `^_Gate:` row), a missing Group, an invalid repo tag, a gate naming a missing outline, and a coordinated PLAN with `tracking_level: none` and no outlines (each exit 2), plus the envelope-missing-`repo` skew case (exit 1).
+- [x] New `test_coordinated_without_tracking_level_uses_table`: a coordinated PLAN with outlines and a table but no `tracking_level` extracts from the table.
+- [x] Every non-coordinated test passes without edits, all new tests are in the run list, and `bash skills/plan/scripts/plan-to-tasks_test.sh` exits 0.
 
 *Format docs*
 
-- [ ] `skills/plan/references/plan-to-tasks-contract.md` documents the outline path (selection only on `tracking_level: none`, the envelope fields it reads, the refusals), the four PR-node vars and their formats on both paths including split nodes, the "atomicity across PR groups" wording, that one PLAN's groups may all be in one repository, a single-repo two-group example for each path, and that multi-pr entries are emitted in Implementation Issues table order as part of the contract.
-- [ ] `skills/plan/references/plan-format.md` drops "`coordinated` is always issue-carrying" and "Absent on `coordinated` PLANs", states that coordinated follows `tracking_level` with default `none`, that the outline form needs an explicit `tracking_level: none`, and that a coordinated PLAN without the field is read as issue-carrying; `coordinated` is no longer called "the multi-repo generalization".
-- [ ] `skills/plan/references/quality/plan-doc-structure.md`'s Execution Mode Differences table and Coordinated Mode section document both coordinated shapes: outline-shaped (outlines each with `**Repo**:` and `**Group**:`, `### Gate: <name>` blocks with `**After**:`/`**Before**:`/`**Condition**: (gate edges live only on the gate block; an outline's `**Dependencies**:` never names a gate)`, a Dependency Graph, authored at `Active`) and issue-carrying (the existing table rows), with an example of each. They drop "the work spans more than one repository".
-- [ ] `grep -rn "always issue-carrying"` over `skills/plan/` and `crates/shirabe-validate/src/checks.rs` returns nothing.
-- [ ] This issue makes no edit to `skills/plan/references/phases/phase-7-creation.md`; Issue 10 owns that file's coordinated-exemption paragraph and coordinated branch.
+- [x] `skills/plan/references/plan-to-tasks-contract.md` documents the outline path (selection only on `tracking_level: none`, the envelope fields it reads, the refusals), the four PR-node vars and their formats on both paths including split nodes, the "atomicity across PR groups" wording, that one PLAN's groups may all be in one repository, a single-repo two-group example for each path, and that multi-pr entries are emitted in Implementation Issues table order as part of the contract.
+- [x] `skills/plan/references/plan-format.md` drops "`coordinated` is always issue-carrying" and "Absent on `coordinated` PLANs", states that coordinated follows `tracking_level` with default `none`, that the outline form needs an explicit `tracking_level: none`, and that a coordinated PLAN without the field is read as issue-carrying; `coordinated` is no longer called "the multi-repo generalization".
+- [x] `skills/plan/references/quality/plan-doc-structure.md`'s Execution Mode Differences table and Coordinated Mode section document both coordinated shapes: outline-shaped (outlines each with `**Repo**:` and `**Group**:`, `### Gate: <name>` blocks with `**After**:`/`**Before**:`/`**Condition**: (gate edges live only on the gate block; an outline's `**Dependencies**:` never names a gate)`, a Dependency Graph, authored at `Active`) and issue-carrying (the existing table rows), with an example of each. They drop "the work spans more than one repository".
+- [x] `grep -rn "always issue-carrying"` over `skills/plan/` and `crates/shirabe-validate/src/checks.rs` returns nothing.
+- [x] This issue makes no edit to `skills/plan/references/phases/phase-7-creation.md`; Issue 10 owns that file's coordinated-exemption paragraph and coordinated branch.
 
 *Downstream deliverables*
 
-- [ ] Must deliver: `plan_is_outline_shaped()` returning true for coordinated at `tracking_level: none`, so the outline-shaped coordinated PLAN `/plan`'s Phase 7 writes passes `shirabe validate` with no FC04 finding, and the `### Gate: <name>` block format (`**After**:`, `**Before**:`, `**Condition**:`) documented in `plan-doc-structure.md` (required by Issue 10).
-- [ ] Must deliver: per-PR-node `vars.REPO`, `vars.PR_GROUP`, `vars.ISSUES`, and `vars.ISSUE_SOURCE` on both coordinated paths, documented in the contract, so the coordinated loop can cut `impl/<slug>-<node-id>` in the right repository and dispatch the node's work items, with outline children read from `PLAN_DOC` when `ISSUE_SOURCE` is `plan_outline`, without re-parsing the PLAN (required by Issue 14).
-- [ ] Must deliver: an outline-shaped coordinated PLAN that `plan-to-tasks.sh` extracts with no `gh` call and `shirabe validate` accepts, so a coordinated run needs no GitHub issue (required by Issue 14).
-- [ ] Must deliver: an unchanged, documented multi-pr output shape (`name: issue-<N>`, `vars.ISSUE_NUMBER`, `waits_on`) in PLAN table order, and documented coordinated node output, so `startable-issues.sh` can wrap `plan-to-tasks.sh` and list roots (`waits_on == []`) in PLAN order (required by Issue 18).
-- [ ] `docs/plans/PLAN-scope-then-execute.md` drops its placeholder `## Implementation Issues` section (kept only so the pre-change validator's section check passed), and `shirabe validate` on it reports no FC04 error and no FC11 or FC14 notice about that section.
+- [x] Must deliver: `plan_is_outline_shaped()` returning true for coordinated at `tracking_level: none`, so the outline-shaped coordinated PLAN `/plan`'s Phase 7 writes passes `shirabe validate` with no FC04 finding, and the `### Gate: <name>` block format (`**After**:`, `**Before**:`, `**Condition**:`) documented in `plan-doc-structure.md` (required by Issue 10).
+- [x] Must deliver: per-PR-node `vars.REPO`, `vars.PR_GROUP`, `vars.ISSUES`, and `vars.ISSUE_SOURCE` on both coordinated paths, documented in the contract, so the coordinated loop can cut `impl/<slug>-<node-id>` in the right repository and dispatch the node's work items, with outline children read from `PLAN_DOC` when `ISSUE_SOURCE` is `plan_outline`, without re-parsing the PLAN (required by Issue 14).
+- [x] Must deliver: an outline-shaped coordinated PLAN that `plan-to-tasks.sh` extracts with no `gh` call and `shirabe validate` accepts, so a coordinated run needs no GitHub issue (required by Issue 14).
+- [x] Must deliver: an unchanged, documented multi-pr output shape (`name: issue-<N>`, `vars.ISSUE_NUMBER`, `waits_on`) in PLAN table order, and documented coordinated node output, so `startable-issues.sh` can wrap `plan-to-tasks.sh` and list roots (`waits_on == []`) in PLAN order (required by Issue 18).
+- [x] `docs/plans/PLAN-scope-then-execute.md` drops its placeholder `## Implementation Issues` section (kept only so the pre-change validator's section check passed), and `shirabe validate` on it reports no FC04 error and no FC11 or FC14 notice about that section.
 
 **Dependencies**: Issue 9
 
@@ -963,69 +963,69 @@ This item delivers only the scripts and their tests. Wiring them into the single
 
 Interface and input handling:
 
-- [ ] `merge-verdict.sh` accepts exactly `--repo <owner/repo> --pr <n> --merge <true|false> --expected-head <sha|none> [--confirm]` in any order. A missing required flag, an unknown flag, a repeated flag, or a value outside its pattern exits non-zero with empty stdout, a usage message on stderr, and no `gh` call logged.
-- [ ] Closed patterns, applied in both scripts before any `gh` call: repository `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`, PR `^[1-9][0-9]*$`, `--merge` exactly `true` or `false`, expected head `^[0-9a-f]{40}$` or the literal `none`, method `squash`, `merge`, or `rebase`. Tests cover `0`, `012`, `1;rm`, a 39-character sha, an uppercase sha, and `owner/repo/extra`, each rejected.
-- [ ] Neither script reads stdin, koto context, or any file under `wip/` or `~/.koto`. A test runs each with stdin closed (`</dev/null`) and with `koto` absent from `PATH` and gets the same verdicts, and `grep -E 'koto|wip/|/dev/stdin'` over both scripts' non-comment lines finds nothing. A second check flags only a `read` that would take the terminal or the caller's stdin: every `read` must take its input from a here-string (`<<<`), a redirect, or a `done <<<`/`done <` on its enclosing loop, so `while IFS= read -r line; do ...; done <<<"$files"` over captured `gh` output passes and a bare `read -r answer` fails.
-- [ ] On success `merge-verdict.sh` prints exactly one line to stdout, the verdict, and exits 0; every diagnostic goes to stderr.
-- [ ] Every verdict the script can print matches one documented closed grammar: `merged`, `pending:(checks|merge-state)`, `mergeable:(squash|merge|rebase):[0-9a-f]{40}`, `awaiting:<condition>`, `error:execute:(pr-closed|ready|ci|ci-timeout|status-read)`, or `not-merged:(merge-call-failed|merge-not-observed)`, with `<condition>` drawn from the table's closed set. The header comment lists the grammar as anchored patterns, and a test asserts every verdict any other test produces matches one of them.
-- [ ] `EXECUTE_CI_WAIT_LIMIT_SECS` is honored only when it matches `^[0-9]+$` and lies in 1..86400; any other value (empty, `abc`, `-5`, `0`, `99999999`) falls back to 1800 s, and a test shows each fallback.
-- [ ] Retries on a failed `gh` read are bounded (at most 3 attempts per read) with a total backoff under 10 s, so one call fits koto's 30-second default-action limit; a test with a stub that fails every read asserts the attempt count and that the script exits within the budget.
+- [x] `merge-verdict.sh` accepts exactly `--repo <owner/repo> --pr <n> --merge <true|false> --expected-head <sha|none> [--confirm]` in any order. A missing required flag, an unknown flag, a repeated flag, or a value outside its pattern exits non-zero with empty stdout, a usage message on stderr, and no `gh` call logged.
+- [x] Closed patterns, applied in both scripts before any `gh` call: repository `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`, PR `^[1-9][0-9]*$`, `--merge` exactly `true` or `false`, expected head `^[0-9a-f]{40}$` or the literal `none`, method `squash`, `merge`, or `rebase`. Tests cover `0`, `012`, `1;rm`, a 39-character sha, an uppercase sha, and `owner/repo/extra`, each rejected.
+- [x] Neither script reads stdin, koto context, or any file under `wip/` or `~/.koto`. A test runs each with stdin closed (`</dev/null`) and with `koto` absent from `PATH` and gets the same verdicts, and `grep -E 'koto|wip/|/dev/stdin'` over both scripts' non-comment lines finds nothing. A second check flags only a `read` that would take the terminal or the caller's stdin: every `read` must take its input from a here-string (`<<<`), a redirect, or a `done <<<`/`done <` on its enclosing loop, so `while IFS= read -r line; do ...; done <<<"$files"` over captured `gh` output passes and a bare `read -r answer` fails.
+- [x] On success `merge-verdict.sh` prints exactly one line to stdout, the verdict, and exits 0; every diagnostic goes to stderr.
+- [x] Every verdict the script can print matches one documented closed grammar: `merged`, `pending:(checks|merge-state)`, `mergeable:(squash|merge|rebase):[0-9a-f]{40}`, `awaiting:<condition>`, `error:execute:(pr-closed|ready|ci|ci-timeout|status-read)`, or `not-merged:(merge-call-failed|merge-not-observed)`, with `<condition>` drawn from the table's closed set. The header comment lists the grammar as anchored patterns, and a test asserts every verdict any other test produces matches one of them.
+- [x] `EXECUTE_CI_WAIT_LIMIT_SECS` is honored only when it matches `^[0-9]+$` and lies in 1..86400; any other value (empty, `abc`, `-5`, `0`, `99999999`) falls back to 1800 s, and a test shows each fallback.
+- [x] Retries on a failed `gh` read are bounded (at most 3 attempts per read) with a total backoff under 10 s, so one call fits koto's 30-second default-action limit; a test with a stub that fails every read asserts the attempt count and that the script exits within the budget.
 
 Decision table (one test case per row, first match wins, each asserted against the exact verdict string):
 
-- [ ] Row 1: `state MERGED` prints `merged`.
-- [ ] Row 2: `state CLOSED` prints `error:execute:pr-closed`.
-- [ ] Row 3: `isDraft true` prints `error:execute:ready`.
-- [ ] Row 4: `mergeStateStatus DIRTY` prints `awaiting:merge-state:DIRTY`, even when checks are failing (row 4 outranks row 5).
-- [ ] Row 5: any check in the `fail` or `cancel` bucket prints `error:execute:ci`, with `--merge false` and with `--merge true`.
-- [ ] Row 6, check buckets follow `scripts/ci-gate-expression_test.sh`: `pass` and `skipping` count as succeeded; `pending` and any unrecognized bucket (a test uses `weird`) count as pending, never as passed. A pending check within the deadline prints `pending:checks`.
-- [ ] Row 6, required-but-unreported: with `--merge true` and a base whose rules require a check named `build` that is absent from `gh pr checks` output while every reported check passed, the verdict is `pending:checks`.
-- [ ] Row 6, grace window: zero checks and a head `committedDate` 60 s old prints `pending:checks`.
-- [ ] Row 6, deadline: a pending check with a head `committedDate` older than the wait limit prints `error:execute:ci-timeout`; with `EXECUTE_CI_WAIT_LIMIT_SECS=300`, a 400 s-old head fires the same and a 200 s-old head prints `pending:checks`.
-- [ ] Row 7: `--merge false` on an otherwise mergeable PR prints `awaiting:merge-not-requested`, and the call log shows no read of `repos/<repo>/branches/<base>`, `repos/<repo>/rules/branches/<base>`, or the repository's allowed merge methods.
-- [ ] Row 8: `--expected-head none`, and separately an expected head that differs from `headRefOid`, each print `awaiting:head-moved`.
-- [ ] Row 9: zero checks and a head `committedDate` older than 120 s print `awaiting:no-checks`.
-- [ ] Row 10: `mergeStateStatus UNKNOWN` prints `pending:merge-state` within the deadline and `awaiting:merge-state:UNKNOWN` past it.
-- [ ] Row 11: `BLOCKED`, `BEHIND`, `UNSTABLE`, and `HAS_HOOKS` each print `awaiting:merge-state:<S>`; `BLOCKED` with `reviewDecision REVIEW_REQUIRED` prints `awaiting:merge-state:BLOCKED:review=REVIEW_REQUIRED`; `CLEAN` with `reviewDecision CHANGES_REQUESTED` prints `awaiting:merge-state:CLEAN:review=CHANGES_REQUESTED`.
-- [ ] Row 12: with both protection sources empty (classic endpoint reports `protected: false`, rules endpoint returns `[]`) the verdict is `awaiting:base-unprotected`; with the classic endpoint returning 404 and the rules endpoint failing, it's also `awaiting:base-unprotected` (an unreadable source counts as unprotected, not as an error).
-- [ ] Row 12 protection sources, each alone sufficient: (a) classic protection only (`protected: true` with a non-empty required status check list, rules endpoint `[]`) prints `mergeable:<method>:<sha>` on an otherwise mergeable PR, and the same fixture with `protected: false` prints `awaiting:base-unprotected`; (b) a ruleset `required_status_checks` rule with a non-empty `parameters.required_status_checks` list only (classic endpoint `protected: false`, and in a second case a 404) prints `mergeable:<method>:<sha>`, and the same fixture with the rules endpoint returning `[]` prints `awaiting:base-unprotected`.
-- [ ] Row 13: a rules-endpoint `pull_request` rule with `required_approving_review_count >= 1` on a `CLEAN` PR whose `reviewDecision` is empty prints `awaiting:review` (a `REVIEW_REQUIRED` decision never reaches this row, because row 11 catches it first).
-- [ ] Row 14: a PR on a checks-only base whose files include a path under `.github/workflows/`, separately `.github/actions/`, and separately `CODEOWNERS`, `.github/CODEOWNERS`, or `docs/CODEOWNERS`, with `reviewDecision` not `APPROVED`, prints `awaiting:workflow-change`; the same PR with `APPROVED` reaches row 16.
-- [ ] Row 14 reads the complete changed-file list from `gh api repos/<repo>/pulls/<n>/files --paginate`, never from the `files` field of the `gh pr view` snapshot (which stops at the first 100 files), and the header's list of exact `gh` invocations includes that call. The list counts as complete only when its length equals the snapshot's `changedFiles`. A read that fails on every attempt, or a list shorter than `changedFiles`, prints `error:execute:status-read` and never `mergeable:*`. Tests: a 101-file PR whose only `.github/workflows/` path is the 101st, served across two pages, prints `awaiting:workflow-change`; a failing files read prints `error:execute:status-read`; a files read returning fewer paths than `changedFiles` prints `error:execute:status-read`.
-- [ ] Row 15: when the repository's allowed-method read fails or reports no method allowed, the verdict is `awaiting:merge-method-unresolved`.
-- [ ] Row 16 method choice: only rebase allowed gives `mergeable:rebase:<sha>`; only merge commits gives `mergeable:merge:<sha>`; squash plus merge gives `mergeable:squash:<sha>`; merge plus rebase (no squash) gives `mergeable:merge:<sha>`. `<sha>` is the live `headRefOid`, which row 8 has already required to equal the expected head.
-- [ ] A PR view or checks read that fails on every attempt prints `error:execute:status-read`. A `gh pr checks` exit that means "no checks reported" is read as zero checks, and its pending exit code (8) with valid JSON is read as the JSON says, not as a read failure; tests cover both.
+- [x] Row 1: `state MERGED` prints `merged`.
+- [x] Row 2: `state CLOSED` prints `error:execute:pr-closed`.
+- [x] Row 3: `isDraft true` prints `error:execute:ready`.
+- [x] Row 4: `mergeStateStatus DIRTY` prints `awaiting:merge-state:DIRTY`, even when checks are failing (row 4 outranks row 5).
+- [x] Row 5: any check in the `fail` or `cancel` bucket prints `error:execute:ci`, with `--merge false` and with `--merge true`.
+- [x] Row 6, check buckets follow `scripts/ci-gate-expression_test.sh`: `pass` and `skipping` count as succeeded; `pending` and any unrecognized bucket (a test uses `weird`) count as pending, never as passed. A pending check within the deadline prints `pending:checks`.
+- [x] Row 6, required-but-unreported: with `--merge true` and a base whose rules require a check named `build` that is absent from `gh pr checks` output while every reported check passed, the verdict is `pending:checks`.
+- [x] Row 6, grace window: zero checks and a head `committedDate` 60 s old prints `pending:checks`.
+- [x] Row 6, deadline: a pending check with a head `committedDate` older than the wait limit prints `error:execute:ci-timeout`; with `EXECUTE_CI_WAIT_LIMIT_SECS=300`, a 400 s-old head fires the same and a 200 s-old head prints `pending:checks`.
+- [x] Row 7: `--merge false` on an otherwise mergeable PR prints `awaiting:merge-not-requested`, and the call log shows no read of `repos/<repo>/branches/<base>`, `repos/<repo>/rules/branches/<base>`, or the repository's allowed merge methods.
+- [x] Row 8: `--expected-head none`, and separately an expected head that differs from `headRefOid`, each print `awaiting:head-moved`.
+- [x] Row 9: zero checks and a head `committedDate` older than 120 s print `awaiting:no-checks`.
+- [x] Row 10: `mergeStateStatus UNKNOWN` prints `pending:merge-state` within the deadline and `awaiting:merge-state:UNKNOWN` past it.
+- [x] Row 11: `BLOCKED`, `BEHIND`, `UNSTABLE`, and `HAS_HOOKS` each print `awaiting:merge-state:<S>`; `BLOCKED` with `reviewDecision REVIEW_REQUIRED` prints `awaiting:merge-state:BLOCKED:review=REVIEW_REQUIRED`; `CLEAN` with `reviewDecision CHANGES_REQUESTED` prints `awaiting:merge-state:CLEAN:review=CHANGES_REQUESTED`.
+- [x] Row 12: with both protection sources empty (classic endpoint reports `protected: false`, rules endpoint returns `[]`) the verdict is `awaiting:base-unprotected`; with the classic endpoint returning 404 and the rules endpoint failing, it's also `awaiting:base-unprotected` (an unreadable source counts as unprotected, not as an error).
+- [x] Row 12 protection sources, each alone sufficient: (a) classic protection only (`protected: true` with a non-empty required status check list, rules endpoint `[]`) prints `mergeable:<method>:<sha>` on an otherwise mergeable PR, and the same fixture with `protected: false` prints `awaiting:base-unprotected`; (b) a ruleset `required_status_checks` rule with a non-empty `parameters.required_status_checks` list only (classic endpoint `protected: false`, and in a second case a 404) prints `mergeable:<method>:<sha>`, and the same fixture with the rules endpoint returning `[]` prints `awaiting:base-unprotected`.
+- [x] Row 13: a rules-endpoint `pull_request` rule with `required_approving_review_count >= 1` on a `CLEAN` PR whose `reviewDecision` is empty prints `awaiting:review` (a `REVIEW_REQUIRED` decision never reaches this row, because row 11 catches it first).
+- [x] Row 14: a PR on a checks-only base whose files include a path under `.github/workflows/`, separately `.github/actions/`, and separately `CODEOWNERS`, `.github/CODEOWNERS`, or `docs/CODEOWNERS`, with `reviewDecision` not `APPROVED`, prints `awaiting:workflow-change`; the same PR with `APPROVED` reaches row 16.
+- [x] Row 14 reads the complete changed-file list from `gh api repos/<repo>/pulls/<n>/files --paginate`, never from the `files` field of the `gh pr view` snapshot (which stops at the first 100 files), and the header's list of exact `gh` invocations includes that call. The list counts as complete only when its length equals the snapshot's `changedFiles`. A read that fails on every attempt, or a list shorter than `changedFiles`, prints `error:execute:status-read` and never `mergeable:*`. Tests: a 101-file PR whose only `.github/workflows/` path is the 101st, served across two pages, prints `awaiting:workflow-change`; a failing files read prints `error:execute:status-read`; a files read returning fewer paths than `changedFiles` prints `error:execute:status-read`.
+- [x] Row 15: when the repository's allowed-method read fails or reports no method allowed, the verdict is `awaiting:merge-method-unresolved`.
+- [x] Row 16 method choice: only rebase allowed gives `mergeable:rebase:<sha>`; only merge commits gives `mergeable:merge:<sha>`; squash plus merge gives `mergeable:squash:<sha>`; merge plus rebase (no squash) gives `mergeable:merge:<sha>`. `<sha>` is the live `headRefOid`, which row 8 has already required to equal the expected head.
+- [x] A PR view or checks read that fails on every attempt prints `error:execute:status-read`. A `gh pr checks` exit that means "no checks reported" is read as zero checks, and its pending exit code (8) with valid JSON is read as the JSON says, not as a read failure; tests cover both.
 
 Confirm mode (rows 17 and 19):
 
-- [ ] `--confirm` reads only the PR state, re-reading until `MERGED` or until a 20 s window elapses. It prints `merged` if a read reports `MERGED` and `not-merged:merge-not-observed` otherwise, and evaluates no other row. Tests may shorten the window through `MERGE_CONFIRM_WAIT_SECS`, honored only in 0..20 (it can narrow the window, never widen it).
-- [ ] A shim that reports `OPEN` twice and then `MERGED` gives `merged`; one that reports `OPEN` throughout gives `not-merged:merge-not-observed`; one that reports `MERGED` on the first read gives `merged` with exactly one read logged (the path Issue 13's already-merged route takes).
+- [x] `--confirm` reads only the PR state, re-reading until `MERGED` or until a 20 s window elapses. It prints `merged` if a read reports `MERGED` and `not-merged:merge-not-observed` otherwise, and evaluates no other row. Tests may shorten the window through `MERGE_CONFIRM_WAIT_SECS`, honored only in 0..20 (it can narrow the window, never widen it).
+- [x] A shim that reports `OPEN` twice and then `MERGED` gives `merged`; one that reports `OPEN` throughout gives `not-merged:merge-not-observed`; one that reports `MERGED` on the first read gives `merged` with exactly one read logged (the path Issue 13's already-merged route takes).
 
 `merge-exec.sh` (rows 16 and 18):
 
-- [ ] Usage is exactly `merge-exec.sh <owner/repo> <pr> <expected-head>`; any other argument count, or a value outside the closed patterns (including `none` as the expected head), exits non-zero with empty stdout and no `gh pr merge` logged. There's no flag parsing and no pass-through of extra arguments.
-- [ ] It runs `merge-verdict.sh --repo <repo> --pr <pr> --merge true --expected-head <expected-head>`, locating that script by its own directory (not `PATH`), so a `merge-verdict.sh` placed earlier on `PATH` in a test is never run.
-- [ ] Unless the fresh verdict is exactly `mergeable:<method>:<expected-head>`, it prints `merge-refused:<verdict>` and exits 0 without calling `gh pr merge`. Tests cover a fresh `awaiting:head-moved`, `awaiting:base-unprotected`, `pending:checks`, `merged`, and a `mergeable:squash:<other-sha>` whose sha doesn't equal the expected head.
-- [ ] On a mergeable verdict it makes exactly one call, byte-for-byte `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <expected-head>`, and prints `merge-called:<method>:<expected-head>` when that call exits 0.
-- [ ] When the merge call exits non-zero it prints `merge-refused:not-merged:merge-call-failed`, logs exactly one `pr merge` call, and makes no second attempt with another method or option.
-- [ ] End to end: `gh pr merge` exits 0 but the following `merge-verdict.sh --confirm` still reads `OPEN`; `merge-exec.sh` prints `merge-called:<method>:<sha>` and the confirm prints `not-merged:merge-not-observed`. The test asserts neither output line is `merged`.
-- [ ] No logged `pr merge` call in any test carries `--admin`, `--auto`, or `--delete-branch`.
-- [ ] A grep test asserts the string `gh pr merge` appears on exactly one non-comment line across every `*.sh` file (excluding `*_test.sh`), every `.github/workflows/*.yml`, and every `command:` or `default_action` line in `skills/*/koto-templates/*.md`, and that line is in `skills/execute/scripts/merge-exec.sh`.
+- [x] Usage is exactly `merge-exec.sh <owner/repo> <pr> <expected-head>`; any other argument count, or a value outside the closed patterns (including `none` as the expected head), exits non-zero with empty stdout and no `gh pr merge` logged. There's no flag parsing and no pass-through of extra arguments.
+- [x] It runs `merge-verdict.sh --repo <repo> --pr <pr> --merge true --expected-head <expected-head>`, locating that script by its own directory (not `PATH`), so a `merge-verdict.sh` placed earlier on `PATH` in a test is never run.
+- [x] Unless the fresh verdict is exactly `mergeable:<method>:<expected-head>`, it prints `merge-refused:<verdict>` and exits 0 without calling `gh pr merge`. Tests cover a fresh `awaiting:head-moved`, `awaiting:base-unprotected`, `pending:checks`, `merged`, and a `mergeable:squash:<other-sha>` whose sha doesn't equal the expected head.
+- [x] On a mergeable verdict it makes exactly one call, byte-for-byte `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <expected-head>`, and prints `merge-called:<method>:<expected-head>` when that call exits 0.
+- [x] When the merge call exits non-zero it prints `merge-refused:not-merged:merge-call-failed`, logs exactly one `pr merge` call, and makes no second attempt with another method or option.
+- [x] End to end: `gh pr merge` exits 0 but the following `merge-verdict.sh --confirm` still reads `OPEN`; `merge-exec.sh` prints `merge-called:<method>:<sha>` and the confirm prints `not-merged:merge-not-observed`. The test asserts neither output line is `merged`.
+- [x] No logged `pr merge` call in any test carries `--admin`, `--auto`, or `--delete-branch`.
+- [x] A grep test asserts the string `gh pr merge` appears on exactly one non-comment line across every `*.sh` file (excluding `*_test.sh`), every `.github/workflows/*.yml`, and every `command:` or `default_action` line in `skills/*/koto-templates/*.md`, and that line is in `skills/execute/scripts/merge-exec.sh`.
 
 Tests and CI:
 
-- [ ] `skills/execute/scripts/merge-verdict_test.sh` and `merge-exec_test.sh` drive the scripts through a test-local `gh` stub on `PATH` that serves per-case JSON fixtures and appends every invocation to a call log; cases are table-driven, one row per verdict above.
-- [ ] Date arithmetic uses `jq` (`fromdateiso8601`, `now`), not `date -d` or `date -j`, and fixture timestamps are generated relative to the test's own clock, so cases don't depend on wall time.
-- [ ] Both tests pass under `scripts/check-bash-floor.sh --backend system execute` (the `execute` suite lists them) and run on both legs of `.github/workflows/check-execute-scripts.yml`. Both scripts use `set -uo pipefail` and no bash 4 features (no associative arrays, `mapfile`, `${var,,}`, or `|&`).
-- [ ] Each script's header comment documents usage, every verdict it can print (the anchored grammar), its exit codes, and the exact `gh` invocations it makes (endpoint and `--json` field list), in the style of `record-settled-branch.sh`.
-- [ ] `bash scripts/check-skill-requires.sh` passes; any `gh`, `jq`, or `git` record the scripts need is in `skills/execute/requires.tsv`.
+- [x] `skills/execute/scripts/merge-verdict_test.sh` and `merge-exec_test.sh` drive the scripts through a test-local `gh` stub on `PATH` that serves per-case JSON fixtures and appends every invocation to a call log; cases are table-driven, one row per verdict above.
+- [x] Date arithmetic uses `jq` (`fromdateiso8601`, `now`), not `date -d` or `date -j`, and fixture timestamps are generated relative to the test's own clock, so cases don't depend on wall time.
+- [x] Both tests pass under `scripts/check-bash-floor.sh --backend system execute` (the `execute` suite lists them) and run on both legs of `.github/workflows/check-execute-scripts.yml`. Both scripts use `set -uo pipefail` and no bash 4 features (no associative arrays, `mapfile`, `${var,,}`, or `|&`).
+- [x] Each script's header comment documents usage, every verdict it can print (the anchored grammar), its exit codes, and the exact `gh` invocations it makes (endpoint and `--json` field list), in the style of `record-settled-branch.sh`.
+- [x] `bash scripts/check-skill-requires.sh` passes; any `gh`, `jq`, or `git` record the scripts need is in `skills/execute/requires.tsv`.
 
 Downstream deliverables:
 
-- [ ] Must deliver: `merge-verdict.sh --repo --pr --merge <true|false> --expected-head <sha|none> [--confirm]` printing exactly the verdict strings in the decision table, with the anchored grammar documented in its header so `merge_route`'s `context-matches` gates can key on it, and `merge-exec.sh <owner/repo> <pr> <expected-head>` printing `merge-called:<method>:<sha>` or `merge-refused:<verdict>`, both reading only arguments and GitHub (required by Issue 13).
-- [ ] Must deliver: the same two scripts usable per node PR and for the coordination PR with no per-mode variant or flag, where a caller passing an index-recorded `head=<sha>` or `none` gets row 8 behavior identical to single-pr (required by Issue 14).
-- [ ] Must deliver: the header's list of exact `gh` invocations, so each skill's eval `gh` shim can route every read to its own fixture (required by Issue 13, Issue 14).
-- [ ] Must deliver: `merge-verdict.sh --confirm` callable from a default action's record script on a PR number another script resolved, with no dependency on `/execute`'s session, for `merge_confirm`, `coord_merge_confirm`, and `/deliver`'s `merged_check`. It exits 0 on both `merged` and `not-merged:merge-not-observed`, so callers route on the printed line written to context, never on its exit code (used by Issue 13, Issue 14, and Issue 19 through Issue 13).
+- [x] Must deliver: `merge-verdict.sh --repo --pr --merge <true|false> --expected-head <sha|none> [--confirm]` printing exactly the verdict strings in the decision table, with the anchored grammar documented in its header so `merge_route`'s `context-matches` gates can key on it, and `merge-exec.sh <owner/repo> <pr> <expected-head>` printing `merge-called:<method>:<sha>` or `merge-refused:<verdict>`, both reading only arguments and GitHub (required by Issue 13).
+- [x] Must deliver: the same two scripts usable per node PR and for the coordination PR with no per-mode variant or flag, where a caller passing an index-recorded `head=<sha>` or `none` gets row 8 behavior identical to single-pr (required by Issue 14).
+- [x] Must deliver: the header's list of exact `gh` invocations, so each skill's eval `gh` shim can route every read to its own fixture (required by Issue 13, Issue 14).
+- [x] Must deliver: `merge-verdict.sh --confirm` callable from a default action's record script on a PR number another script resolved, with no dependency on `/execute`'s session, for `merge_confirm`, `coord_merge_confirm`, and `/deliver`'s `merged_check`. It exits 0 on both `merged` and `not-merged:merge-not-observed`, so callers route on the printed line written to context, never on its exit code (used by Issue 13, Issue 14, and Issue 19 through Issue 13).
 
 **Dependencies**: Issue 9
 
@@ -1349,21 +1349,21 @@ PRD: `docs/prds/PRD-scope-then-execute.md` (R24, R27)
 
 *Validator tests*
 
-- [ ] `coordination.rs` gains unit tests showing `check_coordination_body` returns no findings for a body whose declaration uses the unchanged prefix without "multi-repo" and whose PR index lists two or more PRs from the same `owner/repo`.
-- [ ] `coordination.rs` gains a test that a single-repo merge-order block (two or more nodes, one repo) parses and passes `is_acyclic_order`, and that a cyclic single-repo order is still rejected.
-- [ ] `merge_gate.rs` gains tests for single-repo indexes: all same-repo PRs merged passes; one same-repo PR unmerged blocks.
-- [ ] `crates/shirabe/tests/coordination_body.rs` gains a CLI test running `shirabe validate --coordination-body` on a single-repo body (declaration without "multi-repo", every index ref in one repo) that exits 0, and a single-repo body missing the marker still fails.
-- [ ] Existing multi-repo tests keep passing unchanged.
-- [ ] If any single-repo test fails because the validator does count repositories, the fix lands here, and multi-repo behavior is unchanged.
+- [x] `coordination.rs` gains unit tests showing `check_coordination_body` returns no findings for a body whose declaration uses the unchanged prefix without "multi-repo" and whose PR index lists two or more PRs from the same `owner/repo`.
+- [x] `coordination.rs` gains a test that a single-repo merge-order block (two or more nodes, one repo) parses and passes `is_acyclic_order`, and that a cyclic single-repo order is still rejected.
+- [x] `merge_gate.rs` gains tests for single-repo indexes: all same-repo PRs merged passes; one same-repo PR unmerged blocks.
+- [x] `crates/shirabe/tests/coordination_body.rs` gains a CLI test running `shirabe validate --coordination-body` on a single-repo body (declaration without "multi-repo", every index ref in one repo) that exits 0, and a single-repo body missing the marker still fails.
+- [x] Existing multi-repo tests keep passing unchanged.
+- [x] If any single-repo test fails because the validator does count repositories, the fix lands here, and multi-repo behavior is unchanged.
 
 *`lifecycle.yml` self-reference filter*
 
-- [ ] The merge-last step drops any extracted ref whose repository equals `${{ github.repository }}` and whose number equals the coordination PR's own number, before building the `--pr` arguments.
-- [ ] Refs to other PRs in the same repository, and refs to the same number in a different repository, are kept.
-- [ ] When the only indexed ref is the self-reference, the index counts as empty and the step still fails closed with the existing empty-index error.
-- [ ] The filter logic is testable outside GitHub Actions (for example extracted into a small script under the repo's scripts or `.github` tree and called from the workflow) and has a test covering: self-ref dropped, same-repo other PR kept, same number in another repo kept, self-ref-only index treated as empty.
-- [ ] The test runs in CI.
-- [ ] The workflow's comments no longer describe the coordination PR as multi-repo only.
+- [x] The merge-last step drops any extracted ref whose repository equals `${{ github.repository }}` and whose number equals the coordination PR's own number, before building the `--pr` arguments.
+- [x] Refs to other PRs in the same repository, and refs to the same number in a different repository, are kept.
+- [x] When the only indexed ref is the self-reference, the index counts as empty and the step still fails closed with the existing empty-index error.
+- [x] The filter logic is testable outside GitHub Actions (for example extracted into a small script under the repo's scripts or `.github` tree and called from the workflow) and has a test covering: self-ref dropped, same-repo other PR kept, same number in another repo kept, self-ref-only index treated as empty.
+- [x] The test runs in CI.
+- [x] The workflow's comments no longer describe the coordination PR as multi-repo only.
 
 **Dependencies**: Issue 9
 
@@ -1689,12 +1689,6 @@ Across both guides and the README:
 
 **Complexity**: simple
 
-## Implementation Issues
-
-None filed: this PLAN is outline-shaped (`tracking_level: none`), and its work
-items are the Issue Outlines above. The section is kept only so the current
-validator's section check passes; Issue 11 removes it.
-
 ## Dependency Graph
 
 ```mermaid
@@ -1765,8 +1759,9 @@ graph TD
   classDef ready fill:#bbdefb
   classDef blocked fill:#fff9c4
 
-  class I1,I2,I3,I7,I9 ready
-  class I4,I5,I6,I8,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I20,G1 blocked
+  class I1,I2,I3,I4,I5,I6,I7,I9,I10,I11,I12,I16,G1 done
+  class I8 ready
+  class I13,I14,I15,I17,I18,I19,I20 blocked
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked
