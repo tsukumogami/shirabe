@@ -271,12 +271,12 @@
       "mode": "execute",
       "scenario": "e2e-resume-plan",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent calls koto workflows, finds an active execute-plan workflow, resumes with koto next (NOT koto init). Receives spawn_and_await state indicating 2 of 4 children are still pending. Agent monitors remaining children without re-running plan-to-tasks.sh or re-submitting tasks.",
+      "expected_output": "Agent enters through execute-open.sh, whose koto init --attach-live --replace-terminal attaches to the active execute-diamond-test session (opened=attached) instead of starting a new one, then resumes with koto next. Receives spawn_and_await state indicating 2 of 4 children are still pending. Agent monitors remaining children without re-running plan-to-tasks.sh or re-submitting tasks.",
       "files": [],
       "expectations": [
-        "Agent calls koto workflows to check for active workflows before calling koto init",
-        "Agent detects an active execute-plan workflow and decides to resume rather than re-init",
-        "Agent calls koto next (not koto init) to resume the workflow",
+        "Agent enters through execute-open.sh (koto init --attach-live --replace-terminal), which attaches to the active execute session",
+        "Agent reads opened=attached and resumes the live execute-plan workflow rather than starting a new one",
+        "Agent calls koto next on the attached session to resume the workflow",
         "Agent does NOT re-run plan-to-tasks.sh or re-submit tasks when resuming a workflow with children already dispatched",
         "Agent recognizes spawn_and_await state as indicating children are still being processed"
       ]
@@ -527,10 +527,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- run in interactive mode (the default); stop for review before finalization",
-      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes --var PAUSE_BEFORE_FINALIZE=true at koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check (which fires only at terminal exits) is not tripped. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
+      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes PAUSE_BEFORE_FINALIZE=true to koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check (which fires only at terminal exits) is not tripped. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
       "files": [],
       "expectations": [
-        "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes --var PAUSE_BEFORE_FINALIZE=true at koto init (derived from mode, NOT a --pause-for-review flag)",
+        "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes PAUSE_BEFORE_FINALIZE=true to koto init (derived from mode, NOT a --pause-for-review flag)",
         "Agent submits finalization_status: updated with pause_decision: pause in pr_finalization and routes to the paused_for_review terminal",
         "At the pause the chain is intact: PLAN present on disk, BRIEF/PRD/DESIGN un-transitioned, PR still DRAFT (gh pr ready NOT fired, plan_completion cascade NOT run)",
         "The pause is a suspension: exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check is NOT tripped",
@@ -543,10 +543,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute --auto skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes --var PAUSE_BEFORE_FINALIZE=false at koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and submits finalization_status: updated with pause_decision: finalize (reflecting PAUSE_BEFORE_FINALIZE=false). The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
+      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes PAUSE_BEFORE_FINALIZE=false to koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and submits finalization_status: updated with pause_decision: finalize (reflecting PAUSE_BEFORE_FINALIZE=false). The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
       "files": [],
       "expectations": [
-        "Agent resolves --auto to PAUSE_BEFORE_FINALIZE=false and passes --var PAUSE_BEFORE_FINALIZE=false at koto init",
+        "Agent resolves --auto to PAUSE_BEFORE_FINALIZE=false and passes PAUSE_BEFORE_FINALIZE=false to koto init",
         "Agent submits finalization_status: updated with pause_decision: finalize in pr_finalization and routes to plan_completion (NOT paused_for_review -- no pause under --auto)",
         "plan_completion runs the cascade DRAFT-before-READY (run-cascade.sh) then gh pr ready then ci_monitor to green",
         "The run reaches a finalized, mergeable result: PLAN deleted, BRIEF/PRD/DESIGN transitioned, PR ready and CI green",
@@ -599,6 +599,636 @@
         "Transcript makes no mode call on a single-pr PLAN, and says the declaration has no mode:single-pr record",
         "Transcript does NOT expect the load-time preflight to have already reported on the coordination validate modes",
         "Transcript does NOT substitute its own shirabe validate --help probe for the check"
+      ]
+    },
+    {
+      "id": 36,
+      "name": "merge-mergeable-with-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Every pre-check passes. merge_readiness records mergeable:squash:<head>, merge_route routes to merge_attempt, the agent runs merge-exec.sh once, merge_confirm reads MERGED, and the run ends at the merged terminal. print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo, and pr=https://github.com/eval-org/eval-repo/pull/42.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr merge`, and it carries `--match-head-commit <expected_head>` with the sha the run recorded",
+        "The run passes merge_confirm before reaching the merged terminal",
+        "The printed exit lines include `outcome=merged`",
+        "The state file (or the printed `exit=` line) records `exit: full-run`",
+        "The printed exit lines include a `pr=` line and a `repos=` line",
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
+      ]
+    },
+    {
+      "id": 37,
+      "name": "merge-mergeable-without-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The same mergeable PR, invoked without --merge. The verdict is awaiting:merge-not-requested, merge_route routes to ready_awaiting_merge, and no merge call is made.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=merge-not-requested`",
+        "The agent does not compose the exit lines itself; they come from print-exit.sh"
+      ]
+    },
+    {
+      "id": 38,
+      "name": "merge-review-required-with-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-review-required",
+      "requirements": [
+        "R19",
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Merge state BLOCKED with a required review. The verdict is awaiting:merge-state:BLOCKED:review=REVIEW_REQUIRED and the run ends ready-awaiting-merge naming that condition, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=merge-state:BLOCKED:review=REVIEW_REQUIRED`"
+      ]
+    },
+    {
+      "id": 39,
+      "name": "merge-dirty-with-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-dirty",
+      "requirements": [
+        "R19",
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "A conflicted PR under --merge. ci_monitor sees DIRTY, the agent submits ci_outcome: dirty_merge_state, and the run passes through escalate_dirty_merge_state to done_blocked, whose result is outcome=ready-awaiting-merge with reason=merge-state:DIRTY. No merge call.",
+      "files": [],
+      "expectations": [
+        "The workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=merge-state:DIRTY`",
+        "The printed `exit=` line is `abandonment-forced`"
+      ]
+    },
+    {
+      "id": 40,
+      "name": "merge-failing-nonrequired-check",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-failing-check",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "A non-required check failed. The verdict is error:execute:ci and the run ends at done_blocked with step=execute:ci.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=error`",
+        "The printed exit lines include `step=execute:ci`"
+      ]
+    },
+    {
+      "id": 41,
+      "name": "merge-pending-past-limit",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-pending-timeout",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log",
+        "EXECUTE_CI_WAIT_LIMIT_SECS": "60"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "A check stays pending past EXECUTE_CI_WAIT_LIMIT_SECS (60 s, measured from the head commit's date). The verdict is error:execute:ci-timeout and the run ends at done_blocked.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=error`",
+        "The printed exit lines include `step=execute:ci-timeout`",
+        "The agent does not wait in ci_monitor indefinitely; waiting is bounded by merge_readiness's deadline"
+      ]
+    },
+    {
+      "id": 42,
+      "name": "merge-draft-ready-fails",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-draft-ready-fails",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "gh pr ready fails in plan_completion, so the PR stays a draft. The verdict is error:execute:ready and the run ends at done_blocked.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains a `pr ready` line and no line starting `pr merge`",
+        "The printed exit lines include `outcome=error`",
+        "The printed exit lines include `step=execute:ready`"
+      ]
+    },
+    {
+      "id": 43,
+      "name": "merge-call-fails",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-call-fails",
+      "requirements": [
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Every pre-check passes and the merge call itself fails. merge-exec.sh prints merge-refused:not-merged:merge-call-failed, the agent submits merge_exec: refused, and the run ends ready-awaiting-merge with reason=merge-call-failed.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "The printed exit lines name `reason=merge-call-failed`",
+        "No output anywhere in the run reports `outcome=merged`",
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
+      ]
+    },
+    {
+      "id": 44,
+      "name": "merge-not-observed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-not-observed",
+      "requirements": [
+        "R19",
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "pr merge exits 0 but every later read reports OPEN. merge_confirm records not-merged:merge-not-observed and the run ends ready-awaiting-merge; print-exit.sh adds that the PR may still be queued.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "The printed exit lines name `reason=merge-not-observed`",
+        "The printed exit lines include the line saying the PR may still be queued and may merge later",
+        "No output anywhere in the run reports `outcome=merged`"
+      ]
+    },
+    {
+      "id": 45,
+      "name": "merge-unprotected-base",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-unprotected",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The merge decision refuses to merge on this base or PR. The verdict is awaiting:base-unprotected and the run ends ready-awaiting-merge naming it, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=base-unprotected`"
+      ]
+    },
+    {
+      "id": 46,
+      "name": "merge-no-checks",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-no-checks",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The merge decision refuses to merge on this base or PR. The verdict is awaiting:no-checks and the run ends ready-awaiting-merge naming it, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=no-checks`"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "merge-head-moved",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-head-moved",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The merge decision refuses to merge on this base or PR. The verdict is awaiting:head-moved and the run ends ready-awaiting-merge naming it, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=head-moved`"
+      ]
+    },
+    {
+      "id": 48,
+      "name": "merge-review-rule-unapproved",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-review-rule",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The merge decision refuses to merge on this base or PR. The verdict is awaiting:review and the run ends ready-awaiting-merge naming it, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=review`"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "merge-workflow-change",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-workflow-change",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The merge decision refuses to merge on this base or PR. The verdict is awaiting:workflow-change and the run ends ready-awaiting-merge naming it, with no merge call.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=workflow-change`"
+      ]
+    },
+    {
+      "id": 50,
+      "name": "pr-adopt-fork-pr",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "pr-adopt-fork",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The only PR on impl/merge-test is a same-named PR from a fork. owned-pr.sh finds no owned PR, orchestrator_setup makes its one pr create, the lookup after it still finds none owned (the shim's list never changes), and the run ends step=execute:pr-adopt. The foreign PR is never adopted, edited, readied, or merged.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no `pr edit`, `pr ready`, or `pr merge` line naming the foreign PR",
+        "The foreign PR is never recorded as home_pr",
+        "The printed exit lines include `outcome=error`",
+        "The printed exit lines include `step=execute:pr-adopt`"
+      ]
+    },
+    {
+      "id": 51,
+      "name": "pr-adopt-other-author-pr",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "pr-adopt-other-author",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The only PR on impl/merge-test is another author's PR. owned-pr.sh finds no owned PR, orchestrator_setup makes its one pr create, the lookup after it still finds none owned (the shim's list never changes), and the run ends step=execute:pr-adopt. The foreign PR is never adopted, edited, readied, or merged.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no `pr edit`, `pr ready`, or `pr merge` line naming the foreign PR",
+        "The foreign PR is never recorded as home_pr",
+        "The printed exit lines include `outcome=error`",
+        "The printed exit lines include `step=execute:pr-adopt`"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "merge-already-merged",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-already-merged",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The PR is already MERGED when merge_readiness reads it. The verdict is merged, merge_route routes to merge_confirm, the confirm read records merged, and the run ends at the merged terminal without a merge call.",
+      "files": [],
+      "expectations": [
+        "The run passes merge_confirm before reaching merged",
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=merged`"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "merge-interrupted-resumed-without-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R17",
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- Stop after the run reaches ci_monitor, as if interrupted. Then invoke `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto` again, without --merge, and drive that run to its terminal. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The resumed invocation attaches to the live session and rebinds MERGE to false, so the verdict is awaiting:merge-not-requested and no merge call is made.",
+      "files": [],
+      "expectations": [
+        "The second invocation attaches to the live execute-merge-test session (opened=attached), with MERGE rebound",
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines name `reason=merge-not-requested`"
+      ]
+    },
+    {
+      "id": 54,
+      "name": "merge-stopped-at-attempt-resumed-without-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R17",
+        "R19",
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- Stop when koto presents merge_attempt, before running merge-exec.sh, as if interrupted. Then invoke `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto` again, without --merge, and tick the session. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The stopped run has a recorded mergeable verdict. The resumed invocation rebinds MERGE to false; the merge_intent gate fails on the next tick and the run ends ready_awaiting_merge before any evidence is asked for. merge-exec.sh never runs.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=ready-awaiting-merge`",
+        "The printed exit lines name `reason=merge-not-requested`"
+      ]
+    },
+    {
+      "id": 55,
+      "name": "merge-route-override-refused",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R19",
+        "R20"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- When the run reaches merge_route, try `koto overrides record` with --with-data on each of merge_route's gates (verdict_mergeable included) to force a merge, and report what koto answers. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "MERGE is false. Every override on merge_route's gates is refused with gate_not_overridable, with and without --with-data, the run does not reach merge_attempt, and it ends ready-awaiting-merge.",
+      "files": [],
+      "expectations": [
+        "koto refuses every `koto overrides record` on merge_route's gates (gate_not_overridable)",
+        "The run never reaches merge_attempt",
+        "gh-calls.log contains no line starting `pr merge`"
+      ]
+    },
+    {
+      "id": 56,
+      "name": "merge-attempt-evidence-names-other-pr",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-other-pr-evidence",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- At merge_attempt, after running merge-exec.sh, submit merge_exec: called with merge_line naming a different, already-merged PR (https://github.com/eval-org/eval-repo/pull/99). The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The evidence changes nothing: home_pr stays the owned PR, merge_confirm re-resolves and reads the owned PR, which stays OPEN, and the run ends ready-awaiting-merge with reason=merge-not-observed.",
+      "files": [],
+      "expectations": [
+        "`koto context get execute-merge-test home_pr` still names pull/42 after the evidence",
+        "merge_confirm reads the owned PR, not PR #99",
+        "The printed exit lines name `reason=merge-not-observed`",
+        "No output anywhere in the run reports `outcome=merged`"
+      ]
+    },
+    {
+      "id": 57,
+      "name": "merge-resumed-with-merge",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R17",
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- Stop after the run reaches ci_monitor, as if interrupted. Then invoke `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto` and drive that run to its terminal. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The first invocation had no --merge; the resumed one rebinds MERGE to true and merges.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "The printed exit lines include `outcome=merged`",
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
+      ]
+    },
+    {
+      "id": 58,
+      "name": "stale-invocation-refused-merge-unchanged",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R17",
+        "R30"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "Create a live execute-merge-test session from another template (write a minimal template with the same variables and `koto init` it), with MERGE=false. Then invoke `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto`. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "koto refuses the attach (template_mismatch). The run prints outcome=error and step=execute:refused, and the live session is untouched: its state and its MERGE are what they were.",
+      "files": [],
+      "expectations": [
+        "execute-open.sh prints `refused=template_mismatch`",
+        "The printed exit lines include `outcome=error` and `step=execute:refused`",
+        "The session's MERGE is unchanged (koto status shows the same state, and the session log has no variables_rebound event)"
+      ]
+    },
+    {
+      "id": 59,
+      "name": "merge-confirm-override-refused",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-not-observed",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- When the run reaches merge_confirm, try `koto overrides record` with --with-data '{\"matches\": true}' on confirmed_merged, then continue. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "koto refuses the override (gate_not_overridable). The confirm read records merge-not-observed and the run ends ready-awaiting-merge, not merged.",
+      "files": [],
+      "expectations": [
+        "koto refuses the `koto overrides record` on merge_confirm's gate",
+        "The run does not reach the merged terminal",
+        "The printed exit lines name `reason=merge-not-observed`"
+      ]
+    },
+    {
+      "id": 60,
+      "name": "merge-method-squash",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-method-squash",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Merge commits and squash are allowed. The single merge call uses --squash.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one `pr merge` line, and it carries `--squash`",
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
+      ]
+    },
+    {
+      "id": 61,
+      "name": "merge-method-rebase",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-method-rebase",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Only rebase is allowed. The single merge call uses --rebase.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains exactly one `pr merge` line, and it carries `--rebase`",
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
+      ]
+    },
+    {
+      "id": 62,
+      "name": "scope-intent-continue-branch-adopted",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "scope-adopt",
+      "requirements": [
+        "R9",
+        "R13"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The working copy is on docs/merge-test, the branch a single-pr `/scope --intent=continue` run pushed, with one owned open draft PR. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "orchestrator_setup adopts the owned draft PR on docs/merge-test: no pr create, no checkout of or push to impl/merge-test. The run settles on docs/merge-test.",
+      "files": [],
+      "expectations": [
+        "gh-calls.log contains no `pr create` line",
+        "The run never checks out or pushes impl/merge-test",
+        "orchestrator_setup submits `status: override` and the settled branch is docs/merge-test"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "koto-leg-results",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-mergeable",
+      "requirements": [
+        "R30",
+        "R31"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "Create a koto request with one leg named execute (`koto request create --with-data '{\"legs\":[{\"name\":\"execute\",\"role\":\"execute\",\"template\":\"execute.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval`), then run `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto --koto-leg=<request-id>:execute`. Repeat with a second request and `/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto --koto-leg=<request-id>:execute` on a fresh session. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The first run reaches merged and the second ready_awaiting_merge. Each leaves a promoted leg result whose payload carries outcome, pr, repos, and reason, read with koto request get.",
+      "files": [],
+      "expectations": [
+        "`koto request get` on the first request shows a promoted result with `outcome: merged`, a `pr`, and `repos`",
+        "`koto request get` on the second request shows a promoted result with `outcome: ready-awaiting-merge` and `reason: merge-not-requested`",
+        "Apart from where the result goes, the runs print the same exit lines as without --koto-leg"
+      ]
+    },
+    {
+      "id": 64,
+      "name": "merge-call-flags-fixed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "merge-method-squash",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>.",
+      "files": [],
+      "expectations": [
+        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`",
+        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`"
       ]
     }
   ]

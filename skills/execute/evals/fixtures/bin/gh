@@ -15,6 +15,14 @@ fi
 # Normalize args: join all arguments for pattern matching
 ARGS="$*"
 
+# The call log. When GH_CALL_LOG is set, every call's argument list is appended
+# to it, one call per line, before anything is served, so a scenario can assert
+# on what was (and wasn't) called: exactly one `pr merge`, never `--admin`, no
+# `pr create` on an adopted branch.
+if [ -n "${GH_CALL_LOG:-}" ]; then
+  printf '%s\n' "$ARGS" >> "$GH_CALL_LOG"
+fi
+
 # emit_fixture <fixture-file> "$@": print canned JSON, honoring a trailing
 # `--jq <filter>` from the original gh args exactly as real gh does. The gate
 # commands in koto-templates/execute.md rely on the post-jq scalar (e.g. the
@@ -42,6 +50,135 @@ emit_fixture() {
     cat "$fixture"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# Keyed fixtures (scenarios with a gh/ directory)
+# ---------------------------------------------------------------------------
+#
+# A scenario that carries fixtures/scenarios/<scenario>/gh/ is served from it by
+# key, and only from it; a scenario without one falls through to the older
+# per-command arms below, which answer exactly as they always have. The keys:
+#
+#   pr-list          gh pr list ...            (the ownership fields owned-pr.sh reads)
+#   pr-view          gh pr view ...            (the verdict snapshot; --jq applied)
+#   pr-view-state    gh pr view ... --json state   (the confirm read)
+#   pr-checks        gh pr checks ...          (--jq applied)
+#   pr-ready         gh pr ready ...           (default: success)
+#   pr-merge         gh pr merge ...           (default: success)
+#   pr-create        gh pr create ...          (default: success)
+#   pr-edit          gh pr edit ...            (default: success)
+#   api-user         gh api user               (default: {"login":"eval-user"})
+#   api-files        gh api repos/<r>/pulls/<n>/files --paginate
+#   api-rules        gh api repos/<r>/rules/branches/<b> ...
+#   api-branch       gh api repos/<r>/branches/<b>
+#   api-commit       gh api repos/<r>/commits/<sha>
+#   api-repo         gh api repos/<r>          (default branch and merge methods)
+#   repo-view        gh repo view ...          (--jq applied)
+#
+# For a key, gh/<key>.json is stdout, gh/<key>.err stderr, gh/<key>.rc the exit
+# status. gh/<key>.<N>.json (and .rc, .err) answers the Nth call to that key,
+# which needs GH_CALL_LOG: the counters live in "$GH_CALL_LOG.d". A key with no
+# fixture and no default fails like a read error.
+#
+# One piece of state models the merge itself: after a `pr merge` that exits 0,
+# pr-view-state answers {"state":"MERGED"} (and pr-view's state reads MERGED),
+# unless the scenario carries gh/pr-merge-stays-open, the accepted-but-still-
+# OPEN case. That also needs GH_CALL_LOG, for the same directory.
+if [ -d "$SCENARIO_DIR/gh" ]; then
+  GH_DIR="$SCENARIO_DIR/gh"
+  STATE_DIR=""
+  if [ -n "${GH_CALL_LOG:-}" ]; then
+    STATE_DIR="$GH_CALL_LOG.d"
+    mkdir -p "$STATE_DIR"
+  fi
+
+  key=""
+  case "${1:-} ${2:-}" in
+    "pr list") key=pr-list ;;
+    "pr view")
+      case " $ARGS " in
+        *" --json state "*) key=pr-view-state ;;
+        *) key=pr-view ;;
+      esac
+      ;;
+    "pr checks") key=pr-checks ;;
+    "pr ready") key=pr-ready ;;
+    "pr merge") key=pr-merge ;;
+    "pr create") key=pr-create ;;
+    "pr edit") key=pr-edit ;;
+    "repo view") key=repo-view ;;
+    "api user") key=api-user ;;
+    "api "*)
+      case "${2:-}" in
+        repos/*/*/pulls/*/files) key=api-files ;;
+        repos/*/*/rules/branches/*) key=api-rules ;;
+        repos/*/*/branches/*) key=api-branch ;;
+        repos/*/*/commits/*) key=api-commit ;;
+        repos/*/*) key=api-repo ;;
+      esac
+      ;;
+  esac
+
+  if [ -z "$key" ]; then
+    echo "gh shim: no keyed fixture route for args: $ARGS" >&2
+    exit 1
+  fi
+
+  n=1
+  if [ -n "$STATE_DIR" ]; then
+    count_file="$STATE_DIR/$key.count"
+    [ -f "$count_file" ] && n=$(( $(cat "$count_file") + 1 ))
+    echo "$n" > "$count_file"
+  fi
+  pick() { # pick <ext> -> the numbered fixture for this call if present, else the plain one
+    if [ -f "$GH_DIR/$key.$n.$1" ]; then echo "$GH_DIR/$key.$n.$1"; else echo "$GH_DIR/$key.$1"; fi
+  }
+  out=$(pick json); err=$(pick err); rcf=$(pick rc)
+
+  merged=0
+  if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/merged" ] && [ ! -f "$GH_DIR/pr-merge-stays-open" ]; then
+    merged=1
+  fi
+
+  # The confirm read after a merge that landed.
+  if [ "$key" = pr-view-state ] && [ "$merged" -eq 1 ]; then
+    echo '{"state":"MERGED"}'
+    exit 0
+  fi
+
+  rc=0
+  [ -f "$rcf" ] && rc=$(cat "$rcf")
+
+  if [ -f "$out" ]; then
+    # @HEAD_SHA@ in a fixture is the commit checked out where gh runs, which
+    # is the commit this run's own push recorded as its expected head. A
+    # scenario whose PR head must differ from it names a literal sha instead.
+    head_sha=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    tmp_fixture=$(mktemp "${TMPDIR:-/tmp}/gh-shim.XXXXXX")
+    sed "s/@HEAD_SHA@/$head_sha/g" "$out" > "$tmp_fixture"
+    if [ "$key" = pr-view ] && [ "$merged" -eq 1 ]; then
+      body=$(jq -c '.state = "MERGED"' "$tmp_fixture")
+      printf '%s\n' "$body" > "$tmp_fixture"
+    fi
+    emit_fixture "$tmp_fixture" "$@"
+    rm -f "$tmp_fixture"
+  elif [ ! -f "$rcf" ]; then
+    case "$key" in
+      api-user) echo '{"login":"eval-user"}' ;;
+      pr-ready|pr-merge|pr-create|pr-edit) : ;;
+      *)
+        echo "gh shim: no fixture gh/$key.json in scenario ${EVAL_SCENARIO}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+  [ -f "$err" ] && cat "$err" >&2
+
+  if [ "$key" = pr-merge ] && [ "$rc" -eq 0 ] && [ -n "$STATE_DIR" ]; then
+    : > "$STATE_DIR/merged"
+  fi
+  exit "$rc"
+fi
 
 # Match on argument patterns
 case "$ARGS" in
