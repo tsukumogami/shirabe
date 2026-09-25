@@ -19,6 +19,9 @@ on:
       - 'crates/shirabe-validate/src/frontmatter.rs'
       - 'crates/shirabe/src/main.rs'
       - '.github/workflows/check-scope-scripts.yml'
+      # The substrate job runs the koto release .tsuku.toml pins.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
 
 jobs:
   test-scope-scripts:
@@ -161,10 +164,13 @@ jobs:
       # right for a developer and wrong for CI: a skip here would report green
       # having asserted nothing. Both binaries are installed above, so assert
       # they are actually present and fail the job if not.
+      # assert-koto-pin.sh also fails unless koto is the release .tsuku.toml
+      # pins, so the sessions run on exactly that koto.
       - name: Assert both binaries are present
         run: |
           command -v shirabe
           command -v koto
+          bash scripts/assert-koto-pin.sh
 
       - name: Run scope substrate sessions
         run: bash skills/scope/scripts/scope-substrate_test.sh

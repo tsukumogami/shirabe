@@ -18,6 +18,9 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      # The engine-backed suites run the koto release .tsuku.toml pins.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
 
 jobs:
   test-work-on-scripts:
@@ -53,9 +56,13 @@ jobs:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
 
-      # The harness skips with exit 0 when koto is absent, so this step is what
-      # keeps a silent skip from hiding a koto that vanished from CI: the install
-      # above fails first.
+      # The harnesses skip with exit 0 when koto is absent. This fails the job
+      # instead, and also when koto is not the release .tsuku.toml pins, so a
+      # silent skip or a stale koto cannot pass as green.
+      - name: Assert koto is the pinned release (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/assert-koto-pin.sh
+
       - name: Run retry-clearing tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/retry-clearing_test.sh

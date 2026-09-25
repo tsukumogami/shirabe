@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - '**/koto-templates/**'
+      # The koto pin decides which compiler checks the templates, so moving it
+      # has to recompile them.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
+      - '.github/workflows/validate-templates.yml'
 
 jobs:
   validate-templates:
@@ -21,6 +26,12 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # The templates are compiled by the koto release .tsuku.toml pins, under
+      # which context_assignments are executed and strictly validated. Fail
+      # here, not later, if tsuku installed anything else.
+      - name: Assert koto is the pinned release
+        run: bash scripts/assert-koto-pin.sh
 
       - name: Validate all koto templates
         run: |

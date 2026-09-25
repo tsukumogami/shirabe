@@ -23,6 +23,9 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      # The engine-backed suites run the koto release .tsuku.toml pins.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
 
 jobs:
   test-execute-scripts:
@@ -76,6 +79,13 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # The engine-backed suites below skip with exit 0 when koto is absent.
+      # This fails the job instead, and also when koto is not the release
+      # .tsuku.toml pins.
+      - name: Assert koto is the pinned release (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/assert-koto-pin.sh
 
       - name: Run settled-branch-record tests (Linux)
         if: runner.os == 'Linux'

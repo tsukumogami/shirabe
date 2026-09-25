@@ -18,6 +18,8 @@ on:
       # into a no-op.
       - 'skills/inflight/evals/fixtures/preflight-liveness/**'
       - '.github/workflows/check-preflight-scripts.yml'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-pin.sh'
 
 jobs:
   test-preflight-scripts:
@@ -85,6 +87,12 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # /scope's and /execute's declarations name the koto init entry flags
+      # only the pinned release has, so the zero-bytes assertions hold only on
+      # that release.
+      - name: Assert koto is the pinned release
+        run: bash scripts/assert-koto-pin.sh
 
       # ---------------------------------------------------------------------
       # The suites
