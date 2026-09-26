@@ -27,7 +27,9 @@
 # UPSTREAM) and refused where the real open is not. When the probe stops the
 # run under a leg, the open is still made, with the full args file and the
 # leg, so that koto records a refusal on the leg (the same variable refusal,
-# or already_exists for a session this script will not touch). Should that open
+# or the untyped already-exists refusal for a session this script will not
+# touch, printed as refused=already_exists and recorded on the leg with reason
+# already-exists). Should that open
 # be accepted, because the colliding session went away in between, the run
 # proceeds as opened.
 #

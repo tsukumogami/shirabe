@@ -17,7 +17,8 @@
 #       validation_exit
 #     a live session opened without the flag (the plain koto init SKILL.md
 #       uses) is attached and bound by a later --koto-leg invocation: the
-#       resume path
+#       resume path; and again after the plugin moved, with PLUGIN_ROOT
+#       rebound rather than refused
 #     a leg pinning another ISSUE_NUMBER: koto's input check refuses, the
 #       refusal is recorded on the leg, and no session is left behind
 #     a retained terminal session: koto's session_terminal refusal, recorded
@@ -147,7 +148,7 @@ eq "the leg records the terminal state" '"done_blocked"' "$(leg "$REQ" .result_f
 eq "the leg's status is failure" '"failure"' "$(leg "$REQ" .result.status)"
 
 # A free-form run, driven to validation_exit.
-REQ=$(new_request '{"ARTIFACT_PREFIX":"task_ff"}')
+REQ=$(new_request '{}')
 run_open task_ff "[\"do a thing\",\"--koto-leg\",\"$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_ff
 eq "free-form under --koto-leg: exit 0" 0 "$RC"
 tick task_ff --with-data '{"mode":"free_form","task_description":"do a thing"}'
@@ -166,6 +167,15 @@ case "$OUT" in *opened=attached*) pass "the live session is attached" ;; *) fail
 eq "and stays where it was" context_injection "$(state_of issue_8)"
 eq "the attached session is bound to the leg" '"issue_8"' "$(leg "$REQ" .bound_child)"
 
+# A resume after the plugin moved: PLUGIN_ROOT is rebind, so the attach
+# re-applies the new path instead of refusing the changed value.
+k init issue_10 --template "$TEMPLATE" --var ISSUE_NUMBER=10 --var ARTIFACT_PREFIX=issue_10 --var PLUGIN_ROOT=/koto-probe-old >/dev/null 2>&1
+REQ=$(new_request '{"ISSUE_NUMBER":"10"}')
+run_open issue_10 "[\"10\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=10 --var ARTIFACT_PREFIX=issue_10
+eq "a resume after a plugin move: exit 0" 0 "$RC"
+case "$OUT" in *opened=attached*PLUGIN_ROOT*) pass "attached, with PLUGIN_ROOT rebound" ;; *) fail "plugin-move output: [$OUT] [$ERR]" ;; esac
+eq "the moved session is bound to the leg" '"issue_10"' "$(leg "$REQ" .bound_child)"
+
 # A leg pinning another issue: refused, recorded, no session.
 REQ=$(new_request '{"ISSUE_NUMBER":"99"}')
 run_open issue_9 "[\"9\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=9 --var ARTIFACT_PREFIX=issue_9
@@ -173,6 +183,7 @@ eq "a leg pinning another ISSUE_NUMBER: exit 2" 2 "$RC"
 case "$OUT" in refused=*) pass "prints refused=" ;; *) fail "mismatch output: [$OUT]" ;; esac
 eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
 eq "the recorded outcome is refused" '"refused"' "$(leg "$REQ" .result.payload.outcome)"
+eq "the recorded reason" '"input-mismatch"' "$(leg "$REQ" .result.payload.reason)"
 eq "no session is left behind" none "$(state_of issue_9)"
 
 # A retained terminal session: session_terminal, recorded on the leg.
@@ -181,6 +192,7 @@ run_open issue_7 "[\"7\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=7 --va
 eq "a terminal session under --koto-leg: exit 2" 2 "$RC"
 eq "koto's refusal code" "refused=session_terminal" "$OUT"
 eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
+eq "the recorded reason" '"session-terminal"' "$(leg "$REQ" .result.payload.reason)"
 eq "the terminal session is untouched" done_blocked "$(state_of issue_7)"
 
 echo

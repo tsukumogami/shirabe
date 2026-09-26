@@ -326,6 +326,7 @@ open_deliver "[\"t-tpl\",\"--koto-leg=$REQ:deliver\"]"
 refused "another template under --koto-leg"
 has "prints the probe's refused=template_mismatch" "refused=template_mismatch" "$STDOUT"
 eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .result_source)"
+eq "the collision's recorded reason" '"already-exists"' "$(leg "$REQ" .result.payload.reason)"
 eq "that session is still left alone" work "$(state_of t-tpl)"
 
 # A leg that pins another topic: koto's input check refuses the attach.

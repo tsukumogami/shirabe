@@ -144,6 +144,11 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
 
 When invoked as `/work-on <argument>`:
 
+Before detecting the mode, take any `--koto-leg` token (and its value, when given
+separately) out of `$ARGUMENTS`: it names a caller's request leg (see **Answering a
+Caller's Leg**) and is never part of an issue reference, a PLAN path, or a task
+description.
+
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
 - If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
@@ -215,8 +220,8 @@ the session through `work-on-open.sh` as **Answering a Caller's Leg** below says
 
 `--koto-leg=<request-id>:work-on` (or `--koto-leg <request-id>:work-on`) lets a
 coordinator run `/work-on` as a worker and read its result from koto's request store
-instead of from what the worker says. Take it out of `$ARGUMENTS` before resolving the
-input; it is not part of the issue reference or the task description. The leg must be
+instead of from what the worker says. It is taken out of `$ARGUMENTS` before Mode
+Detection; it is not part of the issue reference or the task description. The leg must be
 named `work-on`, the one leg `/work-on` answers. It applies to issue-backed and
 free-form runs only: a plan-backed child is `/execute`'s, which already receives its
 result, and a PLAN path runs several issues, so with either of those stop and tell
@@ -249,8 +254,12 @@ applies and the run is unchanged.
    is bound; go on with the entry evidence, or, on a resume, with `koto next`.
    `error=usage` (exit 64) is a malformed, missing, or repeated `--koto-leg`: no
    koto call was made, so nothing is on the leg; report it and stop. `refused=<code>`
-   is koto's refusal, which koto has also recorded on the leg (`result_source:
-   refused`, with `outcome: refused` and a `reason`); report it and stop.
+   is koto's refusal; report it and stop. koto records a refusal only on a leg that
+   is still open and unbound (`result_source: refused`, payload `outcome: refused`
+   and a kebab-case `reason` such as `input-mismatch` or `var-mismatch:ISSUE_NUMBER`).
+   On a leg already bound to this session, a re-dispatch that koto refuses (from
+   another worktree, say, which is `origin_mismatch`) records nothing, and the leg
+   stays bound and open.
 
 Once bound, the run is still a root: `ROLE` is `root` and every tick carries
 `--no-cleanup`, and the terminal tick still promotes the result onto the leg. That
@@ -258,10 +267,18 @@ result is koto's own for a terminal with no result map: `status` (`success`, or
 `failure` for `done_blocked`) and the terminal state, which the leg records as
 `result_final_state` and a `request-leg` gate exposes as `final_state` (`done`,
 `done_already_complete`, `done_blocked`, `validation_exit`). A coordinator routes a
-`work-on` leg on those. work-on.md declares no `result:` map and no `outcome`: a
-result map needs koto 0.13.0 to compile at all, and the template must keep compiling
-on the older koto that runs without the flag. A refusal is the one leg result with a
-payload, `outcome: refused` and a `reason`, written by koto itself.
+promoted `work-on` leg on both, since `validation_exit` is a success too, and routes
+a refusal on `result_source: refused` rather than on the payload. work-on.md
+declares no `result:` map and no `outcome`: a result map needs koto 0.13.0 to
+compile at all, and the template must keep compiling on the older koto that runs
+without the flag.
+
+Some exits never reach the leg, which stays open and unbound: an `error=usage` from
+`work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
+plan-backed or PLAN-path input. So does a worker that stops before its terminal. A
+request-leg gate waits on an open leg indefinitely, so the coordinator needs its
+own fallback for a worker that ended without a result: a check on the worker's
+exit, or a deadline after which it abandons the leg.
 
 What the coordinator puts on the leg, so koto admits the session:
 
@@ -269,11 +286,11 @@ What the coordinator puts on the leg, so koto admits the session:
 |-----------|-------|
 | name | `work-on` |
 | `template` | `work-on.md` |
-| `inputs` | `ISSUE_NUMBER` (the issue number, issue-backed only) and `ARTIFACT_PREFIX` (`issue_<N>`, or `task_<slug>` for free-form). Both optional; each one named must equal what the run passes. |
+| `inputs` | Issue-backed: `ISSUE_NUMBER` (the issue number) and `ARTIFACT_PREFIX` (`issue_<N>`). Both optional; each one named must equal what the run passes. Free-form: none. The agent picks the `task_<slug>` itself, so a pinned `ARTIFACT_PREFIX` can't be relied on to match. |
 
 Don't pin `PLUGIN_ROOT`, which differs per installation, or any other variable:
 koto compares every input the leg names against the session's recorded value, and
-a leg input the run never sets is refused as `input_mismatch` on the leg. A
+a leg input the run never sets is refused as `input-mismatch` on the leg. A
 coordinator running several workers gives each its own request, or at least its own
 leg, since one leg answers one session.
 
