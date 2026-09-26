@@ -285,13 +285,17 @@ job.
   deferrals, side effects in flight (for example a merge attempted and
   never confirmed), and the reasoning behind reversals. Feature state is
   never stored; it's read from the roadmap and the pull requests.
-- **R27.** The record lives on GitHub. For a roadmap scope it is the
-  roadmap's Progress section for feature state plus a draft pull request
-  whose body carries live holdings and deferrals and whose commits
-  carry Progress updates; that pull request merges when the roadmap is
-  done. For a discipline scope the record is a draft pull request opened
-  when the rotation starts, which merges when the rotation ends with a
-  dated handoff snapshot committed.
+- **R27.** The record lives on GitHub. For a roadmap scope it is an
+  issue in the roadmap's repository whose body carries the holdings,
+  deferrals, side effects in flight and reversals, closed when the
+  roadmap is done; the record commits nothing, and feature state reaches
+  the roadmap on the default branch through the finalization cascade or
+  a small pull request per landed feature. For a discipline scope the
+  record is a draft pull request opened when the rotation starts, which
+  merges when the rotation ends with a dated handoff snapshot committed.
+  This revises the original placement (Progress committed on a record
+  branch), which would have kept derived state off the default branch
+  until the roadmap ended.
 - **R28.** A deferral is something the successor disposes of (files it
   as an issue, closes it, or carries it forward with a reason) before
   its first dispatch.

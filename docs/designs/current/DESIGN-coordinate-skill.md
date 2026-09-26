@@ -18,12 +18,12 @@ decision: |
   limitations. Four references hold only mechanics and templates: the
   loop's reconcile and failure procedures, the record template, the
   worker brief template and the verification checklist. The record is a
-  scope-keyed ledger: one fixed branch and draft pull request per scope
-  (`coordinate/roadmap-<name>` or `coordinate/discipline-<name>`), live
-  holdings, deferrals, side effects and reversals in Part 2 of the body,
-  roadmap Progress committed on that branch with the default branch
-  merged in rather than rebased, and one overwritten handoff file per
-  discipline at `docs/disciplines/<name>.md`.
+  scope-keyed ledger holding holdings, deferrals, side effects and
+  reversals: at roadmap scope an issue in the roadmap's repository that
+  commits nothing, and at discipline scope one fixed branch and draft
+  pull request per rotation (`coordinate/discipline-<name>`) with one
+  overwritten handoff file per discipline at
+  `docs/disciplines/<name>.md`.
 rationale: |
   Prose is the PRD's default and no step clears the bar for a gate:
   reconcile and record tooling are later features, a record write is an
@@ -31,11 +31,12 @@ rationale: |
   koto session has no story for a loop that runs for days. Nearly every
   acceptance criterion reads SKILL.md's own text, so the rules must live
   there, and references can only add what SKILL.md doesn't say without
-  creating a second copy that drifts. A constant branch per scope gets
+  creating a second copy that drifts. A roadmap record that commits
+  nothing has no branch to maintain and no merges to absorb, and closes
+  cleanly with the roadmap; a constant branch per rotation gets
   uniqueness from GitHub's one-open-PR-per-head rule instead of an
-  ownership filter that is known to be broken, merging instead of
-  rebasing keeps the Progress history and survives the roadmap's
-  deletion, and a fixed handoff path gives a successor one read.
+  ownership filter that is known to be broken, and a fixed handoff path
+  gives a successor one read.
 upstream: docs/prds/PRD-coordinate-skill.md
 ---
 
@@ -197,6 +198,32 @@ same branch check. At rotation end the coordinator commits a handoff to
 each rotation, then merges and deletes the branch. The handoff is plain
 markdown, not a validated shirabe type, and names no sessions; session
 names stay in the merged pull request's body.
+
+#### Revised during implementation: the roadmap record is an issue
+
+Review before the pull request went ready changed the roadmap half of the
+layout above; the discipline half stands. At roadmap scope the record is
+an issue in the roadmap's repository, titled `Coordinator record:
+ROADMAP-<name>`, whose body carries the declaration line, the `Written:`
+line and the four sections. It is closed when the roadmap is done. The
+record commits nothing: Progress is derived state, and committed on a
+branch that merges only when the roadmap ends, it would never reach the
+default branch while it mattered. Feature state reaches the roadmap on
+the default branch through the finalization cascade when a feature's PLAN
+is in the roadmap's repository, and otherwise through a small pull
+request per landed feature, written by a worker, that sets the feature's
+status line.
+
+An issue suits a record that commits nothing: there is no branch to
+maintain, no merges from the default branch to absorb, and it closes
+cleanly when the roadmap finishes. A coordinator finds it by title and
+declaration line; more than one match, or a titled issue without the
+line, is a question for the human, not a pick. The same review added a
+"Verified head" column to Side effects in flight and to parked holdings,
+so confirming a merge after a crash compares the default branch against
+the sha that was verified, not against whatever the branch holds now.
+Which container holds the record is left open for the record's tooling
+to settle.
 
 #### Alternatives considered
 

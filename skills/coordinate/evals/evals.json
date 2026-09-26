@@ -5,11 +5,11 @@
       "id": 1,
       "name": "roadmap-invocation-extra-text-is-decisions",
       "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most two workers running",
-      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and a worker bound of two. It reconciles first, finds or opens the record on coordinate/roadmap-plugin-system, picks the first unblocked feature that is not feature 3, and prepares a brief for a /shirabe:deliver run. It does not treat the extra text as instructions on how to coordinate.",
+      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and a worker bound of two. It reconciles first, finds or opens the record, an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, picks the first unblocked feature that is not feature 3, and prepares a brief for a /shirabe:deliver run. It does not treat the extra text as instructions on how to coordinate.",
       "assertions": [
         "The extra invocation text is treated as decisions (feature 3 held, bound of two), not as a description of how to coordinate",
         "Before any unit is picked, a reconcile reads the record (or finds none and opens it) and re-checks holdings against GitHub",
-        "The record branch named is coordinate/roadmap-plugin-system",
+        "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
         "The entry point chosen for a roadmap feature is /shirabe:deliver",
         "Feature 3 is not dispatched, although it has no unmet dependency",
         "No more than two workers are planned to run at once",
@@ -28,7 +28,7 @@
       "assertions": [
         "The coordinator reads the roadmap's status and reports that it is not Active",
         "No worker is dispatched",
-        "No record branch or pull request is created",
+        "No record issue, branch or pull request is created",
         "The coordinator does not transition the roadmap's status itself",
         "The coordinator does not offer to skip the Active check or to coordinate the Draft roadmap anyway"
       ],
@@ -55,7 +55,7 @@
     {
       "id": 4,
       "name": "restart-with-unconfirmed-merge",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed, with verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a",
       "expected_output": "The coordinator runs a full reconcile first. It treats the record as a dated snapshot, re-reads PR #408's state and the changed files on the default branch to settle whether the merge landed, re-checks every holding against GitHub and the host, and reports what changed, what it holds and the open deferrals before dispatching anything.",
       "assertions": [
         "A full reconcile runs before any dispatch",
@@ -63,7 +63,8 @@
         "PR #408's merge is settled by reading its state and the default branch, not by trusting the record",
         "The reconcile report lists what changed, what is held, and open deferrals",
         "No merge of PR #408 is attempted again before its state is read",
-        "Any roadmap change is limited to the Progress section on the coordinate/roadmap-plugin-system branch; the Features section is not edited and nothing is committed to the default branch"
+        "The coordinator commits nothing to the roadmap and edits none of its sections itself",
+        "Whether PR #408 landed is judged against the verified head recorded in the record, not against whatever the branch holds now"
       ],
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"

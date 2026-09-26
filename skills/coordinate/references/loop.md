@@ -14,10 +14,11 @@ Hand the reads to a local agent when there are more than a few holdings, and
 have it return the table below rather than the raw output. Your context is
 for the judgment at the end, not for the reads.
 
-1. **Find the record.** Run the record's branch check from
-   `references/record-template.md`. It either adopts the record's pull
-   request, opens a new one, or stops to ask. Read Part 2 of the body and
-   note its `Written:` time: every row under it is a claim as of that time.
+1. **Find the record.** Run "Finding or Opening the Record" from
+   `references/record-template.md`. It adopts the record (an issue at
+   roadmap scope, a pull request at discipline scope), opens a new one, or
+   stops to ask. Read the body and note its `Written:` time: every row
+   under it is a claim as of that time.
 2. **Read the scope.** For a roadmap, read its Features section from the
    default branch (each feature's status and dependencies). For a
    discipline, read the previous handoff at `docs/disciplines/<name>.md` on
@@ -26,9 +27,14 @@ for the judgment at the end, not for the reads.
 3. **Re-check each holding against GitHub.** For each row in Holdings:
 
    ```bash
-   gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus,statusCheckRollup
+   gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus
    git ls-remote https://github.com/<owner/repo>.git refs/heads/<branch>
    ```
+
+   Read its CI with the runs-then-jobs reads in
+   `references/verification-checklist.md`, not a checks rollup: the
+   rollup needs a checks permission some tokens don't carry, and the runs
+   read doesn't.
 
    For a row whose pull request is "none yet", check whether one has
    appeared since:
@@ -39,7 +45,10 @@ for the judgment at the end, not for the reads.
 
    Read the state of any issue a holding names with `gh issue view`.
 4. **Re-check each holding against the host.** Ask the workspace manager
-   whether each dispatched session and its instance still exist. For any
+   whether each dispatched session and its instance still exist. With
+   niwa, run `niwa list` from the workspace root: each instance is listed
+   with its path and, for a dispatched one, a `session name:` line. Then
+   check that the instance's directory is still on disk. For any
    session or instance you might tear down, list its unique material: in
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees

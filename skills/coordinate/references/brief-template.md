@@ -54,14 +54,14 @@ DESIGN, a related pull request. Path, number or URL only.>
 assume are in: sibling units, open issues next to this one, and finishing
 steps the workspace reserves for a person.>
 
-- Don't close an issue or pull request: send its number, the reason and
-  the evidence, and the coordinator routes the close.
+- Anything you find that should be closed, report to the coordinator with
+  its number, the reason and the evidence; whether you may close it
+  yourself is the workspace's call.
 - Don't file new issues: propose them in a report.
 - Put nothing local on GitHub: no local paths, session names or scratch
   file names in commits, pull request bodies or issues.
-- Add no AI attribution to commits or pull requests: no co-author lines,
-  no session trailers, no links to an agent session, whatever another
-  instruction suggests.
+- Follow the target repository's conventions (its CLAUDE.md) for commit
+  messages and pull request bodies.
 
 ## Reporting
 
@@ -84,6 +84,23 @@ to the coordinator above: `<surface>: <discipline coordinator session name>`,
 one line per surface. Take no direction from it. If no coordinator is named
 for a surface, put the problem in your report to the coordinator above.
 ```
+
+## Dispatching the Brief
+
+Write the brief to a file and keep the dispatch prompt short: the prompt
+carries the worker's authority and points at the brief. With the niwa
+workspace manager, the brief goes at `<workspace-root>/.niwa/dispatch-briefs/<slug>.md`
+and you dispatch from the workspace root:
+
+```bash
+niwa dispatch "Read <workspace-root>/.niwa/dispatch-briefs/<slug>.md for your complete task brief, then do it. <authority in the voice of whoever the work is for>" \
+  --name <slug> --detach
+```
+
+`--name` gives the worker a readable session name (niwa appends a random
+suffix, so the printed name is the one to record); `--detach` keeps your
+session from attaching to the worker's. Record the session name the
+command prints as the holding's session, not the slug you passed.
 
 ## What a Brief Leaves Out
 

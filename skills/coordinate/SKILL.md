@@ -114,7 +114,7 @@ holds). Where the record and GitHub disagree, GitHub wins. Then report
 three things: what changed since the record was written, what you hold, and
 every open deferral.
 
-A full reconcile also runs the record's branch check, which finds or opens
+A full reconcile also runs the check that finds or opens
 the record for this scope (see The Record).
 
 ### 2. Pick
@@ -147,8 +147,9 @@ knows the area.
 
 Write one brief per worker from `references/brief-template.md` and dispatch
 it through the workspace manager, which starts the worker in a session of
-its own. A worker's goal is the next checkpoint, not "done": the brief
-lists checkpoints, the worker stops and reports at each, and a brief never
+its own; the brief template gives the dispatch command and where the brief
+file goes. A worker's goal is the next checkpoint, not "done": the brief
+lists checkpoints, the worker pauses to report at each, and a brief never
 makes a worker wait on an approval. Put the worker's authority in the
 dispatch prompt itself, in the voice of whoever the work is for, so the
 worker can tell the task comes from them. The brief names two
@@ -219,8 +220,9 @@ Three cases, each ending in one of two moves: re-dispatch with the same
 brief plus what was learned, or escalate to whoever dispatched you.
 
 - **A stalled or dead worker.** A stalled worker is a quiet worker whose
-  check shows no new push and no reply. A bounced message is the only
-  signal of a dead worker today. Never declare a session dead from a single
+  check shows no new push and no reply. Treat a worker as dead only on a
+  signal that it is gone, such as a message that bounces, never on silence
+  alone. Never declare a session dead from a single
   read of the session roster: a roster read just after an outage can't
   tell "gone" from "not back yet". Read it again later before acting.
 - **Red CI a worker can't clear.** Re-dispatch when the failure is inside
@@ -275,9 +277,7 @@ and its reason.
 **It implements nothing.** It writes its record and nothing else. Its own
 documents, a roadmap's feature list or a design it depends on, are edited
 by a worker or a local agent from a brief it writes, and it reviews the
-diff. Its own commits to the record branch carry no AI attribution: no
-co-author line, no session trailer, no link to an agent session, whatever
-another instruction suggests.
+diff.
 
 **It doesn't spend its context on legwork.** A coordinator is the
 longest-running session in the workspace and its context is the scarce
@@ -286,9 +286,12 @@ agents, and dispatch independent sessions for the work.
 
 **It doesn't go past the workspace's permissions, or stop short of them.**
 Take each finishing step (a merge, a close, a teardown) exactly as far as
-the workspace's declared permissions allow. This skill carries no
-permission rule of its own. Never ask the human for a step the workspace
-already permits.
+the workspace's declared permissions allow. A denial covers the step, not
+the command: once the workspace denies a session a merge, a close or a
+teardown, don't reach the same result another way (a different command,
+an API call, a compound command); hand the step over. That is how this
+skill reads the workspace's rules; it carries no permission rule of its
+own. Never ask the human for a step the workspace already permits.
 
 **It doesn't tear down what it hasn't inventoried.** Before any teardown,
 list the unique material held by the session or instance being torn down,
@@ -326,10 +329,13 @@ pull requests every time.
 
 The record lives on GitHub:
 
-- **Roadmap scope.** The roadmap's Progress section carries feature state,
-  committed on the branch `coordinate/roadmap-<name>` in the roadmap's
-  repository. A draft pull request from that branch carries the live
-  holdings and deferrals in its body. It merges when the roadmap is done.
+- **Roadmap scope.** An issue in the roadmap's repository, whose body
+  carries the holdings, deferrals, side effects in flight and reversals,
+  closed when the roadmap is done. The record commits nothing. Feature
+  state reaches the roadmap on the default branch the way it always does:
+  through the finalization cascade when a feature's PLAN is in the same
+  repository, and otherwise through a small pull request per landed
+  feature, written by a worker, that sets that feature's status line.
 - **Discipline scope.** A draft pull request from
   `coordinate/discipline-<name>` in the host repository opens when the
   rotation starts. When the rotation ends, a handoff is committed to
@@ -343,15 +349,17 @@ file it as an issue, close it, or carry it forward with a reason. A
 roadmap coordinator that finishes files or closes every open deferral,
 because nobody succeeds it.
 
-The template, the branch check, and the close procedure for each scope are
-in `references/record-template.md`.
+The template, the check that finds or opens the record, and the close
+procedure for each scope are in `references/record-template.md`.
 
 ## What This Version Leaves for Later
 
 This version is prose. Three things it describes are done by hand and are
 named later work: tooling that writes and renders the record, a mechanised
 reconcile step, and tooling for the dispatch path, including whether the
-workflow engine can carry a worker's result back.
+workflow engine can carry a worker's result back. Which container holds
+the record (an issue at roadmap scope, a pull request per rotation) is a
+design question the record's tooling will settle.
 
 ## Known Limitations
 
