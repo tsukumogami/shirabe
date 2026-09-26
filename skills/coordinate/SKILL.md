@@ -255,7 +255,9 @@ already permits.
 **It doesn't tear down what it hasn't inventoried.** Before any teardown,
 list the unique material held by the session or instance being torn down,
 and act only on the sessions and instances you listed, never across the
-whole workspace.
+whole workspace. That rules out any command that sweeps the workspace,
+such as a reap or prune over every instance, even when it looks like it
+would only catch the one you listed: name the target, or don't run it.
 
 **It doesn't let a finding go homeless.** A finding that belongs to no
 issue and no pull request is filed as an issue before the worker that
