@@ -16,7 +16,8 @@ goals: |
   and what the coordinator holds into the workflow's context. The pick state
   reads that report. No value the agent supplies can let the workflow leave
   reconcile, and reconcile itself changes nothing on GitHub or the host.
-upstream: docs/briefs/BRIEF-coordinate-reconcile.md
+absorbed:
+  - docs/briefs/BRIEF-coordinate-reconcile.md
 ---
 
 # PRD: coordinate-reconcile
@@ -24,6 +25,40 @@ upstream: docs/briefs/BRIEF-coordinate-reconcile.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinate-reconcile](docs/briefs/BRIEF-coordinate-reconcile.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature frames one gap: a coordinator that starts, restarts or takes a
+rotation inherits a record of claims dated when they were written, and the
+`coordinate` skill's instruction to re-check them before acting is prose,
+so nothing makes the re-check happen or shows that it did. A stale row, or
+the coordinator's own last report, can be acted on as fact; the exact
+checks (a merge against its verified head, a board that only looks green, a
+worker missing from one listing) are the ones an agent approximates; and
+the raw reads spend the coordinator's context.
+
+The problem it named is this document's Problem Statement. The outcome it
+asked for is that, before picking any work, the coordinator reads one
+report built from live reads by a script, saying what changed and what it
+holds, and the workflow won't let it pick without that report; the person
+above gets measured claims, and a successor rotation gets its predecessor's
+reasoning as prose it never mistakes for fact. Those are this document's
+Goals.
+
+Five journeys grounded it and survive as User Stories: a restart that finds
+a holding merged while it was down; a restart that can't find a worker with
+no pull request and says "not found on this read"; a restart that settles
+an attempted merge against the verified head; a new rotation that starts
+from a handoff; and the person above reading the first report. Its scope
+boundary is carried as the Requirements and Out of Scope: the reconcile
+state's reads, re-checks, report and gate, reuse of the record reader, the
+host re-check of holdings with no pull request, the scoping-ahead mark, and
+the handoff variant; and, excluded, liveness, the double-held check,
+externalised load, acting on the report, the record's container and
+rendering, the dispatch path, the per-turn re-check before acting, and any
+change to the workflow engine or the workspace manager.
 
 ## Problem Statement
 
