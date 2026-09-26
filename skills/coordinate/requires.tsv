@@ -1,0 +1,8 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# /coordinate is prose with no shirabe or koto call line. The coordinator
+# runs gh and git itself through the commands its references show, so both
+# are declared tool-only and checked for presence.
+gh	-	-	always
+git	-	-	always
