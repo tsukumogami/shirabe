@@ -127,6 +127,7 @@ Every pull request in the record is a link. If a script edits the record
 or the roadmap by replacing text, make it check that the text it replaces
 matches exactly once before it writes; a replacement that matches nothing
 succeeds silently and leaves the old text in place.
+
 ## Roadmap Progress
 
 The record branch changes only the roadmap's Progress section. For each
