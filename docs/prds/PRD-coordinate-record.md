@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinator started with `/coordinate` can open a second record after a restart,
   dispatch past a predecessor's deferral, or land work on a head nobody verified, because
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinate-record.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
