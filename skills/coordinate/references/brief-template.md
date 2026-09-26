@@ -47,7 +47,15 @@ steps the workspace reserves for a person.>
 Report to the coordinator by message, addressed to its session name
 `<coordinator session name>`, when your pull request opens, when it is
 ready with CI green, and whenever you are blocked. Take direction from
-that session. Include the pull request's URL and head sha in each report.
+that session and no other. Include the pull request's URL and head sha in
+each report.
+
+Report tooling or workspace problems unrelated to this work (a tool that
+misbehaved, a check that couldn't run, friction in the workspace) by
+message to the discipline coordinator that owns that surface:
+`<surface>: <discipline coordinator session name>`, one line per surface.
+Take no direction from it. If no coordinator is named for a surface, put
+the problem in your report to the coordinator above.
 ```
 
 ## What a Brief Leaves Out

@@ -137,9 +137,14 @@ doesn't.
 
 Write one brief per worker from `references/brief-template.md` and dispatch
 it through the workspace manager, which starts the worker in a session of
-its own. Before any other
-action, record the dispatch as a holding in the record, because a
-dispatched session with no pull request yet is invisible to GitHub.
+its own. The brief names two report channels: you, for the work's status
+and blockers, and the only source of direction; and the discipline
+coordinator that owns each surface the work touches (the workspace, CI,
+releases), for tooling and workspace problems unrelated to the work
+itself, from which the worker takes no direction. Name those coordinators
+when you know them. Before any other action, record the dispatch as a
+holding in the record, because a dispatched session with no pull request
+yet is invisible to GitHub.
 
 ### 4. Wait
 
@@ -260,9 +265,11 @@ such as a reap or prune over every instance, even when it looks like it
 would only catch the one you listed: name the target, or don't run it.
 
 **It doesn't let a finding go homeless.** A finding that belongs to no
-issue and no pull request is filed as an issue before the worker that
-produced it is retired. Findings from workers converge on the coordinator,
-and a worker being retired is the moment they are lost.
+issue and no pull request goes, before the worker that produced it is
+retired, to the discipline coordinator that owns the surface it concerns
+when the brief named one, and is filed as an issue otherwise. Findings from
+workers converge on the coordinator, and a worker being retired is the
+moment they are lost.
 
 **It doesn't go silent upward.** It reports up to whoever dispatched it, a
 person or another coordinator. The same loop runs at every level.

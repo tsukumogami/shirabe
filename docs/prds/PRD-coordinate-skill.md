@@ -255,8 +255,9 @@ job.
   down, and acts only on the sessions and instances it listed, never
   across the whole workspace.
 - **R22.** SKILL.md states that a finding belonging to no issue and no
-  pull request is filed as an issue before the worker that produced it
-  is retired.
+  pull request goes, before the worker that produced it is retired, to
+  the discipline coordinator that owns the surface it concerns when the
+  brief named one, and is filed as an issue otherwise.
 - **R23.** SKILL.md states that the coordinator reports up to whoever
   dispatched it, a person or another coordinator, and that the same
   loop runs at every level.
@@ -302,7 +303,11 @@ job.
   goal, the decisions the worker can't see, pointers to pushed
   artifacts, acceptance criteria, what's out of scope, and an
   instruction to report back to the coordinator by message using the
-  coordinator's session name. It states that a worker's keep-alive is
+  coordinator's session name. It carries a second channel: tooling and
+  workspace problems unrelated to the work go by message to the
+  discipline coordinator that owns that surface, named in the brief, and
+  the worker takes direction only from the coordinator that dispatched
+  it. It states that a worker's keep-alive is
   the workspace manager's to schedule at dispatch, so a brief never
   asks the worker to schedule one.
 - **R32.** A section in SKILL.md or a reference says what this version
@@ -353,9 +358,10 @@ Each criterion names the requirement it verifies.
   and `scripts/check-evals-exist.sh` pass on the branch.
 - [ ] (R35) `README.md`'s skills tables contain a `/coordinate` row.
 - [ ] (R37) The pull request's diff adds or changes files only under
-  `skills/coordinate/`, `README.md` and `docs/`; no file under
-  `koto-templates/`, `skills/*/koto-templates/` or `scripts/` is added
-  or changed.
+  `skills/coordinate/`, `README.md` and `docs/`, plus the shipped-skill
+  count in `scripts/lib/preflight-report_test.sh`, which every new skill
+  bumps; no template or script is added, and no file under
+  `koto-templates/` or `skills/*/koto-templates/` changes.
 - [ ] (R38) `evals/evals.json` has a scenario for each of the
   seven situations R38 names.
 - [ ] (R36) `git grep -nE 'wip[/]'` on the branch before merge
@@ -423,8 +429,9 @@ Each criterion names the requirement it verifies.
   that it never asks for a permitted step.
 - [ ] (R21) SKILL.md says teardown is preceded by a list of unique
   material and acts only on listed sessions and instances.
-- [ ] (R22) SKILL.md says a homeless finding is filed as an issue
-  before its worker is retired.
+- [ ] (R22) SKILL.md says a homeless finding goes to the discipline
+  coordinator named in the brief for its surface, or to an issue when
+  none is named, before its worker is retired.
 - [ ] (R23) SKILL.md says the coordinator reports up to its dispatcher
   and the same loop runs at every level.
 - [ ] (R24) `git grep -niE 'sender|authenticat|impersonat|spoof' -- skills/coordinate`
@@ -443,7 +450,9 @@ Each criterion names the requirement it verifies.
   deferral before its first dispatch, and lists the three ways.
 - [ ] (R31) The brief template names goal, hidden decisions,
   pushed-artifact pointers, acceptance criteria, out of scope and
-  report-back by message with the coordinator's session name, says the
+  report-back by message with the coordinator's session name, a second
+  channel to named discipline coordinators for tooling and workspace
+  problems with no direction taken from them, says the
   keep-alive is the workspace manager's to schedule, and contains no
   instruction for the worker to schedule one.
 - [ ] (R32) A section names record tooling, mechanised reconcile and
