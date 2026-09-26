@@ -218,8 +218,10 @@ job.
   session whose work is not yet merged or abandoned and that isn't parked
   with a verified, ready pull request waiting only on a merge. The reason is
   stated: past three, CI throughput, host load and the coordinator's own
-  verification capacity become the constraint. The human's decisions
-  may set a different bound.
+  verification capacity become the constraint. When three or more
+  workers are parked, the coordinator dispatches nothing new until the
+  human has worked through the merge-order table. The human's decisions
+  may set different numbers.
 - **R15.** The coordinator dispatches anything inside its scope without
   asking. It proposes anything outside its scope to whoever dispatched
   it and doesn't act until that party answers.

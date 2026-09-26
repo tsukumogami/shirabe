@@ -4,16 +4,17 @@
     {
       "id": 1,
       "name": "roadmap-invocation-extra-text-is-decisions",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 2 waits until the 1.4 release ships; keep at most two workers running",
-      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 2 until the release, and a worker bound of two. It reconciles first, finds or opens the record on coordinate/roadmap-plugin-system, picks the first unblocked feature that is not feature 2, and prepares a brief for a /shirabe:deliver run. It does not treat the extra text as instructions on how to coordinate.",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most two workers running",
+      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and a worker bound of two. It reconciles first, finds or opens the record on coordinate/roadmap-plugin-system, picks the first unblocked feature that is not feature 3, and prepares a brief for a /shirabe:deliver run. It does not treat the extra text as instructions on how to coordinate.",
       "assertions": [
-        "The extra invocation text is treated as decisions (feature 2 held, bound of two), not as a description of how to coordinate",
+        "The extra invocation text is treated as decisions (feature 3 held, bound of two), not as a description of how to coordinate",
         "Before any unit is picked, a reconcile reads the record (or finds none and opens it) and re-checks holdings against GitHub",
         "The record branch named is coordinate/roadmap-plugin-system",
         "The entry point chosen for a roadmap feature is /shirabe:deliver",
-        "Feature 2 is not dispatched",
+        "Feature 3 is not dispatched, although it has no unmet dependency",
         "No more than two workers are planned to run at once",
-        "The roadmap's Features section is not edited, and nothing is committed to the default branch"
+        "The roadmap's Features section is not edited, and nothing is committed to the default branch",
+        "The brief for the dispatched worker lists checkpoints to report at and makes the worker wait on no approval"
       ],
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -46,7 +47,8 @@
         "The pull request's file list and git ls-remote for the branch are read",
         "The report separates what was verified from what was not",
         "The worker's green is not relayed before the head sha and CI jobs are read",
-        "Merging depends on the workspace's permissions, with a merge-order table for the human where a merge is denied"
+        "Merging depends on the workspace's permissions, with a merge-order table for the human where a merge is denied",
+        "Each relayed claim is marked as measured, verified by reading, or inferred"
       ],
       "files": []
     },
@@ -106,7 +108,21 @@
         "The teardown targets only the listed session and instance",
         "No workspace-wide cleanup command is run",
         "Whether to tear down follows the workspace's permissions rather than a rule of the skill's own",
-        "A finding with no issue or pull request is filed as an issue before the worker is retired"
+        "A finding with no issue or pull request is filed as an issue before the worker is retired",
+        "Before the teardown, the coordinator asks the worker what exists only in its head and gets it written down"
+      ],
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "issue-already-closed-by-a-pr",
+      "prompt": "You are the coordinator for the ci-health discipline. Issue #1712 (\"flaky timeout in the integration job\") is open and unassigned, and no holding covers it. Two workers are active. Should you dispatch a worker for it, and what do you do first?",
+      "expected_output": "The coordinator doesn't dispatch straight away. An open issue says nothing about whether a pull request already closes it, so it first reads the issue's timeline for referencing pull requests, and only dispatches (through /shirabe:work-on, since the issue is specified) if none is open or merged.",
+      "assertions": [
+        "Before dispatching, the coordinator reads the issue's timeline for a pull request that already references or closes it",
+        "No worker is dispatched before that check",
+        "If it dispatches, the entry point is /shirabe:work-on",
+        "The dispatch is recorded as a holding before any other action"
       ],
       "files": []
     }

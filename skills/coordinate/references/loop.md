@@ -43,10 +43,18 @@ for the judgment at the end, not for the reads.
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees
    (`git worktree list`); and its scratch directory. Prove a file durable
-   by its content, not by ancestry: its blob hash (`git hash-object
-   <file>`) must appear on a remote ref that survives a squash merge, since
-   a commit reachable from a feature branch is gone once that branch is
-   squashed and deleted. Record a session missing from the roster as "not
+   by its content, not by ancestry: its blob hash must appear on a remote
+   ref that survives a squash merge, since a commit reachable from a
+   feature branch is gone once that branch is squashed and deleted.
+
+   ```bash
+   BLOB=$(git hash-object <file>)
+   git fetch origin <default-branch>
+   git log origin/<default-branch> --find-object="$BLOB" --oneline -1
+   ```
+
+   Output means the content is on the default branch; no output means the
+   file is unique material. Record a session missing from the roster as "not
    seen" in the report, never "dead"; When Something Goes Wrong in
    SKILL.md says why one read can't tell.
 5. **Re-check side effects in flight.** For each row, run its "How to

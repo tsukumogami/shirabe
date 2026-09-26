@@ -229,13 +229,14 @@ brief plus what was learned, or escalate to whoever dispatched you.
 
 ## Bounds and Authority
 
-**Three active workers by default.** An active worker is a dispatched
-session whose work is not yet merged or abandoned and that isn't parked
-with a verified, ready pull request waiting only on a merge. Run at most
-three, one
-pull request each. Past three, CI throughput, host load and your own
-verification capacity become the constraint, not worker speed. The human's
-decisions may set a different bound.
+**Three active workers by default.** Run at most three active workers,
+one pull request each. An active worker is a dispatched session whose work
+is not yet merged or abandoned and that isn't parked with a verified,
+ready pull request waiting only on a merge. Past three, CI throughput,
+host load and your own verification capacity become the constraint, not
+worker speed. Parked workers still hold their pull requests: when three or
+more are parked, dispatch nothing new until the human has worked through
+the merge-order table. The human's decisions may set different numbers.
 
 **Inside your scope, dispatch without asking.** Anything outside it,
 propose to whoever dispatched you and don't act until they answer.
