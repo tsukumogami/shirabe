@@ -3,9 +3,8 @@
 A brief is the worker's only context: it starts in a fresh session with
 none of yours. Load this file at the dispatch step and fill in every
 section. Write it as the task itself, in the voice of whoever the work is
-for, not as a relay of your own instructions. Put the worker's authority
-(what it may do without asking) in the dispatch prompt as well as the
-brief.
+for, not as a relay of your own instructions. SKILL.md's Brief and
+Dispatch step says what goes in the dispatch prompt besides the brief.
 
 Point at artifacts; don't paste them. Name a pushed document, issue or
 pull request by path, number or URL and let the worker read it. Text you
@@ -90,8 +89,6 @@ for a surface, put the problem in your report to the coordinator above.
 
 - **Keep-alive.** A worker's keep-alive is the workspace manager's to
   schedule at dispatch. A brief never asks the worker to schedule one.
-- **Approval gates.** A brief never makes the worker wait on an approval;
-  a checkpoint is a place to report, not to stop until answered.
 - **How to do the job.** The entry point's skill carries its own process.
   A brief that re-explains `/deliver` or `/work-on` goes stale when they
   change.
