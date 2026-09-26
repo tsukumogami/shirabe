@@ -168,7 +168,9 @@ dispatch, the same way a rotation's is.
 
 The body satisfies the body gate. The title is
 `docs(coordinate): record for ROADMAP-<name>` or
-`docs(coordinate): <name> rotation from <date>`. Part 1 is one prose
+`docs(coordinate): <name> rotation <start> to <end>`, carrying the
+rotation's planned end date from the day it opens so the branch check can
+tell an expired rotation from a live one. Part 1 is one prose
 sentence naming the scope and the branch. Part 2 holds a declaration line
 for readers, a `Written:` timestamp that dates every claim below it, and
 four sections always present in this order: Holdings, Deferrals, Side

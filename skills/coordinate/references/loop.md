@@ -40,20 +40,20 @@ for the judgment at the end, not for the reads.
    session or instance you might tear down, list its unique material: in
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees
-   (`git worktree list`); and its scratch directory. A roster read just
-   after an outage can't tell "gone" from "not back yet", so a session
-   missing from one read is "not seen", not "dead".
+   (`git worktree list`); and its scratch directory. Record a session
+   missing from the roster as "not seen" in the report, never "dead"
+   (see When Something Goes Wrong in SKILL.md).
 5. **Re-check side effects in flight.** For each row, run its "How to
    confirm" read. A merge attempted and never confirmed is settled only by
    reading the pull request's state and the changed files on the default
    branch.
-6. **Read the deferrals.** Every row is open until disposed of. A successor
-   disposes of each before its first dispatch.
+6. **Read the deferrals.** List every row for the report; SKILL.md's
+   record section says when each must be disposed of.
 
 ## Resolving a Claim GitHub Contradicts
 
-GitHub wins. When a row says one thing and the read says another, act on
-the read, rewrite the row at the next update, and put the difference in
+When a row says one thing and the read says another, act on the read,
+rewrite the row at the next update, and put the difference in
 the reconcile report as a change, with both values and the time the row
 was written. Never average the two, and never keep the row "until it's
 confirmed": the read is the confirmation.
@@ -84,8 +84,7 @@ Not verified: <anything you could not read, and why>.
 
 ## The Merge-Order Table
 
-When the workspace reserves the merge for a person, hand over every
-verified, ready pull request in one table, in the order they should merge:
+The table the land step hands over, one row per verified pull request:
 
 ```
 Ready to merge, in this order:

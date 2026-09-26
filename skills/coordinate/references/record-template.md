@@ -31,9 +31,10 @@ dispatch. Exactly one of four outcomes:
 
 1. **The branch has an open pull request whose body carries the
    declaration line.** Adopt it. Never replace it or open a second one.
-   For a discipline, first check the rotation window in the pull
-   request's title: if that rotation's length has run out, it belongs to
-   the previous rotation, so close it out (see Closing a Rotation). If it
+   For a discipline, first read the rotation's end date from the pull
+   request's title, which carries it from the day the pull request opened:
+   if that date has passed, the pull request belongs to the previous
+   rotation, so close it out (see Closing a Rotation). If it
    merged and the branch is gone, open your own as in outcome 4; if the
    workspace reserves the merge for a person, hand it over and wait
    before opening yours.
@@ -65,8 +66,11 @@ dispatch. Exactly one of four outcomes:
 **Title.**
 
 - Roadmap: `docs(coordinate): record for ROADMAP-<name>`
-- Discipline: `docs(coordinate): <name> rotation from <YYYY-MM-DD>`, edited
-  at close to `docs(coordinate): <name> rotation from <start> to <end>`
+- Discipline: `docs(coordinate): <name> rotation <start> to <end>`, with
+  both dates in `YYYY-MM-DD` form from the day it opens. The end date is
+  the start plus the rotation's length. If the human ends the rotation
+  early, or sets a new length, edit the end date to match; the title is
+  where a successor reads it.
 
 **Body.** Part 1 is one prose sentence with no headings, true after merge.
 Then a line that is exactly `---`, then Part 2. Part 2 uses no further
@@ -210,7 +214,8 @@ readable on GitHub.
 ## Closing a Rotation
 
 1. Commit the handoff to the record branch and push.
-2. Edit the title to its closing form.
+2. If the rotation ended on a different day than the title says, edit the
+   title's end date to the actual one.
 3. Mark the pull request ready and merge it if the workspace permits;
    otherwise hand it to the human.
 4. Delete the branch once it has merged.
