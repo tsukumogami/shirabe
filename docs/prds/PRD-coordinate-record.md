@@ -195,13 +195,17 @@ PRD adds:
 - **R14. One renderer, fixed columns.** The record body and the discipline handoff file are
   produced by one renderer from structured input. The body opens with the declaration line
   and a `Written:` UTC time, then the four sections with these columns:
-  - Holdings: Unit, Entry point, Mode, Phase, Worker, Repo, Branch, Verified head,
-    Dispatched, Pull request.
+  - Holdings: Unit, Entry point, Mode, Phase, Return path, Worker, Repo, Branch, Verified
+    head, Dispatched, Pull request. Return path is `leg <request-id>:<leg>` when the worker
+    reports through a koto request leg, or `message`.
   - Deferrals: Deferral, Reason, Raised, Disposition. Raised and a carry-forward's date are
     UTC times to the minute (`YYYY-MM-DDTHH:MMZ`).
   - Side effects in flight: Action, Target, Verified head, Attempted, How to confirm.
   - Reversals: Date, Reversed, Now, Reason, From.
   A rendered body parses back to the same input.
+  One operation adds or updates a single holding row whole, keyed by the worker's dispatch
+  topic: a second call with the same topic replaces that row and never adds a second one.
+  The dispatch path and reconcile call it; it's the only way a holding row changes.
 - **R15. Rewritten whole, nothing recomputable.** Every update replaces the whole body with a
   new `Written:` time. No section carries a status, CI or merge-state column; the renderer
   refuses input that tries to add one. A deferral filed or closed drops out at the first
@@ -365,6 +369,9 @@ The record:
       job id; it accepts a dispatch topic.
 - [ ] A cell holding a pipe, a newline, a backtick run or a fence opener round-trips
       unchanged and every row keeps its column count.
+- [ ] Adding a holding for a topic already in Holdings replaces its row; the table never
+      holds two rows for one topic; the Return path cell accepts `message` and
+      `leg <request-id>:<leg>` and refuses anything else.
 - [ ] The discipline handoff file comes from the same renderer and parses with the same
       parser.
 - [ ] The open script isn't run by any state on its own; a restart fixture with a record
