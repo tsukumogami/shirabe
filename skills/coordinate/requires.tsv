@@ -1,0 +1,11 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# /coordinate is prose: its SKILL.md and references contain no shirabe or
+# koto call line, so no coupled-cadence tool is declared. The coordinator
+# itself reads GitHub and git state on every reconcile and verification
+# (`gh pr view`, `gh pr list`, `gh run view`, `git ls-remote`) and writes its
+# record with gh and git, so both are declared as independent-cadence tools,
+# verified for presence at load.
+gh	-	-	always
+git	-	-	always
