@@ -40,6 +40,7 @@ in one sitting, plus the child skills you can also reach for directly.
 
 | Skill | What it does |
 |-------|-------------|
+| `/coordinate` | Run a coordinator for a roadmap or a discipline rotation: reconcile what it inherited, dispatch one worker per unit through `/deliver`, `/work-on`, `/explore` or `/decision`, verify what each pushes before repeating it, and land it or hand it to a person as far as the workspace permits, keeping a record on GitHub that holds only what GitHub can't recompute |
 | `/deliver` | Driver skill: scopes a topic with `/scope --intent=continue`, then executes its PLAN with `/execute --merge` in one session, so the run ends `merged` wherever the repository's rules let it merge (`--no-merge` stops at ready PRs); re-run it to pick a topic up where it stopped |
 | `/execute` | Parent skill: drives a finished PLAN to ready PRs with passing CI, delegating each issue to `/work-on`, and merges them only when run with `--merge`; owns single-pr plans and coordinated plans in one repository or several (a multi-pr plan runs under `/work-on` instead) |
 | `/work-on` | Implement a GitHub issue, the next unblocked issue on a milestone, or a task stated plainly, end-to-end: branch, analysis, code, three-panel review, tests, and pull request. Also runs a `multi-pr` plan, one issue at a time, each landing its own PR |

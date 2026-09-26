@@ -172,7 +172,8 @@ then run the feature's hygiene checks.
   files returns nothing, and a read of the added files finds no private
   repository name, session or instance name, or job id (R36).
 - [ ] The pull request changes files only under `skills/coordinate/`,
-  `README.md` and `docs/` (R37).
+  `README.md` and `docs/`, plus the shipped-skill count in
+  `scripts/lib/preflight-report_test.sh` that every new skill bumps (R37).
 - [ ] Every CI job on the pull request is green, read job by job.
 
 **Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>
