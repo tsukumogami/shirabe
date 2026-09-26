@@ -13,7 +13,7 @@ problem: |
 decision: |
   Ship `skills/coordinate/` as prose with no koto template and no script.
   SKILL.md states every rule once: invocation, the seven-step loop with
-  its failure branch and bounds, the never-does list, a nine-term
+  its failure branch and bounds, the never-does list, a
   glossary, the record's contents and placement, later work and known
   limitations. Four references hold only mechanics and templates: the
   loop's reconcile and failure procedures, the record template, the
@@ -361,8 +361,8 @@ Sections, in order:
   a worker's keep-alive is the workspace manager's to schedule; and no
   instruction for the worker to schedule one (R31).
 - `verification-checklist.md` — the reads for head sha (`gh pr view
-  --json headRefOid`), each CI job's runner and steps (`gh run view
-  --json jobs`), the file list (`gh pr view --json files`) and the remote
+  --json headRefOid`), each CI job's runner and steps (the
+  run's jobs from `gh api`, which carries each job's runner name), the file list (`gh pr view --json files`) and the remote
   ref (`git ls-remote`), and the report lines that separate verified
   from unverified claims.
 
