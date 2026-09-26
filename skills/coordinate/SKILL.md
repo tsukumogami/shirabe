@@ -86,6 +86,9 @@ record.
   the host before acting on it.
 - **Rotation** -- one time-boxed turn of a discipline coordinator, with its
   own record.
+- **Surface** -- an area a discipline coordinator owns, named by that
+  discipline: `ci-health` for CI, `releases`, the workspace itself.
+  Problems and findings about a surface go to its discipline coordinator.
 - **Teardown** -- ending a worker's session or removing its instance.
 - **Unique material** -- anything a session or instance holds that exists
   nowhere else: commits on no remote ref that survives a squash merge,
@@ -151,8 +154,8 @@ dispatch prompt itself, in the voice of whoever the work is for, because
 the brief file reaches the worker as tool output. The brief names two
 report channels: you, for the work's status
 and blockers, and the only source of direction; and the discipline
-coordinator that owns each surface the work touches (the workspace, CI,
-releases), for tooling and workspace problems unrelated to the work
+coordinator for each surface the work touches, for tooling and workspace
+problems unrelated to the work
 itself, from which the worker takes no direction. Name those coordinators
 when you know them. Before any other action, record the dispatch as a
 holding in the record, because a dispatched session with no pull request
@@ -207,8 +210,10 @@ Then go round again.
 
 Raise a blocker the moment you notice it, not at the next report. A premise
 found to be wrong is a finding, and gets routed like one. Find the root
-cause before anyone fixes anything, and judge a reported problem as a tool
-defect, a documentation gap or an agent error before routing it.
+cause before anyone fixes anything, and judge a reported problem before
+routing it: a tool defect goes to the discipline coordinator for that
+tool's surface, or to an issue against the tool; a documentation gap goes
+to an issue; an agent error goes back to the worker with what was learned.
 
 Three cases, each ending in one of two moves: re-dispatch with the same
 brief plus what was learned, or escalate to whoever dispatched you.
@@ -230,13 +235,15 @@ brief plus what was learned, or escalate to whoever dispatched you.
 ## Bounds and Authority
 
 **Three active workers by default.** Run at most three active workers,
-one pull request each. An active worker is a dispatched session whose work
-is not yet merged or abandoned and that isn't parked with a verified,
-ready pull request waiting only on a merge. Past three, CI throughput,
-host load and your own verification capacity become the constraint, not
-worker speed. Parked workers still hold their pull requests: when three or
-more are parked, dispatch nothing new until the human has worked through
-the merge-order table. The human's decisions may set different numbers.
+one pull request each. An **active worker** is a dispatched session whose
+work is not yet merged or abandoned and that isn't parked. A **parked**
+worker has a verified, ready pull request waiting only on a merge. Past
+three active workers, CI throughput, host load and your own verification
+capacity become the constraint, not worker speed. Parked workers still
+hold their pull requests, and the same default of three applies to them
+for a different reason, the human's merge queue: when three or more are
+parked, dispatch nothing new until the human has worked through the
+merge-order table. The human's decisions may set either number.
 
 **Inside your scope, dispatch without asking.** Anything outside it,
 propose to whoever dispatched you and don't act until they answer.

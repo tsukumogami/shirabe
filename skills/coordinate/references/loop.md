@@ -1,11 +1,12 @@
-# The Loop: Reconcile, Land and Failure Mechanics
+# The Loop: Mechanics for Reconcile, Pick, Land and Failure
 
 The rules for each step are in `skills/coordinate/SKILL.md`. This file holds
-the mechanics three of them need when they run: the order of reads in a
-full reconcile, the merge-order table and the merge confirmation for the
-land step, and the shape of an escalation. Load it on the first turn after
-a start or restart, at the land step, and whenever the failure branch
-fires.
+the mechanics four of them need when they run: the order of reads in a
+full reconcile, the issue-timeline read before dispatching an issue, the
+merge-order table and the merge confirmation for the land step, and the
+shape of an escalation. Load it on the first turn after a start or
+restart, before dispatching an issue, at the land step, and whenever the
+failure branch fires.
 
 ## A Full Reconcile, in Order
 
@@ -94,7 +95,7 @@ feature's status on the roadmap rather than setting it yourself.
 Reconciled <scope> against the record written <time>.
 
 Changed since then:
-- <holding or side effect>: record said <old>, GitHub or the host says <new>.
+- <holding or side effect>: record said <old>, GitHub or the host says <new> (measured | verified by reading | inferred).
 
 Holding (<n> of <bound> active; parked at ready: <m>):
 - <unit> -- <entry point> -- <session> -- <pull request URL, or "none yet"> -- <state as just read> -- next: <what happens next>
@@ -160,7 +161,7 @@ Escalating <unit> in <scope>.
 
 What happened: <the failure, with the pull request and the CI job or
 conflict that shows it>.
-What I verified: <reads, with the head sha and time>.
+What I verified: <reads, with the head sha and time, each marked measured, verified by reading, or inferred>.
 What I tried: <re-dispatches so far, with what each learned>.
 Options: <two or three, each with its consequence>.
 Recommendation: <one option and why>.

@@ -385,12 +385,44 @@ coordinator starts rather than at its first reconcile.
 
 ### evals.json
 
-Seven scenarios, one per situation R38 names: a roadmap invocation whose
+Eight scenarios. Seven are one per situation R38 names: a roadmap invocation whose
 extra text is decisions, a non-Active roadmap, a worker reporting green,
 a restart with an unconfirmed merge, a decision that belongs to the
-human, a new decision arriving mid-run, and a teardown request. Each has
-assertions a grader can check against the transcript, such as "no
-worker is dispatched" for the non-Active roadmap.
+human, a new decision arriving mid-run, and a teardown request, plus an
+eighth for an open issue that a pull request may already close. Each has
+assertions a grader can check against the transcript, including at least
+one negative one, such as "no worker is dispatched" for the non-Active
+roadmap.
+
+### Practice added during implementation
+
+Before the pull request went ready, practice gathered from coordinators
+already running by hand was folded in, each item invented or general
+practice rather than a workaround, so the admission rule (R34) allows it:
+
+- **SKILL.md.** Check an issue's timeline before dispatching it; settle
+  contested choices with `/shirabe:decision`; reuse an idle worker that
+  knows the area; brief workers to checkpoints with no approval gate; put
+  the worker's authority in the dispatch prompt; raise blockers at once,
+  treat a wrong premise as a finding, find the root cause first, and
+  route a problem by its class; exclude parked workers from the active
+  bound but pause dispatch once three are parked; define "finished" and
+  ask each worker what exists only in its head before a pause or
+  teardown; a surface is an area a discipline coordinator owns, and a
+  worker's tooling problems go there, with direction only from its
+  dispatcher; grade every relayed claim; derive "next" and "waiting on
+  the human" at each report.
+- **References.** The verification checklist uses full shas, treats a
+  board that never ran as red, requires a run after a stacked pull
+  request's blocker lands, and fixes the reds to report before CI ends.
+  The brief template gains run mode, checkpoints, a report shape, a
+  second report channel, and limits on closing, filing, local detail and
+  attribution. The record gains a Mode column and links, and scripted
+  edits must match exactly once. Durability is proved by content hash.
+
+A forward-looking status table in the record was proposed and declined:
+"next" and skill state are recomputable, so they belong in the report,
+not the record (R26).
 
 ### Data flow of one turn
 
