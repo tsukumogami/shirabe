@@ -2,15 +2,24 @@
 
 A brief is the worker's only context: it starts in a fresh session with
 none of yours. Load this file at the dispatch step and fill in every
-section. Write it as the task itself, in the voice of whoever the work is
-for, not as a relay of your own instructions. SKILL.md's Brief and
-Dispatch step says what goes in the dispatch prompt besides the brief.
+section.
 
 Point at artifacts; don't paste them. Name a pushed document, issue or
 pull request by path, number or URL and let the worker read it. Text you
 copied out of a pull request, a log or another worker's report doesn't go
 in a brief, because the brief carries your words and the worker should read
 the source itself.
+
+## The Worker's Authority
+
+A worker's authority is who the task comes from and what the worker may do
+without asking. State it in the dispatch prompt itself, in the voice of
+whoever the work is for, so the worker can tell the task comes from them;
+the brief then carries the task. For example: "You are working for
+<owner> on <owner/repo> to build feature 2 of ROADMAP-plugin-system; open
+the pull request, report, and stop there."
+
+## The Brief
 
 ```markdown
 # Brief: <unit of work>
@@ -20,11 +29,12 @@ the source itself.
 <One or two sentences: what exists or works when this is done, and the
 entry point to run, for example `/shirabe:deliver <topic> --auto`.>
 
-Run mode: <--auto or --interactive, and any other flag the entry point takes>
+Run mode: `--auto` unless the human's decisions say otherwise. A
+background worker can't answer the confirmation `--interactive` waits for.
 
 ## Checkpoints
 
-Stop and report at each one; don't wait for approval to continue past it.
+Report at each one and continue; don't wait for approval to go past it.
 
 1. <First checkpoint, for example: the scoping pull request is open.>
 2. <Next, for example: the plan is ready to execute.>
@@ -58,10 +68,8 @@ steps the workspace reserves for a person.>
   its number, the reason and the evidence; whether you may close it
   yourself is the workspace's call.
 - Don't file new issues: propose them in a report.
-- Put nothing local on GitHub: no local paths, session names or scratch
-  file names in commits, pull request bodies or issues.
 - Follow the target repository's conventions (its CLAUDE.md) for commit
-  messages and pull request bodies.
+  messages, pull request bodies and what may appear on GitHub.
 
 ## Reporting
 
@@ -75,7 +83,8 @@ Each report leads with the verdict, then the paths or pull requests it
 concerns, then its claims, each marked measured, verified by reading, or
 inferred, then numbered questions. Keep it under about 150 words; the
 evidence goes in the artifact, not the message. End your final report with
-the `=== WORK IN FLIGHT ===` block for the pull requests you opened.
+the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the
+shirabe work-summary format (the same block `/inflight` prints).
 
 Report tooling or workspace problems unrelated to this work (a tool that
 misbehaved, a check that couldn't run, friction in the workspace) by
@@ -87,20 +96,18 @@ for a surface, put the problem in your report to the coordinator above.
 
 ## Dispatching the Brief
 
-Write the brief to a file and keep the dispatch prompt short: the prompt
-carries the worker's authority and points at the brief. With the niwa
-workspace manager, the brief goes at `<workspace-root>/.niwa/dispatch-briefs/<slug>.md`
-and you dispatch from the workspace root:
+The workspace manager's dispatch starts the worker in a session of its
+own. With niwa, put the brief at
+`<workspace-root>/.niwa/dispatch-briefs/<topic>.md` and dispatch from the
+workspace root with a short prompt that carries the authority and points
+at the brief:
 
 ```bash
-niwa dispatch "Read <workspace-root>/.niwa/dispatch-briefs/<slug>.md for your complete task brief, then do it. <authority in the voice of whoever the work is for>" \
-  --name <slug> --detach
+niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
+  --name <topic> --detach
 ```
 
-`--name` gives the worker a readable session name (niwa appends a random
-suffix, so the printed name is the one to record); `--detach` keeps your
-session from attaching to the worker's. Record the session name the
-command prints as the holding's session, not the slug you passed.
+Record the holding under the dispatch topic you passed.
 
 ## What a Brief Leaves Out
 

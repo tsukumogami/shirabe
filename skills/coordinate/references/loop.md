@@ -1,17 +1,17 @@
-# The Loop: Mechanics for Reconcile, Pick, Land and Failure
+# The Loop: Mechanics for Reconcile, Pick and Failure
 
 The rules for each step are in `skills/coordinate/SKILL.md`. This file holds
-the mechanics four of them need when they run: the order of reads in a
-full reconcile, the issue-timeline read before dispatching an issue, the
-merge-order table and the merge confirmation for the land step, and the
-shape of an escalation. Load it on the first turn after a start or
-restart, before dispatching an issue, at the land step, and whenever the
-failure branch fires.
+the mechanics three of them need when they run: the order of reads in a
+full reconcile, the issue-timeline read before dispatching an issue, and
+the shape of an escalation. Load it on the first turn after a start or
+restart, before dispatching an issue, and whenever the failure branch
+fires. The land step's table and merge confirmation are in
+`references/verification-checklist.md`.
 
 ## A Full Reconcile, in Order
 
 Hand the reads to a local agent when there are more than a few holdings, and
-have it return the table below rather than the raw output. Your context is
+have it return the report below rather than the raw output. Your context is
 for the judgment at the end, not for the reads.
 
 1. **Find the record.** Run "Finding or Opening the Record" from
@@ -32,9 +32,9 @@ for the judgment at the end, not for the reads.
    ```
 
    Read its CI with the runs-then-jobs reads in
-   `references/verification-checklist.md`, not a checks rollup: the
-   rollup needs a checks permission some tokens don't carry, and the runs
-   read doesn't.
+   `references/verification-checklist.md`, not a checks rollup: it is the
+   read that shows each job's runner and step count, and the same one the
+   verify step uses.
 
    For a row whose pull request is "none yet", check whether one has
    appeared since:
@@ -45,10 +45,9 @@ for the judgment at the end, not for the reads.
 
    Read the state of any issue a holding names with `gh issue view`.
 4. **Re-check each holding against the host.** Ask the workspace manager
-   whether each dispatched session and its instance still exist. With
-   niwa, run `niwa list` from the workspace root: each instance is listed
-   with its path and, for a dispatched one, a `session name:` line. Then
-   check that the instance's directory is still on disk. For any
+   whether each worker's session and instance still exist: with niwa,
+   `niwa list` from the workspace root, finding each worker by its dispatch
+   topic, then check that its instance directory is still on disk. For any
    session or instance you might tear down, list its unique material: in
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees
@@ -68,9 +67,9 @@ for the judgment at the end, not for the reads.
    seen" in the report, never "dead"; When Something Goes Wrong in
    SKILL.md says why one read can't tell.
 5. **Re-check side effects in flight.** For each row, run its "How to
-   confirm" read. A merge attempted and never confirmed is settled only by
-   reading the pull request's state and the changed files on the default
-   branch.
+   confirm" read. A merge attempted and never confirmed is settled by
+   comparing the default branch against the row's verified head, as
+   "Confirming a Merge" in `references/verification-checklist.md` shows.
 6. **Read the deferrals.** List every row for the report; SKILL.md's
    record section says when each must be disposed of.
 
@@ -107,14 +106,13 @@ Changed since then:
 - <holding or side effect>: record said <old>, GitHub or the host says <new> (measured | verified by reading | inferred).
 
 Holding (<n> of <bound> active; parked at ready: <m>):
-- <unit> -- <entry point> -- <session> -- <pull request URL, or "none yet"> -- <state as just read> -- next: <what happens next>
+- <unit> -- <entry point> -- <dispatch topic> -- <state as just read> -- next: <what happens next> -- <pull request URL, or "none yet">
 
 Waiting on the human:
 - <decision or finishing step> -- <recommendation>
 
-
 Unique material held outside any remote:
-- <session or instance>: <what, where>
+- <worker or instance>: <what, where>
 
 Open deferrals:
 - <deferral> (raised <date>): <reason>
@@ -122,48 +120,11 @@ Open deferrals:
 Not verified: <anything you could not read, and why>.
 ```
 
-## The Merge-Order Table
-
-The table the land step hands over, one row per verified pull request:
-
-```
-Ready to merge, in this order:
-
-| # | Pull request | Head sha | Verified at | Why this position |
-|---|--------------|----------|-------------|-------------------|
-| 1 | <URL> | <sha> | <time> | <e.g. no dependencies; others rebase onto it> |
-| 2 | <URL> | <sha> | <time> | <e.g. depends on #1's schema change> |
-
-After each merge I'll confirm it on the default branch before the next one
-is safe.
-```
-
-The head sha is the one you verified. If a pull request's head moves after
-you hand the table over, it drops back to unverified until you read it
-again.
-
-## Confirming a Merge
-
-For each file the pull request changed, compare its blob sha on the default
-branch with its blob sha at the head you verified:
-
-```bash
-gh pr view <n> --repo <owner/repo> --json files --jq '.files[].path'
-gh api "repos/<owner/repo>/contents/<path>?ref=<default-branch>" --jq .sha
-gh api "repos/<owner/repo>/contents/<path>?ref=<verified-head-sha>" --jq .sha
-```
-
-A deleted file shows as not found on the default branch, which is the
-expected result for it.
-
-A file whose blob sha on the default branch doesn't match the pull
-request's head version means the merge isn't what was verified; report it
-before dispatching anything that depends on it.
-
 ## The Shape of an Escalation
 
 An escalation goes to whoever dispatched you, once, and carries everything
-needed to decide without asking back:
+needed to decide without asking back. It lists options because the
+recipient is choosing between moves you can't make alone:
 
 ```
 Escalating <unit> in <scope>.

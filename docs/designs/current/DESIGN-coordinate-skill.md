@@ -288,10 +288,11 @@ It loads a reference only at the step that needs the reference's
 mechanics or template, so a turn that dispatches reads the brief
 template, a turn that verifies reads the checklist, and only the first
 turn after a start reads the full reconcile procedure. The record lives
-on one branch and one draft pull request per scope, readable by anyone
-on GitHub, holding only holdings, deferrals, side effects in flight and
-reversals, with feature state read from the roadmap and the pull
-requests every time.
+on GitHub, readable by anyone who can see its repository: an issue at
+roadmap scope and a draft pull request per rotation at discipline scope.
+It holds only holdings, deferrals, side effects in flight and reversals,
+with feature state read from the roadmap and the pull requests every
+time.
 
 The three decisions reinforce each other. Because no step is gated, the
 record's layout has to be something a session can maintain by hand with
@@ -334,17 +335,18 @@ Sections, in order:
 1. **What a coordinator is** — two paragraphs, then the invocation forms
    (R1), the roadmap-status gate (R3), rotation length (R4), and the
    discipline host decision.
-2. **Glossary** — the nine terms R25 names, plus "the human", which
-   says where a nested coordinator sends what this skill sends to a
-   person; each defined once (R25). Every later use
+2. **Glossary** — the nine terms R25 names, plus "the human" (where a
+   nested coordinator sends what this skill sends to a person), "local
+   agent" and "surface"; each defined once (R25). Every later use
    refers to these definitions and never redefines them.
 3. **The loop** — seven subsections in R5's order. Each states its rule
    and names the reference to load, if any: reconcile (R6, loads
    `loop.md` on the first turn), pick (R7, the entry-point table), brief
    and dispatch (R8, loads `brief-template.md`), wait (R9), verify (R10,
-   loads `verification-checklist.md`), land (R11, loads `loop.md` for the
-   merge-order table and the post-merge read), update the record (R12,
-   loads `record-template.md`).
+   loads `verification-checklist.md`), land (R11, loads
+   `verification-checklist.md` for the merge-order table and the
+   post-merge read), update the record (R12, loads `record-template.md`).
+   SKILL.md ends with a Reference Files table, as the sibling skills do.
 4. **When something goes wrong** — the failure branch (R13), including
    the stalled-worker definition, the bounced-message signal and the
    single-roster-read rule.
@@ -360,8 +362,8 @@ Sections, in order:
    the skill depends on (R33).
 10. **Changing this skill** — the admission rule (R34).
 11. **Reporting** — the report up to the dispatcher (R23), naming what
-    was verified and what wasn't (R10), naming a discipline's host
-    repository, and ending with one line per holding with its pull
+    was verified and what wasn't (R10), naming the record, and ending
+    with one line per holding with its pull
     request's URL. It does not use the work-summary block: that block is
     rendered from the pull requests the reporting session itself opened,
     and a coordinator's holdings are pull requests its workers opened.
@@ -373,22 +375,22 @@ Sections, in order:
   host for each session and instance and its unique material, then the
   roadmap's Features section); how to resolve a record claim GitHub
   contradicts (GitHub wins, and the difference goes in the reconcile
-  report); the merge-order table the land step hands over, and the read
-  that confirms a merge on the default branch; the escalation message's
-  shape; and worked examples beyond R16's three. The merge-order table
-  was added during implementation: the land step names a table, and
-  without a shape each coordinator would invent its own.
-- `record-template.md` — the title forms, Part 1 sentence, declaration
-  line, `Written:` line, the four section headings with their table
-  columns (Holdings: unit, entry point, mode, session, repo, branch, pull
-  request, verified head, dispatched; Deferrals: deferral, reason,
+  report); the issue-timeline read before dispatch; the escalation
+  message's shape; and worked examples beyond R16's three.
+- `record-template.md` — the container per scope, the rotation title, a
+  pointer to the PR-body conformance rule, the declaration line,
+  `Written:` line, the four section headings with their table columns
+  (Holdings: unit, entry point, mode, worker by dispatch topic, repo,
+  branch, verified head, dispatched, pull request last; Deferrals: deferral, reason,
   raised; Side effects in flight: action, target, verified head,
   attempted, how to confirm; Reversals: date, reversed, now, reason,
   from), the handoff file's shape, how every start finds or opens the
   record (for a roadmap, an exact title match over open issues; for a
   rotation, the branch check: adopt an open record, ask about an open
   non-record, delete and recut after a merged or closed one, cut and open
-  when none exists), and the close procedure for each scope.
+  when none exists), the close procedure for each scope, and how a
+  successor closes an expired predecessor's rotation without writing its
+  reasoning.
 - `brief-template.md` — goal, decisions the worker can't see, pointers
   to pushed artifacts, acceptance criteria, out of scope, and the
   report-back instruction naming the coordinator's session, which is the
@@ -401,8 +403,11 @@ Sections, in order:
 - `verification-checklist.md` — the reads for head sha (`gh pr view
   --json headRefOid`), each CI job's runner and steps (the
   run's jobs from `gh api`, which carries each job's runner name), the file list (`gh pr view --json files`) and the remote
-  ref (`git ls-remote`), and the report lines that separate verified
-  from unverified claims.
+  ref (`git ls-remote`), the report lines that separate verified from
+  unverified claims, and the land step's merge-order table and merge
+  confirmation. The table and confirmation were added during
+  implementation, beside the verify reads they depend on, so a land step
+  loads one reference.
 
 ### requires.tsv
 
@@ -413,14 +418,15 @@ coordinator starts rather than at its first reconcile.
 
 ### evals.json
 
-Eight scenarios. Seven are one per situation R38 names: a roadmap invocation whose
-extra text is decisions, a non-Active roadmap, a worker reporting green,
-a restart with an unconfirmed merge, a decision that belongs to the
-human, a new decision arriving mid-run, and a teardown request, plus an
-eighth for an open issue that a pull request may already close. Each has
-assertions a grader can check against the transcript, including at least
-one negative one, such as "no worker is dispatched" for the non-Active
-roadmap.
+Nine scenarios. Seven are one per situation R38 names: a roadmap
+invocation whose extra text is decisions, a non-Active roadmap, a worker
+reporting green, a restart with an unconfirmed merge, a decision that
+belongs to the human, a new decision arriving mid-run, and a teardown
+request. Two more cover an open issue that a pull request may already
+close and a discipline rotation's start. Each has expectations a grader
+can check against the transcript, including at least one negative one,
+such as "no worker is dispatched" for the non-Active roadmap, and names
+the PRD requirements it covers.
 
 ### Practice added during implementation
 
@@ -475,14 +481,15 @@ start or restart ──► reconcile (full, loads loop.md) ──► report chan
 2. **References.** Write the four references against SKILL.md, adding no
    rule SKILL.md already states. Read each against SKILL.md for
    duplicated rule text.
-3. **Evals and README.** Write the seven eval scenarios and the README
-   row. Check with `scripts/check-evals-exist.sh`.
+3. **Evals and README.** Write the eval scenarios and the README row. Check with `scripts/check-evals-exist.sh`.
 4. **Hygiene pass.** Run the PRD's greps (the staging-directory path,
    `private/`, sender words) and a read for private names over every
    added file, then open the pull request and read CI job by job.
 
 The work is one pull request: every step touches only
-`skills/coordinate/` and `README.md`, and nothing is useful on its own.
+`skills/coordinate/`, `README.md`, the chain's documents under `docs/`,
+and the shipped-skill count in `scripts/lib/preflight-report_test.sh`, and
+nothing is useful on its own.
 
 ## Security Considerations
 
@@ -528,16 +535,16 @@ exploit. Its risks come from what a coordinator does with it.
 - **Permission bounds.** The skill carries no permission rule of its own
   (R20). A merge, a close or a teardown goes exactly as far as the
   workspace allows; where a hook denies it, the coordinator hands the
-  human a table. The skill can't widen what a session may do.
-- **Disclosure in a public repository.** The record lives on GitHub, so
-  it follows the most-restrictive-visibility rule: a public record never
-  names a private repository, and a roadmap whose effort needs a private
-  holding raises that as a scope decision for the human. The committed
-  discipline handoff names no sessions or instances; session names stay
-  in the pull request body. The packaging greps check this feature's
-  files once; the record is written on every update, so the update step
-  in SKILL.md re-reads what it is about to write for private names before
-  each write.
+  human a table. The coordinator reads the workspace's declared posture
+  (the settings permission lists and PreToolUse hooks) at start, so it
+  knows a step is denied or behind a confirmation before triggering it;
+  where it can't read them, it treats every finishing step as reserved.
+  The skill can't widen what a session may do.
+- **Disclosure in a public repository.** The record lives on GitHub. It
+  names every worker by dispatch topic, never by session id, instance
+  path or job id, which are host facts. When its host repository is
+  public it never names a private repository, path or issue, and a
+  holding that would need one is a scope decision for the human.
 - **Supply chain.** No new dependency. The skill declares `gh` and
   `git`, which the preflight checks for presence only. The propagation
   risk above is the closest analogue and is handled there.
@@ -558,22 +565,23 @@ exploit. Its risks come from what a coordinator does with it.
 
 - Prose can be skipped. Nothing stops a coordinator from shortening
   reconcile or relaying an unverified claim.
-- The roadmap's Progress on the default branch is stale while the effort
-  runs; the current Progress is in the record pull request's diff.
-- Two coordinators under one login on the same scope share one record
-  pull request until #395 is fixed.
-- The layout assumes GitHub merges a pull request with no net file change
-  (after the cascade deleted the roadmap) and opens a draft pull request
-  from a branch whose only commit is empty.
+- Feature state for a roadmap whose features' PLANs live in other
+  repositories needs a small status pull request per landed feature,
+  which costs a dispatch each.
+- Workers share one login, so until #395 is fixed a worker's `/deliver`,
+  `/execute` or `/work-on` run can't tell its pull request from a
+  sibling's on the same branch name.
+- A rotation's record assumes GitHub opens a draft pull request from a
+  branch whose only commit is empty.
 
 ### Mitigations
 
 - Reconcile is the first step and its report has a fixed shape, so a
   skipped reconcile is visible in the transcript; the evals exercise the
   restart path. A mechanised reconcile is the named later feature.
-- Readers are pointed at the record pull request for live Progress.
+- The status pull request is small and dispatched from the land step as
+  a holding, so it is tracked like any other unit.
 - #395 is named as a known limitation with the invariant the skill
   depends on; the skill adds no workaround.
-- If either GitHub assumption fails, the coordinator hands the merge or
-  close to the human as a step the workspace reserves, and adds no filler
-  commit to manufacture a diff.
+- If a draft pull request can't open from an empty commit, the rotation
+  opens it with its first real record commit instead.

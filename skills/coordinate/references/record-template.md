@@ -18,9 +18,12 @@ to absorb, and it closes cleanly when the roadmap finishes. A rotation's
 record is a pull request because its diff is the handoff file it commits
 at the end.
 
-If the host repository is public, the record never names a private
-repository, path or issue. A holding that would need one is a scope
-question for the human.
+Name every worker, in the record and in every pull request, by its dispatch
+topic, never by session id, instance path or job id: those are host facts
+that don't survive a restart or a move, and reconcile finds sessions by
+topic. When the record's host repository is public, it never names a
+private repository, path or issue; a holding that would need one is a
+scope question for the human.
 
 ## Finding or Opening the Record
 
@@ -38,9 +41,6 @@ gh issue list --repo <owner/repo> --state open --limit 1000 --json number,url,ti
   --jq '.[] | select(.title == "Coordinator record: ROADMAP-<name>")'
 ```
 
-Report the record's issue number up with every report, so a successor is
-handed it as a decision and reads that issue directly.
-
 1. **One issue whose body carries the declaration line:** adopt it. Never
    open a second one.
 2. **An issue with the title but without the declaration line, or more
@@ -54,13 +54,13 @@ handed it as a decision and reads that issue directly.
 **Discipline scope.** Check the branch; exactly one of four outcomes:
 
 1. **The branch has an open pull request whose body carries the
-   declaration line.** Adopt it. Never replace it or open a second one.
-   First read the rotation's end date from the pull request's title, which
-   carries it from the day the pull request opened: if that date has
-   passed, the pull request belongs to the previous rotation, so close it
-   out (see Closing a Rotation). If it merged and the branch is gone, open
-   your own as in outcome 4; if the workspace reserves the merge for a
-   person, hand it over and wait before opening yours.
+   declaration line.** Read the rotation's end date from the pull
+   request's title, which carries it from the day the pull request opened.
+   If that date hasn't passed, this is a restart of that rotation: adopt
+   it, and never replace it or open a second one. If it has passed, the
+   pull request belongs to the previous rotation: close it out as "Closing
+   a Predecessor's Rotation" says, and once it has merged, run this check
+   again from the top.
 2. **The branch has an open pull request without the declaration line.**
    Don't adopt it. Report the conflict and ask the human, because a pull
    request on the record's branch that isn't a record is a scope question.
@@ -84,6 +84,9 @@ handed it as a decision and reads that issue directly.
      --base <default-branch> --title "<title>" --body-file <body-file>
    ```
 
+Report the record's issue number or pull request URL up with every
+report, so a successor is handed it as a decision and reads it directly.
+
 ## The Rotation's Pull Request Title
 
 `docs(coordinate): <name> rotation <start> to <end>`, with both dates in
@@ -95,10 +98,10 @@ decision; the title is where a successor reads it.
 ## The Body
 
 Write the whole body to a file and pass it with `--body-file`; never
-inline it into a command. A rotation's pull request body needs a Part 1:
-one prose sentence with no headings, true after merge, then a line that is
-exactly `---`. An issue body starts at the declaration line. Neither uses
-any further `---` line.
+inline it into a command. A rotation's pull request body follows
+`references/pr-body-conformance.md` in the shirabe plugin; its Part 2
+starts at the declaration line. An issue body starts at the declaration
+line.
 
 ```markdown
 Coordinator record for the <name> discipline, kept on coordinate/discipline-<name>.
@@ -111,9 +114,9 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 ## Holdings
 
-| Unit | Entry point | Mode | Session | Repo | Branch | Pull request | Verified head | Dispatched |
-|------|-------------|------|---------|------|--------|--------------|---------------|------------|
-| <feature, issue, question or choice> | <skill> | <--auto, --interactive, flags> | <session name> | <owner/repo> | <branch> | <[#n](URL), or none yet> | <full sha once parked, else blank> | <YYYY-MM-DD> |
+| Unit | Entry point | Mode | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
+|------|-------------|------|--------|------|--------|---------------|------------|--------------|
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <dispatch topic> | <owner/repo> | <branch> | <full sha once parked, else blank> | <YYYY-MM-DD> | <[#n](URL), or none yet> |
 
 ## Deferrals
 
@@ -125,7 +128,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Action | Target | Verified head | Attempted | How to confirm |
 |--------|--------|---------------|-----------|----------------|
-| <merge, close, teardown> | <pull request, issue, session> | <full sha verified before acting or asking> | <YYYY-MM-DDTHH:MMZ> | <the read that settles it> |
+| <merge, close, teardown> | <pull request, issue, worker> | <full sha verified before acting or asking> | <YYYY-MM-DDTHH:MMZ> | <the read that settles it> |
 
 ## Reversals
 
@@ -151,33 +154,22 @@ written for coordination pull requests ever parses a record.
 `Written:` time, and apply it with `gh issue edit <n> --body-file <file>`
 or `gh pr edit <n> --body-file <file>`. Every pull request in the record is
 a link. Follow the host repository's conventions (its CLAUDE.md) for
-commit messages and bodies. If a script edits the record or a roadmap by
-replacing text, make it check that the text it replaces matches exactly
-once before it writes; a replacement that matches nothing succeeds
-silently and leaves the old text in place.
-
-## Feature State on the Default Branch
-
-The roadmap record commits nothing, and never edits the roadmap. When a
-feature lands, its state reaches the roadmap on the default branch through
-the finalization cascade if the feature's PLAN is in the roadmap's
-repository. Otherwise, brief a worker for a small pull request that sets
-that feature's `**Status:**` line and nothing else. No one but the cascade
-transitions or deletes the roadmap, and no one edits the sections
-`shirabe roadmap populate` owns.
+commit messages and bodies.
 
 ## Closing a Roadmap Record
 
-When every feature reads terminal on GitHub, Holdings and Side effects in
-flight are empty, and every deferral is filed or closed: write the final
-body, then close the issue if the workspace permits, or hand the close to
-the human.
+When every feature reads Done or Dropped on the roadmap, Holdings and Side
+effects in flight are empty, and every deferral is filed or closed: write
+the final body, then close the issue if the workspace permits, or hand the
+close to the human.
 
 ## The Discipline Handoff
 
 At rotation end, write `docs/disciplines/<name>.md`, one file per
-discipline, overwritten each rotation. It is plain markdown, not a
-validated shirabe artifact, and names no sessions or instances:
+discipline, overwritten each rotation. It is plain markdown with no
+shirabe artifact prefix, so `shirabe validate` applies no structural
+checks to it, though the host's docs validation still runs its prose
+checks on it:
 
 ```markdown
 # <name> handoff, <YYYY-MM-DD>
@@ -187,8 +179,8 @@ Rotation from <start> to <end>. Host repository: <owner/repo>. Record:
 
 ## Holdings
 
-| Unit | Entry point | Mode | Repo | Branch | Pull request | Verified head | Dispatched |
-|------|-------------|------|------|--------|--------------|---------------|------------|
+| Unit | Entry point | Mode | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
+|------|-------------|------|--------|------|--------|---------------|------------|--------------|
 
 ## Deferrals
 
@@ -214,9 +206,6 @@ Write the reasoning section fresh each rotation. Replace the previous
 rotation's text; never append to it, or the handoff grows into a standing
 protocol.
 
-Session names stay in the merged pull request's body, which remains
-readable on GitHub.
-
 ## Closing a Rotation
 
 1. Commit the handoff to the record branch and push.
@@ -224,9 +213,22 @@ readable on GitHub.
    title's end date to the actual one.
 3. Mark the pull request ready and merge it if the workspace permits;
    otherwise hand it to the human as the last row of the merge-order
-   table in `references/loop.md`.
+   table in `references/verification-checklist.md`.
 4. Delete the branch once it has merged.
 
-The discipline check's first outcome is where a new rotation meets the
-previous one's open pull request: an expired window means close it out and
-open your own, and a live window means this is a restart of that rotation.
+## Closing a Predecessor's Rotation
+
+When the discipline check finds a previous rotation's record still open
+past its end date, the successor closes it, and writes only what it can
+stand behind:
+
+- The tables are copied from the predecessor's record body as it stands,
+  under a line reading "As written by the previous rotation at <its
+  Written time>; not re-checked." Your own reconcile re-checks those rows
+  when you carry them into your record.
+- The reasoning section says the outgoing rotation's reasoning was not
+  recorded. Never write it on the predecessor's behalf.
+- Open deferrals carry into your own record, to be disposed of before your
+  first dispatch.
+
+Then follow Closing a Rotation for that record.
