@@ -90,7 +90,7 @@ variables:
       Rebindable, as in execute.md: a plugin update moves the path, and a
       resume under --koto-leg attaches through `koto init --attach-live`, which
       refuses a changed non-rebind variable. koto 0.12.2, the floor for runs
-      without that flag, drops the key and compiles the template unchanged.
+      without that flag, ignores the key; the template behaves the same there.
     required: true
     rebind: true
 

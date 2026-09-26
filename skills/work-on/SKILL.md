@@ -247,7 +247,7 @@ applies and the run is unchanged.
 4. **Open.**
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
-     --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=<WF> "$ARGS_DIR/tokens.json"
+     --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
    Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. The script adds
    `PLUGIN_ROOT` and makes one `koto init` with `--attach-live --koto-leg`: no
@@ -274,7 +274,8 @@ result is koto's own for a terminal with no result map: `status` (`success`, or
 `result_final_state` and a `request-leg` gate exposes as `final_state` (`done`,
 `done_already_complete`, `done_blocked`, `validation_exit`). A coordinator routes a
 promoted `work-on` leg on both, since `validation_exit` is a success too, and routes
-a refusal on `result_source: refused` rather than on the payload. work-on.md
+a refusal on its source rather than on the payload: the leg records
+`result_source: refused`, which a `request-leg` gate exposes as `source`. work-on.md
 declares no `result:` map and no `outcome`: a result map needs koto 0.13.0 to
 compile at all, and the template must keep compiling on the older koto that runs
 without the flag.
@@ -297,8 +298,9 @@ What the coordinator puts on the leg, so koto admits the session:
 koto compares only the inputs the leg names, and only against variables that
 aren't `rebind`: `PLUGIN_ROOT` is `rebind`, so an input for it is never compared.
 Pin nothing else: every other input the leg names is compared against the
-session's recorded value, and one the run never sets (`ISSUE_TYPE`,
-`SHARED_BRANCH`) is refused as `input-mismatch` on the leg. A
+session's recorded value, which for a variable the run never sets is its default
+(`code` for `ISSUE_TYPE`, empty for `SHARED_BRANCH`), and any other value is
+refused as `input-mismatch` on the leg. A
 coordinator running several workers gives each its own request, or at least its own
 leg, since one leg answers one session.
 
@@ -412,7 +414,9 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
    wanted and then `koto init`, or `koto init` under a different workflow name to
    keep the record. (`koto init` on a name still in use refuses and says the
-   same.)
+   same.) Under `--koto-leg` either init goes through `work-on-open.sh`; a
+   renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so a leg that pins it
+   still admits the session.
 3. `is_terminal: false` is a genuine resume: `koto next <WF>`, carrying
    `--no-cleanup` per the retention rule when `ROLE` is `root`. Under
    `--koto-leg`, open through `work-on-open.sh` first, which attaches the live
