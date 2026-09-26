@@ -359,10 +359,14 @@ named later work: tooling that writes and renders the record, a mechanised
 reconcile step, and tooling for the dispatch path, including whether the
 workflow engine can carry a worker's result back. Which container holds
 the record (an issue at roadmap scope, a pull request per rotation) is a
-design question the record's tooling will settle.
+design question the record's tooling will settle. Declaring the workspace
+manager as a checked prerequisite belongs to the dispatch path's tooling.
 
 ## Known Limitations
 
+- **The workspace manager isn't checked at load.** The skill depends on
+  the workspace manager's `niwa dispatch` and `niwa list`, which the
+  load-time preflight can't yet check; it checks only `gh` and `git`.
 - **Which pull requests are yours (#395).** The skill depends on pull
   request ownership being decided per run. Today it is decided by author
   login and branch name, so two coordinators under one login on the same
