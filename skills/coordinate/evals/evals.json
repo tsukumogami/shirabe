@@ -102,13 +102,13 @@
       "id": 7,
       "name": "teardown-request",
       "prompt": "You are the coordinator for the ci-health discipline, rotation ending today. The worker session that fixed the flaky integration job has merged its PR. Should its session and instance be torn down, and how?",
-      "expected_output": "Before any teardown the coordinator lists the unique material the session and its instance hold (uncommitted changes, commits on no remote ref that survives a squash merge, worktrees, scratch files). It tears down only what it listed, only as far as the workspace permits, and never runs a workspace-wide cleanup. Any homeless finding the worker produced is filed as an issue first.",
+      "expected_output": "Before any teardown the coordinator lists the unique material the session and its instance hold (uncommitted changes, commits on no remote ref that survives a squash merge, worktrees, scratch files). It tears down only what it listed, only as far as the workspace permits, and never runs a workspace-wide cleanup. Any homeless finding the worker produced goes to the discipline coordinator named for its surface, or is filed as an issue, before the worker is retired.",
       "assertions": [
         "Unique material is listed before any teardown",
         "The teardown targets only the listed session and instance",
         "No workspace-wide cleanup command is run",
         "Whether to tear down follows the workspace's permissions rather than a rule of the skill's own",
-        "A finding with no issue or pull request is filed as an issue before the worker is retired",
+        "Before the worker is retired, a finding with no issue or pull request goes to the discipline coordinator named for its surface or is filed as an issue, and is not left only as a deferral in the record",
         "Before the teardown, the coordinator asks the worker what exists only in its head and gets it written down"
       ],
       "files": []

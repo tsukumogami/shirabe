@@ -294,7 +294,8 @@ get it written down somewhere durable.
 **It doesn't let a finding go homeless.** A finding that belongs to no
 issue and no pull request goes, before the worker that produced it is
 retired, to the discipline coordinator that owns the surface it concerns
-when the brief named one, and is filed as an issue otherwise. Findings from
+when the brief named one, and is filed as an issue otherwise. A deferral
+row in your record is not a home for it. Findings from
 workers converge on the coordinator, and a worker being retired is the
 moment they are lost.
 
