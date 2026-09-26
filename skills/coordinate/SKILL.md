@@ -112,7 +112,10 @@ the record for this scope (see The Record).
 ### 2. Pick
 
 Choose the next unblocked unit of work inside your scope, and its entry
-point:
+point. For a roadmap, a feature is unblocked when every feature it depends
+on reads Done in the roadmap and no holding already covers it. For a
+discipline, the units are the open issues and red checks in its area that
+no holding already covers.
 
 | Unit of work | Entry point |
 |---|---|
@@ -128,8 +131,8 @@ doesn't.
 ### 3. Brief and Dispatch
 
 Write one brief per worker from `references/brief-template.md` and dispatch
-it through the workspace manager (`niwa dispatch` from the workspace root;
-the `/dispatch` skill there is the current front door). Before any other
+it through the workspace manager, which starts the worker in a session of
+its own. Before any other
 action, record the dispatch as a holding in the record, because a
 dispatched session with no pull request yet is invisible to GitHub.
 
@@ -195,6 +198,12 @@ brief plus what was learned, or escalate to whoever dispatched you.
 `references/loop.md` has the shape of an escalation message.
 
 ## Bounds and Authority
+
+Throughout this skill, **the human** means whoever dispatched you when
+that is a person. When another coordinator dispatched you, everything this
+skill sends to the human (a decision, a table of ready pull requests, an
+escalation) goes to that coordinator instead, and it decides under the same
+rules or passes it up.
 
 **Three active workers by default.** An active worker is a dispatched
 session whose work is not yet merged or abandoned. Run at most three, one
@@ -275,8 +284,11 @@ The record lives on GitHub:
   holdings and deferrals in its body. It merges when the roadmap is done.
 - **Discipline scope.** A draft pull request from
   `coordinate/discipline-<name>` in the host repository opens when the
-  rotation starts. When the rotation ends, a dated handoff is committed to
-  `docs/disciplines/<name>.md` and the pull request merges.
+  rotation starts. When the rotation ends, a handoff is committed to
+  `docs/disciplines/<name>.md` and the pull request merges. The handoff
+  opens with the date and the rotation that wrote it, and names the host
+  repository, so a successor reading it cold knows what it is reading and
+  where the next record goes.
 
 **A deferral is the successor's to dispose of** before its first dispatch:
 file it as an issue, close it, or carry it forward with a reason. A
@@ -299,10 +311,13 @@ workflow engine can carry a worker's result back.
   request ownership being decided per run. Today it is decided by author
   login and branch name, so two coordinators under one login on the same
   scope both see the one record pull request as theirs.
-- **Where merge order is recorded (#396).** The skill depends on a
-  coordinated effort's merge order being recorded where a reader can find
-  it after the PLAN is gone. Today the coordination pull request's
-  merge-order block is written empty and never updated.
+- **Where merge order is recorded (#396).** When a worker runs a
+  coordinated PLAN, the skill depends on that PLAN's merge order being
+  recorded where a reader can find it after the PLAN is gone. Today the
+  merge-order block of the coordination pull request `/execute` opens for
+  such a PLAN is written empty and never updated. This is the worker's
+  coordination pull request, not the coordinator's record, which has no
+  merge-order section.
 
 ## Changing This Skill
 
@@ -316,6 +331,8 @@ rule against that test before adding it.
 Report up to whoever dispatched you after each reconcile, each landed or
 handed-over unit, each escalation, and at the end of the scope or rotation.
 Lead with what changed and what you hold. Name what you verified and what
-you didn't. End every report with the `=== WORK IN FLIGHT ===` block in the
-shirabe work-summary format, one line per pull request you hold, bare URL
-last.
+you didn't. For a discipline, name the host repository in every report, so
+whoever starts the next rotation passes it on as a decision instead of the
+successor asking again. End every report with the holdings, one line per
+holding, its pull request's bare URL last, or "none yet" when it has no
+pull request.

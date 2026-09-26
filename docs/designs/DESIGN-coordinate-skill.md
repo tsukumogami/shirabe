@@ -328,8 +328,11 @@ Sections, in order:
    the skill depends on (R33).
 10. **Changing this skill** — the admission rule (R34).
 11. **Reporting** — the report up to the dispatcher (R23), naming what
-    was verified and what wasn't (R10), ending with the work-in-flight
-    block in the shirabe work-summary format.
+    was verified and what wasn't (R10), naming a discipline's host
+    repository, and ending with one line per holding with its pull
+    request's URL. It does not use the work-summary block: that block is
+    rendered from the pull requests the reporting session itself opened,
+    and a coordinator's holdings are pull requests its workers opened.
 
 ### References
 

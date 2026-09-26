@@ -89,8 +89,9 @@ explicitly declared `requires.tsv` naming `gh` and `git`.
   about to write for private names before each record write, and that
   quoted material in the record goes in a fence.
 - [ ] SKILL.md has a Reporting section: the report goes up to the
-  dispatcher, names what was and wasn't verified, and ends with the
-  work-in-flight block in the shirabe work-summary format.
+  dispatcher, names what was and wasn't verified, names a discipline's
+  host repository, and ends with one line per holding with its pull
+  request's URL.
 - [ ] `scripts/skill-preflight.sh coordinate` exits 0, and the scanners
   `scripts/check-skill-requires.sh` and `scripts/check-skill-injection.sh`
   pass over the tree with `skills/coordinate/` committed (their
