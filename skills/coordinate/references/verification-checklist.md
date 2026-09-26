@@ -40,12 +40,6 @@ claim, not from an earlier turn.
    git ls-remote https://github.com/<owner/repo>.git refs/heads/<branch>
    ```
 
-After a merge, read the changed files on the default branch:
-
-```bash
-gh api repos/<owner/repo>/contents/<path>?ref=<default-branch> --jq .sha
-```
-
 ## The Report
 
 Separate what you read from what you were told. Every claim carries where

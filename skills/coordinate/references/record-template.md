@@ -69,8 +69,9 @@ dispatch. Exactly one of four outcomes:
 - Discipline: `docs(coordinate): <name> rotation <start> to <end>`, with
   both dates in `YYYY-MM-DD` form from the day it opens. The end date is
   the start plus the rotation's length. If the human ends the rotation
-  early, or sets a new length, edit the end date to match; the title is
-  where a successor reads it.
+  early, or sets a new length, edit the end date to match in the same
+  update that records the decision; the title is where a successor reads
+  it.
 
 **Body.** Part 1 is one prose sentence with no headings, true after merge.
 Then a line that is exactly `---`, then Part 2. Part 2 uses no further
@@ -162,7 +163,7 @@ flight are empty, and every deferral is filed or closed:
 1. Merge the default branch in one last time (step 1 above).
 2. Mark the pull request ready with `gh pr ready <n>`.
 3. Merge it if the workspace permits; otherwise hand it to the human as the
-   last row of the merge-order table.
+   last row of the merge-order table in `references/loop.md`.
 4. Delete the branch once it has merged.
 
 The merge may carry the final Progress, or no file change at all if the
@@ -217,7 +218,8 @@ readable on GitHub.
 2. If the rotation ended on a different day than the title says, edit the
    title's end date to the actual one.
 3. Mark the pull request ready and merge it if the workspace permits;
-   otherwise hand it to the human.
+   otherwise hand it to the human as the last row of the merge-order
+   table in `references/loop.md`.
 4. Delete the branch once it has merged.
 
 The branch check's first outcome is where a new rotation meets the

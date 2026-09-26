@@ -41,8 +41,8 @@ for the judgment at the end, not for the reads.
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees
    (`git worktree list`); and its scratch directory. Record a session
-   missing from the roster as "not seen" in the report, never "dead"
-   (see When Something Goes Wrong in SKILL.md).
+   missing from the roster as "not seen" in the report, never "dead";
+   When Something Goes Wrong in SKILL.md says why one read can't tell.
 5. **Re-check side effects in flight.** For each row, run its "How to
    confirm" read. A merge attempted and never confirmed is settled only by
    reading the pull request's state and the changed files on the default
@@ -101,6 +101,24 @@ is safe.
 The head sha is the one you verified. If a pull request's head moves after
 you hand the table over, it drops back to unverified until you read it
 again.
+
+## Confirming a Merge
+
+After any merge, yours or the human's, read each changed file on the
+default branch and compare it with the pull request's version:
+
+```bash
+gh pr view <n> --repo <owner/repo> --json files --jq '.files[].path'
+gh api "repos/<owner/repo>/contents/<path>?ref=<default-branch>" --jq .sha
+gh api "repos/<owner/repo>/contents/<path>?ref=<verified-head-sha>" --jq .sha
+```
+
+A deleted file shows as not found on the default branch, which is the
+expected result for it.
+
+A file whose blob sha on the default branch doesn't match the pull
+request's head version means the merge isn't what was verified; report it
+before dispatching anything that depends on it.
 
 ## The Shape of an Escalation
 

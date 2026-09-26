@@ -166,8 +166,9 @@ make names what you verified and what you didn't.
 Take each finishing step as far as the workspace's declared permissions
 allow, and no further. Where the workspace denies the merge to a session,
 hand the human a table of ready pull requests with their merge order and
-the reason for that order; the table's shape is in `references/loop.md`. Where the workspace permits it, merge once you
-have verified the work. After any merge, confirm the change on the default
+the reason for that order; load `references/loop.md` for the table's
+shape and for the read that confirms a merge. Where the workspace permits it, merge once you have verified the
+work. After any merge, confirm the change on the default
 branch by reading the changed files there, not by trusting the merge event.
 
 ### 7. Update the Record

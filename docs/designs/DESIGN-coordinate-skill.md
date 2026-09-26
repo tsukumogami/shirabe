@@ -315,7 +315,8 @@ Sections, in order:
    and names the reference to load, if any: reconcile (R6, loads
    `loop.md` on the first turn), pick (R7, the entry-point table), brief
    and dispatch (R8, loads `brief-template.md`), wait (R9), verify (R10,
-   loads `verification-checklist.md`), land (R11), update the record (R12,
+   loads `verification-checklist.md`), land (R11, loads `loop.md` for the
+   merge-order table and the post-merge read), update the record (R12,
    loads `record-template.md`).
 4. **When something goes wrong** — the failure branch (R13), including
    the stalled-worker definition, the bounced-message signal and the
@@ -345,8 +346,11 @@ Sections, in order:
   host for each session and instance and its unique material, then the
   roadmap's Features section); how to resolve a record claim GitHub
   contradicts (GitHub wins, and the difference goes in the reconcile
-  report); the escalation message's shape; and worked examples beyond
-  R16's three.
+  report); the merge-order table the land step hands over, and the read
+  that confirms a merge on the default branch; the escalation message's
+  shape; and worked examples beyond R16's three. The merge-order table
+  was added during implementation: the land step names a table, and
+  without a shape each coordinator would invent its own.
 - `record-template.md` — the title forms, Part 1 sentence, declaration
   line, `Written:` line, the four section headings with their table
   columns (Holdings: unit, entry point, session, repo, branch, pull
