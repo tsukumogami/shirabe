@@ -26,12 +26,14 @@
 # args file would be compared against inputs the leg pins (COORDINATION,
 # UPSTREAM) and refused where the real open is not. When the probe stops the
 # run under a leg, the open is still made, with the full args file and the
-# leg, so that koto records a refusal on the leg (the same variable refusal,
-# or the untyped already-exists refusal for a session this script will not
-# touch, printed as refused=already_exists and recorded on the leg with reason
-# already-exists). Should that open
-# be accepted, because the colliding session went away in between, the run
-# proceeds as opened.
+# leg, so that koto records a refusal on the leg. A bad variable is refused
+# again with the same code. A session this script will not touch is refused as
+# koto's untyped already-exists. Should that open be accepted, because the
+# colliding session went away in between, the run proceeds as opened.
+#
+# In that case stdout carries the probe's refused= line, the reason this run
+# stopped, while the leg records the open's refusal: the same code for a bad
+# variable, already-exists for a collision.
 #
 # It never reads a session's origin record or state file.
 #

@@ -329,7 +329,7 @@ eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .resu
 eq "the collision's recorded reason" '"already-exists"' "$(leg "$REQ" .result.payload.reason)"
 eq "that session is still left alone" work "$(state_of t-tpl)"
 
-# A leg that pins another topic: koto's input check refuses the attach.
+# A leg that pins another topic: koto's input check refuses the open.
 REQ=$(new_request some-other-topic)
 open_deliver "[\"t-mis\",\"--koto-leg=$REQ:deliver\"]"
 refused "a leg pinning another TOPIC"

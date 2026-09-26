@@ -19,8 +19,9 @@
 #
 # koto then decides everything it can: a variable outside its constraint, a
 # live session from another template or worktree, a leg that names another
-# template or pins other inputs. Under --koto-leg every one of those refusals is
-# recorded on the leg by koto itself. This script's own refusals are the ones
+# template or pins other inputs. koto records each of those refusals on the leg
+# itself when the leg is still open and unbound; on a leg already bound to this
+# session (a re-dispatch) it records nothing and the leg stays bound. This script's own refusals are the ones
 # where there is no leg to record anything on: no --koto-leg, a repeated one, a
 # value that isn't <request-id>:work-on with a request id koto would accept, or
 # a tokens file it cannot read. Each exits 64 with `error=usage` and makes no
@@ -51,6 +52,10 @@
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
 # own code otherwise), or 64 for this script's own usage refusals.
+#
+# A bare `--koto-leg` followed by another flag takes that flag as its value, so
+# the value fails the leg pattern and exits 64. deliver-open.sh records an empty
+# value in the same case; both end in the same refusal.
 #
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail

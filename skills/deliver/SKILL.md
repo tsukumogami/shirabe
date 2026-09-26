@@ -98,7 +98,7 @@ What the coordinator puts on the leg, so koto admits the session:
 |-----------|-------|
 | name | `deliver` |
 | `template` | `deliver.md` |
-| `inputs` | `TOPIC`: the topic slug, as passed to `/deliver`. Optionally `COORDINATION` (`none`, `coordinated`, `no-coordinated`) and `UPSTREAM` (the `--upstream` value, empty when none), which must then equal what the invocation passes. |
+| `inputs` | `TOPIC`: the topic slug, as passed to `/deliver`. Optionally `COORDINATION` and `UPSTREAM`, which must then equal the value the invocation resolves to: `COORDINATION` is `coordinated`, `no-coordinated`, or `none` when neither flag is given; `UPSTREAM` is the `--upstream` value, or the empty string when it isn't given. |
 
 koto compares only the inputs the leg names, and only against variables that
 aren't `rebind`: `MODE`, `MERGE`, `MAX_ROUNDS`, and `PLUGIN_ROOT` are
@@ -108,10 +108,10 @@ invocation's is refused as `input-mismatch` on the leg.
 
 A leg is named `deliver` and nothing else, so one request holds at most one
 `/deliver` worker; a coordinator running several gives each its own request.
-koto records a refusal only on a leg that is still open and unbound. The
-refusals that reach the leg are this run's own open and a collision.
-`deliver-open.sh`'s usage refusals don't reach it, and neither does a run that
-stops before its terminal. In those cases the leg stays open, and a
+koto records a refusal only on a leg that is still open and unbound. koto's
+refusal of this run's open reaches the leg, including a same-named session the
+probe stopped on. `deliver-open.sh`'s usage refusals don't, and neither does a
+run that stops before its terminal. In those cases the leg stays open, and a
 `request-leg` gate would wait on it indefinitely, so the coordinator needs its
 own fallback for a worker that ended without a result.
 
