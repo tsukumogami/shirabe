@@ -256,12 +256,13 @@ inventory each have a
 a stub record writer, so it launches nothing and writes to no real record.
 
 **R24. Filed defects are named, not worked around.** The skill names shirabe
-#395, #396, #398 and #401, koto#250 and niwa#322 as known limitations, each
+#395, #396, #398 and #401, koto#250, koto#251 and niwa#322 as known
+limitations, each
 with what it costs today, and carries no rule whose only reason is one of them.
 
 **R25. Public content only.** No committed artifact names a private
-repository, path or issue, a session or instance name, a job id, or a `wip/`
-path.
+repository, path or issue, a session or instance name, a job id, or a path under the
+workflow scratch directory the repository's cleanup rule removes.
 
 ## Acceptance Criteria
 
@@ -339,9 +340,9 @@ path.
   the coordinator's answer routed with the shadow suggestion recorded), and
   each fails against the prose-only skill.
 - [ ] The skill's Known Limitations names shirabe #395, #396, #398, #401,
-  koto#250 and niwa#322, each with its cost today.
-- [ ] A search for `wip/` over the added files finds nothing, and no added
-  file names a private repository, path or issue.
+  koto#250, koto#251 and niwa#322, each with its cost today.
+- [ ] No added file names a path under the workflow scratch directory, a
+  private repository, path or issue.
 
 ## Out of Scope
 
@@ -384,6 +385,10 @@ path.
   refuses an instance whose branches were squash-merged, because it judges by
   ancestry. The coordinator passes `--force` only after the inventory has
   proven every repository durable by content.
+- **A directed transition skips gates (koto#251).** `koto next --to` moves a
+  session past a failing gate, non-overridable ones included, so no gate here
+  can on its own guarantee a state was reached through it. Teardown detects
+  the skip before destroying anything; the other gates rely on reconcile.
 - **One topic per worker.** koto session names such as `scope-<topic>` are
   shared across the host, so two workers dispatched on one topic collide: the
   second's session is refused as an origin mismatch. Each dispatch uses a

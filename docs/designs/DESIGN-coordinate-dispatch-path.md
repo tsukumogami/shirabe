@@ -693,12 +693,12 @@ quiet-worker check bounds how long a resolved leg can go unread.
 - **One topic per worker.** koto session names are machine-wide, so a second
   worker on a live topic is refused as an origin mismatch;
   `dispatch-worker.sh` refuses the topic first.
-- **A directed transition skips gates.** koto 0.13.0's `koto next --to`
-  moves a session past any gate, non-overridable ones included. The teardown
-  state detects it through the seal and `destroy`'s reader and refuses to
-  destroy; the dispatch and wait gates have no seal, so a `--to` past
-  `holding_recorded` leaves a missing holding for reconcile to find. A koto
-  issue is being proposed.
+- **koto#251, a directed transition skips gates.** koto 0.13.0's `koto next
+  --to` moves a session past any gate, non-overridable ones included. Until
+  it's fixed, the shared seal helper is the interim detection: the teardown
+  state seals its inventory and `destroy`'s reader refuses to destroy on a
+  directed entry. The dispatch and wait gates have no seal, so a `--to` past
+  `holding_recorded` leaves a missing holding for reconcile to find.
 - **Session names aren't predictable.** niwa appends a random token to
   `--name`, so the coordinator reads the name from the dispatch output or
   `niwa list --json` and never derives it.

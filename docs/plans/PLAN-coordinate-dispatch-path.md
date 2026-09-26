@@ -261,7 +261,8 @@ known limitations, and add evals for the three scenarios the PRD requires.
 - [ ] `skills/coordinate/SKILL.md` names the dispatch, wait and teardown
   states' scripts where the thin contract points at step guidance, and its
   Known Limitations names shirabe #395, #396, #398 and #401, koto#250 and
-  niwa#322, the directed-transition gate skip, and the one-topic-per-worker
+  niwa#322, koto#251 (the directed-transition gate skip, with the seal helper
+  as its detection), and the one-topic-per-worker
   and unpredictable-session-name constraints, each with its cost today.
 - [ ] `references/brief-template.md` says the brief is rendered by
   `render-brief.sh` and shows the input it takes.
@@ -272,8 +273,8 @@ known limitations, and add evals for the three scenarios the PRD requires.
   the coordinator's answer routed and the shadow suggestion was recorded);
   each fails against the prose-only skill, and every existing scenario still
   passes.
-- [ ] A search for `wip/` over the files this PLAN adds or changes finds
-  nothing, and none names a private repository, path or issue.
+- [ ] None of the files this PLAN adds or changes names a path under the
+  workflow scratch directory, a private repository, path or issue.
 
 **Dependencies**: Blocked by <<ISSUE:5>>
 
