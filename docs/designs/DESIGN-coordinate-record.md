@@ -83,3 +83,462 @@ every one of the prose skill's roughly 190 rules has to land in the state that u
   following `/deliver`'s and `/execute`'s test harnesses.
 - **Out of scope stays prose.** Dispatch tooling and mechanised reconcile are later work; the
   dispatch and reconcile states call the prose procedure.
+
+## Considered Options
+
+### Decision 1: How the four checks are enforced
+
+koto offers three channels for deciding a transition: evidence, context keys read by context
+gates, and commands the engine runs. Reading koto's source settled what each is worth. In one
+advance the engine runs a state's default action, then (only if it succeeded) the state's
+gates, then resolves transitions, with no agent turn in between; a failed action returns
+before gates. The action is skipped whenever the state's current epoch holds evidence, and
+`--with-data` is refused on a state with no `accepts` block. `capture_stdout_as` values are
+written only by the engine, from an action's stdout; no CLI verb writes one. Context keys, by
+contrast, are written by anyone who runs `koto context add`.
+
+Two findings changed the problem. `koto next --to <target>` takes any declared edge without
+evaluating the source state's gates, `overridable: false` included, and a template can't forbid
+it (filed as koto#251). And one precedent isn't safe to copy: a check state that also has an
+escape `accepts` block lets evidence skip the action, so an agent-written verdict key reaches
+the gate. `/deliver`'s `scoped_check` and `merged_check` (no `accepts`, non-overridable gates)
+are the safe shape.
+
+Key assumptions:
+
+- The agent acts through koto's CLI and shirabe's scripts. File edits under the session
+  directory, a `gh` shim on `PATH`, or a raw `gh pr merge` defeat any koto-level check; only
+  GitHub branch protection or a PreToolUse hook in the posture can prevent them.
+- The paginated open-issue listing and the land head read fit the 30-second action limit.
+- koto keeps its capture semantics (engine-only writer, `capture_unset` stop on an undelivered
+  read, later value wins) and the session header's once-set `created_at`.
+
+#### Chosen: Read-only check states that capture a sealed verdict token, routed by non-overridable command gates over the capture
+
+Each check is its own state with a read-only default action and no `accepts` block, so
+evidence can't be submitted and the action runs on every entry before the gates. The script
+reads GitHub, writes any bulky detail to a context key as data, and prints exactly one sealed
+token on stdout, delivered with `capture_stdout_as`. The state's gate is a `type: command`,
+`overridable: false` gate running `coord-verdict.sh` over the substituted capture, with one exit
+code per verdict and a `when` arm for each. No gate reads a context key, so a key the agent
+wrote is simply ignored.
+
+The seal ties a token to the visit that produced it. The shared helper `coord-log.sh` (the one
+seal helper this feature ships and the reconcile feature reuses) reads the session log:
+`coord-log.sh seal <state> <token>` prints `<token> sealed:<seq>:<sha256>`, where `<seq>` is the
+sequence number of the latest entry into `<state>` and the hash covers the token, the seq and
+the session name. `coord-log.sh check <state> <sealed-token>` exits 0 only when the hash matches
+and `<seq>` is still the latest entry into that state. A downstream reader (land reading the
+verified head, the record step reading its expectation, the merge script reading land's token)
+runs the same check, so a capture left over from an earlier visit can't be carried forward by a
+`--to` jump. `coord-log.sh directed-since <seq>` lists `directed_transition` events after a
+sequence number; every check script and every agent-run write script calls it and refuses when
+one is found, naming the event. That's detection, not prevention: koto#251 is the defect and the
+seal is the interim.
+
+Run facts come from the engine too. `start` captures `RUN_START` from the session header's
+`created_at`, and the deferral check reads it as `{{RUN_START}}`. Each `/coordinate` invocation
+opens a fresh session under a per-run name, `coordinate-<scope-slug>-<UTC stamp>`, after
+cancelling (never cleaning) any live coordinate session for the same scope, so a restart is a
+new run with its own start, a full start and reconcile, and the old run's log stays readable.
+
+Land re-reads the head live. `land`'s action runs the board script's head-only read, checks the
+seal on `{{VERIFIED}}`, and captures `land-ok <pr> <sha>` only when the remote head equals the
+verified sha and the merge state isn't `DIRTY`. The merge itself is `merge-exec.sh` with that
+sha, which calls `gh pr merge --match-head-commit`, so GitHub refuses a head that moved in the
+seconds after the check.
+
+#### Alternatives Considered
+
+- **Context-key record scripts with non-overridable context-matches gates (the `/deliver` and
+  `/execute` precedent).** Rejected because context keys are agent-writable: any key read after
+  the tick that wrote it, the verified head above all, can be replaced, and even within a tick a
+  background `koto context add` can race the gate. Its structure (check states with no
+  `accepts`, the lint, the prediction in its own state) survives.
+- **Command gates that re-derive every property at gate time.** Rejected as the whole answer
+  because a command gate exposes only an exit code, so the record number, the ambiguous matches
+  and the verified head can't reach the directive, the renderer or land's comparison, and a
+  second GitHub read defends against no agent value while `--to` skips it anyway.
+- **Context data plus re-derivation gates at the consumers.** Rejected because `--to` skips
+  consumer gates exactly as it skips check states, so they close neither gap and double the
+  reads. The re-check moves into the agent-run write scripts instead.
+- **Attach a restart to the live session.** Rejected because it keeps the first run's start time
+  and passed checks, so a restart would never re-run start, reconcile and the deferral check.
+- **A fixed session name, cleaned before each init.** Rejected because cleanup deletes the old
+  run's log, which R1 and the `--to` scan both need.
+
+### Decision 2: The record body's source of truth
+
+The PRD's checks are defined over what's on GitHub and what a person reads there: the deferral
+check parses the Disposition column, and the section check asks for fixed-column tables. The
+body must round-trip, and a cell must not be able to break a table.
+
+Key assumptions:
+
+- People rarely edit the record on GitHub, and a structural edit stopping the run with the first
+  differing line named is acceptable.
+- Records stay well under GitHub's 65,536-character body limit.
+- GitHub renders tables per GFM: rows split on unescaped pipes before inline parsing.
+
+#### Chosen: Visible tables are the truth, with a canonical round-trip
+
+The rendered markdown is the only representation. One jq program,
+`skills/coordinate/scripts/record-codec.jq`, holds both directions, called by `record-render.sh`
+(JSON in, markdown out) and `record-parse.sh` (markdown in, JSON out). A body is valid only when
+rendering its parse, stamped with the parsed `Written:` time, reproduces it byte for byte after
+CRLF-to-LF and trailing-newline trimming. That comparison is the four-section check. Cells are
+encoded in a fixed reversible order (`&`, `<`, `>`, backslash, pipe as `\|`, CR, LF as `<br>`,
+edge whitespace), so a pipe, newline, backtick run or fence opener can't change a column count.
+The renderer refuses unknown keys (with a named message for status, CI and merge-state columns),
+worker values containing `/`, a UUID or 32-hex run, a `session_` prefix or only digits, and any
+structured cell outside its grammar. The same codec writes the discipline handoff file, whose
+reasoning section is kept verbatim and, when copying a predecessor, replaced by a fixed "not
+recorded" sentence.
+
+#### Alternatives Considered
+
+- **A hidden JSON block as the truth.** Rejected because the visible tables a person reads and
+  the check names could drift from the truth without anything noticing, and it would put a hidden
+  block in a committed handoff file.
+- **Both, with a consistency check.** Rejected because the check needs the full table parser
+  anyway, so the block is a second copy that can disagree with the first and stops the run on a
+  valid human edit.
+- **Truth kept off GitHub in koto context or a local file.** Rejected because the checks must read
+  GitHub, and a restart or successor would lose the state.
+
+### Decision 3: How the board is read and judged
+
+R10 asks whether the board at a head really ran. The live reads behind this decision, against
+public repositories, found three things: a re-run attempt makes `filter=all` return the failed
+earlier attempt beside the passing one, so only the default latest-attempt filter matches the
+PRD; a required check that never reported appears in neither the status-check rollup nor
+`gh pr checks --required`, so the required set must come from branch protection and rulesets;
+and a skipped job reads `runner_name: null` with no steps.
+
+Key assumptions:
+
+- A read-only token can see the classic branch endpoint's required contexts and the branch rules
+  endpoint; when it can't, verification ends in an error rather than a pass.
+- Required checks match rollup entries by name.
+
+#### Chosen: One bounded read script over a GraphQL snapshot, REST runs and latest-attempt jobs, a union required set, and the remote ref read last
+
+`board-verdict.sh --repo <owner/repo> --pr <n>` makes one GraphQL snapshot (head, merge state,
+every check context with `isRequired`, paginated), reads every workflow run at the head through
+`actions/runs?head_sha=`, every job per run at its latest attempt (in parallel, at most six at
+once), the required set as the union of classic protection, rulesets and rollup `isRequired`, and
+the remote ref last so a push during the read shows as a moved head. It checks every collected
+count against its reported total, stops itself at 24 seconds, and prints one JSON verdict
+(`verified`, `pending`, `unverified`, or an `error:` form) with a closed set of reason codes, the
+skipped jobs and the superseded attempts. `--head-only` does the snapshot's head and the ref in
+about a second, for land. A typical board reads in three to four seconds.
+
+#### Alternatives Considered
+
+- **The checklist's porcelain reads.** Rejected because `gh run list` stops at 20 runs with no
+  total, `gh pr checks` reads the current head rather than the verified one and misses a required
+  check that never reported, and `filter=all` invites judging the wrong attempt.
+- **Rollup-only judgement.** Rejected because the rollup has no runner name and no step
+  conclusions, so a job whose steps were all skipped reads green, which is the case R10 guards.
+- **Reads split or cached across states.** Rejected because a split read stops being one snapshot
+  at one head, and a cache in context is a key the coordinator can write.
+
+### Decision 4: The loop's state-machine shape
+
+The coordinator's input is one message at a time, about any of its holdings, in any order.
+koto can't pass through the same state twice in one advance, re-delivers details on every
+arrival, and keeps the whole session log, parsed on every advance.
+
+Key assumptions:
+
+- A run stays well under 20,000 log events (estimated worst case about 8,000 for a seven-day
+  rotation at the cap).
+- Shadow answers are recorded only where a user opted in to deciders; the coordinator's own
+  answer is always in the session log.
+
+#### Chosen: An event hub in one session per run, with a check state in front of each protected step and a record-confirm funnel back to pick
+
+After a linear start and record phase, `wait` is a hub with no action, gate or details, ticked on
+every message and routing on the event the coordinator names. Every edge out of `wait` lands on a
+state that starts with a GitHub read, so a `--to` out of the hub skips nothing. Every spoke that
+changes what the record must hold returns only through `record`, whose action re-reads the record
+from GitHub and whose gate holds until the expected change shows. From `record` the loop goes
+round through `pick_facts` and `pick`, which dispatches until the cap is full and then returns to
+`wait`. The two shadow deciders sit at gate-free evidence stops (`pick`, `classify_report`) fed by
+context keys that the state just before writes and gates.
+
+#### Alternatives Considered
+
+- **A linear cycle.** Rejected because `wait` must route on the event anyway, so a compiling
+  ring is this hub with reconcile and the deferral check spliced into every return path, at more
+  log per lap.
+- **A parent session with one child per holding.** Rejected because `--parent` children lose
+  their logs when they finish, which R1 forbids, and a wait on every child stalls the cap on the
+  slowest unit.
+- **A run session plus a session per event.** Rejected because run facts passed as variables can
+  be forged, and reading them from the run session is a cross-session read of context the agent
+  can write.
+
+### Decision 5: The discipline lifecycle and the close-outs
+
+The discipline find has more outcomes than the roadmap find, and the close-outs mix reads,
+GitHub writes and judgment.
+
+Key assumptions:
+
+- GitHub's git-data and contents APIs are an acceptable way to make the record branch's commits
+  (they skip local hooks).
+- A roadmap feature's status is its `**Status:**` line under `## Features`.
+
+#### Chosen: Read scripts as check-state actions, three agent-run write scripts that re-read GitHub first, `merge-exec.sh` reused, judgment in prose
+
+`record-find.sh` reports one of `found`, `predecessor` (open record past its end date), `foreign`
+(an open pull request without the declaration line), `ambiguous`, `stale-branch` (last pull
+request merged or closed), `unopened` (a branch that never had a pull request, what a crash
+between push and open leaves), `none`, or an error. `predecessor-handoff.sh` renders a
+predecessor's handoff from its body. `closeout-read.sh` reports the stage of a rotation or roadmap
+close-out. The writes are `record-open.sh`, `record-write.sh` (whole body, `--end` to correct the
+title, `--close` at roadmap scope) and `rotation-close.sh` (`--step handoff|ready|delete-branch`),
+each refusing when a fresh read disagrees. The merge is `skills/execute/scripts/merge-exec.sh`,
+unchanged, so shirabe keeps one `gh pr merge` caller. The find doesn't filter by author, because
+a successor may run under another login; the declaration line is the record's authority.
+
+#### Alternatives Considered
+
+- **One lifecycle script that finds and acts, gated by exit code.** Rejected because the find
+  would be the agent's to run and a command gate loses the outcome.
+- **Read scripts only, with writes as literal commands in prose.** Rejected because hand-typed
+  titles and multi-step re-cuts drift or stop half-done, and nothing re-reads GitHub first.
+- **Local git writes.** Rejected because the coordinator usually has no checkout of the host
+  repository, and a leftover local branch is state the find can't see.
+
+## Decision Outcome
+
+The five decisions fit together as one rule: the workflow reads, the coordinator writes, and
+nothing the coordinator writes is read by a check. Every check is a state with no `accepts`
+whose default action reads GitHub and prints a sealed token the engine captures; a
+non-overridable command gate routes on it the same advance. Every GitHub write is a script the
+coordinator runs from a directive, and each re-reads GitHub and the session log before it acts.
+The record is the visible tables, parsed and rendered by one codec, so what the checks read is
+what a person reads. The loop is a hub that routes one event at a time into spokes, and the only
+way back from a record-changing spoke is through a state that confirms the change on GitHub.
+
+Three reconciliations were made across the decisions:
+
+- Decisions 4 and 5 were written against context-key gates; both move to decision 1's sealed
+  captures. The context keys they named stay as data for directives, reports and deciders.
+- Decision 4 had no Return path column; the PRD now carries one (`leg <request-id>:<leg>` or
+  `message`), which the dispatch path fills and reconcile reads. This feature adds no request-leg
+  gate: the only workers that could bind a leg today are `/scope` and `/execute` runs
+  (shirabe#401), and binding one at dispatch is the dispatch path's work. The `wait` guidance says
+  which is which.
+- Decision 1 ran the deferral check only before the run's first dispatch; decision 4 ran it before
+  every dispatch. Both hold: `dispatch_check` runs before every dispatch and always checks that no
+  record row raised before `RUN_START` is undisposed, but it compares the predecessor's handoff
+  only until the session log shows the check passed once in this run, because disposed rows drop
+  out of the record at the first rewrite after the first dispatch.
+
+## Solution Architecture
+
+### Files
+
+```
+skills/coordinate/
+  SKILL.md                         thin contract: flags, open, tick, report, final states
+  requires.tsv                     koto floor, gh, git, jq, date, sha256sum|shasum
+  koto-templates/
+    coordinate.md                  the workflow
+    coordinate.mermaid.md          generated companion
+    coordinate.pick.choice.decider.jsonl
+    coordinate.classify_report.classification.decider.jsonl
+  references/                      loop.md, brief-template.md, verification-checklist.md,
+                                   record-template.md (updated, not removed)
+  scripts/
+    coordinate-open.sh             args to variables, cancel earlier live run, fresh session
+    coordinate-report.sh           report from the terminal result, closed patterns
+    coord-log.sh                   shared seal helper and log scans
+    coord-verdict.sh               gate helper: token -> exit code, seal checked
+    record-codec.jq                cell encoding, render and parse
+    record-render.sh, record-parse.sh
+    record-find.sh                 check action: find the record, four sections
+    record-open.sh                 agent-run: open exactly one record
+    record-write.sh                agent-run: whole-body rewrite, --end, --close
+    record-holding.sh              agent-run: add or update one holding row, by topic
+    record-confirm.sh              check action: the expected change is on GitHub
+    deferral-check.sh              check action: pre-run deferrals disposed
+    pick-facts.sh, report-facts.sh data actions for the deciders, context-gated
+    board-verdict.sh               board read (JSON)
+    board-record.sh                check action: board-verdict.sh -> sealed token
+    land-check.sh                  check action: head re-read against the sealed verify token
+    merge-confirm.sh               check action: merged, default-branch blobs vs verified head
+    quiet-check.sh                 check action: quiet and silent workers from the log
+    predecessor-handoff.sh, closeout-read.sh, rotation-close.sh
+    posture-read.sh                check action: merge/close/teardown -> permit|deny|confirm|unread
+    <each>_test.sh, testdata/      stand-in gh and koto, fixtures
+```
+
+### Variables
+
+`SCOPE` (`roadmap` or `discipline`), `ROADMAP` (a `docs/roadmaps/.../ROADMAP-*.md` path, empty at
+discipline scope), `DISCIPLINE` (`^[a-z0-9][a-z0-9-]*$`, empty at roadmap scope), `HOST_REPO`
+(`owner/repo`, rebindable so the human's answer arrives through the opener and the pattern checks
+it), `ROTATION_DAYS` (default 7), `CAP` (default 5), `PARKED_BOUND` (default 3), `PLUGIN_ROOT`.
+Free text after the scope isn't a variable: it reaches the coordinator as its decisions and
+changes no setting the workflow enforces.
+
+### States
+
+Start and record phase:
+
+| State | Kind | Routes |
+|---|---|---|
+| `start` | check: roadmap exists and reads Active on the host's default branch; captures `RUN_START` | ok -> `start_host`; missing or not Active -> `done_not_active` |
+| `start_host` | non-overridable command gate on `{{HOST_REPO}}` | set -> `start_posture`; unset: the directive asks once with a recommendation, never the repository it runs in, and the answer is rebound through the opener |
+| `start_posture` | check: `posture-read.sh` | readable -> `record_find`; unread -> `posture_ask` |
+| `posture_ask` | evidence per finishing step (`held` or `reserved`, default reserved) | -> `record_find` |
+| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed` -> `record_conflict`; `predecessor` -> `predecessor_close` |
+| `record_open` | evidence after running `record-open.sh` | -> `record_find` only |
+| `record_conflict` | evidence `recheck` or `stop` | -> `record_find` or `done_stopped` |
+| `predecessor_close` | check: `predecessor-handoff.sh`, then the rotation close ladder with `--predecessor` | merged -> `record_find`; handed over -> `predecessor_handed_over` |
+| `predecessor_handed_over` | evidence `recheck` | -> `record_find` |
+| `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile | -> `pick_facts` |
+
+The turn:
+
+| State | Kind | Routes |
+|---|---|---|
+| `pick_facts` | data: `pick-facts.sh` writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts, scope-complete and rotation-over flags); context-exists gate | pick -> `pick`; scope complete -> `roadmap_close`; rotation over -> `rotation_close` |
+| `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`; ask_up -> `ask_up`; hold -> `wait` |
+| `ask_up` | evidence `sent` | -> `wait` |
+| `dispatch_check` | check: `deferral-check.sh` (record once, four sections, no pre-run deferral undisposed, predecessor handoff until the first pass, cap and parked bound) | ok -> `dispatch`; deferral open -> `deferral_dispose`; record gone or doubled -> `record_find`; at the cap -> `wait` |
+| `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
+| `dispatch` | entry action repeats `deferral-check.sh` (the far side of a `--to`); evidence `sent` or `failed`, `topic` | sent -> `record` expecting the holding row; failed -> `failure` |
+| `record` | check: `record-confirm.sh` over the sealed expectation | confirmed -> `pick_facts`; `--to` found or unconfirmable -> `record_conflict` |
+
+The hub and its spokes:
+
+| State | Kind | Routes |
+|---|---|---|
+| `wait` | evidence `event: report, quiet, decision, deferral, merged, retire, end`; optional `unit`; no action, gate or details | each event to its spoke; `end` -> `rotation_close` or `done_stopped` |
+| `report_facts` | data: `report-facts.sh` finds the holding by topic in the record and writes `coord/report.json` (plus the `worker_report` key the dispatch path fills); context-exists gate | found -> `classify_report`; unknown topic -> `wait` |
+| `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider | done -> `verify`; blocked -> `failure`; needs_fix -> `fix_relay` |
+| `fix_relay` | evidence `sent` | -> `wait` |
+| `verify` | evidence: the prediction (R12) | -> `verify_board` |
+| `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`) | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait`; error -> `record_conflict` |
+| `verified_confirm` | check: `record-confirm.sh`, the holding's Verified head cell equals the sealed verified sha | -> `land` |
+| `land` | check: `land-check.sh` (head re-read, seal, posture) | permitted -> `land_merge`; denied, confirm or unread -> `surface`; moved -> `verify`; `DIRTY` or `--to` -> `record_conflict` |
+| `land_merge` | evidence `attempted` or `failed` after `merge-exec.sh` | -> `merge_confirm` or `failure` |
+| `surface` | evidence `handed_over` (the merge-order table from `verification-checklist.md`) | -> `record` expecting the parked row |
+| `merge_confirm` | check: `merge-confirm.sh` | merged -> `record` expecting the merged change; unconfirmed -> `record` expecting a side-effect row |
+| `teardown` | evidence `done` or `kept`, from the hub's `retire` event; guidance is the prose inventory rules; the dispatch path adds its inventory gate here | -> `record` |
+| `quiet_check` | check: `quiet-check.sh` sweeps every holding; silent counts come from the log | nothing -> `wait`; first silence -> `status_message`; second -> `failure` |
+| `status_message` | evidence `sent` | -> `wait` |
+| `failure` | evidence `redispatch` or `escalate`; never tears down | -> `dispatch_check` or `wait` |
+| `decision_apply` | evidence `reversal`, `deferral` or `none` | reversal, deferral -> `record`; none -> `pick_facts` |
+
+Close-outs and terminals: `roadmap_close` and `rotation_close` route on `closeout-read.sh`'s stage
+(handoff missing, title stale, land, merged, closed unmerged; or ready, features open, holdings,
+side effects, deferrals, closed) and end in `done`, `done_handed_over`, `done_stopped`,
+`done_not_active` or `done_error`, each with a `result:` map `coordinate-report.sh` renders.
+
+Posture is named only in `start*`, `land*`, `surface`, `teardown` and the close-outs. Reference
+pointers: `references/loop.md` from `reconcile`, `pick`, `quiet_check`, `failure`,
+`decision_apply`; `references/brief-template.md` from `dispatch` and `failure`;
+`references/verification-checklist.md` from `verify` through `merge_confirm`;
+`references/record-template.md` from every record and close-out state.
+
+### Seams for the dispatch path and reconcile
+
+The dispatch path fills `dispatch` and the report side of `wait`, adds its leg-reading state beside
+`report_facts`, writes the `worker_report` key `classify_report`'s decider reads, and adds its
+inventory gate to `teardown`. It routes back into `pick`, `verify`, `record` and `surface`, which
+keep these names. Reconcile hardens `reconcile` and reuses `coord-log.sh`. Every holding row
+changes only through `record-holding.sh`:
+
+```
+record-holding.sh --scope roadmap|discipline --name <name> --repo <owner/repo> --ref <n>
+                  --topic <dispatch-topic> --row-file <json> [--session <name>]
+```
+
+It reads the live body, parses it, replaces the row whose Worker equals `--topic` or appends one,
+renders, self-checks and writes the whole body. The row file holds the Holdings keys
+(`unit, entry_point, mode, phase, return_path, worker, repo, branch, verified_head, dispatched,
+pull_request`); its `worker` must equal `--topic`. Exit codes: 0 written (prints the record URL),
+10 refused because the target isn't an open record or a `--to` is in the log, 11 the write
+failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer (the reason on stderr).
+
+### Record format
+
+Holdings: Unit, Entry point, Mode, Phase, Return path, Worker, Repo, Branch, Verified head,
+Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side effects in
+flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date, Reversed, Now,
+Reason, From. Phase is `scoping-ahead` or `executing`; Return path is `message` or
+`leg <request-id>:<leg>`; Raised, Attempted and a carry-forward's time are `YYYY-MM-DDTHH:MMZ`;
+Disposition is empty, `filed #<n>`, `closed: <text>` or `carried <time>: <text>`.
+
+### Data flow of one report
+
+A worker messages that its pull request is ready. The coordinator ticks `wait` with
+`event: report, unit: <topic>`. `report_facts` finds the topic's holding in the record and writes
+`coord/report.json`; `classify_report` takes the coordinator's classification (the shadow decider
+records its own); `verify` takes the prediction; `verify_board` reads the board and captures
+`verified <pr> <sha> sealed:...`; the coordinator writes that sha into the holding with
+`record-holding.sh`; `verified_confirm` sees it on GitHub; `land` re-reads the head and routes by
+the posture; `land_merge` or `surface` runs; `merge_confirm` or `record` confirms the outcome on
+GitHub; `pick_facts` and `pick` refill the freed slot.
+
+## Implementation Approach
+
+1. **Record codec.** `record-codec.jq`, `record-render.sh`, `record-parse.sh` and their tests: the
+   round trip, the refusals, the handoff format. Update `references/record-template.md` to the
+   new columns.
+2. **Log and verdict helpers.** `coord-log.sh` (seal, check, directed-since, latest entry,
+   silent counts) and `coord-verdict.sh`, tested against real koto sessions built in a temporary
+   directory.
+3. **Record find, open, write, holding, confirm.** `record-find.sh` (both scopes, every discipline
+   outcome), `record-open.sh`, `record-write.sh`, `record-holding.sh`, `record-confirm.sh`, with a
+   stand-in `gh` that serves 150 open issues and fails any search path.
+4. **Board, land, merge confirm.** `board-verdict.sh`, `board-record.sh`, `land-check.sh`,
+   `merge-confirm.sh`, one fixture per PRD board criterion.
+5. **Deferrals, posture, quiet, facts.** `deferral-check.sh`, `posture-read.sh`, `quiet-check.sh`,
+   `pick-facts.sh`, `report-facts.sh`.
+6. **Close-outs.** `predecessor-handoff.sh`, `closeout-read.sh`, `rotation-close.sh`.
+7. **Template and skill.** `coordinate.md` and its mermaid companion, decider fixtures and
+   declaration rows, `coordinate-open.sh`, `coordinate-report.sh`, the thin `SKILL.md`, the
+   reference updates (the cap in the bounds, the start-where-you-work invariant in
+   `brief-template.md`), the rule-coverage fixture, and structure and engine tests.
+8. **Packaging.** `requires.tsv`, a `check-coordinate-scripts.yml` workflow, the entry-floor
+   workflow's lists, the retention adopters row, evals (the nine kept and tightened per
+   shirabe#403, plus the new scenarios).
+
+## Security Considerations
+
+The workflow reads GitHub with the coordinator's own `gh` credentials and writes nothing on its
+own; every write is a script the coordinator runs, and each refuses when a fresh read disagrees.
+No script prints a token: board and record reads print verdicts, and the session log records
+only verdict tokens and hashes of context keys. Arguments reach koto through a vars file mapped
+with `jq`, never through a shell, and every variable is pattern-checked at `koto init`. Text from
+GitHub (issue bodies, job names, worker reports) is data: it's parsed into JSON or cell-encoded,
+never evaluated, and never used to build a command. The record is public in a public host
+repository, so the renderer's worker-value refusals keep session ids, instance paths and job ids
+out of it, and the guidance keeps private repository names out. The honest limit is that a
+coordinator acting outside koto's CLI (editing session files, shimming `gh`, calling
+`gh pr merge` directly, or using `koto next --to`) isn't stopped by the template; the posture's
+hooks and GitHub's branch protection are what stop that, and the log scan makes a `--to` visible
+at the next write.
+
+## Consequences
+
+**Positive.** Each of the four checks is a read the coordinator can't answer for; a restart finds
+the record it has; the record reads the same every time and a successor can parse it; the
+dispatch path and reconcile have fixed seams and one shared helper to build on.
+
+**Negative.** The template is large (about forty states) and the scripts are many. Authors have
+to remember that a check state takes no evidence, that a gate never reads context, and that a
+capture is one line. A `--to` is detected, not prevented, until koto#251 is fixed. A restart
+resets the quiet-worker counts, which errs toward one more status message.
+
+**Mitigations.** A structure test lints every check state (no `accepts`, non-overridable command
+gates only, no context gate) and fails if a write script appears in any default action or gate;
+an engine test walks every event arm from `wait` against the stand-in and fails on a
+`template_error`; the run report prints the session's event count so a growing log is visible.
