@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The coordinate skill sends work out and takes it back through prose. A
   coordinator composes each worker's brief by hand, runs the dispatch by hand,
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinate-dispatch-path.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
@@ -204,44 +204,62 @@ or `never` for an answer the template doesn't intend ever to promote; none is
 declares `niwa`, and `scripts/lib/tool-routes.tsv` carries an install route
 for it, so the load-time preflight reports a missing workspace manager.
 
-**R21. Teardown takes an inventory first.** Before a coordinator destroys an
-instance it dispatched, or asks the human to, a script lists what that
-instance holds that exists nowhere else: uncommitted changes and untracked
-files in each clone, each worktree, and every committed file whose content
-(its blob hash) appears on no remote branch of its repository. A file is
-proven durable by its content being on a remote branch, not by its commit
-being reachable from one, since a squash merge keeps the content and drops
-the commit.
+**R17. Teardown takes an inventory first.** Before a coordinator destroys an
+instance it dispatched, or asks the human to, a script inventories every git
+repository in that instance, worktrees included: branches whose head is on no
+remote, uncommitted and untracked changes, and stash entries. It never
+destroys, stops or deletes anything itself.
 
-**R22. Teardown names one instance.** The teardown destroys exactly the
-instance the inventory covered (with niwa, `niwa destroy <instance>`) and
-never runs a form that takes no target or matches more than one. The
-teardown state can't be left toward destruction while the inventory for that
-instance reports unique material, unless the coordinator records where each
-item was moved; the gate runs the inventory itself rather than reading the
-coordinator's claim.
+**R18. Durability is proven by content, never by ancestry.** A branch whose
+head is on no remote counts as durable only when the files it changed are
+identical in the commit that landed it: the branch head's tree, diffed over the
+paths the branch changed against the squash merge commit of the merged pull
+request whose head was that branch, is empty. When no merged pull request
+exists, the comparison falls back to the default branch's head, and the
+verdict says which target it used. Comparing against the merge commit keeps a
+later change to those paths on the default branch from reading as unique. A
+squash merge leaves every finished branch looking unmerged by ancestry, so an
+ancestry check reports finished work as unique and a coordinator learns to
+ignore it.
 
-**R23. Teardown stays inside the workspace's permissions.** Whether the
-coordinator destroys the instance itself or hands the step to the human is
-the workspace's declared permissions' call. A denial covers the step, not the
-command, and a step behind a person's confirmation is handed over rather than
-triggered.
+**R19. A verdict per repository.** The inventory prints one verdict per
+repository, `durable` or `unique` with what makes it unique, and exits zero
+only when every repository is durable. It exits with a distinct code when it
+can't read a repository, so an unreadable repository never reads as durable.
+
+**R20. The teardown names one instance.** The teardown state can't move toward
+destruction while the inventory for that instance reports unique material; the
+gate runs the inventory itself rather than reading the coordinator's claim.
+Anything load-bearing the inventory finds is promoted by the coordinator into
+an issue comment or a pull request first. The destroy names exactly that one
+instance (with niwa, `niwa destroy <instance>`), never a form that takes no
+target or matches more than one (with niwa, never `niwa reap`), and the
+worker's session is stopped by its own id, through the harness's stop form,
+never a form that deletes the session's job directory.
+
+**R21. Teardown stays inside the workspace's permissions.** The coordinator
+that dispatched a worker is the one that tears it down; a worker never tears
+itself down. Whether the coordinator destroys the instance itself or hands
+the step to the human is the workspace's declared permissions' call. A denial
+covers the step, not the command, and a step behind a person's confirmation
+is handed over rather than triggered.
 
 ### Non-functional
 
-**R17. No gate is satisfiable by a value the agent supplies.** Every gate this
+**R22. No gate is satisfiable by a value the agent supplies.** Every gate this
 feature adds reads state the agent can't write directly: the record on GitHub,
 a request leg, or a context key the gate itself checks for.
 
-**R18. Tests with stubs.** The renderer and the dispatch script each have a
+**R23. Tests with stubs.** The renderer, the dispatch script and the teardown
+inventory each have a
 `_test.sh` sibling. The dispatch script's test runs against a stub `niwa` and
 a stub record writer, so it launches nothing and writes to no real record.
 
-**R19. Filed defects are named, not worked around.** The skill names shirabe
-#395, #396, #398 and #401 and koto#250 as known limitations, each with what it
-costs today, and carries no rule whose only reason is one of them.
+**R24. Filed defects are named, not worked around.** The skill names shirabe
+#395, #396, #398 and #401, koto#250 and niwa#322 as known limitations, each
+with what it costs today, and carries no rule whose only reason is one of them.
 
-**R20. Public content only.** No committed artifact names a private
+**R25. Public content only.** No committed artifact names a private
 repository, path or issue, a session or instance name, a job id, or a `wip/`
 path.
 
@@ -293,13 +311,22 @@ path.
 - [ ] The classification field declares a decider with every answer in
   `shadow` or `never`, inputs that are context keys or variables only, and a
   context gate on each context input; the template compiles.
-- [ ] Against a fixture instance, the teardown inventory lists an
-  uncommitted change, an untracked file, and a committed file whose blob is on
-  no remote branch, and omits a file whose blob is on a remote branch though
-  its commit isn't.
+- [ ] Against a fixture instance, the teardown inventory reports `unique`
+  for a repository with an uncommitted change, one with an untracked file, one
+  with a stash entry, one in a worktree with an unpushed branch, and one whose
+  unpushed branch changed a file that differs from the default branch; and
+  reports `durable` for a repository whose unpushed branch was squash-merged,
+  its changed files identical in the merge commit though its commits are not
+  ancestors of it, including when the default branch later changed those
+  files; each verdict names the target it compared against.
+- [ ] The inventory exits non-zero when any repository is unique, with a
+  distinct code when a repository can't be read or can't be classified, and a
+  test shows it writes nothing to any fixture repository but remote-tracking
+  refs.
 - [ ] The teardown state doesn't advance toward destruction while the
-  inventory lists unique material, and the destroy command it names takes
-  exactly one instance.
+  inventory reports unique material, `koto overrides record` can't unblock
+  that gate, and the destroy command its directive names takes exactly one
+  instance.
 - [ ] `requires.tsv` declares `niwa`; `tool-routes.tsv` has a route for it;
   the skill preflight passes where niwa is installed and names the route where
   it isn't.
@@ -311,14 +338,16 @@ path.
   each asserts its specific outcome (both channels present; the gate blocked;
   the coordinator's answer routed with the shadow suggestion recorded), and
   each fails against the prose-only skill.
-- [ ] The skill's Known Limitations names shirabe #395, #396, #398, #401 and
-  koto#250, each with its cost today.
+- [ ] The skill's Known Limitations names shirabe #395, #396, #398, #401,
+  koto#250 and niwa#322, each with its cost today.
 - [ ] A search for `wip/` over the added files finds nothing, and no added
   file names a private repository, path or issue.
 
 ## Out of Scope
 
-- Deciding when a worker is finished and its instance may go; this feature
+- Deciding when a worker is finished (its pull request merged, its content
+  verified on the default branch, its issues closed or handed on, and its
+  final report in) and asking it what exists only in its head; this feature
   supplies the inventory and the targeted teardown the finish step uses.
 - Reconcile: re-checking the record against GitHub and the host after a
   restart, including clearing a holding a failed dispatch left.
@@ -351,6 +380,10 @@ path.
 - **Legs for `/deliver` and `/work-on` (#401).** Until they accept
   `--koto-leg`, the units a coordinator dispatches most often use the message
   path, and the leg path serves `/scope` and `/execute` workers only.
+- **The destroy refuses squash-merged branches (niwa#322).** `niwa destroy`
+  refuses an instance whose branches were squash-merged, because it judges by
+  ancestry. The coordinator passes `--force` only after the inventory has
+  proven every repository durable by content.
 - **One topic per worker.** koto session names such as `scope-<topic>` are
   shared across the host, so two workers dispatched on one topic collide: the
   second's session is refused as an origin mismatch. Each dispatch uses a
