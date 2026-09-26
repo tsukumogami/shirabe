@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   A coordinator session drives a roadmap or a standing discipline by
   handing work to other sessions, but shirabe has no skill for it, so
@@ -43,7 +43,7 @@ upstream: docs/prds/PRD-coordinate-skill.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

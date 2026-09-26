@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe carries the task rung (`/work-on`) and the story rung
   (`/deliver`) as skills, but the session above them, a coordinator that
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-coordinate-skill](docs/briefs/BRIEF-coordinate-skill.md); carried in Absorbed Brief.
 
