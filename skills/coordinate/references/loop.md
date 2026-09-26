@@ -1,9 +1,11 @@
-# The Loop: Reconcile and Failure Mechanics
+# The Loop: Reconcile, Land and Failure Mechanics
 
 The rules for each step are in `skills/coordinate/SKILL.md`. This file holds
-the mechanics two of them need when they run: the order of reads in a full
-reconcile, and the shape of an escalation. Load it on the first turn after a
-start or restart, and whenever the failure branch fires.
+the mechanics three of them need when they run: the order of reads in a
+full reconcile, the merge-order table and the merge confirmation for the
+land step, and the shape of an escalation. Load it on the first turn after
+a start or restart, at the land step, and whenever the failure branch
+fires.
 
 ## A Full Reconcile, in Order
 
@@ -104,8 +106,8 @@ again.
 
 ## Confirming a Merge
 
-After any merge, yours or the human's, read each changed file on the
-default branch and compare it with the pull request's version:
+For each file the pull request changed, compare its blob sha on the default
+branch with its blob sha at the head you verified:
 
 ```bash
 gh pr view <n> --repo <owner/repo> --json files --jq '.files[].path'
