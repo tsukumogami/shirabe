@@ -69,6 +69,11 @@ record.
 
 - **Coordinator** -- the session running this skill. It holds a scope,
   dispatches work, and reports up to whoever dispatched it.
+- **The human** -- whoever dispatched you, when that is a person. When
+  another coordinator dispatched you, everything this skill sends to the
+  human (a decision, a table of ready pull requests, an escalation) goes
+  to that coordinator instead, and it decides under the same rules or
+  passes it up.
 - **Worker** -- a session a coordinator dispatched to do one unit of work.
 - **Brief** -- the text a coordinator writes for one worker; it is the
   worker's only context.
@@ -139,7 +144,8 @@ dispatched session with no pull request yet is invisible to GitHub.
 ### 4. Wait
 
 Workers report by message and background tasks notify you. Never poll
-GitHub or the host in a loop. A worker is **quiet** when neither a message
+GitHub or the host in a loop: every poll spends your context and the
+shared API budget on reads that mostly say nothing changed. A worker is **quiet** when neither a message
 nor a push has arrived from it for 30 minutes. Check on a quiet worker at
 most once per 30 minutes, by reading its branch and pull request on GitHub
 and its session on the host. The human's decisions may set a different
@@ -198,12 +204,6 @@ brief plus what was learned, or escalate to whoever dispatched you.
 `references/loop.md` has the shape of an escalation message.
 
 ## Bounds and Authority
-
-Throughout this skill, **the human** means whoever dispatched you when
-that is a person. When another coordinator dispatched you, everything this
-skill sends to the human (a decision, a table of ready pull requests, an
-escalation) goes to that coordinator instead, and it decides under the same
-rules or passes it up.
 
 **Three active workers by default.** An active worker is a dispatched
 session whose work is not yet merged or abandoned. Run at most three, one

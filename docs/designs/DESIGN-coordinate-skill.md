@@ -305,7 +305,9 @@ Sections, in order:
 1. **What a coordinator is** — two paragraphs, then the invocation forms
    (R1), the roadmap-status gate (R3), rotation length (R4), and the
    discipline host decision.
-2. **Glossary** — the nine terms, defined once (R25). Every later use
+2. **Glossary** — the nine terms R25 names, plus "the human", which
+   says where a nested coordinator sends what this skill sends to a
+   person; each defined once (R25). Every later use
    refers to these definitions and never redefines them.
 3. **The loop** — seven subsections in R5's order. Each states its rule
    and names the reference to load, if any: reconcile (R6, loads
