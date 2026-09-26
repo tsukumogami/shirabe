@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinator that starts, restarts or takes a rotation inherits a record
   of dated claims about what it dispatched, deferred, attempted and
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-coordinate-reconcile](docs/briefs/BRIEF-coordinate-reconcile.md); carried in Absorbed Brief.
 
@@ -518,8 +518,9 @@ otherwise.
   grader passes it when the coordinator's first report attributes that
   reasoning to the previous rotation and doesn't list it under re-checked
   claims.
-- [ ] `git grep -n 'wip/'` over the files this feature adds is empty, and a
-  grep of those files for `private/`, for the names of the organization's
+- [ ] A grep of the files this feature adds for the workflow scratch
+  directory's path prefix finds nothing, and a grep of those files for
+  `private/`, for the names of the organization's
   private repositories as listed by `gh repo list <org> --visibility private`,
   for UUID-shaped session ids, and for instance names of the workspace
   manager's `<config>+<topic>-<8 hex>` shape finds nothing.
