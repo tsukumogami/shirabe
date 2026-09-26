@@ -21,6 +21,16 @@
 #      args file, so the session is always new. koto checks every argument
 #      here and its refusal is printed.
 #
+# Under --koto-leg only the open carries the leg: koto binds the new session
+# to it, or records its refusal there. The probe never does, because its thin
+# args file would be compared against inputs the leg pins (COORDINATION,
+# UPSTREAM) and refused where the real open is not. When the probe stops the
+# run under a leg, the open is still made, with the full args file and the
+# leg, so that koto records a refusal on the leg (the same variable refusal,
+# or already_exists for a session this script will not touch). Should that open
+# be accepted, because the colliding session went away in between, the run
+# proceeds as opened.
+#
 # It never reads a session's origin record or state file.
 #
 # Usage:
@@ -48,6 +58,14 @@
 #   --max-rounds=<n>    MAX_ROUNDS=<n>   (bare --max-rounds: the literal token)
 #   --upstream <path>   UPSTREAM=<path>, also --upstream=<path>; with no value
 #                       the literal token --upstream, which the pattern rejects
+#   --koto-leg <id>:deliver
+#                       not a variable: also --koto-leg=<id>:deliver. The leg of
+#                       a caller's request this run answers. Checked here, the
+#                       one flag koto cannot refuse on the leg, because without
+#                       a well-formed value there is no leg to record a refusal
+#                       on: given twice, a leg other than `deliver`, or a
+#                       request id outside ^[a-z0-9_][a-z0-9_-]{0,63}$ is this
+#                       script's own refusal, exit 64, and no koto call is made.
 #   anything else       the positional residue; joined with single spaces it
 #                       is TOPIC, so a second word or an unknown flag fails the
 #                       topic pattern at koto
@@ -181,21 +199,28 @@ def step($t):
   elif ($t | startswith("--max-rounds=")) then .pairs += [["MAX_ROUNDS", $t[13:]]]
   elif $t == "--upstream" then .pending = "upstream"
   elif ($t | startswith("--upstream=")) then .pairs += [["UPSTREAM", $t[11:]]]
+  elif $t == "--koto-leg" then .pending = "koto-leg"
+  elif ($t | startswith("--koto-leg=")) then .legs += [$t[11:]]
   else .residue += [$t]
   end;
 def flush:
-  if .pending == "upstream" then .pairs += [["UPSTREAM", "--upstream"]] | .pending = null else . end;
+  if .pending == "upstream" then .pairs += [["UPSTREAM", "--upstream"]] | .pending = null
+  elif .pending == "koto-leg" then .legs += [""] | .pending = null
+  else . end;
 if (type != "array") or (map(type == "string") | all | not) then
   error("the args file must be a JSON array of strings")
 else
-  reduce .[] as $t ({pairs: [], modes: [], merges: [], residue: [], pending: null};
-    if .pending != null and ($t | startswith("--") | not) then
+  reduce .[] as $t ({pairs: [], modes: [], merges: [], residue: [], legs: [], pending: null};
+    if .pending == "upstream" and ($t | startswith("--") | not) then
       .pairs += [["UPSTREAM", $t]] | .pending = null
+    elif .pending == "koto-leg" and ($t | startswith("--") | not) then
+      .legs += [$t] | .pending = null
     else flush | step($t) end)
   | flush
   | (.residue | join(" ")) as $topic
   | {
       topic: $topic,
+      legs: .legs,
       vars: ([["TOPIC", $topic]] + .pairs
              + (if .modes == [] then [["MODE", $header]] else .modes end)
              + (if .merges == [] then [["MERGE", "true"]] else .merges end))
@@ -205,6 +230,20 @@ end
 MAPPED=$(jq -c --arg header "$HEADER_MODE" "$MAP" <"$ARGS_FILE") \
     || stop "error=usage" "the args file is not a JSON array of strings: $ARGS_FILE" 64
 remove_if_untracked "$ARGS_FILE"
+
+# --koto-leg: checked before any koto call. The leg name is fixed: /deliver
+# answers only a leg named `deliver`.
+RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:deliver$'
+LEG=""
+case "$(printf '%s' "$MAPPED" | jq '.legs | length')" in
+    0) ;;
+    1)
+        LEG=$(printf '%s' "$MAPPED" | jq -j '.legs[0]')
+        [[ "$LEG" =~ $RE_LEG ]] \
+            || stop "error=usage" "--koto-leg must be <request-id>:deliver, with a request id matching ^[a-z0-9_][a-z0-9_-]{0,63}\$" 64
+        ;;
+    *) stop "error=usage" "--koto-leg may be given at most once" 64 ;;
+esac
 
 TOPIC=$(printf '%s' "$MAPPED" | jq -j '.topic')
 if [[ "$TOPIC" =~ $RE_TOPIC ]]; then
@@ -232,6 +271,19 @@ PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
     || stop "error=usage" "could not write the probe's vars file" 64
 PROBE=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$PROBE_VARS" --attach-live --replace-terminal --wording "$WORDING")
 RC=$?
+
+# open_session -- the open: the full vars file, no attach flags, and the leg
+# when one was given. Sets OUT and RC.
+open_session() {
+    local vars
+    vars=$(write_vars '.vars + [["PLUGIN_ROOT", $root]]') \
+        || stop "error=usage" "could not write the vars file" 64
+    set -- "$SESSION" "$TEMPLATE" "$vars" --wording "$WORDING"
+    [ -n "$LEG" ] && set -- "$@" --koto-leg "$LEG"
+    OUT=$(bash "$KOTO_OPEN" "$@")
+    RC=$?
+}
+
 case "$PROBE" in
     opened=*)
         if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
@@ -241,20 +293,28 @@ case "$PROBE" in
     *)
         # A collision (origin_mismatch, template_mismatch) or any other
         # refusal: koto's own wording is already on stderr, and the session,
-        # if any, is untouched.
+        # if any, is untouched. Under a leg, the open is made anyway so koto
+        # records a refusal on the leg; its own wording would repeat the
+        # probe's, so it is dropped.
+        PROBE_RC=$RC
+        if [ -n "$LEG" ]; then
+            open_session 2>/dev/null
+            if [ "$RC" -eq 0 ]; then
+                printf '%s\n' "$OUT"
+                printf 'session=%s\n' "$SESSION"
+                exit 0
+            fi
+        fi
         [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
         bash "$REPORT" --refused
-        [ "$RC" -ne 0 ] || RC=1
-        exit "$RC"
+        [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
+        exit "$PROBE_RC"
         ;;
 esac
 
 # --- 2. the open -----------------------------------------------------------------------
 
-VARS=$(write_vars '.vars + [["PLUGIN_ROOT", $root]]') \
-    || stop "error=usage" "could not write the vars file" 64
-OUT=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$VARS" --wording "$WORDING")
-RC=$?
+open_session
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
     printf 'session=%s\n' "$SESSION"

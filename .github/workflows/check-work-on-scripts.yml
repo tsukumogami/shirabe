@@ -129,6 +129,18 @@ jobs:
       - name: Run changed-paths record tests
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
 
+      # work-on-open_test.sh checks the --koto-leg entry's own refusals against
+      # a koto stub (both legs), then opens real requests, binds runs of the
+      # shipped template to their legs, and reads each result back off the leg.
+      # The engine half skips where koto is absent -- the macOS leg.
+      - name: Run --koto-leg entry tests
+        run: bash skills/work-on/scripts/work-on-open_test.sh
+
+      # The mode:koto-leg floor record, against a stand-in koto older than the
+      # entry flags: a run without the flag stays on the older floor.
+      - name: Run koto floor declaration tests
+        run: bash skills/work-on/scripts/work-on-requires_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.

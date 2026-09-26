@@ -80,7 +80,18 @@
 # reaches the same terminals, and only the recorded reason is missing. A
 # missing reason is not worth refusing a run over, so /work-on keeps the
 # v0.12.2 floor the README states and check-koto-floor.yml checks.
+#
+# The one exception is `--koto-leg=<request-id>:work-on`. Under it,
+# scripts/work-on-open.sh opens the session through the shared
+# scripts/koto-open.sh with `koto init --vars-file --attach-live --koto-leg`,
+# flags that exist only from koto 0.13.0, the floor /scope, /execute and
+# /deliver declare. That record is `mode:koto-leg`, so a run without the flag
+# keeps the older floor: it is not checked at load, and SKILL.md's Answering a
+# Caller's Leg section runs `skill-preflight.sh work-on --mode koto-leg` before
+# the open. The parity scan cannot see these flags in this skill's own files,
+# because the call site is the shared script.
 koto	init	--template,--var	always
+koto	init	--template,--vars-file,--attach-live,--koto-leg	mode:koto-leg
 koto	next	--with-data,--no-cleanup	always
 koto	workflows	-	always
 koto	session list	-	always

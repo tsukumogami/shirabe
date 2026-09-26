@@ -191,6 +191,12 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/record-changed-paths_test.sh"
+            # The --koto-leg entry: its own refusals run on a koto stub, so they
+            # execute on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/work-on-open_test.sh"
+            # Preflight against a stand-in koto; the at-floor case skips
+            # without a real one.
+            echo "skills/work-on/scripts/work-on-requires_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
