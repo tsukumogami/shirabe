@@ -31,6 +31,11 @@ leaves open: whether the holding is written by the dispatch step's own action
 or by a separate record write it gates on, and how the wait step tells, per
 holding, which return path applies.
 
+Scope widened after acceptance, at the dispatcher's request: the dispatch
+path now ends at teardown, so the inventory a coordinator takes before
+destroying a worker's instance is in scope. The problem and outcome are
+unchanged; a worker's instance is the last thing a dispatch leaves behind.
+
 ## Problem Statement
 
 A coordinator's whole job is moving units of work out to other sessions and
@@ -140,6 +145,9 @@ that's what the workflow follows.
   route.
 - The wait step for both return paths: a bound leg, and a message plus what
   was pushed.
+- Before a coordinator destroys an instance it dispatched, or asks the human
+  to, an inventory of what that instance holds that exists nowhere else, and
+  a teardown that names that one instance, never a sweep.
 - A suggested classification of a worker's report that runs in shadow beside
   the coordinator's own call.
 
