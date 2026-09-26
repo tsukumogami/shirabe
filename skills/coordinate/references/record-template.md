@@ -213,6 +213,10 @@ Rotation from <start> to <end>. Host repository: <owner/repo>. Record:
 <Prose: what this rotation learned that the tables can't say.>
 ```
 
+Write the reasoning section fresh each rotation. Replace the previous
+rotation's text; never append to it, or the handoff grows into a standing
+protocol.
+
 Session names stay in the merged pull request's body, which remains
 readable on GitHub.
 
