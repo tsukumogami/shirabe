@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-coordinate-dispatch-path.md
 problem: |
   The coordinate skill's dispatch and wait steps are prose. The coordinator
@@ -35,7 +35,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -228,7 +228,8 @@ one gate that reads the record. The wait state becomes four states, `wait`,
 at a single report key, plus `rebrief` for a worker that needs a fix. Three
 states are added at the end of a worker's life: `quiesce`, which stops the
 worker's session, `teardown`, which gates on the inventory, and `destroy`,
-which the gate opens. Every gate that routes on a fact is non-overridable and reads something
+which the sealed inventory opens, with `promote` between them when the
+instance still holds something. Every gate that routes on a fact is non-overridable and reads something
 other than the coordinator's evidence: the record, a leg, or the instance.
 The classification is recorded in shadow beside the coordinator's answer,
 which routes.
@@ -359,7 +360,7 @@ unknown.
 
 ### The interface with the record feature
 
-This feature fills two of the record feature's states and adds seven. It needs
+This feature fills two of the record feature's states and adds eight. It needs
 the record feature to accept these seams, and its code lands only once that
 feature's template carries them:
 
@@ -395,7 +396,8 @@ fields so the arms are mutually exclusive, as koto's compiler requires.
 | `classify_report` | added | none | none of its own; its decider input is gated by `report_present` | `verify` on `done`; `rebrief` on `needs_fix`; the surface step on `blocked` |
 | `rebrief` | added | none (agent runs `dispatch-worker.sh --rebrief`) | none | `wait` on evidence `sent`, clearing `worker_report` and `report_topic`; `pick` on evidence `worker_gone` |
 | `quiesce` | added | none | none | `teardown` on evidence `stopped` |
-| `teardown` | added | none | `inventory_durable`: command, `teardown-inventory.sh` over `teardown_topic` | `destroy` on exit 0; self-loop on exit 1 with evidence `promoted`; the surface step on exit 2 with evidence `escalate` |
+| `teardown` | added | `teardown-inventory.sh --seal` over `teardown_topic`, non-polling, capture `TEARDOWN_SEAL` | `inventory_durable`: command, the record feature's seal checker over the stored verdict and `{{TEARDOWN_SEAL}}` | `destroy` when the sealed verdict is durable; `promote` otherwise. No `accepts` block: the state moves on gates alone |
+| `promote` | added | none | none | `teardown` on evidence `promoted` (re-entering runs the inventory again); the surface step on evidence `escalate` |
 | `destroy` | added | none | none | `record` on evidence `destroyed` or `handed_over` |
 
 **Why a message can't stand in for a leg.** `report_from` evidence on
@@ -500,9 +502,31 @@ instance and the target named (`merge <sha>` or `default <branch>`), and exits
 0 when all are durable, 1 when any is unique, 2 on an error. Its only writes
 are the remote-tracking refs the fetch updates; it destroys nothing.
 
-On exit 1 the coordinator promotes anything load-bearing into an issue
-comment or a pull request and submits `promoted`, and the gate runs again.
-On exit 0 the workflow moves to `destroy`, whose directive names `niwa
+**The seal.** `koto next <session> --to <state>` moves a session without
+evaluating gates, and `overridable: false` doesn't stop it, so a gate alone
+can't guarantee `destroy` is reached only through a durable inventory. The
+teardown state therefore uses the seal pattern the record and reconcile
+features share, through one seal helper the record feature owns: the state's
+`default_action` runs `teardown-inventory.sh --seal`, which stores the verdict
+in context and prints `sealed:<visit-seq>:<sha256>` of it, captured as
+`TEARDOWN_SEAL`; the gate checks that the stored verdict hashes to the seal
+and that the sequence number is the state's latest entry event. The action is
+read-only apart from remote-tracking refs and safe to re-run, which is what
+koto asks of an action. It must finish within koto's 30 seconds, so each
+repository's fetch runs under its own short deadline, and a fetch that misses
+it makes that repository an error, never `durable`.
+
+Detection covers the skip that the seal can't prevent. `destroy`'s directive
+has the coordinator read the verdict through the helper's seal-checking reader
+before naming any command, and the reader refuses when `destroy` was entered
+by a directed transition or when the latest teardown visit's verdict isn't
+sealed and durable. The directive then stops and routes the coordinator to the
+surface step instead of destroying.
+
+When the verdict isn't durable the workflow moves to `promote`, where the
+coordinator promotes anything load-bearing into an issue comment or a pull
+request and submits `promoted`, which re-enters `teardown` and runs the
+inventory again. When it's durable the workflow moves to `destroy`, whose directive names `niwa
 destroy <instance>` for that one instance, with `--force` only because of
 niwa#322 and only because the gate just passed, never `niwa reap` or any form
 that takes no target. Each finishing step goes as far as the workspace's
@@ -524,7 +548,8 @@ pick --(dispatch_topic)--> dispatch --(dispatch-worker.sh: lock, write-ahead,
                                                        done -> verify
                                                        needs_fix -> rebrief -> wait
                                                        blocked -> surface
-        land --(teardown_topic)--> quiesce --(stopped)--> teardown --(inventory_durable)--> destroy --> record
+        land --(teardown_topic)--> quiesce --(stopped)--> teardown --(sealed, durable)--> destroy --> record
+                                                              +--(not durable)--> promote --(promoted)--> teardown
 ```
 
 ### Tool declaration
@@ -560,8 +585,9 @@ record feature", since it fills that template's states.
 4. **Teardown.** `teardown-inventory.sh` with tests over fixture repositories
    built in the test (a squash-merged branch whose paths the default branch
    later changed, an unpushed change, a stash, a worktree on a detached HEAD, a
-   remote branch deleted without merging, a submodule); the `quiesce`,
-   `teardown` and `destroy` states.
+   remote branch deleted without merging, a submodule), and its `--seal` mode
+   against the record feature's seal helper; the `quiesce`, `teardown`,
+   `promote` and `destroy` states.
 5. **Skill text and evals.** The thin SKILL.md's pointers to the new states,
    Known Limitations, and evals for a brief rendered with both channels, a
    dispatch refused to leave the state without a holding, and a report
@@ -667,6 +693,12 @@ quiet-worker check bounds how long a resolved leg can go unread.
 - **One topic per worker.** koto session names are machine-wide, so a second
   worker on a live topic is refused as an origin mismatch;
   `dispatch-worker.sh` refuses the topic first.
+- **A directed transition skips gates.** koto 0.13.0's `koto next --to`
+  moves a session past any gate, non-overridable ones included. The teardown
+  state detects it through the seal and `destroy`'s reader and refuses to
+  destroy; the dispatch and wait gates have no seal, so a `--to` past
+  `holding_recorded` leaves a missing holding for reconcile to find. A koto
+  issue is being proposed.
 - **Session names aren't predictable.** niwa appends a random token to
   `--name`, so the coordinator reads the name from the dispatch output or
   `niwa list --json` and never derives it.
