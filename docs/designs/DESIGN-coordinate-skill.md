@@ -363,7 +363,11 @@ Sections, in order:
   scope.
 - `brief-template.md` — goal, decisions the worker can't see, pointers
   to pushed artifacts, acceptance criteria, out of scope, and the
-  report-back instruction naming the coordinator's session; the note that
+  report-back instruction naming the coordinator's session, which is the
+  worker's only source of direction; a second channel naming, per
+  surface, the discipline coordinator that receives tooling and workspace
+  problems unrelated to the work, with no direction taken from it; the
+  note that
   a worker's keep-alive is the workspace manager's to schedule; and no
   instruction for the worker to schedule one (R31).
 - `verification-checklist.md` — the reads for head sha (`gh pr view
