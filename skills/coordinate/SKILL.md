@@ -289,7 +289,9 @@ Take each finishing step (a merge, a close, a teardown) exactly as far as
 the workspace's declared permissions allow. A denial covers the step, not
 the command: once the workspace denies a session a merge, a close or a
 teardown, don't reach the same result another way (a different command,
-an API call, a compound command); hand the step over. That is how this
+an API call, a compound command); hand the step over. A step the
+workspace puts behind a person's confirmation is reserved for a person
+too: hand it over rather than trigger the prompt. That is how this
 skill reads the workspace's rules; it carries no permission rule of its
 own. Never ask the human for a step the workspace already permits.
 
@@ -391,9 +393,10 @@ rule against that test before adding it.
 Report up to whoever dispatched you after each reconcile, each landed or
 handed-over unit, each escalation, and at the end of the scope or rotation.
 Lead with what changed and what you hold. Name what you verified and what
-you didn't. For a discipline, name the host repository in every report, so
-whoever starts the next rotation passes it on as a decision instead of the
-successor asking again. Grade every claim you pass on as measured,
+you didn't. Name the record in every report (a roadmap record's issue
+number, a discipline's host repository), so whoever starts the next
+coordinator passes it on as a decision instead of the successor searching
+or asking again. Grade every claim you pass on as measured,
 verified by reading, or inferred. Include a "Waiting on the human" section
 and, per holding, what happens next; both are derived at each report and
 never stored in the record. End every report with the holdings, one line

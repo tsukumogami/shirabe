@@ -27,11 +27,19 @@ question for the human.
 Run on every start, as part of the full reconcile, before the first
 dispatch.
 
-**Roadmap scope.** Look for open issues carrying the record's title:
+**Roadmap scope.** List open issues and match the record's title exactly.
+Don't use `--search`: the search index can lag a newly created issue, so
+a coordinator restarted just after opening its record would find none and
+open a second, and a phrase search also matches longer titles such as a
+`-v2` roadmap.
 
 ```bash
-gh issue list --repo <owner/repo> --state open --search 'in:title "Coordinator record: ROADMAP-<name>"' --json number,url,title,body
+gh issue list --repo <owner/repo> --state open --limit 1000 --json number,url,title,body \
+  --jq '.[] | select(.title == "Coordinator record: ROADMAP-<name>")'
 ```
+
+Report the record's issue number up with every report, so a successor is
+handed it as a decision and reads that issue directly.
 
 1. **One issue whose body carries the declaration line:** adopt it. Never
    open a second one.

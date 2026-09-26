@@ -381,13 +381,14 @@ Sections, in order:
 - `record-template.md` — the title forms, Part 1 sentence, declaration
   line, `Written:` line, the four section headings with their table
   columns (Holdings: unit, entry point, mode, session, repo, branch, pull
-  request, dispatched; Deferrals: deferral, reason, raised; Side effects
-  in flight: action, target, attempted, how to confirm; Reversals: date,
-  reversed, now, reason, from), the handoff file's shape, the branch
-  names, the branch check every start runs (adopt an open record, ask
-  about an open non-record, delete and recut after a merged or closed
-  one, cut and open when none exists), and the close procedure for each
-  scope.
+  request, verified head, dispatched; Deferrals: deferral, reason,
+  raised; Side effects in flight: action, target, verified head,
+  attempted, how to confirm; Reversals: date, reversed, now, reason,
+  from), the handoff file's shape, how every start finds or opens the
+  record (for a roadmap, an exact title match over open issues; for a
+  rotation, the branch check: adopt an open record, ask about an open
+  non-record, delete and recut after a merged or closed one, cut and open
+  when none exists), and the close procedure for each scope.
 - `brief-template.md` — goal, decisions the worker can't see, pointers
   to pushed artifacts, acceptance criteria, out of scope, and the
   report-back instruction naming the coordinator's session, which is the
@@ -511,10 +512,14 @@ exploit. Its risks come from what a coordinator does with it.
   artifacts by path and reference rather than pasting their text, so a
   brief carries the coordinator's words and the worker reads the
   artifact itself.
-- **Adopting an existing pull request.** A pull request on the record's
-  branch is adopted only if it carries the record's declaration line;
-  otherwise the coordinator asks the human (see the branch check in
-  Decision 2).
+- **Adopting an existing record.** A roadmap record is an issue found by
+  an exact title match over a listing of open issues, not a search, and
+  adopted only if its body carries the declaration line; a titled issue
+  without the line, or more than one match, goes to the human. A
+  rotation's pull request on the record's branch is adopted only if it
+  carries the declaration line; otherwise the coordinator asks the human
+  (see Decision 2). Each report names the record, so a successor is
+  handed it rather than finding it.
 - **Destructive reach.** Teardown is bounded by the inventory rule
   (R21): the coordinator lists the unique material a session or instance
   holds before any teardown and acts only on what it listed, never
