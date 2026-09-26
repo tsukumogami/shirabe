@@ -89,9 +89,9 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 ## Holdings
 
-| Unit | Entry point | Session | Repo | Branch | Pull request | Dispatched |
-|------|-------------|---------|------|--------|--------------|------------|
-| <feature, issue, question or choice> | <skill> | <session name> | <owner/repo> | <branch> | <#n, or none yet> | <YYYY-MM-DD> |
+| Unit | Entry point | Mode | Session | Repo | Branch | Pull request | Dispatched |
+|------|-------------|------|---------|------|--------|--------------|------------|
+| <feature, issue, question or choice> | <skill> | <--auto, --interactive, flags> | <session name> | <owner/repo> | <branch> | <[#n](URL), or none yet> | <YYYY-MM-DD> |
 
 ## Deferrals
 
@@ -123,6 +123,13 @@ written for coordination pull requests ever parses a record.
 
 **Updating.** Rewrite Part 2 whole from what you hold now, with a new
 `Written:` time, and apply it with `gh pr edit <n> --body-file <file>`.
+Every pull request in the record is a link. If a script edits the record
+or the roadmap by replacing text, make it check that the text it replaces
+matches exactly once before it writes; a replacement that matches nothing
+succeeds silently and leaves the old text in place.
+
+What a holding will do next, and what is waiting on the human, are not in
+the record: they are derived at each report (see SKILL.md's Reporting).
 
 ## Roadmap Progress
 
@@ -186,8 +193,8 @@ Rotation from <start> to <end>. Host repository: <owner/repo>. Record:
 
 ## Holdings
 
-| Unit | Entry point | Repo | Branch | Pull request | Dispatched |
-|------|-------------|------|--------|--------------|------------|
+| Unit | Entry point | Mode | Repo | Branch | Pull request | Dispatched |
+|------|-------------|------|------|--------|--------------|------------|
 
 ## Deferrals
 

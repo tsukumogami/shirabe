@@ -215,7 +215,8 @@ job.
   yet".
 - **R14.** SKILL.md bounds work in flight at three active workers by
   default, one pull request each. An active worker is a dispatched
-  session whose work is not yet merged or abandoned. The reason is
+  session whose work is not yet merged or abandoned and that isn't parked
+  with a verified, ready pull request waiting only on a merge. The reason is
   stated: past three, CI throughput, host load and the coordinator's own
   verification capacity become the constraint. The human's decisions
   may set a different bound.

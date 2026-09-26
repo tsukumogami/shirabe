@@ -353,7 +353,7 @@ Sections, in order:
   without a shape each coordinator would invent its own.
 - `record-template.md` — the title forms, Part 1 sentence, declaration
   line, `Written:` line, the four section headings with their table
-  columns (Holdings: unit, entry point, session, repo, branch, pull
+  columns (Holdings: unit, entry point, mode, session, repo, branch, pull
   request, dispatched; Deferrals: deferral, reason, raised; Side effects
   in flight: action, target, attempted, how to confirm; Reversals: date,
   reversed, now, reason, from), the handoff file's shape, the branch

@@ -42,15 +42,31 @@ for the judgment at the end, not for the reads.
    session or instance you might tear down, list its unique material: in
    each clone, `git status --porcelain` and
    `git log --branches --not --remotes --oneline`; its worktrees
-   (`git worktree list`); and its scratch directory. Record a session
-   missing from the roster as "not seen" in the report, never "dead";
-   When Something Goes Wrong in SKILL.md says why one read can't tell.
+   (`git worktree list`); and its scratch directory. Prove a file durable
+   by its content, not by ancestry: its blob hash (`git hash-object
+   <file>`) must appear on a remote ref that survives a squash merge, since
+   a commit reachable from a feature branch is gone once that branch is
+   squashed and deleted. Record a session missing from the roster as "not
+   seen" in the report, never "dead"; When Something Goes Wrong in
+   SKILL.md says why one read can't tell.
 5. **Re-check side effects in flight.** For each row, run its "How to
    confirm" read. A merge attempted and never confirmed is settled only by
    reading the pull request's state and the changed files on the default
    branch.
 6. **Read the deferrals.** List every row for the report; SKILL.md's
    record section says when each must be disposed of.
+
+## Before Dispatching an Issue
+
+List the pull requests that reference the issue from its timeline:
+
+```bash
+gh api "repos/<owner/repo>/issues/<n>/timeline" --paginate \
+  --jq '.[] | select(.event == "cross-referenced") | .source.issue | select(.pull_request) | {number, state, url: .html_url}'
+```
+
+An open or merged one that closes the issue means the unit is taken or
+done; read it before dispatching anything.
 
 ## Resolving a Claim GitHub Contradicts
 
@@ -72,8 +88,12 @@ Reconciled <scope> against the record written <time>.
 Changed since then:
 - <holding or side effect>: record said <old>, GitHub or the host says <new>.
 
-Holding (<n> of <bound> active):
-- <unit> -- <entry point> -- <session> -- <pull request URL, or "none yet"> -- <state as just read>
+Holding (<n> of <bound> active; parked at ready: <m>):
+- <unit> -- <entry point> -- <session> -- <pull request URL, or "none yet"> -- <state as just read> -- next: <what happens next>
+
+Waiting on the human:
+- <decision or finishing step> -- <recommendation>
+
 
 Unique material held outside any remote:
 - <session or instance>: <what, where>

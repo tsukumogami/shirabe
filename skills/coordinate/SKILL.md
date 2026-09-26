@@ -133,11 +133,23 @@ no holding already covers.
 The table is a detail of this step. When those skills change, the loop
 doesn't.
 
+An open issue says nothing about whether a pull request already closes
+it: check the issue's timeline before dispatching it (the read is in
+`references/loop.md`). Settle a contested
+choice by dispatching `/shirabe:decision`, not by offering the human
+options. Before starting a new worker, reuse an idle one that already
+knows the area.
+
 ### 3. Brief and Dispatch
 
 Write one brief per worker from `references/brief-template.md` and dispatch
 it through the workspace manager, which starts the worker in a session of
-its own. The brief names two report channels: you, for the work's status
+its own. A worker's goal is the next checkpoint, not "done": the brief
+lists checkpoints, the worker stops and reports at each, and a brief never
+makes a worker wait on an approval. Put the worker's authority in the
+dispatch prompt itself, in the voice of whoever the work is for, because
+the brief file reaches the worker as tool output. The brief names two
+report channels: you, for the work's status
 and blockers, and the only source of direction; and the discipline
 coordinator that owns each surface the work touches (the workspace, CI,
 releases), for tooling and workspace problems unrelated to the work
@@ -179,7 +191,8 @@ branch by reading the changed files there, not by trusting the merge event.
 ### 7. Update the Record
 
 Write the record after every dispatch, every verified report, every merge
-or attempted merge, every new deferral, and every reversal. Load
+or attempted merge, every new deferral, and every reversal, in the same
+turn as the event. Load
 `references/record-template.md`. Rewrite only the holdings, deferrals, side
 effects in flight and reversals, and never write a fact GitHub can
 recompute. Before each write, re-read what you are about to write for the
@@ -191,6 +204,11 @@ structure.
 Then go round again.
 
 ## When Something Goes Wrong
+
+Raise a blocker the moment you notice it, not at the next report. A premise
+found to be wrong is a finding, and gets routed like one. Find the root
+cause before anyone fixes anything, and judge a reported problem as a tool
+defect, a documentation gap or an agent error before routing it.
 
 Three cases, each ending in one of two moves: re-dispatch with the same
 brief plus what was learned, or escalate to whoever dispatched you.
@@ -212,7 +230,9 @@ brief plus what was learned, or escalate to whoever dispatched you.
 ## Bounds and Authority
 
 **Three active workers by default.** An active worker is a dispatched
-session whose work is not yet merged or abandoned. Run at most three, one
+session whose work is not yet merged or abandoned and that isn't parked
+with a verified, ready pull request waiting only on a merge. Run at most
+three, one
 pull request each. Past three, CI throughput, host load and your own
 verification capacity become the constraint, not worker speed. The human's
 decisions may set a different bound.
@@ -222,8 +242,10 @@ propose to whoever dispatched you and don't act until they answer.
 
 **A decision is the human's when it does any of these:** changes the
 effort's scope; reverses or extends a decision the human supplied; or needs
-a step the workspace reserves for a person. Ask each such decision once,
-with a recommendation, and don't ask for anything else. For example:
+a step the workspace reserves for a person, such as a merge it denies to
+sessions, a credential, a product-scope call or acceptance of finished
+work. Ask each such decision once, with a recommendation, and don't ask
+for anything else. For example:
 
 - Dispatching the next feature on an Active roadmap: not asked.
 - Dropping a feature from the roadmap: asked, because it changes scope.
@@ -263,6 +285,10 @@ and act only on the sessions and instances you listed, never across the
 whole workspace. That rules out any command that sweeps the workspace,
 such as a reap or prune over every instance, even when it looks like it
 would only catch the one you listed: name the target, or don't run it.
+A worker is finished only when its work is merged, verified on the default
+branch, its issues are closed and it has reported. Before any pause,
+handoff or teardown, ask each worker what exists only in its head, and
+get it written down somewhere durable.
 
 **It doesn't let a finding go homeless.** A finding that belongs to no
 issue and no pull request goes, before the worker that produced it is
@@ -343,6 +369,9 @@ handed-over unit, each escalation, and at the end of the scope or rotation.
 Lead with what changed and what you hold. Name what you verified and what
 you didn't. For a discipline, name the host repository in every report, so
 whoever starts the next rotation passes it on as a decision instead of the
-successor asking again. End every report with the holdings, one line per
-holding, its pull request's bare URL last, or "none yet" when it has no
-pull request.
+successor asking again. Grade every claim you pass on as measured,
+verified by reading, or inferred. Include a "Waiting on the human" section
+and, per holding, what happens next; both are derived at each report and
+never stored in the record. End every report with the holdings, one line
+per holding, its pull request's bare URL last, or "none yet" when it has
+no pull request.

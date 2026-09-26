@@ -119,7 +119,7 @@ SKILL.md already states.
   procedure for each scope (R26, R27, R29).
 - [ ] The record template's sections carry exactly the design's columns
   and no status, CI or merge-state column: Holdings (unit, entry point,
-  session, repo, branch, pull request, dispatched), Deferrals (deferral,
+  mode, session, repo, branch, pull request, dispatched), Deferrals (deferral,
   reason, raised), Side effects in flight (action, target, attempted,
   how to confirm), Reversals (date, reversed, now, reason, from).
 - [ ] The record template lists the branch check's four outcomes: adopt
