@@ -9,7 +9,11 @@
 # substance while looking enforced in the record.
 #
 # So the cases that matter here are the placeholder ones. Each drives the SHIPPED
-# state with a referent a careless run would write and requires it to fail.
+# state with a referent a careless run would write and requires it to fail. A
+# referent can also be shaped right and name nothing (shirabe#422): a mistyped
+# sha, a commit from another branch, a diagram path that was never written. The
+# fixture repository has real commits so those cases fail on existence, and the
+# rung each one reached is read back from failure_reason.
 #
 # Usage: pre-pr-evidence_test.sh
 # Exit codes: 0 all pass, 1 any failed, 0 with a skip notice when koto is absent.
@@ -55,6 +59,11 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 [[ -f "$TEMPLATE" ]] || { echo "template not found: $TEMPLATE"; exit 2; }
 
+# Keep every session out of the developer's real ~/.koto: a case that reaches a
+# terminal with --no-cleanup is retained, and koto cancel does not remove it.
+KOTO_HOME=$(mktemp -d); TMPS+=("$KOTO_HOME")
+export HOME="$KOTO_HOME"
+
 extract_state() {
     local name="$1"
     awk -v want="  $name:" '
@@ -67,9 +76,23 @@ extract_state() {
 PRE_PR=$(extract_state pre_pr_evidence)
 [[ -n "$PRE_PR" ]] || { echo "pre_pr_evidence not found in $TEMPLATE"; exit 2; }
 
-# The commit_convention gate runs git against the working directory. Stubbing it
-# would remove the only case that exercises a real command, so instead each run
-# happens in a throwaway repository whose tip subject the case chooses.
+# The referent gates run check-pre-pr-referents.sh through PLUGIN_ROOT. koto
+# rejects a variable value outside ^[a-zA-Z0-9._/:@ \-]*$, so a checkout under
+# such a path is reached through a symlink (as in finalization-shape_test.sh).
+PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+case "$PLUGIN_ROOT" in
+    *[!a-zA-Z0-9._/:@\ -]*)
+        link_dir=$(mktemp -d); TMPS+=("$link_dir")
+        ln -s "$PLUGIN_ROOT" "$link_dir/plugin"
+        PLUGIN_ROOT="$link_dir/plugin"
+        ;;
+esac
+
+# The commit_convention gate runs git against the working directory, and so do
+# the referent gates. Stubbing them would remove the cases that exercise a real
+# command, so instead each run happens in a throwaway repository whose tip
+# subject the case chooses. The repository holds the design doc the good record
+# names, and a side branch whose commit is not on the working branch.
 build_fixture() {
     local dir="$1"
     cat > "$dir/fixture.md" <<FIXTURE
@@ -78,6 +101,10 @@ name: pre-pr-evidence-fixture
 version: "1.0"
 description: Fixture exercising the pre-PR obligation ladder.
 initial_state: start
+variables:
+  PLUGIN_ROOT:
+    description: shirabe checkout the referent gates run their script from
+    required: true
 states:
   start:
     transitions:
@@ -108,26 +135,47 @@ FIXTURE
 }
 
 # land <session> <commit-subject> <summary-body> <pre_pr-body> <evidence-json>
+#
+# In the pre_pr body, @HEAD@ is replaced by the fixture's tip sha, @HEAD7@ by
+# its first seven characters and @OTHER@ by the side branch's tip, since none
+# exists until the repository is built.
 land() {
     local session="$1" subject="$2" summary="$3" prepr="$4" data="$5"
     local repo; repo=$(mktemp -d); TMPS+=("$repo")
     build_fixture "$repo"
     (
         cd "$repo" || exit 1
-        git init -q .
+        git init -q -b main .
         git config user.email t@example.invalid
         git config user.name t
+        git commit -q --allow-empty -m init
+        git checkout -q -b other
+        git commit -q --allow-empty -m "side work"
+        git checkout -q main
+        mkdir -p docs/designs
         echo x > f.txt
-        git add -A
+        echo diagram > docs/designs/DESIGN-thing.md
+        git add f.txt docs
         git commit -qm "$subject"
     ) >/dev/null 2>&1
+    local head other
+    head=$(git -C "$repo" rev-parse main)
+    other=$(git -C "$repo" rev-parse other)
+    prepr=${prepr//@HEAD@/$head}
+    prepr=${prepr//@HEAD7@/${head:0:7}}
+    prepr=${prepr//@OTHER@/$other}
     (
         cd "$repo" || exit 1
-        koto init "$session" --template "$repo/fixture.md" >/dev/null 2>&1 || exit 1
+        koto init "$session" --template "$repo/fixture.md" \
+            --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 || exit 1
         printf '%s\n' "$summary" | koto context add "$session" summary.md >/dev/null 2>&1
         printf '%s\n' "$prepr" | koto context add "$session" pre_pr.md >/dev/null 2>&1
         koto next "$session" >/dev/null 2>&1 || true
-        koto next "$session" --with-data "$data" 2>/dev/null
+        # --no-cleanup keeps the session past its terminal so the rung that
+        # fired can be read back from failure_reason.
+        koto next "$session" --with-data "$data" --no-cleanup 2>/dev/null
+        echo
+        koto context get "$session" failure_reason 2>/dev/null || true
     )
     SESSIONS+=("$session")
 }
@@ -142,7 +190,7 @@ A thing.
 
 ## Key Decisions
 - none'
-GOOD_PREPR='cleanup_commit: 4f2a91c8d3b6e5a7f0c1d2e3a4b5c6d7e8f9a0b1
+GOOD_PREPR='cleanup_commit: @HEAD@
 design_diagram: docs/designs/DESIGN-thing.md'
 GOOD_EVIDENCE='{"pre_pr_status":"recorded","cleanup_done":"removed","design_diagram":"updated"}'
 
@@ -171,7 +219,7 @@ fi
 
 # Case 3 — the same for the diagram: "yes" is neither a path nor a stated reason.
 OUT=$(land "prepr-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
-    'cleanup_commit: 4f2a91c8d3b6e5a7f0c1d2e3a4b5c6d7e8f9a0b1
+    'cleanup_commit: @HEAD@
 design_diagram: yes' "$GOOD_EVIDENCE" || true)
 if echo "$OUT" | grep -q '"state":"done_blocked"'; then
     pass "a placeholder where the diagram referent belongs fails the state"
@@ -183,7 +231,7 @@ fi
 # obligation that does not apply is a legitimate answer; "not-applicable" alone
 # is the same placeholder problem wearing a different word.
 OUT=$(land "prepr-na-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
-    'cleanup_commit: 4f2a91c8d3b6e5a7f0c1d2e3a4b5c6d7e8f9a0b1
+    'cleanup_commit: @HEAD@
 design_diagram: not-applicable: no design document is touched' \
     '{"pre_pr_status":"recorded","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
 if echo "$OUT" | grep -q '"state":"pr_precheck"'; then
@@ -218,6 +266,44 @@ if echo "$OUT" | grep -q '"state":"done_blocked"'; then
 else
     fail "blocked case: expected done_blocked, got: $(echo "$OUT" | head -c 300)"
 fi
+
+# ---------------------------------------------------------------------------
+# Cases 9-12 — shirabe#422. A referent shaped right that names nothing. The
+# mistyped full sha is the one the issue was filed from: the tip's first seven
+# characters and nothing real behind them.
+# ---------------------------------------------------------------------------
+# The rung is read from failure_reason, which a transition's
+# context_assignments write from koto 0.13.0 on. koto 0.12.2 drops those
+# assignments at compile time (see requires.tsv), so there the case checks the
+# state alone.
+KOTO_MINOR=$(koto version | sed -n 's/^koto 0\.\([0-9][0-9]*\)\..*/\1/p')
+READS_RUNG=1
+[[ -n "$KOTO_MINOR" && "$KOTO_MINOR" -lt 13 ]] && READS_RUNG=0
+
+# referent_case <label> <want-state> <failure_reason-fragment|-> <pre_pr-body>
+referent_case() {
+    local label="$1" want="$2" why="$3" prepr="$4"
+    OUT=$(land "prepr-$label-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$prepr" "$GOOD_EVIDENCE" || true)
+    if ! echo "$OUT" | grep -q "\"state\":\"$want\""; then
+        fail "$label: expected $want, got: $(echo "$OUT" | head -c 300)"
+    elif [[ "$why" != - && "$READS_RUNG" = 1 ]] && ! echo "$OUT" | grep -qF "$why"; then
+        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(echo "$OUT" | tail -n 1 | head -c 300)"
+    else
+        pass "$label: reaches $want"
+    fi
+}
+referent_case nonexistent-sha done_blocked "does not record a cleanup_commit" \
+    'cleanup_commit: @HEAD7@aaa9d49d45e7453fce2d9cc39537bbd5e
+design_diagram: docs/designs/DESIGN-thing.md'
+referent_case other-branch-sha done_blocked "does not record a cleanup_commit" \
+    'cleanup_commit: @OTHER@
+design_diagram: docs/designs/DESIGN-thing.md'
+referent_case abbreviated-head pr_precheck - \
+    'cleanup_commit: @HEAD7@
+design_diagram: docs/designs/DESIGN-thing.md'
+referent_case missing-diagram done_blocked "does not record a design_diagram" \
+    'cleanup_commit: @HEAD@
+design_diagram: docs/designs/DESIGN-missing.md'
 
 # Case 8 — the evidence is required. Submitting none must not advance, since the
 # state would otherwise be satisfied by silence.

@@ -20,22 +20,25 @@ this table exists.
 | CI is green | `ci_monitor` | `ci_passing` | Any check is outside the pass and skipping buckets. |
 | The summary has the required shape | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `summary_shape` | `summary.md` has no `## Changes Made` section. |
 | The tip commit follows the commit convention | `pre_pr_evidence` | `commit_convention` | The tip subject is not a Conventional Commits subject. |
-| The cleanup referent is a commit | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha — `done` does not match. |
-| The diagram referent is a path or a stated reason | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path nor `not-applicable: <reason>`. |
+| The cleanup referent is a commit on this branch | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
+| The diagram referent is a file or a stated reason | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path that is a file in `HEAD`'s tree nor `not-applicable: <reason>`. |
 | The issue has a PLAN behind it, or provably does not | `cascade_entry` | `anchor_present` | Undecidable rather than absent: an ambiguous or unreadable corpus stops the run instead of skipping the cascade in silence. |
 | The run is a root, not a child | `ci_monitor` | (evidence: `session_role`) | See below — carried rather than gated, because the discriminator is a script the run calls. |
 
 ### Checked where it is written, and again at the end
 
 `summary.md` and `pre_pr.md` are both written at `finalization`, and their
-three shape gates run twice. At `finalization` (and on `deferral_approval`'s
+three gates run twice. `summary_shape` checks a shape; the two referent gates
+run `scripts/check-pre-pr-referents.sh`, which checks that the commit and the
+path exist, since a shape check passed a sha that named nothing. At
+`finalization` (and on `deferral_approval`'s
 approved edge) a failure matches no edge: the run holds in that state with the
 gate named, and the agent fixes the artifact in place. At `pre_pr_evidence` the
 same failure routes to `done_blocked`. The second check is the backstop and is
 not weakened by the first; the first exists because that terminal is expensive
 for a child of `/execute`, whose log koto disposes of at a terminal
-(tsukumogami/koto#240), so the parent cannot retry it. The patterns must be
-identical in all three states, which `scripts/finalization-shape_test.sh` checks.
+(tsukumogami/koto#240), so the parent cannot retry it. The gate definitions must
+be identical in all three states, which `scripts/finalization-shape_test.sh` checks.
 
 ## Evidence-carried
 

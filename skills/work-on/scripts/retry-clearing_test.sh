@@ -177,8 +177,8 @@ seed() { printf 'round-1 artifact\n' | koto context add "$1" "$2" >/dev/null 2>&
 # a hold is down to the key under test and an advance is not refused for shape.
 seed_finishing() {
     printf '# Summary\n\n## Changes Made\n- f.txt\n' | koto context add "$1" summary.md >/dev/null 2>&1
-    printf 'cleanup_commit: 4f2a91c\ndesign_diagram: not-applicable: no design document\n' \
-        | koto context add "$1" pre_pr.md >/dev/null 2>&1
+    printf 'cleanup_commit: %s\ndesign_diagram: not-applicable: no design document\n' \
+        "$(git rev-parse HEAD)" | koto context add "$1" pre_pr.md >/dev/null 2>&1
 }
 
 # `koto next` reports the resulting state in its JSON response and keeps

@@ -11,13 +11,16 @@ checked on the way out of this state and checked again at `pre_pr_evidence`:
 | Key | Required | Gate |
 |-----|----------|------|
 | `summary.md` | a `## Changes Made` heading, spelled exactly that way | `summary_shape` |
-| `pre_pr.md` | a line `cleanup_commit: <sha>`, 7 to 40 hex characters | `cleanup_referent` |
-| `pre_pr.md` | a line `design_diagram: docs/<path>.md` or `design_diagram: not-applicable: <reason>` | `diagram_referent` |
+| `pre_pr.md` | one line `cleanup_commit: <sha>`, 7 to 40 lowercase hex characters, naming a commit that is `HEAD` or an ancestor of it | `cleanup_referent` |
+| `pre_pr.md` | one line `design_diagram: docs/<path>.md`, a file in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>` | `diagram_referent` |
 
 `## Changes Made` is required because it's the part of the summary a reviewer
 and the PR body are built from; the rest of the template below is guidance.
 The `pre_pr.md` lines are referents rather than claims, so a word such as `done`
-or `yes` where a sha or a path belongs fails. `not-applicable` is hyphenated and
+or `yes` where a sha or a path belongs fails, and so does a sha that names no
+commit on this branch or a path that isn't committed.
+`scripts/check-pre-pr-referents.sh` makes both checks; its stderr, in the
+gate's output, says which one failed. `not-applicable` is hyphenated and
 needs a reason after it. Don't confuse it with the `not_applicable` evidence
 value you submit later at `pre_pr_evidence`: that one is an enum, this one is a
 line of text, and neither accepts the other's spelling.
@@ -31,9 +34,11 @@ failing gate. Fix that artifact and submit again:
 
 - `summary_exists` or `summary_shape` failed: write `summary.md` with a
   `## Changes Made` section.
-- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`.
-- `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
-  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
+- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, from
+  `git rev-parse HEAD` rather than typed by hand.
+- `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
+  committed on this branch, or `design_diagram: not-applicable: <reason>`, in
+  `pre_pr.md`.
 
 The same hold applies to an approved deferral at `deferral_approval`.
 
@@ -109,7 +114,9 @@ EOF
 `not-applicable: <reason>` when the change touches no design document. When the
 issue body carries a `Design:` reference, run the update in
 `phase-6-design-diagram-update.md` now and record that path, so the line names
-an update that has happened rather than one still to come.
+an update that has happened rather than one still to come. The path has to be
+committed before you submit `ready_for_pr`: the gate looks for it in `HEAD`'s
+tree, not in the working directory.
 
 ### Commit
 
