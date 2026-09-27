@@ -62,7 +62,7 @@ C50	skills/coordinate/references/loop.md	-	## The Reconcile Report
 C51	skills/coordinate/koto-templates/coordinate.md	pick	**Fill every free slot.**
 C52	skills/coordinate/koto-templates/coordinate.md	pick	Roadmap features in the roadmap's order
 C53	skills/coordinate/koto-templates/coordinate.md	pick	A roadmap feature is unblocked when every
-C54	skills/coordinate/references/loop.md	-	then list the open issues and failing checks in its
+C54	skills/coordinate/references/loop.md	-	list the open issues and failing checks in its	changed: the scope read follows the sealed report rather than preceding the reads
 C55	skills/coordinate/koto-templates/coordinate.md	pick	| An issue that is already specified | `/shirabe:work-on` |
 C56	skills/coordinate/koto-templates/coordinate.md	pick	**Before dispatching an issue**, check its timeline
 C57	skills/coordinate/references/loop.md	-	An open or merged one that closes the issue means

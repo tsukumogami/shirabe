@@ -10,69 +10,73 @@ fires. The land step's table and merge confirmation are in
 
 ## A Full Reconcile, in Order
 
-Hand the reads to a local agent when there are more than a few holdings, and
-have it return the report below rather than the raw output. Your context is
-for the judgment at the end, not for the reads.
+The reads are the engine's, not yours. Once `record_find` has found the
+record, the workflow enters `reconcile_pass`, whose action is
+`scripts/reconcile-pass.sh`. Each tick runs one bounded pass of it; your only
+move there is to tick again with no evidence.
 
-1. **Find the record.** Run "Finding or Opening the Record" from
-   `references/record-template.md`. It adopts the record (an issue at
-   roadmap scope, a pull request at discipline scope), opens a new one, or
-   stops to ask. Read the body and note its `Written:` time: every row
-   under it is a claim as of that time.
-2. **Read the scope.** For a roadmap, read its Features section from the
-   default branch (each feature's status and dependencies). For a
-   discipline, read the previous handoff at `docs/disciplines/<name>.md` on
-   the default branch, then list the open issues and failing checks in its
-   area.
-3. **Re-check each holding against GitHub.** For each row in Holdings:
+- **Pending.** While reads remain, the state holds and `reconcile/progress`
+  says how many are left. A worker the workspace manager didn't list is read
+  again 30 seconds after the first read, so a pass can end pending with that
+  re-read still due. Tick again after the wait.
+- **Blocked.** When the record can't be read, the state holds and
+  `reconcile/refusal` names the case (`none` or `unreadable`) and the reason.
+  Say what it names to the human and stop. Ticking again re-reads the record.
+- **Sealed.** When every read is done, the pass writes `reconcile/report.json`
+  and `reconcile/report.md` (and, at discipline scope, `reconcile/reasoning.md`
+  with the previous rotation's reasoning, verbatim), seals the report to this
+  visit, and the workflow moves to `reconcile`. Read `reconcile/report.md`
+  there and report it up. The state's gate accepts only the report the pass
+  sealed in this visit.
 
-   ```bash
-   gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus
-   git ls-remote https://github.com/<owner/repo>.git refs/heads/<branch>
-   ```
+Never write a `reconcile/` context key. A report written or changed by anyone
+but the pass holds the workflow in `reconcile`.
 
-   Read its CI with the runs-then-jobs reads in
-   `references/verification-checklist.md`, not a checks rollup: it is the
-   read that shows each job's runner and step count, and the same one the
-   verify step uses.
+What the pass reads, per claim in the record. The report grades each claim as
+measured, verified by reading, or inferred:
 
-   For a row whose pull request is "none yet", check whether one has
-   appeared since:
+1. **The record.** It reads the record body live, parses it with the record
+   feature's parser, and treats every row as a claim as of its `Written:`
+   time. A row it can't parse is listed under "Not verified" with its raw
+   line, and every other row is still re-checked. At discipline scope it adds
+   the previous handoff at `docs/disciplines/<name>.md` on the default branch,
+   rows labelled with the handoff's date.
+2. **Each holding against GitHub.** For a holding with a pull request, it runs
+   `gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus,baseRefName`
+   and reads the branch with `git ls-remote`. It reads CI at the verified head
+   (and at the live head when they differ) through the record feature's board
+   check, which reads runs then jobs, not a checks rollup. For a row whose pull
+   request is "none yet", it lists pull requests on its branch the way
+   `gh pr list --repo <owner/repo> --head <branch> --state all` does.
+   Read the state of any issue a holding names yourself, when you act on it.
+3. **Each holding against the host.** It finds each worker by its dispatch
+   topic in the workspace manager's listing: with niwa,
+   `niwa list` from the workspace root, the listing it reads. A worker it finds has its unique
+   material listed from every clone in the instance: commits no live remote
+   ref holds (the plumbing equivalent of
+   `git log --branches --not --remotes --oneline`, run without `git status`
+   and without fetching), uncommitted changes, untracked files, stashes and
+   worktrees. Prove a file durable by its content, not by ancestry: the pass
+   compares each changed file's content with the default branch's tree, so a
+   squash-merged branch reads as landed. A worker missing from two listing
+   reads 30 seconds apart is "not found on this read", never "dead" or
+   "gone". A roster read just after an outage can't tell "gone" from "not back
+   yet", so only a signal that the worker is gone, such as a message that
+   bounces, makes it gone.
+4. **Re-check side effects in flight.** A merge is confirmed when every file
+   the pull request changed at the verified head has that content in the
+   merge commit, as "Confirming a Merge" in
+   `references/verification-checklist.md` describes. A close is confirmed when
+   the target reads closed, and a teardown by two listing reads and the disk.
+   Any other side effect is reported as not re-checked.
+5. **Read the deferrals.** List every row for the report, disposed or not,
+   through the record feature's disposal check; SKILL.md's record section says
+   when each must be disposed of.
 
-   ```bash
-   gh pr list --repo <owner/repo> --head <branch> --state all --json number,state,url
-   ```
-
-   Read the state of any issue a holding names with `gh issue view`.
-4. **Re-check each holding against the host.** Ask the workspace manager
-   whether each worker's session and instance still exist: with niwa,
-   `niwa list` from the workspace root, finding each worker by its dispatch
-   topic, then check that its instance directory is still on disk. For any
-   session or instance you might tear down, list its unique material: in
-   each clone, `git status --porcelain` and
-   `git log --branches --not --remotes --oneline`; its worktrees
-   (`git worktree list`); and its scratch directory. Prove a file durable
-   by its content, not by ancestry: its blob hash must appear on a remote
-   ref that survives a squash merge, since a commit reachable from a
-   feature branch is gone once that branch is squashed and deleted.
-
-   ```bash
-   BLOB=$(git hash-object <file>)
-   git fetch origin <default-branch>
-   git log origin/<default-branch> --find-object="$BLOB" --oneline -1
-   ```
-
-   Output means the content is on the default branch; no output means the
-   file is unique material. Record a session missing from the roster as "not
-   seen" in the report, never "dead": a roster read just after an outage
-   can't tell "gone" from "not back yet", so only a signal that the worker
-   is gone, such as a message that bounces, makes it dead.
-5. **Re-check side effects in flight.** For each row, run its "How to
-   confirm" read. A merge attempted and never confirmed is settled by
-   comparing the default branch against the row's verified head, as
-   "Confirming a Merge" in `references/verification-checklist.md` shows.
-6. **Read the deferrals.** List every row for the report; SKILL.md's
-   record section says when each must be disposed of.
+After the report is up, read the scope. For a roadmap, read its Features section from the
+default branch (each feature's status and dependencies). For a discipline,
+list the open issues and failing checks in its
+area. The pick that follows works from both.
 
 ## Before Dispatching an Issue
 
@@ -117,26 +121,26 @@ feature's status on the roadmap rather than setting it yourself.
 
 ## The Reconcile Report
 
-```
-Reconciled <scope> against the record written <time>.
+The pass builds the report (`scripts/reconcile-report.sh`) and seals it; you
+report it, you don't write it. `reconcile/report.md` opens with the scope,
+when the record was written and when it was reconciled, then has these
+sections, in this order, each line carrying its grade:
 
-Changed since then:
-- <holding or side effect>: record said <old>, GitHub or the host says <new> (measured | verified by reading | inferred).
-
-Holding (<n> of <bound> active; parked at ready: <m>):
-- <unit> -- <entry point> -- <dispatch topic> -- <state as just read> -- next: <what happens next> -- <pull request URL, or "none yet">
-
-Waiting on the human:
-- <decision or finishing step> -- <recommendation>
-
-Unique material held outside any remote:
-- <worker or instance>: <what, where>
-
-Open deferrals:
-- <deferral> (raised <date>): <reason>
-
-Not verified: <anything you could not read, and why>.
-```
+- **Changed since then:** each claim the reads contradict, with what the
+  record said and what GitHub or the host says now.
+- **Holding:** each holding with its state as just read, its board, its
+  request leg where it has one, and what happens next.
+- **Waiting on a person:** the decisions and finishing steps only a person
+  can take, derived at each report and never stored.
+- **Exists nowhere else:** workers with no pull request, and anything their
+  instance holds that no remote does.
+- **Side effects:** each side effect in flight, confirmed, not confirmed with
+  the reason, or not re-checked.
+- **Undisposed deferrals:** every deferral still owed a disposition.
+- **Predecessor's reasoning** (discipline scope): where the previous
+  rotation's reasoning is, as its view, not re-checked.
+- **Not verified:** everything the pass couldn't read, and why, including
+  record rows it couldn't parse.
 
 ## The Shape of an Escalation
 

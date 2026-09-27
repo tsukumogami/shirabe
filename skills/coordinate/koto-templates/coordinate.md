@@ -1248,8 +1248,8 @@ Reconcile, in Order", for how to present it.
 Report three things: what changed since the record was written, what you
 hold, and every open deferral, as the report's own sections give them, in its
 order, each claim with its grade (measured, verified by reading, or inferred).
-Include a "Waiting on the human" section, as the report derives it; it is
-never stored. The report is the reads: don't re-run them. Never average the
+Include a "Waiting on the human" section: the report's "Waiting on a person",
+derived at this report and never stored. The report is the reads: don't re-run them. Never average the
 report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
 At discipline scope, `reconcile/reasoning.md` is the previous rotation's
