@@ -11,7 +11,7 @@ description: >-
   knows where the topic stopped. Do NOT use it to write only the documents
   (`/scope`), to run a PLAN that already exists and needs no re-scoping
   (`/execute`), or to fix one known issue (`/work-on`).
-argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated]'
+argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--koto-leg=<request-id>:deliver]'
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -62,14 +62,75 @@ run's.
 | `--auto` / `--interactive` | The execution mode, resolved once and passed to both children. With neither, the repository's `## Execution Mode:` header in CLAUDE.md decides, and without one the run is interactive. Interactive runs get one confirmation from `/deliver` before `/execute` starts, naming the PLAN's mode. |
 | `--no-merge` | `/execute` runs without `--merge`, so the run ends at best `ready-awaiting-merge`. Without it, `/execute` gets `--merge`. |
 | `--upstream <path>`, `--max-rounds=N`, `--coordinated` / `--no-coordinated` | Forwarded to `/scope` unchanged. |
+| `--koto-leg=<request-id>:deliver` | Binds this run's `deliver-<topic>` session to a leg of a caller's koto request; see Answering a Caller's Leg. Not forwarded to either child. |
 
-koto checks every argument, not this file: a repeated flag, both mode flags,
-both coordination flags, a malformed topic or upstream, or a `--max-rounds`
-outside 1 to 50 is refused at `koto init` with exit 2 and no session.
+koto checks every argument a koto variable can express, not this file: a
+repeated flag, both mode flags, both coordination flags, a malformed topic or
+upstream, or a `--max-rounds` outside 1 to 50 is refused at `koto init` with
+exit 2 and no session. `--koto-leg` is the one exception: `deliver-open.sh`
+checks it before any koto call, because without a well-formed value there is
+no leg to record a refusal on (see Answering a Caller's Leg).
 
 `--merge` and the mode belong to one invocation. Nothing is remembered from an
 earlier run: a re-invocation without `--no-merge` merges, and one with it
 doesn't, whatever the previous run did.
+
+## Answering a Caller's Leg
+
+`--koto-leg=<request-id>:deliver` (or `--koto-leg <request-id>:deliver`) lets
+a coordinator run `/deliver` as a worker and read its result from koto's
+request store instead of from what the worker says. The leg must be named
+`deliver`; that is the one leg `/deliver` answers. A value given twice, a leg
+with another name, or a request id outside `^[a-z0-9_][a-z0-9_-]{0,63}$` is
+refused by `deliver-open.sh` itself, with `step=deliver:refused` and no koto
+call, because without a well-formed value there is no leg to record anything
+on.
+
+With a well-formed value, the one `koto init` that opens the fresh
+`deliver-<topic>` session carries `--koto-leg`, and koto either binds the
+session to the leg or records its refusal there: `result_source: refused`
+(`source: refused` on a `request-leg` gate), with `outcome: refused` and a
+`reason` such as `invalid-var:TOPIC`. A same-named session this run won't
+touch (another worktree's, or one from another template) is refused with the
+code the run prints, `origin-mismatch` or `template-mismatch` on the leg. Once
+bound, the run's terminal result reaches the leg by promotion on the terminal
+tick, `--no-cleanup` notwithstanding: the same `outcome`, `step`, `reason`,
+`pr`, and other keys `deliver-report.sh` prints.
+
+What the coordinator puts on the leg, so koto admits the session:
+
+| Leg field | Value |
+|-----------|-------|
+| name | `deliver` |
+| `template` | `deliver.md` |
+| `inputs` | `TOPIC`: the topic slug, as passed to `/deliver`. Optionally `COORDINATION` and `UPSTREAM`, which must then equal the value the invocation resolves to: `COORDINATION` is `coordinated`, `no-coordinated`, or `none` when neither flag is given; `UPSTREAM` is the `--upstream` value, or the empty string when it isn't given. |
+
+koto compares only the inputs the leg names, and only against variables that
+aren't `rebind`: `MODE`, `MERGE`, `MAX_ROUNDS`, and `PLUGIN_ROOT` are
+re-applied per invocation and can't be pinned from the leg, so an input for
+one of them is never compared. A leg whose `TOPIC` differs from the
+invocation's is refused as `input-mismatch` on the leg.
+
+A leg is named `deliver` and nothing else, so one request holds at most one
+`/deliver` worker; a coordinator running several gives each its own request.
+koto records a refusal only on a leg that is still open and unbound. koto's
+refusal of this run's open reaches the leg, including a same-named session the
+probe stopped on. Nothing that stops before that open does: no topic, a failed
+preflight, `deliver-open.sh`'s usage refusals, `failed=jq_missing`, or
+`failed=cleanup`. Neither does a run that stops before its terminal. In those
+cases the leg stays open, and a `request-leg` gate would wait on it
+indefinitely, so the coordinator needs its own fallback for a worker that
+ended without a result.
+
+Keep the two requests apart. The caller's request and its `deliver` leg
+belong to the caller: `/deliver` never lists, closes, or abandons it, and the
+Close step below touches only the run's own request. That inner request,
+under coordinator `deliver-<topic>`, still carries the `scope` and `execute`
+legs its children answer, exactly as it does without the flag. The one thing
+the caller must not do is create its request under coordinator-of-record
+`deliver-<topic>`: every open request under that name is abandoned when the
+run opens its own. The flag changes where this run's own result goes and
+nothing else.
 
 ## Running the Workflow
 

@@ -1,0 +1,31 @@
+name: Check run-evals
+
+# scripts/run-evals.sh starts a nested claude session with a pinned permission
+# mode and reports a distinct failure when that session executes nothing. Its
+# suite drives the runner end to end against a stub claude and a throwaway
+# suite, so it needs no model, no network and no API key. Ubuntu only: the
+# runner is an operator tool that no skill invokes on a user's machine, and
+# scripts/check-bash-floor.sh lists it and this suite among the exemptions from
+# the bash 3.2 floor.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/run-evals.sh'
+      - 'scripts/run-evals_test.sh'
+      - 'scripts/lib/classify-eval-session.py'
+      - 'scripts/run-evals/fixtures/**'
+      - '.github/workflows/check-run-evals.yml'
+
+jobs:
+  test-run-evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run run-evals tests
+        run: bash scripts/run-evals_test.sh

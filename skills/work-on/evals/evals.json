@@ -488,7 +488,37 @@
       ]
     },
     {
-      "id": 39,
+      "name": "koto-leg-result-on-the-callers-leg",
+      "tier": 1,
+      "prompt": "In a git repository on a feature branch, create a koto request with one leg named work-on: `koto request create --with-data '{\"legs\":[{\"name\":\"work-on\",\"role\":\"work-on\",\"template\":\"work-on.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Then run `/work-on \"rename the leg_demo helper\" --koto-leg=<request-id>:work-on`, using `task_leg_demo` as the workflow name. At task_validation the task is not worth doing: submit verdict exit. Afterwards print `koto request get <request-id> | jq '.legs[\"work-on\"]'`.",
+      "expected_output": "The agent takes --koto-leg out of the task description, runs `skill-preflight.sh work-on --mode koto-leg`, writes the invocation's tokens to a private directory, and opens task_leg_demo through work-on-open.sh with --var ARTIFACT_PREFIX=task_leg_demo, not with a plain koto init. The session is bound to the leg. Every tick carries --no-cleanup. The run ends at validation_exit, and the leg records the promoted result: status success, result_final_state validation_exit.",
+      "files": [],
+      "expectations": [
+        "The agent opened the session through `work-on-open.sh`, not with its own `koto init`",
+        "The agent ran `skill-preflight.sh work-on --mode koto-leg` before the open",
+        "The task description submitted at entry does not contain `--koto-leg`",
+        "The printed leg has bound_child `task_leg_demo`",
+        "The printed leg has result_source `promoted`, result_final_state `validation_exit`, and result status `success`",
+        "Every `koto next` the agent ran carried `--no-cleanup`"
+      ],
+      "id": 39
+    },
+    {
+      "name": "koto-leg-malformed-refused-before-koto",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #144 --koto-leg=req1:execute",
+      "expected_output": "The leg is not named work-on. work-on-open.sh refuses it with error=usage and exit 64 before any koto call, or the agent recognises the malformed value from SKILL.md's rule before opening anything. Either way no issue_144 session is created, nothing is written to any leg, and the agent reports the refusal and stops instead of falling back to an unbound run.",
+      "files": [],
+      "expectations": [
+        "The agent does not run `koto init` for issue_144",
+        "The agent reports that the leg must be `<request-id>:work-on`",
+        "The agent stops rather than continuing the issue without the flag or with another leg name"
+      ],
+      "id": 40
+    },
+    {
+      "id": 41,
       "name": "finalization-writes-shaped-record",
       "tier": 1,
       "mode": "plan_only",
