@@ -75,8 +75,8 @@ everything is done; it never touches Progress. `shirabe validate`
 recognises documents by filename prefix, so a new validated type would
 need a code change. And coordinated execution already keeps a record on a
 draft pull request that merges last, whose ownership is decided by login
-and branch name (#395) and whose merge-order block is never written
-after first publish (#396).
+and branch name (#395) and whose merge-order block was, when this design
+was written, never written after first publish (#396, since fixed).
 
 ## Decision Drivers
 
@@ -241,7 +241,7 @@ to settle.
   fenced machine-readable block, all discipline records in one
   repository. Rejected: the block has no parser and adding one needs
   validator changes R37 excludes (its precedent is the merge-order block
-  #396 describes, written empty and never read); its syntax is a glossary
+  #396 described, then written empty and never read); its syntax is a glossary
   a reader shouldn't need; the workspace manager has no setting for a
   record repository; and one public record repository would name private
   repositories. Its surviving idea, the host as a human decision, is part

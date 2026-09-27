@@ -46,12 +46,16 @@
 #   <node-id> | pr | after: <node-id>, <node-id>
 #   <node-id> | gate | after: -
 #
-# Only node ids appear, the same ids the PR index already carries: no
-# repository field, and no merge state, which is live and belongs to the merge
-# gate. The same PLAN renders the same block, so a second render leaves it as
-# it was, and a PLAN whose waits_on changed replaces it whole. The block is the durable, human-readable order that outlives the
-# PLAN. Nothing schedules or gates from it: coordinated-next.sh reads the PLAN,
-# and `shirabe validate --merge-gate` recomputes merge state from live gh.
+# Each line carries a node id (the same ids the PR index already carries), its
+# kind, and its predecessors' ids: no repository field, and no merge state,
+# which is live and belongs to the merge gate. The same PLAN renders the same
+# block, so a second render leaves it as it was, and a PLAN whose waits_on
+# changed replaces it whole. The block is the durable, human-readable order
+# that outlives the PLAN. Nothing schedules or gates from it:
+# coordinated-next.sh reads the PLAN, and `shirabe validate --merge-gate`
+# recomputes merge state from live gh. The node id must stay the first field:
+# testdata/merge-order-gated.txt pins the rendered section, and the
+# validator's own tests read that file with the real parser.
 #
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
