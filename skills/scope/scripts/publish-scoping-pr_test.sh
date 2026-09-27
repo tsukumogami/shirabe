@@ -229,6 +229,20 @@ eq "a hit on line 1 of a large blob: scope:push" "scope:push" "$(line step)"
 eq "a hit on line 1 of a large blob: nothing pushed" "" "$(remote_sha docs/topic)"
 eq "a hit on line 1 of a large blob: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
 
+# The same failure one step earlier: a wip/ path list larger than a pipe buffer,
+# with the offending path sorted first. Piped into `grep -qxF`, the listing
+# check died of SIGPIPE on the match and `|| continue` skipped the path unscanned.
+setup single-pr
+printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
+printf 'see private/tools/notes.md for the numbers\n' >"$R/wip/aaa_first_notes.md"
+mkdir -p "$R/wip/zz"
+awk -v d="$R/wip/zz" 'BEGIN { for (i = 0; i < 2000; i++) { f = sprintf("%s/filler_note_with_a_long_name_to_grow_the_list_%05d.md", d, i); print "x" > f; close(f) } }'
+git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: research"
+run --topic topic --exit full-run --intent continue
+eq "a hit first in a large wip/ list: scope:push" "scope:push" "$(line step)"
+eq "a hit first in a large wip/ list: nothing pushed" "" "$(remote_sha docs/topic)"
+eq "a hit first in a large wip/ list: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
+
 setup single-pr
 rm "$R/docs/plans/PLAN-topic.md"; git -C "$R" commit -q -am "drop plan"
 run --topic topic --exit full-run --intent continue
