@@ -2,12 +2,15 @@
 
 What `/work-on`'s `staleness_check` gate means by "stale", stated in one place.
 The check is `skills/work-on/scripts/check-staleness.sh`; the gate runs it
-against the issue a run is about to implement. The design behind it is
-`docs/designs/current/DESIGN-staleness-check-portability.md`.
+against the issue a run is about to implement.
 
 ## The four checks
 
 An issue is **stale** when any one of these fires, and **fresh** when none do.
+
+These are the previous check's rules, kept unchanged, and they fire on almost
+everything. On 2026-09-27 they marked all 65 open milestone issues in shirabe
+and tsuku stale, mostly on age. Retuning them is shirabe#440.
 
 | Check | Fires when | Threshold |
 |-------|------------|-----------|
@@ -32,8 +35,9 @@ Details that decide edge cases:
   either anything inside backticks, or a bare run of letters, digits, `_`, `-`
   and `/` followed by a one-to-four-letter extension. The bare form matches
   slashless names like `README.md`, and it can take a prefix of a longer name
-  (`foo.json` out of `foo.jsonl`). At most 20 are checked, in sorted order. A path that is absolute or has a `..` segment is
-  skipped, as is one that isn't a file in the working tree. "Modified" means
+  (`foo.json` out of `foo.jsonl`). At most 20 are checked, in sorted order. A
+  path that is absolute or has a `..` segment is skipped, as is one that isn't
+  a file in the working tree. "Modified" means
   `git log --since=<createdAt> -- <path>` finds a commit.
 
 ## Exit statuses
@@ -46,8 +50,9 @@ Details that decide edge cases:
 | 2 | usage error: anything but `--issue <positive integer>` | `blocked`; the template passed a bad argument |
 
 The gate also exits 3 itself when the script isn't executable at
-`{{PLUGIN_ROOT}}`, and koto reports a gate timeout as -1, which the state
-treats as unavailable too.
+`{{PLUGIN_ROOT}}`, and koto reports -1 when it couldn't run the gate to
+completion (the gate timed out or failed to start), which the state treats as
+unavailable too.
 
 On 0, 1 and 3 the script prints a JSON report: `verdict`,
 `introspection_recommended`, the `issue` (number, title, created_at, age_days,

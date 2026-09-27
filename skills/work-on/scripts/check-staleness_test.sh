@@ -327,11 +327,12 @@ else
     ' "$TEMPLATE")
     [ -n "$BLOCK" ] || { echo "staleness_check not found in $TEMPLATE" >&2; exit 2; }
 
-    # drive <exit-or-timeout> <evidence-json> -- prints the state the run is in
-    # after one submission. `timeout` makes the gate outlive a 1-second limit so
-    # koto reports exit_code -1.
+    # drive <exit-or-timeout> <evidence-json> [block] -- prints the state the
+    # run is in after one submission. `timeout` makes the gate outlive a
+    # 1-second limit so koto reports exit_code -1. [block] replaces the shipped
+    # block, for the mutation control below.
     drive() {
-        local how="$1" data="$2" dir session cmd timeout_line=""
+        local how="$1" data="$2" block="${3:-$BLOCK}" dir session cmd timeout_line=""
         dir=$(mktemp -d); TMPS+=("$dir")
         session="staleness-state-$$-$RANDOM"
         if [ "$how" = timeout ]; then
@@ -346,7 +347,7 @@ else
                 '    description: Issue under test' '    required: false' \
                 '  PLUGIN_ROOT:' '    description: Plugin root' '    required: false' \
                 'states:' '  start:' '    transitions:' '      - target: staleness_check'
-            printf '%s\n' "$BLOCK" | awk -v cmd="$cmd" -v tl="$timeout_line" '
+            printf '%s\n' "$block" | awk -v cmd="$cmd" -v tl="$timeout_line" '
                 /^        command:/ { print "        command: \"" cmd "\""; if (tl != "") print tl; next }
                 { print }'
             printf '%s\n' '  analysis:' '    terminal: true' '  introspection:' '    terminal: true' \
@@ -361,31 +362,45 @@ else
         koto next "$session" --with-data "$data" 2>/dev/null | jq -r '.state // "none"'
     }
 
-    route_expect() {
-        local label="$1" want="$2" got
-        got=$(drive "$3" "$4")
-        if [ "$got" = "$want" ]; then pass "$label -> $got"; else fail "$label: want $want, got $got"; fi
+    # The full matrix: every evidence value against every gate result, 25
+    # cells. `fresh` routes only on a passing gate and `unavailable` only on 3
+    # or -1; anywhere else each stays in staleness_check. The other three route
+    # whatever the gate said, which is what the directive tells the agent.
+    expected() {
+        case "$1:$2" in
+            fresh:0) echo analysis ;;
+            fresh:*) echo staleness_check ;;
+            unavailable:3|unavailable:timeout) echo analysis ;;
+            unavailable:*) echo staleness_check ;;
+            stale_requires_introspection:*) echo introspection ;;
+            override:*) echo analysis ;;
+            blocked:*) echo done_blocked ;;
+        esac
     }
 
-    U='{"staleness_signal":"unavailable","detail":"gh unauthenticated"}'
-    F='{"staleness_signal":"fresh"}'
-    S='{"staleness_signal":"stale_requires_introspection"}'
-    O='{"staleness_signal":"override","detail":"the user asked to skip it"}'
-    B='{"staleness_signal":"blocked","detail":"stopping"}'
+    for signal in fresh stale_requires_introspection unavailable override blocked; do
+        data="{\"staleness_signal\":\"$signal\",\"detail\":\"case detail\"}"
+        for how in 0 1 2 3 timeout; do
+            want=$(expected "$signal" "$how")
+            got=$(drive "$how" "$data")
+            label="$signal on gate result $how"
+            [ "$how" = timeout ] && label="$signal on gate result -1 (timeout)"
+            if [ "$got" = "$want" ]; then pass "$label -> $got"; else fail "$label: want $want, got $got"; fi
+        done
+    done
 
-    route_expect "unavailable on exit 3" analysis 3 "$U"
-    route_expect "unavailable on a gate timeout (-1)" analysis timeout "$U"
-    route_expect "unavailable on a passing gate stays" staleness_check 0 "$U"
-    route_expect "unavailable on a stale result stays" staleness_check 1 "$U"
-    route_expect "unavailable on a usage error stays" staleness_check 2 "$U"
-    route_expect "fresh on a passing gate" analysis 0 "$F"
-    route_expect "fresh on a stale result stays" staleness_check 1 "$F"
-    route_expect "fresh on an unavailable result stays" staleness_check 3 "$F"
-    route_expect "stale_requires_introspection on a stale result" introspection 1 "$S"
-    route_expect "override on a stale result" analysis 1 "$O"
-    route_expect "override on a usage error" analysis 2 "$O"
-    route_expect "blocked on a usage error" done_blocked 2 "$B"
-    route_expect "blocked on a passing gate" done_blocked 0 "$B"
+    # The mutation control: the shipped block with a trailing unconditional
+    # edge put back, the shape this change removed. Under it, `unavailable` on
+    # a passing gate falls through to analysis, which is the defect; this
+    # proves the matrix cell `unavailable on gate result 0 -> staleness_check`
+    # above would catch the edge coming back rather than passing either way.
+    MUTANT=$(printf '%s\n%s\n' "$BLOCK" '      - target: analysis')
+    got=$(drive 0 '{"staleness_signal":"unavailable","detail":"case detail"}' "$MUTANT")
+    if [ "$got" = analysis ]; then
+        pass "mutation control: with the trailing edge restored, unavailable on a passing gate reaches analysis"
+    else
+        fail "mutation control: expected the restored trailing edge to route unavailable on 0 to analysis, got $got"
+    fi
 fi
 
 echo

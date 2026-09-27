@@ -16,8 +16,9 @@ decision: |
   status: 0 fresh, 1 stale, 3 unavailable, 2 usage. The gate command runs it
   directly, with no jq pipe, and exits 3 itself when the script isn't
   executable. staleness_check gains a fifth evidence value, `unavailable`,
-  routed to analysis only when the gate's exit code is 3 or koto's timeout
-  code -1, so it can't stand in for a stale verdict.
+  routed to analysis only when the gate's exit code is 3 or koto's -1 (the
+  gate timed out or failed to start), so it can't stand in for a stale
+  verdict.
 rationale: |
   Porting is the only option that keeps the staleness signal on a
   shirabe-only host without waiting on another project, and the check needs
@@ -59,7 +60,7 @@ Three facts about the engine and the host shape the design:
 
 1. **koto runs a command gate through `sh -c` without `pipefail`**, and the
    gate's output the agent sees is `{"exit_code": <n>, "error": ""}`; a
-   timeout reports `exit_code: -1`. With the script missing, the pipeline's
+   gate that times out or fails to start reports `exit_code: -1`. With the script missing, the pipeline's
    status is `jq`'s, which is 4 on empty input under `-e`. The agent can't
    tell "not found" from "stale" by anything but guessing at that number.
 2. **The gate's working directory is the repository being worked**, not the
@@ -169,7 +170,7 @@ the gate would pass on a stale key left by an earlier run.
 
 **Chosen: a fifth evidence value, `unavailable`, with two gate-conditioned
 edges to `analysis`**, one for `gates.staleness_fresh.exit_code: 3` and one
-for `-1` (koto's timeout code). Submitted with any other exit code it matches
+for `-1` (koto's code for a gate that timed out or failed to start). Submitted with any other exit code it matches
 no edge and the workflow stays in `staleness_check`, which the probe in the
 Context section confirmed for the same shape. `detail` carries the reason.
 
@@ -205,10 +206,14 @@ creation; position `middle` or `last` as stale; the same file-reference
 heuristic (paths with one of the listed extensions, at most 20); a file counts
 as modified when `git log --since=<created>` finds a commit touching it.
 
-**Rejected: retune while porting** (drop the milestone-position signal, which
-marks nearly every milestone issue stale). Worth doing, but a behaviour change
-hidden inside a portability fix makes both harder to review. It's named in
-Consequences as follow-up.
+**Rejected: retune while porting** (for example, firing the milestone-position
+signal only together with another). Worth doing, but a behaviour change hidden
+inside a portability fix makes both harder to review, and a measurement taken
+while porting showed that softening position alone would change almost
+nothing. On 2026-09-27 the ported check marked all 65 open milestone issues in
+shirabe and tsuku stale. Position fired on 44 of them but was the only signal
+on one; age over 14 days fired on 57. The retune is #440, and it covers age as
+well as position.
 
 ## Decision Outcome
 
@@ -409,7 +414,7 @@ One pull request; the pieces are small and only meaningful together.
 - **Credentials.** The script uses `gh`'s existing authentication and never
   reads or prints tokens. `gh`'s stderr is quoted only as its first line, cut
   to 200 characters, and replaced with a fixed message when it contains a
-  token-shaped substring (`ghp_`, `gho_`, `ghs_`, `github_pat_`), because the
+  token-shaped substring (`ghp_`, `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), because the
   reason can travel into evidence and from there into PR text.
 - **Repository resolution.** `gh` resolves the repository from the working
   tree, as every other `gh` call in `/work-on` does. In a checkout whose
@@ -433,9 +438,10 @@ One pull request; the pieces are small and only meaningful together.
 ### Negative
 
 - shirabe owns a GitHub-querying shell script and its test suite.
-- The ported check keeps the prior check's noise: milestone position marks
-  most milestone issues stale, so many runs will route to introspection. That
-  is the prior behaviour, now visible; retuning is a follow-up issue.
+- The ported check keeps the prior check's noise. Measured on 2026-09-27, it
+  marks every open milestone issue in shirabe and tsuku stale, 65 of 65, mostly
+  on age, so issue-backed runs on milestone work will route to introspection.
+  That is the prior behaviour, now visible. The retune is #440.
 - `--limit 100` on the milestone lists undercounts milestones with more than
   100 closed or open issues, as the prior check did.
 - The staleness check adds up to three API calls, and some seconds, to every
@@ -446,7 +452,8 @@ One pull request; the pieces are small and only meaningful together.
 
 ### Mitigations
 
-- The signals reference names the noisy signal and the limit, so the
-  follow-up has a stated starting point.
+- #440 carries the measurement and the questions the retune has to settle, and
+  the signals reference points to it, so the first reader who hits the noise
+  finds where it's being fixed.
 - The unavailable path means an API outage costs a recorded skip, not a
   stopped run.

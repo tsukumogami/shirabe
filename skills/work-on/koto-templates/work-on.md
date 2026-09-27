@@ -1623,9 +1623,10 @@ none) and submit the value it calls for:
 - **passed (exit 0)**: fresh. Submit `staleness_signal: fresh`.
 - **exit 1**: stale. Submit `staleness_signal: stale_requires_introspection`; the
   run re-reads the issue against current code in `introspection`.
-- **exit 3, or -1 (the gate timed out)**: unavailable. The check could not reach
-  a verdict: the plugin root was not passed, `gh` is unauthenticated or
-  unreachable, or a read failed. Submit `staleness_signal: unavailable` with the
+- **exit 3, or -1 (koto could not run the gate to completion: it timed out or
+  failed to start)**: unavailable. The check could not reach a verdict: the
+  plugin root was not passed, `gh` is unauthenticated or unreachable, or a read
+  failed. Submit `staleness_signal: unavailable` with the
   reason in `detail`. The run continues to analysis with staleness recorded as
   not assessed. This is not an override; nobody chose to skip the check.
 - **exit 2**: the gate passed the check a bad argument, which is a template

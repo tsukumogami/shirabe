@@ -69,7 +69,7 @@ sanitize_error() {
     local line
     line=$(head -n 1 "$1" 2>/dev/null | cut -c 1-200)
     case "$line" in
-        *ghp_*|*gho_*|*ghs_*|*ghu_*|*github_pat_*)
+        *ghp_*|*gho_*|*ghs_*|*ghu_*|*ghr_*|*github_pat_*)
             line="error output withheld: it contained a credential-shaped string" ;;
     esac
     [ -n "$line" ] || line="no error output"
