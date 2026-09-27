@@ -53,8 +53,15 @@ sealed_capture() { # sealed_capture <state> <KEY> <token> [timestamp]
     log_capture "$S" "$2" "$(bash "$CL" seal --session "$S" --state "$1" --token "$3")" "${4:-$EVT}"
 }
 
+# checked <topic>: the run passed dispatch_check on <topic>, sealed, then dispatched.
+checked() {
+    log_to "$S" pick dispatch_check
+    log_capture "$S" DISPATCH_CHECK "$(bash "$HERE/coord-log.sh" seal --session "$S" --state dispatch_check --token "ok $1")"
+    log_to "$S" dispatch_check dispatch
+}
 echo "== dispatch =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
@@ -65,6 +72,17 @@ body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE
 eq "dispatch: an older Written: time waits even with the row" waiting "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" 2026-09-26T10:00:00Z
 eq "dispatch: a Written: time in the event's own second waits" waiting "$(confirm)"
+session
+checked alpha
+log_evidence "$S" dispatch '{"outcome":"sent","topic":"beta"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+eq "dispatch: a topic other than the one dispatch_check passed is a conflict" conflict "$(confirm)"
+session
+log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+eq "dispatch: a topic named only in the evidence, with no dispatch_check pass, is a conflict" conflict "$(confirm)"
 
 echo "== surface =="
 session
@@ -254,6 +272,7 @@ eq "--verified: the unit's row linking another pull request is a conflict" confl
 
 echo "== conflicts and refusals =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec)"; db '.issues[0].body = "gone"'
@@ -272,6 +291,7 @@ eq "an entry from a state with nothing to confirm is a conflict" conflict "$(con
 
 echo "== sealing =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"

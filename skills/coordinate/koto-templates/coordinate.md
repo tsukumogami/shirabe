@@ -388,6 +388,10 @@ states:
       rationale:
         type: string
         description: Why this choice, especially when it departs from the facts' order.
+    # dispatch_topic is data for the dispatch path's dispatch-worker.sh (the
+    # topic it compiles a brief for). The check itself never reads it:
+    # dispatch_check takes the topic from this visit's pick evidence in the log,
+    # and record confirms a dispatch only on the topic dispatch_check sealed.
     transitions:
       - target: dispatch_check
         when:
@@ -472,7 +476,8 @@ states:
         description: sent once the worker was dispatched and its holding written; failed when the dispatch did not start.
       topic:
         type: string
-        description: The worker's dispatch topic.
+        required: true
+        description: The worker's dispatch topic, the one dispatch_check passed; record refuses any other.
     transitions:
       - target: record
         when:
@@ -1344,7 +1349,9 @@ that finishes files or closes every open deferral, because nobody succeeds it.
 
 Write the worker's brief from `references/brief-template.md` and dispatch it;
 record the dispatch as a holding with `record-holding.sh` before any other
-action; then submit `dispatched: sent` and the `topic`. The brief lists the
+action; then submit `dispatched: sent` and the `topic`. The topic is the one
+`dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
+the record step refuses a dispatch under any other. The brief lists the
 checkpoints the worker reports at, and tells it to report and continue at each
 one: it waits on no approval.
 

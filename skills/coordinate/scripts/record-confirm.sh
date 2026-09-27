@@ -10,7 +10,9 @@
 # Every case also needs the record's Written: time to be later than that
 # event's time, so an older body that happens to match doesn't count.
 #
-#   dispatch        a Holdings row whose Worker is the evidence's topic
+#   dispatch        a Holdings row whose Worker is the evidence's topic, which
+#                   must be the topic dispatch_check sealed (`ok <topic>`);
+#                   another topic is a conflict
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the latest `wait` evidence's `unit` before the source.
 #                   When surface was entered from land_merge on `merge: held`
@@ -235,6 +237,13 @@ OKX=1
 case "$SOURCE" in
 dispatch)
     TOPIC=$(printf '%s' "$EV" | jq -r '.fields.topic // ""')
+    # The dispatch records only the topic dispatch_check passed: its sealed
+    # `ok <topic>`. A topic named only in the dispatch evidence is refused.
+    DC=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name DISPATCH_CHECK --state dispatch_check --any-visit 2> /dev/null) || DC=
+    case "$DC" in "ok "*) CHECKED=${DC#ok }; CHECKED=${CHECKED%% *} ;; *) CHECKED= ;; esac
+    if [ -z "$CHECKED" ] || [ "$CHECKED" = - ] || [ "$TOPIC" != "$CHECKED" ]; then
+        VERDICT=conflict; REASON="the dispatch names topic ${TOPIC:-none}, but dispatch_check passed ${CHECKED:-no topic}"; finish
+    fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
     ;;

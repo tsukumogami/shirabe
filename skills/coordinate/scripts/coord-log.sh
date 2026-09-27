@@ -52,6 +52,12 @@
 #   coord-log.sh entered --session S --state ST
 #       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
 #       failure. Write scripts ask it whether the run has dispatched yet.
+#   coord-log.sh entry --session S --state ST [--before SEQ]
+#       Prints "<seq> <from>" for the latest entry into ST (transitioned,
+#       directed or rewound), before SEQ when given. Exit 0; 1 none; 2 read failure.
+#   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
+#       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
+#       ST in that window. Exit 0; 1 none; 2 read failure.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -88,7 +94,7 @@ is_entry() { # is_entry <log> <state> <seq>
 
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
-SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG=
+SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
 ANY=0
 CMD=${1-}
 [ -n "$CMD" ] || usage
@@ -104,6 +110,8 @@ while [ $# -gt 0 ]; do
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --for) [ $# -ge 2 ] || usage; FOR=$2; shift 2 ;;
         --from) [ $# -ge 2 ] || usage; FROM=$2; shift 2 ;;
+        --after) [ $# -ge 2 ] || usage; AFTER=$2; shift 2 ;;
+        --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
         --any-visit) ANY=1; shift ;;
@@ -247,6 +255,21 @@ entered)
     need SESSION STATE
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     [ -n "$(latest_entry "$LOG" "$STATE")" ] || exit 1
+    ;;
+entry|evidence)
+    need SESSION STATE
+    for n in "$AFTER" "$BEFORE"; do case "$n" in *[!0-9]*) usage ;; esac; done
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    A=${AFTER:-0} B=${BEFORE:-}
+    if [ "$CMD" = entry ]; then
+        OUT=$(jq -r --arg s "$STATE" --arg b "$B" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber))) | "\(.seq) \(.payload.from // "")"' "$LOG" | tail -1) || die "cannot read $LOG"
+    else
+        OUT=$(jq -c --arg s "$STATE" --argjson a "$A" --arg b "$B" 'select(.type == "evidence_submitted" and .payload.state == $s
+            and .seq > $a and ($b == "" or .seq < ($b | tonumber))) | {seq, timestamp, fields: (.payload.fields // {})}' "$LOG" | tail -1) || die "cannot read $LOG"
+    fi
+    [ -n "$OUT" ] || exit 1
+    printf '%s\n' "$OUT"
     ;;
 *) usage ;;
 esac

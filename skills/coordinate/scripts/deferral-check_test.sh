@@ -129,6 +129,33 @@ eq "scope_ahead on a held topic is refused too" "duplicate-topic beta" "$(check)
 session "$(roadmap_vars plugin-system)" 7 dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
+echo "== check mode: the topic is the one this visit's path chose =="
+# A pick from an earlier visit of pick is not the one checked: a later visit
+# whose evidence names another unit is.
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+log_to "$S" dispatch_check dispatch; log_evidence "$S" dispatch '{"dispatched":"failed","topic":"gamma"}'
+log_to "$S" dispatch failure; log_evidence "$S" failure '{"move":"escalate"}'; log_to "$S" failure wait
+log_to "$S" wait pick_facts; log_to "$S" pick_facts pick
+log_evidence "$S" pick '{"choice":"dispatch","unit":"delta"}'; log_to "$S" pick dispatch_check
+eq "the pick after the latest entry into pick is checked, not an earlier one" "ok delta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+log_to "$S" dispatch_check deferral_dispose; log_evidence "$S" deferral_dispose '{"rewritten":"rewritten"}'
+log_to "$S" deferral_dispose dispatch_check
+eq "back from deferral_dispose, the same pick is checked" "ok gamma" "$(check)"
+# A redispatch after a failed dispatch checks the unit this state sealed before.
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+log_capture "$S" DISPATCH_CHECK "$(bash "$CL" seal --session "$S" --state dispatch_check --token "ok gamma")"
+log_to "$S" dispatch_check dispatch; log_evidence "$S" dispatch '{"dispatched":"failed","topic":"gamma"}'
+log_to "$S" dispatch failure; log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
+eq "a redispatch after a failed dispatch checks the unit that failed" "ok gamma" "$(check)"
+# A redispatch of a held unit (a dead worker, via wait) is not a duplicate.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record wait
+log_evidence "$S" wait '{"event":"failed","unit":"beta"}'; log_to "$S" wait failure
+log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
+eq "a redispatch of a held unit is checked on that unit and isn't a duplicate" "ok beta" "$(check)"
+
 echo "== check mode: the cap and the parked bound =="
 pr() { # pr <n> <state> <draft>
     db '.prs += [{repo: "acme/widgets", number: $n, title: "w", body: "", state: $s, isDraft: ($d == "true"), isCrossRepository: false,

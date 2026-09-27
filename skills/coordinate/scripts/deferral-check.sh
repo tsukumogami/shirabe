@@ -28,10 +28,15 @@
 #                         would pass the cap or the parked bound: dispatch and
 #                         scope_ahead add an active worker, so they need
 #                         active < CAP and parked < PARKED_BOUND;
-#                         send_execution moves a worker already counted, so it
-#                         is at the cap only when active > CAP
-#   ok <topic>            clear; <topic> is the latest pick evidence's `unit`
-#                         (`-` when it names no dispatch topic)
+#                         send_execution to a scoping-ahead holding, and a
+#                         redispatch of a unit still held, move a worker
+#                         already counted, so they are at the cap only when
+#                         active > CAP
+#   ok <topic>            clear; <topic> is the unit this visit checks, by the
+#                         path into it (the pick after the latest entry into
+#                         pick, or on a redispatch the unit that failed; `-`
+#                         when there is none). record-confirm.sh holds the
+#                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; every other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
@@ -147,14 +152,39 @@ finish() {
     lib_emit dispatch_check "$1" coord/dispatch_check.json "$T/detail.json"
 }
 
-# The pick being checked.
-PICK=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "pick") | .payload.fields // {}' "$LOG" | tail -1)
-if [ -n "$PICK" ]; then
-    CHOICE=$(printf '%s' "$PICK" | jq -r '.choice // "" | tostring')
-    U=$(printf '%s' "$PICK" | jq -r '.unit // "" | tostring')
-    [[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && TOPIC=$U
-fi
-case "$CHOICE" in ''|dispatch|scope_ahead|send_execution) ;; *) CHOICE=other ;; esac
+# The unit being checked, by the path into this visit, never the latest pick
+# anywhere in the log. From pick (or deferral_dispose, which pick led to): the
+# pick evidence submitted after the latest entry into pick. From failure (a
+# redispatch): the unit that failed, which is the topic this state sealed on its
+# previous visit when the failure came from dispatch, else the latest `wait`
+# evidence's unit. record-confirm.sh then holds the dispatch to this topic.
+CL="$HERE/coord-log.sh"
+ENT=$(bash "$CL" entry --session "$SESSION" --state dispatch_check) || true
+FROMST=${ENT#* }
+U=
+case "$FROMST" in
+    pick|deferral_dispose)
+        PE=$(bash "$CL" entry --session "$SESSION" --state pick) || true
+        if [ -n "$PE" ]; then
+            PICK=$(bash "$CL" evidence --session "$SESSION" --state pick --after "${PE%% *}") || PICK=
+            if [ -n "$PICK" ]; then
+                CHOICE=$(printf '%s' "$PICK" | jq -r '.fields.choice // "" | tostring')
+                U=$(printf '%s' "$PICK" | jq -r '.fields.unit // "" | tostring')
+            fi
+        fi ;;
+    failure)
+        CHOICE=redispatch
+        FE=$(bash "$CL" entry --session "$SESSION" --state failure) || true
+        if [ "${FE#* }" = dispatch ]; then
+            PREV=$(bash "$CL" capture --session "$SESSION" --name DISPATCH_CHECK --state dispatch_check --any-visit 2> /dev/null) || PREV=
+            case "$PREV" in "ok "*) U=${PREV#ok }; U=${U%% *} ;; esac
+        else
+            W=$(bash "$CL" evidence --session "$SESSION" --state wait) || W=
+            [ -n "$W" ] && U=$(printf '%s' "$W" | jq -r '.fields.unit // "" | tostring')
+        fi ;;
+esac
+[[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && TOPIC=$U
+case "$CHOICE" in ''|dispatch|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
 
 # The record, by the run's ref.
 lib_run_ref || { REASON="the run has no found record"; finish record-changed; }
@@ -267,7 +297,9 @@ ATCAP=0
 # a scoping-ahead holding; otherwise it would start a worker, and is judged as
 # a dispatch. The choice is the coordinator's word; the holding is GitHub's.
 SCOPING=$(jq -r --arg t "$TOPIC" '[.[] | select(.worker == $t and .phase == "scoping-ahead")] | length' "$T/holdings.json")
-if [ "$CHOICE" = send_execution ] && [ -n "$TOPIC" ] && [ "$SCOPING" -gt 0 ]; then
+HELD=$(jq -r --arg t "$TOPIC" '[.[] | select(.worker == $t)] | length' "$T/holdings.json")
+if { [ "$CHOICE" = send_execution ] && [ -n "$TOPIC" ] && [ "$SCOPING" -gt 0 ]; } \
+    || { [ "$CHOICE" = redispatch ] && [ "$HELD" -gt 0 ]; }; then
     [ "$ACTIVE" -gt "$CAP" ] && ATCAP=1
 else
     { [ "$ACTIVE" -ge "$CAP" ] || [ "$PARKED" -ge "$PARKED_BOUND" ]; } && ATCAP=1
