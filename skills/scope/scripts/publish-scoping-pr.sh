@@ -315,6 +315,15 @@ if [ -n "$WIP_PATHS" ]; then
     ctx add wip_paths "$JOINED"
     if [ "$PUBLIC" -eq 1 ]; then
         HIT=""
+        # The path list and each blob go to files, and grep's own status on
+        # the file decides. Piped into `grep -q`, an early match ends grep
+        # while the writer is still going, the writer dies of SIGPIPE, and
+        # under pipefail the pipeline's 141 read as "no match": a listed path
+        # was skipped unscanned, or a blob with a hit passed, and the push went
+        # through. Here 0 is a match, 1 is none, and anything else refuses.
+        # tsukumogami/shirabe#436 tracks the same shape elsewhere.
+        printf '%s\n' "$WIP_PATHS" >"$SCRATCH/wip_paths" \
+            || fail scope:push "cannot stage the wip/ path list for the visibility check; nothing was pushed"
         # Every version of every listed path that an unpushed commit holds:
         # each commit's own wip/ tree, filtered to the listed paths, so no
         # path is asked of a commit that does not have it.
@@ -322,11 +331,24 @@ if [ -n "$WIP_PATHS" ]; then
             TREE_PATHS=$(git ls-tree -r --name-only "$c" -- wip/) || fail scope:push "cannot read the tree of $c"
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
-                printf '%s\n' "$WIP_PATHS" | grep -qxF -- "$p" || continue
-                if git cat-file -p "$c:$p" \
-                    | grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private'; then
-                    HIT="$p"; break
-                fi
+                LISTED=0
+                grep -qxF -- "$p" "$SCRATCH/wip_paths" || LISTED=$?
+                case "$LISTED" in
+                    0) ;;
+                    1) continue ;;
+                    *) fail scope:push "the visibility check could not match $p against the wip/ list (grep exit $LISTED); nothing was pushed" ;;
+                esac
+                # A path git prints quoted (unusual characters) can't be read
+                # back by that name, and refuses here rather than going unscanned.
+                git cat-file -p "$c:$p" >"$SCRATCH/blob" \
+                    || fail scope:push "cannot read $p at $c for the visibility check (a quoted or unreadable path); nothing was pushed"
+                SCAN=0
+                grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCRATCH/blob" || SCAN=$?
+                case "$SCAN" in
+                    0) HIT="$p"; break ;;
+                    1) ;;
+                    *) fail scope:push "the visibility check could not scan $p at $c (grep exit $SCAN); nothing was pushed" ;;
+                esac
             done <<EOF
 $TREE_PATHS
 EOF
