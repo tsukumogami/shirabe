@@ -378,7 +378,7 @@ lib_parked() {
         st=false
         if [ -n "$vh" ] && lib_pr_link "$pr"; then
             gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
-            st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr" 2>/dev/null) || return 2
+            st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2
         fi
         printf '%s' "$row" | jq -c --argjson p "$st" '. + {parked: $p}' >> "$2.rows"
         i=$((i + 1))

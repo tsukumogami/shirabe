@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# deferral-check.sh -- the check action of state dispatch_check: may this
+# dispatch go ahead? Also a row mode other scripts call to judge one Deferrals
+# row.
+#
+# Check mode, first that applies:
+#   record-changed        the record the run found (coord-log.sh run-facts) is
+#                         gone, closed, or no longer a canonical record of
+#                         this scope, or the run has no found record
+#   deferral-open <count> <count> deferrals are open: a row raised before the
+#                         run start (coord-log.sh run-start) that isn't
+#                         disposed (row mode below), a `filed #<n>` naming no
+#                         issue in the host repository, and, at discipline
+#                         scope until a DISPATCH_CHECK capture in this run read
+#                         `ok`, a deferral of the handoff file
+#                         docs/disciplines/<name>.md on the host's default
+#                         branch (absent: none) that the record doesn't carry,
+#                         by its Deferral text, with a disposition
+#   at-cap <active>/<cap> <parked>/<bound>
+#                         the pick being checked (the latest `pick` evidence)
+#                         would pass the cap or the parked bound: dispatch and
+#                         scope_ahead add an active worker, so they need
+#                         active < CAP and parked < PARKED_BOUND;
+#                         send_execution moves a worker already counted, so it
+#                         is at the cap only when active > CAP
+#   ok <topic>            clear; <topic> is the latest pick evidence's `unit`
+#                         (`-` when it names no dispatch topic)
+# A row is parked when it has a Verified head and its pull request is open and
+# not a draft; every other Holdings row is active. CAP and PARKED_BOUND are the
+# session's variables. The detail goes to context key coord/dispatch_check.json.
+#
+# Row mode judges one Deferrals row (a JSON object with deferral, reason,
+# raised, disposition) against a run start, and prints one of:
+#   disposed filed <n> | disposed closed | disposed carried <time>
+#   undisposed empty | undisposed malformed | undisposed carried-before-run-start
+#   undisposed raised-this-run    (undisposed, but raised at or after the run
+#                                 start, so not a predecessor's; exit 0)
+# A carry time counts when it is at or after the run start, compared to the
+# minute (the Disposition's resolution). Row mode reads nothing from GitHub, so
+# it can't tell whether a filed issue exists; check mode does.
+#
+# Usage:
+#   deferral-check.sh --session S
+#   deferral-check.sh --session S --scope roadmap|discipline --name N --repo O/R
+#                     --ref N [--no-seal]                            (tests)
+#   deferral-check.sh --row-file F --run-start YYYY-MM-DDTHH:MM[:SS[.fff]]Z
+#
+# Exit codes, check mode: 0 a verdict was printed; 2 a read failed; 64 usage.
+# Row mode: 0 disposed or raised-this-run; 1 undisposed; 64 usage.
+#
+# GitHub reads: gh issue view <n> --repo R --json state,body |
+# gh pr view <n> --repo R --json state,body,headRefName,isCrossRepository;
+# gh api --method GET repos/R/issues/<n>; gh api --method GET repos/R --jq
+# .default_branch; gh api --method GET "repos/R/contents/<path>?ref=<default>";
+# gh pr view <n> --repo <repo> --json state,isDraft for each verified holding.
+set -uo pipefail
+
+PROG=deferral-check
+HERE=$(cd "$(dirname "$0")" && pwd)
+SESSION= SCOPE= NAME= REPO= REF= ROWFILE= RUNSTART=
+NO_SEAL=0 SKIP_CHECKS=0
+
+usage() { sed -n '/^# Usage:/,/^# Exit codes,/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
+        --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
+        --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
+        --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
+        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
+        --row-file) [ $# -ge 2 ] || usage; ROWFILE=$2; shift 2 ;;
+        --run-start) [ $# -ge 2 ] || usage; RUNSTART=$2; shift 2 ;;
+        --no-seal) NO_SEAL=1; shift ;;
+        *) usage ;;
+    esac
+done
+. "$HERE/record-common.sh"
+
+# minute <time>: YYYY-MM-DDTHH:MM of a valid time, else empty.
+minute() { lib_epoch "$1" > /dev/null 2>&1 && printf '%s' "${1:0:16}"; }
+
+# judge_row <row-json> <run-start-minute>: sets ROW_VERDICT; returns 0 when
+# disposed, 1 when not. The raised-this-run exemption is the caller's.
+judge_row() {
+    local d re_filed='^filed #([1-9][0-9]*)$' re_carried='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z): (.+)$' t
+    d=$(printf '%s' "$1" | jq -r '.disposition // "" | tostring')
+    ROW_FILED=
+    if [ -z "$d" ]; then ROW_VERDICT="undisposed empty"; return 1; fi
+    if [[ $d =~ $re_filed ]]; then ROW_FILED=${BASH_REMATCH[1]}; ROW_VERDICT="disposed filed $ROW_FILED"; return 0; fi
+    case "$d" in "closed: "?*) ROW_VERDICT="disposed closed"; return 0 ;; esac
+    if [[ $d =~ $re_carried ]]; then
+        t=${BASH_REMATCH[1]}
+        [ -n "$(minute "$t")" ] || { ROW_VERDICT="undisposed malformed"; return 1; }
+        case "${BASH_REMATCH[2]}" in *[![:space:]]*) ;; *) ROW_VERDICT="undisposed malformed"; return 1 ;; esac
+        if [ "$(minute "$t")" \< "$2" ]; then ROW_VERDICT="undisposed carried-before-run-start"; return 1; fi
+        ROW_VERDICT="disposed carried $t"; return 0
+    fi
+    ROW_VERDICT="undisposed malformed"
+    return 1
+}
+
+# raised_this_run <row-json> <run-start-minute>: the row's Raised is a valid
+# time at or after the run start.
+raised_this_run() {
+    local r
+    r=$(printf '%s' "$1" | jq -r '.raised // "" | tostring')
+    r=$(minute "$r")
+    [ -n "$r" ] && [ ! "$r" \< "$2" ]
+}
+
+# ---- row mode ----------------------------------------------------------------
+if [ -n "$ROWFILE$RUNSTART" ]; then
+    [ -n "$ROWFILE" ] && [ -n "$RUNSTART" ] && [ -z "$SESSION$SCOPE$NAME$REPO$REF" ] && [ "$NO_SEAL" = 0 ] || usage
+    [ -r "$ROWFILE" ] || usage
+    RS=$(minute "$RUNSTART"); [ -n "$RS" ] || usage
+    ROW=$(jq -c 'select(type == "object")' "$ROWFILE")
+    [ -n "$ROW" ] || { echo "undisposed malformed"; exit 1; }
+    if judge_row "$ROW" "$RS"; then echo "$ROW_VERDICT"; exit 0; fi
+    if raised_this_run "$ROW" "$RS"; then echo "undisposed raised-this-run"; exit 0; fi
+    echo "$ROW_VERDICT"
+    exit 1
+fi
+
+# ---- check mode --------------------------------------------------------------
+[ -n "$SESSION" ] || usage
+lib_facts
+lib_bounds
+lib_log || lib_die2 "no readable log for $SESSION"
+
+T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+
+REASON= OPEN='[]' ACTIVE=0 PARKED=0 CHOICE= TOPIC=- COMPARED=false
+finish() {
+    jq -n --arg v "${1%% *}" --arg ref "$REF" --arg reason "$REASON" --argjson open "$OPEN" \
+        --argjson a "$ACTIVE" --argjson p "$PARKED" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" \
+        --arg choice "$CHOICE" --arg topic "$TOPIC" --argjson cmp "$COMPARED" \
+        '{verdict: $v, ref: $ref, reason: $reason, open_deferrals: $open, active: $a, parked: $p, cap: $cap,
+          parked_bound: $pb, choice: $choice, topic: $topic, handoff_compared: $cmp}' > "$T/detail.json"
+    lib_emit dispatch_check "$1" coord/dispatch_check.json "$T/detail.json"
+}
+
+# The pick being checked.
+PICK=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "pick") | .payload.fields // {}' "$LOG" | tail -1)
+if [ -n "$PICK" ]; then
+    CHOICE=$(printf '%s' "$PICK" | jq -r '.choice // "" | tostring')
+    U=$(printf '%s' "$PICK" | jq -r '.unit // "" | tostring')
+    [[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && TOPIC=$U
+fi
+case "$CHOICE" in ''|dispatch|scope_ahead|send_execution) ;; *) CHOICE=other ;; esac
+
+# The record, by the run's ref.
+lib_run_ref || { REASON="the run has no found record"; finish record-changed; }
+changed_or_die() { # changed_or_die <err-file> <what>
+    if grep -qE 'Could not resolve|Not Found|HTTP 404|no pull requests found' "$1"; then
+        REASON="$2 is gone"; finish record-changed
+    fi
+    lib_die2 "cannot read $2: $(lib_scrub < "$1")"
+}
+if [ "$SCOPE" = roadmap ]; then
+    gh issue view "$REF" --repo "$REPO" --json state,body > "$T/rec.json" 2> "$T/rec.err" < /dev/null || changed_or_die "$T/rec.err" "issue #$REF"
+    [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="issue #$REF is closed"; finish record-changed; }
+else
+    gh pr view "$REF" --repo "$REPO" --json state,body,headRefName,isCrossRepository > "$T/rec.json" 2> "$T/rec.err" < /dev/null \
+        || changed_or_die "$T/rec.err" "pull request #$REF"
+    [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="pull request #$REF is not open"; finish record-changed; }
+    [ "$(jq -r .headRefName "$T/rec.json")" = "$BRANCH" ] && [ "$(jq -r .isCrossRepository "$T/rec.json")" = false ] \
+        || { REASON="pull request #$REF is not from $BRANCH"; finish record-changed; }
+fi
+jq -r '.body // ""' "$T/rec.json" > "$T/body.md"
+lib_parse "$T/body.md" "$T/parsed.json"
+case $? in
+    0) ;;
+    3|65) REASON="#$REF is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
+    *) lib_die2 "record-parse.sh failed" ;;
+esac
+
+# Deferrals raised before the run start.
+START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
+RS=$(minute "$START"); [ -n "$RS" ] || lib_die2 "the run start $START is not a time"
+: > "$T/open.jsonl"
+open_row() { # open_row <deferral-text> <why>
+    jq -nc --arg d "$1" --arg w "$2" '{deferral: ($d | .[0:200]), why: $w}' >> "$T/open.jsonl"
+}
+N=$(jq '.deferrals | length' "$T/parsed.json")
+i=0
+while [ "$i" -lt "$N" ]; do
+    ROW=$(jq -c --argjson i "$i" '.deferrals[$i]' "$T/parsed.json")
+    TEXT=$(printf '%s' "$ROW" | jq -r .deferral)
+    i=$((i + 1))
+    if judge_row "$ROW" "$RS"; then
+        if [ -n "$ROW_FILED" ]; then
+            if gh api --method GET "repos/$REPO/issues/$ROW_FILED" > "$T/filed.json" 2> "$T/filed.err" < /dev/null; then
+                jq -e 'has("pull_request") | not' "$T/filed.json" > /dev/null || open_row "$TEXT" "filed #$ROW_FILED is a pull request, not an issue"
+            else
+                grep -q 'HTTP 404' "$T/filed.err" || lib_die2 "cannot read issue #$ROW_FILED: $(lib_scrub < "$T/filed.err")"
+                open_row "$TEXT" "filed #$ROW_FILED names no issue in $REPO"
+            fi
+        fi
+        continue
+    fi
+    raised_this_run "$ROW" "$RS" && continue
+    open_row "$TEXT" "${ROW_VERDICT#undisposed }"
+done
+
+# The previous rotation's handoff, until this run's first pass.
+if [ "$SCOPE" = discipline ]; then
+    PASSED=0
+    for V in $(jq -r 'select(.type == "variable_captured" and .payload.key == "DISPATCH_CHECK") | .payload.value | select(startswith("ok ")) | @base64' "$LOG"); do
+        V=$(printf '%s' "$V" | base64 -d 2>/dev/null || printf '%s' "$V" | base64 -D 2>/dev/null)
+        if bash "$HERE/coord-log.sh" check --session "$SESSION" --state dispatch_check --sealed "$V" --any-visit > /dev/null 2>&1; then
+            PASSED=1; break
+        fi
+    done
+    if [ "$PASSED" = 0 ]; then
+        COMPARED=true
+        lib_default_branch || lib_die2 "cannot read $REPO's default branch"
+        lib_file_at "docs/disciplines/$NAME.md" "$DEFAULT_BRANCH" "$T/handoff.md"
+        case $? in
+            0)
+                if bash "$HERE/record-parse.sh" --format handoff --no-canonical "$T/handoff.md" > "$T/handoff.json" 2> /dev/null; then
+                    M=$(jq '.deferrals | length' "$T/handoff.json")
+                    j=0
+                    while [ "$j" -lt "$M" ]; do
+                        TEXT=$(jq -r --argjson j "$j" '.deferrals[$j].deferral' "$T/handoff.json")
+                        j=$((j + 1))
+                        MINE=$(jq -c --arg d "$TEXT" '[.deferrals[] | select(.deferral == $d)][0] // empty' "$T/parsed.json")
+                        if [ -z "$MINE" ]; then open_row "$TEXT" "in the previous rotation's handoff, missing from the record"; continue; fi
+                        # The record's copy needs a disposition however recently it was raised.
+                        judge_row "$MINE" "$RS" || open_row "$TEXT" "the previous rotation's deferral is ${ROW_VERDICT#undisposed }"
+                    done
+                else
+                    open_row "docs/disciplines/$NAME.md" "the handoff file on $DEFAULT_BRANCH does not parse"
+                fi ;;
+            1) ;;
+            *) lib_die2 "cannot read the handoff file: $(lib_scrub < "$T/handoff.md.err")" ;;
+        esac
+    fi
+fi
+OPEN=$(jq -s -c 'unique_by(.deferral + "\u0000" + .why)' "$T/open.jsonl")
+COUNT=$(printf '%s' "$OPEN" | jq 'map(.deferral) | unique | length')
+if [ "$COUNT" -gt 0 ]; then
+    REASON="$COUNT deferral(s) open"; finish "deferral-open $COUNT"
+fi
+
+# The cap and the parked bound.
+jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
+lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
+PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
+ACTIVE=$(jq '[.[] | select(.parked | not)] | length' "$T/counted.json")
+ATCAP=0
+if [ "$CHOICE" = send_execution ]; then
+    [ "$ACTIVE" -gt "$CAP" ] && ATCAP=1
+else
+    { [ "$ACTIVE" -ge "$CAP" ] || [ "$PARKED" -ge "$PARKED_BOUND" ]; } && ATCAP=1
+fi
+if [ "$ATCAP" = 1 ]; then
+    REASON="active $ACTIVE of $CAP, parked $PARKED of $PARKED_BOUND"
+    finish "at-cap $ACTIVE/$CAP $PARKED/$PARKED_BOUND"
+fi
+REASON="clear to dispatch"
+finish "ok $TOPIC"
