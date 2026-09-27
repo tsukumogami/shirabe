@@ -12,10 +12,10 @@ description: >-
   (`/scope`), to run a PLAN that already exists and needs no re-scoping
   (`/execute`), or to fix one known issue (`/work-on`).
 argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--koto-leg=<request-id>:deliver]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh deliver 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh deliver 2>&1 || true`
 
 # Deliver
 
@@ -139,7 +139,7 @@ nothing else.
    directory outside the work tree:
 
    ```bash
-   ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+   ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
    ```
 
    Write `$ARGS_DIR/args.json` with the Write tool or `jq`, never by pasting
@@ -150,7 +150,7 @@ nothing else.
 2. **Open the session.**
 
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} "$ARGS_DIR/args.json"
+   ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} "$ARGS_DIR/args.json"
    ```
 
    It maps each token to a variable with `jq`, resolves the mode, and opens a
@@ -175,7 +175,7 @@ nothing else.
    verbatim, and compose no line of your own:
 
    ```bash
-   koto status deliver-<topic> | bash ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-report.sh
+   koto status deliver-<topic> | ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-report.sh
    ```
 
 5. **Close the request.** On the way out, close this run's request:

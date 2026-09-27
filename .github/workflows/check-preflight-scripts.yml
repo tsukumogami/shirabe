@@ -128,9 +128,11 @@ jobs:
       #
       # bash is also the interpreter production uses. The line injected into
       # every skill body is
-      # `bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <name>`, so both
-      # legs test what actually runs at skill load rather than an approximation
-      # of it.
+      # `${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <name>`, run by path
+      # through its `#!/usr/bin/env bash` shebang, so both legs test the
+      # interpreter that runs at skill load. The suites call that interpreter
+      # explicitly; the by-path half (the committed exec bit and the #! line)
+      # is held by check-directive-invocations.yml.
       #
       # The two legs together are the cross-version output check: the same
       # tests, with the same recorded expectations, have to pass under bash 3.2

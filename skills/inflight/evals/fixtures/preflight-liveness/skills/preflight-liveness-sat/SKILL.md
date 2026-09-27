@@ -6,10 +6,10 @@ description: >-
   met prerequisite costs the model nothing. Not a workflow skill and not
   shipped in the shirabe plugin.
 argument-hint: ''
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-sat 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-sat 2>&1 || true`
 
 # Preflight liveness fixture (satisfied)
 

@@ -15,10 +15,10 @@ description: >-
   plan you did not just author. Do NOT use it to write or decompose a plan
   (`/plan`, `/scope`) or to review code.
 argument-hint: '<plan-artifact-or-topic> [--adversarial]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh review-plan 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh review-plan 2>&1 || true`
 
 # Review Plan Skill
 

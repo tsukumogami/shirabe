@@ -15,10 +15,10 @@ description: >-
   options already on the table (`/decision`), or when the case being made is
   for your own project rather than against theirs (`/vision`).
 argument-hint: <topic-slug> [--upstream <path>]
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh comp 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh comp 2>&1 || true`
 
 # Competitive Analysis Workflow
 

@@ -245,6 +245,8 @@ suite_scripts() {
             echo "scripts/check-template-interpolation.sh"
             echo "scripts/check-template-directives_test.sh"
             echo "scripts/check-template-directives.sh"
+            echo "scripts/check-directive-invocations_test.sh"
+            echo "scripts/check-directive-invocations.sh"
             echo "scripts/check-init-site-vars_test.sh"
             echo "scripts/check-init-site-vars.sh"
             # Read the templates' front matter with yq, which the floor image
