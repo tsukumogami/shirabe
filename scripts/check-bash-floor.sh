@@ -20,6 +20,8 @@
 # Options:
 #   --backend docker|system|auto   how to reach a bash 3.2 (default: auto)
 #   --list                         list the suites and what each one runs
+#   --suites                       the CI suite names, one per line
+#   --scripts <suite>              that suite's scripts, one per line
 #   -h, --help                     this message
 #
 # Backends:
@@ -112,6 +114,11 @@ mktempdir() {
 #       checks it covers. All three are written for bash 3.2 and were run under
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
+#
+# Backend limit, not an exemption: the `preflight` suite fails on the docker
+# backend for non-bash reasons (busybox lacks `ps -o pgid=` and job control),
+# so `all` on Linux reports it red; its floor run is the macOS leg, on the
+# system backend.
 
 SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope"
 
@@ -202,6 +209,9 @@ suite_scripts() {
             # cases run without koto and include invoking it.
             ;;
         preflight)
+            # Runs on the system backend only. In the docker container it fails
+            # for reasons unrelated to bash: the probe needs `ps -o pgid=` and
+            # job control, which busybox lacks. Its floor run is the macOS leg.
             echo "scripts/skill-preflight_test.sh"
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
@@ -549,6 +559,18 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --list)
             list_suites
+            exit 0
+            ;;
+        # Machine-readable forms of --list, for tools that need the registry
+        # (scripts/check-macos-floor-legs.sh). --list is for people and may
+        # change shape; these print one name per line and nothing else.
+        --suites)
+            for suite in $SUITES; do echo "$suite"; done
+            exit 0
+            ;;
+        --scripts)
+            [ $# -ge 2 ] || die "--scripts needs a suite name (try --suites)"
+            suite_scripts "$2" || die "unknown suite: $2 (try --suites)"
             exit 0
             ;;
         --backend)

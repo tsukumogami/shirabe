@@ -14,19 +14,24 @@
 # and puts a shim first on PATH so every nested `bash` is 3.2 too. So, for every
 # job that can run on macOS (its runs-on or its matrix names macOS):
 #
+# A floor script is any script in one of the runner's suites (read with its
+# --suites and --scripts queries) or any `*_test.sh`. Then:
+#
 #   - a step that can run on macOS -- any step whose `if` does not limit it to
-#     Linux -- fails the check when it runs `bash <script>` or `/bin/bash
-#     <script>`, or names a `*_test.sh` suite on any line that is not a floor
-#     call (so `sudo`, `timeout`, `bash -x` and `if bash ...` forms are caught
-#     too);
-#   - a job that runs any `*_test.sh` suite must run check-bash-floor.sh
-#     --backend system in a step that can run on macOS. A floor step limited
-#     to Linux by mistake leaves the macOS leg proving nothing while it reports
-#     green, and this is what catches it;
-#   - every `*_test.sh` a job's Linux-only steps run must be in a suite its
-#     floor step names, read from `check-bash-floor.sh --list`. The Linux
-#     steps and the registry each list the scripts, and without this a harness
-#     added to a Linux step would silently never reach the macOS floor.
+#     Linux -- fails the check when a line that is not a floor call names a
+#     floor script, however it is invoked (by path, `bash`, `/bin/bash`, or
+#     behind `sudo`, `timeout`, `bash -x` or `if`), and when it runs any other
+#     script with `bash` or `/bin/bash`;
+#   - a job that runs a floor script must run check-bash-floor.sh --backend
+#     system in a step that can run on macOS. A floor step limited to Linux by
+#     mistake leaves the macOS leg proving nothing while it reports green, and
+#     this is what catches it;
+#   - every floor script a job's Linux-only steps run must be in a suite its
+#     floor step names. The Linux steps and the registry each list the
+#     scripts, and without this a script added to a Linux step would silently
+#     never reach the macOS floor. A script in no suite that is not a
+#     `*_test.sh` (assert-koto-floor.sh, say) is not a floor script and is
+#     outside this rule.
 #
 # Not suite runs, so not checked: `bash -c`, and an installer piped into
 # `| bash`.
@@ -35,8 +40,8 @@
 #        (default: every workflow under .github/workflows/)
 #
 # Environment:
-#   CHECK_MACOS_FLOOR_REGISTRY   a file in `check-bash-floor.sh --list` format
-#                                to read instead of running it (the tests)
+#   CHECK_MACOS_FLOOR_RUNNER   a stand-in for scripts/check-bash-floor.sh that
+#                              answers --suites and --scripts (the tests)
 #
 # Requires mikefarah yq v4 (to read the YAML) and python3.
 #
@@ -60,12 +65,25 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-macos-floor-legs.XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
 
-if [ -n "${CHECK_MACOS_FLOOR_REGISTRY:-}" ]; then
-    cp "$CHECK_MACOS_FLOOR_REGISTRY" "$T/registry.txt" || exit 2
-elif ! "$SCRIPT_DIR/check-bash-floor.sh" --list >"$T/registry.txt" 2>&1; then
-    echo "check-macos-floor-legs: could not read the floor registry: $(cat "$T/registry.txt")" >&2
+# The registry, one "<suite><TAB><script>" line per script, from the runner's
+# machine-readable queries rather than its human-facing --list.
+RUNNER="${CHECK_MACOS_FLOOR_RUNNER:-$SCRIPT_DIR/check-bash-floor.sh}"
+if ! suites=$("$RUNNER" --suites 2>&1); then
+    echo "check-macos-floor-legs: could not read the floor suites: $suites" >&2
     exit 2
 fi
+: >"$T/registry.tsv"
+for suite in $suites; do
+    if ! scripts=$("$RUNNER" --scripts "$suite" 2>&1); then
+        echo "check-macos-floor-legs: could not read suite $suite: $scripts" >&2
+        exit 2
+    fi
+    for script in $scripts; do
+        printf '%s\t%s\n' "$suite" "$script" >>"$T/registry.tsv"
+    done
+    # A suite with no scripts still exists, so a floor call naming it is known.
+    [ -n "$scripts" ] || printf '%s\t\n' "$suite" >>"$T/registry.tsv"
+done
 
 status=0
 for wf in "$@"; do
@@ -85,26 +103,33 @@ for wf in "$@"; do
         continue
     fi
     rc=0
-    python3 - "${wf#"$REPO_ROOT"/}" "$T/wf.json" "$T/registry.txt" <<'PY' || rc=$?
+    python3 - "${wf#"$REPO_ROOT"/}" "$T/wf.json" "$T/registry.tsv" <<'PY' || rc=$?
 import json, re, sys
 
 label, path, registry_path = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as fh:
     wf = json.load(fh) or {}
 
-# `check-bash-floor.sh --list`: a suite name indented two spaces, then its
-# workflow, then its scripts indented six.
-registry, current = {}, None
+registry = {}
 with open(registry_path) as fh:
     for line in fh:
-        line = line.rstrip("\n")
-        if re.match(r"^  \S+$", line):
-            current = line.strip()
-            registry[current] = set()
-        elif current and re.match(r"^      \S", line):
-            registry[current].add(line.strip())
-        elif not line.strip():
-            current = None
+        suite, _, script = line.rstrip("\n").partition("\t")
+        registry.setdefault(suite, set())
+        if script:
+            registry[suite].add(script)
+REGISTERED = set().union(*registry.values()) if registry else set()
+
+SCRIPT_TOKEN = re.compile(r"(?<![\w/.-])(?:\./)?([\w/.-]+\.sh)\b")
+
+
+def floor_scripts_in(line):
+    """The floor scripts a line names: registered in a suite, or a *_test.sh."""
+    found = []
+    for m in SCRIPT_TOKEN.finditer(line):
+        script = m.group(1)
+        if script in REGISTERED or script.endswith("_test.sh"):
+            found.append(script)
+    return found
 
 # A command position: the start of a line, or after &&, ||, ;, a subshell or
 # group opener, or a then/do/else. A single | is deliberately absent, so an
@@ -118,7 +143,6 @@ SYSTEM_BASH = re.compile(POS + r"/bin/bash\s+(?!-c\b)((?:-\S+\s+)*[^-\s]\S*)")
 FLOOR = re.compile(POS + r"(?:\./)?scripts/check-bash-floor\.sh\b(.*)")
 FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
 SEPARATOR = re.compile(r"(&&|\|\||;|\||#)")
-ANY_SUITE = re.compile(r"(?:\./)?[\w./-]*_test\.sh\b")
 
 # A condition limits a step to Linux only in these simple forms. Anything
 # compound or negated is read as able to run on macOS: a false alarm on an odd
@@ -157,23 +181,21 @@ for job_name, job in (wf.get("jobs") or {}).items():
         continue
     runs_suites = False
     floor_suites = set()
-    linux_suites = []  # (step name, script) run by Linux-only steps
+    linux_suites = []  # (step name, floor script) run by Linux-only steps
     for index, step in enumerate(job.get("steps") or []):
         if not isinstance(step, dict) or not step.get("run"):
             continue
         run = str(step["run"])
         name = step.get("name") or f"step {index + 1}"
-        if ANY_SUITE.search(run):
+        lines = list(logical_lines(run))
+        if any(floor_scripts_in(line) for line in lines):
             runs_suites = True
         if not can_run_on_macos(step):
-            for line in logical_lines(run):
-                for m in ANY_SUITE.finditer(line):
-                    script = m.group(0)
-                    if script.startswith("./"):
-                        script = script[2:]
+            for line in lines:
+                for script in floor_scripts_in(line):
                     linux_suites.append((name, script))
             continue
-        for line in logical_lines(run):
+        for line in lines:
             floor = FLOOR.search(line)
             if floor:
                 # The floor call's own arguments end at the first separator;
@@ -196,20 +218,22 @@ for job_name, job in (wf.get("jobs") or {}).items():
                 line = rest
             reported = set()
             for m in PLAIN_BASH.finditer(line):
-                reported.add(m.group(1).split()[-1])
+                reported.add(m.group(1).split()[-1].removeprefix("./"))
                 violations.append((job_name, name, f"bash {m.group(1)}",
                     "plain bash " + BASH5))
             for m in SYSTEM_BASH.finditer(line):
-                reported.add(m.group(1).split()[-1])
+                reported.add(m.group(1).split()[-1].removeprefix("./"))
                 violations.append((job_name, name, f"/bin/bash {m.group(1)}",
                     "/bin/bash puts only this script on 3.2; a nested bash inside it is "
                     "still Homebrew's bash 5 on a macOS runner; reach the floor with "
                     "scripts/check-bash-floor.sh --backend system <suite>"))
-            for m in ANY_SUITE.finditer(line):
-                if m.group(0) not in reported:
-                    violations.append((job_name, name, m.group(0),
-                        "a suite run outside the floor runner gets whatever bash runs it, "
-                        "and " + BASH5))
+            # Keyed on what the script is, not how it was invoked: a floor
+            # script run by path, or behind sudo, timeout or `if`, is caught.
+            for script in floor_scripts_in(line):
+                if script not in reported:
+                    violations.append((job_name, name, script,
+                        "a floor script run outside the floor runner gets whatever bash "
+                        "runs it, and " + BASH5))
     if runs_suites and not floor_suites:
         violations.append((job_name, "(whole job)", "no floor step",
             "the job runs shell suites and has a macOS leg, but no step that can run "
@@ -219,7 +243,7 @@ for job_name, job in (wf.get("jobs") or {}).items():
     for suite in sorted(floor_suites):
         if suite not in registry:
             violations.append((job_name, "(whole job)", f"floor suite {suite}",
-                "check-bash-floor.sh --list has no such suite"))
+                "check-bash-floor.sh --suites has no such suite"))
     covered = set()
     for suite in floor_suites:
         covered |= registry.get(suite, set())

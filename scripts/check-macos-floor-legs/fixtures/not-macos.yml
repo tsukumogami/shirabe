@@ -18,5 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # A comment naming a suite is not a suite run, so this job needs no floor.
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          # skills/demo/scripts/one_test.sh runs in another workflow
+          cargo build --release --target ${{ matrix.target }}

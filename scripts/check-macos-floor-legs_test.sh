@@ -30,11 +30,11 @@ trap cleanup EXIT
 
 RC=0
 OUT=""
-# The fixtures call a `demo` suite, which the fixture registry defines in the
-# format `check-bash-floor.sh --list` prints.
+# The fixtures call `demo` and `other` suites, which a stand-in runner defines
+# through the same --suites and --scripts queries the real one answers.
 lint() { # lint <workflow>...
     RC=0
-    OUT=$(CHECK_MACOS_FLOOR_REGISTRY="$FIXTURES/registry.txt" "$LINT" "$@" 2>&1) || RC=$?
+    OUT=$(CHECK_MACOS_FLOOR_RUNNER="$FIXTURES/bin/check-bash-floor.sh" "$LINT" "$@" 2>&1) || RC=$?
 }
 
 has() { printf '%s' "$OUT" | grep -qF -- "$1"; }
@@ -65,8 +65,11 @@ fi
 
 lint "$FIXTURES/by-path.yml"
 if [ "$RC" -eq 1 ] && has ": skills/demo/scripts/one_test.sh" \
-    && has "bash scripts/two_test.sh" && [ "$(count 'step "')" -eq 2 ]; then
-    pass "a suite run by path, and one chained after cd and a variable, both fail on a macos runs-on"
+    && has "bash scripts/two_test.sh" \
+    && has 'step "Run the scan by path": scripts/demo-scan.sh' \
+    && has 'step "Run the scan with sudo": scripts/demo-scan.sh' \
+    && [ "$(count 'step "')" -eq 4 ]; then
+    pass "a suite by path, one chained after cd, and a registered non-test script by path or behind sudo all fail"
 else
     fail "by-path fixture (rc=$RC): $OUT"
 fi
@@ -80,8 +83,10 @@ fi
 
 lint "$FIXTURES/drift.yml"
 if [ "$RC" -eq 1 ] && has "skills/demo/scripts/three_test.sh" \
-    && has "in none of its floor suites (demo)" && [ "$(count 'step "')" -eq 1 ]; then
-    pass "a harness run on Linux but missing from the floor suite fails; the listed one passes"
+    && has ": scripts/other-scan.sh" \
+    && has "in none of its floor suites (demo)" && ! has "assert-koto-floor.sh" \
+    && [ "$(count 'step "')" -eq 2 ]; then
+    pass "a harness or another suite's script run on Linux but missing from the floor suite fails; a non-floor script passes"
 else
     fail "drift fixture (rc=$RC): $OUT"
 fi
@@ -101,7 +106,7 @@ fi
 
 lint "$FIXTURES/not-macos.yml"
 if [ "$RC" -eq 0 ]; then
-    pass "a Linux-only job, and a macOS job that runs no suite, pass"
+    pass "a Linux-only job, and a macOS job that runs no suite (only names one in a comment), pass"
 else
     fail "not-macos fixture (rc=$RC): $OUT"
 fi

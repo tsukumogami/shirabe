@@ -1,5 +1,7 @@
 # Fails: a harness was added to the Linux step but not to the `demo` suite,
-# so the macOS leg never runs it on 3.2 while every step stays green.
+# so the macOS leg never runs it on 3.2 while every step stays green; the same
+# goes for a script registered in another suite. assert-koto-floor.sh is in no
+# suite and is not a *_test.sh, so it is not a floor script and passes.
 name: drift
 on: pull_request
 jobs:
@@ -15,6 +17,8 @@ jobs:
         run: |
           bash skills/demo/scripts/one_test.sh
           bash skills/demo/scripts/three_test.sh
+          bash scripts/other-scan.sh
+          bash scripts/assert-koto-floor.sh
       - name: Run tests on the floor (macOS)
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system demo

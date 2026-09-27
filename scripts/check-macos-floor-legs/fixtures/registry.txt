@@ -1,9 +1,0 @@
-Suites (scripts/check-bash-floor.sh <suite>):
-
-  demo
-    from .github/workflows/check-demo-scripts.yml
-      skills/demo/scripts/one_test.sh
-      skills/demo/scripts/two_test.sh
-
-  all
-    every suite above, in order
