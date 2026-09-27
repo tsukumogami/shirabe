@@ -135,6 +135,7 @@ suite_scripts() {
             # The single-pr merge step's scripts, each driven through test-local
             # gh and koto stubs (and real git), so every case runs on 3.2.
             echo "skills/execute/scripts/owned-pr_test.sh"
+            echo "skills/execute/scripts/run-id_test.sh"
             echo "skills/execute/scripts/push-and-record_test.sh"
             echo "skills/execute/scripts/record-merge-verdict_test.sh"
             echo "skills/execute/scripts/adopt-or-create-pr_test.sh"

@@ -23,8 +23,14 @@
 #
 #   one URL, exit 0     -> one, then `gh pr view <url> --json state`
 #   empty, exit 0       -> none         (a foreign-only branch included)
-#   exit 3              -> several
+#   exit 5              -> none         (the one PR is another run's)
+#   exit 3 or 4         -> several      (4: an ambiguous, marked lookup)
 #   exit 2, or anything else, or a URL outside the pattern -> read-failed
+#
+# The lookup carries this run's identity (`run-id.sh get <session>`, the
+# session's `run_id`, minted on first use), so a PR another run marked is never
+# reported as this topic's. /scope's own PR carries no marker and is matched on
+# the login-and-branch fallback.
 #
 # `executed_report` sends one with merged or open to done_executed, and every
 # other verdict, an absent one included, to done_error with scope:pr-create.
@@ -39,7 +45,7 @@
 # Exit codes:
 #   0   a verdict was written (any of the four)
 #   64  usage error; nothing written
-#   66  a `koto context` call failed
+#   66  a `koto context` call failed (including reading or minting run_id)
 #
 # Read-only on GitHub and on the working tree: its only gh calls are
 # `gh repo view`, owned-pr.sh's reads, and `gh pr view`. bash 3.2.
@@ -48,6 +54,7 @@ set -uo pipefail
 PROG=record-executed-report
 HERE=$(cd "$(dirname "$0")" && pwd)
 OWNED="$HERE/../../execute/scripts/owned-pr.sh"
+RUNID="$HERE/../../execute/scripts/run-id.sh"
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
@@ -108,11 +115,16 @@ if ! [[ "$REPO" =~ $RE_REPO ]]; then
     verdict read-failed
 fi
 
-URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state all </dev/null)
+RUN_ID=$(bash "$RUNID" get "$SESSION" </dev/null) || {
+    printf '%s: could not read or mint this run'"'"'s identity\n' "$PROG" >&2
+    exit 66
+}
+URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state all --run-id "$RUN_ID" </dev/null)
 RC=$?
 case "$RC" in
     0) ;;
-    3) verdict several ;;
+    3|4) verdict several ;;
+    5) verdict none ;;
     *) printf '%s: owned-pr.sh exited %s\n' "$PROG" "$RC" >&2; verdict read-failed ;;
 esac
 [ -n "$URL" ] || verdict none

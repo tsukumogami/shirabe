@@ -31,13 +31,19 @@
 #                        when it is none (no gh call is made then)
 #   exit_record          --stage exit only: ok | error, written last. error
 #                        means the PR lookup could not name exactly one owned
-#                        PR (owned-pr.sh zero, several, or a read failure),
+#                        PR (owned-pr.sh zero, several, ambiguous, another
+#                        run's, or a read failure),
 #                        which the cleanup states route to done_error with
 #                        scope:pr-create.
 #
 # Keys are written even when empty, so a terminal result lists in `missing`
 # only a value that genuinely failed to resolve. `wip_paths` belongs to
 # publish-scoping-pr.sh; this script writes it empty only when no publish ran.
+#
+# The lookup carries this run's identity (`run-id.sh get <session>`, minted on
+# first use), so a PR another run marked is never recorded as this topic's;
+# /scope's own PR carries no marker and matches on the login-and-branch
+# fallback.
 #
 # Usage:
 #   record-scope-exit.sh --session <name> --topic <slug>
@@ -50,6 +56,7 @@ set -uo pipefail
 PROG=record-scope-exit
 HERE=$(cd "$(dirname "$0")" && pwd)
 OWNED="$HERE/../../execute/scripts/owned-pr.sh"
+RUNID="$HERE/../../execute/scripts/run-id.sh"
 STARTABLE="$HERE/startable-issues.sh"
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
@@ -169,7 +176,11 @@ BRANCH=$(git symbolic-ref --quiet --short HEAD) || record_error "HEAD is not on 
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null) || REPO=""
 [[ "$REPO" =~ $RE_REPO ]] || record_error "could not read the repository name"
 
-URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open </dev/null)
+RUN_ID=$(bash "$RUNID" get "$SESSION" </dev/null) || {
+    printf '%s: could not read or mint this run'"'"'s identity\n' "$PROG" >&2
+    exit 66
+}
+URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --run-id "$RUN_ID" </dev/null)
 RC=$?
 [ "$RC" -eq 0 ] || record_error "owned-pr.sh exited $RC"
 [ -n "$URL" ] || record_error "no owned open PR on $BRANCH"

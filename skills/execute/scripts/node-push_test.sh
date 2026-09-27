@@ -216,6 +216,64 @@ OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO"
     --home-repo "$CT_REPO" --coord-branch docs/elsewhere 2>/dev/null); RC=$?
 [ "$RC" -eq 73 ] && pass "no owned coordination PR exits 73" || fail "no-coord: rc=$RC"
 
+# --- the run marker -----------------------------------------------------------------------
+
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+
+ct_case marker-fresh
+ct_write_db
+fresh_repo marker-fresh
+push_node --run-id "$MINE"
+NBODY=$(db_pr 50 | jq -r '.body')
+if [ "$RC" -eq 0 ] && printf '%s\n' "$NBODY" | grep -qxF "<!-- shirabe-run: $MINE -->" \
+    && printf '%s' "$NBODY" | grep -q "Work items: 1,2"; then
+    pass "--run-id: the node PR it opens carries the run's marker line"
+else
+    fail "marker-fresh: rc=$RC body [$NBODY]"
+fi
+if ct_calls | grep '^pr list' | grep -q . && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
+    (cd "$WT" && git commit -q --allow-empty -m "fix: more")
+    push_node --run-id "$MINE"
+    if [ "$RC" -eq 0 ] && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
+        pass "--run-id: a second push by the same run adopts its own marked PR"
+    else
+        fail "marker second push: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
+    fi
+fi
+
+ct_case marker-foreign
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
+ct_write_db
+fresh_repo marker-foreign
+push_node --run-id "$MINE"
+if [ "$RC" -eq 73 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q '^pr edit'; then
+    pass "--run-id: another run's PR on the node branch is not adopted (73), nothing created or edited"
+else
+    fail "marker-foreign: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
+fi
+
+ct_case marker-kept
+ct_write_db
+# The coordination PR carries a run marker after its merge-order block, as a
+# stamped body would; the index rewrite must keep that line.
+jq --arg m "<!-- shirabe-run: $MINE -->" '(.prs[] | select(.number == 10) | .body) += "\n" + $m + "\n"' \
+    "$CASE/scenario/gh/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$CASE/scenario/gh/db.json"
+fresh_repo marker-kept
+push_node --run-id "$MINE"
+if [ "$RC" -eq 0 ] && db_body | grep -qxF "<!-- shirabe-run: $MINE -->" \
+    && db_body | grep -q "^- $CT_CORE | .*head="; then
+    pass "the coordination PR's index rewrite keeps its run marker line"
+else
+    fail "marker-kept: rc=$RC; body [$(db_body)]"
+fi
+
+ct_case marker-usage
+ct_write_db
+fresh_repo marker-usage
+push_node --run-id NOTANID
+[ "$RC" -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "bad --run-id: rc=$RC"
+
 # --- coordination mode ------------------------------------------------------------------
 
 ct_case coordination

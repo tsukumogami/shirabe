@@ -37,7 +37,8 @@
 # Exit codes:
 #   0   a line was printed (a refusal included)
 #   64  usage error
-#   70  the merge_attempts write failed
+#   70  the merge_attempts write failed, or the run's identity could not be
+#       read or minted (run-id.sh)
 #   72  a GitHub read failed (execute:status-read)
 #   73  the indexed PR is not the one owned PR on its branch, or the index has
 #       no line for the node (execute:pr-adopt)
@@ -85,6 +86,12 @@ coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed 
 [[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 
+# This run's identity, from its session: every lookup below carries it.
+COORD_RUN_ID=$("$BASH" "$COORD_SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
+    echo "$PROG: could not read or mint this run's identity in session $SESSION" >&2
+    exit 70
+}
+
 coord_find_pr "$HOME_REPO" "$CB" open
 case $? in
     0) ;;
@@ -106,7 +113,7 @@ if [ "$NODE" = coordination ]; then
         exit 73
     fi
 else
-    OUT=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$REPO" --head "impl/$SLUG-$NODE" --state open </dev/null)
+    OUT=$(coord_owned "$REPO" "impl/$SLUG-$NODE" open)
     case $? in
         0) ;;
         2) exit 72 ;;

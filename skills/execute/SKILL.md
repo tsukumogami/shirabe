@@ -478,21 +478,70 @@ no record at all, ends the run `ready-awaiting-merge` with `reason=head-moved`.
 #### Owned-PR lookup
 
 Every PR lookup `/execute` makes goes through `skills/execute/scripts/owned-pr.sh`
-(directly, or through `adopt-or-create-pr.sh` and `record-merge-verdict.sh`). It
-keeps only PRs whose head is in the same repository (`isCrossRepository` false),
-whose author is the authenticated user, whose base is the expected branch, and
-whose head is the expected branch, and it never picks among several. Its exit
-contract names no step; this table is the one place `/execute` maps it:
+(directly, or through `adopt-or-create-pr.sh`, `record-merge-verdict.sh`, and the
+coordinated scripts). It keeps only PRs whose head is in the same repository
+(`isCrossRepository` false), whose author is the authenticated user, whose base
+is the expected branch, and whose head is the expected branch, and it never
+picks among several.
+
+Those four checks can't tell two runs apart: two sessions resuming the same
+PLAN slug under one account share the author and the head branch. So ownership
+is decided by the run that created the PR. Every PR `/execute` opens (the home
+PR in `adopt-or-create-pr.sh --create`, a node PR in `node-push.sh`) carries one
+hidden line naming the run, `<!-- shirabe-run: <id> -->`, and every lookup
+passes the run's own id as `owned-pr.sh --run-id`:
+
+- a PR whose marker names this run is this run's;
+- a PR with **no marker** falls back to the login-and-branch match, so PRs
+  opened before markers existed, and `/scope`'s PRs (which carry none), are
+  still adopted;
+- a PR whose marker names **any other run** is never this run's, however well
+  its login and branch match;
+- several candidates where any carries a marker (two runs' PRs, or a marked
+  PR beside an unmarked one) are ambiguous, and nothing is picked.
+
+The id is 32 random hex characters kept in the session's `run_id` context key.
+`skills/execute/scripts/run-id.sh` is the only thing that mints it (on first
+use), writes the marker, or carries it through a body rewrite; the marker
+carries nothing but the id. `execute-open.sh` gives every session an id and,
+when koto replaces a finished session, seeds the replacement with the finished
+one's, so a re-invocation of the same PLAN in the same place is the same run.
+`pr_finalization` rewrites the whole body and keeps the live body's marker
+(`run-id.sh carry`), so an adopted unmarked PR stays unmarked. A lookup run by
+hand, outside any session, passes no `--run-id` and matches by login and branch
+alone.
+
+The exit contract names no step; this table is the one place `/execute` maps it:
 
 | `owned-pr.sh` result | Where `/execute` creates the PR (`orchestrator_setup`) | Where it must adopt one (every later lookup) |
 |---|---|---|
 | one survivor (URL, exit 0) | reuse it | use it |
 | zero survivors (empty, exit 0) | one `gh pr create --draft` | `step=execute:pr-adopt` |
-| several survivors (exit 3) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| several survivors, none marked (exit 3) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| ambiguous: several, at least one marked (exit 4) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| another run's PR: the one candidate carries a foreign marker (exit 5) | the re-entry decision below | `step=execute:pr-adopt` |
 | a failed read (exit 2) | `step=execute:status-read` | `step=execute:status-read` |
 
-A branch whose only PRs come from forks, other authors, or another base has zero
-survivors: it is never adopted, edited, readied, or passed to `gh pr merge`.
+A branch whose only PRs come from forks, other authors, another base, or
+another run has no survivor: it is never adopted, edited, readied, or passed to
+`gh pr merge`.
+
+**Taking over another run's PR.** A run that has lost its identity -- a
+re-invocation after the earlier run's session is gone, so `execute-open.sh`
+had nothing to carry forward -- finds the PLAN's own PR marked by that earlier
+run. The lookup refuses it (exit 5, which `adopt-or-create-pr.sh` reports as
+its exit 6), and GitHub refuses a second open PR on the same head. The way out
+is explicit: at `orchestrator_setup`, when the agent can tell this invocation
+is a re-entry of the PLAN after the earlier run ended and no other session is
+driving it, it re-runs the lookup with `--take-over`. `owned-pr.sh --take-over`
+rewrites that one PR's marker to name this run and adopts it; it only ever
+touches a PR that passed the four checks above (this repository, this login,
+the base, the branch), and it picks nothing when several foreign-marked PRs
+are there. No other lookup passes `--take-over`, so an ordinary lookup never
+takes a PR over silently. When the agent can't tell, the run ends
+`step=execute:pr-adopt` instead. Coordinated node PRs have no takeover path:
+a coordinated re-entry relies on the carried-forward identity, and a node PR
+marked by a run whose identity is gone ends `step=execute:pr-adopt`.
 
 ## Coordinated Execution Path
 
@@ -640,13 +689,15 @@ verify, so it fails closed and the nodes after it wait. Node PRs merge only afte
 all their predecessors, and the coordination PR merges last.
 
 **Ownership and the write set.** Every PR number read from the index and every
-head-branch lookup goes through `owned-pr.sh`, keeping only PRs with
-`isCrossRepository == false`, the authenticated author, the default branch as
-base, and, for index entries, head branch `impl/<slug>-<node-id>` for that node.
-Zero survivors let `node-push.sh` open a node's PR; where an existing PR must be
-adopted (an index entry, the coordination PR) zero survivors end
-`step=execute:pr-adopt`, several end `step=execute:pr-adopt`, and a failed read
-ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
+head-branch lookup goes through `owned-pr.sh` with the run's `--run-id`, keeping
+only PRs with `isCrossRepository == false`, the authenticated author, the
+default branch as base, for index entries head branch `impl/<slug>-<node-id>`
+for that node, and a run marker that names this run or none (see **Owned-PR
+lookup**). Zero survivors let `node-push.sh` open a node's PR, stamped with the
+run's marker; where an existing PR must be adopted (an index entry, the
+coordination PR) zero survivors end `step=execute:pr-adopt`, several, an
+ambiguous lookup, or another run's PR end `step=execute:pr-adopt`, and a failed
+read ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
 `_Repo:` row naming a repository outside `repos` ends the run `outcome=error` with
 `step=execute:write-set`.
 
@@ -810,15 +861,24 @@ and forks' PRs as readily as this run's own.
 ```bash
 # The same owner/repo write_set_record will fix, derived the same way.
 REPO=$(bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/record-write-set.sh --print)
+# The retained session's run identity, when there is one; the lookup matches by
+# login and branch alone without it.
+RUN_ID=""
+if koto context exists execute-<slug> run_id >/dev/null; then
+  RUN_ID=$(koto context get execute-<slug> run_id)
+fi
 for BRANCH in "$(git rev-parse --abbrev-ref HEAD)" "impl/<slug>" "docs/<slug>"; do
   bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh \
-    --repo "$REPO" --head "$BRANCH" --state open
+    --repo "$REPO" --head "$BRANCH" --state open ${RUN_ID:+--run-id "$RUN_ID"}
 done
 ```
 
 The codes map as in **Owned-PR lookup**: one URL is the home PR, empty output
-means none on that branch, exit 3 (several) and exit 2 (a failed read) stop the
-ladder with `step=execute:pr-adopt` and `step=execute:status-read`.
+means none on that branch, exit 3 or 4 (several, or ambiguous) and exit 2 (a
+failed read) stop the ladder with `step=execute:pr-adopt` and
+`step=execute:status-read`. Exit 5 (another run's PR on the branch) is the
+PLAN's PR under a lost identity: the run re-enters and `orchestrator_setup`
+decides whether to take it over.
 
 - If a home PR is found, the run is not fresh: rebuild the `wip-yaml-md` projection
   from the home PR's durable state and **resume the run on the found PR's branch**,
@@ -1214,6 +1274,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/execute-open.sh` | Step 2's entry: maps the invocation's tokens to variable pairs with `jq` and opens the session through `scripts/koto-open.sh` with `--attach-live --replace-terminal [--koto-leg]` |
 | `skills/execute/scripts/record-write-set.sh` | `write_set_record`'s action: fixes the write set as `repos`; `--print` derives it for the Resume lookup |
 | `skills/execute/scripts/owned-pr.sh` | the one ownership-filtered PR lookup, shared with `/scope` and `/deliver` (see **Owned-PR lookup**) |
+| `skills/execute/scripts/run-id.sh` | the run identity: mints the session's `run_id`, stamps the marker line on a PR body, and carries it through a body rewrite (see **Owned-PR lookup**) |
 | `skills/execute/scripts/adopt-or-create-pr.sh` | `orchestrator_setup`'s home-PR step: adopts the owned PR or opens one, and records `home_pr` |
 | `skills/execute/scripts/push-and-record.sh` | every single-pr push outside the cascade; records `expected_head` after a successful push |
 | `skills/execute/scripts/record-merge-verdict.sh` | `merge_readiness`'s and `merge_confirm`'s action: finds the owned PR and records the verdict, `reason`, `step`, or `confirm_verdict` |

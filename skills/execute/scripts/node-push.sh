@@ -7,6 +7,7 @@
 #   node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo>
 #                     --issues <ids> --home-repo <owner/repo>
 #                     --coord-branch <branch> [--remote <name>]
+#                     [--run-id <id>]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
 #     after the node's work items committed there. It sweeps wip/, pushes,
@@ -15,6 +16,13 @@
 #
 #   node-push.sh coordination --slug <slug> --home-repo <owner/repo>
 #                             --coord-branch <branch> [--remote <name>]
+#                             [--run-id <id>]
+#
+# --run-id is this run's identity (`run-id.sh get <session>`, ^[0-9a-f]{32}$).
+# Both lookups carry it, so a PR another run opened is never adopted, and a
+# node PR this script opens carries the run's marker line (`run-id.sh stamp`).
+# Omitted only on a hand run: the lookups then match by login and branch
+# alone, and a new node PR carries no marker.
 #
 #     Run in the coordination checkout after the finalization cascade. It
 #     sweeps wip/, pushes the coordination branch, and writes the coordination
@@ -42,10 +50,12 @@
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `feat(<slug>): <node-id>`, with a body from a fixed
 #      template of the node id, the work-item ids, and the coordination PR's
-#      link, passed with --body-file -- unless the index already names a PR
-#      for this node, which must then be adopted, and zero survivors refuse;
+#      link (and the run's marker line), passed with --body-file -- unless
+#      the index already names a PR for this node, which must then be adopted,
+#      and zero survivors refuse;
 #   7. rewrite the body's `## PR Index` line for the node (replacing it, or
-#      adding it), run `shirabe validate --coordination-body` on the new body,
+#      adding it) and keep every other line, the run marker included; run
+#      `shirabe validate --coordination-body` on the new body,
 #      and only when that passes, post it with `gh pr edit --body-file`. A
 #      failing validation leaves the posted body untouched.
 #
@@ -77,8 +87,8 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>]" >&2
-    echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>]" >&2
+    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
+    echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
     exit 64
 }
 
@@ -90,11 +100,12 @@ SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; REMOTE="origin"
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--remote)
+        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--remote|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
+                --run-id) COORD_RUN_ID="$2" ;;
                 --slug) SLUG="$2" ;;
                 --node) NODE="$2" ;;
                 --repo) REPO="$2" ;;
@@ -113,6 +124,9 @@ done
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
 coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed branch name"
 [[ $REMOTE =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ ]] || usage_error "--remote [$REMOTE] is not a remote name"
+case "$SEEN" in
+    *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
+esac
 if [ "$MODE" = node ]; then
     [[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
     [ "$NODE" != coordination ] || usage_error "--node coordination is the coordination PR's own record; use the coordination mode"
@@ -192,7 +206,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 # 6. The PR this line indexes.
 if [ "$MODE" = node ]; then
-    OUT=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$REPO" --head "$BRANCH" --state open </dev/null)
+    OUT=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
         0) ;;
         2) exit 72 ;;
@@ -212,6 +226,12 @@ if [ "$MODE" = node ]; then
             printf 'Work items: %s\n\n' "$ISSUES"
             printf 'Coordination PR: %s\n' "$C_URL"
         } > "$WORK/node-body.md"
+        if [ -n "$COORD_RUN_ID" ]; then
+            "$BASH" "$COORD_SELF_DIR/run-id.sh" stamp "$COORD_RUN_ID" "$WORK/node-body.md" </dev/null || {
+                echo "$PROG: could not stamp the node PR's body; nothing created" >&2
+                exit 75
+            }
+        fi
         OUT=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
             --title "feat($SLUG): $NODE" --body-file "$WORK/node-body.md" </dev/null) || {
             echo "$PROG: gh pr create failed" >&2

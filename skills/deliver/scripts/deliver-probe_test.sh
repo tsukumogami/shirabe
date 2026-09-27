@@ -147,6 +147,29 @@ db "[$(pr "$URL" OPEN),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
 run scoped
 failed "several owned PRs (exit 3)" fail
 
+# The run marker: the lookups carry this session's run_id.
+MINE=0123456789abcdef0123456789abcdef
+FOREIGN=fedcba9876543210fedcba9876543210
+
+reset_store
+db "[$(pr "$URL" OPEN)]"
+run scoped
+if [[ "$(key run_id)" =~ ^[0-9a-f]{32}$ ]]; then ok "the session's run_id is minted on first use"; else bad "run_id minted" "[$(key run_id)]"; fi
+eq "an unmarked /scope PR, looked up with a run identity, still passes on the fallback" pass "$(key scoped_verdict)"
+
+reset_store; seed run_id "$MINE"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
+<!-- shirabe-run: $FOREIGN -->")]"
+run scoped
+failed "the topic branch's PR was opened by another run (exit 5)" fail
+no_writes "another run's PR"
+
+reset_store; seed run_id "$MINE"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
+<!-- shirabe-run: $MINE -->"),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
+run scoped
+failed "a marked and an unmarked PR are ambiguous (exit 4)" fail
+
 reset_store; seed pr "$OTHER"
 db "[$(pr "$URL" OPEN)]" '{"pr list": 1}'
 run scoped

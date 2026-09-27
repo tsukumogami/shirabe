@@ -15,6 +15,12 @@
 # PR it finds is written both as `checked_pr` and as the result key `pr`,
 # replacing whatever a leg copied. A lookup that fails leaves both empty.
 #
+# Every lookup carries this run's identity (`run-id.sh get <session>`, stored
+# as the session's `run_id`), so a PR another run opened on the topic branch
+# is never the one a verdict is written for. The topic branch's PR is /scope's,
+# which carries no run marker, so it is matched on the login-and-branch
+# fallback; the identity is what rejects a marked PR from any other run.
+#
 # The head branch is the checked-out branch: the topic branch /scope
 # published. On a /deliver run /execute adopts that branch's PR for a
 # single-pr PLAN (no impl/<slug> branch is cut), and a coordinated PLAN's
@@ -42,7 +48,8 @@
 #
 # owned-pr.sh's codes map to a failing verdict (`fail`, or `not-merged` for
 # `merged`) with no checked_pr or pr written: zero survivors (empty output,
-# exit 0), several (exit 3), and a failed read (exit 2 or anything else).
+# exit 0), several (exit 3), an ambiguous lookup (exit 4), another run's PR
+# (exit 5), and a failed read (exit 2 or anything else).
 #
 # Usage:
 #   deliver-probe.sh scoped|executed|merged --topic <slug> [--session <name>]
@@ -56,7 +63,7 @@
 # Exit codes:
 #   0   a verdict was written (any verdict)
 #   64  usage error; nothing read or written
-#   66  a `koto context` call failed
+#   66  a `koto context` call failed (including reading or minting run_id)
 #
 # Environment:
 #   MERGE_CONFIRM_WAIT_SECS  the confirm window merge-verdict.sh waits for a
@@ -134,6 +141,11 @@ case "$MODE" in
 esac
 for k in $KEYS; do ctx_remove "$k"; done
 
+RUN_ID=$(bash "$PLUGIN/skills/execute/scripts/run-id.sh" get "$SESSION" </dev/null) || {
+    printf '%s: could not read or mint this run'"'"'s identity (run_id)\n' "$PROG" >&2
+    exit 66
+}
+
 # verdict <value> [<url>] [<state>] -- write the PR keys (when given), then the
 # verdict last, and exit 0.
 verdict() {
@@ -183,14 +195,16 @@ URL=""
 lookup() {
     local rc
     if [ -n "${2:-}" ]; then
-        URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state "$1" --base "$2" </dev/null)
+        URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state "$1" --base "$2" --run-id "$RUN_ID" </dev/null)
     else
-        URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state "$1" </dev/null)
+        URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state "$1" --run-id "$RUN_ID" </dev/null)
     fi
     rc=$?
     case "$rc" in
         0) ;;
         3) failing "several owned PRs on $BRANCH (owned-pr.sh exit 3)" ;;
+        4) failing "an ambiguous owned-PR lookup on $BRANCH (owned-pr.sh exit 4)" ;;
+        5) failing "the PR on $BRANCH was opened by another run (owned-pr.sh exit 5)" ;;
         *) failing "the owned-PR lookup on $BRANCH failed (owned-pr.sh exit $rc)" ;;
     esac
     [ -n "$URL" ] || failing "no owned PR on $BRANCH"
@@ -207,7 +221,7 @@ scoped)
     git ls-files --error-unmatch -- "$PLAN" >/dev/null || failing "$PLAN is not tracked by git"
     git cat-file -e "HEAD:$PLAN" || failing "$PLAN is not in HEAD's tree"
     git diff --quiet HEAD -- "$PLAN" || failing "$PLAN differs from HEAD"
-    VERIFIED=$(bash "$PUBLISH" --topic "$TOPIC" --verify --expect-intent continue </dev/null) \
+    VERIFIED=$(bash "$PUBLISH" --topic "$TOPIC" --verify --expect-intent continue --run-id "$RUN_ID" </dev/null) \
         || failing "the scoping PR did not verify (publish-scoping-pr.sh --verify --expect-intent continue)"
     VERIFIED=$(printf '%s\n' "$VERIFIED" | sed -n 's/^pr=//p' | sed -n 1p)
     DEFAULT=$(default_branch)

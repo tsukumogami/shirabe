@@ -1375,7 +1375,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1442,7 +1442,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1509,7 +1509,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1581,7 +1581,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step

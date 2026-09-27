@@ -89,6 +89,16 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/owned-pr_test.sh
 
+      - name: Run run-id tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/run-id_test.sh
+
+      # Every owned-PR lookup across /execute, /scope, and /deliver carries the
+      # run's identity; this reads the call sites, so it triggers on any skill.
+      - name: Run owned-pr caller tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/owned-pr-callers_test.sh
+
       - name: Run push-and-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh

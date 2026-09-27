@@ -68,7 +68,10 @@
 # write `expected_head` with `koto context add`; record-write-set.sh and
 # adopt-or-create-pr.sh write `repos`, `home_pr`, and `waiting` the same way;
 # print-exit.sh renders the result `koto status` reports. On the gh side,
-# owned-pr.sh reads `gh api user`, `gh api repos/<repo>`, and `gh pr list`;
+# owned-pr.sh reads `gh api user`, `gh api repos/<repo>`, and `gh pr list`,
+# and makes one `gh pr edit --body-file` on a --take-over;
+# run-id.sh reads and mints the run identity with `koto context exists`,
+# `koto context get`, and `koto context add`, and od reads /dev/urandom;
 # record-write-set.sh falls back to `gh repo view`; adopt-or-create-pr.sh makes
 # the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`. git adds
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
@@ -90,6 +93,7 @@ koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
 koto	context get	-	always
 koto	context remove	-	always
+koto	context exists	-	always
 koto	workflows	-	always
 koto	status	-	always
 koto	session cleanup	-	always

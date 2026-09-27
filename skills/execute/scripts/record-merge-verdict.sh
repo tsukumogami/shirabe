@@ -42,8 +42,11 @@
 #   2. read expected_head from context; anything but a 40-character sha is
 #      passed on as `none`, which makes merge-verdict.sh's row 8 fire;
 #   3. resolve the PR with `owned-pr.sh --state all` (so a PR that already
-#      merged is still found) on --repo and --head-branch. Several owned PRs, or
-#      none, record step `execute:pr-adopt`; a failed read records
+#      merged is still found) on --repo and --head-branch, carrying this run's
+#      identity (`run-id.sh get <session>`), so a PR another run opened on the
+#      branch is never the one a verdict is computed on. Several owned PRs, an
+#      ambiguous lookup, another run's PR, or none, record step
+#      `execute:pr-adopt`; a failed read records
 #      `execute:status-read`; each with the matching `error:execute:<step>`
 #      verdict;
 #   4. run merge-verdict.sh on that PR with --merge and the expected head;
@@ -186,7 +189,11 @@ fi
 
 # Resolve the owned PR. Run by this interpreter from this directory, never from
 # PATH.
-URL=$("$BASH" "$OWNED" --repo "$REPO" --head "$BRANCH" --state all </dev/null)
+RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
+    echo "$PROG: could not read or mint this run's identity in session $SESSION" >&2
+    exit 70
+}
+URL=$("$BASH" "$OWNED" --repo "$REPO" --head "$BRANCH" --state all --run-id "$RUN_ID" </dev/null)
 LOOKUP_RC=$?
 
 lookup_failed() { # lookup_failed <step>
@@ -203,7 +210,7 @@ lookup_failed() { # lookup_failed <step>
 case "$LOOKUP_RC" in
     0) [ -n "$URL" ] || lookup_failed pr-adopt ;;
     2) lookup_failed status-read ;;
-    3) lookup_failed pr-adopt ;;
+    3|4|5) lookup_failed pr-adopt ;;
     *)
         echo "$PROG: owned-pr.sh exited $LOOKUP_RC" >&2
         exit 1

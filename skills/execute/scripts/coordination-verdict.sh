@@ -13,9 +13,9 @@
 #   coordination-verdict.sh --plan <path> --slug <slug> --repos <list>
 #                           --home-repo <owner/repo> --coord-branch <branch>
 #                           --merge true|false [--attempts <list>]
-#                           [--loop-line <line>]
+#                           [--loop-line <line>] [--run-id <id>]
 #
-# The first six flags and --attempts are coordinated-next.sh's. --loop-line is
+# The first six flags, --attempts, and --run-id are coordinated-next.sh's. --loop-line is
 # the last line the loop reported. It is used for one thing only: when the
 # recomputed action is not a stopping one (the loop stopped while there is
 # still something to do, for example because a child failed), the verdict is
@@ -65,7 +65,7 @@ RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coordination-verdict.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--loop-line <line>]" >&2
+    echo "usage: coordination-verdict.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--loop-line <line>] [--run-id <id>]" >&2
     exit 64
 }
 
@@ -74,11 +74,12 @@ LOOP_LINE=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--loop-line)
+        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--loop-line|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
+                --run-id) COORD_RUN_ID="$2" ;;
                 --plan) CC_PLAN="$2" ;;
                 --slug) CC_SLUG="$2" ;;
                 --repos) CC_REPOS="$2" ;;
@@ -109,6 +110,9 @@ case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a ch
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
     usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed>,..."
 fi
+case "$SEEN" in
+    *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
+esac
 
 emit() { # emit <verdict> <waiting> <resume> <reason> <step>
     printf 'coord_verdict=%s\n' "$1"

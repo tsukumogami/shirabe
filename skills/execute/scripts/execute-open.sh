@@ -55,6 +55,12 @@
 # request id is checked by koto-open.sh against koto's pattern. The flag changes
 # nothing but where the result goes.
 #
+# The run identity. A session this script opens always has a `run_id`
+# (run-id.sh), the identity every owned-PR lookup of the run carries. When
+# koto replaces a finished session, the finished one's `run_id` is read first
+# and seeded into the replacement, so a re-invocation of the same PLAN in the
+# same place still owns the PR the earlier run opened.
+#
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `session=execute-<slug>` when a session was opened, or, on a refusal, the exit
 # lines print-exit.sh --refused prints (outcome=error, step=execute:refused).
@@ -164,6 +170,18 @@ if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null; then
     fi
 fi
 
+# The run identity a finished session carried (its `run_id`), read before koto
+# replaces the session: a replacement starts with empty context, and without
+# the id it would find the PR the earlier run opened carrying a foreign marker.
+# Seeded into the new session below, so a re-invocation in the same place is
+# the same run to the ownership filter.
+PRIOR_RUN_ID=""
+if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null \
+    && koto context exists "$SESSION" run_id >/dev/null; then
+    PRIOR_RUN_ID=$(koto context get "$SESSION" run_id) || PRIOR_RUN_ID=""
+    [[ $PRIOR_RUN_ID =~ ^[0-9a-f]{32}$ ]] || PRIOR_RUN_ID=""
+fi
+
 HEADER_MODE=""
 TOP=$(git rev-parse --show-toplevel) || TOP=""
 if [ -n "$TOP" ] && [ -f "$TOP/CLAUDE.md" ]; then
@@ -195,7 +213,21 @@ RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 
 case "$OUT" in
-    opened=*) printf 'session=%s\n' "$SESSION" ;;
+    opened=*)
+        # Carry the prior run's identity into a replacement (seed writes only
+        # when the session has none, so an attached live session keeps its
+        # own), then make sure the session has one. A failure here is not a
+        # refusal: the run mints its identity on first use, and a PR the
+        # earlier run opened then surfaces as another run's (exit 6 at
+        # orchestrator_setup), which has its own recovery.
+        if [ -n "$PRIOR_RUN_ID" ]; then
+            bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$PRIOR_RUN_ID" </dev/null \
+                || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2
+        fi
+        bash "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null >/dev/null \
+            || echo "$PROG: could not record a run identity in $SESSION; it is minted on first use" >&2
+        printf 'session=%s\n' "$SESSION"
+        ;;
     refused=*) bash "$PRINT_EXIT" --refused ;;
 esac
 exit "$RC"

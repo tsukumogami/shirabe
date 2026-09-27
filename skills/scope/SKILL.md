@@ -246,8 +246,16 @@ its own. Its results map to `/scope`'s steps in one place:
 |---------------|-----------------------------------|-------------------|
 | one URL (exit 0) | reuse it | report it |
 | none (empty, exit 0), a foreign-only branch included | create the PR | `scope:pr-create` |
-| several (exit 3) | `scope:pr-create` | `scope:pr-create` |
+| several (exit 3), or ambiguous (exit 4) | `scope:pr-create` | `scope:pr-create` |
+| another run's PR (exit 5) | `scope:pr-create` | `scope:pr-create` |
 | read failure (exit 2) | `scope:pr-create` | `scope:pr-create` |
+
+Every lookup carries the session's run identity (`owned-pr.sh --run-id`, the
+`run_id` that `skills/execute/scripts/run-id.sh` mints on first use), so a PR
+another run marked as its own is never reused, edited, or reported here.
+`/scope` stamps no marker on the PR it opens: its PR is matched on the
+login-and-branch fallback, which is what lets `/execute` adopt it. A rewrite
+of the body keeps whatever marker the live PR carries.
 
 ## Request Leg Flag
 

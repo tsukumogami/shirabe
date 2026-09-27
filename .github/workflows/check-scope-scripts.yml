@@ -27,6 +27,7 @@ on:
       # ownership filter unchanged, and startable-issues.sh wraps /plan's
       # task-graph parser.
       - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
       - 'skills/plan/scripts/plan-to-tasks.sh'
       # The substrate job runs the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'

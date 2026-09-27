@@ -106,6 +106,7 @@ STUBDIR="$WORK/scripts"
 mkdir -p "$STUBDIR"
 cp "$RECORD" "$STUBDIR/record-merge-verdict.sh"
 cp "$SCRIPT_DIR/owned-pr.sh" "$STUBDIR/owned-pr.sh"
+cp "$SCRIPT_DIR/run-id.sh" "$STUBDIR/run-id.sh"
 cat > "$STUBDIR/merge-verdict.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VERDICT_ARGS_LOG:?}"
@@ -154,8 +155,10 @@ run_script() {
 run_real() { run_script "$RECORD" "$@"; }
 run_stub() { run_script "$STUBDIR/record-merge-verdict.sh" "$@"; }
 
+# The run's identity (run_id, minted on first use by run-id.sh) is not a
+# verdict key; every other write counts.
 nothing_written_after_clear() {
-    ! grep -q '^context add' "$CASE/calls.log"
+    ! grep '^context add' "$CASE/calls.log" | grep -qv " run_id$"
 }
 
 # --- a normal write, end to end -----------------------------------------------
@@ -319,6 +322,45 @@ if [ "$(ctx step)" = "execute:pr-adopt" ] && [ "$(ctx merge_verdict)" = "error:e
     pass "several owned PRs: execute:pr-adopt"
 else
     fail "several: step [$(ctx step)]"
+fi
+
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+
+new_case lookup-foreign-run
+ctx_set run_id "$MINE"
+jq -nc --arg url "$URL" --arg o "$OTHER" '[{url: $url, state: "OPEN", isCrossRepository: false,
+    author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic",
+    body: ("x\n<!-- shirabe-run: " + $o + " -->")}]' > "$CASE/list.out"
+VERDICT_LINE=merged run_stub
+if [ "$(ctx step)" = "execute:pr-adopt" ] && ! has home_pr && [ ! -s "$CASE/verdict-args.log" ]; then
+    pass "another run's PR on the branch: execute:pr-adopt, no verdict computed on it"
+else
+    fail "foreign run: step [$(ctx step)], home_pr [$(ctx home_pr)], verdict args [$(cat "$CASE/verdict-args.log")]"
+fi
+
+new_case lookup-own-run
+ctx_set run_id "$MINE"
+jq -nc --arg url "$URL" --arg o "$MINE" '[{url: $url, state: "OPEN", isCrossRepository: false,
+    author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic",
+    body: ("x\n<!-- shirabe-run: " + $o + " -->")}]' > "$CASE/list.out"
+VERDICT_LINE=merged run_stub
+if [ "$(ctx home_pr)" = "$URL" ] && [ "$(ctx merge_verdict)" = merged ]; then
+    pass "the PR this run opened: its verdict is recorded"
+else
+    fail "own run: home_pr [$(ctx home_pr)], verdict [$(ctx merge_verdict)]"
+fi
+
+new_case lookup-ambiguous
+ctx_set run_id "$MINE"
+jq -nc --arg o "$MINE" '[1,2] | map({url: ("https://github.com/o/r/pull/" + tostring), state: "OPEN",
+    isCrossRepository: false, author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic"})
+    | .[0].body = ("<!-- shirabe-run: " + $o + " -->")' > "$CASE/list.out"
+VERDICT_LINE=merged run_stub
+if [ "$(ctx step)" = "execute:pr-adopt" ] && [ "$RC" -eq 0 ]; then
+    pass "an ambiguous lookup (a marked and an unmarked PR): execute:pr-adopt"
+else
+    fail "ambiguous: exit $RC, step [$(ctx step)]"
 fi
 
 new_case lookup-read-fails
