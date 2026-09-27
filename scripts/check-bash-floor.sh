@@ -249,6 +249,7 @@ suite_scripts() {
             # ubuntu only.
             echo "skills/coordinate/scripts/record-codec_test.sh"
             echo "skills/coordinate/scripts/coord-log_test.sh"
+            echo "skills/coordinate/scripts/coordinate-report_test.sh"
             echo "skills/coordinate/scripts/record-find_test.sh"
             echo "skills/coordinate/scripts/record-open_test.sh"
             echo "skills/coordinate/scripts/record-write_test.sh"
