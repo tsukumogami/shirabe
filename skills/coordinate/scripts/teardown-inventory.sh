@@ -387,7 +387,7 @@ check_repo() {
                         continue
                     fi
                     if ! ig "$d" reflog show --format=%gs "$tref" -- >"$WORK/reflog" 2>"$WORK/err"; then
-                        printf '%s\n' "$tref" >>"$WORK/reflog-failed"
+                        printf '%s (%s)\n' "$tref" "$(tail -1 "$WORK/err")" >>"$WORK/reflog-failed"
                         continue
                     fi
                     if [ ! -s "$WORK/reflog" ] && ig "$d" reflog exists "$tref"; then

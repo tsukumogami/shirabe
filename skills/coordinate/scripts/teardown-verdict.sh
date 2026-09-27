@@ -4,8 +4,8 @@
 # teardown-inventory.sh --seal runs as the teardown_inventory state's default action and
 # seals its verdict in the context key `teardown_verdict` through the record
 # feature's coord-log.sh, which the state captures as TEARDOWN_SEAL. This
-# script is the only reader of that verdict, and it reads it only through the
-# seal check, so a verdict edited after sealing, or a seal from another state
+# script and the record feature's record-confirm.sh (which takes the topic
+# from it) read that verdict, each only through the seal check, so a verdict edited after sealing, or a seal from another state
 # entry or another session, never reads as durable. The captured token is
 # read from the session's own log, never taken as an argument.
 #

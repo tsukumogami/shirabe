@@ -112,6 +112,7 @@ stateDiagram-v2
     take_report --> wait : gates.report_present.matches: false, gates.report_source_ok.exit_code: 0, withdrawn: withdrawn
     take_report --> surface : gates.report_source_ok.exit_code: 3
     take_report --> wait : gates.report_source_ok.exit_code: 2, withdrawn: withdrawn
+    take_report --> surface : gates.report_source_ok.exit_code: 2, withdrawn: unreadable
     teardown --> teardown_inventory : teardown: stopped
     teardown --> record : teardown: kept
     teardown_inventory --> destroy : gates.inventory_durable.exit_code: 0

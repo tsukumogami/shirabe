@@ -81,7 +81,8 @@
 #       A return path is `message` or `<request-id>:<leg>` inside these
 #       scripts, and `message` or `leg <request-id>:<leg>` in the record's
 #       Return path cell, the record codec's form. These convert between
-#       the two; every read and write of the cell goes through them.
+#       the two; every read and write of a single cell goes through them
+#       (wait-target.sh's jq filter over the whole list reads the same form).
 #
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
@@ -92,9 +93,8 @@
 #       code: 0 written, 10 refused, 65 row refused, 2 otherwise.
 #
 #   The record's scripts belong to the record feature: record-holding.sh
-#   ships with it, beside these scripts, and doesn't exist in this directory
-#   until that feature lands (it is not holding-recorded.sh, the dispatch
-#   gate). It derives the record's scope, name, repository and reference from
+#   ships with it, beside these scripts (it is not holding-recorded.sh, the
+#   dispatch gate). It derives the record's scope, name, repository and reference from
 #   the session's own log, so these pass the session and nothing else. When
 #   it's absent, these return 2 and say so. DC_RECORD_HOLDING overrides its
 #   path; tests use a stand-in.

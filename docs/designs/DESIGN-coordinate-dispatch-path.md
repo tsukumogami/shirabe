@@ -396,7 +396,7 @@ feature's template carries them:
 |---|---|
 | `pick -> dispatch_check -> dispatch` | the pick edge writes the context key `dispatch_topic`, fresh on every pass, and the record feature's deferral gate `dispatch_check` passes it through to `dispatch` |
 | `wait`'s exits | `wait`'s `report` event leaves to `take_report` and its `leg` event to `leg_pick`, both added here; its other events go to the record feature's states |
-| `take_report -> report_facts -> classify_report` | an admitted report passes through the record feature's `report_facts`, which reads the reporting holding and writes the gated `coord/report.json`, before it's classified |
+| `take_report -> report_facts -> classify_report` | an admitted report passes through the record feature's `report_facts`, which reads the reporting holding and writes the gated `coord/report.json`, before it's classified. `report-facts.sh` finds the reporting worker from the log: the hub's `unit` for a message report, and for a leg report the holding whose Return path is `leg <WAIT_REQ>:<WAIT_LEG>`, from leg_pick's and wait_leg's captures. That leg-path read is on the record feature's branch (#408) and isn't in the copy of it merged here |
 | `classify_report`'s exits | `verify` on `done`, `rebrief` on `needs_fix`, and the record feature's surface step on `blocked` |
 | unrecorded or refused legs | `wait_leg` leaves to the surface step directly |
 | `wait -> teardown` | `wait`'s `retire` event goes to `teardown` and writes `teardown_topic` from its `unit`; `teardown`'s directive holds the finish check (merged, verified on the default branch, issues closed or handed on, final report in, the two questions asked). There's no edge from `land` |

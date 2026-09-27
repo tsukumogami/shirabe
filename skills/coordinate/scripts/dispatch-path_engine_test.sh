@@ -384,6 +384,13 @@ eq  "message: an override record can't stand in for the source check" take_repor
 tick --with-data '{"withdrawn":"withdrawn"}'
 eq  "message: withdrawn returns to the hub when the record can't be read for it" wait "$(at)"
 
+# A report that can never be checked goes to the human rather than back.
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","report":"done"}'
+tick --with-data '{"withdrawn":"unreadable"}'
+eq  "message: a report that can never be checked goes to the human" surface "$(at)"
+
 # The context keys a leg report rests on can be rewritten in the session; a
 # report rewritten that way is refused because it isn't what koto holds for
 # the leg.

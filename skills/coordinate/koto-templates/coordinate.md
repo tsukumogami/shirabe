@@ -687,8 +687,8 @@ states:
     accepts:
       withdrawn:
         type: enum
-        values: [withdrawn]
-        description: The report arrived with no text; go back to the hub and submit it again with the message.
+        values: [withdrawn, unreadable]
+        description: withdrawn to go back to the hub and submit the report again (it arrived with no text, or a message named no worker); unreadable when a leg report can never be checked, which goes to the human.
     transitions:
       - target: report_facts
         when:
@@ -708,8 +708,9 @@ states:
         context_assignments:
           worker_report: ""
           report_topic: ""
-      # A leg report that isn't the result koto holds for the leg: the leg is
-      # spent, so the hub would never see it again; the human does.
+      # A refused leg report (no holding for the topic, a leg other than the
+      # recorded one, or text that isn't the result koto holds for the leg):
+      # the leg is spent, so the hub would never see it again; the human does.
       # worker_report is cleared, since it isn't what the leg holds;
       # report_topic stays, so the surface step can name the worker.
       - target: surface
@@ -724,6 +725,15 @@ states:
         context_assignments:
           worker_report: ""
           report_topic: ""
+      # A leg report that can never be checked (koto can't read its request,
+      # or the record keeps refusing the read) goes to the human the same way
+      # a refused one does, naming the worker.
+      - target: surface
+        when:
+          gates.report_source_ok.exit_code: 2
+          withdrawn: unreadable
+        context_assignments:
+          worker_report: ""
 
   report_facts:
     default_action:
@@ -1717,11 +1727,11 @@ report empty, go back with `withdrawn: withdrawn` and submit the report
 event again, with the message as `report`. When it stops because the record
 couldn't be read, tick again with no evidence once the record reads. A message
 report that named no worker never reads: withdraw it and submit it again with
-its `unit`. Don't withdraw a leg's result, which nothing would bring back,
-unless it can never be read: koto can't read the leg's request at all, or the
-record keeps refusing the read (as it does for the rest of a run after a
-directed transition). Then withdraw it and give the human the worker in
-`report_topic` and the request and leg in `wait_target`.
+its `unit`. Don't withdraw a leg's result, which nothing would bring back.
+When it can never be checked (koto can't read the leg's request at all, or the
+record keeps refusing the read, as it does for the rest of a run after a
+directed transition), submit `withdrawn: unreadable`: it goes to the human,
+naming the worker.
 
 <!-- details -->
 
@@ -1733,7 +1743,8 @@ for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
 human with the report cleared: name the worker in `report_topic`, and the
 request and leg in `wait_target` when it names one (otherwise the worker's
-holding names its leg), and have the result read from koto with `koto request get`,
+holding names its leg; when there's no holding either, say so, since that is
+what refused it), and have the result read from koto with `koto request get`,
 since the leg is spent and won't come back to the hub.
 
 ## report_facts
@@ -1747,7 +1758,8 @@ differs from the holding's Branch.
 
 Workers report by message, plus what they pushed. A same-host worker whose entry
 point accepts a koto request leg (today `/scope` and `/execute`, shirabe#401),
-dispatched with one, also has its result on that leg; read it before classifying.
+dispatched with one, reports through that leg: the workflow reads it before
+this state and its result is the report, so there's no leg left to read here.
 Every other worker reports by message only, and a worker on another host always
 does, since koto's request legs are local. koto#250 means a resolved leg wakes
 nobody, so the message is still what makes you tick.
