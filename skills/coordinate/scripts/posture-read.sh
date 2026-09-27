@@ -220,7 +220,7 @@ classify_segment() {
             env|/usr/bin/env) shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
             # Shell keywords that lead into a command: the command follows them.
             # Quoted: bash 3.2 can't parse a bare keyword as a case pattern.
-            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time') shift ;;
+            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'command'|'nohup') shift ;;
             # `case WORD in PATTERN) command`: the command follows the pattern.
             'case') shift; while [ $# -gt 0 ]; do w=$1; shift; case "$w" in *')') break ;; esac; done ;;
             *')') shift ;;
@@ -243,6 +243,10 @@ classify_segment() {
                 [ -f "$rest" ] && [ -r "$rest" ] && { cat "$rest" >> "$T/hooktext" 2> /dev/null; printf '\n' >> "$T/hooktext"; }
             done
             return 0 ;;
+        .|source)
+            # Sourcing a file runs it: read it like a script.
+            [ $# -gt 0 ] || { unreadable "$w with no file"; return 0; }
+            read_script "$root" "$1" ;;
         bash|sh|zsh|dash|ksh|python|python2|python3|node|ruby|perl)
             # The flag that takes inline code: -c for shells and python
             # (alone or ending a cluster like -ec), -e/-E/--eval for the rest.
@@ -259,7 +263,16 @@ classify_segment() {
                     *) script=$1; break ;;
                 esac
             done
-            [ "$inline" = 1 ] && return 0
+            if [ "$inline" = 1 ]; then
+                # A shell's inline code is itself commands: classify it as one,
+                # so `bash -c /usr/local/bin/guard` is no more readable than
+                # the guard alone. Another language's inline code is on the
+                # command line, already read.
+                case "$base" in
+                    bash|sh|zsh|dash|ksh) shift; classify_segment "$root" "$@" ;;
+                esac
+                return 0
+            fi
             [ -n "$script" ] || { unreadable "$w with no script"; return 0; }
             read_script "$root" "$script" ;;
         *)

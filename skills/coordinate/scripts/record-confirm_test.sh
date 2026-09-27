@@ -167,6 +167,9 @@ body "$(rec | jq -c --argjson se "$SEH" '.side_effects = $se')"
 eq "destroy handed_over: a Side effects row naming the topic confirms" confirmed "$(confirm)"
 body "$(rec)"
 eq "destroy handed_over: without the Side effects row it waits" waiting "$(confirm)"
+destroy_run handed_over alpha
+body "$(rec | jq -c '.side_effects = [{"action":"destroy","target":"instance of alpha-2","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"gone"}]')"
+eq "destroy handed_over: a row naming alpha-2 does not name alpha" waiting "$(confirm)"
 destroy_run destroyed alpha
 printf 'topic beta\ninstance /x\n' > "$KOTO_STORE/context/$S/teardown_verdict"
 body "$(rec)"

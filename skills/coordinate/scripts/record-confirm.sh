@@ -268,7 +268,7 @@ destroy)
         holds "any(.holdings[]; .worker == $TJ) | not" || OKX=0
     elif has_value handed_over; then
         EXPECT="no Holdings row for $UNIT and a Side effects row whose Target names it"
-        holds "(any(.holdings[]; .worker == $TJ) | not) and any(.side_effects[]; .target | contains($TJ))" || OKX=0
+        holds '(any(.holdings[]; .worker == $t) | not) and any(.side_effects[]; .target | test("(^|[^A-Za-z0-9._-])" + ($t | gsub("\\."; "\\.")) + "($|[^A-Za-z0-9._-])"))' --arg t "$UNIT" || OKX=0
     else
         VERDICT=conflict; REASON="destroy evidence is neither destroyed nor handed_over"; finish
     fi

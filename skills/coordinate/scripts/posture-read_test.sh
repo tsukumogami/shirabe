@@ -119,7 +119,8 @@ UNREAD_ALL="unread merge:unread close:unread teardown:unread"
 for c in 'python3 guard.py' 'merge-guard-hook' '/usr/local/bin/merge-guard' "$T/outside/merge-guard" \
          "python3 $T/outside/merge-guard" '$CLAUDE_PROJECT_DIR/hooks/missing.sh' 'bash hooks/missing.sh' \
          'python3 -m guard' 'bash "$(dirname "$0")/g.sh"' 'jq -r .tool_input.command | merge-guard-hook' \
-         'if true; then merge-guard-hook; fi' 'env FOO=1 guard-hook --check' 'bash -e guard.sh' 'node -r x guard.js'; do
+         'if true; then merge-guard-hook; fi' 'env FOO=1 guard-hook --check' 'bash -e guard.sh' 'node -r x guard.js' \
+         'bash -c /usr/local/bin/merge-guard' 'bash -c "exec merge-guard"' 'sh -c ". /opt/guard.sh"' 'source /opt/guard.sh'; do
     fresh
     printf 'print(1)\n' > "$IN/guard.py"
     in_settings "$(hook Bash "$c" bypassPermissions)"
@@ -140,6 +141,11 @@ eq "a relative script path under the root is read" "readable merge:permit close:
 fresh
 in_settings "$(hook Bash 'bash -c "grep -q gh\ pr\ close && exit 2"' bypassPermissions)"
 eq "an interpreter given inline code is read as text" "readable merge:permit close:confirm teardown:permit" "$(read_roots)"
+
+fresh
+printf 'gh pr merge\n' > "$IN/hooks/g.sh"
+in_settings "$(hook Bash 'bash -c "./hooks/g.sh"' bypassPermissions)"
+eq "a shell's inline code that runs a script under the root reads that script" "readable merge:confirm close:permit teardown:permit" "$(cd "$IN" && read_roots)"
 
 echo "== unreadable and missing =="
 fresh; printf '{not json' > "$IN/.claude/settings.local.json"
