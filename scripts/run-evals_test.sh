@@ -152,10 +152,24 @@ cat > "$SUITE/demo/evals/evals.json" <<'EOF'
    "expectations": ["stub criterion"]}
 ]}
 EOF
+mkdir -p "$SUITE/pair/evals"
+echo "# pair skill" > "$SUITE/pair/SKILL.md"
+cat > "$SUITE/pair/evals/evals.json" <<'EOF'
+{"skill_name": "pair", "evals": [
+  {"id": 1, "name": "first-scenario", "prompt": "one", "expected_output": "one",
+   "files": [], "expectations": ["stub criterion"]},
+  {"id": 2, "name": "second-scenario", "prompt": "two", "expected_output": "two",
+   "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
 echo "# live skill" > "$SUITE/live/SKILL.md"
+# No "tier": 2 here, although the real liveness evals declare it: tier 2 makes
+# the runner clone and push this checkout, which fails on a detached CI
+# checkout and is not what this case tests. The liveness instruction keys on
+# "preflight": "live" alone.
 cat > "$SUITE/live/evals/evals.json" <<'EOF'
 {"skill_name": "live", "evals": [
-  {"id": 1, "name": "liveness", "tier": 2, "mode": "execute",
+  {"id": 1, "name": "liveness", "mode": "execute",
    "preflight": "live", "preflight_skill": "some-skill",
    "prompt": "load the fixture plugin", "expected_output": "a report",
    "files": [], "expectations": ["stub criterion"]}
@@ -239,6 +253,17 @@ if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXE
   pass "runner: a session that executed but graded nothing stays exit 2, not 4"
 else
   fail "runner, executed-but-ungraded (rc=$RC): $OUT"
+fi
+
+# Validation also exits 2 when some scenarios graded and others did not. A
+# grade on disk means the session ran, so even a plan-mode-looking transcript
+# must not turn that into "no scenario ran".
+run_runner partial pair
+if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
+  && printf '%s' "$OUT" | grep -q "Evals graded:   1"; then
+  pass "runner: a partly graded run stays exit 2 whatever the transcript says"
+else
+  fail "runner, partly graded (rc=$RC): $OUT"
 fi
 
 run_runner grade demo

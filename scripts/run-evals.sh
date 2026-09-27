@@ -132,7 +132,8 @@ CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
 # The permission mode every nested claude session runs under. See "Nested
 # session permission mode" in the header for why it is this and nothing wider.
 # The mode is kept separately because the not-executed report compares it with
-# the mode the session says was in effect.
+# the mode the session says was in effect. The prompt's PERMISSIONS AND SCRATCH
+# DIRECTORY block describes what these flags allow in words; change it with them.
 EVAL_CLAUDE_PERMISSION_MODE="acceptEdits"
 EVAL_CLAUDE_PERMISSION_ARGS=(--permission-mode "$EVAL_CLAUDE_PERMISSION_MODE" --allowedTools Bash)
 
@@ -982,9 +983,16 @@ PROMPT
   validate_results "$iter_dir" "$eval_count" || validate_rc=$?
 
   # Step 4b: A run that graded nothing may never have executed at all. Only a
-  # 2 is re-examined: any grade on disk means the session ran, and the grade
-  # is the better evidence.
-  if [ "$validate_rc" -eq 2 ]; then
+  # run where no scenario produced a grading.json is re-examined: validation
+  # also exits 2 for a run that graded some scenarios and not others, and any
+  # grade on disk means the session ran and is the better evidence. The 4 below
+  # is classify-eval-session.py's EXIT_NOT_EXECUTED.
+  local graded_count=""
+  graded_count=$(python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1]))['graded'])
+" "$iter_dir/validation_summary.json" 2>&1) || graded_count=""
+  if [ "$validate_rc" -eq 2 ] && [ "$graded_count" = "0" ]; then
     local classify_rc=0
     python3 "$CLASSIFY_SESSION" report "$transcript" "$EVAL_CLAUDE_PERMISSION_MODE" || classify_rc=$?
     if [ "$classify_rc" -eq 4 ]; then

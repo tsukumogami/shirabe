@@ -39,6 +39,8 @@ import sys
 
 EXECUTING_TOOLS = ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit")
 
+# run-evals.sh step 4b turns EXIT_NOT_EXECUTED into its own exit 4, and only
+# asks when validation found no grading.json at all; keep the two in step.
 EXIT_EXECUTED = 0
 EXIT_UNREADABLE = 2
 EXIT_NOT_EXECUTED = 4
