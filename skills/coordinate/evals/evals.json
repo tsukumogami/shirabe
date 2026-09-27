@@ -62,7 +62,7 @@
         "The pull request's file list and git ls-remote for the branch are read",
         "The report separates what was verified from what was not, and marks each claim as measured, verified by reading, or inferred",
         "No merge is attempted, by gh pr merge or any other command or API call",
-        "The human is handed a merge-order table with the verified head sha and the reason for each position"
+        "The human is handed a merge-order table with each pull request as a clickable link and the reason for each position; no commit hash appears in the table, and the verified head is kept in the record"
       ],
       "requirements": [
         "R10",
