@@ -239,9 +239,6 @@ states:
       - target: predecessor_done
         when:
           gates.predecessor_close_verdict.exit_code: 90
-      - target: predecessor_handed_over
-        when:
-          gates.predecessor_close_verdict.exit_code: 124
       - target: record_conflict
         when:
           gates.predecessor_close_verdict.exit_code: 125
@@ -944,11 +941,6 @@ states:
       - target: rotation_done
         when:
           gates.rotation_close_verdict.exit_code: 90
-      - target: done_handed_over
-        when:
-          gates.rotation_close_verdict.exit_code: 124
-        context_assignments:
-          outcome: handed-over
       - target: record_conflict
         when:
           gates.rotation_close_verdict.exit_code: 125

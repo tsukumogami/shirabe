@@ -249,7 +249,11 @@ lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull re
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
 ACTIVE=$(jq '[.[] | select(.parked | not)] | length' "$T/counted.json")
 ATCAP=0
-if [ "$CHOICE" = send_execution ]; then
+# send_execution moves a worker already counted only when the unit really is
+# a scoping-ahead holding; otherwise it would start a worker, and is judged as
+# a dispatch. The choice is the coordinator's word; the holding is GitHub's.
+SCOPING=$(jq -r --arg t "$TOPIC" '[.[] | select(.worker == $t and .phase == "scoping-ahead")] | length' "$T/holdings.json")
+if [ "$CHOICE" = send_execution ] && [ -n "$TOPIC" ] && [ "$SCOPING" -gt 0 ]; then
     [ "$ACTIVE" -gt "$CAP" ] && ATCAP=1
 else
     { [ "$ACTIVE" -ge "$CAP" ] || [ "$PARKED" -ge "$PARKED_BOUND" ]; } && ATCAP=1

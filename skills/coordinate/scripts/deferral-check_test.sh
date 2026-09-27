@@ -130,16 +130,24 @@ for n in 21 22 23 24 25; do pr $n OPEN true; done
 session "$(roadmap_vars plugin-system)" 7
 OUT=$(check); eq "five active workers under a cap of five is at-cap" "at-cap 5/5 0/3" "$OUT"
 tok_shape "at-cap is in koto's capture alphabet" "$OUT"
+scoping() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"phase\": \"scoping-ahead\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(scoping a5 25)")"
 session "$(roadmap_vars plugin-system)" 7 send_execution a5
-eq "send_execution adds no active worker" "ok a5" "$(check)"
+eq "send_execution to a scoping-ahead holding adds no active worker" "ok a5" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 send_execution a4
+eq "send_execution to a holding that isn't scoping ahead is judged as a dispatch" "at-cap 5/5 0/3" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 send_execution nobody
+eq "send_execution to a unit with no holding is judged as a dispatch" "at-cap 5/5 0/3" "$(check)"
 session "$(roadmap_vars plugin-system | jq -c '.CAP = "6"')" 7
 eq "the cap comes from the session's CAP" "ok beta" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 for n in 31 32 33; do pr $n OPEN false; done
 session "$(roadmap_vars plugin-system)" 7
 eq "three parked workers is at the parked bound" "at-cap 0/5 3/3" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 send_execution p1
-eq "send_execution dispatches nothing new, so the parked bound doesn't stop it" "ok p1" "$(check)"
+seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)" "$(scoping s1 34)")"
+for n in 31 32 33; do pr $n OPEN false; done; pr 34 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution s1
+eq "send_execution dispatches nothing new, so the parked bound doesn't stop it" "ok s1" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 pr 31 OPEN false; pr 32 OPEN true; pr 33 MERGED false
 session "$(roadmap_vars plugin-system)" 7
