@@ -48,7 +48,7 @@ set -uo pipefail
 PROG=pick-facts
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= TODAY= ARG_ROADMAP=
-NO_SEAL=0 SKIP_CHECKS=0
+NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do

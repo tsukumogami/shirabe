@@ -35,13 +35,24 @@ DECL_PREFIX='> This is a **coordinator record** for '
 KOTO=${KOTO_BIN:-koto}
 OVERRIDE=0
 ROADMAP=
+# Only a write script (lib_write_guard) reads SKIP_CHECKS, and each of those
+# sets it from --skip-session-checks; every other script leaves it off.
+: "${SKIP_CHECKS:=0}"
 
 lib_die2() { echo "$PROG: $*" >&2; exit 2; }
 
-# lib_scrub: cap text at 300 bytes and replace anything shaped like a GitHub
-# token, so a gh error quoted in a diagnostic can never carry a credential.
+# lib_redact: replace anything shaped like a GitHub token (a ghp_, gho_,
+# ghu_, ghs_ or ghr_ prefix, or github_pat_, then six or more token
+# characters) and drop control characters. The one token rule; lib_scrub and
+# board-lib.sh's bl_scrub differ only in how much text they keep.
+lib_redact() {
+    sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' | tr -d '\000-\010\013\014\016-\037'
+}
+
+# lib_scrub: a gh error quoted inside one diagnostic, redacted and capped at
+# 300 bytes, so it can never carry a credential.
 lib_scrub() {
-    sed -E 's/(gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,})/[redacted]/g' | tr -d '\000-\010\013\014\016-\037' | head -c 300
+    lib_redact | head -c 300
 }
 
 # lib_facts: the run's scope, name and host. From the session's init variables
@@ -326,6 +337,13 @@ lib_default_branch() {
     [[ $DEFAULT_BRANCH =~ ^[A-Za-z0-9._/-]+$ ]] || return 2
 }
 
+# lib_b64d <in> <out>: decode base64, ignoring line breaks and spaces (GitHub
+# wraps it in lines). GNU decodes with -d, older macOS with -D.
+lib_b64d() {
+    tr -d '\n\r ' < "$1" > "$1.flat"
+    base64 -d < "$1.flat" > "$2" 2> /dev/null || base64 -D < "$1.flat" > "$2" 2> /dev/null
+}
+
 # lib_file_at <path> <ref> <out>: a file's bytes at a ref, through the contents
 # API. Returns 0 read, 1 absent (404), 2 a read or decode failed.
 lib_file_at() {
@@ -333,9 +351,7 @@ lib_file_at() {
         grep -q 'HTTP 404' "$3.err" && return 1
         return 2
     fi
-    # GitHub wraps the base64 in lines; GNU decodes with -d, older macOS with -D.
-    tr -d '\n\r ' < "$3.b64" > "$3.flat"
-    base64 -d < "$3.flat" > "$3" 2> /dev/null || base64 -D < "$3.flat" > "$3" 2> /dev/null || return 2
+    lib_b64d "$3.b64" "$3" || return 2
 }
 
 # lib_roadmap_path: check ROADMAP's closed shape (docs/roadmaps/.../ROADMAP-*.md,

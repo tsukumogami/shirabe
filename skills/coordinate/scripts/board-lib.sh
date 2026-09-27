@@ -54,11 +54,12 @@ esac
 BL_START=$SECONDS
 bl_left() { echo $((BL_DEADLINE - (SECONDS - BL_START))); }
 
-# bl_scrub: cap gh's error text and replace anything shaped like a GitHub
-# token, so a relayed diagnostic can never carry a credential.
+# bl_scrub: gh's error text relayed line by line (bl_gh prefixes each line),
+# redacted by record-common.sh's lib_redact, the same token rule lib_scrub
+# uses. It keeps more than lib_scrub because it relays the whole error rather
+# than quoting it inside one line: up to 20 lines of 300 characters each.
 bl_scrub() {
-    sed -e 's/gh[pousr]_[A-Za-z0-9_]\{6,\}/[redacted]/g' -e 's/github_pat_[A-Za-z0-9_]\{6,\}/[redacted]/g' \
-        | tr -d '\000-\010\013\014\016-\037' | head -20 | cut -c1-300
+    lib_redact | head -20 | cut -c1-300
 }
 
 # bl_gh <out> <gh args...>: one read, stdin from /dev/null, stdout to <out>,

@@ -33,7 +33,7 @@ set -uo pipefail
 PROG=start-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= ARG_ROADMAP=
-NO_SEAL=0 SKIP_CHECKS=0
+NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -56,23 +56,19 @@ lib_facts
 
 # A closed shape for the path: under docs/roadmaps/, a ROADMAP-*.md file, no
 # `..`, nothing that would change the API path or its query.
-RE_PATH='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
-[[ $ROADMAP =~ $RE_PATH ]] || { echo "$PROG: the roadmap path is not docs/roadmaps/.../ROADMAP-<name>.md" >&2; exit 64; }
-case "$ROADMAP" in *..*) echo "$PROG: the roadmap path holds .." >&2; exit 64 ;; esac
+lib_roadmap_path
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/start-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-DEFAULT_BRANCH=$(gh api --method GET "repos/$REPO" --jq .default_branch 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's default branch"
-[[ $DEFAULT_BRANCH =~ ^[A-Za-z0-9._/-]+$ ]] || lib_die2 "the default branch is not a branch name"
-if ! gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$DEFAULT_BRANCH" --jq .content > "$T/b64" 2> "$T/err" < /dev/null; then
-    grep -q 'HTTP 404' "$T/err" && lib_emit start "not-active missing" "" ""
-    lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/err")"
-fi
-# GitHub wraps the base64 in lines; GNU decodes with -d, older macOS with -D.
-tr -d '\n\r ' < "$T/b64" > "$T/b64.flat"
-base64 -d < "$T/b64.flat" > "$T/roadmap.md" 2> /dev/null || base64 -D < "$T/b64.flat" > "$T/roadmap.md" 2> /dev/null \
-    || lib_die2 "cannot decode $ROADMAP"
+lib_default_branch || lib_die2 "cannot read $REPO's default branch, or it is not a branch name"
+lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"
+case $? in
+    0) ;;
+    1) lib_emit start "not-active missing" "" "" ;;
+    *) if [ -s "$T/roadmap.md.err" ]; then lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")"
+       else lib_die2 "cannot decode $ROADMAP"; fi ;;
+esac
 
 # The frontmatter: from a first line of `---` to the next `---`.
 STATUS=$(tr -d '\r' < "$T/roadmap.md" | awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit }
