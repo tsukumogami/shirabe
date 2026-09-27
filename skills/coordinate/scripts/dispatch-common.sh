@@ -7,11 +7,26 @@
 #   dc_valid_topic <topic>
 #       0 when the topic matches ^[a-z0-9][a-z0-9-]*$ and is at most 64
 #       characters. The topic names the brief file, the lock and the worker,
-#       so nothing else ever reaches a path.
+#       so nothing else ever reaches a path. The 64-character bound is a cap
+#       rather than a limit anything downstream imposes: it keeps the brief
+#       file, its lock and the request's `coordinate-<topic>` label short
+#       (niwa cuts the session slug at 40 anyway).
+#
+#   dc_invocation <brief-input-file> [<return-path>]
+#       Prints the worker's invocation: `/shirabe:<entry> <positional>
+#       <run_mode flags> <entry_args flags>`, then `--koto-leg=<return-path>`
+#       when a return path other than `message` is given. The one place the
+#       invocation is built: the brief shows it, the dispatch prompt carries
+#       it, and the holding's mode is the flags part of it, so the three can't
+#       disagree.
+#
+#   dc_mode <brief-input-file>
+#       Prints the flags part of the invocation (run_mode, then entry_args
+#       flags), the holding's `mode` cell.
 #
 #   dc_niwa_slug <topic>
-#       Prints the slug niwa derives from `niwa dispatch --name <topic>`: each
-#       run of characters outside [a-z0-9] becomes `_`, leading and trailing
+#       Prints the slug niwa derives from `niwa dispatch --name <topic>`: the
+#       name is lowercased, each run of characters outside [a-z0-9] becomes `_`, leading and trailing
 #       `_` are trimmed, and the result is capped at 40 characters. The
 #       worker's session name is this slug, `-`, and an 8-hex token. niwa
 #       doesn't document the format yet (niwa#325), so it's pinned here and
@@ -21,6 +36,12 @@
 #       0 when the session name is exactly the topic's slug, `-`, and eight
 #       lowercase hex digits. Never a prefix match: topic `api` doesn't match
 #       `api_v2-1a2b3c4d`.
+#
+#   dc_find_session <workspace-root> <topic>
+#       Prints `<session-name><TAB><instance-path>` for the topic's worker
+#       from `niwa list --json` (run from the workspace root), matched with
+#       dc_session_matches. Returns 0 found, 1 none, 2 when the listing can't
+#       be read. NIWA overrides the binary.
 #
 #   dc_workspace_root [<start-dir>]
 #       Prints the workspace root for the start directory (default: the
@@ -45,9 +66,38 @@
 #   dc_flag_allowed <skill> <flag>
 #       0 when the flag is in the skill's allowed set: an exact entry, or a
 #       `<prefix>=*` entry and a flag of the form `<prefix>=<non-empty value>`.
+#
+#   dc_record_read <session> <topic>
+#       Prints the topic's holding row as one JSON object. Returns 0 for a row,
+#       1 for no row, 10 when the record refuses (no open record, or the run
+#       log shows a directed transition), 2 for any other failure. It's the one
+#       place a script reads a holding, so a change to the record's reader is
+#       one edit here.
+#
+#   dc_record_list <session>
+#       Prints every holding row as one JSON array, in record order. Returns
+#       0 (an empty array when there are none), 10 refused, 2 otherwise.
+#
+#   dc_record_write <session> <topic> <row-file>
+#       Adds or replaces the topic's holding row whole. Returns the writer's
+#       code: 0 written, 10 refused, 65 row refused, 2 otherwise.
+#
+#   The record's scripts belong to the record feature: record-holding.sh
+#   ships with it, beside these scripts, and doesn't exist in this directory
+#   until that feature lands (it is not holding-recorded.sh, the dispatch
+#   gate). It derives the record's scope, name, repository and reference from
+#   the session's own log, so these pass the session and nothing else. When
+#   it's absent, these return 2 and say so. DC_RECORD_HOLDING overrides its
+#   path; tests use a stand-in.
+#
+#   dc_with_deadline <seconds> <command...>
+#       Runs the command and kills it once the deadline passes. Returns the
+#       command's status, or 124 when the deadline killed it. `timeout` isn't
+#       on macOS, whose /bin/bash is the floor these scripts target.
 
 DC_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
+DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 
 dc_valid_topic() {
     case "$1" in
@@ -75,9 +125,44 @@ dc_session_matches() {
     printf '%s' "${2#"$slug"-}" | grep -Eq '^[0-9a-f]{8}$'
 }
 
+DC_JQ_TOKENS='
+    ([.entry_args[0]] + ((.run_mode // "") | split(" ") | map(select(. != ""))) + (.entry_args[1:]))'
+
+dc_mode() {
+    jq -r "$DC_JQ_TOKENS"' | .[1:] | join(" ")' "$1"
+}
+
+dc_invocation() {
+    local inv
+    inv=$(jq -r "$DC_JQ_TOKENS"' as $t
+        | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
+        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] | join(" "))' "$1") || return 2
+    case "${2:-message}" in
+        message) ;;
+        *) inv="$inv --koto-leg=$2" ;;
+    esac
+    printf '%s\n' "$inv"
+}
+
+dc_find_session() {
+    local list name path
+    list=$(cd "$1" && "${NIWA:-niwa}" list --json) || return 2
+    printf '%s' "$list" | jq -e 'type == "array"' >/dev/null || return 2
+    while IFS='	' read -r name path; do
+        [ -n "$name" ] || continue
+        if dc_session_matches "$2" "$name"; then
+            printf '%s\t%s\n' "$name" "$path"
+            return 0
+        fi
+    done <<EOF
+$(printf '%s' "$list" | jq -r '.[] | select((.session_name | type) == "string") | [.session_name, (.path // "")] | @tsv')
+EOF
+    return 1
+}
+
 dc_workspace_root() {
     local d
-    d=$(cd "${1:-.}" 2>&1 && pwd -P) || return 2
+    d=$(cd "${1:-.}" 2>/dev/null && pwd -P) || return 2
     local start="$d"
     while :; do
         if [ -f "$d/.niwa/instance.json" ]; then
@@ -139,4 +224,80 @@ dc_flag_allowed() {
         esac
     done
     return 1
+}
+
+dc_record_present() {
+    [ -f "$DC_RECORD_HOLDING" ] && return 0
+    printf 'dispatch-common: the record feature'"'"'s record-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
+    return 2
+}
+
+dc_record_read() {
+    dc_record_present || return 2
+    local out rc
+    out=$(bash "$DC_RECORD_HOLDING" --read --topic "$2" --session "$1")
+    rc=$?
+    case "$rc" in
+        0)
+            printf '%s' "$out" | jq -e 'type == "object"' >/dev/null || return 2
+            printf '%s\n' "$out"
+            return 0
+            ;;
+        1 | 10) return "$rc" ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_record_list() {
+    dc_record_present || return 2
+    local out rc
+    out=$(bash "$DC_RECORD_HOLDING" --list --session "$1")
+    rc=$?
+    case "$rc" in
+        0)
+            printf '%s' "$out" | jq -e 'type == "array"' >/dev/null || return 2
+            printf '%s\n' "$out"
+            return 0
+            ;;
+        10) return 10 ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_record_write() {
+    dc_record_present || return 2
+    bash "$DC_RECORD_HOLDING" --topic "$2" --row-file "$3" --session "$1"
+    local rc=$?
+    case "$rc" in
+        0 | 10 | 65) return "$rc" ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_with_deadline() {
+    local secs="$1" pid watcher rc mark
+    shift
+    mark=$(mktemp "${TMPDIR:-/tmp}/dc-deadline.XXXXXX") || return 2
+    rm -f "$mark"
+    "$@" &
+    pid=$!
+    # The watcher's streams go nowhere: its sleep outlives it when the command
+    # finishes first, and a sleep holding a caller's $(...) pipe would make
+    # that caller wait out the whole deadline.
+    (
+        sleep "$secs"
+        if kill -TERM "$pid" >/dev/null 2>&1; then
+            : >"$mark"
+        fi
+    ) </dev/null >/dev/null 2>&1 &
+    watcher=$!
+    wait "$pid"
+    rc=$?
+    kill -TERM "$watcher" >/dev/null 2>&1
+    wait "$watcher" >/dev/null 2>&1
+    if [ -e "$mark" ]; then
+        rm -f "$mark"
+        return 124
+    fi
+    return "$rc"
 }

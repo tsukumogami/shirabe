@@ -25,5 +25,5 @@ execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--i
 deliver	-	-	-	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*
 work-on	-	-	-	--auto,--interactive
 explore	-	-	-	--auto,--interactive
-decision	-	-	-	--auto,--interactive
+decision	-	-	-	--auto
 coordinate	-	-	-	-

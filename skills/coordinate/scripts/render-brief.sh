@@ -39,10 +39,14 @@
 # not an id.
 #
 # Usage:
-#   render-brief.sh --input <file> [--workspace-root <dir>] [--stdout]
+#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]
 #
 #   --workspace-root  where .niwa/dispatch-briefs/ lives; found with
 #                     dc_workspace_root when absent
+#   --return-path     the worker's return path, `<request-id>:<leg>` or
+#                     `message` (the default); a leg adds --koto-leg to the
+#                     invocation the brief shows, so the brief and the
+#                     dispatch prompt name the same command
 #   --stdout          print the brief instead of writing it
 #
 # Output: the written brief's path, or the brief with --stdout. The reason for
@@ -63,17 +67,19 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/dispatch-common.sh"
 
 usage() {
-    printf 'usage: %s --input <file> [--workspace-root <dir>] [--stdout]\n' "$PROG" >&2
+    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]\n' "$PROG" >&2
     exit 2
 }
 
 INPUT=""
 ROOT=""
 TO_STDOUT=0
+RETURN_PATH=message
 while [ $# -gt 0 ]; do
     case "$1" in
         --input) [ $# -ge 2 ] || usage; INPUT="$2"; shift 2 ;;
         --workspace-root) [ $# -ge 2 ] || usage; ROOT="$2"; shift 2 ;;
+        --return-path) [ $# -ge 2 ] || usage; RETURN_PATH="$2"; shift 2 ;;
         --stdout) TO_STDOUT=1; shift ;;
         *) usage ;;
     esac
@@ -150,13 +156,34 @@ if [ -n "$ENTRY" ]; then
         done <<EOF
 $(jq -r 'if (.entry_args | type) == "array" then .entry_args[1:][] | strings else empty end' "$INPUT")
 EOF
-        for flag in $(jq -r '.run_mode // "" | strings' "$INPUT"); do
+        while IFS= read -r flag; do
+            [ -n "$flag" ] || continue
             dc_flag_allowed "$ENTRY" "$flag" || refuse "run_mode: $ENTRY doesn't allow $flag"
-        done
+        done <<EOF
+$(jq -r '.run_mode // "" | strings | split(" ")[] | select(. != "")' "$INPUT")
+EOF
     else
         refuse "entry_point: not in references/entry-points.tsv: $ENTRY"
     fi
 fi
+
+# The flags as the worker's invocation will carry them: none twice, and never
+# both execution modes.
+FLAGS=$(jq -r 'if (.entry_args | type) == "array" and (.run_mode | type) == "string" then
+    ((.run_mode | split(" ") | map(select(. != ""))) + .entry_args[1:])[] else empty end' "$INPUT")
+DUP=$(printf '%s\n' "$FLAGS" | sed '/^$/d' | sort | uniq -d | head -1)
+[ -n "$DUP" ] && refuse "run_mode and entry_args: $DUP is given twice"
+if printf '%s\n' "$FLAGS" | grep -qx -- --auto && printf '%s\n' "$FLAGS" | grep -qx -- --interactive; then
+    refuse "run_mode and entry_args: --auto and --interactive together"
+fi
+if jq -e '(.entry_args | type) == "array" and ((.entry_args[0] // "") | test("[\"`$\\\\]"))' "$INPUT" >/dev/null; then
+    refuse "entry_args: the positional argument may not contain a quote, backtick, dollar sign or backslash"
+fi
+case "$RETURN_PATH" in
+    message) ;;
+    *) printf '%s' "$RETURN_PATH" | grep -Eq '^[a-z0-9_][a-z0-9_-]{0,63}:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$' ||
+        refuse "--return-path: not message or <request-id>:<leg>: $RETURN_PATH" ;;
+esac
 
 if [ -n "$PROBLEMS" ]; then
     printf '%s' "$PROBLEMS" | sed -e '/^$/d' -e "s/^/$PROG: refused: /" >&2
@@ -165,14 +192,11 @@ fi
 
 # --- render ---------------------------------------------------------------------
 
+INVOCATION=$(dc_invocation "$INPUT" "$RETURN_PATH") || { printf '%s: jq failed building the invocation\n' "$PROG" >&2; exit 2; }
+
 JQ_RENDER='
 def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n")) else $none end;
-. as $b
-| ([.entry_args[0]] + ((.run_mode | split(" ") | map(select(. != "")))) + .entry_args[1:])
-  as $tokens
-| ($tokens[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
-| ("/shirabe:" + .entry_point + " " + ([$pos] + $tokens[1:] | join(" "))) as $invocation
-| [
+[
   "# Brief: \(.topic)",
   "",
   "## Goal",
@@ -237,7 +261,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   ]
 | join("\n")
 '
-BRIEF=$(jq -r "$JQ_RENDER" "$INPUT") || { printf '%s: jq failed rendering the brief\n' "$PROG" >&2; exit 2; }
+BRIEF=$(jq -r --arg invocation "$INVOCATION" "$JQ_RENDER" "$INPUT") || { printf '%s: jq failed rendering the brief\n' "$PROG" >&2; exit 2; }
 
 if [ "$TO_STDOUT" = 1 ]; then
     printf '%s\n' "$BRIEF"

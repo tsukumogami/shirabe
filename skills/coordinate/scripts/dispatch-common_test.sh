@@ -96,5 +96,41 @@ no  "flag: --upstream never listed" dc_flag_allowed scope --upstream
 no  "flag: coordinate allows none"  dc_flag_allowed coordinate --auto
 no  "flag: with whitespace"         dc_flag_allowed deliver '--auto x'
 
+# The table against the skills it names: every skill exists, every template a
+# leg admits exists and declares each pinned variable, and every flag's stem
+# is one the skill's own SKILL.md mentions. A skill that renames a flag or a
+# template shows up here, not at a worker's attach.
+SKILLS="$HERE/../.."
+while IFS='	' read -r skill leg tpls pinned flags; do
+    case "$skill" in '' | '#'*) continue ;; esac
+    [ -f "$SKILLS/$skill/SKILL.md" ] && ok "table: $skill exists" || bad "table: $skill exists" ""
+    if [ "$tpls" != - ]; then
+        IFS=, read -r -a TS <<EOF
+$tpls
+EOF
+        for t in "${TS[@]}"; do
+            f="$SKILLS/$skill/koto-templates/$t"
+            [ -f "$f" ] && ok "table: $skill admits $t, which exists" || bad "table: $skill admits $t, which exists" "$f"
+            if [ "$pinned" != - ]; then
+                IFS=, read -r -a PS <<EOF
+$pinned
+EOF
+                for p in "${PS[@]}"; do
+                    grep -Eq "^  ${p%%=*}:" "$f" && ok "table: $t declares ${p%%=*}" || bad "table: $t declares ${p%%=*}" ""
+                done
+            fi
+        done
+    fi
+    if [ "$flags" != - ]; then
+        IFS=, read -r -a FS <<EOF
+$flags
+EOF
+        for fl in "${FS[@]}"; do
+            stem=${fl%%=*}
+            grep -Fq -- "$stem" "$SKILLS/$skill/SKILL.md" && ok "table: $skill documents $stem" || bad "table: $skill documents $stem" ""
+        done
+    fi
+done <"$DC_ENTRY_POINTS"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

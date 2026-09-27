@@ -111,6 +111,19 @@ has "min: no surfaces"            "$M" "no discipline coordinator is named for a
 lacks "min: no workspace rules"   "$M" "## Workspace rules"
 has "min: scoping ahead"          "$M" "You are scoping ahead"
 
+L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
+has "return path: the brief's invocation carries the leg" "$L" 'Run `/shirabe:deliver plugin-api --auto --no-merge --koto-leg=req_1:deliver` in acme/widgets.'
+
+# The template's own headings, read from references/brief-template.md's fenced
+# brief, are the rendered brief's first seven, in order: the renderer and the
+# prose template can't drift apart unnoticed.
+TPL="$HERE/../references/brief-template.md"
+WANT=$(awk '/^```markdown/{f=1;next} /^```/{f=0} f && /^## /' "$TPL" | tr '\n' '|')
+GOT=$(printf '%s\n' "$B" | grep '^## ' | head -7 | tr '\n' '|')
+eq  "template: the rendered headings are the template's" "$WANT" "$GOT"
+
+# An --interactive run mode is allowed (the human's decisions may ask for it,
+# per the template), and the caution still reaches the worker.
 I=$(bash "$S" --input "$(variant interactive '.run_mode = "--interactive"')" --stdout)
 has "interactive: the caution is there too" "$I" 'Run mode: `--interactive`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.'
 has "checkpoints: never wait for approval" "$B" "don't wait for approval to go past it"
@@ -153,7 +166,16 @@ refused "bad phase"             "$(variant bp '.phase = "done"')"               
 refused "multi-line session"    "$(variant ms '.dispatcher_session = "a\nb"')"              "dispatcher_session: must be one line"
 refused "bad surface"           "$(variant bs '.surfaces = [{"surface": "ci"}]')"           "surfaces: must be"
 refused "bad decision"          "$(variant bd '.decisions = [{"decision": "x"}]')"          "decisions: must be"
+refused "flag given twice"      "$(variant dup '.entry_args += ["--auto"]')"                "--auto is given twice"
+refused "both modes"            "$(variant both '.run_mode = "--auto --interactive"')"      "--auto and --interactive together"
+refused "quote in positional"   "$(variant q '.entry_args = ["a\"b"]')"                     "may not contain a quote"
+refused "dollar in positional"  "$(variant d '.entry_args = ["$(x)"]')"                     "may not contain a quote"
 refused "session id"            "$(variant uuid '.goal = "Resume 3f2b8c1e-9a4d-4c2e-8f1a-2b3c4d5e6f70."')" "UUID-shaped token"
+
+ERR=$(cd "$W/inst" && bash "$S" --input "$BASE" --return-path 'nope; rm' 2>&1 >/dev/null); RC=$?
+eq  "bad return path: exit 1" 1 "$RC"
+has "bad return path: names it" "$ERR" "--return-path: not message"
+if [ -e "$BRIEFS" ]; then bad "bad return path: nothing written" ""; else ok "bad return path: nothing written"; fi
 
 # --- usage and environment ------------------------------------------------------------
 
