@@ -21,5 +21,6 @@ git	-	-	always
 niwa	-	-	always
 koto	request create	--with-data,--requested-by,--coordinator-of-record	always
 koto	request abandon-request	--rationale	always
+koto	request list	--coordinator-of-record,--state	always
 koto	context get	-	always
 jq	-	-	always

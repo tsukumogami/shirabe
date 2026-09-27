@@ -61,6 +61,9 @@ case "$1 $2" in
     "request abandon-request")
         echo "koto request abandon-request $3" >>"$ST/calls.log"
         ;;
+    "request list")
+        if [ -f "$ST/open_requests.json" ]; then cat "$ST/open_requests.json"; else printf '{"requests":[]}\n'; fi
+        ;;
     *) exit 64 ;;
 esac
 EOF
@@ -216,6 +219,13 @@ has "leg: prompt carries --koto-leg" "$(cat "$ST/prompt")" "--koto-leg=req_1:sco
 has "leg: the brief shows the same invocation" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:scope plugin-api --auto --intent=continue --koto-leg=req_1:scope`'
 CREATE=$(grep -n 'koto request create' "$ST/calls.log" | cut -d: -f1)
 if [ "$CREATE" -lt "$(grep -n 'record write' "$ST/calls.log" | head -1 | cut -d: -f1)" ]; then ok "leg: opened before the write-ahead"; else bad "leg: opened before the write-ahead" "$LOG"; fi
+
+reset "$INPUT_SCOPE"
+printf '{"requests":[{"request_id":"req_left","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_other","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run >/dev/null 2>&1
+LOG=$(calls)
+has "leg: a leftover request under the topic is abandoned first" "$LOG" "koto request abandon-request req_left"
+lacks "leg: another topic's request is left alone" "$LOG" "abandon-request req_other"
 
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"]')"
 run >/dev/null 2>&1

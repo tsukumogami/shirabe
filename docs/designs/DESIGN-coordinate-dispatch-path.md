@@ -244,8 +244,11 @@ what stops a message from standing in for a leg the worker was bound to.
 
 ### Components
 
-All scripts live in `skills/coordinate/scripts/`, each with a `_test.sh`
-sibling that builds its fixtures and stand-ins itself, on the model of
+All scripts live in `skills/coordinate/scripts/`, each covered by a `_test.sh`
+suite that builds its fixtures and stand-ins itself (a gate script shares the
+suite of the script that writes what it reads: `holding-recorded.sh` in
+`dispatch-worker_test.sh`, `report-source.sh` in `wait-target_test.sh`,
+`teardown-verdict.sh` in `teardown-inventory_test.sh`), on the model of
 `skills/execute/scripts/`. They're reached from the template through the
 declared `PLUGIN_ROOT` variable, never `${CLAUDE_PLUGIN_ROOT}`.
 

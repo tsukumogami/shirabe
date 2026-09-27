@@ -306,6 +306,20 @@ EOF
                 INPUTS=$(printf '%s' "$INPUTS" | jq -c --arg k "$var" --arg v "$val" '.[$k] = $v')
             done
         fi
+        # A run that died between opening its leg and writing the holding
+        # left an open request under this topic's coordinator that no row
+        # names. There is no row here, so any such request is that leftover:
+        # abandon it before opening the one the row will name.
+        LEFT=$("$KOTO" request list --coordinator-of-record "coordinate-$TOPIC" --state open </dev/null) ||
+            die 2 "koto request list failed for $TOPIC"
+        while IFS= read -r old; do
+            [ -n "$old" ] || continue
+            printf '%s' "$old" | grep -Eq "$RE_REQ" || continue
+            "$KOTO" request abandon-request "$old" --rationale "left by an interrupted dispatch of $TOPIC" </dev/null >/dev/null ||
+                die 2 "could not abandon the leftover request $old for $TOPIC"
+        done <<EOF
+$(printf '%s' "$LEFT" | jq -r --arg c "coordinate-$TOPIC" '(.requests // [])[] | select(.coordinator_of_record == $c and .request_state == "open") | .request_id')
+EOF
         DATA=$(jq -nc --arg leg "$LEG" --arg t "$TEMPLATES" --argjson in "$INPUTS" \
             '{legs: [{name: $leg, role: $leg, template: ($t | split(",") | if length == 1 then .[0] else . end), inputs: $in}]}')
         DISPATCHER=$(jq -r '.dispatcher_session' "$INPUT")

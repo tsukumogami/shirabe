@@ -176,7 +176,13 @@ bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 
 
 src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
 reset "$ROWS"
-eq  "source: a leg report is admitted" 0 "$(src gamma leg)"
+printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
+eq  "source: a leg report from the recorded leg the wait read is admitted" 0 "$(src gamma leg)"
+eq  "source: a leg report for a message-path worker is refused" 1 "$(src beta leg)"
+printf '{"path":"leg","topic":"gamma","request":"req_other","leg":"execute"}\n' >"$ST/ctx/wait_target"
+eq  "source: a leg report whose read leg isn't the recorded one is refused" 1 "$(src gamma leg)"
+printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
+eq  "source: a leg report with no leg read is refused" 1 "$(src gamma leg)"
 eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
 eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
 eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"

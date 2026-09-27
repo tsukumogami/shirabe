@@ -4,10 +4,12 @@
 # A worker bound to a request leg reports through the leg, where only its own
 # session's terminal tick can promote a result. A message is text anyone can
 # send and the coordinator relays, so a message must never stand in for a
-# leg-bound worker's result. The gate reads the reporting topic's holding
-# from the record: a message report is admitted only for a holding whose
-# return path is `message`. A leg report came through wait_leg's gate on a
-# promoted result and is admitted as is.
+# leg-bound worker's result, and a report claimed to come from a leg must be
+# the leg the record names. The gate reads the reporting topic's holding from
+# the record: a message report is admitted only for a holding whose return
+# path is `message`; a leg report only when the holding's return path is the
+# leg the wait state read (wait_target), which wait_leg's gate admitted on a
+# promoted result.
 #
 # Inputs, from the session's context: report_topic (whose report it is) and
 # report_source (`leg` or `message`), both written by the transitions into
@@ -45,8 +47,7 @@ SOURCE=$("$KOTO" context get "$SESSION" report_source) || { printf '%s: cannot r
 dc_valid_topic "$TOPIC" || { printf '%s: report_topic is not a valid topic\n' "$PROG" >&2; exit 2; }
 
 case "$SOURCE" in
-    leg) exit 0 ;;
-    message) ;;
+    leg | message) ;;
     *) printf '%s: report_source is [%s], not leg or message\n' "$PROG" "$SOURCE" >&2; exit 2 ;;
 esac
 
@@ -56,10 +57,22 @@ case "$?" in
     1) printf '%s: no holding for %s\n' "$PROG" "$TOPIC" >&2; exit 1 ;;
     *) printf '%s: the record could not be read for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
 esac
-
 RP=$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')
-if [ "$RP" = message ]; then
+
+if [ "$SOURCE" = message ]; then
+    [ "$RP" = message ] && exit 0
+    printf '%s: %s is bound to leg %s; its result comes through the leg, not a message\n' "$PROG" "$TOPIC" "$RP" >&2
+    exit 1
+fi
+
+# A leg report is admitted only for the leg the record binds this worker to,
+# and only when it is the leg the wait state actually read: report_source is
+# context anyone in the session can write, so the claim is checked against the
+# record and against wait_target, which wait-target.sh wrote from the record.
+TARGET=$("$KOTO" context get "$SESSION" wait_target) || { printf '%s: cannot read wait_target\n' "$PROG" >&2; exit 2; }
+READ=$(printf '%s' "$TARGET" | jq -r --arg t "$TOPIC" 'select(.path == "leg" and .topic == $t) | "\(.request):\(.leg)"')
+if [ -n "$READ" ] && [ "$RP" = "$READ" ]; then
     exit 0
 fi
-printf '%s: %s is bound to leg %s; its result comes through the leg, not a message\n' "$PROG" "$TOPIC" "$RP" >&2
+printf '%s: a leg report for %s must come from its recorded leg [%s], read by the wait state [%s]\n' "$PROG" "$TOPIC" "$RP" "$READ" >&2
 exit 1

@@ -66,6 +66,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 GH="${GH:-gh}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-6}"
+# The whole scan's budget. As the teardown state's default action this has
+# koto's 30 seconds, and an action killed there is a failure, not a verdict;
+# a repository the budget doesn't reach is an error, never durable.
+TOTAL_SECS="${TEARDOWN_TOTAL_SECS:-24}"
+STARTED=$(date +%s)
 
 usage() { printf 'usage: %s --topic <topic> [--instance <dir>] [--seal --session <s>]\n' "$PROG" >&2; exit 2; }
 
@@ -123,7 +128,7 @@ check_repo() {
         return
     fi
     if ! dc_with_deadline "$FETCH_SECS" "${g[@]}" fetch --prune --quiet origin >"$WORK/fetch.out" 2>&1; then
-        note 2 "error $rel: git fetch origin failed or timed out"
+        note 2 "error $rel: git fetch origin failed or timed out ($(tail -1 "$WORK/fetch.out"))"
         return
     fi
     local default
@@ -154,20 +159,23 @@ check_repo() {
     while IFS='	' read -r name sha; do
         [ -n "$sha" ] || continue
         # On a remote branch: its commits survive this instance.
-        [ -n "$("${g[@]}" branch -r --contains "$sha")" ] && continue
+        # Only origin was fetched and pruned, so only its refs can vouch.
+        [ -n "$("${g[@]}" branch -r --contains "$sha" --list 'origin/*')" ] && continue
         paths=$("${g[@]}" diff --no-renames --name-only "$("${g[@]}" merge-base "$default" "$sha")" "$sha") || {
             note 2 "error $rel: cannot diff $name against $default"
             return
         }
         target="$default"
         if [ "$name" != HEAD ] && [ -n "$repo" ]; then
-            merge=$("$GH" pr list --repo "$repo" --head "$name" --state merged --json mergeCommit --jq '.[0].mergeCommit.oid // ""') || {
-                note 2 "error $rel: the merged pull request for $name could not be looked up"
+            if ! dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$repo" --head "$name" --state merged \
+                --json mergeCommit --jq '.[0].mergeCommit.oid // ""' >"$WORK/gh.out" 2>"$WORK/gh.err"; then
+                note 2 "error $rel: the merged pull request for $name could not be looked up ($(tail -1 "$WORK/gh.err"))"
                 return
-            }
+            fi
+            merge=$(cat "$WORK/gh.out")
             if [ -n "$merge" ]; then
                 "${g[@]}" cat-file -e "$merge^{commit}" || dc_with_deadline "$FETCH_SECS" "${g[@]}" fetch --quiet origin "$merge" >"$WORK/fetch.out" 2>&1 || {
-                    note 2 "error $rel: merge commit $merge for $name could not be fetched"
+                    note 2 "error $rel: merge commit $merge for $name could not be fetched ($(tail -1 "$WORK/fetch.out"))"
                     return
                 }
                 target="$merge"
@@ -217,6 +225,10 @@ while IFS= read -r gitpath; do
     rel=${dir#"$INSTANCE"}
     rel=${rel#/}
     [ -n "$rel" ] || rel=.
+    if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
+        note 2 "error $rel: not inventoried; the scan ran out of its ${TOTAL_SECS}s budget"
+        continue
+    fi
     if ! git -C "$dir" rev-parse --git-dir >/dev/null; then
         note 2 "error $rel: not a readable git repository"
         continue

@@ -240,6 +240,26 @@ eq  "hung fetch: exit 2" 2 "$RC"
 has "hung fetch: named" "$OUT6" "error slow: git fetch origin failed or timed out"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "hung fetch: stops at the deadline"; else bad "hung fetch: stops at the deadline" ""; fi
 
+# The scan's overall budget: a repository it doesn't reach is an error.
+OUT7=$(TEARDOWN_TOTAL_SECS=0 bash "$S" --topic plugin-api --instance "$I2" 2>&1); RC=$?
+eq  "budget spent: exit 2" 2 "$RC"
+has "budget spent: named" "$OUT7" "not inventoried; the scan ran out of its 0s budget"
+
+# Only origin's refs vouch for a commit: a stale ref under another remote
+# doesn't make unpushed work durable.
+I8="$T/inst8"
+mkdir -p "$I8"
+git clone -q "$GHURL" "$I8/other"
+git -C "$I8/other" checkout -q -b mine
+printf 'mine\n' >"$I8/other/a.txt"
+git -C "$I8/other" commit -q -am mine
+git -C "$I8/other" remote add mirror "$O"
+git -C "$I8/other" update-ref refs/remotes/mirror/mine "$(git -C "$I8/other" rev-parse HEAD)"
+git -C "$I8/other" checkout -q main
+OUT8=$(bash "$S" --topic plugin-api --instance "$I8" 2>&1); RC=$?
+eq  "another remote's ref: still unique" 1 "$RC"
+has "another remote's ref: named" "$OUT8" "unique other: mine changed a.txt"
+
 bash "$S" --topic plugin-api --instance "$T/nowhere" >/dev/null 2>&1; eq "no instance: exit 2" 2 "$?"
 bash "$S" --topic ../x --instance "$I" >/dev/null 2>&1; eq "a bad topic: exit 2" 2 "$?"
 
