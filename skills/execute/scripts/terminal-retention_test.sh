@@ -351,12 +351,22 @@ k() { (cd "$FIXREPO" && koto "$@"); }
 # koto minimum moves past it (#439). Non-failure terminals (paused_for_review,
 # ready_awaiting_merge, merged) are still disposed without the flag on either
 # side, so their controls are unchanged.
-KOTO_VERSION=$(koto version 2>/dev/null | awk '{print $2}')
+#
+# The version is read with scripts/assert-koto-floor.sh's own sed (an optional
+# `v`, then major.minor.patch), and a line it can't read stops the suite rather
+# than defaulting to a branch. work-on's terminal-retention suite carries the
+# same reader; #439 removes both with the older branch.
+KOTO_VERSION_LINE=$(koto version 2>/dev/null | head -1)
+KOTO_VERSION=$(printf '%s' "$KOTO_VERSION_LINE" \
+    | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p')
+if [ -z "$KOTO_VERSION" ]; then
+    echo "FAIL: cannot read a version from \`koto version\` [$KOTO_VERSION_LINE] -- the version-dependent cases cannot pick a branch" >&2
+    exit 1
+fi
 koto_at_least_0_14() {
     local major minor
     major=${KOTO_VERSION%%.*}
     minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
-    case "$major$minor" in ''|*[!0-9]*) return 1 ;; esac
     [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
 }
 

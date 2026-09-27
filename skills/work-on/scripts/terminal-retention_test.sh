@@ -240,18 +240,29 @@ role_of() { bash "$ROLE_SH" "$1" 2>/dev/null; }
 # from its parent. The cases that depend on either assert the behaviour of the
 # koto on PATH, so the suite holds on both sides of the release until shirabe's
 # koto minimum moves past it (#439), when the older branch can go.
-KOTO_VERSION=$(koto version 2>/dev/null | awk '{print $2}')
+#
+# The version is read with scripts/assert-koto-floor.sh's own sed, so the two
+# agree on what a version line is (an optional `v`, then major.minor.patch). A
+# line neither can read stops the suite: picking a branch by default would
+# report the wrong koto behaviour as a defect. execute's terminal-retention
+# suite carries the same reader; #439 removes both with the older branch.
+KOTO_VERSION_LINE=$(koto version 2>/dev/null | head -1)
+KOTO_VERSION=$(printf '%s' "$KOTO_VERSION_LINE" \
+    | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p')
+if [ -z "$KOTO_VERSION" ]; then
+    echo "FAIL: cannot read a version from \`koto version\` [$KOTO_VERSION_LINE] -- the version-dependent cases cannot pick a branch" >&2
+    exit 1
+fi
 koto_at_least_0_14() {
     local major minor
     major=${KOTO_VERSION%%.*}
     minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
-    case "$major$minor" in ''|*[!0-9]*) return 1 ;; esac
     [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
 }
 if koto_at_least_0_14; then
     echo "koto $KOTO_VERSION: failure terminals are kept and a flagged child still delivers its result"
 else
-    echo "koto ${KOTO_VERSION:-unknown}: a failure terminal is disposed without the flag, and the flag withholds a child's result"
+    echo "koto $KOTO_VERSION: a failure terminal is disposed without the flag, and the flag withholds a child's result"
 fi
 
 # A `koto init` that fails leaves every later call reporting the session missing,
@@ -302,6 +313,52 @@ Submit `status: ok`.
 
 Terminal.
 CHILD_EOF
+
+# Two transitions to a non-failure terminal, so a flag can ride a real earlier
+# transition and be left off the one that lands (retain_early on koto 0.14).
+cat > "$WORKDIR/two_step.md" <<'TWO_STEP_EOF'
+---
+name: retention-probe-two-step
+version: "1.0"
+description: Two evidence-driven transitions to a non-failure terminal.
+initial_state: work
+states:
+  work:
+    accepts:
+      status:
+        type: enum
+        values: [ok]
+        required: true
+    transitions:
+      - target: mid
+        when:
+          status: ok
+  mid:
+    accepts:
+      go:
+        type: enum
+        values: ["yes"]
+        required: true
+    transitions:
+      - target: done
+        when:
+          go: "yes"
+  done:
+    terminal: true
+---
+
+## work
+
+Submit `status: ok`.
+
+## mid
+
+Submit `go: yes`.
+
+## done
+
+Terminal.
+TWO_STEP_EOF
 
 cat > "$WORKDIR/parent.md" <<'PARENT_EOF'
 ---
@@ -426,6 +483,17 @@ if koto_at_least_0_14; then
     else
         pass "a root run reaching a non-failure terminal without the flag loses plan.md (control)"
     fi
+    # The control's twin on the same terminal: with the flag the record stays,
+    # so on 0.14 the flag is still shown to be what keeps a non-failure run.
+    koto init retain_yes_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
+    init_or_die retain_yes_ok
+    printf 'the running record\n' | koto context add retain_yes_ok plan.md >/dev/null 2>&1
+    koto next retain_yes_ok --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+    if [ "$(koto context get retain_yes_ok plan.md 2>/dev/null)" = "the running record" ]; then
+        pass "a root run reaching a non-failure terminal with the flag keeps plan.md (koto >= 0.14)"
+    else
+        fail "a root run reaching a non-failure terminal with the flag lost plan.md on koto $KOTO_VERSION"
+    fi
 elif koto context get retain_no plan.md >/dev/null 2>&1; then
     fail "a root run reaching done_blocked without the flag kept plan.md -- the control did not fire"
 else
@@ -463,14 +531,17 @@ fi
 # The flag is read only on the tick that lands on a terminal, so carrying it
 # earlier retains nothing. This is why the rule cannot be "pass it once". On
 # koto 0.14 and later done_blocked is kept anyway, so the case runs against
-# child.md's non-failure `done`: an earlier tick carries the flag, and the tick
-# that lands on the terminal doesn't.
+# two_step.md's non-failure `done`: the flag rides the real work -> mid
+# transition, and the tick that lands on the terminal doesn't carry it.
 if koto_at_least_0_14; then
-    koto init retain_early --template "$WORKDIR/child.md" >/dev/null 2>&1
+    koto init retain_early --template "$WORKDIR/two_step.md" >/dev/null 2>&1
     init_or_die retain_early
     printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
-    koto next retain_early --no-cleanup >/dev/null 2>&1
-    koto next retain_early --with-data '{"status":"ok"}' >/dev/null 2>&1
+    koto next retain_early --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+    if [ "$(koto status retain_early 2>/dev/null | jq -r '.current_state')" != mid ]; then
+        fail "retain_early's flagged tick did not take the work -> mid transition -- the case below would prove nothing"
+    fi
+    koto next retain_early --with-data '{"go":"yes"}' >/dev/null 2>&1
 else
     koto init retain_early --template "$TEMPLATE" \
         --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early \
@@ -607,11 +678,17 @@ koto next withheld.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>
 if koto_at_least_0_14; then
     # koto#240 is fixed: the flag no longer withholds the result, so the gate
     # passes and isn't reported as a blocking condition, as for the unflagged
-    # control below. Dropping the child exception itself is #439.
-    if [ "$(gate_field withheld results_in)" = "absent" ]; then
+    # control below. Dropping the child exception itself is #439. The tick's
+    # own response is read rather than gate_field's "absent", which an error
+    # response would also produce: the tick must be accepted, leave the parent
+    # at spawn (parent_hold advances only on `go`), and carry no batch_done
+    # blocker.
+    RESP=$(koto next withheld --with-data "$TASKS" 2>/dev/null)
+    if printf '%s' "$RESP" | jq -e '.error == null and .state == "spawn"
+            and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1; then
         pass "a child whose terminal tick carries the flag still delivers its result (koto >= 0.14)"
     else
-        fail "a flagged child's result did not reach its parent on koto $KOTO_VERSION, which should deliver it"
+        fail "a flagged child's result did not reach its parent on koto $KOTO_VERSION, which should deliver it: $(printf '%s' "$RESP" | head -c 300)"
     fi
 elif [ "$(gate_field withheld all_complete)" = "true" ] && [ "$(gate_field withheld results_in)" = "false" ]; then
     pass "a child whose terminal tick carries the flag withholds its result: all_complete true, results_in false"
@@ -639,10 +716,13 @@ init_or_die waits
 koto next waits --with-data "$TASKS" >/dev/null 2>&1
 koto next waits.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
 if koto_at_least_0_14; then
-    if [ "$(gate_field waits converge_blocked)" = "absent" ]; then
-        pass "against a parent that waits for the gate to pass, a flagged child no longer blocks it (koto >= 0.14)"
+    # parent.md's only exit is unconditional behind the gate, so a delivered
+    # result shows as the parent actually reaching `finished` on this tick.
+    RESP=$(koto next waits --with-data "$TASKS" 2>/dev/null)
+    if printf '%s' "$RESP" | jq -e '.error == null and .state == "finished"' >/dev/null 2>&1; then
+        pass "against a parent that waits for the gate to pass, a flagged child no longer blocks it: the parent reaches finished (koto >= 0.14)"
     else
-        fail "a parent that waits on the gate is still blocked by a flagged child on koto $KOTO_VERSION"
+        fail "a parent that waits on the gate did not advance past a flagged child on koto $KOTO_VERSION: $(printf '%s' "$RESP" | head -c 300)"
     fi
 elif [ "$(gate_field waits converge_blocked)" = "true" ]; then
     pass "against a parent that waits for the gate to pass, a flagged child leaves it blocked"
