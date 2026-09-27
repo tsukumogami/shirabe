@@ -86,6 +86,15 @@ gh api "repos/<owner/repo>/issues/<n>/timeline" --paginate \
 An open or merged one that closes the issue means the unit is taken or
 done; read it before dispatching anything.
 
+## Checking a Worker's Premise
+
+A worker's report rests on premises: that a feature depends on another, that a
+unit is independent, that a check is required. Test each one you would act on
+against what you can read yourself, the roadmap's own dependency lines and
+statuses, the record, and GitHub. A premise the roadmap or GitHub contradicts
+is a finding: name the contradiction, with both sources, before you weigh the
+proposal that rests on it.
+
 ## Resolving a Claim GitHub Contradicts
 
 When a row says one thing and the read says another, act on the read,
@@ -137,6 +146,9 @@ What I tried: <re-dispatches so far, with what each learned>.
 Options: <two or three, each with its consequence>.
 Recommendation: <one option and why>.
 Until you answer: <what stays paused; everything else keeps moving>.
+Waiting on the human:
+- <this decision> -- <recommendation>
+- <anything else already waiting on them>
 ```
 
 ## More Worked Examples
