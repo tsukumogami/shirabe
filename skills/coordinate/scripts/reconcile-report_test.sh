@@ -242,6 +242,18 @@ printf '%s' "$out" | grep -qE '/home/|deadbeef' && bad "an absolute clone path i
 out=$(facts '[]' '[]' '[]' '"present"' '[]' discipline | render)
 printf '%s\n' "$out" | grep -q 'reasoning is in reconcile/reasoning.md' && ok "present reasoning points at its key" || bad "present reasoning points at its key" "$out"
 
+echo "== has a pull request, one test =="
+H=$(holding t5 "[{\"kind\":\"pr\",\"status\":\"not_verified\",\"reason\":\"timeout\"},$(host found)]")
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].state == "pull request not verified" and .holdings[0].grade.state == "not verified" and .holdings[0].next_code == "read_again" and (.nowhere_else | length) == 0' >/dev/null \
+  && ok "a recorded pull request whose read failed is not verified in state, next and nowhere-else alike" || bad "failed pr read beside a found worker" "$out"
+H=$(holding t6 "[$(host found),{\"kind\":\"appeared\",\"status\":\"not_verified\",\"reason\":\"list failed\"}]" '{"pull_request":"none yet"}')
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].state == "pull request not verified" and (.nowhere_else | length) == 0' >/dev/null \
+  && ok "a failed appeared read never becomes 'no pull request'" || bad "failed appeared read" "$out"
+out=$(printf '{"schema":"coordinate-reconcile-report/v1","header":1}' | bash "$S" md 2>/dev/null); rc=$?
+[ "$rc" = 65 ] && ok "md refuses a malformed report with 65" || bad "md refuses a malformed report with 65" "rc=$rc"
+
 echo "== purity =="
 EMPTYBIN=$(mktemp -d)
 ln -s "$(command -v jq)" "$EMPTYBIN/jq"

@@ -4,8 +4,9 @@
 #
 # A pure function. It reads one facts document on stdin and writes one result
 # on stdout; it reads no file, calls no network and runs nothing but jq. The
-# pass (reconcile-pass.sh) gathers the facts from GitHub and the host and
-# calls this twice, once per output form, so the two forms always agree.
+# pass gathers the facts from GitHub and the host, builds the report with
+# `json`, seals those bytes, and renders the sealed report with `md`, so
+# the text the agent reads comes from exactly what the seal covers.
 #
 # Usage:
 #   reconcile-report.sh json < facts.json    the report, schema
@@ -121,7 +122,11 @@ case "$MODE:$SCHEMA" in
     # reads comes from the same bytes the seal covers.
     md:coordinate-reconcile-report/v1) ;;
     *)
-        echo "$PROG: input is not a coordinate-reconcile-facts/v1 document" >&2
+        if [ "$MODE" = md ]; then
+            echo "$PROG: input is not a facts or report document" >&2
+        else
+            echo "$PROG: input is not a coordinate-reconcile-facts/v1 document" >&2
+        fi
         exit 65 ;;
 esac
 
@@ -144,11 +149,25 @@ def phase_of:
     else "executing" end;
 def outside_docs: fact("files") as $f | ok($f) and ((($f.paths // []) | map(select(startswith("docs/") | not)) | length) > 0);
 
+# Whether the holding has a pull request is a claim about the record and
+# the appeared read, not about whether the pr read succeeded. One test,
+# used by the state line, the next line and "Exists nowhere else", so the
+# three never describe one holding two ways. A failed appeared read leaves
+# the question open, which counts as having one: "no pull request" is only
+# ever said when it was checked.
+def no_pr_recorded: (.row.pull_request // "") | test("^(none yet|none|)$"; "i");
+def has_pr:
+  fact("appeared") as $ap
+  | (no_pr_recorded | not)
+    or ($ap != null and (ok($ap) | not))
+    or (ok($ap) and (($ap.prs // []) | length) > 0);
+
 def state_of:
   if .refused != null then "refused"
   else fact("pr") as $pr
   | fact("host") as $h
   | if ok($pr) then ($pr.state | ascii_downcase)
+    elif has_pr then "pull request not verified"
     elif ok($h) then ("no pull request; worker " + (if $h.state == "found" then "found"
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
     else "not verified" end
@@ -165,26 +184,27 @@ def board_of:
     elif any(.[]; .verdict == "fails") then "fails" + (map(select(.verdict == "fails"))[0].detail // "" | if . == "" then "" else ": " + . end)
     else "holds" end;
 
-def next_of:
+# The next line is decided as a token, the one readers route on (the pick
+# side counts and routes on these); the sentence the agent reads is looked
+# up from it, so rewording a sentence cannot change what a reader sees.
+def next_code_of:
   fact("pr") as $pr | fact("host") as $h
-  | if .refused != null then "refused by the record reader"
+  | if .refused != null then "refused"
     elif ok($pr) then
-      (if $pr.state == "MERGED" then "drop from holdings"
-       elif $pr.state == "CLOSED" then "decide: re-dispatch or drop"
-       elif ((board_of // "") | startswith("fails")) then "worker fixes CI"
+      (if $pr.state == "MERGED" then "drop"
+       elif $pr.state == "CLOSED" then "decide"
+       elif ((board_of // "") | startswith("fails")) then "fix_ci"
        elif (board_of == "holds") and ((.row.verified_head // "") != "")
-            and ($pr.head == .row.verified_head) then "ready to land"
-       else "wait on worker" end)
-    elif ok($h) then
-      (if $h.state == "found" then "wait on worker" else "read again, then decide" end)
-    else "read again, then decide" end;
-
-# Stable tokens for readers that route on the next line of a holding (the pick
-# side counts and routes on these; the prose is for the agent).
-def next_code:
-  {"drop from holdings": "drop", "decide: re-dispatch or drop": "decide",
-   "worker fixes CI": "fix_ci", "ready to land": "land", "wait on worker": "wait",
-   "read again, then decide": "read_again", "refused by the record reader": "refused"}[.];
+            and ($pr.head == .row.verified_head) then "land"
+       else "wait" end)
+    elif has_pr then "read_again"
+    elif ok($h) and $h.state == "found" then "wait"
+    else "read_again" end;
+def next_text:
+  {drop: "drop from holdings", decide: "decide: re-dispatch or drop",
+   fix_ci: "worker fixes CI", land: "ready to land", wait: "wait on worker",
+   read_again: "read again, then decide", refused: "refused by the record reader"}[.];
+def next_of: next_code_of | next_text;
 
 def changes_of($written):
   topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap
@@ -223,26 +243,22 @@ def changes_of($written):
         phase_flag: ($ph == "scoping ahead" and outside_docs),
         state: state_of,
         merge_state: (fact("pr") as $pr | if ok($pr) then ($pr.merge_state // null) else null end),
-        board: board_of, leg: leg_of, next: next_of, next_code: (next_of | next_code),
+        board: board_of, leg: leg_of, next: next_of, next_code: next_code_of,
         source: (.source // $in.record.source // "record"),
         read_at: ([.facts // [] | .[].read_at // empty] | max),
         grade: {
           state: (fact("pr") as $pr | fact("host") as $h
                   | if .refused != null then "not verified"
-                    elif ok($pr) or ok($h) then "measured" else "not verified" end),
+                    elif ok($pr) then "measured"
+                    elif has_pr then "not verified"
+                    elif ok($h) then "measured" else "not verified" end),
           board: (if board_of == null then null else "verified by reading" end),
           leg: grade_of(fact("leg")),
           phase: "inferred", next: "inferred"}
       }],
     nowhere_else: [$in.holdings[]? | select(.refused == null)
       | fact("pr") as $pr | fact("host") as $h | fact("inventory") as $inv
-      | fact("appeared") as $ap
-      # "No pull request" means the record says none yet and none appeared
-      # since. A pull request whose read failed is not that: it is listed
-      # under not_verified, and saying "no pull request" here would
-      # contradict the state line of the holding.
-      | (((.row.pull_request // "") | test("^(none yet|none|)$"; "i"))
-         and ((ok($ap) and (($ap.prs // []) | length) > 0) | not)) as $nopr
+      | (has_pr | not) as $nopr
       | (ok($inv) and (($inv.items // []) | length) > 0) as $unique
       | select($nopr or $unique)
       | {topic: topic,
@@ -286,6 +302,10 @@ def changes_of($written):
 '
 
 if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then
+    if ! printf '%s' "$INPUT" | jq -e '(.header | type) == "object" and ([.changes, .holdings, .waiting, .nowhere_else, .side_effects, .deferrals, .not_verified] | all(type == "array"))' >/dev/null 2>&1; then
+        echo "$PROG: the report document is malformed" >&2
+        exit 65
+    fi
     REPORT=$INPUT
 else
     # A facts document that passes the schema check but can't be built is
