@@ -5,7 +5,7 @@
 # The two state blocks and their directives are lifted verbatim from
 # coordinate.md into a skeleton whose start_posture state seals "readable",
 # so this tests the template's own declarations. The pass runs through its
-# production entry (scrub included) from a copied plugin tree whose
+# production entry from a copied plugin tree whose
 # reconcile-read.sh and reconcile-check.sh are stand-ins; coord-log.sh and
 # coord-verdict.sh are the record feature's own.
 #
@@ -15,8 +15,8 @@
 # evidence alone doesn't pass while the report key is absent, agent-written,
 # or from an earlier visit, and passes once the sealed report is back; then
 # the posture routes to pick_facts. Also: no gate names
-# reconcile/reasoning.md, both reconcile commands start with
-# `env -u BASH_ENV -u ENV`, and the directive doesn't name RECONCILE_SEAL.
+# reconcile/reasoning.md, both reconcile commands run from the plugin root,
+# and the directive doesn't name RECONCILE_SEAL.
 #
 # Needs koto and jq, and waits 31 seconds once (the listing re-read). SKIPs
 # (exit 0) without koto.
@@ -35,8 +35,7 @@ T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME"
-# The pass re-executes with HOME from the password database; the session
-# store is named explicitly so the pass and this test read the same one.
+# The session store, named explicitly for the pass and this test alike.
 export KOTO_SESSIONS_BASE="$HOME/.koto/sessions"
 mkdir -p "$KOTO_SESSIONS_BASE"
 export GIT_CEILING_DIRECTORIES="$T"
@@ -52,7 +51,7 @@ eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]";
 PR="$T/plugin"
 SC="$PR/skills/coordinate/scripts"
 mkdir -p "$SC" "$PR/skills/execute/scripts"
-for f in reconcile-pass.sh reconcile-env.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh; do
+for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh; do
     cp "$HERE/$f" "$SC/"
 done
 cp "$REPO_ROOT/skills/execute/scripts/coord-common.sh" "$PR/skills/execute/scripts/"
@@ -156,8 +155,8 @@ eq "every reconcile_pass gate is overridable: false" true "$(jq '[.states.reconc
 eq "reconcile_pass has one transition, to reconcile" '["reconcile"]' "$(jq -c '[.states.reconcile_pass.transitions[].target]' "$CJ")"
 eq "every reconcile gate is overridable: false" true "$(jq '[.states.reconcile.gates[] | .overridable == false] | all' "$CJ")"
 eq "no gate names reconcile/reasoning.md" 0 "$(jq '[.states[] | (.gates // {})[] | (.command // "") + (.key // "") | select(test("reasoning"))] | length' "$CJ")"
-eq "the pass and the report check start with /usr/bin/env -u BASH_ENV -u ENV /bin/bash -p" true \
-    "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "))' "$CJ")"
+eq "the pass and the report check run from the plugin root" true \
+    "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("\"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-"))' "$CJ")"
 eq "the reconcile_pass directive does not name RECONCILE_SEAL" 0 "$(jq '[.states.reconcile_pass | (.directive // "") + (.details // "") | select(test("RECONCILE_SEAL"))] | length' "$CJ")"
 eq "PLUGIN_ROOT is declared without rebind" null "$(jq -c '.variables.PLUGIN_ROOT.rebind' "$CJ")"
 

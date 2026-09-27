@@ -2,9 +2,7 @@
 # reconcile-pass_test.sh -- reconcile-pass.sh advances a visit's work file in
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
-# reconcile-report-get.sh accepts only the report the seal names; the
-# environment scrub refuses what changes a read and keeps only its
-# allowlist.
+# reconcile-report-get.sh accepts only the report the seal names.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -33,7 +31,7 @@ trap 'rm -rf "$T"' EXIT
 
 SC="$T/tree/skills/coordinate/scripts"
 mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
-for f in reconcile-pass.sh reconcile-env.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
+for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 P="$SC/reconcile-pass.sh"
 G="$SC/reconcile-report-get.sh"
@@ -180,7 +178,7 @@ pass() {
     RC=$?
     printf '%s\n' "$LINE" > "$CASE/capture"
 }
-get() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --scrubbed --session "$SESSION" "$@" 2>/dev/null; }
+get() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --session "$SESSION" "$@" 2>/dev/null; }
 ctx() { cat "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" 2>/dev/null; }
 has_ctx() { [ -f "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" ]; }
 tick() { echo $(( $(cat "$CASE/clock") + $1 )) > "$CASE/clock"; }
@@ -420,48 +418,8 @@ if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture -
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
 
-echo "== the environment =="
-PROBE="$SC/env-probe.sh"
-cat > "$PROBE" <<'EOF'
-#!/usr/bin/env bash
-. "$(dirname "$0")/reconcile-env.sh"
-if [ "${1-}" = --scrubbed ]; then shift; else rd_scrub "$0" "$@"; fi
-[ -n "${GH_TOKEN-}" ] && echo "token-sha=$(printf '%s' "$GH_TOKEN" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
-[ -n "${SOME_AGENT_VAR+x}" ] && echo agent-var-kept
-echo "home=$HOME"
-echo "gh=$(command -v gh || echo none)"
-echo "path=$PATH"
-echo "gh-type=$(type -t gh 2>/dev/null || echo none)"
-EOF
-chmod +x "$PROBE"
-mkdir -p "$T/shadow"; printf '#!/bin/sh\necho shadow\n' > "$T/shadow/gh"; chmod +x "$T/shadow/gh"
-# clean CMD... -- CMD without the variables the scrub refuses that the
-# harness itself may set (a container sets GIT_CONFIG_* for git), so each case
-# sees only the variable it sets.
-clean() {
-    (
-        for v in $(compgen -e); do
-            case "$v" in GIT_CONFIG*|LD_*|DYLD_*|BASH_ENV|ENV|GIT_DIR|GH_HOST|GH_REPO) unset "$v" ;; esac
-        done
-        "$@"
-    )
-}
-for v in BASH_ENV ENV LD_PRELOAD GIT_DIR GH_HOST GH_REPO GIT_CONFIG_COUNT DYLD_INSERT_LIBRARIES; do
-    out=$(clean env "$v=x" bash "$PROBE" 2>&1); rc=$?
-    [ "$rc" = 70 ] && printf '%s' "$out" | grep -q "$v"; check "refuses to run with $v set" $? "$rc $out"
-done
+echo "== the token =="
 SECRET=s3cr3t-token-value-for-the-test
-out=$(clean env GH_TOKEN="$SECRET" SOME_AGENT_VAR=1 HOME=/tmp/elsewhere PATH="$T/shadow:$PATH" bash "$PROBE" 2>&1)
-printf '%s' "$out" | grep -q "^token-sha=$(printf '%s' "$SECRET" | sha)$"; check "the operator's GH_TOKEN is kept" $? "$out"
-printf '%s' "$out" | grep -q '^agent-var-kept$' && bad "a variable outside the allowlist is dropped" "$out" || ok "a variable outside the allowlist is dropped"
-printf '%s' "$out" | grep -q '^home=/tmp/elsewhere$' && bad "HOME comes from the password database" "$out" || ok "HOME comes from the password database"
-printf '%s' "$out" | grep -q "gh=$T/shadow" && bad "a gh shadowing the fixed PATH is never run" "$out" || ok "a gh shadowing the fixed PATH is never run"
-printf '%s' "$out" | grep -q "$SECRET" && bad "the token's value is never printed" || ok "the token's value is never printed"
-# An exported function standing in for gh: the template starts the script with
-# bash -p, and the scrub re-executes with -p, so it never reaches the script.
-out=$(gh() { echo forged; }; export -f gh; clean "$BASH" -p "$PROBE" 2>&1)
-printf '%s' "$out" | grep -q '^gh-type=function$' && bad "an exported function never stands in for a tool" "$out" || ok "an exported function never stands in for a tool"
-grep -v '^[[:space:]]*#' "$HERE/reconcile-env.sh" | grep -q 'env -i' && bad "the token is never passed as an argument" || ok "the token is never passed as an argument"
 new_case token
 record "[$(hold with-pr "$PR12")]"
 TOKEN=$SECRET pass

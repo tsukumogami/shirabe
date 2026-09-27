@@ -226,11 +226,9 @@ verdict gate as its non-overridable gate, and `pick_facts` as its target.
   discarded and the visit's reads restart; a new visit discards the old work
   file and `reconcile/*` keys; `reconcile/refusal` and `reconcile/progress`
   are cleared at the start of every pass.
-- [ ] The pass refuses to run with `BASH_ENV`, `ENV`, `LD_PRELOAD`,
-  `GIT_CONFIG_*`, `GIT_DIR` or a `GH_HOST`, `GH_REPO` or `GH_TOKEN` override
-  set; with a `PATH` whose first entry shadows `gh` and a `HOME` pointing
-  elsewhere, it still runs the tools from its fixed path; no environment
-  variable changes its clock or sleep.
+- [ ] No environment variable changes the pass's clock or sleep; the
+  environment it runs in is the coordinator's (koto#261), named as a known
+  limitation rather than worked around.
 - [ ] Across every test's stub logs, commands match an explicit allowlist:
   `gh pr view`, `gh pr list`, `gh issue view`, `gh issue list`,
   `gh run list`, `gh api` with no `-f`, `-F`, `--input` or non-GET
@@ -244,8 +242,7 @@ verdict gate as its non-overridable gate, and `pick_facts` as its target.
   within R21's line bound for a 10-holding fixture.
 - [ ] In the template, `reconcile` has no `accepts`, no `polling`, and one
   transition to `pick_facts` conditioned on a gate declared
-  `overridable: false`; no override transition exists; both commands start
-  with `env -u BASH_ENV -u ENV`.
+  `overridable: false`; no override transition exists.
 - [ ] An engine test drives the state from `pending:` to the sealed line
   and into `pick_facts`; it stays in `reconcile` when the report key is
   absent, stale from an earlier visit, or set by the agent, and when every

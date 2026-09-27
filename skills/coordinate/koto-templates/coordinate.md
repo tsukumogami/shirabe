@@ -284,14 +284,14 @@ states:
 
   reconcile_pass:
     default_action:
-      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
       capture_stdout_as: RECONCILE_SEAL
       fallback: >-
         The reconcile pass failed; its own output above says why. Fix the cause and tick again with no evidence: the pass re-runs on entry and resumes the visit's reads. There is no evidence to submit here and no override, and no reconcile/ context key is ever yours to write.
     gates:
       reconcile_pass_verdict:
         type: command
-        command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
         overridable: false
     transitions:
       - target: reconcile
@@ -306,7 +306,7 @@ states:
         overridable: false
       reconcile_report:
         type: command
-        command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
         overridable: false
     accepts:
       reconciled:

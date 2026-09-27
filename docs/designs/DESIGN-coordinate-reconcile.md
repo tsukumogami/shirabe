@@ -141,27 +141,25 @@ was killed or failed logs no `pending:` hash, so the next pass restarts the
 visit's reads rather than resuming them; the per-read saves are the pass's
 own bookkeeping within one run.
 
-The pass and the report check run in a scrubbed environment. koto spawns
-actions and command gates with the environment of whoever ran `koto next`,
-and that is the agent. The template starts each script as
-`/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p <script>`: absolute paths, so no
-PATH lookup picks the interpreter, and bash's privileged mode, so no function
-exported into the environment is imported (one could otherwise stand in for
-`gh`, `date` or any command) and no startup file runs. The script then
-refuses to run when `BASH_ENV`, `ENV`, `LD_PRELOAD` or another loader
-variable, `GIT_CONFIG_*`, `GIT_DIR`, `GH_HOST` or `GH_REPO` is set, and
-re-executes itself with `-p` under a fixed `PATH` (the system directories,
-each `/opt/*/bin`, then the tool directories of the account's own home, read
-from the password database, not from `HOME`) with every variable outside a
-short allowlist unset. Every bash it starts runs with `-p` too.
+Checks run in the coordinator's own environment (koto#261). koto runs
+every action and gate with the environment of the `koto next` call that
+triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an
+exported shell function where `/bin/sh` is bash (not dash). The same goes for a
+shim put first on `PATH` by accident, which a check then reads silently. The
+checks hold against a wrong submitted value or a skipped step. They don't hold
+against a coordinator that rewrites its own tools, or its files, which no fix
+to the environment covers.
 
-The allowlist keeps the operator's GitHub credential (`GH_TOKEN`,
-`GITHUB_TOKEN`), what `gh` needs to reach a keyring, and where koto keeps
-sessions. An earlier draft refused `GH_TOKEN`; that was corrected, because a
-workspace that sets it would refuse every start, and the token decides who
-reads, not what is read. The scrub unsets the other variables rather than
-re-executing under `env -i NAME=value`, so the token never appears on a
-command line. There is no test
+No environment scrub ships to work around it. An earlier draft of this design
+had the pass and the report check start as `/usr/bin/env -u BASH_ENV -u ENV
+/bin/bash -p`, refuse a list of variables, and re-execute under a fixed
+`PATH`. That covered only part of the defect: privileged mode stops the first
+bash from importing an exported function, but the function stays in the
+environment and every script started after it (the record feature's board,
+deferral and parse scripts among them) imports it again, and the record
+feature's own gate runs outside any scrub. A partial workaround for a filed
+defect doesn't enter the skill; the fix belongs in koto, running checks in an
+environment the session fixes when it starts. There is no test
 hook in the environment: tests drive an internal entry point with an
 injected clock, which the template's command line never calls.
 
@@ -258,7 +256,7 @@ Tests follow the per-test keyed stub of
 `skills/execute/scripts/merge-verdict_test.sh`: a `PATH` shim for `gh`,
 `git`, `niwa` and `koto` that serves `<key>.out.N` on the Nth call and logs
 every call. The log is how the read-only criterion is checked. Tests call
-the scripts' internal entry points, past the environment scrub, with an
+the scripts' internal entry points with an
 injected clock and a no-op sleep, so the 30-second re-read is tested
 without waiting and without a clock hook the production command honors. The shared `gh` shim under `skills/execute/evals/` is not
 reused: it serves no run-list, jobs or contents route.
@@ -433,12 +431,12 @@ carries evidence, so the pass can't live there. It gets a state of its own,
 ```yaml
 reconcile_pass:
   default_action:
-    command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
+    command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
     capture_stdout_as: RECONCILE_SEAL
   gates:
     reconcile_pass_verdict:
       type: command
-      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
       overridable: false
   transitions:
     - target: reconcile
@@ -450,7 +448,7 @@ reconcile:        # the record feature's, with one gate added
     reconcile_posture: ...          # the record feature's
     reconcile_report:
       type: command
-      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
       overridable: false
   # both arms (to pick_facts and posture_ask) also require
   # gates.reconcile_report.exit_code: 0
@@ -596,7 +594,7 @@ sequence, the last engine-logged output of a state's action, and the
 dispatch path's teardown gate so there is one reader of the session log.
 Three requirements bind that helper as they bind reconcile's own scripts:
 it parses the log as typed JSON events with `jq` and never searches its
-text; it runs in the scrubbed environment described under Decision 1; and
+text; it runs in the same environment as every check (koto#261); and
 it exits 0 only on the four conditions under The gate.
 
 Outbound, the record feature's template consumes three things from this
@@ -735,13 +733,9 @@ and the eval for a restart checks that the scripts run from the installed
 plugin root.
 
 The environment of the process that runs `koto next` is the third input the
-agent controls, and unlike the two above it needs no file edited. The
-scrub under Decision 1 closes the variables that change what the scripts
-run or where they read (`PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, git and
-`gh` overrides). What stays with the account is its credential store: the
-`gh` token the scripts use is the same user's, and a user who rewrites it
-can point reads at another account. That is the same class as the files
-above.
+agent controls, and unlike the two above it needs no file edited. It is
+koto#261, stated under Decision 1: reconcile carries it as a known limitation
+rather than a partial workaround.
 
 **Private content.** The report goes into context, not to GitHub, so it
 never publishes anything. It names workers by topic only. The inventory

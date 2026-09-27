@@ -22,15 +22,12 @@
 # told rather than trusting the route.
 #
 # Exit codes: 0 read and checked; 1 refused (no sealed report, a mismatch);
-# 2 the log or a context key can't be read; 64 usage; 70 environment refused.
+# 2 the log or a context key can't be read; 64 usage.
 #
 # Requires: bash 3.2+, jq, koto, and a sha256 tool (sha256sum or shasum).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=reconcile-env.sh
-. "$HERE/reconcile-env.sh"
-if [ "${1-}" = --scrubbed ]; then shift; else rd_scrub "$0" "$@"; fi
 
 PROG=reconcile-report-get
 # shellcheck source=reconcile-deps.sh
@@ -51,7 +48,7 @@ done
 
 fail() { echo "reconcile-report-get: $2" >&2; exit "$1"; }
 
-CAP=$("$BASH" -p "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL --state "$STATE")
+CAP=$("$BASH" "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL --state "$STATE")
 case $? in
     0) ;;
     1) fail 1 "no sealed reconcile capture from the latest visit to $STATE" ;;
@@ -70,9 +67,9 @@ jq -e '.schema == "coordinate-reconcile-report/v1"' "$T/report.json" >/dev/null 
 
 case "$MODE" in
     check) exit 0 ;;
-    md) "$BASH" -p "$HERE/reconcile-report.sh" md < "$T/report.json" || fail 2 "the report could not be rendered" ;;
+    md) "$BASH" "$HERE/reconcile-report.sh" md < "$T/report.json" || fail 2 "the report could not be rendered" ;;
     json)
-        DIRECTED=$("$BASH" -p "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
+        DIRECTED=$("$BASH" "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
         case $? in 0|1) ;; *) fail 2 "the session log can't be read" ;; esac
         jq -c --arg d "$DIRECTED" '{report: ., directed_transitions: ($d | split("\n") | map(select(length > 0)))}' "$T/report.json" \
             || fail 2 "the report could not be read"

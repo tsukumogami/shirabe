@@ -35,28 +35,24 @@
 #
 # Usage:
 #   reconcile-pass.sh --session S --session-dir D
-# The environment is scrubbed first (reconcile-env.sh). Tests call
+# Tests call
 #   reconcile-pass.sh --test-entry --clock-file F --session S --session-dir D
-# which skips the scrub and takes the time from F (epoch seconds), where a
-# wait adds to F instead of sleeping. The template never passes it.
+# which takes the time from F (epoch seconds), where a wait adds to F instead
+# of sleeping. The template never passes it.
+#
+# Like every check, the pass runs in the environment of the `koto next` call
+# that triggered it (koto#261; see SKILL.md's Known Limitations).
 #
 # Requires: bash 3.2+, jq, gh, git, koto, niwa, pkill, and a sha256 tool.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=reconcile-env.sh
-. "$HERE/reconcile-env.sh"
 CLOCK_FILE=""
-case "${1-}" in
-    --scrubbed) shift ;;
-    --test-entry) shift ;;
-    *) rd_scrub "$0" "$@" ;;
-esac
+[ "${1-}" = --test-entry ] && shift
 
 PROG=reconcile-pass
-# Every bash started from here runs in privileged mode (-p): it imports no
-# function from the environment and reads no BASH_ENV.
-BASHP=("$BASH" -p)
+# The bash running this script runs every script it starts.
+BASHP=("$BASH")
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
 
@@ -246,7 +242,8 @@ collect() {
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
         t=$(now)
-        if [ -f "$R/$id.rc" ]; then
+        # A result counts only once its own read has ended.
+        if [ -f "$R/$id.rc" ] && ! kill -0 "${RUN_PIDS[$i]}" 2>/dev/null; then
             fact=$(jq -c '.' "$R/$id.out" 2>/dev/null | head -1)
             clipped=${RUN_CLIPPED[$i]}
             if [ -z "$fact" ] || ! printf '%s' "$fact" | jq -e '(.kind | type) == "string" and (.status | type) == "string"' >/dev/null 2>&1; then
@@ -286,6 +283,8 @@ launch() {
     d=8; [ "$budget" -lt "$d" ] && d=$budget
     bd=26; [ "$budget" -lt "$bd" ] && bd=$budget
     echo "reconcile-pass: launch $id at +$((READS_END - left))s with ${budget}s" >&2
+    # Nothing left from an earlier launch of this read.
+    rm -f "$R/$id".*
     printf '%s' "$spec" | jq -r '.args[]' > "$R/$id.args"
     # A deferral's row, from the work document, written for this launch only.
     case "$id" in d[0-9]*) wj -c ".record.deferrals[${id#d}].row" > "$R/$id.row.json" || die "can't write a deferral row" ;; esac
