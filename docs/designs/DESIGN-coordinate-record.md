@@ -145,7 +145,11 @@ token on stdout, delivered with `capture_stdout_as`. The state's gate is a `type
 code per verdict and a `when` arm for each. No gate reads a context key, so a key the agent
 wrote is simply ignored.
 
-The seal ties a token to the visit that produced it. The shared helper `coord-log.sh` (the one
+The seal ties a token to the visit that produced it. It's a consistency check, not a secret:
+its hash has no key and covers only what the coordinator can read, so it proves nothing about a
+token the coordinator hands a script. What makes it hold is where the token comes from. Every
+agent-run script reads the capture it needs from the session log itself (the engine's
+`variable_captured` event) rather than taking it as an argument. The shared helper `coord-log.sh` (the one
 seal helper this feature ships and the reconcile feature reuses) reads the session log:
 `coord-log.sh seal <state> <token>` prints `<token> sealed:<seq>:<sha256>`, where `<seq>` is the
 sequence number of the latest entry into `<state>` and the hash covers the token, the seq and
@@ -154,8 +158,9 @@ and `<seq>` is still the latest entry into that state. A downstream reader (land
 verified head, the record step reading its expectation, the merge script reading land's token)
 runs the same check, so a capture left over from an earlier visit can't be carried forward by a
 `--to` jump. `coord-log.sh directed-since <seq>` lists `directed_transition` events after a
-sequence number; every check script and every agent-run write script calls it and refuses when
-one is found, naming the event. That's detection, not prevention: koto#251 is the defect and the
+sequence number. Every check script and every agent-run write script scans the whole run (from
+sequence 0) and refuses when one is found, naming the event, so any directed transition blocks
+every write until the coordinator restarts, which opens a new run. That's detection, not prevention: koto#251 is the defect and the
 seal is the interim.
 
 Run facts come from the engine too. `start` captures `RUN_START` from the session header's
@@ -166,9 +171,12 @@ new run with its own start, a full start and reconcile, and the old run's log st
 
 Land re-reads the head live. `land`'s action runs the board script's head-only read, checks the
 seal on `{{VERIFIED}}`, and captures `land-ok <pr> <sha>` only when the remote head equals the
-verified sha and the merge state isn't `DIRTY`. The merge itself is `merge-exec.sh` with that
-sha, which calls `gh pr merge --match-head-commit`, so GitHub refuses a head that moved in the
-seconds after the check.
+verified sha and the merge state isn't `DIRTY`. The merge itself goes through `land-merge.sh`, a coordinate-owned
+wrapper: it reads land's capture from the session log, checks it against the latest entry into
+`land`, scans the run for directed transitions, re-reads the posture for the merge step, and only
+then calls `skills/execute/scripts/merge-exec.sh` (unchanged) with the verified sha, which merges
+with `gh pr merge --match-head-commit`, so GitHub refuses a head that moved in the seconds after the
+check. No directive names `merge-exec.sh` directly.
 
 #### Alternatives Considered
 
@@ -250,7 +258,8 @@ every check context with `isRequired`, paginated), reads every workflow run at t
 `actions/runs?head_sha=`, every job per run at its latest attempt (in parallel, at most six at
 once), the required set as the union of classic protection, rulesets and rollup `isRequired`, and
 the remote ref last so a push during the read shows as a moved head. It checks every collected
-count against its reported total, stops itself at 24 seconds, and prints one JSON verdict
+count against its reported total, matches a required check on its integration when protection or a
+ruleset names one, lists any change to `.github/workflows/` in the report, stops itself at 24 seconds, and prints one JSON verdict
 (`verified`, `pending`, `unverified`, or an `error:` form) with a closed set of reason codes, the
 skipped jobs and the superseded attempts. `--head-only` does the snapshot's head and the ref in
 about a second, for land. A typical board reads in three to four seconds.
@@ -322,8 +331,13 @@ predecessor's handoff from its body. `closeout-read.sh` reports the stage of a r
 close-out. The writes are `record-open.sh`, `record-write.sh` (whole body, `--end` to correct the
 title, `--close` at roadmap scope) and `rotation-close.sh` (`--step handoff|ready|delete-branch`),
 each refusing when a fresh read disagrees. The merge is `skills/execute/scripts/merge-exec.sh`,
-unchanged, so shirabe keeps one `gh pr merge` caller. The find doesn't filter by author, because
-a successor may run under another login; the declaration line is the record's authority.
+unchanged, behind the `land-merge.sh` wrapper, so shirabe keeps one `gh pr merge` caller. The
+declaration line alone isn't authority, because anyone can open an issue or pull request in a
+public repository: the find accepts a candidate only when its author and its last editor have
+write access to the host repository, and reports any other declared candidate without adopting
+it. That still lets a successor under another login adopt the record. The predecessor's close-out
+is split the same way as everything else: `predecessor-handoff.sh` is the read, and every commit,
+ready and merge in the ladder is an agent-run step.
 
 #### Alternatives Considered
 
@@ -391,6 +405,7 @@ skills/coordinate/
     pick-facts.sh, report-facts.sh data actions for the deciders, context-gated
     board-verdict.sh               board read (JSON)
     board-record.sh                check action: board-verdict.sh -> sealed token
+    land-merge.sh                  agent-run: log capture + posture re-read, then merge-exec.sh
     land-check.sh                  check action: head re-read against the sealed verify token
     merge-confirm.sh               check action: merged, default-branch blobs vs verified head
     quiet-check.sh                 check action: quiet and silent workers from the log
@@ -418,10 +433,11 @@ Start and record phase:
 | `start_host` | non-overridable command gate on `{{HOST_REPO}}` | set -> `start_posture`; unset: the directive asks once with a recommendation, never the repository it runs in, and the answer is rebound through the opener |
 | `start_posture` | check: `posture-read.sh` | readable -> `record_find`; unread -> `posture_ask` |
 | `posture_ask` | evidence per finishing step (`held` or `reserved`, default reserved) | -> `record_find` |
-| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed` -> `record_conflict`; `predecessor` -> `predecessor_close` |
+| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed` -> `record_conflict`; `predecessor` -> `predecessor_handoff` |
 | `record_open` | evidence after running `record-open.sh` | -> `record_find` only |
 | `record_conflict` | evidence `recheck` or `stop` | -> `record_find` or `done_stopped` |
-| `predecessor_close` | check: `predecessor-handoff.sh`, then the rotation close ladder with `--predecessor` | merged -> `record_find`; handed over -> `predecessor_handed_over` |
+| `predecessor_handoff` | check: `predecessor-handoff.sh` renders the predecessor's handoff | rendered -> `predecessor_close`; unparseable -> `record_conflict` |
+| `predecessor_close` | check: `closeout-read.sh --predecessor` names the next stage; evidence after each agent-run step (`rotation-close.sh`, `land-merge.sh`) | merged and branch deleted -> `record_find`; handed over -> `predecessor_handed_over`; closed unmerged -> `record_conflict` |
 | `predecessor_handed_over` | evidence `recheck` | -> `record_find` |
 | `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile | -> `pick_facts` |
 
@@ -442,14 +458,14 @@ The hub and its spokes:
 | State | Kind | Routes |
 |---|---|---|
 | `wait` | evidence `event: report, quiet, decision, deferral, merged, retire, end`; optional `unit`; no action, gate or details | each event to its spoke; `end` -> `rotation_close` or `done_stopped` |
-| `report_facts` | data: `report-facts.sh` finds the holding by topic in the record and writes `coord/report.json` (plus the `worker_report` key the dispatch path fills); context-exists gate | found -> `classify_report`; unknown topic -> `wait` |
+| `report_facts` | data: `report-facts.sh` finds the holding by topic in the record, and refuses a holding whose pull request is outside the scope's repositories or whose head branch differs from the Branch cell and writes `coord/report.json` (plus the `worker_report` key the dispatch path fills); context-exists gate | found -> `classify_report`; unknown topic -> `wait` |
 | `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider | done -> `verify`; blocked -> `surface`; needs_fix -> `rebrief` |
 | `rebrief` | evidence `sent` (the worker gets what was learned, by message); the dispatch path fills it | -> `wait` |
 | `verify` | evidence: the prediction (R12) | -> `verify_board` |
 | `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`) | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait`; error -> `record_conflict` |
 | `verified_confirm` | check: `record-confirm.sh`, the holding's Verified head cell equals the sealed verified sha | -> `land` |
 | `land` | check: `land-check.sh` (head re-read, seal, posture) | permitted -> `land_merge`; denied, confirm or unread -> `surface`; moved -> `verify`; `DIRTY` or `--to` -> `record_conflict` |
-| `land_merge` | evidence `attempted` or `failed` after `merge-exec.sh` | -> `merge_confirm` or `failure` |
+| `land_merge` | evidence `attempted` or `failed` after `land-merge.sh` | -> `merge_confirm` or `failure` |
 | `surface` | evidence `surfaced: merge_table` (the merge-order table from `verification-checklist.md`) or `surfaced: blocker` (a blocked worker's report, put to the human once with a recommendation) | merge_table -> `record` expecting the parked row; blocker -> `wait` |
 | `merge_confirm` | check: `merge-confirm.sh` | merged -> `record` expecting the merged change; unconfirmed -> `record` expecting a side-effect row |
 | `teardown` | evidence `done` or `kept`, from the hub's `retire` event; guidance is the prose inventory rules; the dispatch path adds its inventory gate here | -> `record` |
@@ -539,19 +555,57 @@ GitHub; `pick_facts` and `pick` refill the freed slot.
 
 ## Security Considerations
 
-The workflow reads GitHub with the coordinator's own `gh` credentials and writes nothing on its
-own; every write is a script the coordinator runs, and each refuses when a fresh read disagrees.
-No script prints a token: board and record reads print verdicts, and the session log records
-only verdict tokens and hashes of context keys. Arguments reach koto through a vars file mapped
-with `jq`, never through a shell, and every variable is pattern-checked at `koto init`. Text from
-GitHub (issue bodies, job names, worker reports) is data: it's parsed into JSON or cell-encoded,
-never evaluated, and never used to build a command. The record is public in a public host
-repository, so the renderer's worker-value refusals keep session ids, instance paths and job ids
-out of it, and the guidance keeps private repository names out. The honest limit is that a
-coordinator acting outside koto's CLI (editing session files, shimming `gh`, calling
-`gh pr merge` directly, or using `koto next --to`) isn't stopped by the template; the posture's
-hooks and GitHub's branch protection are what stop that, and the log scan makes a `--to` visible
-at the next write.
+The workflow reads GitHub with the coordinator's own `gh` credentials and never writes on its own. Every
+default action and gate runs a read-only script; a structure test fails if a write script appears in either, if a
+check script calls `gh api` without `--method GET` or sends a GraphQL mutation, or if a directive names
+`merge-exec.sh` rather than the coordinate merge wrapper. Every GitHub write is a script the coordinator runs,
+and each re-reads GitHub and the session log first, refusing when the read disagrees or when the log shows any
+`koto next --to` in the run.
+
+**Who can speak for the record.** In a public host repository anyone can open an issue or pull request, so the
+declaration line alone isn't authority. The find accepts a candidate only when its author and last editor have
+write access to the host repository; others are reported and ignored. Before a holding's pull request is
+verified, its repository must be one of the scope's repositories and its head branch must match the holding's
+Branch cell. This keeps a planted record or row from steering a merge.
+
+**Text from GitHub and workers is data.** Issue bodies, job and check names, pull request titles and worker
+reports are parsed into JSON or cell-encoded, never evaluated and never used to build a command. Captured tokens
+follow an anchored grammar (verdict, number, sha, closed reason code) checked when printed and again at the gate,
+so nothing from GitHub reaches a command line through a capture. Free text shown to the coordinator is stripped of
+control characters, length-capped and labelled with its source, and the guidance says a report or job name never
+changes a route. That lowers but doesn't remove the risk of instructions hidden in such text reaching the
+coordinator.
+
+**The posture.** The posture is read from the workspace and instance `.claude/settings.json` and hook scripts,
+located from niwa's instance metadata, never from a cloned repository. Files are parsed, never executed; a hook the
+reader can't classify makes the step reserved. Because Claude Code's permission rules match the command the agent
+types, a rule on `gh pr merge` doesn't cover a script that calls it; the posture reader treats rules on `gh pr merge`,
+on `merge-exec.sh` and on the merge wrapper as one step, and the wrapper re-reads the posture before merging. When
+the posture can't be read, the human's answer to the one question about which steps the coordinator holds arrives
+through the coordinator; it's recorded in the record's Reversals table with the human as its source, so it's
+auditable, and it's the one posture fact the workflow takes on the coordinator's word.
+
+**`--to` is detected, not prevented.** `koto next --to` takes a declared edge without the source state's gates
+(koto#251). Check states capture a token tied to the log's latest entry into that state; agent-run scripts read that
+capture from the log rather than taking it as an argument, and any `directed_transition` in the run makes every
+write script refuse until the run restarts. A coordinator acting outside koto's CLI (editing session files, shimming
+`gh`, calling `gh pr merge` directly) isn't stopped by the template; GitHub branch protection and the workspace's
+own hooks are what stop that.
+
+**What's public.** The record and the discipline handoff file are public in a public host repository. When the host
+is public, the renderer refuses a repository-naming cell (Repo, Pull request, Target) for a repository that isn't
+public, and refuses session ids, koto session names, instance names and paths in the Worker cell. Free-text cells
+(deferral reasons, dispositions, reversal reasons, the handoff's reasoning) rely on guidance to keep private names out.
+No script prints a credential: scripts don't trace or echo the environment, and `gh` error text written to context is
+capped and scrubbed of token patterns. koto context holds private repository names and worker text, so whoever can read
+the session's context store can read those.
+
+**Residual.** The board check proves a board ran at the head, not that it tested the right thing: a pull request's own
+workflow files decide its jobs. Required checks are matched on their integration when protection names one, and a pull
+request that changes workflow files is named in the verify report, but a required check matched by name alone can be
+satisfied by any job with that name. Holding a pull request that changes workflows for a person would be a permission
+rule of the skill's own, which it doesn't carry; the workspace's posture and branch protection decide it. The coordinator's `gh` credentials are usually broader than the run needs; a
+fine-grained token limited to the host and unit repositories narrows what a mistaken or misled merge can reach.
 
 ## Consequences
 
