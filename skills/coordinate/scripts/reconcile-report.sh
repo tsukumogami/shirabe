@@ -10,7 +10,10 @@
 # Usage:
 #   reconcile-report.sh json < facts.json    the report, schema
 #                                            coordinate-reconcile-report/v1
-#   reconcile-report.sh md   < facts.json    the report rendered as text
+#   reconcile-report.sh md   < facts.json    the report rendered as text; md
+#                                            also takes a report document,
+#                                            which is how the pass renders
+#                                            the report it sealed
 #
 # Exit codes: 0 written; 64 usage error; 65 the input is not a facts document.
 #
@@ -25,6 +28,8 @@
 #                   source: record|handoff, handoff_date: <date>|null}
 #   reconciled_at  <ISO time the pass finished>
 #   holdings[]     one per Holdings row:
+#     source       optional: record|handoff, for a discipline start that
+#                  mixes its predecessor's rows with its own
 #     row          the record's row keys: unit, entry_point, mode, phase,
 #                  dispatch_status, return_path, worker, repo, branch,
 #                  verified_head, dispatched, pull_request
@@ -61,11 +66,17 @@
 #   header         {scope, written, reconciled_at, source, handoff_date}
 #   changes[]      {topic, what, recorded, live, written, grade}
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
-#                   board, leg, next, read_at, grade: {state, board, leg,
-#                   phase, next}}
+#                   board, leg, next, next_code, source, read_at,
+#                   grade: {state, board, leg, phase, next}}
+#                  next_code is the token a reader routes on: drop, decide,
+#                  fix_ci, land, wait, read_again, refused. source is
+#                  record or handoff, per row when a holding carries
+#                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
 #   nowhere_else[] {topic, why, inventory, grade}
-#   side_effects[] {action, target, verdict, reason, grade}
+#   side_effects[] {action, target, code, verdict, reason, grade}
+#                  code: confirmed, not_confirmed, not_rechecked, or
+#                  not_verified when the re-check itself failed
 #   deferrals[]    {deferral, reason, raised, grade}: undisposed only
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
@@ -103,10 +114,16 @@ case "$1" in json|md) MODE=$1 ;; *) usage ;; esac
 # A builtin read, so the script needs nothing but bash and jq.
 INPUT=""
 IFS= read -r -d '' INPUT || true
-if ! printf '%s' "$INPUT" | jq -e '.schema == "coordinate-reconcile-facts/v1"' >/dev/null 2>&1; then
-    echo "$PROG: input is not a coordinate-reconcile-facts/v1 document" >&2
-    exit 65
-fi
+SCHEMA=$(printf '%s' "$INPUT" | jq -r '.schema? // empty' 2>/dev/null)
+case "$MODE:$SCHEMA" in
+    *:coordinate-reconcile-facts/v1) ;;
+    # md also renders a report the pass already wrote, so the text the agent
+    # reads comes from the same bytes the seal covers.
+    md:coordinate-reconcile-report/v1) ;;
+    *)
+        echo "$PROG: input is not a coordinate-reconcile-facts/v1 document" >&2
+        exit 65 ;;
+esac
 
 # The report, computed once. Everything the rendering prints comes from here.
 REPORT_JQ='
@@ -162,6 +179,13 @@ def next_of:
       (if $h.state == "found" then "wait on worker" else "read again, then decide" end)
     else "read again, then decide" end;
 
+# Stable tokens for readers that route on the next line of a holding (the pick
+# side counts and routes on these; the prose is for the agent).
+def next_code:
+  {"drop from holdings": "drop", "decide: re-dispatch or drop": "decide",
+   "worker fixes CI": "fix_ci", "ready to land": "land", "wait on worker": "wait",
+   "read again, then decide": "read_again", "refused by the record reader": "refused"}[.];
+
 def changes_of($written):
   topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap
   | [
@@ -199,7 +223,8 @@ def changes_of($written):
         phase_flag: ($ph == "scoping ahead" and outside_docs),
         state: state_of,
         merge_state: (fact("pr") as $pr | if ok($pr) then ($pr.merge_state // null) else null end),
-        board: board_of, leg: leg_of, next: next_of,
+        board: board_of, leg: leg_of, next: next_of, next_code: (next_of | next_code),
+        source: (.source // $in.record.source // "record"),
         read_at: ([.facts // [] | .[].read_at // empty] | max),
         grade: {
           state: (fact("pr") as $pr | fact("host") as $h
@@ -211,26 +236,38 @@ def changes_of($written):
       }],
     nowhere_else: [$in.holdings[]? | select(.refused == null)
       | fact("pr") as $pr | fact("host") as $h | fact("inventory") as $inv
-      | (ok($pr) | not) as $nopr
+      | fact("appeared") as $ap
+      # "No pull request" means the record says none yet and none appeared
+      # since. A pull request whose read failed is not that: it is listed
+      # under not_verified, and saying "no pull request" here would
+      # contradict the state line of the holding.
+      | (((.row.pull_request // "") | test("^(none yet|none|)$"; "i"))
+         and ((ok($ap) and (($ap.prs // []) | length) > 0) | not)) as $nopr
       | (ok($inv) and (($inv.items // []) | length) > 0) as $unique
       | select($nopr or $unique)
       | {topic: topic,
-         why: (if $nopr and ok($h) and $h.state != "found" then "no pull request; worker not found on this read"
+         why: (if $nopr and ok($h) and $h.state == "missed" then "no pull request; worker not found on this read"
+               elif $nopr and ok($h) and $h.state == "ambiguous" then "no pull request; worker ambiguous in the listing"
                elif $nopr then "no pull request" else "unpushed work" end),
          grade: (if ok($inv) then "measured" else "not verified" end),
          inventory: (if ok($inv) and $inv.taken == true then
                        (if (($inv.items // []) | length) == 0 then "nothing unique found"
-                        else ([$inv.items[] | "\(.clone // "."): \(.kind) \(.path | safe_path)"] | join("; "))
+                        else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
                      else "inventory could not be taken" end)}],
-    side_effects: [$in.side_effects[]? | {action: (.row.action // ""), target: (.row.target // ""),
-        verdict: (.fact.verdict // "not_rechecked" | gsub("_"; " ")),
+    side_effects: [$in.side_effects[]? | ((.fact.status // "ok") == "ok") as $read
+      | {action: (.row.action // ""), target: (.row.target // ""),
+        code: (if $read then (.fact.verdict // "not_rechecked") else "not_verified" end),
+        verdict: (if $read then (.fact.verdict // "not_rechecked" | gsub("_"; " ")) else "not verified" end),
         reason: (.fact.reason // ""),
-        grade: (if (.fact.verdict // "") == "not_rechecked" then "inferred" else "verified by reading" end)}],
+        grade: (if ($read | not) then "not verified"
+                elif (.fact.verdict // "") == "not_rechecked" then "inferred"
+                else "verified by reading" end)}],
     deferrals: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed != true)
       | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""), grade: "verified by reading"}],
     reasoning: (if $in.reasoning == null then null
                 else {status: $in.reasoning, key: (if $in.reasoning == "present" then "reconcile/reasoning.md" else null end)} end),
+    # the report as a whole says which scope the phase marks are counted in
     not_verified: (
       [$in.unparseable[]? | {what: "unparseable record row", reason: (.reason // ""), raw: (.raw // "")}]
       + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), reason: ("refused: " + .refused), raw: null}]
@@ -244,11 +281,17 @@ def changes_of($written):
           | {what: ((.row.action // "") + " " + (.row.target // "")), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next == "ready to land" or .next == "decide: re-dispatch or drop") | {topic, why: .next, grade: "inferred"}]
-    + [.side_effects[] | select(.action == "merge" and .verdict == "not confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
+    [.holdings[] | select(.next_code == "land" or .next_code == "decide") | {topic, why: .next, grade: "inferred"}]
+    + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 '
 
-REPORT=$(printf '%s' "$INPUT" | jq -c "$REPORT_JQ") || { echo "$PROG: could not build the report" >&2; exit 65; }
+if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then
+    REPORT=$INPUT
+else
+    # A facts document that passes the schema check but can't be built is
+    # malformed input too, so it shares exit 65.
+    REPORT=$(printf '%s' "$INPUT" | jq -c "$REPORT_JQ") || { echo "$PROG: could not build the report" >&2; exit 65; }
+fi
 
 if [ "$MODE" = json ]; then
     printf '%s\n' "$REPORT"
@@ -270,14 +313,15 @@ section("Holding"; [.holdings[] | "- \(.topic) (\(.unit)): \(.phase)"
     + (if .merge_state != null then ", merge state \(.merge_state)" else "" end)
     + (if .leg != null then "; leg \(.leg) (\(.grade.leg))" else "" end)
     + (if .board != null then "; board \(.board) (\(.grade.board))" else "" end)
-    + ". Next: \(.next) (inferred). Read \(.read_at // "not read")."]),
+    + ". Next: \(.next) (inferred). Read \(.read_at // "not read")"
+    + (if .source == "handoff" then "; row as written by the previous rotation" else "" end) + "."]),
 section("Waiting on a person"; [.waiting[] | "- \(.topic): \(.why) (\(.grade))."]),
 section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | "- \(.action) \(.target): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
 section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),
 (if .reasoning != null then
   section("Predecessor'"'"'s reasoning";
-    [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it."
+    [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in \(.reasoning.key), as its view; nothing here re-checked it."
      else "No reasoning was received from the previous rotation." end])
  else empty end),
 section("Not verified"; [.not_verified[] | "- \(.what): \(.reason)"

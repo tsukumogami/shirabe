@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
-      - 'skills/coordinate/scripts/testdata/reconcile/**'
       - '.github/workflows/check-coordinate-reconcile-scripts.yml'
 
 jobs:
@@ -20,9 +19,8 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
 
-      # The reconcile scripts need bash and jq only: the reads go through
-      # test-local gh, git, niwa and koto stand-ins. Both platforms run them,
-      # which keeps the bash 3.2 floor honest on macOS.
+      # The reconcile scripts need bash and jq only. Both platforms run
+      # them; macOS's /bin/bash is 3.2, the floor the scripts target.
       - name: Run reconcile script tests
         run: |
           bash skills/coordinate/scripts/reconcile-report_test.sh

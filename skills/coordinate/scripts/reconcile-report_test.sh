@@ -63,7 +63,7 @@ grep -q 'coordinate-reconcile-facts/v1' "$S" && grep -q 'coordinate-reconcile-re
   && ok "the header documents both schemas and the row keys" \
   || bad "the header documents both schemas and the row keys"
 
-got=$(echo '{"schema":"other"}' | bash "$S" json 2>/dev/null); rc=$?
+echo '{"schema":"other"}' | bash "$S" json >/dev/null 2>&1; rc=$?
 [ "$rc" = 65 ] && ok "a non-facts document exits 65" || bad "a non-facts document exits 65" "rc=$rc"
 bash "$S" 2>/dev/null </dev/null; rc=$?
 [ "$rc" = 64 ] && ok "no subcommand exits 64" || bad "no subcommand exits 64" "rc=$rc"
@@ -211,6 +211,36 @@ printf '%s\n' "$out" | grep -q 'w1: no pull request; worker not found on this re
   && ok "a missing worker is not found on this read, with no inventory" || bad "a missing worker is not found on this read, with no inventory" "$out"
 printf '%s\n' "$out" | grep -qiE '\b(gone|dead|lost)\b[^:]' && bad "no gone/dead/lost wording about the worker" "$(printf '%s\n' "$out" | grep -iE 'gone|dead')" \
   || ok "no gone/dead/lost wording about the worker"
+
+echo "== review fixes =="
+H=$(holding t1 '[{"kind":"pr","status":"not_verified","reason":"timeout"}]')
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '(.nowhere_else | length) == 0 and (.not_verified | any(.what == "t1: pr"))' >/dev/null \
+  && ok "a pull request whose read failed is not reported as having none" || bad "a pull request whose read failed is not reported as having none" "$out"
+H=$(holding t2 "[$(host ambiguous)]" '{"pull_request":"none yet"}')
+facts "[$H]" | render | grep -q 't2: no pull request; worker ambiguous in the listing' \
+  && ok "an ambiguous listing is worded as ambiguous" || bad "an ambiguous listing is worded as ambiguous"
+SEF='[{"row":{"action":"merge","target":"acme/widgets#9"},"fact":{"kind":"merge","verdict":"not_confirmed","status":"not_verified","reason":"contents read timed out"}}]'
+out=$(facts '[]' "$SEF" | report)
+printf '%s' "$out" | jq -e '.side_effects[0].code == "not_verified" and .side_effects[0].grade == "not verified" and (.waiting | length) == 0' >/dev/null \
+  && ok "a failed side-effect re-check keeps no success grade and waits on nobody" || bad "a failed side-effect re-check" "$out"
+out=$(facts "$MIX" | report)
+printf '%s' "$out" | jq -e '[.holdings[].next_code] == ["land","decide","wait"]' >/dev/null \
+  && ok "every holding carries a next_code token" || bad "every holding carries a next_code token" "$(printf '%s' "$out" | jq -c '[.holdings[].next_code]')"
+F=$(facts "$MIX" "$SE")
+a=$(printf '%s' "$F" | render)
+b=$(printf '%s' "$F" | report | render)
+[ "$a" = "$b" ] && ok "md renders a report document exactly as it renders the facts" || bad "md renders a report document exactly as it renders the facts"
+printf '%s' "$F" | report | bash "$S" json >/dev/null 2>&1; rc=$?
+[ "$rc" = 65 ] && ok "json refuses a report document" || bad "json refuses a report document" "rc=$rc"
+HH=$(jq -nc --argjson h "$(holding t3 "[$(pr OPEN "$VH")]")" '$h + {source: "handoff"}')
+facts "[$HH]" | render | grep -q 'row as written by the previous rotation' \
+  && ok "a handoff row is labelled as the previous rotation's" || bad "a handoff row is labelled as the previous rotation's"
+INV='{"kind":"inventory","status":"ok","taken":true,"items":[{"clone":"/home/u/ws/cfg+t-deadbeef/repo","kind":"commit","path":"abc"}]}'
+out=$(facts "[$(holding t4 "[$INV]")]" | render)
+printf '%s' "$out" | grep -qE '/home/|deadbeef' && bad "an absolute clone path is withheld" "$out" || ok "an absolute clone path is withheld"
+out=$(facts '[]' '[]' '[]' '"present"' '[]' discipline | render)
+printf '%s\n' "$out" | grep -q 'reasoning is in reconcile/reasoning.md' && ok "present reasoning points at its key" || bad "present reasoning points at its key" "$out"
 
 echo "== purity =="
 EMPTYBIN=$(mktemp -d)
