@@ -87,9 +87,11 @@ log_evidence "$S" land_merge '{"merge":"held"}' "$EVT"
 log_to "$S" land_merge surface "$EVT"
 log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
 log_to "$S" surface record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\",\"phase\":\"held\"}")" '.holdings = [$h]')"
+HELD_X=$(jq -nc --arg s "$SHA_HEAD" '{verified_head: $s, phase: "held"}')
+body "$(rec | jq -c --argjson h "$(holding alpha "$HELD_X")" '.holdings = [$h]')"
 eq "held: a Verified head and a held Phase confirms" confirmed "$(confirm)"
-body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\",\"phase\":\"executing\"}")" '.holdings = [$h]')"
+EXEC_X=$(jq -nc --arg s "$SHA_HEAD" '{verified_head: $s, phase: "executing"}')
+body "$(rec | jq -c --argjson h "$(holding alpha "$EXEC_X")" '.holdings = [$h]')"
 eq "held: a Verified head with Phase executing waits" waiting "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha "{\"phase\":\"held\"}")" '.holdings = [$h]')"
 eq "held: a held Phase without a Verified head waits" waiting "$(confirm)"
