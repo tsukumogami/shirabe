@@ -4,7 +4,8 @@ Verify changes, create summary, record the pre-PR referents, clean up artifacts.
 
 ## What this state must write
 
-Two koto context keys, both before you submit any outcome. Their shape is
+Two koto context keys, both before you submit `ready_for_pr` (or before a
+deferral is approved). Their shape is
 checked on the way out of this state and checked again at `pre_pr_evidence`:
 
 | Key | Required | Gate |
@@ -54,7 +55,7 @@ Remove: debug statements, commented-out code, addressed TODOs, unused imports.
 
 Run complete test suite, build, linting. All must pass.
 
-### Create Summary (if not skipped)
+### Create Summary
 
 Pipe the summary into koto context under the key `summary.md`. See
 [`../koto-context-conventions.md`](../koto-context-conventions.md)
@@ -98,7 +99,7 @@ After the cleanup pass, write `pre_pr.md`:
 ```bash
 cat <<EOF | koto context add <WF> pre_pr.md
 cleanup_commit: $(git rev-parse HEAD)
-design_diagram: not-applicable: <reason>
+design_diagram: not-applicable: no design document is touched
 EOF
 ```
 

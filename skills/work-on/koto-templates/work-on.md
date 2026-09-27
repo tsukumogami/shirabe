@@ -958,7 +958,9 @@ states:
     # artifact whose shape a gate checks.
     gates:
       # The summary exists by the time this state is reached -- both edges into
-      # it require it -- so this checks its SHAPE, not its presence.
+      # it require it -- so this checks its SHAPE, not its presence. Both edges
+      # also check this shape and the two referents below, holding in place on a
+      # failure, so here the three are the backstop.
       summary_shape:
         type: context-matches
         key: summary.md
@@ -1802,7 +1804,7 @@ Evidence schema:
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
 format. Output: koto context keys `summary.md` and `pre_pr.md`, both written here,
-before you submit any outcome.
+before you submit `ready_for_pr`.
 
 Two shapes are required, and `ready_for_pr` does not advance without them:
 
@@ -1817,7 +1819,7 @@ Two shapes are required, and `ready_for_pr` does not advance without them:
 ```bash
 cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
 cleanup_commit: $(git rev-parse HEAD)
-design_diagram: not-applicable: <reason>
+design_diagram: not-applicable: no design document is touched
 EOF
 ```
 

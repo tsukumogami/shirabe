@@ -35,7 +35,7 @@ same failure routes to `done_blocked`. The second check is the backstop and is
 not weakened by the first; the first exists because that terminal is expensive
 for a child of `/execute`, whose log koto disposes of at a terminal
 (tsukumogami/koto#240), so the parent cannot retry it. The patterns must be
-identical in both places, which `scripts/finalization-shape_test.sh` checks.
+identical in all three states, which `scripts/finalization-shape_test.sh` checks.
 
 ## Evidence-carried
 

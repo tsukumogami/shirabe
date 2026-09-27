@@ -12,7 +12,8 @@ Review with `git diff main...HEAD` — no unintended changes.
 
 If the issue body contains `Design: \`<path>\``, update the design doc's
 dependency diagram per `phase-6-design-diagram-update.md`. Skip if no
-`Design:` reference.
+`Design:` reference, or if finalization already updated it (it records the
+path in `pre_pr.md`).
 
 ## Push Branch
 

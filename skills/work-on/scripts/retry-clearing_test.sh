@@ -458,6 +458,11 @@ check_traversal() {
 # `implementation` -- the `issues_found` edge, which clears summary.md itself.
 # If a future edge routed finalization back to a panel directly, the entry would
 # become load-bearing and the design's wording would be wrong; this fails first.
+#
+# The same fact is why pre_pr.md appears only in the finalization block. It is
+# also written only at finalization, so issues_found is the one edge a stale
+# copy could ride back on. A new edge from finalization or later into the loop
+# would need pre_pr.md added to the blocks on that path.
 check_no_direct_finalization_to_panel() {
     to_finalization graph-check
     seed graph-check summary.md
