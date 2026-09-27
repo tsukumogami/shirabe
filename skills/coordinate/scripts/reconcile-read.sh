@@ -158,6 +158,8 @@ parse() {
     if [ "$rc" -eq 65 ] && grep -Eq '^record-parse: refused: (body is [0-9]+ bytes, over|the record is for )' "$out.err"; then
         return 65
     fi
+    # No codec beside this script is a broken install, not a bad record.
+    [ -f "$RD_HERE/record-codec.jq" ] || return 1
     fn=salvage_record
     [ "$fmt" = handoff ] && fn=salvage_handoff
     jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65

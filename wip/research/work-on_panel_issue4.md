@@ -403,3 +403,31 @@ count on it in every BSD grep).
   rotation), A7 (64 KiB cap, probe P7b still exit 4), A8 (empty handoff file,
   P4 still exit 4), A10 (deadline budget), A15 (contract cases skip in CI,
   which is how R2-B1 passes CI). A3, A4, A9 and A12 are addressed or moot.
+
+## Round 3 (ec24a71)
+
+Tests: Linux (bash 5, jq 1.7) 53/53 with `RECORD_FEATURE_SCRIPTS`, 38/38
+without. Floor image (bash 3.2.57, jq 1.8.2) 53/53 with it, 38/38 without.
+Round 2's 7 floor failures are gone.
+
+- R2-B1 (jq 1.8 abort in salvage): fixed. `codec_program`
+  (`reconcile-read.sh:128-136`) builds one `jq -f` program. In the floor image
+  the full salvage probe set (`probe4.sh`, run in the container through
+  `floor-inner8.sh`) produces no assertion. It gives the same results as jq
+  1.7: bad rows set aside, escaped and raw pipes handled, CRLF bodies read,
+  a section with only bad rows read. The missing, empty and fixed-sentence
+  reasoning cases read `not_recorded` on jq 1.8.2 too.
+- R2-B2 (phrase in an edited line forces a refusal): fixed. The match is
+  anchored and only applies on exit 65 (`:152-159`). Probes S4 ("the record
+  is for later & more") and S4c ("5 bytes, over & out") now exit 0, with the
+  line listed as not canonical. A body over 64 KiB (P7) and a record for
+  another scope still refuse with exit 4.
+- The advisory fixes check out. Host comparison is case-insensitive (H4
+  reads). The worker+unit key keeps the distinct handoff holding (H3 lists
+  Feature 9 / #99). Raw lines are scrubbed. The reason is no longer doubled.
+  The reasoning file is removed only when it's a regular file.
+
+No new blocking defects. One note: a missing `record-codec.jq` beside the
+script now fails inside `jq -f` and maps to exit 4 "unreadable" rather than
+5 "failed". That's the same mapping as round 2's include, so it isn't new,
+but a codec that isn't installed is a failed read, not a bad record.
