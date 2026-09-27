@@ -111,7 +111,7 @@ mktempdir() {
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open"
+SUITES="plan execute work-on preflight templates template-consistency koto-open coordinate"
 
 suite_scripts() {
     case "$1" in
@@ -242,6 +242,12 @@ suite_scripts() {
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             ;;
+        coordinate)
+            # The coordinate skill's dispatch helpers and brief renderer need
+            # only jq, so every case runs on the floor.
+            echo "skills/coordinate/scripts/dispatch-common_test.sh"
+            echo "skills/coordinate/scripts/render-brief_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -264,6 +270,7 @@ suite_workflow() {
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
+        coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

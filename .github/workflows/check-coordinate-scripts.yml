@@ -1,0 +1,37 @@
+name: Check coordinate scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/coordinate/**'
+      - 'scripts/check-bash-floor.sh'
+      - '.github/workflows/check-coordinate-scripts.yml'
+
+jobs:
+  # The dispatch helpers and the brief renderer need bash and jq only, so they
+  # run on both platforms; the macOS leg keeps them honest on bash 3.2.
+  test-coordinate-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Run script tests
+        run: |
+          bash skills/coordinate/scripts/dispatch-common_test.sh
+          bash skills/coordinate/scripts/render-brief_test.sh
+
+  # The same suite inside bash:3.2, where every nested bash is 3.2 too.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the coordinate suite on the bash 3.2 floor
+        run: scripts/check-bash-floor.sh --backend docker coordinate
