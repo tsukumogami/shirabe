@@ -845,7 +845,7 @@ states:
       # routes their failure anywhere, so a malformed artifact holds the run in
       # this state with the failing gate named, and the agent fixes it in place.
       # At pre_pr_evidence the same failure ends the run at done_blocked, and for
-      # a child that terminal also disposes of its log (koto#240) -- the gates
+      # a child that terminal also disposes of its log (tsukumogami/koto#240) -- the gates
       # there stay as the backstop, and these keep a run from reaching them with
       # a shape it could still have fixed. The patterns must stay identical to
       # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
@@ -1804,7 +1804,9 @@ Evidence schema:
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
 format. Output: koto context keys `summary.md` and `pre_pr.md`, both written here,
-before you submit `ready_for_pr`.
+before you submit `ready_for_pr` or `deferral_requested`. The deferral edge
+doesn't check them, but an approved deferral does, so writing them first keeps
+the human's approval from stopping on an edit.
 
 Two shapes are required, and `ready_for_pr` does not advance without them:
 

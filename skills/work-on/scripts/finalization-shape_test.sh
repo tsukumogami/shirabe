@@ -4,7 +4,7 @@
 #
 # summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
 # checks their shape and sends a failure to done_blocked. For a child of
-# /execute that terminal also disposes of the child's log (koto#240), so a shape
+# /execute that terminal also disposes of the child's log (tsukumogami/koto#240), so a shape
 # the agent could have fixed in one edit cost a full re-entry. The same three
 # shape gates now sit on finalization's ready_for_pr edge and on
 # deferral_approval's approved edge, where a failure matches no edge and the
@@ -16,7 +16,7 @@
 #   a correct record advances to pre_pr_evidence            (case 1)
 #   a missing heading holds, names summary_shape, and a fix in place advances
 #                                                           (case 2)
-#   a wrong pre_pr.md key form holds and names its gate     (cases 3, 4)
+#   a wrong pre_pr.md key form, or none, holds and names its gate (cases 3, 4)
 #   an approved deferral holds on a bad shape; the escape edges stay open
 #                                                           (cases 5, 6)
 #   the early gates carry the backstop's patterns, and the backstop still
@@ -191,6 +191,18 @@ design_diagram: not-applicable: no design document is touched'
     fi
 fi
 
+# The run #411 was filed from: a good summary and no pre_pr.md at all. A
+# context-matches gate on an absent key reports matches: false, so this holds.
+if to_finalization absent; then
+    put absent summary.md "$GOOD_SUMMARY"
+    submit absent '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = finalization ] && names_gate cleanup_referent && names_gate diagram_referent; then
+        pass "no pre_pr.md holds at finalization, naming cleanup_referent and diagram_referent"
+    else
+        fail "absent pre_pr.md: expected a hold naming both referent gates, got [$NEXT_STATE]"
+    fi
+fi
+
 echo "--- Case 5/6: the deferral path"
 if to_finalization defer; then
     put defer summary.md "$NO_HEADING_SUMMARY"
@@ -243,15 +255,18 @@ else
             fi
         done
     done
-    # The backstop: pre_pr_evidence still routes a shape failure to done_blocked.
-    n=$(jq '[.states.pre_pr_evidence.transitions[]
-              | select(.target == "done_blocked")
-              | select(.when["gates.summary_shape.matches"] == false)] | length' "$COMPILED")
-    if [ "$n" = 1 ]; then
-        pass "pre_pr_evidence still sends summary_shape false to done_blocked"
-    else
-        fail "pre_pr_evidence's summary_shape backstop edge changed (found $n)"
-    fi
+    # The backstop: pre_pr_evidence still routes each copied gate's failure to
+    # done_blocked.
+    for g in summary_shape cleanup_referent diagram_referent; do
+        n=$(jq --arg k "gates.$g.matches" '[.states.pre_pr_evidence.transitions[]
+                  | select(.target == "done_blocked")
+                  | select(.when[$k] == false)] | length' "$COMPILED")
+        if [ "$n" = 1 ]; then
+            pass "pre_pr_evidence still sends $g false to done_blocked"
+        else
+            fail "pre_pr_evidence's $g backstop edge changed (found $n)"
+        fi
+    done
 fi
 
 echo

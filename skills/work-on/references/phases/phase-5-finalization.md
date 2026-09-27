@@ -24,7 +24,7 @@ line of text, and neither accepts the other's spelling.
 
 Why here: at `pre_pr_evidence` the same check failing ends the run at
 `done_blocked`, and for a child of `/execute` that terminal also disposes of its
-log (koto#240), so the parent can't retry it. Here a failure only holds. A
+log (tsukumogami/koto#240), so the parent can't retry it. Here a failure only holds. A
 `ready_for_pr` submission with either artifact malformed matches no edge, the
 state stays `finalization`, and the response's `blocking_conditions` names the
 failing gate. Fix that artifact and submit again:
