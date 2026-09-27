@@ -284,6 +284,13 @@ until then it is a procedure the coordinator runs with a local agent.
   write script and later reader scans the session log and refuses after a
   directed transition, so a skip is detected at the next write rather than
   prevented.
+- **Checks run in the coordinator's own environment.** koto runs every action and
+  gate with the environment of the `koto next` call that triggered it, and the
+  coordinator controls that environment. A `PATH` entry or an exported shell
+  function can stand in for `gh`, `jq` or `git` and make a check read what the
+  coordinator wants. The checks hold against a coordinator that submits a wrong
+  value or skips a step, not against one that rewrites its own tools. Closing it
+  needs koto to run checks in an environment the session fixes at init.
 - **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches
   report by message only.

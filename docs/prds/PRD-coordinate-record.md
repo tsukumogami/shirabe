@@ -463,6 +463,11 @@ Packaging:
   the visit that produced it, and every write script and downstream reader scans the session
   log for a directed transition and refuses on one, so a skip is detected at the next write
   rather than prevented.
+- **Checks run in the coordinator's environment.** koto runs every action and gate with
+  the environment of the `koto next` call, which the coordinator controls, so a `PATH` entry
+  or an exported shell function can stand in for `gh`, `jq` or `git`. The checks hold against
+  a wrong submitted value or a skipped step, not against a coordinator that rewrites its own
+  tools. Closing it needs the engine to run checks in an environment fixed at init.
 - **Single host for legs.** koto's request store is local, so a worker on another host
   always reports by message.
 
