@@ -227,9 +227,11 @@ minutes, surfaces only an exit code, and defeats the action limit's intent.
   It does no I/O beyond stdin and stdout and carries the PRD's structure,
   phase, next-line, waiting and grading rules (R16 to R19), so those rules
   are tested without any stub.
-- The gate is the record feature's shared seal check (`seal-check.sh`
-  here), which the reconcile gate, the pick state's read and the dispatch
-  path's teardown gate all use. Reconcile ships none of its own.
+- The gate is the record feature's shared check channel: its verdict gate
+  `coord-verdict.sh` over its seal helper `coord-log.sh` (`seal`, `check`,
+  `directed-since`), which every check state in the template, the pick
+  side's read and the dispatch path's teardown gate use. Reconcile ships
+  none of its own.
 - `reconcile-deps.sh` names the record feature's reader, board check,
   deferral check and seal helper in one place, so aligning with that
   feature's final names is a one-line change. It also sources the input
@@ -351,7 +353,7 @@ visit-scoped work file by one bounded pass. The agent's only move is to tick
 again, and it reads `reconcile/progress` to know why. When the pass
 completes, the report exists in context in two forms, its JSON is sealed by
 a capture the agent can't write, and the non-overridable gate lets the
-workflow into pick. The pick state reads `reconcile/report.json` through a
+workflow into `pick_facts`, which reads `reconcile/report.json` through a
 small reader that checks the seal again, so a report altered after the gate
 passed, or one reached by skipping the gate, is refused there.
 
@@ -392,11 +394,11 @@ reconcile:
   gates:
     report_sealed:
       type: command
-      command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/seal-check.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}" --state reconcile --key reconcile/report.json --seal "{{RECONCILE_SEAL}}"'
+      command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}" --state reconcile --key reconcile/report.json --capture "{{RECONCILE_SEAL}}"'
       timeout: 10
       overridable: false
   transitions:
-    - target: pick
+    - target: pick_facts
       when:
         gates.report_sealed.exit_code: 0
 ```
@@ -432,13 +434,15 @@ reconcile-pass.sh            (every child's stdout goes to stderr)
   queue not empty -> write reconcile/progress,
     print pending:<visit>:<n>:<sha256 of work file>, exit 0
   facts -> reconcile-report.sh -> report.json + report.md (+ reasoning.md)
-  write keys; print sealed:<visit>:<sha256 of report.json bytes>
+  write keys; print reconciled sealed:<visit>:<sha256 of report.json bytes>
 ```
 
 The pass prints exactly one line, in one of three grammars built only from
 characters a koto capture admits: `pending:<seq>:<n>:<64 hex>`,
 `blocked:<case>` with `<case>` one of `none`, `ambiguous`, `undeclared`,
-`unreadable`, and `sealed:<seq>:<64 hex>`. A test feeds each shape through
+`unreadable`, and `reconciled sealed:<seq>:<64 hex>`, the last in the
+shape the record feature's check channel defines for every check state
+(`<verdict> ... sealed:<seq>:<sha256>`). A test feeds each shape through
 koto's capture allowlist. The last seconds of the 30 are kept for building
 the report and the context writes; the injected clock tests that the pass
 never plans past its budget.
@@ -451,10 +455,11 @@ matches `sealed:<seq>:<hash>`.
 
 ### The gate
 
-The shared seal check (`seal-check.sh`, the record feature's; its final
-name and flags are that feature's) exits 0 only when all of these hold:
+The shared verdict gate (`coord-verdict.sh` over `coord-log.sh check`, the
+record feature's; their final flags are that feature's) exits 0 only when
+all of these hold:
 
-1. The seal has the form `sealed:<seq>:<64 hex>`.
+1. The capture has the form `reconciled sealed:<seq>:<64 hex>`.
 2. `<seq>` is the seq of the latest event in the session log that entered
    the reconcile state (`transitioned`, `directed_transition` or `rewound`
    with this state as its target).
@@ -467,11 +472,13 @@ gate routes only on 0.
 
 ### The pick state's read
 
-The record feature's pick state reads the report through
+The record feature's `pick_facts` state, which runs before `pick`, reads the
+report through
 `reconcile-report-get.sh`, which this feature ships because it knows the
 report's schema. It runs the shared seal check against `RECONCILE_SEAL` (a
-capture later states can read), refuses the report when it fails, and names
-an entry into pick by `directed_transition` from reconcile in its output.
+capture later states can read) with `coord-log.sh check`, refuses the report
+when it fails, and names an entry past reconcile by `directed_transition`
+with `coord-log.sh directed-since`.
 When pick is reached by `--to` before any pass delivered the capture, koto
 itself refuses to run a command that references it, so the workflow stops
 on koto's unset-capture refusal instead; either way it stops. This is

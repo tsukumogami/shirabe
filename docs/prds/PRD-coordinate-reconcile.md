@@ -284,10 +284,12 @@ naming every read that failed, timed out or was skipped, with the reason.
 An empty section reads "None."
 
 **R17. Each holding is marked scoping ahead or executing.** The report
-marks every holding as scoping ahead or executing from the record's
-entry-point and mode columns: a holding dispatched to the scoping entry
-point, or with a mode that stops after scoping, is scoping ahead; every
-other holding is executing. A holding marked scoping ahead whose live pull
+marks every holding as scoping ahead or executing from the record's Phase
+column, which the coordinator writes when it dispatches or advances the
+holding. A row with no Phase value falls back to its entry-point and mode
+columns: a holding dispatched to the scoping entry point, or with a mode
+that stops after scoping, is scoping ahead; every other holding is
+executing. A holding marked scoping ahead whose live pull
 request changes any path outside `docs/` is flagged as contradicting its
 mark.
 
