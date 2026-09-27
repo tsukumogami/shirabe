@@ -86,7 +86,13 @@ variables:
       materialized as a child, so it has more than one kind of init site. Every
       one of them passes this variable; check-init-site-vars.sh is what keeps
       that true.
+
+      Rebindable, as in execute.md: a plugin update moves the path, and a
+      resume under --koto-leg attaches through `koto init --attach-live`, which
+      refuses a changed non-rebind variable. koto 0.12.2, the floor for runs
+      without that flag, ignores the key; the template behaves the same there.
     required: true
+    rebind: true
 
 states:
   entry:

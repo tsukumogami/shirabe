@@ -446,9 +446,10 @@ Packaging:
   `/deliver`, `/execute` or `/work-on` identifying only its own pull requests. Today every
   worker shares one login, so a worker can adopt a sibling's pull request on resume. The
   coordinator's own reads go by pull request number and dispatch topic.
-- **Where merge order is recorded (shirabe#396).** A worker's coordinated PLAN writes an
-  empty merge-order block that is never updated, so the order a coordinator hands a person
-  comes from its own reading of dependencies.
+- **Where merge order is recorded (shirabe#396, fixed).** `/execute` now renders a
+  coordinated PLAN's merge order into its coordination pull request's merge-order block. The
+  coordinator's record has no merge-order section, so the order it hands a person still comes
+  from its own reading of dependencies.
 - **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body can
   describe more than the pull request carries; the verify step's file-list read is the
   defence, at one more read per report.

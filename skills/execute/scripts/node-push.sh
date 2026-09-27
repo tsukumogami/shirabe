@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # node-push.sh — for /execute: push a coordinated node (or the coordination
-# branch) and record the pushed commit on the coordination PR's index.
+# branch) and record the pushed commit on the coordination PR's index; or,
+# in the order mode, only render the PLAN's merge order into that PR's body.
 #
-# Two modes.
+# Three modes.
 #
 #   node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo>
 #                     --issues <ids> --home-repo <owner/repo>
-#                     --coord-branch <branch> [--remote <name>]
+#                     --coord-branch <branch> --plan <path> [--remote <name>]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
 #     after the node's work items committed there. It sweeps wip/, pushes,
-#     finds the node's owned PR or opens a draft one, and writes the node's
-#     index line with `head=<sha>`.
+#     finds the node's owned PR or opens a draft one, writes the node's index
+#     line with `head=<sha>`, and renders the merge order into the body's
+#     `## Merge Order` section. --plan is the PLAN in the coordination
+#     checkout (the recorded plan_abs), since the node branch doesn't carry it.
 #
 #   node-push.sh coordination --slug <slug> --home-repo <owner/repo>
 #                             --coord-branch <branch> [--remote <name>]
@@ -19,16 +22,49 @@
 #     Run in the coordination checkout after the finalization cascade. It
 #     sweeps wip/, pushes the coordination branch, and writes the coordination
 #     PR's own index line (`- coordination | ... | head=<sha>`), the expected
-#     head its merge is checked against.
+#     head its merge is checked against. The cascade has deleted the PLAN by
+#     then, so this mode leaves the merge-order block as it was.
+#
+#   node-push.sh order --slug <slug> --home-repo <owner/repo>
+#                      --coord-branch <branch> --plan <path>
+#
+#     Run in the coordination checkout just before the finalization cascade
+#     deletes the PLAN. It pushes nothing and records no index line: it only
+#     renders the PLAN's merge order into the coordination PR's body, so the
+#     block matches the PLAN the effort finished with even when the PLAN
+#     changed after the last node push.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
 # no other script, template, or directive writes a `head=` field. It is the
 # commit this script just pushed, never a value read off the live PR.
 #
+# The merge-order block. The node and order modes replace the body's whole
+# `## Merge Order` section with one fenced ```merge-order block listing every
+# node of the PLAN, PR and gate alike, one per line, in the order
+# plan-to-tasks.sh emits them (every node after its predecessors):
+#
+#   <node-id> | pr | after: <node-id>, <node-id>
+#   <node-id> | gate | after: -
+#
+# Each line carries a node id (the same ids the PR index already carries), its
+# kind, and its predecessors' ids: no repository field, and no merge state,
+# which is live and belongs to the merge gate. The same PLAN renders the same
+# block, so a second render leaves it as it was, and a PLAN whose waits_on
+# changed replaces it whole. The block is the durable, human-readable order
+# that outlives the PLAN. Nothing schedules or gates from it:
+# coordinated-next.sh reads the PLAN, and `shirabe validate --merge-gate`
+# recomputes merge state from live gh. The node id must stay the first field:
+# testdata/merge-order-gated.txt pins the rendered section, and the
+# validator's own tests read that file with the real parser.
+#
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
 #      id ^[a-z][a-z0-9-]*$, repositories owner/repo, issues a comma-joined
-#      list of numbers);
+#      list of numbers); in the node and order modes, read the PLAN's nodes
+#      through plan-to-tasks.sh and render the merge-order block (node mode
+#      also refuses a PLAN that has no node named --node), all before
+#      anything is pushed or edited;
+#   (the order mode skips steps 2-4, 6, and the index half of 7)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one, and the remote's default branch;
 #   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
@@ -45,14 +81,17 @@
 #      link, passed with --body-file -- unless the index already names a PR
 #      for this node, which must then be adopted, and zero survivors refuse;
 #   7. rewrite the body's `## PR Index` line for the node (replacing it, or
-#      adding it), run `shirabe validate --coordination-body` on the new body,
-#      and only when that passes, post it with `gh pr edit --body-file`. A
-#      failing validation leaves the posted body untouched.
+#      adding it), in the node and order modes replace the `## Merge Order`
+#      section with the rendered block (adding the section when absent), run
+#      `shirabe validate --coordination-body` on the new body, and only when
+#      that passes, post it with `gh pr edit --body-file`. A failing
+#      validation leaves the posted body untouched.
 #
-# Output: `pr=<url>` and `head=<sha>` on stdout. Diagnostics on stderr.
+# Output: `pr=<url>` and `head=<sha>` on stdout (the order mode prints only
+# `pr=<coordination PR url>`). Diagnostics on stderr.
 #
 # Exit codes:
-#   0   pushed and recorded
+#   0   pushed and recorded (order mode: rendered and posted)
 #   64  usage error
 #   65  HEAD is detached
 #   66  the checked-out branch is not the expected one, or its name is refused
@@ -65,6 +104,10 @@
 #   74  shirabe validate --coordination-body refused the new body; nothing
 #       was edited
 #   75  gh pr create or gh pr edit failed
+#   76  node or order mode: plan-to-tasks.sh could not read the PLAN, the
+#       PLAN is not coordinated (a node without NODE_KIND pr or gate), or
+#       (node mode) the PLAN has no node named --node; nothing was pushed or
+#       edited
 #
 # Requires: bash 3.2+, git, gh, jq, shirabe.
 set -uo pipefail
@@ -77,20 +120,21 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>]" >&2
+    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>]" >&2
     echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>]" >&2
+    echo "       node-push.sh order --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --plan <path>" >&2
     exit 64
 }
 
 [ $# -ge 1 ] || usage_error "a mode is required"
 MODE="$1"; shift
-case "$MODE" in node|coordination) ;; *) usage_error "mode must be node or coordination, got [$MODE]" ;; esac
+case "$MODE" in node|coordination|order) ;; *) usage_error "mode must be node, coordination, or order, got [$MODE]" ;; esac
 
-SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; REMOTE="origin"
+SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--remote)
+        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -101,6 +145,7 @@ while [ $# -gt 0 ]; do
                 --issues) ISSUES="$2" ;;
                 --home-repo) HOME_REPO="$2" ;;
                 --coord-branch) CB="$2" ;;
+                --plan) PLAN="$2" ;;
                 --remote) REMOTE="$2" ;;
             esac
             shift 2
@@ -118,11 +163,19 @@ if [ "$MODE" = node ]; then
     [ "$NODE" != coordination ] || usage_error "--node coordination is the coordination PR's own record; use the coordination mode"
     coord_valid_repo "$REPO" || usage_error "--repo [$REPO] is not a single owner/repo"
     [[ $ISSUES =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || usage_error "--issues [$ISSUES] is not a comma-joined list of work-item numbers"
+    case "$SEEN" in *" --plan "*) ;; *) usage_error "--plan is required in the node mode" ;; esac
+    [ -f "$PLAN" ] || usage_error "--plan [$PLAN] is not a file"
     BRANCH="impl/$SLUG-$NODE"
     ENTRY_NODE="$NODE"
     ENTRY_REPO="$REPO"
+elif [ "$MODE" = order ]; then
+    for f in --node --repo --issues --remote; do
+        case "$SEEN" in *" $f "*) usage_error "$f does not belong to the order mode" ;; esac
+    done
+    case "$SEEN" in *" --plan "*) ;; *) usage_error "--plan is required in the order mode" ;; esac
+    [ -f "$PLAN" ] || usage_error "--plan [$PLAN] is not a file"
 else
-    for f in --node --repo --issues; do
+    for f in --node --repo --issues --plan; do
         case "$SEEN" in *" $f "*) usage_error "$f belongs to the node mode" ;; esac
     done
     BRANCH="$CB"
@@ -131,45 +184,79 @@ else
 fi
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 
-# 2. The branch.
-CUR=$(git symbolic-ref --quiet --short HEAD) || {
-    echo "$PROG: HEAD is detached, so there is no branch to push" >&2
-    exit 65
-}
-if [ "$CUR" != "$BRANCH" ]; then
-    echo "$PROG: the checked-out branch is [$CUR], not [$BRANCH]" >&2
-    exit 66
-fi
-coord_valid_branch "$BRANCH" || { echo "$PROG: refusing branch name [$BRANCH]" >&2; exit 66; }
-DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null \
-    | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p' | head -1)
-if [ -z "$DEFAULT" ]; then
-    DEFAULT=$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)
-    DEFAULT=${DEFAULT#"$REMOTE"/}
-fi
-if [ -n "$DEFAULT" ]; then
-    [ "$BRANCH" = "$DEFAULT" ] && { echo "$PROG: refusing to push [$BRANCH]: it is the default branch of $REMOTE" >&2; exit 67; }
-else
-    case "$BRANCH" in main|master) echo "$PROG: refusing to push [$BRANCH]: a default branch name" >&2; exit 67 ;; esac
+# 1. The merge order, rendered from the PLAN before anything is pushed.
+ORDER_BLOCK=""
+if [ "$MODE" != coordination ]; then
+    # jq given no input runs nothing and exits 0, so an empty result is
+    # checked as well as each command's status. Only a coordinated PLAN's
+    # nodes carry NODE_KIND (pr or gate); any other PLAN's tasks don't, and
+    # are refused rather than rendered as PR nodes.
+    TASKS=$("$BASH" "$COORD_PLAN_TO_TASKS" "$PLAN" </dev/null) \
+    && ORDER_LINES=$(printf '%s' "$TASKS" | jq -r --arg re "$RE_COORD_NODE" '
+        if type == "array" and length > 0
+            and all(.[]; (.name | type) == "string" and (.name | test($re))
+                         and (.vars.NODE_KIND == "pr" or .vars.NODE_KIND == "gate"))
+        then .[] | "\(.name) | \(.vars.NODE_KIND) | after: \(if (.waits_on | length) == 0 then "-" else (.waits_on | join(", ")) end)"
+        else error("no usable node list") end' 2>/dev/null) \
+    && [ -n "$ORDER_LINES" ] || {
+        echo "$PROG: plan-to-tasks.sh could not read [$PLAN] into a coordinated merge order; nothing was pushed or edited" >&2
+        exit 76
+    }
+    if [ "$MODE" = node ] && ! printf '%s\n' "$ORDER_LINES" | grep -q "^$NODE |"; then
+        echo "$PROG: the PLAN [$PLAN] has no node $NODE; nothing was pushed" >&2
+        exit 76
+    fi
+    ORDER_BLOCK=$(
+        printf '```merge-order\n'
+        printf "# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.\n"
+        printf '# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>\n'
+        printf '%s\n' "$ORDER_LINES"
+        printf '```'
+    )
 fi
 
-# 3. The wip/ sweep.
-if [ -n "$(git ls-files -- wip/)" ]; then
-    git rm -r -q -- wip/ >&2 || { echo "$PROG: git rm of wip/ failed" >&2; exit 69; }
-    git commit -q -m "chore($SLUG): remove wip/ artifacts before push" >&2 \
-        || { echo "$PROG: committing the wip/ sweep failed" >&2; exit 69; }
-fi
+# Steps 2 to 4 push a branch; the order mode pushes nothing.
+if [ "$MODE" != order ]; then
+    # 2. The branch.
+    CUR=$(git symbolic-ref --quiet --short HEAD) || {
+        echo "$PROG: HEAD is detached, so there is no branch to push" >&2
+        exit 65
+    }
+    if [ "$CUR" != "$BRANCH" ]; then
+        echo "$PROG: the checked-out branch is [$CUR], not [$BRANCH]" >&2
+        exit 66
+    fi
+    coord_valid_branch "$BRANCH" || { echo "$PROG: refusing branch name [$BRANCH]" >&2; exit 66; }
+    DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null \
+        | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p' | head -1)
+    if [ -z "$DEFAULT" ]; then
+        DEFAULT=$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)
+        DEFAULT=${DEFAULT#"$REMOTE"/}
+    fi
+    if [ -n "$DEFAULT" ]; then
+        [ "$BRANCH" = "$DEFAULT" ] && { echo "$PROG: refusing to push [$BRANCH]: it is the default branch of $REMOTE" >&2; exit 67; }
+    else
+        case "$BRANCH" in main|master) echo "$PROG: refusing to push [$BRANCH]: a default branch name" >&2; exit 67 ;; esac
+    fi
 
-# 4. The push: the explicit refspec, never a force option.
-if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
-    echo "$PROG: the push failed; nothing was recorded" >&2
-    exit 68
-fi
-SHA=$(git rev-parse HEAD)
-[[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
-if [ -n "$(git ls-tree -r --name-only "$SHA" -- wip/)" ]; then
-    echo "$PROG: the pushed head $SHA still carries wip/ files" >&2
-    exit 69
+    # 3. The wip/ sweep.
+    if [ -n "$(git ls-files -- wip/)" ]; then
+        git rm -r -q -- wip/ >&2 || { echo "$PROG: git rm of wip/ failed" >&2; exit 69; }
+        git commit -q -m "chore($SLUG): remove wip/ artifacts before push" >&2 \
+            || { echo "$PROG: committing the wip/ sweep failed" >&2; exit 69; }
+    fi
+
+    # 4. The push: the explicit refspec, never a force option.
+    if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
+        echo "$PROG: the push failed; nothing was recorded" >&2
+        exit 68
+    fi
+    SHA=$(git rev-parse HEAD)
+    [[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
+    if [ -n "$(git ls-tree -r --name-only "$SHA" -- wip/)" ]; then
+        echo "$PROG: the pushed head $SHA still carries wip/ files" >&2
+        exit 69
+    fi
 fi
 
 # 5. The coordination PR.
@@ -180,15 +267,58 @@ case $? in
     *) exit 73 ;;
 esac
 BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
+trap 'rm -rf "$WORK"' EXIT
+
+# post_body -- finish $WORK/body.md and post it: when a merge order was
+# rendered, replace the whole `## Merge Order` section with it (up to the next
+# heading; a body without the section gains it), then validate the body and,
+# only when that passes, edit the coordination PR.
+post_body() {
+    if [ -n "$ORDER_BLOCK" ]; then
+        printf '%s\n' "$ORDER_BLOCK" > "$WORK/order.md"
+        awk -v blockfile="$WORK/order.md" '
+            function emit(  l) { while ((getline l < blockfile) > 0) print l; close(blockfile) }
+            /^## / {
+                if (insec) print ""
+                insec = ($0 ~ /^## Merge Order[[:space:]]*$/)
+                print
+                if (insec) { sawsec = 1; print ""; emit() }
+                next
+            }
+            insec { next }
+            { print }
+            END { if (!sawsec) { print ""; print "## Merge Order"; print ""; emit() } }
+        ' "$WORK/body.md" > "$WORK/body-order.md" \
+            && mv "$WORK/body-order.md" "$WORK/body.md" \
+            || { echo "$PROG: rendering the merge-order section failed" >&2; exit 64; }
+    fi
+    SHIRABE="${SHIRABE_BIN:-shirabe}"
+    if ! "$SHIRABE" validate --coordination-body "$WORK/body.md" >&2; then
+        echo "$PROG: shirabe validate --coordination-body refused the new body; the coordination PR was not edited" >&2
+        exit 74
+    fi
+    if ! gh pr edit "$C_NUM" --repo "$HOME_REPO" --body-file "$WORK/body.md" </dev/null >&2; then
+        echo "$PROG: gh pr edit failed" >&2
+        exit 75
+    fi
+}
+
+# The order mode records no index line: it skips step 6 and the index half of
+# step 7, and post_body does the rest.
+if [ "$MODE" = order ]; then
+    printf '%s\n' "$BODY" > "$WORK/body.md"
+    post_body
+    printf 'pr=%s\n' "$C_URL"
+    exit 0
+fi
+
 ENTRIES=$(coord_index_entries "$BODY")
 OLD_LINE=$(coord_find_entry "$ENTRIES" "$ENTRY_NODE")
 case $? in
     0|1) ;;
     *) echo "$PROG: the index lists $ENTRY_NODE more than once" >&2; exit 73 ;;
 esac
-
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
-trap 'rm -rf "$WORK"' EXIT
 
 # 6. The PR this line indexes.
 if [ "$MODE" = node ]; then
@@ -254,15 +384,7 @@ printf '%s\n' "$BODY" | awk -v node="$ENTRY_NODE" -v line="$NEW_LINE" '
     }
 ' > "$WORK/body.md"
 
-SHIRABE="${SHIRABE_BIN:-shirabe}"
-if ! "$SHIRABE" validate --coordination-body "$WORK/body.md" >&2; then
-    echo "$PROG: shirabe validate --coordination-body refused the new body; the coordination PR was not edited" >&2
-    exit 74
-fi
-if ! gh pr edit "$C_NUM" --repo "$HOME_REPO" --body-file "$WORK/body.md" </dev/null >&2; then
-    echo "$PROG: gh pr edit failed" >&2
-    exit 75
-fi
+post_body
 
 printf 'pr=%s\nhead=%s\n' "$PR_URL" "$SHA"
 exit 0

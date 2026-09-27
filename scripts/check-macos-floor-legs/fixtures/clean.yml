@@ -1,0 +1,28 @@
+# Passes: Linux runs its suites with bash, the macOS leg reaches the floor
+# through the runner, and the installer pipe and bash -c are not suite runs.
+name: clean
+on: pull_request
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tsuku
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+      - name: Report the shell
+        run: bash -c 'echo "$BASH_VERSION"'
+      - name: Assert koto meets the floor
+        run: scripts/assert-koto-floor.sh
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash skills/demo/scripts/one_test.sh
+          bash skills/demo/scripts/two_test.sh
+      - name: Run tests on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system demo

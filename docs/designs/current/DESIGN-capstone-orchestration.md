@@ -17,8 +17,9 @@ decision: |
   (offline) and `--merge-gate` is the posture-aware live merge-last gate that
   `lifecycle.yml` runs under `--mode=ready` as the non-bypassable backstop. Finalize
   writes stay repo-local with a read-only cross-repo verification gate. The merge order is
-  derived and validated (acyclic) in the PLAN at authoring time and authored into the
-  coordination PR body as merge-time canon.
+  derived and validated (acyclic) in the PLAN at authoring time and rendered into the
+  coordination PR body as the durable, human-readable record of the order; the
+  merge-last gate recomputes from live state and never reads it.
 rationale: |
   Every cross-repo write or always-on service was rejected for cost and for violating
   PRD R19/R21 (no new service; no partial cross-repo state). Keeping writes repo-local
@@ -155,8 +156,10 @@ new standalone tool.
   post-contraction acyclicity check (R13) and the split-at-seam → re-sequence → stack
   resolution live at that collapse step, so an unschedulable coordinated effort is never committed.
   Because R8 deletes the PLAN before the coordination PR merges, the coordination PR body carries the
-  merge-time canonical PR-index + fenced merge-order block, authored by the skill from the PLAN at
-  creation and surviving it through merge.
+  PR-index and a fenced merge-order block that survive it through merge. `/execute` renders the
+  block from the PLAN on every node push and once more before the cascade deletes the PLAN; it is
+  the human-readable record of the order, and nothing schedules or gates from it (see the
+  Merge-Order Model in `references/coordination-strategy.md`).
 - *Alternative — canonical only in the PR body.* Rejected: loses authoring-time
   validatability and the rich `waits_on`-derived representation; the body becomes
   hand-maintained prose.

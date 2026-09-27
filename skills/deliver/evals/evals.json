@@ -438,6 +438,33 @@
         "The state list includes scope_run, scoped_check, mode_route, confirm, execute_run, merged_check, and done",
         "The state list includes done_stopped, done_error, and done_refused"
       ]
+    },
+    {
+      "name": "koto-leg-result-on-the-callers-leg",
+      "prompt": "In an empty directory, `git init` a repository whose CLAUDE.md has no `## Repo Visibility:` header and commit it. Create a koto request with one leg named deliver: `koto request create --with-data '{\"legs\":[{\"name\":\"deliver\",\"role\":\"deliver\",\"template\":\"deliver.md\",\"inputs\":{\"TOPIC\":\"leg-topic\"}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Run `/deliver leg-topic --auto --koto-leg=<request-id>:deliver` to its end. Print `koto request get <request-id> | jq '.legs.deliver'` and `koto request list --coordinator-of-record deliver-leg-topic`.",
+      "expected_output": "deliver-open.sh opens deliver-leg-topic bound to the caller's deliver leg. The preflight state finds no public visibility header and the run ends at done_refused with outcome refused and reason private-repo. That terminal result is promoted onto the caller's leg. No inner request was opened, because the run stopped before open_request, and the caller's request is not closed or abandoned by /deliver.",
+      "files": [],
+      "expectations": [
+        "The printed leg has bound_child `deliver-leg-topic`",
+        "The printed leg has result_source `promoted` and result_final_state `done_refused`",
+        "The leg's result payload has outcome `refused` and reason `private-repo`",
+        "The agent passed the --koto-leg value to /deliver's entry script rather than making it part of the topic",
+        "The agent did not run `koto request close`, `koto request resolve`, or `koto request abandon-request` on the caller's request"
+      ],
+      "id": 30
+    },
+    {
+      "name": "koto-leg-malformed-refused-before-koto",
+      "prompt": "In an empty directory, `git init` a repository whose CLAUDE.md has `## Repo Visibility: Public` and commit it. Run `/deliver leg-topic --auto --koto-leg=req1:scope`. Then print `koto status deliver-leg-topic` and its exit code.",
+      "expected_output": "deliver-open.sh refuses the value before any koto call, because the leg is not named deliver: it prints error=usage, outcome=error and step=deliver:refused, and exits 64. No deliver-leg-topic session exists afterwards, so koto status fails.",
+      "files": [],
+      "expectations": [
+        "The run prints `outcome=error` and `step=deliver:refused`",
+        "The refusal says the leg must be `<request-id>:deliver`",
+        "`koto status deliver-leg-topic` fails: no session was created",
+        "The agent stops after the refusal instead of retrying without the flag or with a different leg name"
+      ],
+      "id": 31
     }
   ]
 }

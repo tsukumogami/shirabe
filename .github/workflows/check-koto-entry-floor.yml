@@ -1,7 +1,7 @@
 name: Check koto entry floor
 
-# /scope, /execute and /deliver require koto 0.13.0 or later, the floor
-# scripts/assert-koto-floor.sh holds. .tsuku.toml tracks the newest koto 0.x
+# /scope, /execute and /deliver, and /work-on under --koto-leg, require koto
+# 0.13.0 or later, the floor scripts/assert-koto-floor.sh holds. .tsuku.toml tracks the newest koto 0.x
 # rather than pinning a release, so every other workflow runs whatever 0.x is
 # newest, and nothing else would notice shirabe starting to depend on something
 # the floor release lacks. This job installs exactly the floor release -- the
@@ -153,6 +153,11 @@ jobs:
           bash skills/deliver/scripts/deliver-open_test.sh
           bash skills/deliver/scripts/deliver-engine_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
+
+      - name: Run /work-on's --koto-leg entry suites
+        run: |
+          bash skills/work-on/scripts/work-on-open_test.sh
+          bash skills/work-on/scripts/work-on-requires_test.sh
 
       - name: Run /coordinate's koto-backed suites
         run: bash skills/coordinate/scripts/run-tests.sh --engine

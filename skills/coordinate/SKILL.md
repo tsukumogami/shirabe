@@ -271,9 +271,12 @@ until then it is a procedure the coordinator runs with a local agent.
   every worker a coordinator dispatches shares one login, so a worker can adopt a
   sibling's pull request on resume. The coordinator's own reads go by pull
   request number and dispatch topic.
-- **Where merge order is recorded (#396).** A worker's coordinated PLAN writes an
-  empty merge-order block that is never updated, so the merge order a coordinator
-  hands the human comes from its own reading of dependencies.
+- **Where merge order is recorded (#396, fixed).** When a worker runs a
+  coordinated PLAN, `/execute` renders that PLAN's merge order into its
+  coordination pull request's merge-order block from the `waits_on` graph, so
+  a merge order survives the PLAN. The merge gate never reads the block, and
+  the coordinator's own record has no merge-order section: the order it hands
+  the human still comes from its reading of dependencies.
 - **Pull request bodies that aren't scoped (#398).** A worker's pull request body
   can describe more than the pull request carries. The verify step's file-list
   read is the defence, at one more read per report.
