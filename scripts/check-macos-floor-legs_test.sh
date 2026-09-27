@@ -91,8 +91,10 @@ if [ "$RC" -eq 1 ] \
     && has 'job allowed-to-fail: step "(whole job)": no floor step' \
     && has 'job compound-if: step "Run tests with a flag": bash -e skills/demo/scripts/one_test.sh' \
     && has 'job compound-if: step "(whole job)": floor suite nosuch' \
-    && [ "$(count 'step "')" -eq 3 ]; then
-    pass "a floor step allowed to fail, a compound if, bash -e, and an unknown suite all fail"
+    && has 'job compound-if: step "Run tests on the floor (macOS)": bash skills/demo/scripts/two_test.sh' \
+    && ! has "job chained-after-floor" \
+    && [ "$(count 'step "')" -eq 4 ]; then
+    pass "a floor step allowed to fail, a compound if, bash -e, an unknown suite and a suite chained after a floor call fail; all and a comment pass"
 else
     fail "weak-floor fixture (rc=$RC): $OUT"
 fi

@@ -1,7 +1,9 @@
 # Fails three ways that each look green: the only floor step may fail without
 # failing the job, a compound `if` does not limit a step to Linux, and a flag
 # before the script does not make `bash` a non-run. A floor call naming a suite
-# the registry lacks is reported too.
+# the registry lacks is reported too, and a suite chained after a floor call on
+# the same line is checked like any other command. The last job passes: `all`
+# names every suite, and a trailing comment is not read as suite names.
 name: weak-floor
 on: pull_request
 jobs:
@@ -31,4 +33,17 @@ jobs:
         run: bash -e skills/demo/scripts/one_test.sh
       - name: Run tests on the floor (macOS)
         if: runner.os == 'macOS'
-        run: scripts/check-bash-floor.sh --backend system demo nosuch
+        run: scripts/check-bash-floor.sh --backend system demo nosuch && bash skills/demo/scripts/two_test.sh # done
+  chained-after-floor:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run every suite on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system all # every suite
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/demo/scripts/two_test.sh

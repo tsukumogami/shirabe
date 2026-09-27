@@ -117,6 +117,7 @@ PLAIN_BASH = re.compile(POS + r"bash\s+(?!-c\b)((?:-\S+\s+)*[^-\s]\S*)")
 SYSTEM_BASH = re.compile(POS + r"/bin/bash\s+(?!-c\b)((?:-\S+\s+)*[^-\s]\S*)")
 FLOOR = re.compile(POS + r"(?:\./)?scripts/check-bash-floor\.sh\b(.*)")
 FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
+SEPARATOR = re.compile(r"(&&|\|\||;|\||#)")
 ANY_SUITE = re.compile(r"(?:\./)?[\w./-]*_test\.sh\b")
 
 # A condition limits a step to Linux only in these simple forms. Anything
@@ -175,13 +176,24 @@ for job_name, job in (wf.get("jobs") or {}).items():
         for line in logical_lines(run):
             floor = FLOOR.search(line)
             if floor:
-                args = floor.group(1)
+                # The floor call's own arguments end at the first separator;
+                # whatever follows on the line is checked like any other command.
+                # A comment ends the command; any other separator starts one.
+                parts = SEPARATOR.split(floor.group(1), maxsplit=1)
+                args = parts[0]
+                rest = parts[2].strip() if len(parts) > 2 and parts[1] != "#" else ""
                 # A floor step allowed to fail proves nothing when it does.
                 if FLOOR_SYSTEM.search(args) and not step.get("continue-on-error"):
-                    floor_suites.update(
-                        a for a in args.split()
-                        if not a.startswith("-") and a != "system")
-                continue
+                    for a in args.split():
+                        if a.startswith("-") or a == "system":
+                            continue
+                        if a == "all":
+                            floor_suites.update(s for s in registry if s != "all")
+                        else:
+                            floor_suites.add(a)
+                if not rest:
+                    continue
+                line = rest
             reported = set()
             for m in PLAIN_BASH.finditer(line):
                 reported.add(m.group(1).split()[-1])
