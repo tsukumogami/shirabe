@@ -241,7 +241,7 @@ inv_hash() {
 
 # inv_files CLONE REL -- tracked, staged, deleted and untracked changes.
 inv_files() {
-    local C=$1 REL=$2 meta path tag mode sha nf=0
+    local C=$1 REL=$2 meta path tag mode sha line have nf=0
     if ! ig "$C" ls-files -z -s -v > "$ITEMS.idx0" 2>/dev/null; then
         inv_item "$REL" unchecked "the index could not be read"; return
     fi
@@ -284,7 +284,7 @@ inv_files() {
     while IFS= read -r path; do
         [ -n "$path" ] || continue
         printf '%s' "$(readlink "$C/$path")" > "$ITEMS.lt"
-        have=$(ig_stdin "$C" "$ITEMS.lt" hash-object --stdin 2>/dev/null) || { inv_item "$REL" file "$path (symlink)"; continue; }
+        have=$(ig_stdin "$C" "$ITEMS.lt" hash-object --no-filters --stdin 2>/dev/null) || { inv_item "$REL" file "$path (symlink)"; continue; }
         printf '%s\t%s\n' "$path" "$have" >> "$ITEMS.wt"
     done < "$ITEMS.links"
 
@@ -317,7 +317,7 @@ inv_files() {
         def pathhash: split("\t") | {key: (.[:-1] | join("\t")), value: .[-1]};
         ($tree[0].blobs // {}) as $def | ($tree[0].truncated // false) as $trunc
         | [lines($idx)[] | metapath | select(.meta[1] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $index
-        | [lines($head)[] | metapath | {key: .path, value: .meta[2]}] | from_entries as $headmap
+        | [lines($head)[] | metapath | select(.meta[0] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $headmap
         | [lines($wt)[] | pathhash] | from_entries as $work
         # unique unless the content is on the default branch; "absent" means
         # the path is gone, which the default branch may agree with.
@@ -331,8 +331,8 @@ inv_files() {
               | ((if ($headmap[$p] // "") != $i then verdict($p; $i) | "\(.)\tchange\t\($i)\t\($p)" else empty end),
                  (if ($work | has($p)) and $work[$p] != $i then verdict($p; $work[$p]) | "\(.)\tchange\t\($work[$p])\t\($p)" else empty end))),
             ($headmap | keys[] as $p | select(($index | has($p)) | not)
-              | verdict($p; "absent") | "\(.)\tchange\tabsent\t\($p) (deleted)"),
-            (lines($del)[] | . as $p | verdict($p; "absent") | "\(.)\tchange\tabsent\t\($p) (deleted)"),
+              | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
+            (lines($del)[] | . as $p | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
             ([lines($oth)[] | pathhash][] | .key as $p | .value as $h | verdict($p; $h) | "\(.)\tfile\t\($h)\t\($p)")
           ) ' > "$ITEMS.cmp" 2>/dev/null || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
     # "ask": GitHub truncated the tree and the path is in the part it left out.
@@ -343,10 +343,10 @@ inv_files() {
         want=${line%%$'\t'*}; p=${line#*$'\t'}
         [ "$TRUNC" = true ] && [ "$INV_N" -ge "$INV_ITEM_CAP" ] && break
         if [ "$verdict" = ask ]; then
-            have=$(default_blob "${p% (deleted)}") || { inv_item "$REL" "$kind" "$p"; continue; }
+            have=$(default_blob "$p") || have="?"
             [ "$have" = "$want" ] && continue
         fi
-        inv_item "$REL" "$kind" "$p"
+        if [ "$kind" = deleted ]; then inv_item "$REL" change "$p (deleted)"; else inv_item "$REL" "$kind" "$p"; fi
     done < "$ITEMS.cmp"
 }
 
@@ -698,9 +698,19 @@ inventory)
     # directory is searched, ignored ones included, to INV_FIND_DEPTH; clones
     # deeper than that are reached only through worktree lists, submodule
     # entries and untracked directories.
+    # Into a file, so a search that runs late is seen: the clones it hadn't
+    # reached would otherwise just be missing. A .git directory is printed and
+    # then not descended into.
+    rd_deadline "$DEADLINE" find -P "$IROOT" -maxdepth "$INV_FIND_DEPTH" -name .git \( -type d -o -type f -o -type l \) -print -prune \
+        > "$ITEMS.found" 2>/dev/null
+    case $? in
+        0) ;;
+        124) TRUNC=true; inv_item . unchecked "the search for clones timed out; clones it hadn't reached were not read" ;;
+        *) TRUNC=true; inv_item . unchecked "the search for clones failed partway" ;;
+    esac
     while IFS= read -r gitpath; do
         [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
-    done < <(rd_deadline "$DEADLINE" find -P "$IROOT" -maxdepth "$INV_FIND_DEPTH" -name .git \( -type d -o -type f -o -type l \) -print 2>/dev/null | sort)
+    done < <(sort "$ITEMS.found")
     i=0
     while [ "$i" -lt "${#QUEUE[@]}" ]; do
         if [ "$i" -ge "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi

@@ -573,6 +573,38 @@ mktree "$R10" "$M10"
 out=$(run inventory --path "$I10")
 expect "past the item and file caps the inventory says truncated" '.truncated == true and (.items | length) <= 200' "$out"
 
+new_case inventory-find-late
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M9" "$M9" > "$CASE/ls-remote.out.all"
+mktree "$R9" "$M9"
+mkdir -p "$T/slowfind"
+printf '#!/bin/sh\nsleep 30\n' > "$T/slowfind/find"; chmod +x "$T/slowfind/find"
+out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/slowfind:$T/bin:$PATH" RECONCILE_READ_DEADLINE=2 "$BASH" "$S" inventory --path "$I9" 2>/dev/null)
+expect "a clone search that runs late is truncated and unchecked, never empty" '.truncated == true and (.items | any(.kind == "unchecked" and (.path | test("timed out"))))' "$out"
+
+I11="$T/inst11"; mkdir -p "$I11/target/x" "$I11/node_modules/y"
+for d in target/x node_modules/y; do
+    git -C "$I11/$d" init -q -b main; git -C "$I11/$d" remote add origin https://github.com/acme/widgets.git
+    echo w > "$I11/$d/w.md"
+done
+new_case inventory-no-prune
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M9" "$M9" > "$CASE/ls-remote.out.all"
+mktree "$R9" "$M9"
+out=$(run inventory --path "$I11")
+expect "clones under target/ and node_modules/ are walked" '([.items[] | .clone] | index("target/x") != null) and ([.items[] | .clone] | index("node_modules/y") != null)' "$out"
+
+I12="$T/inst12"; R12="$I12/repo"; mkdir -p "$R12"
+git -C "$R12" init -q -b main; git -C "$R12" remote add origin https://github.com/acme/widgets.git
+for k in $(seq 1 150); do echo "$k" > "$R12/t$k.md"; done
+git -C "$R12" add -A; git -C "$R12" -c user.email=t@e -c user.name=t commit -qm a
+M12=$(git -C "$R12" rev-parse HEAD)
+for k in $(seq 1 150); do echo "x$k" > "$R12/t$k.md"; done
+for k in $(seq 1 100); do echo "$k" > "$R12/u$k.md"; done
+new_case inventory-item-cap-only
+printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M12" > "$CASE/ls-remote.out.all"
+mktree "$R12" "$M12"
+out=$(run inventory --path "$I12")
+expect "past 200 listed items (under the file cap) the inventory says truncated" '.truncated == true and (.items | length) == 200' "$out"
+
 echo "== close =="
 new_case close-closed
 serve issue-view 1 '{"state":"CLOSED"}'
@@ -650,7 +682,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"
