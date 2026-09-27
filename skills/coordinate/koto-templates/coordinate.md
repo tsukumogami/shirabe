@@ -1685,7 +1685,11 @@ brief_input.json --from-file <file>`, then delete the file), run
 "{{SESSION_NAME}}"`, and submit `dispatched: sent`, or `dispatched: failed`
 when it exits 3 or 4, with the `topic` either way. The topic is the one
 `dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
-the record step refuses a dispatch under any other.
+the record step refuses a dispatch under any other. The input names the entry
+point: `/shirabe:deliver` for a roadmap feature to be built, `/shirabe:scope`
+for one scoped ahead, with its execution sent later. The brief lists the
+checkpoints the worker reports at, and tells it to report and continue at each
+one: it waits on no approval.
 
 <!-- details -->
 
