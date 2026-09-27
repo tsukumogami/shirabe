@@ -284,7 +284,7 @@ koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
 ```
 
 Without it, the tick that reaches a success terminal disposes of the session
-and its `ctx/`. At `paused_for_review` that costs what a resume reads, which is
+and every context key it holds. At `paused_for_review` that costs what a resume reads, which is
 the worst loss, since the pause is solicited; at `merged`,
 `ready_awaiting_merge` and `done` it costs the run's record. koto keeps
 `done_blocked`, a failure terminal, either way. The rule and its reasoning are

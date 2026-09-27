@@ -19,7 +19,6 @@ on:
       # The scope and execute suites call /plan's scripts.
       - 'skills/plan/scripts/**'
       - 'scripts/assert-koto-floor.sh'
-      - 'scripts/assert-koto-floor_test.sh'
       - 'scripts/check-koto-release.sh'
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
@@ -77,6 +76,11 @@ jobs:
           mkdir -p "$HOME/.floor-bin"
           install -m 0755 target/release/shirabe "$HOME/.floor-bin/shirabe"
           echo "$HOME/.floor-bin" >> "$GITHUB_PATH"
+
+      # The suites below skip their engine-backed cases with exit 0 without jq,
+      # so it is installed rather than assumed from the runner image.
+      - name: Install jq
+        run: sudo apt-get install -y jq
 
       - name: Install tsuku
         uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0

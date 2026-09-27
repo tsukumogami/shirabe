@@ -274,8 +274,8 @@ koto that started it or remove it with `koto session cleanup <name>`. So a
 `/scope` or `/execute` run that is still in flight when you upgrade can't be
 resumed afterwards. Finish it on the old koto, or clean up its session
 (`koto session cleanup scope-<topic>` or `koto session cleanup
-execute-<plan-slug>`), before you upgrade. `/deliver` needs v0.13.0 to run at
-all, so it has no older sessions of its own, but it resumes a topic through
+execute-<plan-slug>`), before you upgrade. `/deliver` first shipped against
+koto 0.13.0, so it has no older sessions of its own, but it resumes a topic through
 `/scope` and `/execute` and can't pick up their old sessions either. There is
 no automatic migration.
 

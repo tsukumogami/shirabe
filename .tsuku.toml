@@ -5,8 +5,8 @@
 # 0.x release, so it never downgrades a newer koto already installed and never
 # jumps to a 1.0 shirabe has not been tested against. An exact pin such as
 # "0.13.0" would make `tsuku install` replace a newer koto with that release.
-# The real requirement is a floor, not a pin: koto 0.14.0 or later, the koto
-# minimum. Its one definition is scripts/assert-koto-floor.sh, which every
+# The real requirement is a floor, not a pin: koto 0.14.0 or later. Its one
+# definition is scripts/assert-koto-floor.sh, which every
 # workflow that installs koto runs; check-koto-entry-floor.yml also runs the
 # koto-backed suites on exactly that release.
 "tsukumogami/koto" = "0"

@@ -882,7 +882,7 @@ paragraph below is the contract shirabe consumes. The code-level detail
   recommended).** It serves `/work-on`'s batch children, which stay `--parent`
   children, and would retire their role routing. Shipped in koto 0.14.0
   (tsukumogami/koto#259); shirabe#439 moved the koto minimum to that release
-  and retired the role routing.
+  and retired the retention role routing.
 - **K8. `overridable: false` on gates (required).** `koto overrides record`
   is refused on a gate so marked, with or without `--with-data`. shirabe
   marks the two leg gates (`scope_leg`, `exec_leg`), the `context-matches`

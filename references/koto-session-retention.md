@@ -20,8 +20,8 @@ It describes koto 0.14.0 and later, shirabe's koto minimum
 ## What koto does
 
 koto decides at the tick that reaches a terminal state whether to keep the
-session. A session it does not keep is disposed of, and the disposal takes the
-session's `ctx/` with it: every context key the run accumulated goes at once —
+session. A session it does not keep is disposed of, and every context key the
+run accumulated goes with it at once —
 for `/work-on` that is `plan.md` and seven others, including the running record
 that carries a CORRECTION block per review round.
 
@@ -85,8 +85,8 @@ each ticked once from two states upstream:
 | `accepts: {reason, required}`, transitions `[-> dead_end]` | `action: "done"`, landed on the terminal |
 | `accepts: {reason, required}`, transitions `[-> other when …, -> dead_end]` | `action: "evidence_required"`, stopped at `middle` |
 
-koto's own comment says the same at `engine/advance.rs` (search
-`fresh_evidence`): fresh evidence is re-granted to a state with no conditional
+koto's own advance engine says the same in its comment on `fresh_evidence`:
+fresh evidence is re-granted to a state with no conditional
 transitions, so its unconditional fallback fires within the same invocation.
 
 ## A leg-attached root reports by promotion

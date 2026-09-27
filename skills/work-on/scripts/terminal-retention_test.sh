@@ -2,8 +2,8 @@
 # terminal-retention_test.sh -- every tick keeps the record, root or child
 # Part of the work-on skill
 #
-# koto disposes of a session that reaches a success terminal, and the disposal
-# takes the session's `ctx/` with it. `koto next --no-cleanup` keeps it, which is
+# koto disposes of a session that reaches a success terminal, and every context
+# key the session holds goes with it. `koto next --no-cleanup` keeps it, which is
 # how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0,
 # shirabe's koto minimum, a session that reaches a failure terminal such as
 # `done_blocked` is kept with or without the flag, and on a child the flag only

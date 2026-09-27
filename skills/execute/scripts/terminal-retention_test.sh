@@ -3,7 +3,7 @@
 # Part of the execute skill
 #
 # koto disposes of a session on the tick that reaches a success terminal, and
-# the disposal takes the session's `ctx/` with it. `/execute` ends at
+# every context key the session holds goes with it. `/execute` ends at
 # `paused_for_review` when an interactive run hands a DRAFT PR back for review,
 # and at `merged`, `ready_awaiting_merge` or `done` otherwise; each loses its
 # context without `koto next --no-cleanup` (#360). The pause is the worst loss
