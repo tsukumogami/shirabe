@@ -78,6 +78,7 @@ if [ -f "$STUB_DIR/inject.$sub" ] && [ -f "$WORKFILE" ]; then
     jq -c '.facts["h0.pr"] = {kind: "pr", status: "ok", state: "MERGED", draft: false, head: "x", merge_state: "UNKNOWN", base: "main", read_at: "t", t: 0}' "$WORKFILE" > "$WORKFILE.x" && mv "$WORKFILE.x" "$WORKFILE"
 fi
 [ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
+[ -f "$STUB_DIR/plant-on.$sub" ] && sh "$STUB_DIR/plant"
 sleep 0.2
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
@@ -350,6 +351,19 @@ echo 0 > "$SDIR/coordinate-reconcile/reads/h0.pr.rc"
 pass
 ctx reconcile/report.json | jq -e '.holdings[0].state == "open"' >/dev/null; check "read results planted in the session directory are never taken" $? "$(ctx reconcile/report.json | jq -c .holdings)"
 grep -q ' pr ' "$CASE/checks"; check "the pull request is read" $?
+new_case stale-own-reads
+record "[$(hold with-pr "$PR12")]"
+# A result for this read left in the pass's own reads directory before it
+# launches: cleared at launch, so the real read decides.
+cat > "$CASE/plant" <<'PLANT'
+for d in "${TMPDIR:-/tmp}"/reconcile-pass.*/reads; do
+    [ -d "$d" ] && printf '{"kind":"pr","status":"ok","state":"MERGED","draft":false,"head":"x","merge_state":"UNKNOWN","base":"main","read_at":"t"}' > "$d/h0.pr.out" && echo 0 > "$d/h0.pr.rc"
+done
+PLANT
+: > "$CASE/plant-on.branch"
+pass
+ctx reconcile/report.json | jq -e '.holdings[0].state == "open"' >/dev/null; check "a result planted in the pass's own reads directory is not taken for a read" $? "$(ctx reconcile/report.json | jq -c .holdings)"
+
 new_case deferral-row
 record "[]" '[]' '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
 # A row file where an earlier layout kept them, saying the deferral is

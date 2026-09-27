@@ -646,7 +646,7 @@ to the land state's merges, not to reconcile.
 4. **The pass and the seal.** `reconcile-pass.sh`, its use of the shared
    seal helper, and `reconcile-report-get.sh`, tested with a stubbed session
    log and context store: the 20-second cutoff, restart after a kill, a work
-   file edited between ticks, a refused environment, the stale-visit reset, and each output line
+   file edited between ticks, the stale-visit reset, and each output line
    through the capture allowlist.
 5. **The state.** Fill the reconcile state in the template once the record
    feature's template is on the default branch; template checks, the engine
@@ -722,7 +722,8 @@ fields with `jq`, never by searching the text, so a context value or a
 stream captured into some event's payload can't pose as an entry event.
 
 Two things sit outside what any gate defends, and the design says so rather
-than claiming otherwise. Files under the session directory can be edited by
+than claiming otherwise. Files under the session directory, and in a running
+pass's own temporary directory, can be edited by
 the same user; that is tampering with the engine's storage. The scripts
 themselves live under the plugin root, which the same user can also write;
 an agent that edits `reconcile-pass.sh` to print a seal for a fabricated

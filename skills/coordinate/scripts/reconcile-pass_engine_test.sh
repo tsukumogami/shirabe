@@ -75,7 +75,9 @@ case "\$sub" in
     *) echo '{"kind":"'"\$sub"'","status":"not_verified","reason":"not served","read_at":"t"}' ;;
 esac
 EOF
-chmod +x "$SC"/*.sh
+# Only the stand-ins are made executable here; the copied scripts keep the
+# modes they are committed with, so a script the template can't run fails.
+chmod +x "$SC/reconcile-read.sh" "$SC/reconcile-check.sh"
 jq -nc '{status: "found", scope: {kind: "roadmap", name: "engine-test", repo: "acme/widgets"},
   record: {written: "2026-09-26T12:00:00Z", source: "record", handoff_date: null},
   holdings: [{row: {unit: "Feature", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
@@ -158,6 +160,9 @@ eq "no gate names reconcile/reasoning.md" 0 "$(jq '[.states[] | (.gates // {})[]
 eq "the pass and the report check run from the plugin root" true \
     "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("\"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-"))' "$CJ")"
 eq "the reconcile_pass directive does not name RECONCILE_SEAL" 0 "$(jq '[.states.reconcile_pass | (.directive // "") + (.details // "") | select(test("RECONCILE_SEAL"))] | length' "$CJ")"
+for f in $(jq -r '[.states.reconcile_pass.default_action.command, (.states.reconcile_pass.gates[].command), (.states.reconcile.gates[].command)] | .[] | capture("scripts/(?<f>[a-z-]+\\.sh)").f' "$CJ" | sort -u); do
+    [ -x "$HERE/$f" ] && pass "$f, which the template runs directly, is executable" || fail "$f, which the template runs directly, is executable"
+done
 eq "PLUGIN_ROOT is declared without rebind" null "$(jq -c '.variables.PLUGIN_ROOT.rebind' "$CJ")"
 
 S=reconcile-engine

@@ -47,12 +47,12 @@
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-CLOCK_FILE=""
-[ "${1-}" = --test-entry ] && shift
+CLOCK_FILE="" TEST_ENTRY=0
+[ "${1-}" = --test-entry ] && { shift; TEST_ENTRY=1; }
 
 PROG=reconcile-pass
 # The bash running this script runs every script it starts.
-BASHP=("$BASH")
+RUNBASH=("$BASH")
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
 
@@ -71,7 +71,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --session) SESSION=$2 ;;
         --session-dir) SDIR=$2 ;;
-        --clock-file) CLOCK_FILE=$2 ;;
+        --clock-file) [ "$TEST_ENTRY" = 1 ] || { echo "reconcile-pass: --clock-file is for the test entry only" >&2; exit 64; }; CLOCK_FILE=$2 ;;
         *) echo "reconcile-pass: usage" >&2; exit 64 ;;
     esac
     shift 2
@@ -106,7 +106,7 @@ ctx_rm reconcile/refusal
 ctx_rm reconcile/progress
 
 # The visit: the sequence number of the latest entry into this state.
-PROBE=$("${BASHP[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
+PROBE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
     || die "the session log has no entry into $STATE"
 [[ $PROBE =~ ^visit\ sealed:([0-9]+): ]] || die "unreadable seal from coord-log.sh"
 VISIT=${BASH_REMATCH[1]}
@@ -126,7 +126,7 @@ wj() { printf '%s\n' "$WJ" | jq "$@"; }
 if [ -f "$WORK" ]; then
     WJ=$(cat "$WORK")
     WSHA=$(printf '%s\n' "$WJ" | rd_sha256)
-    LAST=$("${BASHP[@]}" "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL 2>/dev/null) || LAST=""
+    LAST=$("${RUNBASH[@]}" "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL 2>/dev/null) || LAST=""
     WV=$(wj -r '.visit // empty' 2>/dev/null)
     if [ "$WV" != "$VISIT" ]; then
         discard
@@ -151,7 +151,7 @@ fi
 # The record, once per visit.
 if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
-    REC=$(rd_deadline 12 "${BASHP[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
+    REC=$(rd_deadline 12 "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
     RC=$?
     if [ "$RC" -ne 0 ]; then
         case "$RC" in
@@ -165,7 +165,7 @@ if [ -z "$WJ" ]; then
         ctx_put reconcile/refusal "$T/refusal"
         say "blocked:$CASE"
     fi
-    RUN_START=$("${BASHP[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
+    RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -295,7 +295,7 @@ launch() {
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
         RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
-            "${BASHP[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+            "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
@@ -376,8 +376,8 @@ jq -c --arg at "$(iso)" '
        | {row: .value.row} + (if $f[$p] != null then (get($p) | {disposed, how, status, reason}) else {status: "not_verified", reason: "not read"} end)],
      reasoning: $rec.reasoning, unparseable: $rec.unparseable}' > "$T/facts.json" <<< "$WJ" \
     || die "the facts could not be assembled"
-"${BASHP[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
-"${BASHP[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
+"${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
+"${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
 DIGEST=$(rd_sha256 < "$W/report.json")
 ctx_put reconcile/report.json "$W/report.json"
 ctx_put reconcile/report.md "$W/report.md"
@@ -389,7 +389,7 @@ fi
 koto context get "$SESSION" reconcile/report.json > "$T/back.json" 2>/dev/null || die "the stored report can't be read back"
 [ "$(rd_sha256 < "$T/back.json")" = "$DIGEST" ] || die "the stored report differs from the one written"
 save "$(wj -c '.done = true')"
-LINE=$("${BASHP[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
+LINE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
     || die "the report could not be sealed"
 # The facts are this visit's: a seal for a later entry into the state would
 # put them on a visit they weren't read in.

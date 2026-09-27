@@ -321,3 +321,79 @@ than a file.
    refusal file's reason text is what the agent decides on, so keep
    reconcile-read.sh's exit-5 reasons ("timed out", "could not be read")
    stable, or put the case in the refusal file as `case: failed`.
+
+## Round 3 (c825621)
+
+Tests at c825621:
+
+- reconcile-pass_test.sh: 75 passed, 0 failed (the environment section was
+  removed)
+- reconcile-pass_engine_test.sh: 24 passed, 0 failed
+- coordinate-template-structure_engine_test.sh: 47 passed, 0 failed
+- rule-coverage_test.sh: 198 passed, 0 failed
+
+R2-B2 is closed as filed. toctou2_test.sh, which plants `h9.pr.rc` and
+`.out` before launch, now shows #10 read for real and reported open,
+because launch() clears `$R/<id>.*` first. `kill -0` doesn't hold up
+collection. bash reaps a finished background subshell on SIGCHLD, so
+`kill -0` fails on the next poll (panel5/fn/reap.sh: after 1 poll with
+`sleep 0.05` between, and after 16 builtin-only polls). No zombie is left
+behind.
+
+On the removal: nothing outside `wip/` names `reconcile-env.sh`,
+`--scrubbed` or `rd_scrub` any more, including CI and check-bash-floor. The
+koto#261 wording matches across SKILL.md, the DESIGN, the PLAN, and the
+record feature's PRD and DESIGN. Its "(not dash)" qualifier is accurate:
+panel5/fn/dash.sh shows an exported function dropped across a `/bin/sh`
+= dash hop.
+
+### Blocking
+
+#### R3-B1. The template now runs reconcile-pass.sh and reconcile-report-get.sh directly, but both are committed without the execute bit
+
+The prefix removal changed the three command lines from `/bin/bash -p
+<script>` to `"{{PLUGIN_ROOT}}/.../<script>"`, so the scripts now need
+their own execute bit. `git ls-tree HEAD` gives mode 100644 for
+`skills/coordinate/scripts/reconcile-pass.sh` and
+`skills/coordinate/scripts/reconcile-report-get.sh`. `coord-verdict.sh`,
+`reconcile-check.sh` and `reconcile-read.sh` are 100755.
+
+Failing input: running either script as the template's command does, from
+this checkout, prints `Permission denied` with exit 126. On a real session
+the reconcile_pass action fails on every tick, so the workflow can never
+leave reconcile_pass. Once past it, reconcile's report gate would also
+fail, and so would the directive's `reconcile-report-get.sh --md` call.
+
+The engine suite doesn't catch this because it runs `chmod +x "$SC"/*.sh`
+on its copied tree (reconcile-pass_engine_test.sh:78). Fix: `git
+update-index --chmod=+x` on both files. Add a structure check that every
+script a template command names is committed as 100755, or drop the
+chmod from the engine test so it runs the modes as shipped.
+
+### Advisory
+
+1. A same-user writer can still swap a running read's `.out`. It deletes
+   the file and writes a new one at the same name after launch. The real
+   read keeps writing to the unlinked file, and collect reads the
+   replacement once the read's pid has gone. panel5/toctou3_test.sh does
+   one swap: #10 is really read, but the sealed report says "now merged
+   (measured)" and `report-get --check` passes.
+
+   This is the residual race named in Round 2, not something this fix
+   introduced. The new koto#261 text ("don't hold against a coordinator
+   that rewrites its own tools, or its files") arguably covers it. But the
+   DESIGN's Security Considerations still names only the session directory
+   as out of scope, and its line 124 says the temporary directory keeps
+   pass files out of reach. Add the pass's temporary directory to that
+   paragraph.
+2. DESIGN-coordinate-reconcile.md:649 still lists "a refused environment"
+   among the pass tests. That test is gone.
+3. In reconcile-pass.sh, `BASHP=("$BASH")` keeps a name that meant
+   privileged mode. `--test-entry` now only shifts, and `--clock-file` is
+   accepted without it. That's harmless because the template's command
+   line is fixed, but a plain `"$BASH"` and a `--clock-file` that requires
+   `--test-entry` would read more honestly.
+4. No unit test covers a stale `.rc` planted in the pass's own reads
+   directory. The "planted" case covers only the old session-directory
+   layout. Worth one case now that the check depends on launch() clearing
+   the directory and on `kill -0`.
