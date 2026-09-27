@@ -104,11 +104,12 @@ START=$(date +%s)
 dc_with_deadline 1 sleep 20; RC=$?
 eq  "deadline: a command past it is 124" 124 "$RC"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline: returns at the deadline"; else bad "deadline: returns at the deadline" ""; fi
-# No watcher sleep outlives a quick command: its sleep length is unique, so
-# any process still running it afterwards is a leak.
-dc_with_deadline 4242 true
+# No watcher sleep outlives a quick command: its sleep length is unique to
+# this run, so any process still running it afterwards is this run's leak.
+LEN=$(( 40000 + $$ % 10000 ))
+dc_with_deadline "$LEN" true
 sleep 1
-if ps -eo args | grep -q '^sleep 4242$'; then bad "deadline: no watcher left behind" "$(ps -eo pid,args | grep 'sleep 4242')"; else ok "deadline: no watcher left behind"; fi
+if ps -eo args | grep -q "^sleep $LEN\$"; then bad "deadline: no watcher left behind" "$(ps -eo pid,args | grep "sleep $LEN")"; else ok "deadline: no watcher left behind"; fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
 
 # The table against the skills it names: every skill exists, every template a

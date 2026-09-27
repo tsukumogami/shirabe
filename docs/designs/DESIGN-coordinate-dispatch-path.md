@@ -138,8 +138,8 @@ in `niwa list --json`.
 
 **Chosen: a non-overridable command gate, `holding-recorded.sh`, that reads
 the record through the record feature's reader** and exits 0 for a
-`dispatched` holding, 1 for none, 3 for `dispatch-failed`, 2 when the record
-can't be read.
+`dispatched` holding, 1 for none, 3 for `dispatch-failed`, 4 for a
+`dispatching` row an interrupted run left, 2 when the record can't be read.
 
 *Alternative: a `context-exists` gate on a key the script writes.* The
 coordinator can write the same key with `koto context add`, so the gate would
@@ -280,6 +280,7 @@ Fields:
 |---|---|---|
 | `topic` | yes | the dispatch topic, `^[a-z0-9][a-z0-9-]*$`, equal to `dispatch_topic` |
 | `repo` | yes | `owner/repo` |
+| `unit` | yes | the unit of work, one line, as the holding's Unit cell names it |
 | `entry_point` | yes | a skill named in `entry-points.tsv` |
 | `entry_args` | yes | a JSON array of tokens: the positional argument first, then flags, each in that entry point's allowed set; none given twice, never `--auto` with `--interactive`, and a positional carrying no quote, backtick, dollar sign or backslash |
 | `run_mode` | yes | the execution flags, `--auto` unless decided otherwise |
@@ -338,10 +339,14 @@ directory created atomically, taken over when its owner's pid is gone, since
    nothing written anywhere. The brief is written after step 4, so it shows the
    same invocation, `--koto-leg` included, as the prompt; `dc_invocation` builds
    that invocation once for the brief, the prompt and the holding's mode.
-4. **Open the leg** when `entry-points.tsv` gives the entry point one:
-   `koto request create --role <leg> --template <file> --inputs <json>
-   --requested-by <dispatcher_session> --coordinator-of-record
-   coordinate-<topic>`, pinning the listed inputs from the brief input. The
+4. **Open the leg** when `entry-points.tsv` gives the entry point one: first
+   abandon any open request under `coordinate-<topic>` (`koto request list
+   --coordinator-of-record ... --state open`), which only a run that died
+   before writing its holding can have left, then `koto request create
+   --with-data '{"legs":[{name, role, template, inputs}]}' --requested-by
+   <dispatcher_session> --coordinator-of-record coordinate-<topic>`, the leg
+   named for the skill, admitting its templates and pinning the listed
+   inputs. The
    return path is `<request-id>:<leg>`, and `--koto-leg=<request-id>:<leg>` is
    appended to the entry point's invocation in the prompt. Otherwise the
    return path is `message`.
@@ -389,7 +394,7 @@ feature's template carries them:
 | `destroy -> record` | `record` is where the holding row is dropped |
 | holding rows | `record-holding.sh --session <s>` with `--topic <t> --row-file <json>` (add or replace one row whole), `--read --topic <t>` (one row), or `--list` (every row, in record order); it derives the record itself from the session's log. Exit 0, 1 no row (`--read` only), 2 read failed, 10 refused (no open record, failed provenance, or a directed transition in the run), 11 write failed, 64 usage, 65 row refused |
 | holding row keys | `unit`, `entry_point`, `mode`, `phase` (`scoping-ahead` or `executing`), `dispatch_status` (`dispatching`, `dispatched`, `dispatch-failed`), `return_path` (`<request-id>:<leg>` or `message`), `worker`, `repo`, `branch` (empty until known: written in the same write that records the pull request), `verified_head`, `dispatched`, `pull_request` |
-| seals | `coord-log.sh seal --session <s> --state <state> --file <f> --key <k>` stores a verdict and prints `sealed:<seq>:<sha256>`; `check --session <s> --state <state> --sealed <t> --key <k>` prints the verified bytes; `capture --session <s> --name <n>` reads a capture from the log; `directed-since --session <s> --from <seq>` reports directed transitions |
+| seals | `coord-log.sh seal --session <s> --state <state> --file <f> --key <k>` stores a verdict and prints `sealed:<seq>:<sha256>` (0 sealed, 2 no readable log or no entry into the state, 66 the context write failed); `check --session <s> --state <state> --sealed <t> --key <k>` prints the verified bytes (0 valid, 1 invalid, 2 read failure); `capture --session <s> --name <n>` reads a capture from the log (0 found, 1 absent, 2 read failure); `directed-since --session <s> --from <seq>` reports directed transitions (0 none, 1 some, 2 read failure); 64 usage throughout |
 | `classify_report` | the record feature declares it, with the decider on `worker_report`; this feature adds the routes and its gate on the key |
 | `rebrief`, `teardown` | the record feature declares them; this feature fills them |
 
@@ -413,7 +418,7 @@ fields so the arms are mutually exclusive, as koto's compiler requires.
 | `classify_report` | added | none | none of its own; its decider input is gated by `report_present` | `verify` on `done`; `rebrief` on `needs_fix`; the surface step on `blocked` |
 | `rebrief` | added | none (agent runs `dispatch-worker.sh --rebrief`) | none | `wait` on evidence `sent`, clearing `worker_report` and `report_topic`; `pick` on evidence `worker_gone` |
 | `quiesce` | added | none | none | `teardown` on evidence `stopped` |
-| `teardown` | added | `teardown-inventory.sh --seal` over `teardown_topic`, non-polling, capture `TEARDOWN_SEAL` | `inventory_durable`: command, the record feature's seal checker over the stored verdict and `{{TEARDOWN_SEAL}}` | `destroy` when the sealed verdict is durable; `promote` otherwise. No `accepts` block: the state moves on gates alone |
+| `teardown` | added | `teardown-inventory.sh --seal`, which reads `teardown_topic` itself; non-polling, capture `TEARDOWN_SEAL` | `inventory_durable`: command, `teardown-verdict.sh gate`, which checks the stored verdict against the seal it reads from the log, and that the verdict covers the current `teardown_topic` | `destroy` when the sealed verdict is durable; `promote` otherwise. No `accepts` block: the state moves on gates alone |
 | `promote` | added | none | none | `teardown` on evidence `promoted` (re-entering runs the inventory again); the surface step on evidence `escalate` |
 | `destroy` | added | none | none | `record` on evidence `destroyed` or `handed_over` |
 
@@ -438,9 +443,17 @@ path the coordinator writes the report before submitting `report_from`. So
 `report_present` never passes on the previous round's text and never loses
 this round's.
 
-**The wait itself.** `wait-target.sh select` always prints a token and always
-writes `wait_target`: a resolved leg if any holding has one, else the oldest
-open leg, else `none`. With `none`, `leg_target` fails and the state stops for
+**A leg is read once.** A leg's result can't change after it resolves, and a
+holding keeps naming its leg until the record drops the row, so the leg whose
+result `wait_leg` takes is kept in the context key `taken_legs` and never
+picked again; otherwise a report routed to `rebrief` or the surface step
+would bring the same result back on the next pass. A re-briefed worker
+reports by message: `--rebrief` moves its holding to the message path and
+abandons the spent request.
+
+**The wait itself.** Whenever it can read the record, `wait-target.sh select`
+prints a token and writes `wait_target`: a leg with a result waiting if any
+untaken one has, else the oldest open leg, else `none`. With `none`, `leg_target` fails and the state stops for
 evidence; that stop is the wait. The directive tells the coordinator to tick
 the workflow on each message or harness notification: a message is submitted
 as `report_from: <topic>` after its text is written to `worker_report`, and a
@@ -543,8 +556,9 @@ surface step instead of destroying.
 When the verdict isn't durable the workflow moves to `promote`, where the
 coordinator promotes anything load-bearing into an issue comment or a pull
 request and submits `promoted`, which re-enters `teardown` and runs the
-inventory again. When it's durable the workflow moves to `destroy`, whose directive names `niwa
-destroy <instance>` for that one instance, with `--force` only because of
+inventory again. When it's durable the workflow moves to `destroy`, whose directive reads the verdict through `teardown-verdict.sh
+read` and names `niwa destroy <instance>` for the one instance the sealed
+verdict's `instance` line names, with `--force` only because of
 niwa#322 and only because the gate just passed, never `niwa reap` or any form
 that takes no target. Each finishing step goes as far as the workspace's
 declared permissions allow and is handed to the human where they don't,

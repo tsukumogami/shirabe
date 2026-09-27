@@ -12,6 +12,8 @@
 #
 #   topic               required  the dispatch topic, ^[a-z0-9][a-z0-9-]*$
 #   repo                required  owner/repo
+#   unit                required  the unit of work, one line, as the holding's
+#                                 Unit cell names it (a feature, an issue)
 #   entry_point         required  a skill listed in references/entry-points.tsv
 #   entry_args          required  JSON array of tokens: the positional argument
 #                                 first, then flags from the entry point's
@@ -103,7 +105,7 @@ def oneline($s): ($s | test("[\\r\\n]") | not);
 def strs($k): (.[$k] | type == "array") and all(.[$k][]; type == "string" and test("\\S"));
 def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 . as $in | (
-( ["topic","repo","entry_point","run_mode","phase","authority","goal","dispatcher_session"][]
+( ["topic","repo","unit","entry_point","run_mode","phase","authority","goal","dispatcher_session"][]
   | . as $k | select(($in | str($k)) | not) | "\($k): required and must be a non-empty string" ),
 ( if (.repo | type) == "string" and ((.repo | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not)
   then "repo: must be owner/repo" else empty end ),
@@ -111,6 +113,8 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   then "phase: must be scoping-ahead or executing" else empty end ),
 ( if (.dispatcher_session | type) == "string" and (oneline(.dispatcher_session) | not)
   then "dispatcher_session: must be one line" else empty end ),
+( if (.unit | type) == "string" and (oneline(.unit) | not)
+  then "unit: must be one line" else empty end ),
 ( if ((.entry_args | type) == "array") and ((.entry_args | length) >= 1) and all(.entry_args[]; type == "string")
   then ( if (.entry_args[0] | test("^\\s*$|^-|[\\r\\n]")) then "entry_args: the first token must be the positional argument, one line, not a flag" else empty end )
   else "entry_args: required, an array of 1+ strings" end ),

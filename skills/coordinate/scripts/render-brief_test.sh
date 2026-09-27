@@ -46,6 +46,7 @@ cat >"$BASE" <<'EOF'
 {
   "topic": "plugin-api",
   "repo": "acme/widgets",
+  "unit": "Feature 2: the plugin API",
   "entry_point": "deliver",
   "entry_args": ["plugin-api", "--no-merge"],
   "run_mode": "--auto",
@@ -140,7 +141,7 @@ refused() {
     if [ -e "$BRIEFS" ]; then bad "$name: nothing written" "$(ls -A "$BRIEFS")"; else ok "$name: nothing written"; fi
 }
 
-for k in topic repo entry_point run_mode phase authority goal dispatcher_session; do
+for k in topic repo unit entry_point run_mode phase authority goal dispatcher_session; do
     refused "missing $k" "$(variant "no-$k" "del(.$k)")" "$k: required"
 done
 refused "empty goal"            "$(variant empty-goal '.goal = "  "')"                     "goal: required"

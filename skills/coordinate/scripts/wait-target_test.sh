@@ -42,6 +42,7 @@ cat >"$BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
     "context get") [ -f "$ST/ctx/$4" ] || exit 1; cat "$ST/ctx/$4" ;;
+    "context exists") [ -f "$ST/ctx/$4" ] ;;
     "context add") cat "$6" >"$ST/ctx/$4" ;;
     "request get") [ -f "$ST/req/$3.json" ] || exit 1; cat "$ST/req/$3.json" ;;
     "request watch")
@@ -115,7 +116,26 @@ eq  "select: a leg missing from its request counts as waiting" req_g "$(sel)"
 reset "$ROWS"
 req req_a scope open; req req_g execute open
 eq  "select: the oldest open leg when none resolved" req_a "$(sel)"
-eq  "select: skips the undispatched holding" alpha "$(target .topic)"
+
+# delta is still dispatching; its leg has resolved, and it comes first. It
+# must not be picked: only a dispatched worker is watched.
+reset '[
+ {"worker":"delta","dispatch_status":"dispatching","return_path":"req_d:scope"},
+ {"worker":"alpha","dispatch_status":"dispatched","return_path":"req_a:scope"}
+]'
+req req_d scope resolved; req req_a scope open
+eq  "select: skips a holding that isn't dispatched yet" req_a "$(sel)"
+
+# A leg read once isn't read again.
+reset "$ROWS"
+req req_a scope open; req req_g execute resolved
+eq  "taken: the resolved leg first" req_g "$(sel)"
+eq  "taken: its disposition recorded" resolved "$(target .disposition)"
+bash "$S" leg --session coord >/dev/null
+eq  "taken: reading a resolved leg marks it taken" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+eq  "taken: the next pick skips it" req_a "$(sel)"
+bash "$S" leg --session coord >/dev/null
+eq  "taken: reading an open leg doesn't mark it" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
 
 reset "$ROWS"
 req req_g execute open
@@ -178,7 +198,9 @@ src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/rep
 reset "$ROWS"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report from the recorded leg the wait read is admitted" 0 "$(src gamma leg)"
-eq  "source: a leg report for a message-path worker is refused" 1 "$(src beta leg)"
+printf '{"path":"leg","topic":"beta","request":"req_b","leg":"scope"}\n' >"$ST/ctx/wait_target"
+eq  "source: a leg report for a message-path worker is refused, even when the wait names it" 1 "$(src beta leg)"
+printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
 printf '{"path":"leg","topic":"gamma","request":"req_other","leg":"execute"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report whose read leg isn't the recorded one is refused" 1 "$(src gamma leg)"
 printf '{"path":"none"}\n' >"$ST/ctx/wait_target"

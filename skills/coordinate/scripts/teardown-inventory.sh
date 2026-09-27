@@ -33,23 +33,31 @@
 # pull request lookup that fails) is an error, never `durable`.
 #
 # Usage:
-#   teardown-inventory.sh --topic <topic> [--instance <dir>] [--seal --session <s>]
+#   teardown-inventory.sh --topic <topic> [--instance <dir>]
+#   teardown-inventory.sh --seal --session <s> [--instance <dir>]
 #
+#   --topic     the worker's dispatch topic; with --seal it is read from the
+#               session's `teardown_topic` context key instead, as every other
+#               step reads its inputs, and --topic is refused
 #   --instance  the instance directory; found by the topic's worker session
 #               in `niwa list --json` when absent
 #   --seal      run as the teardown state's default action: store the verdict
-#               through the record feature's seal helper and print its
-#               `sealed:<seq>:<sha256>` token, which the state captures. The
-#               state's gate checks the stored verdict against the seal, so
-#               the verdict can't be edited after the fact, and the destroy
-#               directive reads it through the helper's reader, which refuses
-#               a destroy entered by a directed transition (koto#251).
+#               in the context key `teardown_verdict` through the record
+#               feature's seal helper and print `<durable|unique|error>
+#               sealed:<seq>:<sha256>`, which the state captures. The sealed
+#               verdict opens with three lines, the word, `instance <path>`
+#               and `topic <topic>`, so the destroy acts on the instance that
+#               was inventoried and nothing else. The state's gate checks the
+#               stored verdict against the seal, so it can't be edited after
+#               the fact, and the destroy directive reads it through
+#               teardown-verdict.sh, which also refuses a destroy entered by a
+#               directed transition (koto#251).
 #
 # Output: one line per repository, `durable <path> (vs <target>)` or
 # `unique <path>: <why> (vs <target>)` or `error <path>: <why>`, each path
 # relative to the instance and each target `merge <sha>`, `default <branch>`
-# or `-`. With --seal, the verdict goes to the seal helper and stdout carries
-# only the token.
+# or `-`. With --seal, the verdict goes to the seal helper and stderr, and
+# stdout carries only the word and the token.
 #
 # Exit codes: 0 every repository durable; 1 at least one unique; 2 an error,
 # no instance found, or usage.
@@ -72,7 +80,7 @@ FETCH_SECS="${TEARDOWN_FETCH_SECS:-6}"
 TOTAL_SECS="${TEARDOWN_TOTAL_SECS:-24}"
 STARTED=$(date +%s)
 
-usage() { printf 'usage: %s --topic <topic> [--instance <dir>] [--seal --session <s>]\n' "$PROG" >&2; exit 2; }
+usage() { printf 'usage: %s --topic <topic> [--instance <dir>] | --seal --session <s> [--instance <dir>]\n' "$PROG" >&2; exit 2; }
 
 TOPIC=""
 INSTANCE=""
@@ -87,8 +95,14 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
+if [ "$SEAL" = 1 ]; then
+    [ -n "$SESSION" ] && [ -z "$TOPIC" ] || usage
+    TOPIC=$("${KOTO:-koto}" context get "$SESSION" teardown_topic) || {
+        printf '%s: cannot read teardown_topic\n' "$PROG" >&2
+        exit 2
+    }
+fi
 dc_valid_topic "$TOPIC" || usage
-[ "$SEAL" = 0 ] || [ -n "$SESSION" ] || usage
 
 if [ -z "$INSTANCE" ]; then
     ROOT=$(dc_workspace_root) || { printf '%s: no workspace root found\n' "$PROG" >&2; exit 2; }
@@ -159,6 +173,12 @@ check_repo() {
     while IFS='	' read -r name sha; do
         [ -n "$sha" ] || continue
         # On a remote branch: its commits survive this instance.
+        # The budget holds inside a repository too: each branch may cost a
+        # bounded lookup and fetch.
+        if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
+            note 2 "error $rel: not fully inventoried; the scan ran out of its ${TOTAL_SECS}s budget at $name"
+            return
+        fi
         # Only origin was fetched and pruned, so only its refs can vouch.
         [ -n "$("${g[@]}" branch -r --contains "$sha" --list 'origin/*')" ] && continue
         paths=$("${g[@]}" diff --no-renames --name-only "$("${g[@]}" merge-base "$default" "$sha")" "$sha") || {
@@ -245,7 +265,7 @@ if [ "$SEAL" = 1 ]; then
         1) WORD=unique ;;
         *) WORD=error ;;
     esac
-    printf '%s %s\n' "$WORD" "$(cat "$VERDICT")" | tr '\n' ' ' >"$WORK/sealed"
+    { printf '%s\ninstance %s\ntopic %s\n' "$WORD" "$INSTANCE" "$TOPIC"; cat "$VERDICT"; } >"$WORK/sealed"
     TOKEN=$(dc_seal "$SESSION" teardown "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
     cat "$VERDICT" >&2
     printf '%s %s\n' "$WORD" "$TOKEN"

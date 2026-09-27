@@ -101,7 +101,14 @@ case "$cmd" in
     directed-since) [ -f "$ST/directed" ] && { cat "$ST/directed"; exit 1; }; exit 0 ;;
 esac
 EOF
-chmod +x "$BIN/gh" "$T/coord-log.sh"
+# koto: the session's context, as files under $ST/ctx.
+cat >"$BIN/koto" <<'EOF'
+#!/usr/bin/env bash
+[ "$1 $2" = "context get" ] || exit 64
+[ -f "$ST/ctx/$4" ] || exit 1
+cat "$ST/ctx/$4"
+EOF
+chmod +x "$BIN/gh" "$T/coord-log.sh" "$BIN/koto"
 export PATH="$BIN:$PATH"
 export DC_COORD_LOG="$T/coord-log.sh"
 
@@ -265,21 +272,30 @@ bash "$S" --topic ../x --instance "$I" >/dev/null 2>&1; eq "a bad topic: exit 2"
 
 # --- --seal and teardown-verdict.sh ----------------------------------------------------------
 
-TOK=$(bash "$S" --topic plugin-api --instance "$I2" --seal --session coord 2>/dev/null); RC=$?
+printf 'plugin-api' >"$ST/ctx/teardown_topic"
+bash "$S" --topic plugin-api --seal --session coord --instance "$I2" >/dev/null 2>&1
+eq  "seal: --topic with --seal is refused (the topic comes from context)" 2 "$?"
+TOK=$(bash "$S" --seal --session coord --instance "$I2" 2>/dev/null); RC=$?
 eq  "seal: exit 0" 0 "$RC"
 has "seal: prints the verdict word and the token" "$TOK" "durable sealed:7:"
 printf '%s\n' "$TOK" >"$ST/capture"
 eq  "verdict gate: a durable sealed verdict passes" 0 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
-has "verdict read: prints it" "$(bash "$V" read --session coord 2>/dev/null)" "durable public/clean"
+READ=$(bash "$V" read --session coord 2>/dev/null)
+has "verdict read: prints it" "$READ" "durable public/clean"
+has "verdict read: names the one instance inventoried" "$READ" "instance $I2"
+has "verdict read: names its topic" "$READ" "topic plugin-api"
+printf 'another-worker' >"$ST/ctx/teardown_topic"
+eq  "verdict gate: teardown_topic rewritten after the seal is refused" 3 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
+printf 'plugin-api' >"$ST/ctx/teardown_topic"
 printf 'durable forged\n' >>"$ST/ctx/teardown_verdict"
 eq  "verdict gate: an edited verdict fails its seal" 3 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
 
-TOK=$(bash "$S" --topic plugin-api --instance "$I" --seal --session coord 2>/dev/null); RC=$?
+TOK=$(bash "$S" --seal --session coord --instance "$I" 2>/dev/null); RC=$?
 eq  "seal: exit 0 for a unique verdict too (a default action)" 0 "$RC"
 printf '%s\n' "$TOK" >"$ST/capture"
 eq  "verdict gate: unique is 1" 1 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
 
-bash "$S" --topic plugin-api --instance "$I2" --seal --session coord >"$ST/capture" 2>/dev/null
+bash "$S" --seal --session coord --instance "$I2" >"$ST/capture" 2>/dev/null
 printf 'directed_transition teardown -> destroy\n' >"$ST/directed"
 eq  "verdict gate: a directed transition doesn't change the gate" 0 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
 eq  "verdict read: a directed transition refuses the destroy" 4 "$(bash "$V" read --session coord >/dev/null 2>&1; echo $?)"
@@ -287,7 +303,7 @@ rm -f "$ST/directed"
 printf 'nothing sealed\n' >"$ST/capture"
 eq  "verdict gate: no seal in the capture is 3" 3 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
 
-DC_COORD_LOG="$T/absent.sh" bash "$S" --topic plugin-api --instance "$I2" --seal --session coord >/dev/null 2>&1
+DC_COORD_LOG="$T/absent.sh" bash "$S" --seal --session coord --instance "$I2" >/dev/null 2>&1
 eq  "seal: no coord-log.sh is exit 2" 2 "$?"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

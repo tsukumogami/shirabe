@@ -354,6 +354,27 @@ jq -c '.run_mode = "--interactive"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$
 run --rebrief >/dev/null 2>&1; RC=$?
 eq  "rebrief: flags differing from the holding refused" 2 "$RC"
 
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+: >"$ST/calls.log"
+run --rebrief >/dev/null 2>&1; RC=$?
+eq  "rebrief, leg-bound: exit 0" 0 "$RC"
+eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
+has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
+lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
+
+# --- a lock left with no pid ---------------------------------------------------------------------------
+
+reset "$INPUT_DELIVER"
+mkdir -p "$W/.niwa/dispatch-briefs/.plugin-api.lock"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "pid-less lock, fresh: exit 7" 7 "$RC"
+has "pid-less lock, fresh: says no pid" "$ERR" "pid not yet written"
+touch -t 200001010000 "$W/.niwa/dispatch-briefs/.plugin-api.lock"
+run >/dev/null 2>&1; RC=$?
+eq  "pid-less lock, over a minute old: taken over" 0 "$RC"
+
 # --- the record's script missing -------------------------------------------------------------------------
 
 reset "$INPUT_DELIVER"

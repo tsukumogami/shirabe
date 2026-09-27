@@ -61,7 +61,10 @@
 #       tab-separated, or returns 1 when the skill has no row.
 #
 #   dc_entry_field <skill> <n>
-#       Prints field n (1-5) of the skill's row.
+#       Prints field n of the skill's row: 1 skill, 2 leg (or -), 3 admitted
+#       templates, comma-joined (or -), 4 pinned inputs as VAR=source pairs
+#       (or -), 5 allowed flags (or -). DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED
+#       and DC_F_FLAGS name them.
 #
 #   dc_flag_allowed <skill> <flag>
 #       0 when the flag is in the skill's allowed set: an exact entry, or a
@@ -115,7 +118,23 @@
 #       command's status, or 124 when the deadline killed it. `timeout` isn't
 #       on macOS, whose /bin/bash is the floor these scripts target.
 
+#   Exit codes across the dispatch scripts. A condition keeps its meaning
+#   everywhere; the number a gate script uses is the one its state routes on:
+#
+#     record refused (no open record, failed provenance, or a directed
+#     transition in the run log): 8 from dispatch-worker.sh, 10 from
+#     wait-target.sh, 2 from the gates (holding-recorded.sh, report-source.sh,
+#     teardown-verdict.sh), which fold every read failure into 2
+#     usage: 2, except wait-target.sh (64), whose 0/1/2 are taken
+
 DC_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DC_F_LEG=2
+DC_F_TEMPLATES=3
+DC_F_PINNED=4
+DC_F_FLAGS=5
+# koto's request-id grammar, and its leg-name grammar.
+DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
+DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
@@ -226,7 +245,7 @@ dc_entry_field() {
 
 dc_flag_allowed() {
     local flags f
-    flags=$(dc_entry_field "$1" 5) || return 1
+    flags=$(dc_entry_field "$1" "$DC_F_FLAGS") || return 1
     [ "$flags" = - ] && return 1
     case "$2" in
         '' | *[[:space:]]*) return 1 ;;
@@ -345,10 +364,13 @@ dc_with_deadline() {
     # TERM that stops the watcher also stops the sleep (a foreground sleep
     # would outlive it). Its streams go nowhere, so nothing it leaves holds a
     # caller's $(...) pipe open.
+    # The trap goes in before the sleep starts: a command that finishes at
+    # once can stop the watcher before it would otherwise have installed one.
     (
+        sp=""
+        trap '[ -n "$sp" ] && kill -TERM "$sp" >/dev/null 2>&1; exit 0' TERM
         sleep "$secs" &
         sp=$!
-        trap 'kill -TERM "$sp" >/dev/null 2>&1; exit 0' TERM
         if wait "$sp" && kill -TERM "$pid" >/dev/null 2>&1; then
             : >"$mark"
         fi

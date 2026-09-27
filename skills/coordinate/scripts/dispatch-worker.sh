@@ -20,7 +20,7 @@
 #   dispatch_topic     the topic pick chose; written fresh on the edge into
 #                      dispatch_check and passed through to dispatch
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
-#                      equal dispatch_topic
+#                      equal dispatch_topic, or report_topic under --rebrief
 #   report_topic       --rebrief only: the worker whose report needs a fix
 #
 # The run, in order, under a per-topic lock:
@@ -29,8 +29,9 @@
 #      0. `dispatch-failed`: exit 3 (a failed topic is re-dispatched under a
 #      new topic, by the coordinator's choice). `dispatching`: an earlier run
 #      stopped partway. When `niwa list --json` shows the topic's session, go
-#      to step 7 and confirm; otherwise go to step 6 and launch, reusing the
-#      recorded return path.
+#      to step 7 and confirm; otherwise re-check and re-render the brief
+#      (steps 3 and 4, reusing the recorded return path, so no second leg) and
+#      launch at step 6.
 #   2. Refuse a topic a live session already uses (exit 5): koto session names
 #      are machine-wide, so a second worker on one topic would collide.
 #   3. Check the brief input (render-brief.sh). A refusal exits 1 with
@@ -61,8 +62,11 @@
 # --rebrief re-renders a held worker's brief after a report that needs a fix.
 # It reads report_topic, takes the repository, entry point and flags from that
 # topic's holding row rather than from the brief input or the report, writes
-# the brief over the old one, updates the row's date, and launches nothing.
-# The coordinator then sends the worker a message pointing at the brief.
+# the brief over the old one, and launches nothing. A leg carries one result,
+# which the report just used, so the holding moves to the message path (its
+# spent request is abandoned) and its `dispatched` date, which records when
+# the worker was last briefed, is updated. The coordinator then sends the
+# worker a message pointing at the brief.
 #
 # Usage:
 #   dispatch-worker.sh --session <koto-session> [--rebrief]
@@ -94,7 +98,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 KOTO="${KOTO:-koto}"
 NIWA="${NIWA:-niwa}"
 DEADLINE="${DISPATCH_DEADLINE_SECS:-300}"
-RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
+RE_REQ="$DC_RE_REQ"
 
 die() { printf '%s: %s\n' "$PROG" "$2" >&2; exit "$1"; }
 usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief]"; }
@@ -145,6 +149,14 @@ mkdir -p "$BRIEFS" || die 2 "cannot create $BRIEFS"
 # mkdir is atomic on every filesystem these run on, and flock isn't on macOS.
 # A lock whose owner is gone (its pid no longer runs) is taken over.
 
+#
+# A lock with no pid file is one whose owner died between mkdir and writing
+# its pid, a window of microseconds: once the directory is over a minute old
+# it's taken over too. Two runs that find the same dead owner at the same
+# moment can both take over; the second's rm then removes the first's lock.
+# That race needs two coordinators dispatching one topic at once, which the
+# record's one-holding-per-topic already rules out, so it is left as is.
+LOCK_OWNER=""
 take_lock() {
     local l="$BRIEFS/.$TOPIC.lock"
     if mkdir "$l" >/dev/null 2>&1; then
@@ -152,20 +164,25 @@ take_lock() {
         LOCK="$l"
         return 0
     fi
-    local owner
-    owner=$(cat "$l/pid" 2>&1) || owner=""
-    case "$owner" in
-        '' | *[!0-9]*) return 1 ;;
+    LOCK_OWNER=""
+    [ -f "$l/pid" ] && LOCK_OWNER=$(cat "$l/pid")
+    case "$LOCK_OWNER" in
+        '')
+            [ -n "$(find "$l" -maxdepth 0 -mmin +1)" ] || return 1
+            ;;
+        *[!0-9]*)
+            return 1
+            ;;
+        *)
+            kill -0 "$LOCK_OWNER" >/dev/null 2>&1 && return 1
+            ;;
     esac
-    if kill -0 "$owner" >/dev/null 2>&1; then
-        return 1
-    fi
     rm -rf "$l"
     mkdir "$l" >/dev/null 2>&1 || return 1
     printf '%s\n' "$$" >"$l/pid"
     LOCK="$l"
 }
-take_lock || die 7 "another run holds the lock for $TOPIC"
+take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not yet written}; the lock is $BRIEFS/.$TOPIC.lock)"
 
 # --- helpers ---------------------------------------------------------------------------
 
@@ -173,7 +190,7 @@ take_lock || die 7 "another run holds the lock for $TOPIC"
 # listing couldn't be read.
 find_session() {
     local found
-    found=$(NIWA="$NIWA" dc_find_session "$ROOT" "$TOPIC") || return $?
+    found=$(dc_find_session "$ROOT" "$TOPIC") || return $?
     printf '%s\n' "${found%%	*}"
 }
 
@@ -218,14 +235,23 @@ if [ "$REBRIEF" = 1 ]; then
     ROW_MODE=$(printf '%s' "$ROW" | jq -r '.mode // "" | strings')
     IN_MODE=$(dc_mode "$INPUT")
     [ "$ROW_MODE" = "$IN_MODE" ] || die 2 "the re-brief's flags [$IN_MODE] differ from the holding's [$ROW_MODE]"
+    # A worker's leg carries one result, and the fix comes after it, so a
+    # re-briefed worker reports by message: the holding moves to the message
+    # path and the spent request is abandoned. The brief says so by showing
+    # the invocation without --koto-leg.
     ROW_RP=$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')
-    BRIEF=$(bash "$HERE/render-brief.sh" --input "$WORK/rebrief.json" --workspace-root "$ROOT" --return-path "$ROW_RP")
+    BRIEF=$(bash "$HERE/render-brief.sh" --input "$WORK/rebrief.json" --workspace-root "$ROOT" --return-path message)
     case "$?" in
         0) ;;
         1) exit 1 ;;
         *) die 2 "rendering the brief failed" ;;
     esac
-    write_row "$(printf '%s' "$ROW" | jq -c --arg d "$TODAY" '.dispatched = $d')"
+    write_row "$(printf '%s' "$ROW" | jq -c --arg d "$TODAY" '.dispatched = $d | .return_path = "message"')"
+    if [ "$ROW_RP" != message ]; then
+        "$KOTO" request abandon-request "${ROW_RP%%:*}" \
+            --rationale "$TOPIC was re-briefed and reports by message from here" </dev/null >/dev/null ||
+            printf '%s: could not abandon the spent request %s\n' "$PROG" "${ROW_RP%%:*}" >&2
+    fi
     printf 'brief=%s\n' "$BRIEF"
     exit 0
 fi
@@ -280,12 +306,13 @@ esac
 
 # The leg, opened once: a resumed run reuses the recorded return path.
 if [ -z "$RETURN_PATH" ]; then
-    LEG=$(dc_entry_field "$ENTRY" 2) || die 2 "no entry-point row for $ENTRY"
+    LEG=$(dc_entry_field "$ENTRY" "$DC_F_LEG") || die 2 "no entry-point row for $ENTRY"
+    [ "$LEG" = - ] || printf '%s' "$LEG" | grep -Eq "$DC_RE_LEG" || die 2 "entry-points.tsv names a malformed leg for $ENTRY: $LEG"
     if [ "$LEG" = - ]; then
         RETURN_PATH=message
     else
-        TEMPLATES=$(dc_entry_field "$ENTRY" 3)
-        PINNED=$(dc_entry_field "$ENTRY" 4)
+        TEMPLATES=$(dc_entry_field "$ENTRY" "$DC_F_TEMPLATES")
+        PINNED=$(dc_entry_field "$ENTRY" "$DC_F_PINNED")
         POS=$(jq -r '.entry_args[0]' "$INPUT")
         INPUTS='{}'
         if [ "$PINNED" != - ]; then
@@ -347,7 +374,7 @@ PROMPT=$(jq -r --arg inv "$INVOCATION" --arg brief "$BRIEF" '
 # Write ahead, unless a resumed run's row is already there.
 if [ "$STATUS" != dispatching ]; then
     ROW=$(jq -nc \
-        --arg unit "$(jq -r '.unit // .goal' "$INPUT")" \
+        --arg unit "$(jq -r '.unit' "$INPUT")" \
         --arg ep "$ENTRY" \
         --arg mode "$(dc_mode "$INPUT")" \
         --arg phase "$(jq -r '.phase' "$INPUT")" \

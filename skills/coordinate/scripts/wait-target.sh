@@ -14,33 +14,47 @@
 # <request-id>:<leg>, are candidates. Message-path workers aren't watched here:
 # their reports arrive as messages the coordinator submits.
 #
+# A leg is read once. A leg's result can't change after it resolves, and the
+# holding keeps naming the leg until the record drops the row, so a leg
+# whose result the wait state has taken is kept in the context key
+# `taken_legs` and never picked again; otherwise a report that routes to a
+# fix or to the surface step would bring the same result back on the next
+# pass. A worker re-briefed after a fix reports by message from then on
+# (dispatch-worker.sh --rebrief moves its holding to the message path).
+#
 # Modes:
 #
 #   select --session <s> [--watch-secs <n>]
-#       Writes wait_target as {"path":"leg","topic","request","leg"} or
-#       {"path":"none"} and prints the request id or `none`. It always prints
+#       Writes wait_target as {"path":"leg","topic","request","leg",
+#       "disposition"} or {"path":"none"} and prints the request id or
+#       `none`, whenever the record can be read. It always prints
 #       a token: an empty capture would fail the action instead of letting the
 #       state stop for evidence, which is the wait.
 #
 #       --watch-secs (default 0, off) first waits up to <n> seconds for a
 #       wake on the coordinator's session through `koto request watch`, with
 #       the cursor kept in the context key `wake_cursor`, when no leg has
-#       resolved yet. That subscriber arrives with koto#250; on a koto without
-#       it the watch is skipped and the coordinator ticks the workflow on each
-#       message or notification instead. Keep <n> well under the 30 seconds a
+#       resolved yet. That subscriber arrives with koto#250, whose settled
+#       design fixes the interface used here (`koto request watch --session
+#       <id> --timeout-secs <n> [--since <cursor>]`, printing JSON with a
+#       `cursor`); on a koto without it the watch is skipped and the
+#       coordinator ticks the workflow on each message or notification
+#       instead. Keep <n> well under the 30 seconds a
 #       default action gets.
 #
 #   leg --session <s>
 #       Prints the leg name from wait_target and writes its topic to
 #       `report_topic`, so every later state knows whose result it holds.
-#       Exits 1 when wait_target names no leg.
+#       When the picked leg is no longer open, wait_leg's gate is about to
+#       take its result, so the leg joins `taken_legs`. Exits 1 when
+#       wait_target names no leg.
 #
 # Exit codes: 0 done, 1 no leg (leg mode), 2 a failed read or write, 10 the
 # record refused the read (no open record, or a directed transition in the
 # run log), 64 usage.
 #
 # Reads the record and the request store; writes only this session's
-# wait_target, wake_cursor and report_topic context keys. bash 3.2; needs jq.
+# wait_target, taken_legs, wake_cursor and report_topic context keys. bash 3.2; needs jq.
 set -uo pipefail
 
 PROG=wait-target
@@ -49,8 +63,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/dispatch-common.sh"
 
 KOTO="${KOTO:-koto}"
-RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
-RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
+RE_REQ="$DC_RE_REQ"
+RE_LEG="$DC_RE_LEG"
 
 usage() { printf 'usage: %s select|leg --session <s> [--watch-secs <n>]\n' "$PROG" >&2; exit 64; }
 
@@ -79,6 +93,13 @@ put() {
     }
 }
 
+# ctx_or_empty <key>: the key's value, or nothing when the key isn't set yet
+# (the normal first case); a read that fails is an error.
+ctx_or_empty() {
+    "$KOTO" context exists "$SESSION" "$1" || return 0
+    "$KOTO" context get "$SESSION" "$1"
+}
+
 # --- leg -----------------------------------------------------------------------------
 
 if [ "$MODE" = leg ]; then
@@ -89,6 +110,12 @@ if [ "$MODE" = leg ]; then
     printf '%s' "$LEG" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
     dc_valid_topic "$TOPIC" || { printf '%s: wait_target holds a malformed topic\n' "$PROG" >&2; exit 2; }
     put report_topic "$TOPIC"
+    DISP=$(printf '%s' "$T" | jq -r '.disposition // "open" | strings')
+    if [ "$DISP" != open ]; then
+        REF=$(printf '%s' "$T" | jq -r '"\(.request):\(.leg)"')
+        TAKEN=$(ctx_or_empty taken_legs) || exit 2
+        put taken_legs "$(printf '%s\n%s\n' "$TAKEN" "$REF" | sed '/^$/d' | sort -u)"
+    fi
     printf '%s\n' "$LEG"
     exit 0
 fi
@@ -103,7 +130,8 @@ candidates() {
     rows=$(dc_record_list "$SESSION")
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
-    local topic rp req leg view disp
+    local topic rp req leg view disp taken
+    taken=$(ctx_or_empty taken_legs) || return 2
     while IFS='	' read -r topic rp; do
         [ -n "$topic" ] || continue
         req=${rp%%:*}
@@ -111,6 +139,7 @@ candidates() {
         printf '%s' "$req" | grep -Eq "$RE_REQ" || continue
         printf '%s' "$leg" | grep -Eq "$RE_LEG" || continue
         dc_valid_topic "$topic" || continue
+        printf '%s\n' "$taken" | grep -Fqx -- "$rp" && continue
         if view=$("$KOTO" request get "$req" </dev/null); then
             disp=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].disposition // "missing" | strings')
         else
@@ -146,16 +175,19 @@ RC=$?
 # The bounded wake wait, when asked for and when there's an open leg but no
 # result yet (koto#250's subscriber; skipped on a koto without it).
 if [ "$WATCH" -gt 0 ] && [ "${LINE%%	*}" = open ] && "$KOTO" request watch --help >/dev/null 2>&1; then
-    CURSOR=$("$KOTO" context get "$SESSION" wake_cursor 2>&1) || CURSOR=""
-    if [ -n "$CURSOR" ]; then
-        W=$("$KOTO" request watch --session "$SESSION" --timeout-secs "$WATCH" --since "$CURSOR" </dev/null)
-    else
-        W=$("$KOTO" request watch --session "$SESSION" --timeout-secs "$WATCH" </dev/null)
-    fi && {
+    # No cursor yet is the normal first case, so its absence isn't an error.
+    CURSOR=$(ctx_or_empty wake_cursor) || exit 2
+    set -- --session "$SESSION" --timeout-secs "$WATCH"
+    [ -n "$CURSOR" ] && set -- "$@" --since "$CURSOR"
+    if W=$("$KOTO" request watch "$@" </dev/null); then
         NEW=$(printf '%s' "$W" | jq -r '.cursor // "" | tostring')
         [ -n "$NEW" ] && put wake_cursor "$NEW"
-        LINE=$(pick) || exit $?
-    }
+        LINE=$(pick)
+        RC=$?
+        [ "$RC" -eq 0 ] || { printf '%s: the record could not be read after the wake\n' "$PROG" >&2; exit "$RC"; }
+    else
+        printf '%s: koto request watch failed; picking from what was read before it\n' "$PROG" >&2
+    fi
 fi
 
 if [ -z "$LINE" ]; then
@@ -167,5 +199,5 @@ fi
 IFS='	' read -r DISP TOPIC REQ LEG <<EOF
 $LINE
 EOF
-put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" '{path: "leg", topic: $t, request: $r, leg: $l}')"
+put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d}')"
 printf '%s\n' "$REQ"
