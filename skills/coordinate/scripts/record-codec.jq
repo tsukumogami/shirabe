@@ -69,10 +69,11 @@ def check_worker:
   elif (test("^[A-Za-z0-9][A-Za-z0-9._-]*$") | not) then refuse("worker: not a dispatch topic")
   else . end;
 
-# names_repo($r): does this cell name repository $r (case-insensitive)?
+# names_repo($r): does this cell name repository $r (case-insensitive), as a
+# whole owner/repo token rather than a substring of a longer name?
 def names_repo($r):
-  ascii_downcase as $v | ($r | ascii_downcase) as $l
-  | ($v == $l) or ($v | contains("github.com/" + $l + "/")) or ($v | contains($l));
+  ascii_downcase as $v | ($r | ascii_downcase | gsub("\\."; "\\.")) as $l
+  | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "($|[^A-Za-z0-9_.-])");
 
 def check_cell($key; $private):
   . as $v

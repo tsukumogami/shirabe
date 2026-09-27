@@ -10,6 +10,7 @@ on:
       - 'skills/execute/scripts/merge-exec.sh'
       - 'skills/execute/scripts/merge-verdict.sh'
       - '.github/workflows/check-coordinate-scripts.yml'
+      - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
 
@@ -35,6 +36,12 @@ jobs:
 
       - name: Run script tests offline
         run: bash skills/coordinate/scripts/run-tests.sh
+
+      # A bare `bash` on the macOS runner is Homebrew's; the floor check runs
+      # the same suites under /bin/bash, which is 3.2.
+      - name: Run the coordinate suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system coordinate
 
   # Drives real koto: the session-log helper against a skeleton template, the
   # compiled coordinate template, and its routes against a stand-in gh.

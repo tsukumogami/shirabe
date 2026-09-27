@@ -32,7 +32,9 @@ W=2026-09-26T12:00:00Z
 SHA=0123456789abcdef0123456789abcdef01234567
 
 holding() { # holding <worker> [extra jq merge]
-    jq -nc --arg w "$1" "{unit: \"Feature 2\", entry_point: \"/shirabe:deliver\", mode: \"--auto\", phase: \"executing\", dispatch_status: \"dispatched\", return_path: \"message\", worker: \$w, repo: \"acme/widgets\", branch: \"feat/x\", verified_head: \"$SHA\", dispatched: \"2026-09-26\", pull_request: \"[#12](https://github.com/acme/widgets/pull/12)\"} + (${2:-{\}})"
+    local extra=${2-}
+    [ -n "$extra" ] || extra='{}'
+    jq -nc --arg w "$1" --arg sha "$SHA" "{unit: \"Feature 2\", entry_point: \"/shirabe:deliver\", mode: \"--auto\", phase: \"executing\", dispatch_status: \"dispatched\", return_path: \"message\", worker: \$w, repo: \"acme/widgets\", branch: \"feat/x\", verified_head: \$sha, dispatched: \"2026-09-26\", pull_request: \"[#12](https://github.com/acme/widgets/pull/12)\"} + ($extra)"
 }
 
 full_record() {
@@ -80,8 +82,8 @@ roundtrip "discipline record in a pull request round-trips" "$(full_record | jq 
 
 bash "$R" --written "$W" <(full_record) > "$T/a.md"
 bash "$R" --written 2026-09-27T00:00:00Z <(full_record) > "$T/b.md"
-D=$(diff "$T/a.md" "$T/b.md"; true)
-if [ "$(printf '%s\n' "$D" | grep -c '^[<>]')" = 2 ] && printf '%s\n' "$D" | grep -q '^< Written: '; then
+if [ "$(grep -v '^Written: ' "$T/a.md")" = "$(grep -v '^Written: ' "$T/b.md")" ] \
+   && [ "$(grep -c '^Written: ' "$T/a.md")" = 1 ] && ! cmp -s "$T/a.md" "$T/b.md"; then
     ok "two renders differ only in Written:"
 else bad "two renders differ only in Written:" "$(diff "$T/a.md" "$T/b.md")"; fi
 
@@ -181,6 +183,13 @@ bash "$P" --expect-scope roadmap:plugin-system "$T/v2.md" > /dev/null 2>&1; [ $?
 bash "$P" --container pr "$T/c.md" > /dev/null 2>&1; [ $? -ne 0 ] && ok "an issue body is not a canonical pull request body" || bad "an issue body is not a canonical pull request body"
 { cat "$T/c.md"; head -c 70000 /dev/zero | tr '\0' 'x'; } > "$T/big.md"
 bash "$P" "$T/big.md" > /dev/null 2> "$T/err"; [ $? -eq 65 ] && grep -q "over GitHub" "$T/err" && ok "a body over GitHub's size limit is refused before parsing" || bad "a body over GitHub's size limit is refused before parsing"
+
+printf '' | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "empty input is refused" || bad "empty input is refused"
+printf '  \n' | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "whitespace-only input is refused" || bad "whitespace-only input is refused"
+{ full_record; full_record; } | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "two JSON documents are refused" || bad "two JSON documents are refused"
+printf '%s' "$(full_record | jq -c '.holdings[0].repo = "acme/secret-public" | .holdings[0].pull_request = "[#1](https://github.com/acme/secret-public/pull/1)" | .side_effects[0].target = "xacme/secret#2"')" > "$T/in.json"
+bash "$R" --written "$W" --private-repos acme/secret "$T/in.json" > /dev/null 2>&1 && ok "a public repository whose name extends a private one is accepted" || bad "a public repository whose name extends a private one is accepted"
+refuse "a private repository named case-insensitively is refused" "$(full_record | jq -c '.holdings[0].repo = "ACME/Secret"')" "isn't public" --private-repos acme/secret
 
 echo "== usage =="
 bash "$R" --format nope < /dev/null > /dev/null 2>&1; [ $? -eq 64 ] && ok "render usage error exits 64" || bad "render usage error exits 64"
