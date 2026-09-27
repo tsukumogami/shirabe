@@ -40,10 +40,10 @@ drop_section() { # drop_section <body> <title>: the body without that section
 
 echo "== roadmap: the listing =="
 db_init
-for i in $(seq 1 150); do
-    if [ "$i" = 75 ]; then add_issue 75 "$TITLE" "$ROADMAP_BODY"
-    else add_issue "$i" "Issue number $i" "body $i"; fi
-done
+# One DB edit for the 150 issues (seq isn't POSIX, and 150 edits are slow).
+db '.issues += [range(1; 151) | if . == 75 then {repo: "acme/widgets", number: ., title: $t, body: $b, state: "open", author: "alice", editor: null}
+    else {repo: "acme/widgets", number: ., title: "Issue number \(.)", body: "body \(.)", state: "open", author: "alice", editor: null} end]' \
+    --arg t "$TITLE" --arg b "$ROADMAP_BODY"
 db '.prs += [{repo: "acme/widgets", number: 151, title: $t, body: $b, state: "OPEN", isDraft: false, isCrossRepository: false,
     baseRefName: "main", headRefName: "x", headRefOid: $h, author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$ROADMAP_BODY" --arg h "$SHA_HEAD"
 eq "the record among 150 open issues is found" "found 75" "$(find_rm)"

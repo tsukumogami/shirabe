@@ -1063,6 +1063,10 @@ them is triggered. The skill carries no permission rule of its own: land and the
 close-outs take each finishing step exactly as far as this posture allows, and
 re-read it before acting, so a posture tightened during the run applies at once.
 
+Read a settings file for the keys you need (its permission lists and hooks) and
+never print one whole: its `env` block can hold credentials, and whatever a
+session prints lands in its transcript.
+
 When the posture can't be read, every finishing step is treated as reserved, and
 the reconcile state sends you to ask the human once which steps you hold. That
 is a default, not a permission rule of this skill's own.

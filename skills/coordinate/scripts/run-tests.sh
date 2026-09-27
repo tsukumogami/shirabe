@@ -34,9 +34,11 @@ mkdir cp mv ln chmod date basename dirname printf test true false dd od xargs te
 touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath"
 mkdir -p "$T/path"
 DECLARED=$(awk -F'\t' '!/^#/ && NF > 1 { print $1 }' "$HERE/../requires.tsv" | sort -u)
-for tool in $COMMON $DECLARED; do
+# Engine suites need the real koto even when requires.tsv doesn't name it.
+EXTRA=
+[ "$ENGINE" = 1 ] && EXTRA=koto
+for tool in $COMMON $DECLARED $EXTRA; do
     [ -e "$T/stubs/$tool" ] && continue
-    [ "$tool" = koto ] && [ "$ENGINE" = 0 ] && continue
     p=$(command -v "$tool" 2>/dev/null) || continue
     case "$p" in /*) ln -sf "$p" "$T/path/$tool" ;; esac
 done
@@ -51,8 +53,15 @@ for t in "$HERE"/*_test.sh; do
     esac
     n=$((n + 1))
     echo "== $(basename "$t")"
-    if ! env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
-        PATH="$T/stubs:$T/path" "$T/path/bash" "$t"; then
+    env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
+        PATH="$T/stubs:$T/path" "$T/path/bash" "$t" > "$T/out" 2>&1
+    st=$?
+    cat "$T/out"
+    [ $st -eq 0 ] || rc=1
+    # An engine suite SKIPs with exit 0 when koto is missing; under --engine
+    # that would report green having run nothing, so it fails here.
+    if [ "$ENGINE" = 1 ] && grep -q '^SKIP' "$T/out"; then
+        echo "run-tests: $(basename "$t") skipped under --engine"
         rc=1
     fi
 done

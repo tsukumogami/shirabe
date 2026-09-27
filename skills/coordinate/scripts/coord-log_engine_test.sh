@@ -156,6 +156,9 @@ bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" --any-visit
 eq "capture reads the latest value" "found 9" "$(bash "$CL" capture --session "$S" --name RECORD_FIND | cut -d' ' -f1-2)"
 eq "capture --for picks by the second word" "found 7" "$(bash "$CL" capture --session "$S" --name RECORD_FIND --for 7 | cut -d' ' -f1-2)"
 bash "$CL" capture --session "$S" --name NOPE >/dev/null; eq "an absent capture exits 1" 1 $?
+bash "$CL" capture --session "$S" --name RECORD_FIND --for 7 --state record_find >/dev/null 2>&1; eq "capture --state refuses a value a later entry superseded" 1 $?
+bash "$CL" capture --session "$S" --name RECORD_FIND --for 7 --state record_find --any-visit >/dev/null && pass "capture --state --any-visit accepts a per-unit value from an earlier visit" || fail "capture --state --any-visit accepts a per-unit value from an earlier visit"
+bash "$CL" capture --session "$S" --name RECORD_FIND --state record_find >/dev/null && pass "capture --state accepts the latest visit's value" || fail "capture --state accepts the latest visit's value"
 
 echo "== an unrouted verdict blocks =="
 printf 'bogus' > "$T/tok.$S"

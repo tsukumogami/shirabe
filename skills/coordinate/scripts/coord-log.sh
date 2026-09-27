@@ -25,9 +25,13 @@
 #       Exit 0 valid (with --key, prints the verified context bytes); 1 invalid
 #       (hash mismatch, another session's or state's seal, a visit that isn't
 #       the latest entry into ST unless --any-visit, unsealed input); 2 read failure.
-#   coord-log.sh capture --session S --name N [--for KEY]
+#   coord-log.sh capture --session S --name N [--for KEY] [--state ST [--any-visit]]
 #       Prints the latest engine-written value of capture N (with --for, the
-#       latest whose second word is KEY). Exit 0 found; 1 absent; 2 read failure.
+#       latest whose second word is KEY). With --state, the value is printed only
+#       when its seal checks against ST: sealed at the latest entry into ST, or
+#       with --any-visit at any real entry (a per-unit read, where later visits
+#       concern other units). Exit 0 found; 1 absent or its seal fails; 2 read
+#       failure.
 #   coord-log.sh directed-since --session S --from SEQ
 #       Prints "seq from->to" per directed transition after SEQ. Exit 0 none;
 #       1 some; 2 read failure.
@@ -163,6 +167,13 @@ capture)
     V=$(jq -r --arg n "$NAME" --arg f "$FOR" 'select(.type == "variable_captured" and .payload.key == $n) | .payload.value
         | select($f == "" or ((split(" ") | .[1]) == $f))' "$LOG" | tail -1)
     [ -n "$V" ] || exit 1
+    if [ -n "$STATE" ]; then
+        if [ "$ANY" = 1 ]; then
+            bash "$0" check --session "$SESSION" --state "$STATE" --sealed "$V" --any-visit >/dev/null || exit 1
+        else
+            bash "$0" check --session "$SESSION" --state "$STATE" --sealed "$V" >/dev/null || exit 1
+        fi
+    fi
     printf '%s\n' "$V"
     ;;
 directed-since)
