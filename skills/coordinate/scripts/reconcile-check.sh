@@ -28,8 +28,9 @@
 #
 # Environment: RECONCILE_READ_DEADLINE, seconds per read (default 8), and
 # RECONCILE_BOARD_DEADLINE for the board check (default 26, since the board
-# check bounds itself at 24 s). A deadline can only make a read give up
-# sooner; it can't change a verdict.
+# check bounds itself at 24 s); each is clamped to 1-60. A deadline decides
+# when a read gives up, never what it concludes: a read that gives up is not
+# verified.
 #
 # Requires: bash 3.2+, jq, gh, git.
 set -uo pipefail
@@ -39,8 +40,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
 
-DEADLINE=${RECONCILE_READ_DEADLINE:-8}
-BOARD_DEADLINE=${RECONCILE_BOARD_DEADLINE:-26}
+clamp_secs() { if rd_valid_secs "$1" && [ "$1" -le 60 ]; then echo "$1"; else echo "$2"; fi; }
+DEADLINE=$(clamp_secs "${RECONCILE_READ_DEADLINE:-8}" 8)
+BOARD_DEADLINE=$(clamp_secs "${RECONCILE_BOARD_DEADLINE:-26}" 26)
 # The file list a scoping-ahead holding is judged by. Past this many files
 # the fact says truncated, and the report doesn't call the holding
 # consistent on a partial list.
@@ -92,6 +94,33 @@ read_or_fail() {
     [ "$rc" -eq 124 ] && refuse "$kind" "read timed out after ${secs}s"
     [ "$rc" -ne 0 ] && refuse "$kind" "read failed (exit $rc)"
     return 0
+}
+
+# blob_at PATH SHA -- the blob sha of PATH at commit SHA, or "absent" when the
+# read says 404 (SHA is always a resolved commit, so a 404 is about the
+# path). Returns 3 for a refused path, 4 for a read past its deadline, 2 for
+# any other failed read.
+blob_at() {
+    local enc out rc
+    enc=$(rd_urlencode_path "$1") || return 3
+    out=$(rd_deadline "$DEADLINE" gh api "repos/$REPO/contents/$enc?ref=$2" --jq .sha 2>&1)
+    rc=$?
+    [ "$rc" -eq 124 ] && return 4
+    if [ "$rc" -eq 0 ] && rd_valid_sha "$out"; then printf '%s' "$out"; return 0; fi
+    case "$out" in *"HTTP 404"*) printf 'absent'; return 0 ;; esac
+    return 2
+}
+
+# blob_or_refuse PATH SHA WHERE -- blob_at, leaving the answer in $BLOB, or
+# print the not_verified fact and stop.
+blob_or_refuse() {
+    BLOB=$(blob_at "$1" "$2")
+    case $? in
+        0) return 0 ;;
+        3) refuse merge "refused a file path from the pull request" ;;
+        4) refuse merge "contents read $3 timed out after ${DEADLINE}s" ;;
+        *) refuse merge "contents read failed $3" ;;
+    esac
 }
 
 # board_fact -- map board-verdict.sh's object to a board fact. A verdict it
@@ -162,8 +191,8 @@ files)
 
 merge)
     # Confirmed only when every file the pull request changed as of the
-    # verified head has, on the default branch, the content it had at the
-    # verified head. The file list is the verified head's own diff (the
+    # verified head has, on the pull request's base branch, the content it had
+    # at the verified head. The file list is the verified head's own diff (the
     # compare API from the pull request's base commit to the verified head),
     # not the merged pull request's final file list: a file changed at the
     # verified head and reverted afterwards is missing from the final list,
@@ -171,61 +200,44 @@ merge)
     need_repo; need_number
     rd_valid_sha "$VHEAD" || refuse merge "invalid verified head in the side-effect row"
     read_or_fail merge "$DEADLINE" gh api "repos/$REPO/pulls/$NUMBER" \
-        --jq '{state: .state, merged: .merged, base: .base.ref, base_sha: .base.sha}'
+        --jq '{state: .state, merged: .merged, base: .base.ref, base_sha: .base.sha} | tojson'
     PRJ=$OUT
-    MERGED=$(printf '%s' "$PRJ" | jq -r '.merged // false' 2>/dev/null)
-    DEFAULT=$(printf '%s' "$PRJ" | jq -r '.base // empty' 2>/dev/null)
-    BASE_SHA=$(printf '%s' "$PRJ" | jq -r '.base_sha // empty' 2>/dev/null)
-    if [ "$MERGED" != true ]; then
-        STATE=$(printf '%s' "$PRJ" | jq -r '.state // "unknown"' 2>/dev/null)
-        jq -nc --arg s "$STATE" --arg t "$(rd_now)" \
+    printf '%s' "$PRJ" | jq -e '(.merged | type) == "boolean" and (.state | type) == "string"' >/dev/null 2>&1 \
+        || refuse merge "unreadable pull request response"
+    if [ "$(printf '%s' "$PRJ" | jq -r .merged)" != true ]; then
+        jq -nc --arg s "$(printf '%s' "$PRJ" | jq -r .state)" --arg t "$(rd_now)" \
             '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("pull request is " + ($s | ascii_downcase) + ", not merged"), read_at: $t}'
         exit 0
     fi
-    rd_valid_branch "$DEFAULT" || refuse merge "unreadable base branch"
+    BASE_BRANCH=$(printf '%s' "$PRJ" | jq -r '.base // empty')
+    BASE_SHA=$(printf '%s' "$PRJ" | jq -r '.base_sha // empty')
+    rd_valid_branch "$BASE_BRANCH" || refuse merge "unreadable base branch"
     rd_valid_sha "$BASE_SHA" || refuse merge "unreadable base commit"
-    # status NUL path NUL, with the old path of a rename as its own "removed"
-    # entry: after the merge it must be gone from the default branch.
-    # Read straight into a file: a shell variable can't hold the NUL bytes
-    # that keep a path with a tab or a newline in one piece.
-    LIST=$(mktemp "${TMPDIR:-/tmp}/reconcile-merge.XXXXXX")
-    trap 'rm -f "$LIST"' EXIT
-    rd_deadline "$DEADLINE" gh api "repos/$REPO/compare/$BASE_SHA...$VHEAD" \
-        --jq '.files[] | (if .status == "renamed" then "removed\u0000\(.previous_filename)\u0000" else empty end), "\(.status)\u0000\(.filename)\u0000"' \
-        > "$LIST" 2>/dev/null
-    rc=$?
-    [ "$rc" -eq 124 ] && refuse merge "read timed out after ${DEADLINE}s"
-    [ "$rc" -ne 0 ] && refuse merge "read failed (exit $rc)"
-    COUNT=$(tr -cd '\0' < "$LIST" | wc -c | tr -d ' ')
-    COUNT=$((COUNT / 2))
-    if [ "$COUNT" -eq 0 ]; then
-        refuse merge "the verified head changes no files against the pull request's base"
-    fi
+    # The base branch as it is now, resolved to a sha once, so every
+    # contents read below names a commit that exists: a 404 from a read by
+    # sha means the path is absent there, never that the branch is gone.
+    read_or_fail merge "$DEADLINE" gh api "repos/$REPO/git/ref/heads/$BASE_BRANCH" --jq .object.sha
+    BASE_NOW=$OUT
+    rd_valid_sha "$BASE_NOW" || refuse merge "the base branch could not be resolved"
+    # One JSON object per line: {s: status, p: path}, with a rename's old
+    # path as its own "removed" entry, since after the merge it must be gone.
+    read_or_fail merge "$DEADLINE" gh api "repos/$REPO/compare/$BASE_SHA...$VHEAD" \
+        --jq '.files[] | (if .status == "renamed" then {s: "removed", p: .previous_filename} else empty end), {s: .status, p: .filename} | tojson'
+    LIST=$OUT
+    COUNT=$(printf '%s\n' "$LIST" | grep -c . || true)
+    [ "$COUNT" -eq 0 ] && refuse merge "the verified head changes no files against the pull request's base"
     if [ "$COUNT" -gt "$MERGE_FILE_CAP" ]; then
         jq -nc --arg t "$(rd_now)" --argjson n "$COUNT" --argjson cap "$MERGE_FILE_CAP" \
             '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($n) changed files, over the \($cap)-file read cap"), read_at: $t}'
         exit 0
     fi
-    # blob_at PATH REF -- the blob sha of PATH at REF, or "absent" on a 404.
-    # Returns 3 for a refused path, 2 for any other failed read.
-    blob_at() {
-        local enc out rc
-        enc=$(rd_urlencode_path "$1") || return 3
-        out=$(rd_deadline "$DEADLINE" gh api "repos/$REPO/contents/$enc?ref=$2" --jq .sha 2>&1)
-        rc=$?
-        if [ "$rc" -eq 0 ] && rd_valid_sha "$out"; then printf '%s' "$out"; return 0; fi
-        case "$out" in *"HTTP 404"*) printf 'absent'; return 0 ;; esac
-        return 2
-    }
-    blob_or_refuse() {  # blob_or_refuse PATH REF WHERE
-        BLOB=$(blob_at "$1" "$2")
-        case $? in
-            0) return 0 ;;
-            3) refuse merge "refused a file path from the pull request" ;;
-            *) refuse merge "contents read failed $3" ;;
-        esac
-    }
-    while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        status=$(printf '%s' "$line" | jq -r '.s' 2>/dev/null) || refuse merge "unreadable file list"
+        # A path holding a control character is refused here, while it is
+        # still JSON, before a shell variable could lose part of it.
+        path=$(printf '%s' "$line" | jq -r 'if (.p | type) == "string" and (.p | test("[\u0000-\u001f\u007f]") | not) then .p else error("bad") end' 2>/dev/null) \
+            || refuse merge "refused a file path from the pull request"
         want=absent
         if [ "$status" != removed ]; then
             blob_or_refuse "$path" "$VHEAD" "at the verified head"
@@ -234,13 +246,15 @@ merge)
             # this script can't interpret, never a match.
             [ "$want" = absent ] && refuse merge "a changed file is missing at the verified head"
         fi
-        blob_or_refuse "$path" "$DEFAULT" "on the default branch"
+        blob_or_refuse "$path" "$BASE_NOW" "on the base branch"
         if [ "$want" != "$BLOB" ]; then
             jq -nc --arg p "$path" --arg t "$(rd_now)" \
-                '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($p) on the default branch differs from the verified head"), read_at: $t}'
+                '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($p) on the base branch differs from the verified head"), read_at: $t}'
             exit 0
         fi
-    done < "$LIST"
+    done <<EOF
+$LIST
+EOF
     jq -nc --arg t "$(rd_now)" '{kind: "merge", status: "ok", verdict: "confirmed", reason: "", read_at: $t}'
     ;;
 

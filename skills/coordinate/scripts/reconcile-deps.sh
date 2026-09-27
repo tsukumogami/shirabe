@@ -77,8 +77,6 @@ rd_deadline() {
     rc=$?
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
-    # The watcher's own sleep may outlive it; it holds nothing of ours.
-    pkill -P "$watcher" 2>/dev/null
     [ -e "$mark" ] && rc=124
     cat "$out"
     rm -f "$out" "$mark"
