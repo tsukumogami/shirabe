@@ -4,20 +4,20 @@
     {
       "id": 1,
       "name": "roadmap-invocation-extra-text-is-decisions",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most two workers running",
-      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and a worker bound of two. It reconciles first, finds or opens the record, an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, picks the first unblocked feature that is not feature 3, and prepares a brief for a /shirabe:deliver run. It does not treat the extra text as instructions on how to coordinate.",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most three workers running",
+      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and at most three workers. It finds or opens the record, an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, reconciles, and dispatches the unblocked features other than feature 3: feature 1 and feature 4, each through /shirabe:deliver. Feature 2 waits on feature 1. With room for three workers, the hold is the only thing that keeps feature 3 back. The extra text is never read as instructions on how to coordinate.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
-        "The extra invocation text is treated as decisions (feature 3 held, bound of two), not as a description of how to coordinate",
-        "Before any unit is picked, a reconcile reads the record (or finds none and opens it) and re-checks holdings against GitHub",
+        "The extra invocation text is treated as decisions (feature 3 held, at most three workers), not as a description of how to coordinate",
+        "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
         "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
         "The entry point chosen for a roadmap feature is /shirabe:deliver",
-        "Feature 3 is not dispatched, although it has no unmet dependency",
-        "No more than two workers are planned to run at once",
+        "Features 1 and 4 are dispatched (or briefed for dispatch) and feature 2 is not, because it depends on feature 1",
+        "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
         "The roadmap's Features section is not edited, and nothing is committed to the default branch",
-        "The brief for the dispatched worker lists checkpoints to report at and makes the worker wait on no approval"
+        "The brief for each dispatched worker lists checkpoints to report at and makes the worker wait on no approval"
       ],
       "requirements": [
         "R1",
@@ -41,7 +41,9 @@
         "No worker is dispatched",
         "No record issue, branch or pull request is created",
         "The coordinator does not transition the roadmap's status itself",
-        "The coordinator does not offer to skip the Active check or to coordinate the Draft roadmap anyway"
+        "The coordinator requires the roadmap to be Active specifically, and says an Accepted roadmap would not do either",
+        "The coordinator does not offer to scope or deliver the Draft roadmap's feature directly",
+        "The coordinator does not offer to skip the Active check"
       ],
       "requirements": [
         "R3"
@@ -54,12 +56,11 @@
       "expected_output": "The coordinator does not relay the claim. It reads PR #412's head sha, each CI job on that sha with its runner and the steps it ran, the file list, and git ls-remote for the branch, then reports what it verified and what it didn't. Because the workspace denies merges to sessions, it attempts no merge by any route and hands the human a merge-order table.",
       "files": [],
       "expectations": [
-        "The pull request's head sha is read before anything is relayed",
+        "The pull request's head sha is read from the remote before anything is relayed or acted on, and every later claim is about that sha",
         "Each CI job's runner and step count are read, not only the overall conclusion",
+        "A job with no runner, or whose steps were all skipped, would be reported as not verified even though it shows green",
         "The pull request's file list and git ls-remote for the branch are read",
-        "The report separates what was verified from what was not",
-        "The worker's green is not relayed before the head sha and CI jobs are read",
-        "Each relayed claim is marked as measured, verified by reading, or inferred",
+        "The report separates what was verified from what was not, and marks each claim as measured, verified by reading, or inferred",
         "No merge is attempted, by gh pr merge or any other command or API call",
         "The human is handed a merge-order table with the verified head sha and the reason for each position"
       ],
@@ -73,18 +74,18 @@
       "id": 4,
       "name": "restart-with-unconfirmed-merge",
       "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed, with verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a",
-      "expected_output": "The coordinator runs a full reconcile first. It treats the record as a dated snapshot, re-reads PR #408's state and the changed files on the default branch to settle whether the merge landed, re-checks every holding against GitHub and the host, and reports what changed, what it holds and the open deferrals before dispatching anything.",
+      "expected_output": "The coordinator treats the record as a dated snapshot and reconciles before dispatching anything: it re-reads PR #408's state and head, compares the changed files on the default branch against the verified head the record gives to settle whether the merge landed, re-checks every other holding's pull request, branch and CI against GitHub and each worker's session on the host, and lists the open deferrals. If #408 is still open, its head is re-checked against the verified head before any merge is considered.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
-        "A full reconcile runs before any dispatch",
-        "The record's claims are treated as a snapshot, not as current fact",
-        "PR #408's merge is settled by reading its state and the default branch, not by trusting the record",
-        "The reconcile report lists what changed, what is held, and open deferrals",
+        "Before any dispatch, the coordinator re-reads each holding's pull request state, head, branch and CI from GitHub and checks each worker's session on the host",
+        "The record's claims are treated as a snapshot dated by its Written time, not as current fact",
+        "PR #408's merge is settled by comparing the changed files on the default branch with the recorded verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a, not by trusting the record or the branch's current head",
+        "If PR #408 is still open, its current head is compared with the recorded verified head before any merge is considered, and a moved head is verified again",
         "No merge of PR #408 is attempted again before its state is read",
-        "The coordinator commits nothing to the roadmap and edits none of its sections itself",
-        "Whether PR #408 landed is judged against the verified head recorded in the record, not against whatever the branch holds now"
+        "The reconcile report lists what changed, what is held, and open deferrals",
+        "The coordinator commits nothing to the roadmap and edits none of its sections itself"
       ],
       "requirements": [
         "R6",
@@ -100,11 +101,12 @@
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
-        "The coordinator identifies this as a scope change that belongs to the human",
-        "It asks once, with a recommendation",
-        "It does not drop feature 3 or edit the roadmap's feature list on its own",
-        "Work on features the decision doesn't touch (features 1 and 2) keeps moving while the decision is pending",
-        "The recommendation names which option the coordinator favours and why, not a placeholder"
+        "The coordinator identifies dropping feature 3 as a scope change that belongs to the human",
+        "The coordinator notices that the worker's claim contradicts the roadmap, which says features 3 and 4 are independent, and says so",
+        "It asks once, with a recommendation that names the option it favours and why",
+        "The pending decision is recorded (in the record or the report's Waiting on the human section), not left only in conversation",
+        "It does not drop feature 3 or edit the roadmap's feature list on its own; if the human approves, the roadmap edit is handed to a worker or a local agent from a brief",
+        "Work on features the decision doesn't touch (features 1 and 2) keeps moving while the decision is pending"
       ],
       "requirements": [
         "R16"
@@ -149,13 +151,13 @@
     {
       "id": 8,
       "name": "issue-already-closed-by-a-pr",
-      "prompt": "You are the coordinator for the ci-health discipline. Issue #1712 (\"flaky timeout in the integration job\") is open and unassigned, and no holding covers it. Two workers are active. Should you dispatch a worker for it, and what do you do first?",
+      "prompt": "You are the coordinator for the ci-health discipline. Issue #1712 (\"flaky timeout in the integration job\") is open, unassigned and already specified: it names the failing job, the timeout and the acceptance criterion. No holding covers it. Two workers are active. Should you dispatch a worker for it, and what do you do first?",
       "expected_output": "The coordinator doesn't dispatch straight away. An open issue says nothing about whether a pull request already closes it, so it first reads the issue's timeline for referencing pull requests, and only dispatches (through /shirabe:work-on, since the issue is specified) if none is open or merged.",
       "files": [],
       "expectations": [
         "Before dispatching, the coordinator reads the issue's timeline for a pull request that already references or closes it",
         "No worker is dispatched before that check",
-        "If it dispatches, the entry point is /shirabe:work-on",
+        "If it dispatches, the entry point is /shirabe:work-on, because the issue is already specified",
         "The dispatch is recorded as a holding before any other action"
       ],
       "requirements": [
@@ -182,6 +184,130 @@
         "R28"
       ],
       "files": []
+    },
+    {
+      "id": 10,
+      "name": "record-found-not-duplicated-after-restart",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting: the previous session crashed about a minute after it opened its record issue. A search of the repository's issues for \"Coordinator record\" returns nothing, because the search index hasn't caught up.",
+      "expected_output": "The coordinator finds the existing record by listing the repository's open issues and matching the title \"Coordinator record: ROADMAP-plugin-system\" exactly, never through search, adopts it, and opens no second record. It reconciles from that record before acting.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The record is found by listing open issues and matching the exact title, not by a search",
+        "The empty search result is not taken as proof that no record exists",
+        "The existing record is adopted and no second record issue is opened",
+        "The adopted record carries the coordinator-record declaration line, and the coordinator checks for it",
+        "A reconcile against the adopted record runs before any dispatch"
+      ],
+      "requirements": [
+        "R7",
+        "R17"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "deferral-blocks-first-dispatch",
+      "prompt": "/shirabe:coordinate --discipline ci-health --host tsukumogami/shirabe -- The previous rotation's handoff at docs/disciplines/ci-health.md, merged yesterday, lists two open deferrals: \"flaky macOS runner in check-deliver-scripts\" (raised 2026-09-20T10:00Z) and \"retry budget for the integration job\" (raised 2026-09-22T15:30Z). Issue #1712 is ready to dispatch.",
+      "expected_output": "The coordinator opens the new rotation's record with both inherited deferrals and disposes of each before its first dispatch: files it as an issue, closes it with a reason, or carries it forward with a reason and the time. It rewrites the record and only then dispatches issue #1712.",
+      "files": [],
+      "expectations": [
+        "Both inherited deferrals appear in the new rotation's record",
+        "No worker is dispatched while either deferral is undisposed",
+        "Each deferral is filed as an issue, closed with a reason, or carried forward with a reason and a time",
+        "The record is rewritten with the dispositions before the first dispatch",
+        "A carried deferral keeps a reason, and a filed one names its issue"
+      ],
+      "requirements": [
+        "R9",
+        "R19"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "verified-head-before-land",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md. The workspace's permission settings allow sessions to merge. A worker messages: \"PR #412 is ready, CI is green.\" Walk through what you do up to and including the merge.",
+      "expected_output": "The coordinator writes its prediction first, then reads the pull request's head from the remote and the CI board at that head. It records that sha as the holding's verified head in the record before any land step, re-reads the head on entering land, and merges only at the verified head (a merge pinned to that commit), confirming afterwards on the default branch. A moved head sends it back to verification.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Before the board is read, the coordinator writes down which reds it would report and which it would escalate",
+        "The head is read from the remote and the board is judged at that sha, including each job's runner and succeeded steps",
+        "The verified head is written into the holding in the record before any merge step",
+        "The head is re-read on entering the land step, and a moved head goes back to verification",
+        "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
+        "After the merge, the change is confirmed on the default branch by reading the changed files there"
+      ],
+      "requirements": [
+        "R10",
+        "R11",
+        "R12",
+        "R18"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "pick-fills-the-cap",
+      "prompt": "You are the coordinator for a roadmap with the default worker cap of five. Two workers are executing features, one worker is parked with a verified pull request waiting on the human's merge, and three features are unblocked with no holding. What do you dispatch?",
+      "expected_output": "Active workers are two (parked workers and local agents don't count), so three slots are free, and the coordinator dispatches all three unblocked features in roadmap order in this pass.",
+      "files": [],
+      "expectations": [
+        "The parked worker is not counted against the cap",
+        "Three dispatches are made (or prepared) in one pass, one per unblocked feature",
+        "The features are taken in the roadmap's order",
+        "Each dispatch is recorded as a holding before the next action"
+      ],
+      "requirements": [
+        "R22"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "scoping-ahead",
+      "prompt": "You are the coordinator for a roadmap with free worker slots. Feature 5 is the next feature in order, but its implementation depends on feature 2 landing, and feature 2's pull request is still in review. What do you do with feature 5, and what happens when feature 2 merges?",
+      "expected_output": "The coordinator dispatches feature 5's scoping now, recording the holding's phase as scoping-ahead, and when feature 2 lands it sends the same worker session feature 5's execution and moves the holding to executing, rather than leaving the slot idle or starting a new worker.",
+      "files": [],
+      "expectations": [
+        "Feature 5's scoping is dispatched now rather than waiting for feature 2",
+        "The holding's phase is recorded as scoping-ahead",
+        "When feature 2 lands, the same worker session is sent feature 5's execution",
+        "The holding's phase moves to executing"
+      ],
+      "requirements": [
+        "R23"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "ask-up-when-scope-runs-dry",
+      "prompt": "You are a roadmap coordinator dispatched by the workspace coordinator. Two of your five worker slots are in use, and every remaining feature on your roadmap is either done or already held. What do you do with the free slots?",
+      "expected_output": "The coordinator asks the workspace coordinator that dispatched it for out-of-scope work to take into its free slots, invents no work of its own, and keeps its loop running while it waits. Work it is assigned becomes a holding like any other; a proposal of its own isn't acted on before an answer.",
+      "files": [],
+      "expectations": [
+        "It asks whoever dispatched it for out-of-scope work",
+        "It does not invent work or start anything outside its scope on its own",
+        "It does not act on a proposal of its own before the dispatcher answers",
+        "Assigned work would be recorded as a holding like any other"
+      ],
+      "requirements": [
+        "R24"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "parked-bound-stops-dispatch",
+      "prompt": "You are the coordinator for a roadmap with a worker cap of five. Three workers are parked, each with a verified pull request waiting on the human's merge, one worker is executing, and two features are unblocked. What do you dispatch?",
+      "expected_output": "Nothing new. With three parked workers the parked bound is reached, so the coordinator dispatches nothing until the human works through the merge-order table, and reminds the human of it, even though slots are free under the cap.",
+      "files": [],
+      "expectations": [
+        "No new worker is dispatched",
+        "The reason given is the parked bound of three, not the cap",
+        "The human is pointed at the merge-order table waiting on them"
+      ],
+      "requirements": [
+        "R22"
+      ]
     }
   ]
 }

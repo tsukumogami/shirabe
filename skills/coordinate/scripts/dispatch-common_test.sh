@@ -28,6 +28,9 @@ eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; f
 yes() { if "${@:2}"; then ok "$1"; else bad "$1" "expected success"; fi; }
 no()  { if "${@:2}"; then bad "$1" "expected failure"; else ok "$1"; fi; }
 
+# a_times <n>: n letter a's, without seq (not on run-tests.sh's PATH).
+a_times() { local i=0 out=""; while [ "$i" -lt "$1" ]; do out="${out}a"; i=$((i + 1)); done; printf '%s' "$out"; }
+
 # --- topics -----------------------------------------------------------------------
 
 yes "topic: plain"               dc_valid_topic coordinate-dispatch-path
@@ -38,14 +41,14 @@ no  "topic: uppercase"           dc_valid_topic Foo
 no  "topic: underscore"          dc_valid_topic foo_bar
 no  "topic: slash"               dc_valid_topic ../x
 no  "topic: dot"                 dc_valid_topic a.b
-no  "topic: 65 characters"       dc_valid_topic "$(printf 'a%.0s' $(seq 1 65))"
+no  "topic: 65 characters"       dc_valid_topic "$(a_times 65)"
 
 # --- niwa's slug and the exact session match ---------------------------------------
 
 eq  "slug: dashes to underscores" coordinate_dispatch_path "$(dc_niwa_slug coordinate-dispatch-path)"
 eq  "slug: runs collapse"         a_b "$(dc_niwa_slug 'a--b')"
-eq  "slug: capped at 40"          "$(printf 'a%.0s' $(seq 1 40))" "$(dc_niwa_slug "$(printf 'a%.0s' $(seq 1 45))")"
-eq  "slug: cap re-trims _"        "$(printf 'a%.0s' $(seq 1 39))" "$(dc_niwa_slug "$(printf 'a%.0s' $(seq 1 39))-bbb")"
+eq  "slug: capped at 40"          "$(a_times 40)" "$(dc_niwa_slug "$(a_times 45)")"
+eq  "slug: cap re-trims _"        "$(a_times 39)" "$(dc_niwa_slug "$(a_times 39)-bbb")"
 
 yes "match: slug and token"       dc_session_matches api api-1a2b3c4d
 yes "match: dashed topic"         dc_session_matches api-v2 api_v2-1a2b3c4d
@@ -109,7 +112,13 @@ if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline: returns at the dead
 LEN=$(( 40000 + $$ % 10000 ))
 dc_with_deadline "$LEN" true
 sleep 1
-if ps -eo args | grep -q "^sleep $LEN\$"; then bad "deadline: no watcher left behind" "$(ps -eo pid,args | grep "sleep $LEN")"; else ok "deadline: no watcher left behind"; fi
+if ! command -v ps >/dev/null 2>&1; then
+    ok "deadline: no watcher left behind (not checked: ps isn't on this PATH)"
+elif ps -eo args | grep -q "^sleep $LEN\$"; then
+    bad "deadline: no watcher left behind" "$(ps -eo pid,args | grep "sleep $LEN")"
+else
+    ok "deadline: no watcher left behind"
+fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
 
 # The table against the skills it names: every skill exists, every template a

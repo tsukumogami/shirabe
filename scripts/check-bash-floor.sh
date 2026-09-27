@@ -243,9 +243,31 @@ suite_scripts() {
             echo "scripts/assert-koto-floor_test.sh"
             ;;
         coordinate)
-            # The coordinate skill's dispatch scripts need only jq (their
-            # niwa, koto and record stand-ins are test-local), so every case
-            # runs on the floor.
+            # /coordinate's script tests. They drive test-local gh and koto
+            # stand-ins and need only jq and git, so every case runs on 3.2.
+            # Its engine suites (*_engine_test.sh) need real koto and run on
+            # ubuntu only.
+            echo "skills/coordinate/scripts/record-codec_test.sh"
+            echo "skills/coordinate/scripts/coord-log_test.sh"
+            echo "skills/coordinate/scripts/coordinate-report_test.sh"
+            echo "skills/coordinate/scripts/rule-coverage_test.sh"
+            echo "skills/coordinate/scripts/record-find_test.sh"
+            echo "skills/coordinate/scripts/record-open_test.sh"
+            echo "skills/coordinate/scripts/record-write_test.sh"
+            echo "skills/coordinate/scripts/record-holding_test.sh"
+            echo "skills/coordinate/scripts/record-confirm_test.sh"
+            echo "skills/coordinate/scripts/start-check_test.sh"
+            echo "skills/coordinate/scripts/posture-read_test.sh"
+            # The board, land and merge scripts: a localized plugin tree with
+            # the gh-board and koto stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/board-verdict_test.sh"
+            echo "skills/coordinate/scripts/board-record_test.sh"
+            echo "skills/coordinate/scripts/land-check_test.sh"
+            echo "skills/coordinate/scripts/land-merge_test.sh"
+            echo "skills/coordinate/scripts/merge-confirm_test.sh"
+            echo "skills/coordinate/scripts/merged-facts_test.sh"
+            # The dispatch path's scripts: test-local niwa, koto, gh and record
+            # stand-ins, so every case runs on 3.2.
             echo "skills/coordinate/scripts/dispatch-common_test.sh"
             echo "skills/coordinate/scripts/render-brief_test.sh"
             echo "skills/coordinate/scripts/dispatch-worker_test.sh"

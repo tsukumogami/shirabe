@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# A koto stand-in for /coordinate's script tests. Not shipped behaviour: a test
+# puts this directory first on PATH.
+#
+# A session S lives at $KOTO_STORE/sessions/S/; a test writes its prepared
+# state log there as koto-S.state.jsonl, in the shape real koto writes (a
+# header line, then events with seq, timestamp, type and payload). Context
+# keys are files under $KOTO_STORE/context/S/. Every call is appended to
+# $KOTO_STORE/calls.
+#
+# Served: `session dir S`, `context add S K [--from-file F]` (stdin without
+# --from-file), `context get S K`, and `template compile P`, which prints
+# $KOTO_STORE/cache/<$KOTO_COMPILED_HASH>.json so coord-log.sh provenance can
+# be passed or failed by the header's template_hash. Anything else exits 9.
+set -uo pipefail
+[ -n "${KOTO_STORE:-}" ] || { echo "koto stub: KOTO_STORE is not set" >&2; exit 9; }
+printf '%s\n' "$*" >> "$KOTO_STORE/calls"
+case "${1:-} ${2:-}" in
+    "session dir")
+        printf '%s\n' "$KOTO_STORE/sessions/${3:-none}"
+        ;;
+    "context add")
+        [ -z "${KOTO_FAIL_ADD:-}" ] || exit 1
+        d="$KOTO_STORE/context/${3:-none}"
+        mkdir -p "$(dirname "$d/$4")"
+        if [ "${5:-}" = --from-file ]; then cat "$6" > "$d/$4" || exit 1; else cat > "$d/$4"; fi
+        ;;
+    "context get")
+        cat "$KOTO_STORE/context/${3:-none}/$4" 2>/dev/null || exit 1
+        ;;
+    "template compile")
+        printf '%s\n' "$KOTO_STORE/cache/${KOTO_COMPILED_HASH:-0000}.json"
+        ;;
+    *) echo "koto stub: unexpected: $*" >&2; exit 9 ;;
+esac
