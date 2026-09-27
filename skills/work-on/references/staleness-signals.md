@@ -13,7 +13,7 @@ An issue is **stale** when any one of these fires, and **fresh** when none do.
 |-------|------------|-----------|
 | Issue age | the issue was created more than the threshold ago, in whole days | 14 days (`AGE_THRESHOLD_DAYS`) |
 | Closed milestone siblings | at least one issue in the same milestone was closed after this issue was created | 1 |
-| Milestone position | the issue is `middle` (some siblings closed, more than one open) or `last` (siblings closed, this the only one open) | position `middle` or `last` |
+| Milestone position | the issue is `last` (some milestone issues closed, exactly one open) or `middle` (some closed, any other number open, zero included) | position `middle` or `last` |
 | Referenced files | a file the issue body names has a commit touching it since the issue was created | 1 file |
 
 Details that decide edge cases:
@@ -28,9 +28,11 @@ Details that decide edge cases:
 - Milestone lists are read with a limit of 100 closed and 100 open issues. A
   larger milestone undercounts.
 - A referenced file is a path in the body that ends in `.go`, `.ts`, `.tsx`,
-  `.js`, `.jsx`, `.md`, `.sh`, `.py`, `.toml`, `.yaml`, `.yml` or `.json`,
-  either inside backticks or as a bare `word/word.ext` token; at most 20 are
-  checked, in sorted order. A path that is absolute or has a `..` segment is
+  `.js`, `.jsx`, `.md`, `.sh`, `.py`, `.toml`, `.yaml`, `.yml` or `.json`:
+  either anything inside backticks, or a bare run of letters, digits, `_`, `-`
+  and `/` followed by a one-to-four-letter extension. The bare form matches
+  slashless names like `README.md`, and it can take a prefix of a longer name
+  (`foo.json` out of `foo.jsonl`). At most 20 are checked, in sorted order. A path that is absolute or has a `..` segment is
   skipped, as is one that isn't a file in the working tree. "Modified" means
   `git log --since=<createdAt> -- <path>` finds a commit.
 
@@ -40,7 +42,7 @@ Details that decide edge cases:
 |--------|---------|--------------------------|
 | 0 | fresh | `fresh` |
 | 1 | stale | `stale_requires_introspection` |
-| 3 | unavailable: `gh`, `jq` or `git` missing, a `gh` call failed, a `git log` failed, or a response couldn't be read | `unavailable`, with the reason in `detail` |
+| 3 | unavailable: `gh`, `jq` or `git` missing, a `gh` call failed, a `git log` failed, a response couldn't be read, or the temporary directory or the report couldn't be made | `unavailable`, with the reason in `detail` |
 | 2 | usage error: anything but `--issue <positive integer>` | `blocked`; the template passed a bad argument |
 
 The gate also exits 3 itself when the script isn't executable at

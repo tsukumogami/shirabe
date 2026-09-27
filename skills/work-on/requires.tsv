@@ -42,6 +42,9 @@
 #
 # gh reads the issue and drives the PR; git rebases, pushes, and inspects the
 # worktree; jq builds the JSON in references/scripts/extract-context.sh.
+# scripts/check-staleness.sh, which staleness_check's gate runs, needs the same
+# three and nothing else: gh for the issue and its milestone, git log for the
+# files the issue names, and jq for the age arithmetic and its report.
 #
 # Two flags a line-level extractor will surface here are not koto's and are
 # deliberately absent: `--pr-body` names what CI enforces on the authored PR

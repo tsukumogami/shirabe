@@ -286,8 +286,8 @@ The report:
 ```
 
 `introspection_recommended` is kept so a reader of the old report finds the
-same field. An unavailable report carries `verdict`, `reason`, and whatever
-was known before the failure.
+same field. An unavailable report carries `verdict`, `reason`, and the issue number;
+partial signals are left out so nothing reads a half-measured value.
 
 The script is written for bash 3.2: no associative arrays, no `mapfile`, no
 `${var,,}`, no GNU-only flags. It doesn't use `set -e`, so that an unexpected

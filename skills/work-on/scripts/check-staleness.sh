@@ -9,9 +9,10 @@
 #      (AGE_THRESHOLD_DAYS below).
 #   2. Closed milestone siblings: stale when at least one issue in the same
 #      milestone was closed after this issue was created.
-#   3. Milestone position: stale when the issue sits in the middle of its
-#      milestone (some siblings closed, more than one open) or is the last one
-#      open. An issue with no milestone has position "unknown" and never fires.
+#   3. Milestone position: stale when the issue is "last" (some milestone
+#      issues closed and exactly one open) or "middle" (some closed, and any
+#      other number open, zero included). "first" (none closed) and "unknown"
+#      (no milestone, or empty lists) never fire.
 #   4. Referenced files: stale when a file the issue body names (a path ending
 #      in one of the extensions in FILE_EXTENSIONS, at most 20 of them) has a
 #      commit touching it since the issue was created.
@@ -27,8 +28,11 @@
 #   1  stale        at least one check fired
 #   2  usage        missing, extra, or malformed argument (a bare issue number
 #                   included); usage on stderr, nothing on stdout
-#   3  unavailable  gh, jq or git missing, a gh call failed, or a git read
-#                   failed; no verdict is reached from partial data
+#   3  unavailable  gh, jq or git missing, a gh call failed, a git read
+#                   failed, or a response or the report couldn't be processed;
+#                   no verdict is reached from partial data
+#
+# `--help` prints usage on stderr and exits 0; the gate never passes it.
 #
 # On 0, 1 and 3 a JSON report goes to stdout: verdict, introspection_recommended,
 # the issue, every signal measured, and a reason.
@@ -99,6 +103,8 @@ if [ $# -ne 2 ] || [ "$1" != "--issue" ]; then
     exit 2
 fi
 case "$2" in
+    # Digits only, and no leading zero: 0 is no issue, and 07 would reach gh as
+    # a string that doesn't match the number the gate substituted.
     ''|*[!0-9]*|0*) usage; exit 2 ;;
 esac
 ISSUE="$2"
@@ -143,6 +149,8 @@ if [ -n "$MILESTONE" ]; then
             --json number --limit "$MILESTONE_LIMIT" 2>"$ERR"); then
         unavailable "gh issue list (open) failed: $(sanitize_error "$ERR")"
     fi
+    # closedAt and createdAt are both GitHub's fixed-width UTC ISO-8601
+    # strings, so string order is time order.
     if ! SIBLINGS_CLOSED=$(printf '%s' "$CLOSED_JSON" | jq -e --arg c "$CREATED_AT" \
             '[.[] | select(.closedAt > $c)] | length' 2>"$ERR"); then
         unavailable "could not read the closed milestone list: $(sanitize_error "$ERR")"
@@ -228,10 +236,15 @@ REPORT=$(jq -n \
           files_modified_since_creation: $modified
         },
         reason: (if $stale then ($reasons | join("; ")) else "no staleness signals detected" end)
-      }') || unavailable "could not build the report"
+      }' 2>"$ERR") || unavailable "could not build the report: $(sanitize_error "$ERR")"
 
+# Read the verdict back before printing anything, so a failed read exits 3
+# with one report rather than falling through to 0 and reading as fresh.
+VERDICT=$(printf '%s' "$REPORT" | jq -r '.verdict' 2>"$ERR") ||
+    unavailable "could not read the report's verdict: $(sanitize_error "$ERR")"
 printf '%s\n' "$REPORT"
-if [ "$(printf '%s' "$REPORT" | jq -r '.verdict')" = "stale" ]; then
-    exit 1
-fi
-exit 0
+case "$VERDICT" in
+    fresh) exit 0 ;;
+    stale) exit 1 ;;
+esac
+exit 3
