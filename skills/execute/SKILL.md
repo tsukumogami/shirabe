@@ -629,7 +629,9 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
 - `cascade` — every node PR reports `MERGED` on a live read. First,
   `node-push.sh order ... --plan <plan_abs>` renders the PLAN's final merge order
   into the coordination PR's body; it pushes nothing, and it catches a PLAN whose
-  `waits_on` changed after the last node push. Then run the chain-finalization
+  `waits_on` changed after the last node push. It is skipped when no file exists
+  at `plan_abs` (a resumed run whose cascade already ran), and a failed render
+  stops the loop before the cascade. Then run the chain-finalization
   cascade exactly once, on the coordination branch (`run-cascade.sh --push <PLAN>`),
   then `node-push.sh coordination ...`, which pushes the coordination branch and
   records the coordination PR's own `head=`. The cascade has deleted the PLAN by
