@@ -82,7 +82,7 @@ case "$sub" in
     board) echo '{"kind":"board","status":"ok","verdict":"holds","at":"x","read_at":"t"}' ;;
     branch) echo '{"kind":"branch","status":"ok","state":"present","tip":"1111111111111111111111111111111111111111","read_at":"t"}' ;;
     appeared) echo '{"kind":"appeared","status":"ok","prs":[],"read_at":"t"}' ;;
-    host) echo '{"kind":"host","status":"ok","state":"found","reads":1,"path":"/home/someone/ws/tsuku+w_topic-0123abcd","read_at":"t"}' ;;
+    host) echo '{"kind":"host","status":"ok","state":"found","reads":1,"path":"/home/someone/ws/ws+w_topic-0123abc","read_at":"t"}' ;;
     inventory) echo '{"kind":"inventory","status":"ok","taken":true,"items":[],"truncated":false,"read_at":"t"}' ;;
     leg) echo '{"kind":"leg","status":"ok","disposition":"open","result":"","read_at":"t"}' ;;
     merge) echo '{"kind":"merge","status":"ok","verdict":"confirmed","reason":"","read_at":"t"}' ;;
@@ -222,7 +222,7 @@ ctx reconcile/report.json | jq -e '[.side_effects[] | .code] == ["confirmed", "c
 ctx reconcile/report.md | grep -q 'ran from outside the repository'; check "the report says where the scripts ran from" $?
 bad_keys=$(grep '^koto context \(add\|remove\)' "$CASE/log" | awk '{print $5}' | grep -v '^reconcile/' || true)
 [ -z "$bad_keys" ]; check "the pass writes and removes only reconcile/ keys" $? "$bad_keys"
-leak=$(cat "$CASE"/ctx/* | grep -c -e "$SESSION" -e '/home/someone' -e 'tsuku+w_topic' -e '0123abcd' || true)
+leak=$(cat "$CASE"/ctx/* | grep -c -e "$SESSION" -e '/home/someone' -e 'ws+w_topic' -e '0123abc' || true)
 [ "$leak" = 0 ]; check "no stored key carries the session id, an instance path or a job id" $?
 pass
 case "$LINE" in "reconciled "*" sealed:7:"*) ok "a later tick in the same visit says the same sealed line" ;; *) bad "a later tick in the same visit says the same sealed line" "$LINE" ;; esac

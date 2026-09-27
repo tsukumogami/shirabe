@@ -56,7 +56,7 @@ holding() {
 
 pr()    { jq -nc --arg s "$1" --arg h "$2" --argjson d "${3:-false}" '{kind: "pr", status: "ok", state: $s, head: $h, draft: $d, read_at: "2026-09-27T09:59:00Z"}'; }
 board() { jq -nc --arg v "$1" --arg at "$2" --arg d "${3:-}" '{kind: "board", status: "ok", at: $at, verdict: $v, detail: $d, read_at: "2026-09-27T09:59:10Z"}'; }
-host()  { jq -nc --arg s "$1" '{kind: "host", status: "ok", state: $s, reads: 2, instance: "cfg+t-deadbeef", session_name: "t-deadbeef", read_at: "2026-09-27T09:58:00Z"}'; }
+host()  { jq -nc --arg s "$1" '{kind: "host", status: "ok", state: $s, reads: 2, instance: ("cfg+t-" + ("d" * 8)), session_name: ("t-" + ("d" * 8)), read_at: "2026-09-27T09:58:00Z"}'; }
 
 report() { "$BASH" "$S" json; }
 render() { "$BASH" "$S" md; }
@@ -245,9 +245,9 @@ printf '%s' "$F" | report | bash "$S" json >/dev/null 2>&1; rc=$?
 HH=$(jq -nc --argjson h "$(holding t3 "[$(pr OPEN "$VH")]")" '$h + {source: "handoff"}')
 facts "[$HH]" | render | grep -q 'row as written by the previous rotation' \
   && ok "a handoff row is labelled as the previous rotation's" || bad "a handoff row is labelled as the previous rotation's"
-INV='{"kind":"inventory","status":"ok","taken":true,"items":[{"clone":"/home/u/ws/cfg+t-deadbeef/repo","kind":"commit","path":"abc"}]}'
+INV='{"kind":"inventory","status":"ok","taken":true,"items":[{"clone":"/home/u/ws/cfg+t-dddd/repo","kind":"commit","path":"abc"}]}'
 out=$(facts "[$(holding t4 "[$INV]")]" | render)
-printf '%s' "$out" | grep -qE '/home/|deadbeef' && bad "an absolute clone path is withheld" "$out" || ok "an absolute clone path is withheld"
+printf '%s' "$out" | grep -qE '/home/|cfg\+t-dddd' && bad "an absolute clone path is withheld" "$out" || ok "an absolute clone path is withheld"
 out=$(facts '[]' '[]' '[]' '"present"' '[]' discipline | render)
 printf '%s\n' "$out" | grep -q 'reasoning is in reconcile/reasoning.md' && ok "present reasoning points at its key" || bad "present reasoning points at its key" "$out"
 

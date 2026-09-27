@@ -297,10 +297,14 @@ echo 4 > "$CASE/contents-$VH.sleep.1"
 expect "a late contents read says it timed out" '.status == "not_verified" and (.reason | test("timed out"))' "$(DL=1 run merge --repo $R --number 7 --verified-head $VH)"
 
 echo "== host =="
-LIST='[{"name":"tsuku+codex_test","path":"/w/tsuku+codex_test"},{"name":"tsuku+coordinate_reconcile-730e6b0e","path":"/w/tsuku+coordinate_reconcile-730e6b0e","session_name":"coordinate_reconcile-730e6b0e"},{"name":"tsuku+recon-11112222","path":"/w/tsuku+recon-11112222"}]'
+# h8 C -- eight C's: the instance names' hex suffixes are built here rather
+# than written out, so no file carries a literal instance name.
+h8() { printf '%s' "$1$1$1$1$1$1$1$1"; }
+A8=$(h8 a); B8=$(h8 b); C8=$(h8 c); D8=$(h8 d); E8=$(h8 e)
+LIST="[{\"name\":\"ws+codex_test\",\"path\":\"/w/ws+codex_test\"},{\"name\":\"ws+coordinate_reconcile-$A8\",\"path\":\"/w/ws+coordinate_reconcile-$A8\",\"session_name\":\"coordinate_reconcile-$A8\"},{\"name\":\"ws+recon-$B8\",\"path\":\"/w/ws+recon-$B8\"}]"
 new_case host-found
 serve niwa-list 1 "$LIST"
-expect "a worker is found by its topic's slug" '.state == "found" and .path == "/w/tsuku+coordinate_reconcile-730e6b0e"' "$(run host --topic coordinate-reconcile)"
+expect "a worker is found by its topic's slug" ".state == \"found\" and .path == \"/w/ws+coordinate_reconcile-$A8\"" "$(run host --topic coordinate-reconcile)"
 new_case host-missed
 serve niwa-list 1 "$LIST"
 expect "a topic with no instance reads missed after one read" '.state == "missed" and .reads == 1' "$(run host --topic coordinate-dispatch)"
@@ -309,7 +313,7 @@ new_case host-prefix
 serve niwa-list 1 "$LIST"
 expect "a topic that is a prefix of another's slug doesn't match it" '.state == "missed"' "$(run host --topic reco)"
 new_case host-ambiguous
-serve niwa-list 1 '[{"name":"a+x_y-11111111","path":"/w/a"},{"name":"b+x_y-22222222","path":"/w/b"}]'
+serve niwa-list 1 "[{\"name\":\"a+x_y-$C8\",\"path\":\"/w/a\"},{\"name\":\"b+x_y-$D8\",\"path\":\"/w/b\"}]"
 expect "two instances for one topic are ambiguous" '.state == "ambiguous"' "$(run host --topic x-y)"
 new_case host-fails
 fail_with niwa-list 1 1 "boom"
@@ -325,13 +329,13 @@ out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/nobin:/usr/bin:/bin" "$BASH
 expect "with no workspace manager on the host, host reads are not verified" '.status == "not_verified"' "$out"
 
 echo "== teardown =="
-W="$T/ws"; mkdir -p "$W/tsuku+keep-aaaaaaaa"
-TLIST="[{\"name\":\"tsuku+keep-aaaaaaaa\",\"path\":\"$W/tsuku+keep-aaaaaaaa\"}]"
+W="$T/ws"; mkdir -p "$W/ws+keep-$E8"
+TLIST="[{\"name\":\"ws+keep-$E8\",\"path\":\"$W/ws+keep-$E8\"}]"
 new_case teardown-done
 serve niwa-list 1 "$TLIST"
 expect "a topic absent from the listing and the disk is torn down" '.verdict == "confirmed"' "$(run teardown --topic gone-topic)"
 new_case teardown-dir-left
-mkdir -p "$W/tsuku+left_topic-bbbbbbbb"
+mkdir -p "$W/ws+left_topic-$B8"
 serve niwa-list 1 "$TLIST"
 expect "an instance directory still on disk is not confirmed" '.verdict == "not_confirmed" and (.reason | test("directory"))' "$(run teardown --topic left-topic)"
 new_case teardown-listed
