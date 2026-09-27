@@ -1,0 +1,68 @@
+name: Check coordinate scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/coordinate/**'
+      - 'scripts/koto-open.sh'
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/lib/**'
+      - 'skills/execute/scripts/merge-exec.sh'
+      - 'skills/execute/scripts/merge-verdict.sh'
+      - '.github/workflows/check-coordinate-scripts.yml'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  # The codec, the check scripts and the write scripts need bash, git and jq,
+  # and drive test-local gh and koto stand-ins. run-tests.sh shadows the real
+  # gh and koto and unsets the tokens, so a test that reached either fails.
+  # Both platforms, to keep the bash 3.2 floor honest on macOS.
+  test-coordinate-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Run script tests offline
+        run: bash skills/coordinate/scripts/run-tests.sh
+
+  # Drives real koto: the session-log helper against a skeleton template, the
+  # compiled coordinate template, and its routes against a stand-in gh.
+  test-coordinate-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tsuku
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.tsuku/tools/current" >> "$GITHUB_PATH"
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      # Every engine suite SKIPS with exit 0 when koto is missing, which would
+      # report green having asserted nothing. Fail here instead, and also when
+      # koto is older than shirabe's floor.
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          bash scripts/assert-koto-floor.sh
+
+      - name: Run engine suites
+        run: bash skills/coordinate/scripts/run-tests.sh --engine

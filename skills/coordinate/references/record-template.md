@@ -97,64 +97,74 @@ decision; the title is where a successor reads it.
 
 ## The Body
 
-Write the whole body to a file and pass it with `--body-file`; never
-inline it into a command. A rotation's pull request body follows
-`references/pr-body-conformance.md` in the shirabe plugin; its Part 2
-starts at the declaration line. An issue body starts at the declaration
+The body is rendered by `scripts/record-render.sh` from its JSON form and read
+back by `scripts/record-parse.sh`; never write it by hand. A body is valid only
+when rendering what was parsed reproduces it byte for byte, so the tables below
+are the whole record and nothing else may sit between them. A rotation's pull
+request body starts with the fixed Part 1 line and a single `---`, which the
+renderer writes (`--container pr`); an issue body starts at the declaration
 line.
 
 ```markdown
-Coordinator record for the <name> discipline, kept on coordinate/discipline-<name>.
-
----
-
-> This is a **coordinator record** for <scope>.
+> This is a **coordinator record** for <ROADMAP-<name> | the <name> discipline>.
 
 Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 ## Holdings
 
-| Unit | Entry point | Mode | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
-|------|-------------|------|--------|------|--------|---------------|------------|--------------|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <dispatch topic> | <owner/repo> | <branch> | <full sha once parked, else blank> | <YYYY-MM-DD> | <[#n](URL), or none yet> |
+| Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping-ahead or executing> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 
-| Deferral | Reason | Raised |
-|----------|--------|--------|
-| <what> | <why not now> | <YYYY-MM-DD> |
+| Deferral | Reason | Raised | Disposition |
+|---|---|---|---|
+| <what> | <why not now> | <YYYY-MM-DDTHH:MMZ> | <blank, filed #n, closed: <reason>, or carried <YYYY-MM-DDTHH:MMZ>: <reason>> |
 
 ## Side effects in flight
 
 | Action | Target | Verified head | Attempted | How to confirm |
-|--------|--------|---------------|-----------|----------------|
+|---|---|---|---|---|
 | <merge, close, teardown> | <pull request, issue, worker> | <full sha verified before acting or asking> | <YYYY-MM-DDTHH:MMZ> | <the read that settles it> |
 
 ## Reversals
 
 | Date | Reversed | Now | Reason | From |
-|------|----------|-----|--------|------|
-| <YYYY-MM-DD> | <earlier decision> | <new decision> | <why> | <who decided> |
+|---|---|---|---|---|
+| <YYYY-MM-DDTHH:MMZ> | <earlier decision> | <new decision> | <why> | <who decided> |
 ```
 
 An empty section reads `None.` in place of its table. No table carries a
-status, CI or merge-state column: those are read from GitHub every time. A
-row leaves Side effects in flight once confirmed. Reversals only grow. A
-deferral carried forward keeps its row with a new reason.
+status, CI or merge-state column: those are read from GitHub every time, and
+the renderer refuses one. Phase says whether a worker is scoping a unit whose
+execution waits on another feature landing (`scoping-ahead`) or executing it.
+A row leaves Side effects in flight once confirmed. Reversals only grow.
 
-The verified head is the sha you verified before you acted or asked. After
-a crash, confirming a merge compares the default branch against that sha,
+A deferral is disposed of when its Disposition reads `filed #<n>`,
+`closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
+run's start. Filed and closed rows drop out at the first rewrite after the
+run's first dispatch; a carried row stays with its new reason.
+
+The verified head is the sha the workflow verified before you acted or asked.
+After a crash, confirming a merge compares the default branch against that sha,
 not against whatever the branch holds now.
+
+The renderer refuses a Worker cell holding anything but a dispatch topic (a
+`/`, a UUID, a `session_` prefix, a `+`, or only digits), a malformed
+structured cell, and a control character. Quoted text such as a CI log line
+is safe in any cell: pipes, newlines and backticks are encoded so they can't
+break a table.
 
 The declaration line is for readers. It is deliberately different from the
 `This is a **coordination PR**` marker that `/execute` uses, so no gate
 written for coordination pull requests ever parses a record.
 
-**Updating.** Rewrite the body whole from what you hold now, with a new
-`Written:` time, and apply it with `gh issue edit <n> --body-file <file>`
-or `gh pr edit <n> --body-file <file>`. Every pull request in the record is
-a link. Follow the host repository's conventions (its CLAUDE.md) for
-commit messages and bodies.
+**Updating.** Parse the live body, change the JSON, and render the whole body
+again with a new `Written:` time; apply it with the record's write script,
+never by editing the body on GitHub. Every pull request in the record is a
+link. Follow the host repository's conventions (its CLAUDE.md) for commit
+messages and bodies.
 
 ## Closing a Roadmap Record
 
@@ -174,33 +184,18 @@ checks on it:
 ```markdown
 # <name> handoff, <YYYY-MM-DD>
 
-Rotation from <start> to <end>. Host repository: <owner/repo>. Record:
-<pull request URL>, kept on coordinate/discipline-<name>.
+Rotation from <start> to <end>. Host repository: <owner/repo>. Record: <pull request URL>, kept on coordinate/discipline-<name>.
 
-## Holdings
-
-| Unit | Entry point | Mode | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
-|------|-------------|------|--------|------|--------|---------------|------------|--------------|
-
-## Deferrals
-
-| Deferral | Reason | Raised |
-|----------|--------|--------|
-
-## Side effects in flight
-
-| Action | Target | Verified head | Attempted | How to confirm |
-|--------|--------|---------------|-----------|----------------|
-
-## Reversals
-
-| Date | Reversed | Now | Reason | From |
-|------|----------|-----|--------|------|
+<the four sections, exactly as in the record>
 
 ## Reasoning for the next rotation
 
 <Prose: what this rotation learned that the tables can't say.>
 ```
+
+The same renderer writes it (`--format handoff`). It carries no declaration
+line and no `Written:` line, so a search for records never matches a committed
+handoff.
 
 Write the reasoning section fresh each rotation. Replace the previous
 rotation's text; never append to it, or the handoff grows into a standing

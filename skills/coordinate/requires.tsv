@@ -6,3 +6,6 @@
 # are declared tool-only and checked for presence.
 gh	-	-	always
 git	-	-	always
+# The record's codec (record-render.sh, record-parse.sh) and every script
+# that reads or writes the record are jq programs over the rendered tables.
+jq	-	-	always
