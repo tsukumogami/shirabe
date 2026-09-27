@@ -8,6 +8,11 @@
 #
 #   !`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> 2>&1 || true`
 #
+# The line runs this file by path, not through `bash`, because a
+# worktree-isolated session refuses `bash <script>`. So this file must ship
+# with its executable bit and its `#!/usr/bin/env bash` line intact;
+# scripts/check-directive-invocations.sh fails CI when either is lost.
+#
 # It reads skills/<skill-name>/requires.tsv, resolves every tool the skill
 # declares as always-required, and prints one plain-prose block per prerequisite
 # that is not met. A fully satisfied declaration prints nothing at all -- zero

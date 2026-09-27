@@ -13,9 +13,16 @@ set -euo pipefail
 # agent that meets the refusal rewrites the directive by hand, and a directive
 # that has to be rewritten to run invites other departures from it.
 #
-# Running by path moves the requirement onto the script: it has to be committed
-# executable, and it has to name its interpreter. Neither shows up until the
-# call fails on someone's machine, so both are checked here.
+# Running by path moves the requirement onto the script. Without the executable
+# bit the call fails with "permission denied". Without a `#!` line the calling
+# shell falls back to running the file as a plain `sh` script, and bash syntax
+# in it breaks. Neither shows up until the call runs on someone's machine, so
+# both are checked here.
+#
+# Koto templates are scanned too, gate commands included. A gate command is run
+# by koto rather than submitted by the agent, so the isolation refusal does not
+# apply to it, but the by-path form works there as well and one rule for every
+# directive file is simpler to keep than an exemption.
 #
 # ---------------------------------------------------------------------------
 # The rules
@@ -24,9 +31,12 @@ set -euo pipefail
 #   bash-invocation   A directive line runs a `.sh` through `bash` or `sh`
 #                     (`bash x.sh`, `sh -e x.sh`, `Bash(bash x.sh *)` in an
 #                     allowed-tools entry). Fix: drop the interpreter and call
-#                     the script by path, in the permission pattern too.
-#   exec-bit          A script a directive names by a root-anchored path is not
-#                     committed with mode 100755 (`git ls-files -s`). Fix:
+#                     the script by a root-anchored path (below), in the
+#                     permission pattern too, so the rules that follow can
+#                     check it.
+#   exec-bit          A `.sh` a directive names by a root-anchored path is not
+#                     recorded with mode 100755 in git's index (`git ls-files
+#                     -s`), which in CI is the committed mode. Fix:
 #                     `git update-index --chmod=+x <path>`.
 #   shebang           The same script's first line is not a `#!` line. Fix:
 #                     start it with `#!/usr/bin/env bash`.
@@ -52,8 +62,12 @@ set -euo pipefail
 #   docs/**             design and requirements history, which records the form
 #                       each decision was made against.
 #
-# Findings are reported once per rule, file and subject, so a script named
-# forty times from one file is one finding, not forty.
+# Findings are reported once per rule, file and subject, at the first line the
+# subject appears on, so a script named forty times from one file is one
+# finding, not forty. Fixing that line and rerunning reports the next one; grep
+# the file for the subject to fix them all at once. The subject is the script
+# path as the directive writes it (quotes removed), not the resolved path,
+# because that is what an allowlist record names.
 #
 # ---------------------------------------------------------------------------
 # The allowlist
@@ -61,8 +75,8 @@ set -euo pipefail
 #
 # scripts/check-directive-invocations.allow carries known findings, one
 # tab-separated record each, with an issue reference beside every one. A record
-# without an `owner/repo#N` reference is itself an error, so the allowlist
-# cannot silence a finding that has no ticket behind it.
+# without an issue reference (checked as something#N) is itself an error, so
+# the allowlist cannot silence a finding that has no ticket behind it.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -184,9 +198,12 @@ $1|$2|$3
 # path. A line can yield both: `bash {{PLUGIN_ROOT}}/x.sh` is a bash invocation
 # of a script whose exec bit also matters once the interpreter is dropped.
 #
-# The regular expressions are built as strings around a quote variable rather
-# than written with `\047` escapes: busybox awk, which the bash 3.2 floor image
-# carries, does not honour an octal escape inside a bracket expression.
+# Both matches work on the line with its quotes left in for the BASH match
+# (so `bash "x.sh"` is still one operand) and removed for the REF match (so
+# `"$CLAUDE_PLUGIN_ROOT"/x.sh` and `'...'` roots read as bare ones). The
+# single quote reaches awk as the variable Q rather than as a `\047` escape:
+# busybox awk, which the bash 3.2 floor image carries, does not honour an
+# octal escape inside a regular expression.
 scan_file() {
     awk -v Q="'" '
         BEGIN {
@@ -198,8 +215,7 @@ scan_file() {
             # `bash "$CLAUDE_PLUGIN_ROOT"/x.sh`.
             BASH_RE = "(^|[^A-Za-z0-9_.-])(bash|sh)[ \t]+(--?[A-Za-z-]*[ \t]+)*[^ \t`()|;&]*[.]sh([^A-Za-z0-9_]|$)"
         }
-        # unquote <s> -- the token with every quote character removed, so a
-        # quoted root reads the same as a bare one.
+        # unquote <s> -- s with every quote character removed.
         function unquote(s) {
             gsub(/"/, "", s)
             gsub(Q, "", s)
@@ -223,9 +239,9 @@ scan_file() {
                 tok = substr(tok, 1, index(tok, ".sh") + 2)
                 printf "%d\tBASH\t%s\n", NR, tok
             }
-            s = $0
-            while (match(s, /(\{\{PLUGIN_ROOT\}\}|\$\{CLAUDE_PLUGIN_ROOT\}|\$CLAUDE_PLUGIN_ROOT|\$\{CLAUDE_SKILL_DIR\}|\$CLAUDE_SKILL_DIR)"?\/[A-Za-z0-9_.\/-]*\.sh/)) {
-                printf "%d\tREF\t%s\n", NR, unquote(substr(s, RSTART, RLENGTH))
+            s = unquote($0)
+            while (match(s, /(\{\{PLUGIN_ROOT\}\}|\$\{CLAUDE_PLUGIN_ROOT\}|\$CLAUDE_PLUGIN_ROOT|\$\{CLAUDE_SKILL_DIR\}|\$CLAUDE_SKILL_DIR)\/[A-Za-z0-9_.\/-]*\.sh/)) {
+                printf "%d\tREF\t%s\n", NR, substr(s, RSTART, RLENGTH)
                 s = substr(s, RSTART + RLENGTH)
             }
         }
@@ -281,15 +297,27 @@ check_file() {
                 report "$RULE_BASH" "$file" "$lineno" "$token" \
                     "The directive runs the script through an interpreter. A worktree-isolated" \
                     "session refuses that command line; the same call by path passes." \
-                    "Fix: drop the interpreter and run the script by path, including in any" \
-                    "allowed-tools pattern that matches the call."
+                    "Fix: drop the interpreter and run the script by a root-anchored path" \
+                    "({{PLUGIN_ROOT}}/, \${CLAUDE_PLUGIN_ROOT}/, \${CLAUDE_SKILL_DIR}/), including in" \
+                    "any allowed-tools pattern that matches the call."
                 ;;
             REF)
                 rel=$(resolve_ref "$file" "$token")
                 if [ -z "$rel" ]; then
-                    report "$RULE_UNRESOLVED" "$file" "$lineno" "$token" \
-                        "No file at this path in the tree, so its exec bit and interpreter" \
-                        "cannot be checked. Fix the path, or defer it with an issue."
+                    case "$token:$file" in
+                        *CLAUDE_SKILL_DIR*:skills/*/*)
+                            report "$RULE_UNRESOLVED" "$file" "$lineno" "$token" \
+                                "No file at this path in the tree, so its exec bit and interpreter" \
+                                "cannot be checked. Fix the path, or defer it with an issue." ;;
+                        *CLAUDE_SKILL_DIR*)
+                            report "$RULE_UNRESOLVED" "$file" "$lineno" "$token" \
+                                "CLAUDE_SKILL_DIR names the skill directory, and this file is not" \
+                                "inside one (skills/<name>/). Use a \${CLAUDE_PLUGIN_ROOT}/ path." ;;
+                        *)
+                            report "$RULE_UNRESOLVED" "$file" "$lineno" "$token" \
+                                "No file at this path in the tree, so its exec bit and interpreter" \
+                                "cannot be checked. Fix the path, or defer it with an issue." ;;
+                    esac
                     continue
                 fi
                 mode=$(git -C "$ROOT" ls-files -s -- "$rel" | awk 'NR == 1 { print $1 }')

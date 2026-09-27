@@ -158,10 +158,20 @@ test_quoted_root_fails() {
     add_script skills/demo/scripts/run.sh 755
     skill_md <<'EOF'
     bash "$CLAUDE_PLUGIN_ROOT"/skills/demo/scripts/run.sh
+EOF
+    commit
+    assert_fails "a root quoted apart from its path fails" "[bash-invocation] \$CLAUDE_PLUGIN_ROOT/skills/demo/scripts/run.sh"
+    teardown
+}
+
+test_long_flag_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 755
+    skill_md <<'EOF'
     bash -- "${CLAUDE_PLUGIN_ROOT}"/skills/demo/scripts/run.sh
 EOF
     commit
-    assert_fails "a root quoted apart from its path, after a long flag, fails" "[bash-invocation] \$CLAUDE_PLUGIN_ROOT/skills/demo/scripts/run.sh"
+    assert_fails "'bash -- <script>' fails" "[bash-invocation] \${CLAUDE_PLUGIN_ROOT}/skills/demo/scripts/run.sh"
     teardown
 }
 
@@ -172,7 +182,18 @@ test_quoted_root_exec_bit_fails() {
     "$CLAUDE_PLUGIN_ROOT"/skills/demo/scripts/run.sh
 EOF
     commit
-    assert_fails "a quoted root is followed for the exec bit" "committed as 100644"
+    assert_fails "a double-quoted root is followed for the exec bit" "committed as 100644"
+    teardown
+}
+
+test_single_quoted_root_exec_bit_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 644
+    skill_md <<'EOF'
+    '{{PLUGIN_ROOT}}/skills/demo/scripts/run.sh' --flag
+EOF
+    commit
+    assert_fails "a single-quoted root is followed for the exec bit" "committed as 100644"
     teardown
 }
 
@@ -269,7 +290,7 @@ test_skill_dir_outside_skills_fails() {
     mkdir -p "$TEST_DIR/repo/references"
     printf 'Run `${CLAUDE_SKILL_DIR}/scripts/run.sh`.\n' > "$TEST_DIR/repo/references/guide.md"
     commit
-    assert_fails "\${CLAUDE_SKILL_DIR} outside a skill cannot resolve" "[unresolved]"
+    assert_fails "\${CLAUDE_SKILL_DIR} outside a skill cannot resolve" "and this file is not"
     teardown
 }
 
@@ -327,7 +348,9 @@ test_bash_invocation_fails
 test_bash_in_permission_pattern_fails
 test_sh_with_flag_fails
 test_quoted_root_fails
+test_long_flag_fails
 test_quoted_root_exec_bit_fails
+test_single_quoted_root_exec_bit_fails
 test_bash_word_in_prose_passes
 test_evals_are_not_scanned
 
