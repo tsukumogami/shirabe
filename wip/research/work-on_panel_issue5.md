@@ -207,3 +207,117 @@ read (inside the `$(...)`), and close fd 3 in rd_deadline's watcher.
     `--engine` picks up the engine suite. The jq features used (named
     `capture`, `def f($x)`, `ascii_downcase`) are in 1.5, and BSD `sleep`
     takes fractions.
+
+## Round 2 (267f294)
+
+Tests at 267f294:
+
+- reconcile-pass_test.sh: 90 passed, 0 failed
+- reconcile-pass_engine_test.sh: 24 passed, 0 failed
+- coordinate-template-structure_engine_test.sh: 47 passed, 0 failed
+- rule-coverage_test.sh: 198 passed, 0 failed
+
+I re-ran the round 1 probes against 267f294. B3, B4 and B5 are closed.
+toctou_test.sh now shows #10 read for real and reported open. cutoff_test.sh
+shows the clock doesn't move and the pass leaves the read pending.
+forge_test.sh case C shows stdout closing after 0 s. B2 is closed for the
+between-pass layout: the old reads/ and d*.row.json files are no longer
+read (forge_test.sh cases A and B). B1 and the B2/B3 class are still open
+in the forms below. The rd_deadline done/watcher change is ordered
+correctly. `done` is created before the watcher's sleep is killed, so the
+watcher sees it and exits without marking late. A read that ends exactly
+at its deadline still counts as 124, the same as before.
+
+### Blocking
+
+#### R2-B1. `-p` stops only the first bash; the exported functions stay in the environment and every shebang-started child imports them
+
+`bash -p` doesn't import `BASH_FUNC_*`, but it doesn't remove them
+either. `rd_scrub` can't see them (`compgen -e` doesn't list them), so they
+pass through the re-exec. Any script started through its shebang or by a
+plain `bash` imports them. The pass tree does both:
+
+- reconcile-check.sh starts `$RD_BOARD_CHECK` and `$RD_DEFERRAL_CHECK`
+  directly (reconcile-check.sh:558, :690).
+- reconcile-read.sh starts `$RD_COORD_LOG` and `$RD_RECORD_PARSE`
+  directly (reconcile-read.sh:99, :147).
+- coord-log.sh, deferral-check.sh and record-parse.sh call `bash` without
+  `-p`.
+
+Failing input (panel5/fn/run2.sh): with `gh` exported as a function and
+the template's exact command line, the scrubbed script shows 1
+`BASH_FUNC_` entry still in its environment. A shebang child prints
+`type gh -> function; gh says: FORGED`, while a `bash -p` child runs the
+real gh.
+
+End to end (panel5/fn/run3.sh, via chain.sh): a stand-in for the pass,
+started as the template starts it, scrubbed by the shipped rd_scrub, runs
+the real `reconcile-check.sh deferral` the way launch() does. The row has
+an empty disposition. The control run gives `"disposed":false,"how":"empty"`.
+With `jq` exported as a function that answers only the disposition read,
+the same call gives `"disposed":true,"how":"closed"`. The same route
+forges the board verdict (gh in board-verdict.sh), the record's parse
+(record-parse.sh) and the run's facts (koto in coord-log.sh).
+
+The suite's new test (reconcile-pass_test.sh, "an exported function never
+stands in for a tool") checks only the scrubbed script itself, so it
+passes. Fix: make rd_scrub refuse, exit 70, when the environment holds any
+exported function. For example, `/usr/bin/env | grep -q
+'^BASH_FUNC_\|^[A-Za-z_][A-Za-z0-9_]*=() *{'`, run under `-p` so `grep` and
+`env` can't be shadowed. Refusing fits the existing BASH_ENV refusal and
+needs no `env -i`, which would put the token on a command line. Add a test
+that runs a shebang child under the scrub.
+
+#### R2-B2. A result planted in the pass's own reads directory mid-pass is still taken
+
+B2 and B3 moved the reads into `$T/reads` and the document into memory.
+But `launch` still doesn't remove a stale `$R/$id.rc` before it starts
+(reconcile-pass.sh:288-301), and `collect` still takes any `.rc` as done
+(:249-250). The directory is `${TMPDIR:-/tmp}/reconcile-pass.XXXXXX`, mode
+0700 but owned by the same user, and an agent finds it by glob.
+
+Failing input (panel5/toctou2_test.sh): during each pass, the branch
+read's stand-in plays the concurrent writer. It writes `h9.pr.rc` and a
+read-only `h9.pr.out` saying MERGED into every
+`/tmp/reconcile-pass.*/reads` that hasn't launched h9.pr yet. The real PR
+read of #10 never runs (0 calls). The sealed report says "w10: pull
+request: record said open, now merged (measured)", and `report-get
+--check` passes.
+
+This is the same class as round 1's B3, which the fix claims to close ("an
+edit made while a pass runs is overwritten rather than trusted"). Minimal
+fix: `rm -f "$R/$id".*` at the top of launch(), and in collect, accept
+`.rc` only once `kill -0` on the subshell pid fails, meaning it has exited.
+A same-user writer can still overwrite `.out` in the moment between the
+read's exit and collect's read. If that stays open, the DESIGN's Security
+Considerations should say plainly that same-user writes to the pass's
+temporary files are out of scope, like session-directory edits.
+Alternatively, have the subshell hand its result back over a pipe rather
+than a file.
+
+### Advisory
+
+1. The `-p` side effects on the tools are fine. koto, gh, jq, git, niwa and
+   pkill aren't bash, so privileged mode changes nothing for them. In bash,
+   `-p` also ignores SHELLOPTS, BASHOPTS, CDPATH and GLOBIGNORE from the
+   environment, which helps. The suites and the real-koto engine suite pass
+   with it.
+2. `/bin/bash` is now hard-coded in three template command lines. On
+   macOS that pins the pass to bash 3.2, which is covered by the floor CI.
+   On hosts without `/bin/bash`, such as NixOS, the action fails with
+   koto's fallback. Name this in Known Limitations or in requires.
+3. The report reader's own nested `bash "$0" check` inside coord-log.sh
+   (coord-log.sh:172-174) runs without `-p`. Under R2-B1 a forged `koto`
+   there could accept a stale visit's capture in `reconcile`. That's
+   covered once R2-B1 refuses up front.
+4. forge_test.sh case D is unchanged. A failed context add while sealing
+   leaves an unsealed `reconcile/report.json`, and the next pass re-reads
+   the whole visit. It fails in the safe direction.
+5. `local ... done` and `done=...` in rd_deadline
+   (reconcile-deps.sh:71,76) use a reserved word as a variable name. Bash
+   accepts it, and the bash-floor CI job covers 3.2, but a different name
+   such as `fin` avoids a reader's double take.
+6. The directive's "tick again once" on a failed read is reasonable. The
+   refusal file's reason text is what the agent decides on, so keep
+   reconcile-read.sh's exit-5 reasons ("timed out", "could not be read")
+   stable, or put the case in the refusal file as `case: failed`.
