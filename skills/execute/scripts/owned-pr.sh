@@ -104,6 +104,7 @@
 set -uo pipefail
 
 PROG=owned-pr
+SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_BRANCH='^[A-Za-z0-9._/-]+$'
@@ -270,12 +271,13 @@ take_over() {
     body_file=$(mktemp "${TMPDIR:-/tmp}/owned-pr-takeover.XXXXXX") || read_error "mktemp failed"
     # shellcheck disable=SC2064
     trap "rm -f '$body_file'" EXIT
-    printf '%s' "$LIST_JSON" | jq -r --arg url "$url" --arg runid "$RUN_ID" '
-        [.[] | select(type == "object" and .url == $url)][0]
-        | [(.body // "") | tostring | split("\n")[]
-           | select(test("^\\s*<!--\\s*shirabe-run:") | not)]
-        | (join("\n") | sub("\\s+$"; "")) + "\n\n<!-- shirabe-run: " + $runid + " -->"' \
-        > "$body_file" || read_error "could not rebuild the body of $url"
+    # The live body as listed, restamped by run-id.sh: the one writer of the
+    # marker line, so the format lives in one place.
+    printf '%s' "$LIST_JSON" | jq -r --arg url "$url" \
+        '[.[] | select(type == "object" and .url == $url)][0] | (.body // "") | tostring' \
+        > "$body_file" || read_error "could not read the body of $url"
+    "$BASH" "$SELF_DIR/run-id.sh" restamp "$RUN_ID" "$body_file" </dev/null \
+        || read_error "could not restamp the body of $url"
     echo "$PROG: taking over $url: its marker named another run; restamping it with this run's" >&2
     gh pr edit "${url##*/}" --repo "$REPO" --body-file "$body_file" </dev/null >&2 \
         || read_error "gh pr edit failed while taking over $url"

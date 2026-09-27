@@ -18,16 +18,16 @@
 #                             --coord-branch <branch> [--remote <name>]
 #                             [--run-id <id>]
 #
+#     Run in the coordination checkout after the finalization cascade. It
+#     sweeps wip/, pushes the coordination branch, and writes the coordination
+#     PR's own index line (`- coordination | ... | head=<sha>`), the expected
+#     head its merge is checked against.
+#
 # --run-id is this run's identity (`run-id.sh get <session>`, ^[0-9a-f]{32}$).
 # Both lookups carry it, so a PR another run opened is never adopted, and a
 # node PR this script opens carries the run's marker line (`run-id.sh stamp`).
 # Omitted only on a hand run: the lookups then match by login and branch
 # alone, and a new node PR carries no marker.
-#
-#     Run in the coordination checkout after the finalization cascade. It
-#     sweeps wip/, pushes the coordination branch, and writes the coordination
-#     PR's own index line (`- coordination | ... | head=<sha>`), the expected
-#     head its merge is checked against.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
 # no other script, template, or directive writes a `head=` field. It is the

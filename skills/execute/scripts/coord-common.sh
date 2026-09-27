@@ -163,7 +163,7 @@ coord_find_pr() {
     case "$rc" in
         0) [ -n "$out" ] || { echo "$PROG: no owned coordination PR on $1 head $2" >&2; return 3; } ;;
         2) echo "$PROG: the coordination PR lookup failed" >&2; return 2 ;;
-        3|4) echo "$PROG: several owned PRs on $1 head $2; refusing to pick one" >&2; return 3 ;;
+        3|4) echo "$PROG: several owned PRs on $1 head $2, or an ambiguous lookup (owned-pr.sh exit $rc); refusing to pick one" >&2; return 3 ;;
         5) echo "$PROG: the PR on $1 head $2 was opened by another run" >&2; return 3 ;;
         *) echo "$PROG: owned-pr.sh exited $rc" >&2; return 2 ;;
     esac

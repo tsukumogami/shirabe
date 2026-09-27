@@ -63,7 +63,9 @@
 # Confirm mode (--confirm): clear confirm_verdict, re-resolve the PR the same
 # way (never from agent evidence), run `merge-verdict.sh --confirm` on it, and
 # write confirm_verdict only when the line matches
-# ^(merged|not-merged:merge-not-observed)$. Nothing else is read or written.
+# ^(merged|not-merged:merge-not-observed)$. Nothing else is read or written,
+# except that both modes read the session's run identity through run-id.sh,
+# which mints `run_id` if the session has none yet.
 #
 # Exit codes:
 #   0   recorded (in verdict mode this includes the lookup failures of step 3,

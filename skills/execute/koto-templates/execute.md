@@ -640,7 +640,11 @@ states:
       # `gh pr checks ""` would instead fall back to the checked-out branch's
       # PR, whoever opened it. (A shell variable can't carry the URL here:
       # koto hands the command to sh -c unresolved, and
-      # scripts/check-template-interpolation.sh refuses $NAME in a gate.) That
+      # scripts/check-template-interpolation.sh refuses $NAME in a gate.)
+      # `run-id.sh get` here only reads in practice: execute-open.sh and
+      # orchestrator_setup have given the session its run_id long before
+      # ci_monitor. If it ever minted one, the run's own marked PR would read
+      # as another run's and the gate would fail, not pass. That
       # is why these two gates no longer share work-on.md's names (ci_passing,
       # merge_state_clean): validate-template-mermaid.sh check 4 holds one gate
       # name to one command, and the commands now differ.

@@ -249,7 +249,7 @@ if [ "$VERIFY" -eq 1 ]; then
     RC=$?
     case "$RC" in
         0) ;;
-        3|4) not_verified "several owned open PRs on $BRANCH" ;;
+        3|4) not_verified "several owned open PRs on $BRANCH, or an ambiguous lookup (owned-pr.sh exit $RC)" ;;
         5) not_verified "the PR on $BRANCH was opened by another run" ;;
         *) unreadable "owned-pr.sh exited $RC" ;;
     esac
@@ -476,7 +476,7 @@ lookup() {
 lookup
 case "$LRC" in
     0) ;;
-    3|4) fail scope:pr-create "several owned open PRs on $BRANCH; refusing to pick one" ;;
+    3|4) fail scope:pr-create "several owned open PRs on $BRANCH, or an ambiguous lookup (owned-pr.sh exit $LRC); refusing to pick one" ;;
     5) fail scope:pr-create "the PR on $BRANCH was opened by another run; not reusing it" ;;
     *) fail scope:pr-create "the owned-PR lookup failed (owned-pr.sh exit $LRC)" ;;
 esac

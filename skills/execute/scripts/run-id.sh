@@ -30,6 +30,9 @@
 #       Append the marker line for <id> to a PR body about to be created. A
 #       body that already names <id> is left as it is; one naming any other
 #       run is refused.
+#   run-id.sh restamp <id> <body-file>
+#       For owned-pr.sh --take-over: drop every marker line the body carries
+#       and append the one for <id>. The rest of the body is kept.
 #   run-id.sh carry <live-body-file> <new-body-file>
 #       For a full-body rewrite of an existing PR: drop every marker line the
 #       new body carries and append the live body's, so a rewrite can neither
@@ -59,7 +62,7 @@ RE_MARKER_LINE='^[[:space:]]*<!--[[:space:]]*shirabe-run:'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: run-id.sh get <session> | seed <session> <id> | stamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
+    echo "usage: run-id.sh get <session> | seed <session> <id> | stamp <id> <body-file> | restamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
     exit 64
 }
 
@@ -69,7 +72,8 @@ marker_line() { printf '<!-- shirabe-run: %s -->' "$1"; }
 # Only `exists` answering 1 means "none": any other exit is an error rather
 # than a reason to mint. koto answers 1 for some store read errors too, so this
 # narrows the case rather than closing it; a second id minted that way makes
-# the run's own marked PR read as another run's (exit 6), which fails safe.
+# the run's own marked PR read as another run's (owned-pr.sh exit 5,
+# adopt-or-create-pr.sh exit 6), which fails safe.
 stored() {
     local v rc
     koto context exists "$1" run_id </dev/null >/dev/null
@@ -93,6 +97,25 @@ mint() {
     id=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [[ $id =~ $RE_ID ]] || { echo "$PROG: could not mint a run id" >&2; exit 66; }
     printf '%s' "$id"
+}
+
+# marker_lines <file> -- the file's marker lines, each trimmed of surrounding
+# whitespace, which is how every mode here compares them. owned-pr.sh reads
+# the same shape: a line that starts like a marker is one, and only the exact
+# `<!-- shirabe-run: <id> -->` (surrounding whitespace allowed) names a run.
+marker_lines() {
+    grep -E "$RE_MARKER_LINE" "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+# replace_markers <file> <lines> -- drop every marker line from the file, then
+# append <lines> (none when empty) after a blank line.
+replace_markers() {
+    local tmp="$1.run-id.$$"
+    grep -vE "$RE_MARKER_LINE" "$1" > "$tmp"
+    if [ -n "$2" ]; then
+        { printf '\n'; printf '%s\n' "$2"; } >> "$tmp"
+    fi
+    mv -f "$tmp" "$1" || { rm -f "$tmp"; echo "$PROG: could not write $1" >&2; exit 74; }
 }
 
 [ $# -ge 1 ] || usage_error "a mode is required"
@@ -121,27 +144,27 @@ case "$MODE" in
         [ $# -eq 2 ] || usage_error "stamp takes an id and a body file"
         [[ $1 =~ $RE_ID ]] || usage_error "[$1] is not a run id"
         [ -f "$2" ] || { echo "$PROG: no body file [$2]" >&2; exit 74; }
-        OTHERS=$(grep -E "$RE_MARKER_LINE" "$2" | grep -vxF "$(marker_line "$1")")
+        OTHERS=$(marker_lines "$2" | grep -vxF "$(marker_line "$1")")
         if [ -n "$OTHERS" ]; then
             echo "$PROG: the body already names another run" >&2
             exit 65
         fi
-        if ! grep -qxF "$(marker_line "$1")" "$2"; then
+        if ! marker_lines "$2" | grep -qxF "$(marker_line "$1")"; then
             { printf '\n'; marker_line "$1"; printf '\n'; } >> "$2" \
                 || { echo "$PROG: could not write $2" >&2; exit 74; }
         fi
+        ;;
+    restamp)
+        [ $# -eq 2 ] || usage_error "restamp takes an id and a body file"
+        [[ $1 =~ $RE_ID ]] || usage_error "[$1] is not a run id"
+        [ -f "$2" ] || { echo "$PROG: no body file [$2]" >&2; exit 74; }
+        replace_markers "$2" "$(marker_line "$1")"
         ;;
     carry)
         [ $# -eq 2 ] || usage_error "carry takes the live body file and the new body file"
         [ -f "$1" ] || { echo "$PROG: no live body file [$1]" >&2; exit 74; }
         [ -f "$2" ] || { echo "$PROG: no new body file [$2]" >&2; exit 74; }
-        LIVE=$(grep -E "$RE_MARKER_LINE" "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-        TMP="$2.run-id.$$"
-        grep -vE "$RE_MARKER_LINE" "$2" > "$TMP"
-        if [ -n "$LIVE" ]; then
-            { printf '\n'; printf '%s\n' "$LIVE"; } >> "$TMP"
-        fi
-        mv -f "$TMP" "$2" || { rm -f "$TMP"; echo "$PROG: could not write $2" >&2; exit 74; }
+        replace_markers "$2" "$(marker_lines "$1")"
         ;;
     *)
         usage_error "unknown mode [$MODE]"

@@ -42,7 +42,9 @@ ctx="${KOTO_CTX:?}"
 [ "$1" = context ] || { echo "koto stub: only context" >&2; exit 2; }
 f="$ctx/$3.$4"
 case "$2" in
-    exists) [ -f "$f" ] ;;
+    exists)
+        [ -f "$ctx/exists-rc" ] && exit "$(cat "$ctx/exists-rc")"
+        [ -f "$f" ] ;;
     get) [ -f "$f" ] && cat "$f" ;;
     add) cat > "$f" ;;
     *) exit 2 ;;
@@ -107,6 +109,26 @@ else
     fail "carry marked an unmarked PR: [$(cat "$WORK/new.md")]"
 fi
 
+# --- restamp ----------------------------------------------------------------------
+
+printf 'Body line.\n  <!-- shirabe-run: %s -->\nmore words\n' "$A1" > "$WORK/re.md"
+rid restamp "$S" "$WORK/re.md"; RC=$?
+if [ "$RC" -eq 0 ] && grep -qxF "<!-- shirabe-run: $S -->" "$WORK/re.md" \
+    && ! grep -qF "$A1" "$WORK/re.md" && grep -qxF "more words" "$WORK/re.md" \
+    && [ "$(grep -c 'shirabe-run' "$WORK/re.md")" -eq 1 ]; then
+    pass "restamp replaces every marker line (an indented one included) with this run's"
+else
+    fail "restamp: exit $RC, body [$(cat "$WORK/re.md")]"
+fi
+
+printf 'x\n   <!-- shirabe-run: %s -->   \n' "$S" > "$WORK/indent.md"
+rid stamp "$S" "$WORK/indent.md"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(grep -c 'shirabe-run' "$WORK/indent.md")" -eq 1 ]; then
+    pass "stamp reads an indented copy of this run's own marker as this run's, as owned-pr.sh does"
+else
+    fail "stamp on an indented own marker: exit $RC, body [$(cat "$WORK/indent.md")]"
+fi
+
 # --- a stamped body is one owned-pr.sh matches -----------------------------------
 
 cat > "$BIN/gh" <<'STUB'
@@ -156,8 +178,16 @@ expect_rc "stamp with a bad id" 64 stamp xyz "$WORK/body.md"
 expect_rc "stamp on a missing file" 74 stamp "$S" "$WORK/nope.md"
 expect_rc "carry on a missing live file" 74 carry "$WORK/nope.md" "$WORK/body.md"
 touch "$WORK/ctx/fail"
-expect_rc "get when koto fails" 66 get execute-brand-new
+expect_rc "get when every koto call fails (the add of a fresh id fails)" 66 get execute-brand-new
 rm -f "$WORK/ctx/fail"
+echo 2 > "$WORK/ctx/exists-rc"
+expect_rc "get when koto context exists errors (not 'absent'): no id is minted" 66 get execute-demo
+rm -f "$WORK/ctx/exists-rc"
+if [ "$(cat "$WORK/ctx/execute-demo.run_id")" = "$A1" ]; then
+    pass "an exists error left the stored id untouched"
+else
+    fail "an exists error changed the stored id"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

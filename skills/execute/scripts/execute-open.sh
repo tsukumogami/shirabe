@@ -174,7 +174,9 @@ fi
 # replaces the session: a replacement starts with empty context, and without
 # the id it would find the PR the earlier run opened carrying a foreign marker.
 # Seeded into the new session below, so a re-invocation in the same place is
-# the same run to the ownership filter.
+# the same run to the ownership filter. This read is deliberately loose (any
+# failure just skips the carry, and a live session attached below keeps its
+# own id anyway); the strict read is `run-id.sh get`, which runs after the open.
 PRIOR_RUN_ID=""
 if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null \
     && koto context exists "$SESSION" run_id >/dev/null; then

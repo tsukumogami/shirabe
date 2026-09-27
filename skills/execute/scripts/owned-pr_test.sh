@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# owned-pr_test.sh — the ownership filter's four outcomes, table-driven
+# owned-pr_test.sh — the ownership filter's outcomes, table-driven
 # Part of the execute skill
 #
 # owned-pr.sh is the one head-branch lookup /execute, /scope, and /deliver share.

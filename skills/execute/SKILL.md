@@ -484,7 +484,7 @@ coordinated scripts). It keeps only PRs whose head is in the same repository
 is the expected branch, and whose head is the expected branch, and it never
 picks among several.
 
-Those four checks can't tell two runs apart: two sessions resuming the same
+Those checks (with the state filter, the five `owned-pr.sh` lists) can't tell two runs apart: two sessions resuming the same
 PLAN slug under one account share the author and the head branch. So ownership
 is decided by the run that created the PR. Every PR `/execute` opens (the home
 PR in `adopt-or-create-pr.sh --create`, a node PR in `node-push.sh`) carries one
@@ -555,7 +555,7 @@ terminal is not attempted: a live run elsewhere is invisible from here, and
 koto disposes a child session at its terminal (koto#240), so "no session
 found" proves nothing. `owned-pr.sh --take-over`
 rewrites that one PR's marker to name this run and adopts it; it only ever
-touches a PR that passed the four checks above (this repository, this login,
+touches a PR that passed the other checks above (this repository, this login,
 the base, the branch), and it picks nothing when several foreign-marked PRs
 are there. No other lookup passes `--take-over`, so an ordinary lookup never
 takes a PR over silently. Without the signal the run ends
