@@ -1256,7 +1256,9 @@ derived at this report and never stored. The report is the reads: don't re-run t
 report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
 At discipline scope, `reconcile/reasoning.md` is the previous rotation's
-reasoning as it wrote it: its view, not re-checked.
+reasoning as it wrote it: its view, not re-checked. Attribute it to the
+previous rotation and give it no grade; it isn't a claim the report measured,
+verified or inferred, and it doesn't go among the re-checked claims.
 
 This state's gate re-checks that `reconcile/report.json` is the report the pass
 sealed in this visit; a report written or changed by anyone else holds the
