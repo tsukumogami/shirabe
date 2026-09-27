@@ -39,7 +39,6 @@
 #   no default_action command holds ${context.
 #
 # and, engine-free, over the source and the skill's tree:
-#   the template carries the `# koto-floor: pinned` marker
 #   `outcome=` followed by `refused` appears nowhere under skills/execute/
 #   the only line that builds a `head=` field is in node-push.sh
 #
@@ -67,12 +66,6 @@ command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 [ -f "$TEMPLATE" ] || { echo "FAIL: $TEMPLATE not found" >&2; exit 1; }
 
 # --- engine-free ------------------------------------------------------------------
-
-if grep -q '^# koto-floor: pinned' "$TEMPLATE"; then
-    pass "execute-coordinated.md carries the # koto-floor: pinned marker"
-else
-    fail "execute-coordinated.md lacks the # koto-floor: pinned marker"
-fi
 
 # The token is built from two halves so this file doesn't carry it either.
 BANNED="outcome=""refused"

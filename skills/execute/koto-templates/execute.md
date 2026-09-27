@@ -40,10 +40,6 @@
 # check 4 holds one name to one command across templates.
 name: execute
 version: "1.0"
-# koto-floor: pinned -- result maps, constrained and rebindable variables,
-# transition context_assignments, and non-overridable gates need koto
-# 0.13.0 or later, the floor skills/execute/requires.tsv declares. The
-# v0.12.2 floor check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
   Plan orchestrator template. Records the run's write set, creates or adopts
   the shared branch and draft PR, spawns per-issue work-on.md children, awaits

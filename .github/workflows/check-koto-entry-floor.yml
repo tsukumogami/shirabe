@@ -1,17 +1,13 @@
 name: Check koto entry floor
 
-# /scope, /execute and /deliver, and /work-on under --koto-leg, require koto
-# 0.13.0 or later, the floor scripts/assert-koto-floor.sh holds. .tsuku.toml tracks the newest koto 0.x
-# rather than pinning a release, so every other workflow runs whatever 0.x is
-# newest, and nothing else would notice shirabe starting to depend on something
-# the floor release lacks. This job installs exactly the floor release -- the
-# version is read from assert-koto-floor.sh, its one definition -- and runs
-# those skills' template compiles and koto-backed suites on it.
-#
-# It lives apart from check-koto-floor.yml (the /work-on v0.12.2 floor) because
-# that workflow may download nothing itself: its koto comes only from an
-# installer fetched at a pinned commit and checked against a SHA-256, and its
-# test enforces that. This job installs koto through tsuku, like the rest of CI.
+# Every koto-backed skill -- /scope, /execute, /deliver and /work-on -- requires
+# the koto minimum scripts/assert-koto-floor.sh defines, and that file is its one
+# definition. .tsuku.toml tracks the newest koto 0.x rather than pinning a
+# release, so every other workflow runs whatever 0.x is newest, and nothing else
+# would notice shirabe starting to depend on something the minimum release
+# lacks. This job installs exactly the minimum -- the version is read from
+# assert-koto-floor.sh -- and runs the templates' compiles, the decider check
+# (scripts/check-koto-release.sh), and the skills' koto-backed suites on it.
 
 on:
   pull_request:
@@ -19,10 +15,15 @@ on:
       - 'skills/scope/**'
       - 'skills/execute/**'
       - 'skills/deliver/**'
-      # The scope and execute suites call /plan's and /work-on's scripts.
+      - 'skills/work-on/**'
+      # The scope and execute suites call /plan's scripts.
       - 'skills/plan/scripts/**'
-      - 'skills/work-on/scripts/**'
       - 'scripts/assert-koto-floor.sh'
+      - 'scripts/assert-koto-floor_test.sh'
+      - 'scripts/check-koto-release.sh'
+      - 'scripts/koto-minimum-consistency_test.sh'
+      - 'README.md'
+      - 'docs/guides/execute-friction.md'
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
       - 'scripts/plan-mode.sh'
@@ -102,16 +103,26 @@ jobs:
             exit 1
           fi
 
-      - name: Compile the /scope, /execute and /deliver templates
+      - name: Compile every shipped template
         run: |
           set -euo pipefail
           for t in skills/scope/koto-templates/scope.md \
                    skills/execute/koto-templates/execute.md \
                    skills/execute/koto-templates/execute-coordinated.md \
-                   skills/deliver/koto-templates/deliver.md; do
+                   skills/deliver/koto-templates/deliver.md \
+                   skills/work-on/koto-templates/work-on.md; do
             echo "Compiling $t..."
             koto template compile "$t" >/dev/null
           done
+
+      # Decider declarations compile on the minimum, and its decider floor rule
+      # refuses an auto answer on a route to a terminal.
+      - name: Check the decider declarations on the minimum
+        run: bash scripts/check-koto-release.sh
+
+      # Every file that states the minimum states this one value.
+      - name: Check the koto minimum is stated consistently
+        run: bash scripts/koto-minimum-consistency_test.sh
 
       - name: Run the shared entry and preflight suites
         run: |
@@ -147,7 +158,12 @@ jobs:
           bash skills/deliver/scripts/deliver-engine_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
 
-      - name: Run /work-on's --koto-leg entry suites
+      - name: Run /work-on's koto-backed suites
         run: |
+          bash skills/work-on/scripts/terminal-retention_test.sh
+          bash skills/work-on/scripts/ci-monitor-role_test.sh
+          bash skills/work-on/scripts/retry-clearing_test.sh
+          bash skills/work-on/scripts/finalization-shape_test.sh
+          bash skills/work-on/scripts/record-changed-paths_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh

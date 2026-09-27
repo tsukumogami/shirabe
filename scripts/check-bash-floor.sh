@@ -110,17 +110,12 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Three also shell out to python3, so a floor run would
 #       mostly exercise that rather than bash.
-#   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
-#   scripts/check-koto-release.sh, scripts/koto-floor/ (check-koto-floor.yml)
-#       The koto version-floor check and its release leg. They run only on
-#       ubuntu runners, from their own workflow, and no skill invokes them, so
-#       they never reach a macOS /bin/bash on a user's machine. Both checks
-#       install koto over the network, which a container run here cannot do.
-#       The floor image now carries yq (for the decider-declarations check),
-#       but the test has never been run inside it and stays exempt with the
-#       checks it covers. All three are written for bash 3.2 and were run under
-#       macOS /bin/bash when they changed; run them there by hand after
-#       changing them.
+#   scripts/check-koto-release.sh (check-koto-entry-floor.yml)
+#       The decider check on the koto minimum. It runs only on the ubuntu
+#       runner that installs exactly that release, and no skill invokes it,
+#       so it never reaches a macOS /bin/bash on a user's machine. It is
+#       written for bash 3.2; run it under macOS /bin/bash by hand after
+#       changing it.
 #
 # Backend limit, not an exemption: the `preflight` suite fails on the docker
 # backend for non-bash reasons (busybox lacks `ps -o pgid=` and job control),
@@ -281,6 +276,8 @@ suite_scripts() {
             echo "scripts/koto-open_test.sh"
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
+            # Reads files and greps them; no koto, so every case runs on 3.2.
+            echo "scripts/koto-minimum-consistency_test.sh"
             ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the
