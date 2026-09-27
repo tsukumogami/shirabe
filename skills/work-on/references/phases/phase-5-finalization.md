@@ -29,7 +29,8 @@ log (koto#240), so the parent can't retry it. Here a failure only holds. A
 state stays `finalization`, and the response's `blocking_conditions` names the
 failing gate. Fix that artifact and submit again:
 
-- `summary_shape` failed: add the `## Changes Made` section to `summary.md`.
+- `summary_exists` or `summary_shape` failed: write `summary.md` with a
+  `## Changes Made` section.
 - `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`.
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
   `design_diagram: not-applicable: <reason>` in `pre_pr.md`.

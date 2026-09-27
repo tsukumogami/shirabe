@@ -1828,7 +1828,8 @@ run at `done_blocked`. Here a failure only holds: the submission matches no edge
 the state stays `finalization`, and `blocking_conditions` names the failing gate.
 Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
 
-- `summary_shape` failed: add the `## Changes Made` section to `summary.md`.
+- `summary_exists` or `summary_shape` failed: write `summary.md` with a
+  `## Changes Made` section.
 - `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, a sha
   and not a word such as `done`.
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
@@ -1859,7 +1860,8 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
   lacks the required shape. Fix that artifact with `koto context add` and submit
-  again: `summary_shape` needs a `## Changes Made` heading in `summary.md`;
+  again: `summary_exists` and `summary_shape` need a `summary.md` with a
+  `## Changes Made` heading;
   `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`;
   `diagram_referent` needs `design_diagram: docs/<path>.md` or
   `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
