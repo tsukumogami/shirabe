@@ -18,6 +18,9 @@ on:
       - '.github/workflows/check-release-workflows.yml'
       - 'scripts/release-workflow-inputs_test.sh'
 
+permissions:
+  contents: read
+
 jobs:
   inputs-via-env:
     runs-on: ubuntu-latest

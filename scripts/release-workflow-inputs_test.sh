@@ -34,7 +34,17 @@
 #   control     a fixture workflow that interpolates the tag into its script:
 #               the harness must see its canary fire. If it doesn't, the harness
 #               can't detect anything and the suite is VOID.
-#   static      no `run:` text may contain an inputs.* or steps.* expression.
+#   static      no `run:` text may contain an inputs.*, steps.* or
+#               github.event.* expression. A planted fixture proves the check
+#               flags each of the three.
+#   output-injection
+#               one string input at a time carries a newline and `injected=1`,
+#               sequential: no step may end up with an `injected` output.
+#   existing-tag
+#               release.yml only: the tag already on the remote must stop the
+#               job at "Validate no existing tag", a ref that merely shares the
+#               prefix must not, and a failed tag lookup must stop the job too.
+#               The remote is the gh stub's `git/matching-refs` answer.
 #
 # Usage:
 #   scripts/release-workflow-inputs_test.sh [--workflows DIR]
@@ -95,6 +105,8 @@ mkdir -p "$STUBS"
 cat > "$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 # A draft release with five assets, no existing releases in lists, push access.
+# The tag lookup returns $STUB_MATCHING_REFS (default: no refs), or fails when
+# $STUB_TAG_LOOKUP_FAILS is set.
 case "$1 $2" in
     "release view") echo '{"isDraft":true,"assets":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"},{"name":"e"}]}' ;;
     "release list") echo '[]' ;;
@@ -102,6 +114,9 @@ case "$1 $2" in
     api\ *)
         case "$2" in
             */releases) echo '[]' ;;
+            */git/matching-refs/*)
+                if [ -n "${STUB_TAG_LOOKUP_FAILS:-}" ]; then echo "gh stub: HTTP 500" >&2; exit 1; fi
+                echo "${STUB_MATCHING_REFS:-[]}" ;;
             *) echo 'true' ;;
         esac ;;
     *) echo "gh stub: unhandled: $*" >&2; exit 1 ;;
@@ -238,11 +253,13 @@ eval_if() {
 # run_workflow <extracted-dir> <mode> <canary-dir>
 # Runs the steps; sets FIRED to the names of steps after which a canary
 # appeared, STEP_FAILURES to the number of steps that exited non-zero, RAN to
-# the number of run steps executed. Returns 2 on VOID.
+# the number of run steps executed, FIRST_FAILED to the name of the first step
+# that exited non-zero. Returns 2 on VOID.
 run_workflow() {
     local ex="$1" mode="$2" canaries="$3" n i name id cond rc k envargs
     local ws="$WORK/ws" out f fired
     FIRED=""
+    FIRST_FAILED=""
     STEP_FAILURES=0
     RAN=0
     rm -rf "$ws" "$OUTS"
@@ -282,7 +299,10 @@ run_workflow() {
             ${envargs[@]+"${envargs[@]}"} \
             bash -e "$WORK/step.sh") > "$WORK/step-log" 2>&1 || rc=$?
         RAN=$((RAN + 1))
-        [ "$rc" = 0 ] || STEP_FAILURES=$((STEP_FAILURES + 1))
+        if [ "$rc" != 0 ]; then
+            STEP_FAILURES=$((STEP_FAILURES + 1))
+            [ -n "$FIRST_FAILED" ] || FIRST_FAILED="$name"
+        fi
 
         if [ -n "$id" ]; then
             mkdir -p "$OUTS/$id"
@@ -387,6 +407,47 @@ else
     exit 2
 fi
 
+# static_hits <extracted-dir>: sets HITS to the names of run steps whose text
+# contains an inputs.*, steps.* or github.event.* expression.
+static_hits() {
+    local d
+    HITS=""
+    for d in "$1"/steps/*; do
+        [ -f "$d/run" ] || continue
+        if grep -qE '\$\{\{[[:space:]]*(inputs|steps|github\.event)\.' "$d/run"; then
+            HITS="$HITS '$(cat "$d/name")'"
+        fi
+    done
+}
+
+# Control: the static check must flag each kind of expression it looks for.
+STATIC_CONTROL="$WORK/static-control.yml"
+cat > "$STATIC_CONTROL" <<'EOF'
+on:
+  workflow_call:
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: planted inputs
+        run: echo "${{ inputs.tag }}"
+      - name: planted steps
+        run: echo "${{ steps.x.outputs.y }}"
+      - name: planted github.event
+        run: echo "${{ github.event.pull_request.title }}"
+      - name: clean
+        run: echo "$TAG"
+EOF
+mkdir -p "$WORK/ex-static-control"
+extract "$STATIC_CONTROL" "$WORK/ex-static-control" >/dev/null || { void "static control: extraction failed"; exit 2; }
+static_hits "$WORK/ex-static-control"
+if [ "$HITS" = " 'planted inputs' 'planted steps' 'planted github.event'" ]; then
+    pass "static control: flags planted inputs.*, steps.* and github.event.* and nothing else"
+else
+    void "static control: expected the three planted steps, got:$HITS"
+    exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # The workflows under test
 # ---------------------------------------------------------------------------
@@ -398,18 +459,12 @@ for wf in release.yml finalize-release.yml; do
     mkdir -p "$ex"
     if ! msg=$(extract "$path" "$ex"); then void "$wf: $msg"; continue; fi
 
-    # static: no inputs.* or steps.* expression inside run text.
-    hits=""
-    for d in "$ex"/steps/*; do
-        [ -f "$d/run" ] || continue
-        if grep -qE '\$\{\{[[:space:]]*(inputs|steps)\.' "$d/run"; then
-            hits="$hits '$(cat "$d/name")'"
-        fi
-    done
-    if [ -z "$hits" ]; then
-        pass "$wf static: no inputs.* or steps.* expression in any run: block"
+    # static: no inputs.*, steps.* or github.event.* expression in run text.
+    static_hits "$ex"
+    if [ -z "$HITS" ]; then
+        pass "$wf static: no inputs.*, steps.* or github.event.* expression in any run: block"
     else
-        fail "$wf static: expressions expanded into run: text in step(s)$hits"
+        fail "$wf static: expressions expanded into run: text in step(s)$HITS"
     fi
 
     # clean: valid inputs run to completion.
@@ -441,6 +496,66 @@ for wf in release.yml finalize-release.yml; do
             done
         done
     done
+
+    # output injection: one string input at a time carries a newline and a
+    # key=value line, the others are valid. Nothing may appear as an extra
+    # step output. Sequential, so this is what the runner would do.
+    while read -r name type _; do
+        [ "$type" = string ] || continue
+        for dry in false true; do
+            if ! set_inputs "$ex" "" "$dry"; then void "$wf output-injection $name: inputs"; continue; fi
+            clean=""
+            read_file clean "$IN/$name"
+            printf '%s\ninjected=1' "$clean" > "$IN/$name"
+            rc=0; run_workflow "$ex" sequential "$CANARIES" || rc=$?
+            if [ "$rc" = 2 ]; then void "$wf output-injection $name dry-run=$dry"; continue; fi
+            leaked=""
+            for f in "$OUTS"/*/injected; do
+                [ -e "$f" ] && leaked="$leaked ${f#"$OUTS"/}"
+            done
+            if [ -z "$leaked" ]; then
+                pass "$wf output-injection $name dry-run=$dry: no extra step output"
+            else
+                fail "$wf output-injection $name dry-run=$dry: extra step output$leaked"
+            fi
+        done
+    done < "$ex/inputs"
+
+    # existing tag: only for a workflow that has the check. The tag lookup is
+    # the gh stub's, fed by STUB_MATCHING_REFS / STUB_TAG_LOOKUP_FAILS.
+    if grep -qx 'Validate no existing tag' "$ex"/steps/*/name; then
+        set_inputs "$ex" "" false >/dev/null
+
+        export STUB_MATCHING_REFS='[{"ref":"refs/tags/v1.2.3"}]'
+        rc=0; run_workflow "$ex" sequential "$CANARIES" || rc=$?
+        unset STUB_MATCHING_REFS
+        if [ "$rc" = 2 ]; then void "$wf existing-tag"
+        elif [ "$FIRST_FAILED" = "Validate no existing tag" ]; then
+            pass "$wf existing-tag: v1.2.3 already on the remote stops the job at 'Validate no existing tag'"
+        else
+            fail "$wf existing-tag: v1.2.3 already on the remote, but the first failing step was '${FIRST_FAILED:-none}'"
+        fi
+
+        export STUB_MATCHING_REFS='[{"ref":"refs/tags/v1.2.30"}]'
+        rc=0; run_workflow "$ex" sequential "$CANARIES" || rc=$?
+        unset STUB_MATCHING_REFS
+        if [ "$rc" = 2 ]; then void "$wf existing-tag prefix"
+        elif [ "$STEP_FAILURES" = 0 ]; then
+            pass "$wf existing-tag prefix: only v1.2.30 on the remote, v1.2.3 proceeds"
+        else
+            fail "$wf existing-tag prefix: only v1.2.30 on the remote, but '$FIRST_FAILED' failed"
+        fi
+
+        export STUB_TAG_LOOKUP_FAILS=1
+        rc=0; run_workflow "$ex" sequential "$CANARIES" || rc=$?
+        unset STUB_TAG_LOOKUP_FAILS
+        if [ "$rc" = 2 ]; then void "$wf existing-tag lookup-failure"
+        elif [ "$FIRST_FAILED" = "Validate no existing tag" ]; then
+            pass "$wf existing-tag lookup-failure: a failed tag lookup stops the job"
+        else
+            fail "$wf existing-tag lookup-failure: the tag lookup failed, but the first failing step was '${FIRST_FAILED:-none}'"
+        fi
+    fi
 done
 
 echo

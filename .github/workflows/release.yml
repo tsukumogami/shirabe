@@ -77,6 +77,7 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
           VERSION: ${{ inputs.version }}
+          SUFFIX: ${{ inputs.dev-suffix }}
         run: |
           # [[ =~ ]] matches the whole string, so a value with an embedded
           # newline can't pass on the strength of one valid line.
@@ -87,6 +88,12 @@ jobs:
           # VERSION feeds shell arithmetic when the next dev version is computed.
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Version $(printf '%q' "$VERSION") does not match <major>.<minor>.<patch>"
+            exit 1
+          fi
+          # SUFFIX ends up in GITHUB_OUTPUT, where a newline would start
+          # another output.
+          if ! [[ "$SUFFIX" =~ ^[A-Za-z0-9._-]*$ ]]; then
+            echo "::error::dev-suffix $(printf '%q' "$SUFFIX") may only contain letters, digits, '.', '_' and '-'"
             exit 1
           fi
 
@@ -116,7 +123,17 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           TAG: ${{ inputs.tag }}
         run: |
-          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+          # This runs before Checkout, so there is no local repository and no
+          # `origin` to ls-remote against; ask the API instead. matching-refs
+          # is a prefix match (v1.2.3 also finds v1.2.30), so compare the ref
+          # exactly. A failed lookup fails the step rather than passing it.
+          set -o pipefail
+          if ! COUNT=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" \
+              | jq --arg ref "refs/tags/$TAG" '[.[] | select(.ref == $ref)] | length'); then
+            echo "::error::Could not list tags on $GITHUB_REPOSITORY to check for $TAG"
+            exit 1
+          fi
+          if [ "$COUNT" != 0 ]; then
             echo "::error::Tag $TAG already exists on remote"
             echo "Delete it first: git push --delete origin $TAG"
             exit 1
@@ -238,6 +255,11 @@ jobs:
           # isn't enough on its own for this step.
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Version $(printf '%q' "$VERSION") does not match <major>.<minor>.<patch>"
+            exit 1
+          fi
+          # SUFFIX is written to GITHUB_OUTPUT below.
+          if ! [[ "$SUFFIX" =~ ^[A-Za-z0-9._-]*$ ]]; then
+            echo "::error::dev-suffix $(printf '%q' "$SUFFIX") may only contain letters, digits, '.', '_' and '-'"
             exit 1
           fi
           # Bump patch: 0.3.0 -> 0.3.1
