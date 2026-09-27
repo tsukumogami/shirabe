@@ -366,7 +366,7 @@ The record:
       the four sections with R14's columns, and parses back to its input; two renders
       differ only in `Written:`.
 - [ ] The renderer refuses a status, CI or merge-state column, a phase other than
-      `scoping-ahead` or `executing`, and worker values shaped like a session id, a path or a
+      `scoping-ahead`, `executing` or `held`, and worker values shaped like a session id, a path or a
       job id; it accepts a dispatch topic.
 - [ ] A cell holding a pipe, a newline, a backtick run or a fence opener round-trips
       unchanged and every row keeps its column count.

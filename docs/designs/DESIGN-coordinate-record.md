@@ -602,7 +602,8 @@ Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, 
 Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side
 effects in flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date,
 Reversed, Now, Reason, From, where Date is `YYYY-MM-DDTHH:MMZ` so "added since the event" can't be
-met by an earlier reversal the same day. Phase is `scoping-ahead` or `executing`; Dispatch status is
+met by an earlier reversal the same day. Phase is `scoping-ahead`, `executing` or `held` (a verified pull request whose merge the human
+directed held although the workspace permits it; `merge: held` at land_merge routes to surface); Dispatch status is
 `dispatching`, `dispatched` or `dispatch-failed`; Return path is `message` or
 `leg <request-id>:<leg>`; Branch is empty until known; Raised, Attempted and a carry-forward's
 time are `YYYY-MM-DDTHH:MMZ`; Disposition is empty, `filed #<n>`, `closed: <text>` or

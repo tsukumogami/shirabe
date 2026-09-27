@@ -706,9 +706,9 @@ states:
     accepts:
       merge:
         type: enum
-        values: [attempted, failed]
+        values: [attempted, failed, held]
         required: true
-        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed.
+        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed; held when the human directed merges held, without running it.
     transitions:
       - target: merge_confirm
         when:
@@ -716,6 +716,9 @@ states:
       - target: failure
         when:
           merge: failed
+      - target: surface
+        when:
+          merge: held
 
   merge_confirm:
     default_action:
@@ -1484,13 +1487,19 @@ permits.
 ## land_merge
 
 The workspace permits the merge. Run `land-merge.sh` exactly once, then submit
-`merge: attempted`, or `failed` when it refused or the call failed.
+`merge: attempted`, or `failed` when it refused or the call failed. When the
+human has directed merges held, don't run it: submit `merge: held`.
 
 <!-- details -->
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/land-merge.sh" --session "{{SESSION_NAME}}"
 ```
+
+A hold the human directed is theirs to lift, and it narrows only what you do, not
+what the workspace permits: the pull request stays verified and goes to the human
+with the merge-order table, and its holding's Phase becomes `held`. A hold is not
+a failure, and it doesn't escalate.
 
 It reads the land check's verdict from the session log, re-reads the posture, and
 merges only at the verified head. After it returns, the next state confirms the
@@ -1534,7 +1543,8 @@ worker, the decision with one recommendation (`surfaced: blocker`).
 
 A parked worker is one with a verified, ready pull request waiting only on a
 merge. After a merge-order table, record the holding as parked with its verified
-head; if a pull request's head moves after you hand the table over, it drops
+head, and with Phase `held` when you came here because the human directed merges
+held (the record step checks it); if a pull request's head moves after you hand the table over, it drops
 back to unverified until you read it again.
 
 ## teardown

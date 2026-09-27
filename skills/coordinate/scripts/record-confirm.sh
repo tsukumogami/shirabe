@@ -12,7 +12,10 @@
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic
 #   surface         (merge_table) the unit's row has a Verified head; the unit
-#                   is the latest `wait` evidence's `unit` before the source
+#                   is the latest `wait` evidence's `unit` before the source.
+#                   When surface was entered from land_merge on `merge: held`
+#                   (the human directed a hold the workspace doesn't require),
+#                   the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
 #   merged_facts    the unit's Holdings row no longer links #<pr>;
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
@@ -238,8 +241,22 @@ dispatch)
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }
     UNIT=$(wait_unit "$EVSEQ")
-    EXPECT="the row for $UNIT has a Verified head"
-    [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\")" || OKX=0
+    # Held by direction: the latest entry into surface came from land_merge,
+    # whose last evidence there says held. Read from the log, never a key.
+    SFROM=$(jq -r --argjson q "$ESEQ" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+        and .payload.to == "surface" and .seq < $q) | .payload.from // ""' "$LOG" | tail -1)
+    HELD=0
+    if [ "$SFROM" = land_merge ]; then
+        LM=$(evidence land_merge "$ESEQ")
+        [ "$(printf '%s' "$LM" | jq -r '.fields.merge // ""')" = held ] && HELD=1
+    fi
+    if [ "$HELD" = 1 ]; then
+        EXPECT="the row for $UNIT has a Verified head and Phase held"
+        [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\" and .phase == \"held\")" || OKX=0
+    else
+        EXPECT="the row for $UNIT has a Verified head"
+        [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\")" || OKX=0
+    fi
     ;;
 teardown)
     UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // .fields.topic // ""')

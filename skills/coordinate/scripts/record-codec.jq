@@ -82,7 +82,7 @@ def check_cell($key; $private):
     elif ($v == "") and (any(optional_cols[]; . == $key) | not) then refuse("\($key): empty")
     elif $v == "" then $v
     elif $key == "worker" then check_worker
-    elif $key == "phase" then (if test("^(scoping-ahead|executing)$") then . else refuse("phase: not scoping-ahead or executing") end)
+    elif $key == "phase" then (if test("^(scoping-ahead|executing|held)$") then . else refuse("phase: not scoping-ahead, executing or held") end)
     elif $key == "dispatch_status" then (if test("^(dispatching|dispatched|dispatch-failed)$") then . else refuse("dispatch_status: not dispatching, dispatched or dispatch-failed") end)
     elif $key == "return_path" then (if test("^(message|leg [a-z0-9_][a-z0-9_-]{0,63}:[a-z0-9_-]+)$") then . else refuse("return_path: not `message` or `leg <request-id>:<leg>` (the word leg, a space, then the request and leg)") end)
     elif $key == "repo" then (if test(re_repo) then . else refuse("repo: not owner/repo") end)

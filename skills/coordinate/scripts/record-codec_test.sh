@@ -115,6 +115,7 @@ refuse "a worker UUID is refused" "$(full_record | jq -c '.holdings[0].worker = 
 refuse "a worker session_ id is refused" "$(full_record | jq -c '.holdings[0].worker = "session_01ABCdef"')" "session id"
 refuse "a worker instance name is refused" "$(full_record | jq -c '.holdings[0].worker = "tsuku+topic-43e4a66f"')" "instance name"
 refuse "a worker job id is refused" "$(full_record | jq -c '.holdings[0].worker = "123456"')" "job id"
+roundtrip "a held phase round-trips" "$(full_record | jq -c '.holdings[0].phase = "held"')"
 refuse "a bad phase is refused" "$(full_record | jq -c '.holdings[0].phase = "planning"')" "phase"
 refuse "a bad dispatch status is refused" "$(full_record | jq -c '.holdings[0].dispatch_status = "sent"')" "dispatch_status"
 refuse "a bad return path is refused" "$(full_record | jq -c '.holdings[0].return_path = "leg"')" "return_path"

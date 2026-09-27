@@ -25,6 +25,7 @@ stateDiagram-v2
     land --> failure : gates.land_verdict.exit_code: 84
     land_merge --> merge_confirm : merge: attempted
     land_merge --> failure : merge: failed
+    land_merge --> surface : merge: held
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 90
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 91
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 90

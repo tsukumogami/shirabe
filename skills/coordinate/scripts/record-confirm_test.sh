@@ -78,6 +78,22 @@ eq "surface: the unit's row with a Verified head confirms" confirmed "$(confirm)
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "surface: the unit's row without a Verified head waits" waiting "$(confirm)"
 
+echo "== surface after a directed hold =="
+session
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait report_facts; log_to "$S" report_facts classify_report
+log_to "$S" classify_report verify; log_to "$S" verify land; log_to "$S" land land_merge
+log_evidence "$S" land_merge '{"merge":"held"}' "$EVT"
+log_to "$S" land_merge surface "$EVT"
+log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
+log_to "$S" surface record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\",\"phase\":\"held\"}")" '.holdings = [$h]')"
+eq "held: a Verified head and a held Phase confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\",\"phase\":\"executing\"}")" '.holdings = [$h]')"
+eq "held: a Verified head with Phase executing waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"phase\":\"held\"}")" '.holdings = [$h]')"
+eq "held: a held Phase without a Verified head waits" waiting "$(confirm)"
+
 GADGETS12='{"repo":"acme/gadgets","branch":"feat/y","pull_request":"[#12](https://github.com/acme/gadgets/pull/12)"}'
 
 echo "== merge_confirm and merged_facts =="
