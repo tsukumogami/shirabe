@@ -404,13 +404,14 @@ design question the record's tooling will settle.
   those skills decide it by author login and branch name, and every worker
   a coordinator dispatches shares one login. The coordinator's own lookups
   go by pull request number and by dispatch topic.
-- **Where merge order is recorded (#396).** When a worker runs a
+- **Where merge order is recorded (#396, fixed).** When a worker runs a
   coordinated PLAN, the skill depends on that PLAN's merge order being
-  recorded where a reader can find it after the PLAN is gone. Today the
-  merge-order block of the coordination pull request `/execute` opens for
-  such a PLAN is written empty and never updated. This is the worker's
-  coordination pull request, not the coordinator's record, which has no
-  merge-order section.
+  recorded where a reader can find it after the PLAN is gone. `/execute`
+  renders it into the merge-order block of that PLAN's coordination pull
+  request from the PLAN's `waits_on` graph on every node push and again at
+  the cascade step; the merge gate never reads the block. This is the
+  worker's coordination pull request, not the coordinator's record, which
+  has no merge-order section.
 
 ## Changing This Skill
 

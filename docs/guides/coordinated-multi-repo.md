@@ -28,10 +28,20 @@ and posts and refreshes it with `gh pr create` / `gh pr edit`.
 `shirabe validate --coordination-body <file>` gives offline authoring feedback
 (declaration marker, ref validity, acyclic merge order) before the post.
 
+The body's `## Merge Order` section is where the order outlives the PLAN.
+`/scope` opens the coordination PR with an empty fenced `merge-order` block, and
+every node push in `/execute`, and a last render just before the finalization
+cascade, re-renders it from the PLAN's `waits_on` graph:
+each PR node and gate node on its own line, after its predecessors, as an
+opaque node id with the nodes it waits on. The finalization cascade deletes the
+PLAN, so after merge this block is the one place the order can still be read.
+
 The merge-last gate is the safety net: even if the authored body is stale or
 hand-edited, `shirabe validate --merge-gate` recomputes merge state live from
 `gh` and fails closed, so the coordination PR can't merge until every indexed
-PR has. An authoring gap can never cause a wrong merge.
+PR has. The gate never reads the merge-order block, and neither does
+`/execute`'s scheduler, which works from the PLAN. An authoring gap can never
+cause a wrong merge.
 
 ## When to reach for coordinated mode
 
@@ -144,8 +154,8 @@ A coordinated effort runs in four phases.
 branch, holding the planning chain and the PLAN. `/scope` creates it: up front
 on a run without `--intent`, at exit on a run with one. The skill authors its
 body from the contract's template (a declaration that it's a coordination PR,
-the artifact chain, the PR index, and a fenced merge-order block, all derived
-from the PLAN) and checks it with `shirabe validate --coordination-body` before
+the artifact chain, the PR index, and a fenced merge-order block that
+`/execute` fills in on its first node push) and checks it with `shirabe validate --coordination-body` before
 posting. `/plan` collapses its work-item dependency graph into a
 `(repo, pr_group)` merge order and validates it acyclic at authoring time, so
 an unschedulable effort is never committed.
@@ -207,8 +217,8 @@ resume=/execute docs/plans/PLAN-plugin-system.md
 ```
 
 The `resume=` line carries ` --merge` exactly when the paused run had it. The
-coordination PR is left open, never closed: its PR index, the `head=` each
-node's push recorded, and its merge-order block are what the pause rests on.
+coordination PR is left open, never closed: its PR index and the `head=` each
+node's push recorded are what the pause rests on.
 
 Merge the waiting PR (or let a later `/execute --merge` do it), then run the
 `resume=` command. The new run reads node state from the coordination PR's

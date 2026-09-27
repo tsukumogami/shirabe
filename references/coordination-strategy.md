@@ -21,7 +21,8 @@ The companion references fill in the details this document points at:
   the `owner/repo:path` reference syntax and the visibility-direction rules the
   coordination index must respect.
 - [`${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`](dependency-diagram.md) —
-  the dependency-graph rendering conventions the merge-order block follows.
+  the diagram conventions the PLAN's dependency graph follows; the merge-order
+  block's own line format is under **Coordination PR Body Template** below.
 
 ## The Coordinated Mode
 
@@ -133,15 +134,16 @@ The coordinated lifecycle has four phases, in order:
    PR/branch is created at the start — before any implementation work — and the
    skill **authors** its body from the template below: a declaration (this is a
    coordination PR), the artifact chain, the PR-index, and a fenced merge-order
-   block, all derived from the PLAN. The skill posts the body with `gh pr
+   block, which `/execute` fills from the PLAN on its first node push. The
+   skill posts the body with `gh pr
    create`. `shirabe validate --coordination-body <file>` gives authoring
    feedback before the post. A `/scope` run under `--intent` is the one
    exception to "up front": the PLAN's mode isn't known until its `/plan` hop
    returns, so it opens the coordination PR when it publishes at exit.
 2. **Track.** As node PRs open and progress, the skill re-authors the body
    from the same template — reading each indexed PR on the operator's own `gh`
-   credentials, rewriting the PR-index, and recomputing the merge-order — and
-   posts the refreshed body with `gh pr edit`. State lives on the coordination
+   credentials, rewriting the PR-index, and re-rendering the merge-order block
+   from the PLAN — and posts the refreshed body with `gh pr edit`. State lives on the coordination
    branch/PR itself, so an interrupted effort reconnects from durable state — no
    session file is the source of truth.
 3. **Finalize.** Each repo finalizes its own artifacts in its own PR (writes
@@ -185,9 +187,11 @@ pr create` / refresh with `gh pr edit`:
 ## Merge Order
 
 ```merge-order
-# Two-node merge-order DAG (PR nodes + non-PR gate nodes), one node per line.
-<node-id> | <merge-state>
-<node-id> | <merge-state>
+# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
+<node-id> | pr | after: -
+<node-id> | gate | after: <node-id>
+<node-id> | pr | after: <node-id>, <node-id>
 ```
 ````
 
@@ -199,8 +203,13 @@ Slot rules:
 - **PR Index** — one line per `(repo, pr_group)` node. Each cross-repo
   reference uses `owner/repo:path#number` and MUST satisfy F2 (below). A
   **private** node is redacted to its opaque node id + merge state only (F1).
-- **Merge Order** — the fenced ```` ```merge-order ```` block lists each node id
-  once, in an acyclic order, carrying only opaque node ids + merge state.
+- **Merge Order** — the fenced ```` ```merge-order ```` block lists every PR
+  node and gate node once, each after its predecessors, with its kind and its
+  `waits_on` predecessors. It carries only the opaque node ids the PR index
+  already uses: no repository reference (F1), and no merge state, which is
+  live and read by the gate. `/scope` opens
+  the coordination PR with the block empty; `/execute` renders it (see
+  **Merge-Order Model** below).
 - **Checks** — run `shirabe validate --coordination-body <file>` before posting
   (declaration marker present, every ref passes F2, merge-order acyclic);
   `shirabe validate --merge-gate` is the live merge-last gate at merge time. The
@@ -265,9 +274,20 @@ Edges express "must merge / be satisfied before." The graph is derived and
 validated **acyclic at authoring time** inside the PLAN (`/plan` collapses its
 issue-level `waits_on` graph into this `(repo, pr_group)`-level graph). An
 unschedulable coordinated effort is never committed. Because the PLAN is
-consumed before the coordination PR merges, the skill **authors the validated
+consumed before the coordination PR merges, `/execute` **renders the validated
 two-node order into the coordination PR body** as a fenced merge-order block,
-where it survives the PLAN through merge as the merge-time canon.
+where it survives the PLAN through merge. `node-push.sh` re-renders the block
+whole from the PLAN (through `plan-to-tasks.sh`) on every node push, so a
+changed `waits_on` graph replaces it and an unchanged one leaves it as it was.
+Once every node PR has merged, `/execute` renders it one last time from the
+PLAN the effort finished with, then runs the finalization cascade, which
+deletes the PLAN; from then on nothing rewrites the block.
+
+The block is the durable, human-readable record of the order, not an input to
+anything. `/execute` schedules from the PLAN while it exists and from the PR
+index once it's gone, and `shirabe validate --merge-gate` recomputes merge
+state from live `gh` and never reads the block. A stale or hand-edited block can
+mislead a reader; it can't change what merges or when.
 
 ### Re-derivation with merged nodes
 
@@ -314,8 +334,8 @@ A coordinated run ends in one of three outcomes:
 
 A paused run isn't a failure and doesn't end the effort. The coordination PR is
 **left open**, never closed, and it's the durable record the pause rests on:
-its PR index, the `head=` field each node's push records, and its merge-order
-block. A later `/execute` on the same PLAN, or a `/deliver` run that reaches
+its PR index and the `head=` field each node's push records (its merge-order
+block shows a reader the order, but resume doesn't read it). A later `/execute` on the same PLAN, or a `/deliver` run that reaches
 `/execute`, resumes from the coordination PR and the node PRs it indexes. It
 reads which predecessors have merged since, opens the node PRs that are now
 unblocked, and carries on, with no re-scoping.

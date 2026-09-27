@@ -1,0 +1,18 @@
+# Fails: the floor step exists but is limited to Linux by mistake, so the
+# macOS leg runs no suite at all and still reports green.
+name: linux-limited-floor
+on: pull_request
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/demo/scripts/one_test.sh
+      - name: Run tests on the floor
+        if: runner.os == 'Linux'
+        run: scripts/check-bash-floor.sh --backend system demo

@@ -73,7 +73,6 @@ set -uo pipefail
 PROG=coordinated-next
 
 COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
-COORD_PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
 # shellcheck source=coord-common.sh
 . "$COORD_SELF_DIR/coord-common.sh"
 

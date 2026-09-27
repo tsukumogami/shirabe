@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description">'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -144,6 +144,12 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
 
 When invoked as `/work-on <argument>`:
 
+Detect the mode on `$ARGUMENTS` with any `--koto-leg` token (and its value, when
+given separately) set aside: it names a caller's request leg (see **Answering a
+Caller's Leg**) and is never part of an issue reference, a PLAN path, or a task
+description. Set aside only for detection: the tokens file `work-on-open.sh` reads
+is the original `$ARGUMENTS`, `--koto-leg` included.
+
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
 - If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
@@ -208,6 +214,100 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
 **Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
 PLAN doc and provide them as the task description in the entry evidence.
 
+**Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open
+the session through `work-on-open.sh` as **Answering a Caller's Leg** below says.
+
+### Answering a Caller's Leg
+
+`--koto-leg=<request-id>:work-on` (or `--koto-leg <request-id>:work-on`) lets a
+coordinator run `/work-on` as a worker and read its result from koto's request store
+instead of from what the worker says. Mode Detection sets it aside; it is not part
+of the issue reference or the task description. The leg must be
+named `work-on`, the one leg `/work-on` answers. It applies to issue-backed and
+free-form runs only: a plan-backed child is `/execute`'s, which already receives its
+result, and a PLAN path runs several issues. `work-on-open.sh` refuses the flag with
+either (`error=usage`, exit 64, no koto call), on the same signals Mode Detection
+uses; stop there and tell the user the flag doesn't apply. Without the flag nothing
+below applies and the run is unchanged.
+
+1. **Check the floor.** The flag needs koto's entry flags, which a koto older than
+   the one `requires.tsv` names lacks:
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on --mode koto-leg 2>&1 || true
+   ```
+   Anything it prints is a missing prerequisite: report it and stop.
+2. **Apply the Resume guard first.** A finished `<WF>` must be cleaned up or the run
+   renamed before the open (see **Resume**); the open never replaces one.
+3. **Write the tokens.** Split the original `$ARGUMENTS`, `--koto-leg` included, into
+   tokens as typed and write them as a JSON array of strings, with the Write tool
+   or `jq`, into a private directory outside the work tree:
+   ```bash
+   ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+   ```
+4. **Open.**
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
+     --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
+   ```
+   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. The script adds
+   `PLUGIN_ROOT` and makes one `koto init` with `--attach-live --koto-leg`: no
+   session means a new one bound to the leg, and a live one (a resume) is attached
+   and bound. It removes the tokens file on every path. `session=<WF>` means the run
+   is bound. Now resolve `ROLE` (see **Execution Loop**), which needs the session
+   to exist, then go on with the entry evidence, or, on a resume, with `koto next`.
+   `error=usage` (exit 64) is a malformed, missing, or repeated `--koto-leg`: no
+   koto call was made, so nothing is on the leg; report it and stop. `refused=<code>`
+   (exit 2, or koto's own code such as 1 for lock contention) is a refusal; report
+   it and stop. `refused=args_file_in_work_tree` is `koto-open.sh`'s own and never
+   reaches koto. `failed=<kind>` (exit 127 for a missing koto or jq, or koto's own
+   code) means no session was opened and nothing is on the leg; report it and
+   stop. koto records a refusal only on a leg that
+   is still open and unbound (`result_source: refused`, payload `outcome: refused`
+   and a kebab-case `reason` such as `input-mismatch` or `var-mismatch:ISSUE_NUMBER`).
+   On a leg already bound to this session, a re-dispatch that koto refuses (from
+   another worktree, say, which is `origin_mismatch`) records nothing, and the leg
+   stays bound and open.
+
+Once bound, the run is still a root session: resolve `ROLE` as always, which
+answers `root`, so every tick carries `--no-cleanup`, and the terminal tick still
+promotes the result onto the leg. That
+result is koto's own for a terminal with no result map: `status` (`success`, or
+`failure` for `done_blocked`) and the terminal state, which the leg records as
+`result_final_state` and a `request-leg` gate exposes as `final_state` (`done`,
+`done_already_complete`, `done_blocked`, `validation_exit`). koto 0.13.0 defines
+that gate output, empty for explicit and refused results, in its koto-author
+template-format reference (the `request-leg` rows of the gate output table). A coordinator routes a
+promoted `work-on` leg on both, since `validation_exit` is a success too, and routes
+a refusal on its source rather than on the payload: the leg records
+`result_source: refused`, which a `request-leg` gate exposes as `source`. work-on.md
+declares no `result:` map and no `outcome`: a result map needs koto 0.13.0 to
+compile at all, and the template must keep compiling on the older koto that runs
+without the flag.
+
+Some exits never reach the leg, which stays open and unbound: an `error=usage` from
+`work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
+plan-backed or PLAN-path input. So does a worker that stops before its terminal. A
+request-leg gate waits on an open leg indefinitely, so the coordinator needs its
+own fallback for a worker that ended without a result: a check on the worker's
+exit, or a deadline after which it abandons the leg.
+
+What the coordinator puts on the leg, so koto admits the session:
+
+| Leg field | Value |
+|-----------|-------|
+| name | `work-on` |
+| `template` | `work-on.md` |
+| `inputs` | Issue-backed: `ISSUE_NUMBER` (the issue number) and `ARTIFACT_PREFIX` (`issue_<N>`). Both optional; each one named must equal what the run passes. Free-form: none. The agent picks the `task_<slug>` itself, so a pinned `ARTIFACT_PREFIX` can't be relied on to match. |
+
+koto compares only the inputs the leg names, and only against variables that
+aren't `rebind`: `PLUGIN_ROOT` is `rebind`, so an input for it is never compared.
+Pin nothing else: every other input the leg names is compared against the
+session's recorded value, which for a variable the run never sets is its default
+(`code` for `ISSUE_TYPE`, empty for `SHARED_BRANCH`), and any other value is
+refused as `input-mismatch` on the leg. A
+coordinator running several workers gives each its own request, or at least its own
+leg, since one leg answers one session.
+
 ### Branch Setup
 
 Branch creation is conditional. Before creating a new branch in any setup state, check whether you already have an appropriate working branch:
@@ -234,9 +334,15 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
+- `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
+  — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
+  then makes one `koto init --attach-live --koto-leg` through the shared
+  `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
+  the leg only when the leg was still open and unbound), 64 its own usage refusal
+  with no koto call, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
-  `scripts/record-changed-paths_test.sh` — the harnesses; see each file's
-  header.
+  `scripts/record-changed-paths_test.sh`, `scripts/work-on-open_test.sh` — the
+  harnesses; see each file's header.
 
 ### Execution Loop
 
@@ -312,10 +418,14 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
    wanted and then `koto init`, or `koto init` under a different workflow name to
    keep the record. (`koto init` on a name still in use refuses and says the
-   same.)
+   same.) Under `--koto-leg` either init goes through `work-on-open.sh`; a
+   renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so a leg that pins it
+   still admits the session.
 3. `is_terminal: false` is a genuine resume: `koto next <WF>`, carrying
-   `--no-cleanup` per the retention rule when `ROLE` is `root`.
-4. If none, `koto init` fresh.
+   `--no-cleanup` per the retention rule when `ROLE` is `root`. Under
+   `--koto-leg`, open through `work-on-open.sh` first, which attaches the live
+   session and binds it to the leg, then tick.
+4. If none, `koto init` fresh (under `--koto-leg`, through `work-on-open.sh`).
 
 Ticking is not a substitute for the state read: a finished session answers
 `action: "done"` to any tick, and that tick disposes of the session. See
@@ -369,12 +479,17 @@ those for project-specific quality and PR requirements.
 
 Then:
 1. `koto workflows` — find a workflow matching this issue, or `koto init` with
-   the template path and appropriate variables if none does.
+   the template path and appropriate variables if none does. Under
+   `--koto-leg` the order changes, because the open has to come before `ROLE`:
+   on a found workflow apply the Resume guard of step 3 first; then open
+   through `work-on-open.sh` (see **Answering a Caller's Leg**), fresh or
+   resumed, and only then resolve `ROLE`.
 2. **Resolve `ROLE` before any tick** (see **Execution Loop**). It has to come
    first: every `koto next` below carries `--no-cleanup` when `ROLE` is `root`,
    and a resumed run can reach a terminal on its very first tick — that is the
    one path where resolving `ROLE` later would leave the tick that matters bare.
-3. On a resumed workflow, apply the **Resume** guard above before ticking it:
+3. On a resumed workflow, apply the **Resume** guard above before ticking it
+   (under `--koto-leg`, step 1 already did):
    `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not
    a resume. Never tick it and never report the issue complete on its strength.
    Otherwise resume with `koto next <WF>`, carrying `--no-cleanup` per `ROLE`.
