@@ -62,18 +62,17 @@ cat > "$SC/reconcile-check.sh" <<'STUB'
 #!/usr/bin/env bash
 sub=$1; shift
 ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
-mkdir "$STUB_DIR/lock" 2>/dev/null; until mkdir "$STUB_DIR/lock.m" 2>/dev/null; do sleep 0.01; done
-c=$(( $(cat "$STUB_DIR/concurrent" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$STUB_DIR/concurrent"
+# One marker file per running stand-in: the count of markers is how many run
+# at once. A stand-in the pass stops takes its marker with it.
+mark="$STUB_DIR/running.$$"; : > "$mark"; trap 'rm -f "$mark"' EXIT TERM
+c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 now=$(cat "$CLOCK")
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
-rmdir "$STUB_DIR/lock.m"
+[ -f "$STUB_DIR/hang.$sub" ] && sleep 60
 sleep 0.2
-until mkdir "$STUB_DIR/lock.m" 2>/dev/null; do sleep 0.01; done
-echo $(( $(cat "$STUB_DIR/concurrent") - 1 )) > "$STUB_DIR/concurrent"
-rmdir "$STUB_DIR/lock.m"
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
 done
@@ -266,6 +265,18 @@ case "$LINE" in "reconciled "*) ok "later passes finish the visit" ;; *) bad "la
 lines=$(ctx reconcile/report.md | wc -l | tr -d ' ')
 [ "$lines" -le 100 ]; check "a 10-holding report stays within the line bound (40 + 6 per holding)" $? "$lines lines"
 ctx reconcile/report.md | grep -q '"kind"' && bad "the report carries no raw read output" || ok "the report carries no raw read output"
+
+new_case overrun
+record "[$(hold slow "")]"
+# The appeared read costs 40 seconds of the clock and then hangs for real:
+# the pass stops it at its budget and doesn't wait on it for its own line.
+echo 40 > "$CASE/cost.appeared"
+: > "$CASE/hang.appeared"
+start=$SECONDS
+pass
+elapsed=$((SECONDS - start))
+[ "$elapsed" -lt 20 ]; check "a re-check past its budget is stopped, and the pass's line doesn't wait for it" $? "${elapsed}s: $LINE"
+case "$LINE" in pending:*) ok "and the visit stays pending, to read it again" ;; *) bad "and the visit stays pending, to read it again" "$LINE" ;; esac
 
 echo "== a worker not found =="
 new_case missed-twice

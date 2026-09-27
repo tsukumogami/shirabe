@@ -281,6 +281,9 @@ launch() {
     echo "reconcile-pass: launch $id at +$((READS_END - left))s with ${budget}s" >&2
     printf '%s' "$spec" | jq -r '.args[]' > "$R/$id.args"
     (
+        # The engine's stdout stays with the pass: a re-check left running
+        # past its budget must not hold the capture open.
+        exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
         RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
