@@ -31,7 +31,7 @@
 #
 koto	tsuku	any	tsuku tsuku-info	tsuku install koto@latest && . ~/.tsuku/env	-
 shirabe	tsuku	any	tsuku tsuku-info	tsuku install shirabe@latest && . ~/.tsuku/env	-
-niwa	tsuku	any	tsuku tsuku-info	tsuku install niwa@latest && . ~/.tsuku/env	-
+niwa	tsuku	any	tsuku tsuku-info	tsuku install tsukumogami/niwa && . ~/.tsuku/env	-
 gh	tsuku	linux	never	-	tsukumogami/tsuku#2245
 gh	tsuku	darwin	tsuku tsuku-info	tsuku install gh@latest && . ~/.tsuku/env	-
 gh	homebrew	darwin	brew -	brew install gh	-

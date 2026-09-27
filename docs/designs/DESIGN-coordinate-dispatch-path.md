@@ -585,10 +585,13 @@ pick --(dispatch_topic)--> dispatch --(dispatch-worker.sh: lock, write-ahead,
 
 ### Tool declaration
 
-`skills/coordinate/requires.tsv` adds `niwa - - always`, and
+`skills/coordinate/requires.tsv` adds `niwa - - always`, presence only
+(niwa's help output isn't in the layout the load-time probe reads), and
 `scripts/lib/tool-routes.tsv` adds `niwa tsuku any tsuku tsuku-info tsuku
-install niwa@latest && . ~/.tsuku/env -`, the same route koto and shirabe
-use; `tsuku info niwa` resolves. `koto` is declared at the floor the template
+install tsukumogami/niwa && . ~/.tsuku/env -`. The route names niwa by its
+recipe source because the bare name is ambiguous in tsuku's registry: other
+ecosystems publish a niwa too, and `tsuku install niwa@latest` stops to ask
+which. `koto` is declared at the floor the template
 needs (request-leg gates, captures, and decider declarations: 0.13.0), which
 the record feature's declaration may already carry.
 
