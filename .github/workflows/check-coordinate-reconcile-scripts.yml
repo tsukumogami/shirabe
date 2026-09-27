@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
+      # The record feature's parser and session-log helpers, which the
+      # reader's contract cases and the pass run for real.
+      - 'skills/coordinate/scripts/record-*'
+      - 'skills/coordinate/scripts/coord-log.sh'
+      - 'skills/coordinate/scripts/coord-verdict.sh'
       # reconcile-deps.sh sources /execute's validators.
       - 'skills/execute/scripts/coord-common.sh'
       - 'scripts/check-bash-floor.sh'
@@ -32,6 +37,7 @@ jobs:
           "$BASH_BIN" skills/coordinate/scripts/reconcile-report_test.sh
           "$BASH_BIN" skills/coordinate/scripts/reconcile-check_test.sh
           "$BASH_BIN" skills/coordinate/scripts/reconcile-read_test.sh
+          "$BASH_BIN" skills/coordinate/scripts/reconcile-pass_test.sh
 
   # Every bash in the floor container is 3.2, including the ones the suites
   # start themselves.

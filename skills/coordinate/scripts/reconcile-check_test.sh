@@ -404,7 +404,7 @@ inv_case() {
     # x.txt landed and landed.txt added.
     mktree "$RP" "$MAIN" x.txt "$SBLOB" landed.txt "$LANDED"
 }
-cksum < "$RP/.git/index" > "$T/idx-before"
+od -An -tx1 < "$RP/.git/index" > "$T/idx-before"
 inv_case inventory
 out=$(run inventory --path "$I")
 expect "the inventory is taken" '.kind == "inventory" and .status == "ok" and .taken == true' "$out"
@@ -422,7 +422,7 @@ grep -qE '^git .* (fetch|pull|push|checkout|commit|reset|add|stash|gc|update-ind
 grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
 grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
 grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
-[ "$(cat "$T/idx-before")" = "$(cksum < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
+[ "$(cat "$T/idx-before")" = "$(od -An -tx1 < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
@@ -432,6 +432,9 @@ expect "a symlinked instance path is not followed" '.status == "not_verified"' "
 new_case inventory-no-remote
 I2="$T/inst2"; mkdir -p "$I2/r"; git -C "$I2/r" init -q; git -C "$I2/r" remote add origin https://gitlab.example/x/y.git
 expect "a clone with no github.com origin is marked unchecked" '.items | any(.kind == "unchecked")' "$(run inventory --path "$I2")"
+# count A B [-w] -- the integers A..B, one per line (seq isn't a declared tool);
+# -w pads them to B's width.
+count() { local i=$1 w=""; [ "${3-}" = -w ] && w=${#2}; while [ "$i" -le "$2" ]; do if [ -n "$w" ]; then printf "%0${w}d\n" "$i"; else echo "$i"; fi; i=$((i + 1)); done; }
 
 echo "== inventory: panel cases =="
 # A clean filter the clone's config names must never run.
@@ -469,13 +472,13 @@ expect "a nested repository is walked as a clone" '[.items[] | select(.clone | t
 
 # Truncation: more clones than the cap, the last one holding the only work.
 I4="$T/inst4"; mkdir -p "$I4"
-for k in $(seq -w 1 21); do
+for k in $(count 1 21 -w); do
     git -C "$I4" init -q -b main "r$k" >/dev/null 2>&1
     git -C "$I4/r$k" remote add origin https://github.com/acme/widgets.git
 done
 echo late > "$I4/r21/late.txt"
 new_case inventory-cap
-for k in $(seq 1 21); do printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M3" > "$CASE/ls-remote.out.$k"; done
+for k in $(count 1 21); do printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M3" > "$CASE/ls-remote.out.$k"; done
 mktree "$R3" "$M3"
 out=$(run inventory --path "$I4")
 expect "past the clone cap the inventory says truncated" '.truncated == true' "$out"
@@ -494,7 +497,7 @@ git -C "$R5" checkout -qb feature; echo f > "$R5/f"; git -C "$R5" add -A; git -C
 F5=$(git -C "$R5" rev-parse HEAD); git -C "$R5" checkout -q main
 new_case inventory-refs
 { printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M5"
-  for k in $(seq 1 600); do printf '%040x\trefs/pull/%s/head\n' "$k" "$k"; done
+  for k in $(count 1 600); do printf '%040x\trefs/pull/%s/head\n' "$k" "$k"; done
   printf '%s\trefs/heads/feature\n' "$F5"; } > "$CASE/ls-remote.out.1"
 mktree "$R5" "$M5"
 out=$(run inventory --path "$I5")
@@ -599,7 +602,7 @@ I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
 echo a > "$R10/a"; git -C "$R10" add -A; git -C "$R10" -c user.email=t@e -c user.name=t commit -qm a
 M10=$(git -C "$R10" rev-parse HEAD)
-for k in $(seq 1 230); do echo "$k" > "$R10/u$k.md"; done
+for k in $(count 1 230); do echo "$k" > "$R10/u$k.md"; done
 new_case inventory-items-cap
 printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M10" > "$CASE/ls-remote.out.all"
 mktree "$R10" "$M10"
@@ -627,11 +630,11 @@ expect "clones under target/ and node_modules/ are walked" '([.items[] | .clone]
 
 I12="$T/inst12"; R12="$I12/repo"; mkdir -p "$R12"
 git -C "$R12" init -q -b main; git -C "$R12" remote add origin https://github.com/acme/widgets.git
-for k in $(seq 1 150); do echo "$k" > "$R12/t$k.md"; done
+for k in $(count 1 150); do echo "$k" > "$R12/t$k.md"; done
 git -C "$R12" add -A; git -C "$R12" -c user.email=t@e -c user.name=t commit -qm a
 M12=$(git -C "$R12" rev-parse HEAD)
-for k in $(seq 1 150); do echo "x$k" > "$R12/t$k.md"; done
-for k in $(seq 1 100); do echo "$k" > "$R12/u$k.md"; done
+for k in $(count 1 150); do echo "x$k" > "$R12/t$k.md"; done
+for k in $(count 1 100); do echo "$k" > "$R12/u$k.md"; done
 new_case inventory-item-cap-only
 printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M12" > "$CASE/ls-remote.out.all"
 mktree "$R12" "$M12"

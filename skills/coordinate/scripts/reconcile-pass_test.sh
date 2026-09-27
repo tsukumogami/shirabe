@@ -376,12 +376,23 @@ echo "path=$PATH"
 EOF
 chmod +x "$PROBE"
 mkdir -p "$T/shadow"; printf '#!/bin/sh\necho shadow\n' > "$T/shadow/gh"; chmod +x "$T/shadow/gh"
+# clean CMD... -- CMD without the variables the scrub refuses that the
+# harness itself may set (a container sets GIT_CONFIG_* for git), so each case
+# sees only the variable it sets.
+clean() {
+    (
+        for v in $(compgen -e); do
+            case "$v" in GIT_CONFIG*|LD_*|DYLD_*|BASH_ENV|ENV|GIT_DIR|GH_HOST|GH_REPO) unset "$v" ;; esac
+        done
+        "$@"
+    )
+}
 for v in BASH_ENV ENV LD_PRELOAD GIT_DIR GH_HOST GH_REPO GIT_CONFIG_COUNT DYLD_INSERT_LIBRARIES; do
-    out=$(env "$v=x" bash "$PROBE" 2>&1); rc=$?
+    out=$(clean env "$v=x" bash "$PROBE" 2>&1); rc=$?
     [ "$rc" = 70 ] && printf '%s' "$out" | grep -q "$v"; check "refuses to run with $v set" $? "$rc $out"
 done
 SECRET=s3cr3t-token-value-for-the-test
-out=$(env GH_TOKEN="$SECRET" SOME_AGENT_VAR=1 HOME=/tmp/elsewhere PATH="$T/shadow:$PATH" bash "$PROBE" 2>&1)
+out=$(clean env GH_TOKEN="$SECRET" SOME_AGENT_VAR=1 HOME=/tmp/elsewhere PATH="$T/shadow:$PATH" bash "$PROBE" 2>&1)
 printf '%s' "$out" | grep -q "^token-sha=$(printf '%s' "$SECRET" | sha)$"; check "the operator's GH_TOKEN is kept" $? "$out"
 printf '%s' "$out" | grep -q '^agent-var-kept$' && bad "a variable outside the allowlist is dropped" "$out" || ok "a variable outside the allowlist is dropped"
 printf '%s' "$out" | grep -q '^home=/tmp/elsewhere$' && bad "HOME comes from the password database" "$out" || ok "HOME comes from the password database"

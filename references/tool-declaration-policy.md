@@ -22,7 +22,7 @@ Current membership:
 | Cadence | Tools | What a record names |
 |---|---|---|
 | Coupled to shirabe | `shirabe`, `koto` | Tool, subcommand path, depended-on flags |
-| Independent | `gh`, `jq`, `git`, `python3` | Tool alone |
+| Independent | `gh`, `jq`, `git`, `python3`, `niwa`, `pkill` | Tool alone |
 
 There's no third depth and no per-declaration depth verb. A tool declared with
 no subcommands yields presence verification by construction, because there's

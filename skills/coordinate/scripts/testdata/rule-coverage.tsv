@@ -39,12 +39,12 @@ C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check 
 C28	skills/coordinate/koto-templates/coordinate.md	-	returns through `record`, whose check confirms the change on	changed: the seven prose steps became a koto state graph with wait as a hub
 C29	skills/coordinate/koto-templates/coordinate.md	decision_apply	A new decision takes effect at the start of the next turn
 C30	skills/coordinate/koto-templates/coordinate.md	reconcile	This full reconcile runs once per run, on this path.
-C31	skills/coordinate/koto-templates/coordinate.md	reconcile	Treat every claim in the record as a snapshot
-C32	skills/coordinate/koto-templates/coordinate.md	reconcile	Re-check each against GitHub (pull request state
-C33	skills/coordinate/koto-templates/coordinate.md	reconcile	record and GitHub disagree, GitHub wins
+C31	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Treat every claim in the record as a snapshot	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
+C32	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Re-check each against GitHub (pull request state	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
+C33	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	record and GitHub disagree, GitHub wins	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C34	skills/coordinate/koto-templates/coordinate.md	reconcile	Report three things: what changed since the record
 C35	skills/coordinate/koto-templates/coordinate.md	record_find	Finding this scope's record on GitHub.	changed: finding and opening the record are their own states (record_find, record_open) that run before reconcile
-C36	skills/coordinate/koto-templates/coordinate.md	reconcile	hand the reads to a local agent when there are more
+C36	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	hand the reads to a local agent when there are more	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C37	skills/coordinate/references/loop.md	-	## A Full Reconcile, in Order
 C38	skills/coordinate/references/loop.md	-	For a roadmap, read its Features section from the
 C39	skills/coordinate/references/loop.md	-	--json state,isDraft,headRefOid,mergeStateStatus
@@ -53,7 +53,7 @@ C41	skills/coordinate/references/loop.md	-	Read the state of any issue a holding
 C42	skills/coordinate/references/loop.md	-	`niwa list` from the workspace root
 C43	skills/coordinate/references/loop.md	-	`git log --branches --not --remotes --oneline`
 C44	skills/coordinate/references/loop.md	-	Prove a file durable
-C45	skills/coordinate/koto-templates/coordinate.md	reconcile	Record a session missing from
+C45	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Record a session missing from	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C46	skills/coordinate/references/loop.md	-	**Re-check side effects in flight.**
 C47	skills/coordinate/references/loop.md	-	**Read the deferrals.** List every row for the report
 C48	skills/coordinate/koto-templates/coordinate.md	reconcile	Never average the

@@ -1222,12 +1222,17 @@ it names up to the human and stop. Never write a `reconcile/` context key.
 <!-- details -->
 
 The pass (`scripts/reconcile-pass.sh`, run by the engine, not by you) reads the
-record once per visit to this state and re-checks every claim in it against
-GitHub and this host, at most four reads at a time. It treats every claim as a
-snapshot dated by the record's `Written:` time, and GitHub wins where they
-disagree. A worker the workspace manager doesn't list is read again 30 seconds
-later, so a pass can end pending with that re-read still due; ticking again
-after the wait finishes it. When every re-check is done the pass writes
+record once per visit to this state and does the reads a full reconcile has
+always meant, at most four at a time.
+Treat every claim in the record as a snapshot dated by its `Written:` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
+exists, CI results, a merge or close in flight) and against the host (whether
+each worker's instance still exists, and what unique material it holds): the
+pass does both. Where the record and GitHub disagree, GitHub wins, and the
+report says what changed. Record a session missing from the workspace
+manager's listing as "not found on this read", never "dead": the pass reads the
+listing again 30 seconds later, so a pass can end pending with that re-read
+still due; ticking again after the wait finishes it. There is no need to hand the reads to a local agent when there are more than a few holdings: the
+engine runs them. When every re-check is done the pass writes
 `reconcile/report.json` and `reconcile/report.md` (and, at discipline scope,
 `reconcile/reasoning.md` with the previous rotation's reasoning) and seals the
 report to this visit. The gate lets you through only on that seal.
@@ -1240,18 +1245,19 @@ Reconcile, in Order", for how to present it.
 
 <!-- details -->
 
-Report what the report says, in its order: what changed since the record was
-written, what you hold, what waits on the human, what exists nowhere else, the
-side effects in flight, and every open deferral, each with its grade (measured,
-verified by reading, or inferred). The report is the reads; don't re-run them,
-average them with the record, or keep a row "until it's confirmed". Where it
+Report three things: what changed since the record was written, what you
+hold, and every open deferral, as the report's own sections give them, in its
+order, each claim with its grade (measured, verified by reading, or inferred).
+Include a "Waiting on the human" section, as the report derives it; it is
+never stored. The report is the reads: don't re-run them. Never average the
+report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
 At discipline scope, `reconcile/reasoning.md` is the previous rotation's
 reasoning as it wrote it: its view, not re-checked.
 
 This state's gate re-checks that `reconcile/report.json` is the report the pass
 sealed in this visit; a report written or changed by anyone else holds the
-workflow here. The full reconcile runs once per run, on this path. Later turns
+workflow here. This full reconcile runs once per run, on this path. Later turns
 re-check only the holdings they are about to act on, which each spoke's read
 already does.
 

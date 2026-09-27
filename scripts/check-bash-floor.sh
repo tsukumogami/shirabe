@@ -290,6 +290,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/reconcile-report_test.sh"
             echo "skills/coordinate/scripts/reconcile-check_test.sh"
             echo "skills/coordinate/scripts/reconcile-read_test.sh"
+            echo "skills/coordinate/scripts/reconcile-pass_test.sh"
             ;;
         *)
             return 1

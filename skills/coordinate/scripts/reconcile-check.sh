@@ -282,7 +282,7 @@ inv_hash() {
     [ -s "$2" ] || return 0
     ig_stdin "$1" "$2" hash-object --no-filters --stdin-paths > "$3.h" 2>/dev/null || return 1
     [ "$(wc -l < "$2")" -eq "$(wc -l < "$3.h")" ] || return 1
-    paste "$2" "$3.h" > "$3"
+    awk 'NR == FNR { p[FNR] = $0; next } { print p[FNR] "\t" $0 }' "$2" "$3.h" > "$3"
 }
 
 # inv_files CLONE REL -- tracked, staged, deleted and untracked changes.

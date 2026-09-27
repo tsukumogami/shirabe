@@ -90,5 +90,6 @@ rd_scrub() {
         [ "$keep" = 1 ] || unset "$v" 2>/dev/null
     done
     export HOME="$h" PATH="$p" LC_ALL=C
-    exec /bin/bash "$script" --scrubbed "$@"
+    # The bash already running this script, whatever its path.
+    exec "$BASH" "$script" --scrubbed "$@"
 }
