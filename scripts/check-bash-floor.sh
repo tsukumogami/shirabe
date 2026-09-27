@@ -150,6 +150,9 @@ suite_scripts() {
             # The single-pr merge step's scripts, each driven through test-local
             # gh and koto stubs (and real git), so every case runs on 3.2.
             echo "skills/execute/scripts/owned-pr_test.sh"
+            echo "skills/execute/scripts/run-id_test.sh"
+            # Reads the call sites with grep, awk and find only.
+            echo "skills/execute/scripts/owned-pr-callers_test.sh"
             echo "skills/execute/scripts/push-and-record_test.sh"
             echo "skills/execute/scripts/record-merge-verdict_test.sh"
             echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
@@ -200,6 +203,8 @@ suite_scripts() {
             echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
             # Drives real koto sessions, and skips cleanly without them.
             echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
+            # Drives real koto sessions, and skips cleanly without them.
+            echo "skills/work-on/scripts/finalization-shape_test.sh"
             # Drives real koto sessions for the same reason, and carries the
             # discriminator the retention rule reads.
             echo "skills/work-on/scripts/terminal-retention_test.sh"

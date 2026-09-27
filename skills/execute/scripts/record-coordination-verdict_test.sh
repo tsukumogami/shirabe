@@ -57,6 +57,7 @@ ct_plan "$PLANDIR"
 STUBDIR="$CT_WORK/stub-scripts"
 mkdir -p "$STUBDIR"
 cp "$RECORD" "$STUBDIR/record-coordination-verdict.sh"
+cp "$SCRIPT_DIR/run-id.sh" "$STUBDIR/run-id.sh"
 cat > "$STUBDIR/coordination-verdict.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VERDICT_ARGS_LOG:?}"

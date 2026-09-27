@@ -95,7 +95,11 @@ pr() { # pr <url> <state> <cross> <author> <base>
     printf '{"url":"%s","state":"%s","isCrossRepository":%s,"author":{"login":"%s"},"baseRefName":"%s","headRefName":"docs/exec-topic"}' "$1" "$2" "$3" "$4" "$5"
 }
 
-run() { # run <session>
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+run() { # run <session> -- the session carries a run_id, as scope-open.sh leaves it
+    mkdir -p "$STORE/$1"
+    [ -f "$STORE/$1/run_id" ] || printf '%s' "$MINE" >"$STORE/$1/run_id"
     (cd "$R" && PATH="$SHIM:$PATH" GHF="$GHF" bash "$S" --session "$1" --topic exec-topic >/dev/null 2>"$T/err")
     RC=$?
 }
@@ -140,6 +144,20 @@ fixture "[$(pr "$FOREIGN" OPEN true me main),$(pr "https://github.com/acme/widge
 run s-foreign
 eq "a foreign-only branch: none" "none" "$(key s-foreign executed_verdict)"
 if grep -rq "pull/7\|pull/8\|pull/9" "$STORE/s-foreign" 2>/dev/null; then bad "no foreign URL reaches context"; else ok "no foreign URL reaches context"; fi
+
+echo "== another run's PR =="
+fixture "[$(pr "$URL" OPEN false me main | sed 's/}$/,"body":"x\\n<!-- shirabe-run: '"$OTHER"' -->"}/')]"
+run s-otherrun
+eq "the one PR is another run's (owned-pr.sh exit 5): foreign" "foreign" "$(key s-otherrun executed_verdict)"
+if has s-otherrun executed_pr; then bad "foreign writes no executed_pr"; else ok "foreign writes no executed_pr"; fi
+
+echo "== no run identity =="
+fixture "[$(pr "$URL" MERGED false me main)]" MERGED
+mkdir -p "$STORE/s-noid"
+(cd "$R" && PATH="$SHIM:$PATH" GHF="$GHF" bash "$S" --session s-noid --topic exec-topic >/dev/null 2>"$T/err")
+RC=$?
+eq "a session with no run_id: exit 66, never a fresh identity" "66" "$RC"
+if has s-noid run_id; then bad "no run_id is minted by a reader"; else ok "no run_id is minted by a reader"; fi
 
 echo "== several, and read failures =="
 fixture "[$(pr "$URL" MERGED false me main),$(pr "https://github.com/acme/widgets/pull/43" OPEN false me main)]"

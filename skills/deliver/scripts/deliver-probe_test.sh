@@ -97,7 +97,13 @@ SESS=deliver-t1
 key() { cat "$KOTO_STORE/$SESS/$1" 2>/dev/null; }
 has() { [ -f "$KOTO_STORE/$SESS/$1" ]; }
 seed() { mkdir -p "$KOTO_STORE/$SESS"; printf '%s' "$2" >"$KOTO_STORE/$SESS/$1"; }
-reset_store() { rm -rf "${KOTO_STORE:?}/$SESS"; }
+# reset_store -- an empty session store holding only the run identity
+# deliver-open.sh mints at the session's birth; the probe only reads it.
+reset_store() {
+    rm -rf "${KOTO_STORE:?}/$SESS"
+    mkdir -p "$KOTO_STORE/$SESS"
+    printf '%s' 00112233445566778899aabbccddeeff >"$KOTO_STORE/$SESS/run_id"
+}
 
 RC=0; OUT=""
 run() { # run <mode> -- the probe from inside the repository
@@ -146,6 +152,34 @@ reset_store
 db "[$(pr "$URL" OPEN),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
 run scoped
 failed "several owned PRs (exit 3)" fail
+
+# The run marker: the lookups carry this session's run_id.
+MINE=0123456789abcdef0123456789abcdef
+FOREIGN=fedcba9876543210fedcba9876543210
+
+reset_store
+db "[$(pr "$URL" OPEN)]"
+run scoped
+eq "an unmarked /scope PR, looked up with a run identity, still passes on the fallback" pass "$(key scoped_verdict)"
+
+reset_store; rm -f "$KOTO_STORE/$SESS/run_id"
+db "[$(pr "$URL" OPEN)]"
+run scoped
+eq "a session with no run_id: exit 66" 66 "$RC"
+if has run_id; then bad "the probe mints no run_id" "[$(key run_id)]"; else ok "the probe mints no run_id"; fi
+
+reset_store; seed run_id "$MINE"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
+<!-- shirabe-run: $FOREIGN -->")]"
+run scoped
+failed "the topic branch's PR was opened by another run (exit 5)" fail
+no_writes "another run's PR"
+
+reset_store; seed run_id "$MINE"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
+<!-- shirabe-run: $MINE -->"),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
+run scoped
+failed "a marked and an unmarked PR are ambiguous (exit 4)" fail
 
 reset_store; seed pr "$OTHER"
 db "[$(pr "$URL" OPEN)]" '{"pr list": 1}'

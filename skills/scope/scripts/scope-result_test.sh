@@ -120,6 +120,9 @@ open() {
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PLUGIN_ROOT_PLACEMENT=outside \
         --replace-terminal "$@" >"$T/init.out" 2>&1 \
         || bad "koto init scope-$topic" "$(cat "$T/init.out")"
+    # The run identity scope-open.sh mints at the session's birth; the
+    # record scripts only read it.
+    printf '00112233445566778899aabbccddeeff' | k context add "scope-$topic" run_id >/dev/null 2>&1
 }
 tick() { k next "scope-$1" --no-cleanup ${2:+--with-data "$2"} 2>/dev/null; }
 state_of() { k status "scope-$1" 2>/dev/null | jq -r '.current_state'; }

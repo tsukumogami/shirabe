@@ -61,7 +61,10 @@ gh	-	-	mode:coordinated
 # stop): publish-scoping-pr.sh pushes the branch and reuses or opens the one
 # owned PR with `gh pr create` / `gh pr edit`, and reads PRs through
 # skills/execute/scripts/owned-pr.sh; executed_report and the exit records read
-# the owned PR the same way. A run with no intent makes no gh call, so the
+# the owned PR the same way, each lookup carrying the session's run identity
+# (skills/execute/scripts/run-id.sh, under the `koto context` record above).
+# A rewrite of the PR body keeps its run marker line (run-id.sh carry, after
+# one `gh pr view`). A run with no intent makes no gh call, so the
 # record is mode:intent and not checked at load. SKILL.md's Intent Flag
 # section verifies it with `skill-preflight.sh scope --mode intent` before
 # any work when the intent is set.

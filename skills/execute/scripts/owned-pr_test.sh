@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# owned-pr_test.sh — the ownership filter's four outcomes, table-driven
+# owned-pr_test.sh — the ownership filter's outcomes, table-driven
 # Part of the execute skill
 #
 # owned-pr.sh is the one head-branch lookup /execute, /scope, and /deliver share.
@@ -12,6 +12,14 @@
 #   no PR / fork only / other author only /
 #     wrong base only / wrong head only            empty stdout, exit 0
 #   two owned PRs                                  empty stdout, exit 3
+#   --run-id: marker names this run                its URL, exit 0
+#   --run-id: unmarked PR                          its URL, exit 0 (fallback)
+#   --run-id: one PR, another run's marker         empty stdout, exit 5
+#   several candidates, at least one marked        empty stdout, exit 4
+#     (including a lone survivor beside a PR another run marked)
+#   --take-over: the exit-5 PR is restamped        its URL, exit 0; never a
+#                                                  fork's, another author's,
+#                                                  or another branch's PR
 #   --state all: closed-unmerged + open owned      the open URL, exit 0
 #   --state all: one merged owned PR alone         its URL, exit 0
 #   --state open: a merged owned PR                empty stdout, exit 0
@@ -57,6 +65,17 @@ case "$1 ${2:-}" in
     "api user") key=user ;;
     "api repos/"*) key=repo ;;
     "pr list") key=list ;;
+    "pr edit")
+        # gh pr edit <n> --repo <repo> --body-file <f>: replace that PR's body
+        # in the list fixture, so the next lookup sees the edit.
+        [ -f "$fix/edit.rc" ] && exit "$(cat "$fix/edit.rc")"
+        [ "$4" = "--repo" ] && [ "$6" = "--body-file" ] || { echo "gh stub: pr edit shape [$*]" >&2; exit 1; }
+        url="https://github.com/$5/pull/$3"
+        cp "$7" "$fix/edited-body"
+        jq --arg u "$url" --rawfile b "$7" 'map(if .url == $u then .body = $b else . end)' \
+            "$fix/list.out" > "$fix/list.new" && mv "$fix/list.new" "$fix/list.out"
+        exit 0
+        ;;
 esac
 [ -f "$fix/$key.out" ] || [ -f "$fix/$key.rc" ] || { echo "gh stub: no fixture for [$key]" >&2; exit 1; }
 [ -f "$fix/$key.out" ] && cat "$fix/$key.out"
@@ -221,6 +240,147 @@ new_case foreign-url
 list "$(pr 7 OPEN '.url = "https://github.com/evil/r/pull/7"')"
 expect "a survivor whose URL names another repository" "" 2
 
+# --- the run marker ------------------------------------------------------------
+
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+mark() { printf '.body = "Implements docs/plans/PLAN-x.md.\\n\\n<!-- shirabe-run: %s -->\\n"' "$1"; }
+RUN=(--repo o/r --head feat/x --state open --base main --run-id "$MINE")
+
+new_case marker-mine
+list "$(pr 7 OPEN "$(mark "$MINE")")"
+expect "--run-id: the PR's marker names this run" "$URL1" 0 "${RUN[@]}"
+
+new_case marker-foreign
+list "$(pr 7 OPEN "$(mark "$OTHER")")"
+expect "--run-id: the one PR on this login and branch names another run (exit 5)" "" 5 "${RUN[@]}"
+case "$ERR" in
+    *"$URL1"*) pass "exit 5 names the other run's PR on stderr" ;;
+    *) fail "exit 5 does not name the PR on stderr: [$ERR]" ;;
+esac
+
+new_case marker-malformed
+list "$(pr 7 OPEN '.body = "x\n<!-- shirabe-run: not-an-id -->"')"
+expect "--run-id: a malformed marker line is never this run's" "" 5 "${RUN[@]}"
+
+new_case marker-mixed-lines
+list "$(pr 7 OPEN "$(mark "$MINE")" ".body += \"<!-- shirabe-run: $OTHER -->\n\"")"
+expect "--run-id: a body naming this run and another is not this run's" "" 5 "${RUN[@]}"
+
+new_case marker-unmarked-fallback
+list "$(pr 7 OPEN '.body = "Implements docs/plans/PLAN-x.md."')"
+expect "--run-id: an unmarked PR falls back to the login-and-branch match" "$URL1" 0 "${RUN[@]}"
+
+new_case marker-null-body
+list "$(pr 7 OPEN '.body = null')"
+expect "--run-id: a PR with no body at all falls back too" "$URL1" 0 "${RUN[@]}"
+
+new_case marker-foreign-other-author
+list "$(pr 7 OPEN "$(mark "$MINE")" '.author.login = "someone-else"')"
+expect "--run-id: a matching marker never rescues another author's PR" "" 0 "${RUN[@]}"
+
+new_case marker-foreign-fork
+list "$(pr 7 OPEN "$(mark "$MINE")" '.isCrossRepository = true')"
+expect "--run-id: a matching marker never rescues a fork's PR" "" 0 "${RUN[@]}"
+
+new_case marker-hand-run
+list "$(pr 7 OPEN "$(mark "$OTHER")")"
+expect "no --run-id (a hand run): a marked PR is matched by login and branch" "$URL1" 0
+
+new_case marker-mine-beside-unmarked
+list "$(pr 7 OPEN "$(mark "$MINE")")" "$(pr 8 OPEN)"
+expect "a marked and an unmarked candidate are ambiguous (exit 4)" "" 4 "${RUN[@]}"
+
+new_case marker-two-runs-hand
+list "$(pr 7 OPEN "$(mark "$MINE")")" "$(pr 8 OPEN "$(mark "$OTHER")")"
+expect "no --run-id: two runs' marked PRs are ambiguous (exit 4)" "" 4
+
+new_case marker-two-foreign
+list "$(pr 7 OPEN "$(mark "$OTHER")")" "$(pr 8 OPEN '.body = "<!-- shirabe-run: 11111111111111111111111111111111 -->"')"
+expect "--run-id: two other runs' PRs and none of mine are ambiguous (exit 4)" "" 4 "${RUN[@]}"
+
+new_case marker-mine-beside-foreign
+list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN "$(mark "$MINE")")"
+expect "--run-id --state all: my PR beside one another run marked is ambiguous (exit 4)" "" 4 \
+    --repo o/r --head feat/x --state all --base main --run-id "$MINE"
+
+new_case marker-foreign-beside-unmarked
+list "$(pr 8 MERGED)" "$(pr 7 OPEN "$(mark "$OTHER")")"
+expect "--run-id --state all: an unmarked merged PR beside another run's open PR is ambiguous (exit 4)" "" 4 \
+    --repo o/r --head feat/x --state all --base main --run-id "$MINE"
+
+new_case marker-two-unmarked
+list "$(pr 7 OPEN)" "$(pr 8 OPEN)"
+expect "--run-id: two unmarked candidates stay exit 3" "" 3 "${RUN[@]}"
+
+new_case marker-body-requested
+list "$(pr 7 OPEN)"
+run "${RUN[@]}"
+if grep -q -- '--json url,state,isCrossRepository,author,baseRefName,headRefName,body ' "$CASE/calls.log"; then
+    pass "gh pr list asks for the body"
+else
+    fail "gh pr list does not ask for the body: $(cat "$CASE/calls.log")"
+fi
+
+# --- taking over ------------------------------------------------------------------
+
+new_case takeover
+list "$(pr 7 OPEN "$(mark "$OTHER")" '.body += "trailing words\n"')"
+expect "--take-over: the one foreign-marked PR on my branch is restamped and returned" "$URL1" 0 \
+    "${RUN[@]}" --take-over
+if grep -qxF "<!-- shirabe-run: $MINE -->" "$CASE/edited-body" \
+    && ! grep -qF "$OTHER" "$CASE/edited-body" \
+    && grep -qxF "trailing words" "$CASE/edited-body" \
+    && grep -qF "Implements docs/plans/PLAN-x.md." "$CASE/edited-body"; then
+    pass "--take-over replaces the marker and keeps the rest of the body"
+else
+    fail "--take-over body: [$(cat "$CASE/edited-body" 2>/dev/null)]"
+fi
+expect "after a takeover the ordinary lookup matches" "$URL1" 0 "${RUN[@]}"
+if [ "$(grep -c '^pr edit' "$CASE/calls.log")" -eq 1 ]; then
+    pass "the ordinary lookup after a takeover edits nothing"
+else
+    fail "pr edit calls: $(grep '^pr edit' "$CASE/calls.log")"
+fi
+
+new_case takeover-not-silent
+list "$(pr 7 OPEN "$(mark "$OTHER")")"
+expect "without --take-over the foreign PR is refused and nothing is edited" "" 5 "${RUN[@]}"
+if grep -q '^pr edit' "$CASE/calls.log"; then
+    fail "the ordinary lookup edited a PR"
+else
+    pass "the ordinary lookup never edits"
+fi
+
+new_case takeover-other-author
+list "$(pr 7 OPEN "$(mark "$OTHER")" '.author.login = "someone-else"')"
+expect "--take-over refuses a PR that is not mine (another author)" "" 0 "${RUN[@]}" --take-over
+new_case takeover-fork
+list "$(pr 7 OPEN "$(mark "$OTHER")" '.isCrossRepository = true')"
+expect "--take-over refuses a PR that is not mine (a fork)" "" 0 "${RUN[@]}" --take-over
+new_case takeover-other-head
+list "$(pr 7 OPEN "$(mark "$OTHER")" '.headRefName = "feat/y"')"
+expect "--take-over refuses a PR on another branch" "" 0 "${RUN[@]}" --take-over
+if [ -s "$CASE/edited-body" ] || grep -q '^pr edit' "$CASE/calls.log"; then
+    fail "--take-over edited a PR that was not mine"
+else
+    pass "--take-over edits nothing it refuses"
+fi
+
+new_case takeover-two-foreign
+list "$(pr 7 OPEN "$(mark "$OTHER")")" "$(pr 8 OPEN '.body = "<!-- shirabe-run: 11111111111111111111111111111111 -->"')"
+expect "--take-over never picks among several foreign PRs (exit 4)" "" 4 "${RUN[@]}" --take-over
+
+new_case takeover-mine-already
+list "$(pr 7 OPEN "$(mark "$MINE")")"
+expect "--take-over on a PR already mine just returns it" "$URL1" 0 "${RUN[@]}" --take-over
+if grep -q '^pr edit' "$CASE/calls.log"; then fail "--take-over edited a PR already mine"; else pass "no edit when already mine"; fi
+
+new_case takeover-edit-fails
+list "$(pr 7 OPEN "$(mark "$OTHER")")"
+echo 1 > "$CASE/edit.rc"
+expect "--take-over whose edit fails is a failed read (exit 2)" "" 2 "${RUN[@]}" --take-over
+
 # --- the base defaults to the repository's default branch ---------------------
 
 new_case default-base
@@ -263,6 +423,11 @@ expect_usage "head with a space" --repo o/r --head 'a b' --state open
 expect_usage "bad base" --repo o/r --head feat/x --state open --base 'm;n'
 expect_usage "repeated --head" --repo o/r --head a --head b --state open
 expect_usage "stray positional" --repo o/r --head a --state open extra
+expect_usage "malformed --run-id" --repo o/r --head a --state open --run-id ABC
+expect_usage "empty --run-id" --repo o/r --head a --state open --run-id ''
+expect_usage "repeated --run-id" --repo o/r --head a --state open --run-id "$MINE" --run-id "$MINE"
+expect_usage "--take-over without --run-id" --repo o/r --head a --state open --take-over
+expect_usage "--take-over with --state all" --repo o/r --head a --state all --run-id "$MINE" --take-over
 
 # --- the contract names no caller step ----------------------------------------
 

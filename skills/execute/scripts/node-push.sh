@@ -8,6 +8,7 @@
 #   node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo>
 #                     --issues <ids> --home-repo <owner/repo>
 #                     --coord-branch <branch> --plan <path> [--remote <name>]
+#                     [--run-id <id>]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
 #     after the node's work items committed there. It sweeps wip/, pushes,
@@ -18,6 +19,7 @@
 #
 #   node-push.sh coordination --slug <slug> --home-repo <owner/repo>
 #                             --coord-branch <branch> [--remote <name>]
+#                             [--run-id <id>]
 #
 #     Run in the coordination checkout after the finalization cascade. It
 #     sweeps wip/, pushes the coordination branch, and writes the coordination
@@ -26,13 +28,19 @@
 #     then, so this mode leaves the merge-order block as it was.
 #
 #   node-push.sh order --slug <slug> --home-repo <owner/repo>
-#                      --coord-branch <branch> --plan <path>
+#                      --coord-branch <branch> --plan <path> [--run-id <id>]
 #
 #     Run in the coordination checkout just before the finalization cascade
 #     deletes the PLAN. It pushes nothing and records no index line: it only
 #     renders the PLAN's merge order into the coordination PR's body, so the
 #     block matches the PLAN the effort finished with even when the PLAN
 #     changed after the last node push.
+#
+# --run-id is this run's identity (`run-id.sh get <session>`, ^[0-9a-f]{32}$).
+# Both lookups carry it, so a PR another run opened is never adopted, and a
+# node PR this script opens carries the run's marker line (`run-id.sh stamp`).
+# Omitted only on a hand run: the lookups then match by login and branch
+# alone, and a new node PR carries no marker.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
 # no other script, template, or directive writes a `head=` field. It is the
@@ -50,7 +58,8 @@
 # kind, and its predecessors' ids: no repository field, and no merge state,
 # which is live and belongs to the merge gate. The same PLAN renders the same
 # block, so a second render leaves it as it was, and a PLAN whose waits_on
-# changed replaces it whole. The block is the durable, human-readable order
+# changed replaces it whole (a run marker line that sat in the old section is
+# kept, moved to the end of the body). The block is the durable, human-readable order
 # that outlives the PLAN. Nothing schedules or gates from it:
 # coordinated-next.sh reads the PLAN, and `shirabe validate --merge-gate`
 # recomputes merge state from live gh. The node id must stay the first field:
@@ -64,25 +73,30 @@
 #      through plan-to-tasks.sh and render the merge-order block (node mode
 #      also refuses a PLAN that has no node named --node), all before
 #      anything is pushed or edited;
-#   (the order mode skips steps 2-4, 6, and the index half of 7)
+#   (the order mode skips steps 2, 3, 5, 6, the node-branch check in 4, and
+#   the index half of 7)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one, and the remote's default branch;
 #   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
 #      commit, so the pushed head carries no wip/ file (the sweep single-pr
 #      finalization runs, since a node PR is finalized on its own);
-#   4. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
+#   4. before any push, find the coordination PR (owned-pr.sh on home repo
+#      and coordination branch, carrying the `This is a **coordination PR**`
+#      marker) and, in node mode, check the node branch's PR: another run's
+#      PR there, or several, stops with 73 and nothing pushed;
+#   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
-#   5. find the coordination PR (owned-pr.sh on home repo and coordination
-#      branch, carrying the `This is a **coordination PR**` marker);
 #   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `feat(<slug>): <node-id>`, with a body from a fixed
 #      template of the node id, the work-item ids, and the coordination PR's
-#      link, passed with --body-file -- unless the index already names a PR
-#      for this node, which must then be adopted, and zero survivors refuse;
+#      link (and the run's marker line), passed with --body-file -- unless
+#      the index already names a PR for this node, which must then be adopted,
+#      and zero survivors refuse;
 #   7. rewrite the body's `## PR Index` line for the node (replacing it, or
-#      adding it), in the node and order modes replace the `## Merge Order`
-#      section with the rendered block (adding the section when absent), run
+#      adding it) and keep every other line, the run marker included; in the
+#      node and order modes replace the `## Merge Order` section with the
+#      rendered block (adding the section when absent); run
 #      `shirabe validate --coordination-body` on the new body, and only when
 #      that passes, post it with `gh pr edit --body-file`. A failing
 #      validation leaves the posted body untouched.
@@ -100,7 +114,9 @@
 #   69  the wip/ sweep failed, or the pushed head still carries wip/
 #   72  a GitHub read failed (the caller's execute:status-read)
 #   73  no single owned PR where one must be adopted: the coordination PR, or
-#       an indexed node PR (the caller's execute:pr-adopt)
+#       an indexed node PR; or the node branch's PR is another run's, or one of
+#       several (checked before the push, so nothing is pushed then) (the
+#       caller's execute:pr-adopt)
 #   74  shirabe validate --coordination-body refused the new body; nothing
 #       was edited
 #   75  gh pr create or gh pr edit failed
@@ -120,9 +136,9 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>]" >&2
-    echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>]" >&2
-    echo "       node-push.sh order --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --plan <path>" >&2
+    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>]" >&2
+    echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
+    echo "       node-push.sh order --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--run-id <id>]" >&2
     exit 64
 }
 
@@ -134,11 +150,12 @@ SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="orig
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote)
+        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
+                --run-id) COORD_RUN_ID="$2" ;;
                 --slug) SLUG="$2" ;;
                 --node) NODE="$2" ;;
                 --repo) REPO="$2" ;;
@@ -158,6 +175,9 @@ done
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
 coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed branch name"
 [[ $REMOTE =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ ]] || usage_error "--remote [$REMOTE] is not a remote name"
+case "$SEEN" in
+    *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
+esac
 if [ "$MODE" = node ]; then
     [[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
     [ "$NODE" != coordination ] || usage_error "--node coordination is the coordination PR's own record; use the coordination mode"
@@ -215,7 +235,7 @@ if [ "$MODE" != coordination ]; then
     )
 fi
 
-# Steps 2 to 4 push a branch; the order mode pushes nothing.
+# Steps 2 and 3 prepare a branch to push; the order mode pushes nothing.
 if [ "$MODE" != order ]; then
     # 2. The branch.
     CUR=$(git symbolic-ref --quiet --short HEAD) || {
@@ -245,8 +265,33 @@ if [ "$MODE" != order ]; then
         git commit -q -m "chore($SLUG): remove wip/ artifacts before push" >&2 \
             || { echo "$PROG: committing the wip/ sweep failed" >&2; exit 69; }
     fi
+fi
 
-    # 4. The push: the explicit refspec, never a force option.
+# 4. Ownership, before anything is pushed: the coordination PR, and in node
+# mode whose PR (if any) is already on the node branch. A branch whose PR
+# another run opened is never pushed to, so a run can't move another run's
+# PR head.
+coord_find_pr "$HOME_REPO" "$CB" open
+case $? in
+    0) ;;
+    2) exit 72 ;;
+    *) exit 73 ;;
+esac
+BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
+trap 'rm -rf "$WORK"' EXIT
+if [ "$MODE" = node ]; then
+    coord_owned "$REPO" "$BRANCH" open >/dev/null
+    case $? in
+        0) ;;
+        2) exit 72 ;;
+        *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
+    esac
+fi
+
+# 5. The push: the explicit refspec, never a force option. The order mode
+# pushes nothing.
+if [ "$MODE" != order ]; then
     if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
         echo "$PROG: the push failed; nothing was recorded" >&2
         exit 68
@@ -258,17 +303,6 @@ if [ "$MODE" != order ]; then
         exit 69
     fi
 fi
-
-# 5. The coordination PR.
-coord_find_pr "$HOME_REPO" "$CB" open
-case $? in
-    0) ;;
-    2) exit 72 ;;
-    *) exit 73 ;;
-esac
-BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
-trap 'rm -rf "$WORK"' EXIT
 
 # post_body -- finish $WORK/body.md and post it: when a merge order was
 # rendered, replace the whole `## Merge Order` section with it (up to the next
@@ -286,9 +320,17 @@ post_body() {
                 if (insec) { sawsec = 1; print ""; emit() }
                 next
             }
+            # A run marker line inside the replaced section is kept (and
+            # re-emitted at the end of the body): the section is rewritten
+            # whole, and the marker is what tells a later lookup which run
+            # opened the PR.
+            insec && /^[[:space:]]*<!--[[:space:]]*shirabe-run:/ { kept[++nk] = $0; next }
             insec { next }
             { print }
-            END { if (!sawsec) { print ""; print "## Merge Order"; print ""; emit() } }
+            END {
+                if (!sawsec) { print ""; print "## Merge Order"; print ""; emit() }
+                if (nk) { print ""; for (i = 1; i <= nk; i++) print kept[i] }
+            }
         ' "$WORK/body.md" > "$WORK/body-order.md" \
             && mv "$WORK/body-order.md" "$WORK/body.md" \
             || { echo "$PROG: rendering the merge-order section failed" >&2; exit 64; }
@@ -322,7 +364,7 @@ esac
 
 # 6. The PR this line indexes.
 if [ "$MODE" = node ]; then
-    OUT=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$REPO" --head "$BRANCH" --state open </dev/null)
+    OUT=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
         0) ;;
         2) exit 72 ;;
@@ -342,6 +384,12 @@ if [ "$MODE" = node ]; then
             printf 'Work items: %s\n\n' "$ISSUES"
             printf 'Coordination PR: %s\n' "$C_URL"
         } > "$WORK/node-body.md"
+        if [ -n "$COORD_RUN_ID" ]; then
+            "$BASH" "$COORD_SELF_DIR/run-id.sh" stamp "$COORD_RUN_ID" "$WORK/node-body.md" </dev/null || {
+                echo "$PROG: could not stamp the node PR's body; nothing created" >&2
+                exit 75
+            }
+        fi
         OUT=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
             --title "feat($SLUG): $NODE" --body-file "$WORK/node-body.md" </dev/null) || {
             echo "$PROG: gh pr create failed" >&2
