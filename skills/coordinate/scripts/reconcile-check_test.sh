@@ -220,6 +220,21 @@ expect "matching files and a deletion absent on the base confirm the merge" '.ve
 grep -q "compare/$BS...$VH" "$CASE/log" && ok "the file list is the verified head's own diff" || bad "the file list is the verified head's own diff" "$(cat "$CASE/log")"
 grep -q "ref=main" "$CASE/log" && bad "contents are read by resolved sha, never by branch name" || ok "contents are read by resolved sha, never by branch name"
 
+# A squash merge commit GitHub names: the merged content is read there, not
+# from the base branch, which has since changed src/a.go again.
+MC=dddddddddddddddddddddddddddddddddddddddd
+new_case merge-commit
+serve api-pull 1 "{\"state\":\"closed\",\"merged\":true,\"merge_commit_sha\":\"$MC\",\"base\":{\"ref\":\"main\",\"sha\":\"$BS\"}}"
+serve compare 1 "$(cmp '[{"status":"modified","filename":"src/a.go"},{"status":"removed","filename":"src/gone.go"}]')"
+blob "$VH" 1 "$BA"; blob "$MC" 1 "$BA"; gone "$MC" 2
+expect "a merge whose squash commit holds the verified head's content is confirmed, whatever the base did since" '.verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
+grep -q 'git/ref/heads' "$CASE/log" && bad "the base branch is not read when a merge commit is named" "$(cat "$CASE/log")" || ok "the base branch is not read when a merge commit is named"
+new_case merge-commit-differs
+serve api-pull 1 "{\"state\":\"closed\",\"merged\":true,\"merge_commit_sha\":\"$MC\",\"base\":{\"ref\":\"main\",\"sha\":\"$BS\"}}"
+serve compare 1 "$(cmp '[{"status":"modified","filename":"src/a.go"}]')"
+blob "$VH" 1 "$BA"; blob "$MC" 1 "$BB"
+expect "a merge commit whose content differs from the verified head is not confirmed, and says where" '.verdict == "not_confirmed" and (.reason | test("in the merge commit"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+
 merge_setup merge-deletions-later '[{"status":"modified","filename":"src/a.go"},{"status":"removed","filename":"src/x.go"},{"status":"removed","filename":"src/y.go"}]'
 blob "$VH" 1 "$BA"; blob "$BN" 1 "$BA"; gone "$BN" 2; gone "$BN" 3
 expect "deletions after the first entry confirm too" '.verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"

@@ -594,8 +594,11 @@ files)
 
 merge)
     # Confirmed only when every file the pull request changed as of the
-    # verified head has, on the pull request's base branch, the content it had
-    # at the verified head. The file list is the verified head's own diff (the
+    # verified head has, in the pull request's merge commit, the content it
+    # had at the verified head. The merge commit (a squash merge's single
+    # commit) is what the merge wrote; the base branch as it is now is read
+    # only when GitHub names no merge commit, since later work on the base
+    # branch can change those paths without undoing the merge. The file list is the verified head's own diff (the
     # compare API from the pull request's base commit to the verified head),
     # not the merged pull request's final file list: a file changed at the
     # verified head and reverted afterwards is missing from the final list,
@@ -603,7 +606,7 @@ merge)
     need_repo; need_number
     rd_valid_sha "$VHEAD" || refuse merge "invalid verified head in the side-effect row"
     read_or_fail merge "$DEADLINE" gh api "repos/$REPO/pulls/$NUMBER" \
-        --jq '{state: .state, merged: .merged, base: .base.ref, base_sha: .base.sha} | tojson'
+        --jq '{state: .state, merged: .merged, base: .base.ref, base_sha: .base.sha, merge_sha: .merge_commit_sha} | tojson'
     PRJ=$OUT
     printf '%s' "$PRJ" | jq -e '(.merged | type) == "boolean" and (.state | type) == "string"' >/dev/null 2>&1 \
         || refuse merge "unreadable pull request response"
@@ -616,12 +619,17 @@ merge)
     BASE_SHA=$(printf '%s' "$PRJ" | jq -r '.base_sha // empty')
     rd_valid_branch "$BASE_BRANCH" || refuse merge "unreadable base branch"
     rd_valid_sha "$BASE_SHA" || refuse merge "unreadable base commit"
-    # The base branch as it is now, resolved to a sha once, so every
-    # contents read below names a commit that exists: a 404 from a read by
-    # sha means the path is absent there, never that the branch is gone.
-    read_or_fail merge "$DEADLINE" gh api "repos/$REPO/git/ref/heads/$BASE_BRANCH" --jq .object.sha
-    BASE_NOW=$OUT
-    rd_valid_sha "$BASE_NOW" || refuse merge "the base branch could not be resolved"
+    # What the merged content is read from, as a sha, so every contents read
+    # below names a commit that exists: a 404 from a read by sha means the
+    # path is absent there, never that a branch is gone.
+    AGAINST=$(printf '%s' "$PRJ" | jq -r '.merge_sha // empty')
+    WHERE="in the merge commit"
+    if ! rd_valid_sha "$AGAINST"; then
+        read_or_fail merge "$DEADLINE" gh api "repos/$REPO/git/ref/heads/$BASE_BRANCH" --jq .object.sha
+        AGAINST=$OUT
+        WHERE="on the base branch"
+        rd_valid_sha "$AGAINST" || refuse merge "the base branch could not be resolved"
+    fi
     # One JSON object per line: {s: status, p: path}, with a rename's old
     # path as its own "removed" entry, since after the merge it must be gone.
     read_or_fail merge "$DEADLINE" gh api "repos/$REPO/compare/$BASE_SHA...$VHEAD" \
@@ -649,10 +657,10 @@ merge)
             # this script can't interpret, never a match.
             [ "$want" = absent ] && refuse merge "a changed file is missing at the verified head"
         fi
-        blob_or_refuse "$path" "$BASE_NOW" "on the base branch"
+        blob_or_refuse "$path" "$AGAINST" "$WHERE"
         if [ "$want" != "$BLOB" ]; then
-            jq -nc --arg p "$path" --arg t "$(rd_now)" \
-                '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($p) on the base branch differs from the verified head"), read_at: $t}'
+            jq -nc --arg p "$path" --arg w "$WHERE" --arg t "$(rd_now)" \
+                '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($p) \($w) differs from the verified head"), read_at: $t}'
             exit 0
         fi
     done <<EOF
