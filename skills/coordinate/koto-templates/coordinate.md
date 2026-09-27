@@ -1076,7 +1076,10 @@ is a default, not a permission rule of this skill's own.
 Finding this scope's record on GitHub. koto runs `record-find.sh` itself; it
 lists every open issue (roadmap scope) or reads the rotation's branch and pull
 requests (discipline scope), never through GitHub's search, and routes on what
-it finds.
+it finds. A record is adopted only when it carries the declaration line (`> This
+is a **coordinator record** for ...`), an author and last editor with write
+access, and a canonical body; a title match without the declaration line is
+`foreign`, a stop for the human, never a record to take over.
 
 <!-- details -->
 
@@ -1340,7 +1343,9 @@ that finishes files or closes every open deferral, because nobody succeeds it.
 
 Write the worker's brief from `references/brief-template.md` and dispatch it;
 record the dispatch as a holding with `record-holding.sh` before any other
-action; then submit `dispatched: sent` and the `topic`.
+action; then submit `dispatched: sent` and the `topic`. The brief lists the
+checkpoints the worker reports at, and tells it to report and continue at each
+one: it waits on no approval.
 
 <!-- details -->
 
