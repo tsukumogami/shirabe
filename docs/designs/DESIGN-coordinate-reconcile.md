@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   The coordinate skill's reconcile step is prose, so nothing makes a
   restarted or rotated coordinator re-check its inherited record before it
@@ -17,7 +17,7 @@ decision: |
   with `pending:...` until every read is done, including a listing re-read
   30 seconds after a miss. The final pass builds the report from its own
   work file, writes the report as JSON and as rendered text into context, and
-  prints `sealed:<visit-seq>:<sha256>`, which the engine captures as
+  prints `reconciled sealed:<visit-seq>:<sha256>`, which the engine captures as
   RECONCILE_SEAL. A non-overridable command gate, the shared seal check the
   record feature owns,
   passes only when the stored report hashes to the sealed value and the
@@ -43,7 +43,7 @@ upstream: docs/prds/PRD-coordinate-reconcile.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
