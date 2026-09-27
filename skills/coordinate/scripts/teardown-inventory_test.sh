@@ -278,6 +278,9 @@ eq  "seal: --topic with --seal is refused (the topic comes from context)" 2 "$?"
 TOK=$(bash "$S" --seal --session coord --instance "$I2" 2>/dev/null); RC=$?
 eq  "seal: exit 0" 0 "$RC"
 has "seal: prints the verdict word and the token" "$TOK" "durable sealed:7:"
+# The state captures this line, and koto admits only these characters in a
+# capture.
+if printf '%s' "$TOK" | grep -Eq '^[A-Za-z0-9 :/_.@-]*$'; then ok "seal: the captured line is capture-safe"; else bad "seal: the captured line is capture-safe" "$TOK"; fi
 printf '%s\n' "$TOK" >"$ST/capture"
 eq  "verdict gate: a durable sealed verdict passes" 0 "$(bash "$V" gate --session coord >/dev/null 2>&1; echo $?)"
 READ=$(bash "$V" read --session coord 2>/dev/null)

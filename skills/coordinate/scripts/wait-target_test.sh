@@ -103,6 +103,15 @@ eq  "select: a resolved leg over an older open one" req_g "$(sel)"
 eq  "select: wait_target path" leg "$(target .path)"
 eq  "select: wait_target topic" gamma "$(target .topic)"
 eq  "select: wait_target leg" execute "$(target .leg)"
+# Both captures (WAIT_REQ from select, WAIT_LEG from leg) must be characters
+# koto admits in a capture.
+safe() { if printf '%s' "$2" | grep -Eq '^[A-Za-z0-9 :/_.@-]+$'; then ok "$1"; else bad "$1" "$2"; fi; }
+safe "capture: select's request id is capture-safe" "$(sel)"
+safe "capture: leg's leg name is capture-safe" "$(bash "$S" leg --session coord)"
+reset '[]'
+safe "capture: none is capture-safe" "$(sel)"
+reset "$ROWS"
+req req_a scope open; req req_g execute resolved; req req_d scope resolved
 
 reset "$ROWS"
 req req_a scope open; req req_g execute abandoned
