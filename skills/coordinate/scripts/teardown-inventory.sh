@@ -202,6 +202,8 @@ tree_map() {
 
 # QUEUE: every clone to inventory, by physical path, once.
 QUEUE=()
+# SEEN_COMMON: the git directories whose shared refs are already read.
+SEEN_COMMON=()
 queue() {
     local r q
     r=$(cd -P "$1" 2>/dev/null && pwd -P) || return 0
@@ -320,7 +322,16 @@ check_repo() {
     key=$(printf '%s' "$repo" | tr / _)
     files_changed "$d" || { note 2 "error $rel: its files could not be read"; return; }
     why=$(cat "$WORK/why")
-    ig "$d" rev-parse --verify --quiet refs/stash >/dev/null && why="${why}stash entries; "
+    # A clone and its linked worktrees share one git directory, and with it
+    # the branches, tags and stash: those are read at the first of them only,
+    # so a finding isn't listed once per worktree. Each worktree's own files
+    # and detached HEAD are read every time.
+    local first=1 c
+    for c in ${SEEN_COMMON[@]+"${SEEN_COMMON[@]}"}; do [ "$c" = "$common" ] && first=0; done
+    [ "$first" = 1 ] && SEEN_COMMON+=("$common")
+    if [ "$first" = 1 ]; then
+        ig "$d" rev-parse --verify --quiet refs/stash >/dev/null && why="${why}stash entries; "
+    fi
 
     # Tips: local branches, local tags and a detached HEAD. A tip is on the
     # remote when it has no commit outside the remote's live refs this clone
@@ -329,8 +340,10 @@ check_repo() {
     ig "$d" cat-file --batch-check='%(objectname) %(objecttype)' <"$WORK/live" |
         awk '$2 == "commit" { print "^" $1 }' >"$WORK/exclude"
     {
-        ig "$d" for-each-ref refs/heads refs/tags --format='%(objectname)	%(refname)' |
-            awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
+        if [ "$first" = 1 ]; then
+            ig "$d" for-each-ref refs/heads refs/tags --format='%(objectname)	%(refname)' |
+                awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
+        fi
         if ! ig "$d" symbolic-ref -q HEAD >/dev/null; then
             printf '%s\tHEAD\n' "$(ig "$d" rev-parse HEAD)"
         fi

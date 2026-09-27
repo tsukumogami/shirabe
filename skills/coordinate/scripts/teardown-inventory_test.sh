@@ -192,7 +192,7 @@ git -C "$I/public/wt/.claude/worktrees/w1" commit -q -am "detached work"
 
 # Every ref and each index file's bytes before, to show the inventory writes
 # nothing at all.
-refs() { for d in "$I"/public/*; do git -C "$d" for-each-ref --format='%(refname) %(objectname)'; cksum <"$(git -C "$d" rev-parse --absolute-git-dir)/index"; done; }
+refs() { for d in "$I"/public/*; do git -C "$d" for-each-ref --format='%(refname) %(objectname)'; od -An -tx1 <"$(git -C "$d" rev-parse --absolute-git-dir)/index" | tr -d " \n"; echo; done; }
 BEFORE=$(refs)
 
 OUT=$(bash "$S" --topic plugin-api --instance "$I" 2>&1); RC=$?
@@ -290,7 +290,15 @@ git -C "$I10/tagged" branch -q -D tmp
 printf 'vendor/\n' >>"$I10/nest/.git/info/exclude"
 git clone -q "$GHURL" "$I10/nest/vendor/inner"
 printf 'x\n' >>"$I10/nest/vendor/inner/a.txt"
+git clone -q "$GHURL" "$I10/twice"
+git -C "$I10/twice" checkout -q -b once
+printf 'once\n' >"$I10/twice/a.txt"
+git -C "$I10/twice" commit -q -am once
+git -C "$I10/twice" checkout -q main
+printf '.claude/\n' >>"$I10/twice/.git/info/exclude"
+git -C "$I10/twice" worktree add -q "$I10/twice/.claude/worktrees/w" once
 OUT10=$(bash "$S" --topic plugin-api --instance "$I10" 2>&1)
+eq  "a branch shared with a linked worktree is listed once" 1 "$(printf '%s\n' "$OUT10" | grep -c 'once changed a.txt')"
 has "a clean filter hides nothing" "$OUT10" "unique filt: uncommitted changes"
 if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok "the clone's filter never runs"; fi
 has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
