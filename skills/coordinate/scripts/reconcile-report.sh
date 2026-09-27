@@ -50,9 +50,12 @@
 #                  a rename), truncated (bool); classified here, see phase
 #                  below
 #       host       state found|missed|ambiguous, reads (count)
-#       inventory  taken (bool), items[] {clone, kind: commit|change|file,
-#                  path}, truncated (bool)
-#       leg        disposition (open|resolved|abandoned), result: a short
+#       inventory  taken (bool), items[] {clone, kind: commit|change|file|
+#                  worktree|unchecked, path}, truncated (bool); an unchecked
+#                  item is a clone that couldn't be read, with the reason
+#                  as its path, and is listed as not verified, not unique
+#       leg        disposition (open|bound|resolved|abandoned; bound is an
+#                  open leg with a child attached), result: a short
 #                  token -- a result map's outcome, or the engine's own
 #                  terminal status and final state, or "refused:<reason>"
 #   side_effects[] {row: {action, target, verified_head, attempted},

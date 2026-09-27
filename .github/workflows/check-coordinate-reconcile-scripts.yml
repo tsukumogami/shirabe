@@ -6,6 +6,7 @@ on:
       - 'skills/coordinate/scripts/reconcile-*'
       # reconcile-deps.sh sources /execute's validators.
       - 'skills/execute/scripts/coord-common.sh'
+      - 'scripts/check-bash-floor.sh'
       - '.github/workflows/check-coordinate-reconcile-scripts.yml'
 
 jobs:
@@ -21,9 +22,22 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
 
-      # The reconcile scripts need bash and jq only. Both platforms run
-      # them; macOS's /bin/bash is 3.2, the floor the scripts target.
+      # The reconcile scripts need bash, jq and git only; gh, niwa and koto
+      # are stand-ins. On macOS the suites run under /bin/bash, which is 3.2,
+      # rather than whatever bash is first on PATH.
       - name: Run reconcile script tests
         run: |
-          bash skills/coordinate/scripts/reconcile-report_test.sh
-          bash skills/coordinate/scripts/reconcile-check_test.sh
+          BASH_BIN=bash
+          [ "$RUNNER_OS" = macOS ] && BASH_BIN=/bin/bash
+          "$BASH_BIN" skills/coordinate/scripts/reconcile-report_test.sh
+          "$BASH_BIN" skills/coordinate/scripts/reconcile-check_test.sh
+
+  # Every bash in the floor container is 3.2, including the ones the suites
+  # start themselves.
+  bash-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the reconcile suites on the bash 3.2 floor
+        run: scripts/check-bash-floor.sh --backend docker coordinate-reconcile

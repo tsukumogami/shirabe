@@ -42,7 +42,11 @@ facts() {
 
 # holding <topic> <facts-json> [row-overrides-json]
 holding() {
-    jq -nc --arg t "$1" --argjson f "$2" --argjson o "${3:-{\}}" --arg vh "$VH" '
+    # bash 3.2 expands "${3:-{\}}" differently from bash 4+, so the default
+    # object is spelled out.
+    local o=${3-}
+    [ -n "$o" ] || o='{}'
+    jq -nc --arg t "$1" --argjson f "$2" --argjson o "$o" --arg vh "$VH" '
       {row: ({unit: ("unit " + $t), entry_point: "/shirabe:deliver", mode: "--auto", phase: "",
               dispatch_status: "dispatched", return_path: "message", worker: $t,
               repo: "acme/widgets", branch: ("feat/" + $t), verified_head: $vh,
@@ -173,7 +177,8 @@ L='{"kind":"leg","status":"ok","disposition":"resolved","result":"merged","read_
 out=$(facts "[$(holding a "[$P,$L]" '{"return_path":"leg req1:deliver"}')]" | render)
 printf '%s\n' "$out" | grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' \
   && ok "the holding line carries the merge state and the leg's result beside the pull request state" || bad "merge state and leg beside the pull request state" "$out"
-out=$(facts "[$(holding a "[$P,{\"kind\":\"leg\",\"status\":\"not_verified\",\"reason\":\"request store not on this host\"}]")]" | report)
+LBAD='{"kind":"leg","status":"not_verified","reason":"request store not on this host"}'
+out=$(facts "[$(holding a "[$P,$LBAD]")]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].leg == null and (.not_verified | any(.what == "a: leg" and .reason == "request store not on this host"))' >/dev/null \
   && ok "an unreadable leg is not verified" || bad "an unreadable leg is not verified" "$out"
 

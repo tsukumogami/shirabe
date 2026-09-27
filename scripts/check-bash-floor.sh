@@ -111,7 +111,7 @@ mktempdir() {
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open"
+SUITES="plan execute work-on preflight templates template-consistency koto-open coordinate-reconcile"
 
 suite_scripts() {
     case "$1" in
@@ -249,6 +249,12 @@ suite_scripts() {
             # self-test through the same code path as a real suite.
             echo "scripts/bash-floor-canary.sh"
             ;;
+        coordinate-reconcile)
+            # /coordinate's reconcile scripts: bash, jq and git only, with
+            # stand-ins for gh, niwa and koto, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/reconcile-report_test.sh"
+            echo "skills/coordinate/scripts/reconcile-check_test.sh"
+            ;;
         *)
             return 1
             ;;
@@ -264,6 +270,7 @@ suite_workflow() {
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
+        coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

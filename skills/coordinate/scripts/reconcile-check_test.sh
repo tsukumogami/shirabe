@@ -66,6 +66,7 @@ case "$name:$1:$2" in
     gh:api:*/pulls/*/files*) key=api-files ;;
     gh:api:*/compare/*) key=compare ;;
     gh:api:*/contents/*) ref=${2##*ref=}; key=contents-$ref ;;
+    gh:api:*/git/trees/*) key=tree ;;
     gh:api:*/git/ref/*) key=git-ref ;;
     gh:api:*/pulls/*) key=api-pull ;;
     git:*) key=ls-remote ;;
@@ -86,6 +87,7 @@ rc=$(cat "$STUB_DIR/$key.rc.$n" 2>/dev/null || echo 0)
 jqexpr=""
 prev=""
 for a in "$@"; do [ "$prev" = --jq ] && jqexpr=$a; prev=$a; done
+[ -f "$STUB_DIR/$key.out.$n" ] || { [ -f "$STUB_DIR/$key.out.all" ] && cp "$STUB_DIR/$key.out.all" "$STUB_DIR/$key.out.$n"; }
 if [ -f "$STUB_DIR/$key.out.$n" ]; then
     if [ "$name" = gh ] && [ -n "$jqexpr" ] && [ "$rc" = 0 ]; then
         jq -r "$jqexpr" < "$STUB_DIR/$key.out.$n" || exit 1
@@ -293,7 +295,7 @@ new_case host-late
 echo 4 > "$CASE/niwa-list.sleep.1"; serve niwa-list 1 "$LIST"
 expect "a late listing read is not verified" '.status == "not_verified" and (.reason | test("timed out"))' "$(DL=1 run host --topic coordinate-reconcile)"
 new_case host-absent
-out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/nobin:/usr/bin:/bin" bash "$S" host --topic coordinate-reconcile 2>/dev/null)
+out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/nobin:/usr/bin:/bin" "$BASH" "$S" host --topic coordinate-reconcile 2>/dev/null)
 expect "with no workspace manager on the host, host reads are not verified" '.status == "not_verified"' "$out"
 
 echo "== teardown =="
@@ -355,13 +357,24 @@ echo mine > "$RP/mine.txt"                        # untracked, unique
 ln -s /etc/hostname "$RP/link-out"                # a symlink: listed, not read
 g worktree add -q "$T/outside-wt" -b wt           # a worktree outside the instance
 LANDED=$(git -C "$RP" hash-object --no-filters landed.txt)
+# mktree REPO COMMIT [EXTRA-PATH SHA ...] -- the git/trees?recursive=1
+# response for COMMIT, with extra path/blob pairs added, served on every call.
+mktree() {
+    local repo=$1 commit=$2
+    shift 2
+    { git -C "$repo" ls-tree -r "$commit" | awk -F'\t' '{ split($1, m, " "); print m[3] "\t" $2 }'
+      while [ $# -ge 2 ]; do printf '%s\t%s\n' "$2" "$1"; shift 2; done
+    } | jq -Rsc '{truncated: false, tree: [split("\n")[] | select(length > 0) | split("\t") | {path: .[1], type: "blob", sha: .[0]}]}' \
+      > "$CASE/tree.out.all"
+}
 inv_case() {
     new_case "$1"
     printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/heads/pushed\n' "$MAIN" "$MAIN" "$PUSHED" > "$CASE/ls-remote.out.1"
-    pathblob "x.txt" "$SBLOB"; pathblob "landed.txt" "$LANDED"
+    # The default branch as GitHub has it: main, with the squashed branch's
+    # x.txt landed and landed.txt added.
+    mktree "$RP" "$MAIN" x.txt "$SBLOB" landed.txt "$LANDED"
 }
-pathblob() { printf '{"sha":"%s"}' "$2" > "$CASE/contents@$MAIN@$(printf '%s' "$1" | tr '/' '_')"; }
-ls -l --time-style=full-iso "$RP/.git/index" > "$T/idx-before" 2>/dev/null || stat -f '%m %z' "$RP/.git/index" > "$T/idx-before"
+cksum < "$RP/.git/index" > "$T/idx-before"
 inv_case inventory
 out=$(run inventory --path "$I")
 expect "the inventory is taken" '.kind == "inventory" and .status == "ok" and .taken == true' "$out"
@@ -377,8 +390,9 @@ expect "paths are clone-relative" '[.items[] | .clone, .path] | all(startswith("
 ALOG="$CASE/log"
 grep -qE '^git .* (fetch|pull|push|checkout|commit|reset|add|stash|gc|update-index|update-ref|config [^-]|config --(add|unset|replace))( |$)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E ' (fetch|pull|push|checkout|commit|reset|add) ' "$ALOG")" || ok "the inventory never writes in the clone"
 grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
-grep -q 'hash-object --no-filters' "$ALOG" && ! grep -q 'hash-object -w' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
-[ "$(cat "$T/idx-before")" = "$(ls -l --time-style=full-iso "$RP/.git/index" 2>/dev/null || stat -f '%m %z' "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
+grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
+grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
+[ "$(cat "$T/idx-before")" = "$(cksum < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
@@ -414,6 +428,7 @@ new_case inventory-probe
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.1"
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.2"
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.3"
+mktree "$R3" "$M3"
 out=$(run inventory --path "$I3")
 [ ! -e "$T/FILTER-RAN" ] && ok "a clean filter the clone's config names never runs" || bad "a clean filter the clone's config names never runs" "$out"
 expect "a same-size edit under a filter is still found" '[.items[] | .path] | index("a.txt") != null' "$out"
@@ -431,6 +446,7 @@ done
 echo late > "$I4/r21/late.txt"
 new_case inventory-cap
 for k in $(seq 1 21); do printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M3" > "$CASE/ls-remote.out.$k"; done
+mktree "$R3" "$M3"
 out=$(run inventory --path "$I4")
 expect "past the clone cap the inventory says truncated" '.truncated == true' "$out"
 rep=$(jq -nc --argjson inv "$out" '{schema: "coordinate-reconcile-facts/v1", scope: {kind: "roadmap", name: "d", repo: "acme/widgets"},
@@ -450,8 +466,54 @@ new_case inventory-refs
 { printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M5"
   for k in $(seq 1 600); do printf '%040x\trefs/pull/%s/head\n' "$k" "$k"; done
   printf '%s\trefs/heads/feature\n' "$F5"; } > "$CASE/ls-remote.out.1"
+mktree "$R5" "$M5"
 out=$(run inventory --path "$I5")
 expect "a pushed branch is pushed however many refs the remote has" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
+
+echo "== inventory: what git status would hide =="
+I6="$T/inst6"; R6="$I6/repo"; mkdir -p "$R6"
+g6() { git -C "$R6" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g6 init -q -b main; g6 remote add origin https://github.com/acme/widgets.git
+for f in staged.txt skip.txt assume.txt same.txt; do echo orig > "$R6/$f"; done
+printf 'build/\n' > "$R6/.gitignore"
+g6 add -A; g6 commit -qm base
+M6=$(git -C "$R6" rev-parse HEAD)
+g6 tag -a -m t local-tag; echo tagged > "$R6/t.md"; g6 add t.md; g6 commit -qm t; g6 tag only-tag; g6 reset -q --hard "$M6"
+g6 tag -d local-tag
+echo staged-only > "$R6/staged.txt"; g6 add staged.txt; echo orig > "$R6/staged.txt"   # MM: index differs, file restored
+g6 update-index --skip-worktree skip.txt; echo edited > "$R6/skip.txt"
+g6 update-index --assume-unchanged assume.txt; echo edited > "$R6/assume.txt"
+mkdir -p "$R6/build/deps/deeper/other"; OTH="$R6/build/deps/deeper/other"
+git -C "$OTH" init -q -b main; git -C "$OTH" remote add origin https://github.com/acme/other.git
+echo o > "$OTH/o.md"; git -C "$OTH" add -A; git -C "$OTH" -c user.email=t@e -c user.name=t commit -qm o
+new_case inventory-hidden
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M6" "$M6" > "$CASE/ls-remote.out.all"
+mktree "$R6" "$M6"
+out=$(run inventory --path "$I6")
+expect "a staged change whose file was restored is unique" '[.items[] | .path] | index("staged.txt") != null' "$out"
+expect "an edit to a skip-worktree file is unique" '[.items[] | .path] | index("skip.txt") != null' "$out"
+expect "an edit to an assume-unchanged file is unique" '[.items[] | .path] | index("assume.txt") != null' "$out"
+expect "an unchanged tracked file is not listed" '[.items[] | .path] | index("same.txt") == null' "$out"
+expect "a commit reachable only from a local tag is unique" '[.items[] | select(.kind == "commit") | .path] | index("tag only-tag") != null' "$out"
+expect "a clone deep inside an ignored directory is walked" '[.items[] | select(.clone | test("build/deps/deeper/other")) | select(.kind == "commit")] | length == 1' "$out"
+grep -qE '^git .* status( |$)' "$CASE/log" && bad "no git status anywhere" || ok "no git status anywhere"
+
+echo "== inventory: containment =="
+I7="$T/inst7"; mkdir -p "$I7" "$T/elsewhere"
+git -C "$T/elsewhere" init -q real
+ln -s "$T/elsewhere/real/.git" "$I7/.git-link-target" 2>/dev/null
+mkdir -p "$I7/r"; ln -s "$T/elsewhere/real/.git" "$I7/r/.git"
+new_case inventory-gitlink
+out=$(run inventory --path "$I7")
+expect "a clone whose .git is a symlink out of the instance is unchecked" '.items | any(.kind == "unchecked" and (.path | test("symlink")))' "$out"
+I8="$T/inst8"; mkdir -p "$I8/r" "$T/wt-elsewhere"
+git -C "$I8/r" init -q -b main; git -C "$I8/r" remote add origin https://github.com/acme/widgets.git
+git -C "$I8/r" config core.worktree "$T/wt-elsewhere"
+new_case inventory-coreworktree
+printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M6" > "$CASE/ls-remote.out.all"
+mktree "$R6" "$M6"
+out=$(run inventory --path "$I8")
+expect "a clone whose working tree is set outside is unchecked" '.items | any(.kind == "unchecked" and (.path | test("core.worktree")))' "$out"
 
 echo "== close =="
 new_case close-closed
@@ -530,7 +592,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|(-c filter\.[^ ]+ )*-C [^ ]+ (config --get remote\.origin\.url|config --name-only --get-regexp .*|rev-parse --path-format=absolute --git-common-dir|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads --format=.*|status --porcelain=v1 -z --untracked-files=all|hash-object --no-filters -- .*|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"
