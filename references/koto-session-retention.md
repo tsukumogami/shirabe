@@ -4,7 +4,7 @@ The normative rule for `koto next --no-cleanup` across shirabe's koto-driven
 skills, and the koto behaviour it rests on. Normative prose like
 [`tool-declaration-policy.md`](tool-declaration-policy.md) and
 [`wip-hygiene.md`](wip-hygiene.md): no skill loads this file at runtime, and it
-is reviewed as part of a PR. A skill states which side of the rule it is on, in
+is reviewed as part of a PR. A skill states the rule where its loop ticks, in
 one or two sentences with the reason its own reader needs at the call site, and
 cites here for the argument. What a skill should not do is re-derive the
 mechanism: that is what drifts.

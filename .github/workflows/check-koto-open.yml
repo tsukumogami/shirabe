@@ -15,6 +15,8 @@ on:
       - 'scripts/koto-open_test.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
+      # In the koto-open floor suite, so its bash 3.2 run happens here.
+      - 'scripts/koto-minimum-consistency_test.sh'
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
