@@ -71,7 +71,9 @@ fi
 # and the lines are joined with a space, so a statement wrapped across lines
 # reads as one.
 statements() {
-    sed -e 's/^[[:space:]]*\(#\{1,\}\|\/\/\|>\)\{0,1\}[[:space:]]*//' "$1" \
+    # -E, because BSD sed has no \| in a basic expression: without it macOS
+    # left the comment markers in and read a wrapped statement as two.
+    sed -E 's/^[[:space:]]*(#+|\/\/|>)?[[:space:]]*//' "$1" \
         | tr '\n' ' ' \
         | tr -s ' ' \
         | grep -oiE "(koto( minimum( is)?)? v?[0-9]+\.[0-9]+\.[0-9]+ or later|(requires?|needs?) koto v?[0-9]+\.[0-9]+\.[0-9]+|koto minimum( is)? v?[0-9]+\.[0-9]+\.[0-9]+|koto v?[0-9]+\.[0-9]+\.[0-9]+, the floor|v[0-9]+\.[0-9]+\.[0-9]+ floor|v?[0-9]+\.[0-9]+\.[0-9]+( and later)?, shirabe's koto minimum|exactly (koto )?v?[0-9]+\.[0-9]+\.[0-9]+)" \
