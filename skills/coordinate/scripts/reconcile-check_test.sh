@@ -59,6 +59,17 @@ if [ "$name" = gh ] && [ "$1" = api ]; then
         if ls "$STUB_DIR"/contents@* >/dev/null 2>&1; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
     ;; esac
 fi
+# Compare reads keyed by base and head, when the case serves them that way
+# (a missing pair is GitHub's 404 for a commit it doesn't have).
+if [ "$name" = gh ] && [ "$1" = api ]; then
+    case "$2" in */compare/*...*)
+        if ls "$STUB_DIR"/cmp@* >/dev/null 2>&1; then
+            p=${2##*/compare/}; f="$STUB_DIR/cmp@${p%%...*}@${p##*...}"
+            if [ -f "$f" ]; then jq -r '.behind_by' < "$f"; exit 0; fi
+            echo "gh: Not Found (HTTP 404)" >&2; exit 1
+        fi
+    ;; esac
+fi
 case "$name:$1:$2" in
     gh:pr:view) key=pr-view ;;
     gh:pr:list) key=pr-list ;;
@@ -489,6 +500,9 @@ echo o > "$OTH/o.md"; git -C "$OTH" add -A; git -C "$OTH" -c user.email=t@e -c u
 new_case inventory-hidden
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M6" "$M6" > "$CASE/ls-remote.out.all"
 mktree "$R6" "$M6"
+# The other clone lacks GitHub's main commit: GitHub doesn't know its own
+# main tip either (compare answers 404), so its commit is unique.
+for n in 1 2 3; do fail_with compare $n 1 "gh: Not Found (HTTP 404)"; done
 out=$(run inventory --path "$I6")
 expect "a staged change whose file was restored is unique" '[.items[] | .path] | index("staged.txt") != null' "$out"
 expect "an edit to a skip-worktree file is unique" '[.items[] | .path] | index("skip.txt") != null' "$out"
@@ -604,6 +618,65 @@ printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M12" > "$CASE/ls-re
 mktree "$R12" "$M12"
 out=$(run inventory --path "$I12")
 expect "past 200 listed items (under the file cap) the inventory says truncated" '.truncated == true and (.items | length) == 200' "$out"
+
+echo "== inventory: a clone that hasn't fetched =="
+# GitHub has moved on: its main (X13) and its "extended" branch (Y13) are
+# commits this clone never fetched. The clone's main is behind GitHub's; its
+# "extended" was pushed and then extended from elsewhere; "sq" was
+# squash-merged into X13 and deleted; "unpushed" exists nowhere else.
+I13="$T/inst13"; R13="$I13/repo"; mkdir -p "$R13"
+g13() { git -C "$R13" -c user.email=t@e -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g13 init -q -b main; g13 remote add origin https://github.com/acme/widgets.git
+echo 1 > "$R13/a.txt"; g13 add -A; g13 commit -qm base
+M13=$(git -C "$R13" rev-parse HEAD)
+g13 checkout -q -b extended; echo e > "$R13/e.txt"; g13 add -A; g13 commit -qm e
+E13=$(git -C "$R13" rev-parse HEAD)
+g13 checkout -q -b sq main; echo 2 > "$R13/a.txt"; g13 commit -qam sq
+S13=$(git -C "$R13" rev-parse HEAD)
+g13 checkout -q -b unpushed main; echo u > "$R13/u.txt"; g13 add -A; g13 commit -qm u
+g13 checkout -q main
+X13=9999999999999999999999999999999999999999
+Y13=8888888888888888888888888888888888888888
+new_case inventory-stale
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/heads/extended\n' "$X13" "$X13" "$Y13" > "$CASE/ls-remote.out.all"
+mktree "$R13" "$M13" a.txt "$(git -C "$R13" rev-parse "$S13:a.txt")"
+echo '{"behind_by":0}' > "$CASE/cmp@$M13@$X13"
+echo '{"behind_by":0}' > "$CASE/cmp@$E13@$Y13"
+echo '{"behind_by":2}' > "$CASE/cmp@$E13@$X13"
+out=$(run inventory --path "$I13")
+commits='[.items[] | select(.kind == "commit") | .path]'
+expect "a pushed main behind GitHub's is not unique" "$commits | index(\"branch main\") == null" "$out"
+expect "a branch GitHub's same-named branch contains is not unique" "$commits | index(\"branch extended\") == null" "$out"
+expect "a branch squash-merged after the clone's last fetch is not unique" "$commits | index(\"branch sq\") == null" "$out"
+expect "a branch GitHub has never seen is unique" "$commits == [\"branch unpushed\"] and (.items | all(.kind != \"unchecked\"))" "$out"
+grep -q "compare/$S13...$X13" "$CASE/log" && ok "the squash check asks GitHub, not a fetch" || bad "the squash check asks GitHub, not a fetch" "$(cat "$CASE/log")"
+if grep -E '(^| )(fetch|pull|remote update)( |$)' "$CASE/log" >/dev/null; then bad "no fetch in a stale clone" "$(cat "$CASE/log")"; else ok "no fetch in a stale clone"; fi
+new_case inventory-stale-fails
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$X13" "$X13" > "$CASE/ls-remote.out.all"
+mktree "$R13" "$M13"
+for n in 1 2 3 4 5 6 7 8; do fail_with compare $n 1 "HTTP 502"; done
+out=$(run inventory --path "$I13")
+expect "a containment read that fails leaves the tip unchecked, not pushed" '[.items[] | select(.kind == "unchecked") | .path] | index("branch main could not be compared with the remote") != null' "$out"
+
+echo "== inventory: a linked worktree inside the instance =="
+I14="$T/inst14"; R14="$I14/repo"; mkdir -p "$R14"
+g14() { git -C "$R14" -c user.email=t@e -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g14 init -q -b main; g14 remote add origin https://github.com/acme/widgets.git
+echo 1 > "$R14/a.txt"; g14 add -A; g14 commit -qm base
+M14=$(git -C "$R14" rev-parse HEAD)
+g14 worktree add -q -b wt "$I14/a-wt"
+echo w > "$I14/a-wt/w.txt"; git -C "$I14/a-wt" add w.txt; git -C "$I14/a-wt" -c user.email=t@e -c user.name=t commit -qm w >/dev/null
+echo dirty > "$I14/a-wt/a.txt"
+echo stashed > "$R14/a.txt"; g14 stash; echo main-dirty > "$R14/a.txt"
+new_case inventory-linked
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M14" "$M14" > "$CASE/ls-remote.out.all"
+mktree "$R14" "$M14"
+out=$(run inventory --path "$I14")
+expect "a branch shared with a linked worktree is listed once" '[.items[] | select(.path == "branch wt")] | length == 1' "$out"
+expect "the stash is listed once" '[.items[] | select(.path | startswith("stash"))] | length == 1' "$out"
+expect "each working tree's own change is listed under it" '[.items[] | select(.kind == "change" and .path == "a.txt") | .clone] | sort == ["a-wt", "repo"]' "$out"
+[ "$(grep -c 'ls-remote' "$CASE/log")" = 1 ] && ok "the remote is read once per repository" || bad "the remote is read once per repository" "$(grep -c ls-remote "$CASE/log")"
+[ "$(grep -c 'git/trees' "$CASE/log")" = 1 ] && ok "the default tree is read once per repository" || bad "the default tree is read once per repository" "$(grep -c git/trees "$CASE/log")"
 
 echo "== close =="
 new_case close-closed

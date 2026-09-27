@@ -62,6 +62,8 @@ MERGE_FILE_CAP=100
 INV_CLONE_CAP=20
 INV_FILE_CAP=200
 INV_ITEM_CAP=200
+# GitHub containment reads for tips a clone can't settle locally, per run.
+INV_COMPARE_CAP=40
 INV_FIND_DEPTH=16
 
 usage() {
@@ -158,7 +160,10 @@ blob_or_refuse() {
 # (the contents API per file only when GitHub truncates that tree).
 #
 # Globals inv_clone sets for the helpers it calls: REPO (the clone's github.com
-# origin), DEFAULT_SHA, TREE (the default branch's path -> blob map, a file).
+# origin), LIVE (its ls-remote read), DEFAULT (its default branch name),
+# DEFAULT_SHA, TREE (the default branch's path -> blob map, a file) and
+# EXCLUDE (^sha per live sha the clone has, a file). A linked worktree reuses
+# the ones read for its repository.
 
 # ig CLONE ARGS... -- one git read in CLONE, under the deadline.
 ig() {
@@ -202,13 +207,54 @@ default_blob() {
     printf '%s' "$b"
 }
 
+# gh_contains SHA TARGET -- ask GitHub whether commit SHA is TARGET or an
+# ancestor of it, for a clone that hasn't fetched TARGET: 0 contained; 1 not
+# contained, or SHA isn't on GitHub; 2 the read failed, ran late, or the run
+# has spent its INV_COMPARE_CAP reads.
+gh_contains() {
+    local out rc
+    INV_COMPARES=$((INV_COMPARES + 1))
+    if [ "$INV_COMPARES" -gt "$INV_COMPARE_CAP" ]; then TRUNC=true; return 2; fi
+    out=$(rd_deadline "$DEADLINE" gh api "repos/$REPO/compare/$1...$2" --jq '.behind_by' 2> "$ITEMS.cmp.err")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        [ "$rc" -ne 124 ] && grep -q 'HTTP 404' "$ITEMS.cmp.err" && return 1
+        return 2
+    fi
+    case "$out" in 0) return 0 ;; [1-9]*) return 1 ;; *) return 2 ;; esac
+}
+
+# is_local CLONE SHA -- 0 when SHA is a commit this clone has.
+is_local() { ig "$1" cat-file -e "$2^{commit}" >/dev/null 2>&1; }
+
+# live_sha REF -- REF's sha in the ls-remote read, or nothing.
+live_sha() {
+    printf '%s\n' "$LIVE" | awk -v r="$1" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }'
+}
+
+# local_default CLONE -- a commit in this clone that GitHub's default branch
+# contains, standing in for a default tip the clone hasn't fetched: its
+# remote-tracking default, else its local default branch.
+local_default() {
+    local c=$1 r s
+    for r in "refs/remotes/origin/$DEFAULT" "refs/heads/$DEFAULT"; do
+        s=$(ig "$c" rev-parse --verify --quiet "$r^{commit}" 2>/dev/null) || continue
+        rd_valid_sha "$s" || continue
+        gh_contains "$s" "$DEFAULT_SHA" && { printf '%s' "$s"; return 0; }
+    done
+    return 1
+}
+
 # inv_landed CLONE TIP -- 0 when every file TIP changes against its merge base
 # with the default branch has, on the default branch, the content it has at
-# TIP (a squash-landed branch); 1 otherwise or when that can't be read.
+# TIP (a squash-landed branch); 1 otherwise or when that can't be read. In a
+# clone that hasn't fetched the default tip, the merge base is taken with
+# local_default's commit; the content is still compared with GitHub's current
+# tree.
 inv_landed() {
-    local c=$1 tip=$2 base want have nf=0 f
-    ig "$c" cat-file -e "$DEFAULT_SHA^{commit}" >/dev/null 2>&1 || return 1
-    base=$(ig "$c" merge-base "$tip" "$DEFAULT_SHA" 2>/dev/null) || return 1
+    local c=$1 tip=$2 base want have nf=0 f against=$DEFAULT_SHA
+    is_local "$c" "$DEFAULT_SHA" || against=$(local_default "$c") || return 1
+    base=$(ig "$c" merge-base "$tip" "$against" 2>/dev/null) || return 1
     rd_valid_sha "$base" || return 1
     ig "$c" diff --name-only -z "$base" "$tip" > "$ITEMS.diff" 2>/dev/null || return 1
     while IFS= read -r -d '' f; do
@@ -351,8 +397,56 @@ inv_files() {
 }
 
 # inv_clone DIR -- inventory one clone.
+# inv_remote_has CLONE TIP NAME -- for a tip with commits outside the live
+# shas the clone has, ask GitHub whether the default branch, or the remote
+# branch of the same name, contains it, for each of those the clone hasn't
+# fetched: a stale clone's pushed main, or a branch pushed and then extended
+# from elsewhere. 0 contained; 1 not; 2 a read that couldn't answer.
+inv_remote_has() {
+    local c=$1 tip=$2 name=$3 cand same="" unknown=false
+    [ "${name#branch }" != "$name" ] && same=$(live_sha "refs/heads/${name#branch }")
+    [ "$same" = "$DEFAULT_SHA" ] && same=""
+    for cand in "$DEFAULT_SHA" "$same"; do
+        rd_valid_sha "$cand" || continue
+        is_local "$c" "$cand" && continue
+        gh_contains "$tip" "$cand"
+        case $? in 0) return 0 ;; 2) unknown=true ;; esac
+    done
+    [ "$unknown" = true ] && return 2
+    return 1
+}
+
+# inv_tips CLONE REL -- list each tip in $ITEMS.tips (sha TAB name) holding a
+# commit found nowhere else: outside the live shas the clone has, not
+# contained in GitHub's default or same-named branch, and not squash-landed.
+# One rev-list per tip, no cap on refs.
+inv_tips() {
+    local C=$1 REL=$2 tip bname n
+    while IFS=$'\t' read -r tip bname; do
+        rd_valid_sha "$tip" || continue
+        { printf '%s\n' "$tip"; cat "$EXCLUDE"; } > "$ITEMS.revs"
+        n=$(ig_stdin "$C" "$ITEMS.revs" rev-list --stdin --count 2>/dev/null) \
+            || { inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue; }
+        [ "$n" = 0 ] && continue
+        inv_remote_has "$C" "$tip" "$bname"
+        case $? in
+            0) continue ;;
+            2) inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue ;;
+        esac
+        inv_landed "$C" "$tip" || inv_item "$REL" commit "$bname"
+    done < "$ITEMS.tips"
+}
+
+# inv_detached CLONE -- a detached HEAD as a tip line, or nothing.
+inv_detached() {
+    local tip
+    ig "$1" symbolic-ref -q HEAD >/dev/null 2>&1 && return 0
+    tip=$(ig "$1" rev-parse --verify --quiet HEAD 2>/dev/null) && printf '%s\tdetached HEAD\n' "$tip"
+    return 0
+}
+
 inv_clone() {
-    local C=$1 REL URL LIVE loc common top n tip bname line w wr DEFAULT
+    local C=$1 REL URL loc common top n line w wr k
     REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
     if [ -L "$C/.git" ]; then inv_item "$REL" unchecked "its .git is a symlink, not read"; return; fi
     loc=$(ig "$C" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) \
@@ -362,6 +456,25 @@ inv_clone() {
     top=$(cd -P "$top" 2>/dev/null && pwd -P) || top=/
     case "$common/" in "$IROOT"/*) ;; *) inv_item "$REL" unchecked "its git directory is outside the instance, not read"; return ;; esac
     [ "$top" = "$C" ] || { inv_item "$REL" unchecked "its working tree is set elsewhere (core.worktree), not read"; return; }
+    # A linked worktree of a repository already read shares its refs, stash
+    # and worktree list, so only its own HEAD and files are read, against the
+    # remote reads made for that repository (or not at all when those failed:
+    # the repository is already marked unchecked).
+    k=0
+    while [ "$k" -lt "${#SEEN_COMMON[@]}" ]; do
+        if [ "${SEEN_COMMON[$k]}" = "$common" ]; then
+            [ -s "$ITEMS.live.$k" ] || return 0
+            REPO=$(sed -n 1p "$ITEMS.live.$k"); DEFAULT=$(sed -n 2p "$ITEMS.live.$k")
+            DEFAULT_SHA=$(sed -n 3p "$ITEMS.live.$k"); LIVE=$(sed '1,3d' "$ITEMS.live.$k")
+            TREE="$ITEMS.tree.$k"; EXCLUDE="$ITEMS.exclude.$k"
+            inv_detached "$C" > "$ITEMS.tips"
+            inv_tips "$C" "$REL"
+            inv_files "$C" "$REL"
+            return
+        fi
+        k=$((k + 1))
+    done
+    SEEN_COMMON+=("$common")
     URL=$(ig "$C" config --get remote.origin.url 2>/dev/null)
     if ! REPO=$(rd_github_repo "$URL"); then
         inv_item "$REL" unchecked "no github.com origin to compare against"; return
@@ -372,7 +485,7 @@ inv_clone() {
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
     rd_valid_sha "$DEFAULT_SHA" || { inv_item "$REL" unchecked "the default branch could not be resolved"; return; }
-    TREE="$ITEMS.tree"
+    TREE="$ITEMS.tree.$k"
     rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
         --jq '{truncated: .truncated, blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)} | tojson' \
         > "$TREE" 2>/dev/null && jq -e '.blobs | type == "object"' "$TREE" >/dev/null 2>&1 \
@@ -380,25 +493,18 @@ inv_clone() {
 
     # Commits: a tip (local branches, local tags, a detached HEAD) is pushed
     # when rev-list finds no commit of it outside the live shas this clone
-    # has; one call per tip, no cap on refs.
-    printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u > "$ITEMS.live"
-    ig_stdin "$C" "$ITEMS.live" cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
-        | awk '$2 == "commit" { print "^" $1 }' > "$ITEMS.exclude"
+    # has, or GitHub says a live branch the clone hasn't fetched contains it.
+    EXCLUDE="$ITEMS.exclude.$k"
+    printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u > "$ITEMS.shas"
+    ig_stdin "$C" "$ITEMS.shas" cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
+        | awk '$2 == "commit" { print "^" $1 }' > "$EXCLUDE"
+    printf '%s\n%s\n%s\n%s\n' "$REPO" "$DEFAULT" "$DEFAULT_SHA" "$LIVE" > "$ITEMS.live.$k"
     {
         ig "$C" for-each-ref refs/heads refs/tags --format='%(objectname)%09%(refname)' 2>/dev/null \
             | awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "branch ", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
-        if ! ig "$C" symbolic-ref -q HEAD >/dev/null 2>&1; then
-            tip=$(ig "$C" rev-parse --verify --quiet HEAD 2>/dev/null) && printf '%s\tdetached HEAD\n' "$tip"
-        fi
+        inv_detached "$C"
     } > "$ITEMS.tips"
-    while IFS=$'\t' read -r tip bname; do
-        rd_valid_sha "$tip" || continue
-        { printf '%s\n' "$tip"; cat "$ITEMS.exclude"; } > "$ITEMS.revs"
-        n=$(ig_stdin "$C" "$ITEMS.revs" rev-list --stdin --count 2>/dev/null) \
-            || { inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue; }
-        [ "$n" = 0 ] && continue
-        inv_landed "$C" "$tip" || inv_item "$REL" commit "$bname"
-    done < "$ITEMS.tips"
+    inv_tips "$C" "$REL"
 
     # A stash is local by nature: listed whenever it exists.
     if ig "$C" rev-parse --verify --quiet refs/stash >/dev/null 2>&1; then
@@ -694,6 +800,8 @@ inventory)
     TRUNC=false
     INV_N=0
     QUEUE=()
+    SEEN_COMMON=()
+    INV_COMPARES=0
     # find -P follows no symlinks; a .git file marks a linked worktree. Every
     # directory is searched, ignored ones included, to INV_FIND_DEPTH; clones
     # deeper than that are reached only through worktree lists, submodule

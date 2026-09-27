@@ -326,10 +326,16 @@ the read deadline:
   isn't the right one for every clone; any other origin marks the clone
   unchecked). A tip (each local branch, each local tag, a detached HEAD)
   counts as pushed only when `git rev-list` finds no commit of it outside
-  the live shas the clone has. A commit on a branch that was pushed and later
-  deleted on GitHub therefore counts as unique, which it is. A tip with
-  commits outside them has its changed files compared by content with the
-  default branch; files whose content landed don't count, which covers a
+  the live shas the clone has. A clone that hasn't fetched lately lacks some
+  of them, so for a tip with commits outside the ones it has, GitHub's
+  compare API is asked whether the default branch, or the remote branch of
+  the same name, contains the tip (at most forty such reads a run; a read
+  that can't answer leaves the tip unchecked). A commit on a branch that was
+  pushed and later deleted on GitHub therefore counts as unique, which it
+  is. A tip still not contained has its changed files compared by content
+  with the default branch, against a merge base taken with the default tip
+  or, in a stale clone, with a local commit GitHub says the default branch
+  contains; files whose content landed don't count, which covers a
   squash-merged branch. A stash is always listed.
 - **Files.** `git ls-files -s -v` gives each tracked path's index blob and
   its skip-worktree and assume-unchanged tags, `git ls-tree` gives HEAD's,
@@ -343,8 +349,9 @@ the read deadline:
   skip-worktree or assume-unchanged file, are found. Ignored files aren't
   listed.
 - **Worktrees, submodules and nested repositories.** `git worktree list`
-  names extra worktrees; one inside the instance is walked like a clone, one
-  outside it is listed, not read. A submodule (a gitlink in the index) and an
+  names extra worktrees; one inside the instance has its own HEAD and files
+  read (its refs, stash and worktree list are its repository's, read once),
+  one outside it is listed, not read. A submodule (a gitlink in the index) and an
   untracked directory holding its own repository are walked as clones of
   their own, never through the superproject's git; `find` reaches clones
   anywhere in the instance, ignored directories included, to sixteen levels.
