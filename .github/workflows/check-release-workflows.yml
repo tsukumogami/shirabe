@@ -1,0 +1,49 @@
+name: Check release workflows
+
+# release.yml and finalize-release.yml are reusable workflows other repos call
+# with their own inputs. Those inputs must reach the step scripts only through
+# env, never expanded into the script text. scripts/release-workflow-inputs_test.sh
+# runs every step script with hostile input values and fails if any of them
+# gets executed as shell.
+#
+# yq is pinned here rather than taken from the runner image, as in
+# check-macos-floor-legs.yml, so the image moving to another yq can't change
+# how the harness reads the workflows.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/finalize-release.yml'
+      - '.github/workflows/check-release-workflows.yml'
+      - 'scripts/release-workflow-inputs_test.sh'
+
+jobs:
+  inputs-via-env:
+    runs-on: ubuntu-latest
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Shellcheck the harness
+        run: shellcheck scripts/release-workflow-inputs_test.sh
+
+      - name: Run release workflows with hostile inputs
+        run: bash scripts/release-workflow-inputs_test.sh
