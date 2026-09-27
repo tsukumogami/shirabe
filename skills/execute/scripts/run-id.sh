@@ -110,8 +110,18 @@ marker_lines() {
 # replace_markers <file> <lines> -- drop every marker line from the file, then
 # append <lines> (none when empty) after a blank line.
 replace_markers() {
-    local tmp="$1.run-id.$$"
-    grep -vE "$RE_MARKER_LINE" "$1" > "$tmp"
+    local tmp="$1.run-id.$$" rc
+    # grep exits 1 when every line was a marker (nothing kept), 2 on a read
+    # error; only the second is a failure. Trailing blank lines are dropped so
+    # repeated rewrites don't grow the body.
+    grep -vE "$RE_MARKER_LINE" "$1" > "$tmp.raw"
+    rc=$?
+    if [ "$rc" -gt 1 ]; then
+        rm -f "$tmp.raw"; echo "$PROG: could not read $1" >&2; exit 74
+    fi
+    awk '{ lines[NR] = $0 } NF { last = NR } END { for (i = 1; i <= last; i++) print lines[i] }' \
+        "$tmp.raw" > "$tmp" && rm -f "$tmp.raw" \
+        || { rm -f "$tmp" "$tmp.raw"; echo "$PROG: could not write $1" >&2; exit 74; }
     if [ -n "$2" ]; then
         { printf '\n'; printf '%s\n' "$2"; } >> "$tmp"
     fi

@@ -635,6 +635,11 @@ states:
       # settled branch, never the first `gh pr list --head` hit, so a fork's or
       # another author's same-named PR is never the one whose checks count --
       # and, with this run's --run-id, neither is a PR another run opened.
+      # Resolving the PR this way is why these two gates no longer share
+      # work-on.md's names (ci_passing, merge_state_clean):
+      # validate-template-mermaid.sh check 4 holds one gate name to one
+      # command, and the commands now differ.
+      #
       # An empty lookup fails the gate before gh runs: `xargs -r` runs nothing
       # on empty input, and the grep / awk at the end fail on no output.
       # `gh pr checks ""` would instead fall back to the checked-out branch's
@@ -644,10 +649,7 @@ states:
       # `run-id.sh get` here only reads in practice: execute-open.sh and
       # orchestrator_setup have given the session its run_id long before
       # ci_monitor. If it ever minted one, the run's own marked PR would read
-      # as another run's and the gate would fail, not pass. That
-      # is why these two gates no longer share work-on.md's names (ci_passing,
-      # merge_state_clean): validate-template-mermaid.sh check 4 holds one gate
-      # name to one command, and the commands now differ.
+      # as another run's and the gate would fail, not pass.
       owned_ci_passing:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"

@@ -484,8 +484,9 @@ coordinated scripts). It keeps only PRs whose head is in the same repository
 is the expected branch, and whose head is the expected branch, and it never
 picks among several.
 
-Those checks (with the state filter, the five `owned-pr.sh` lists) can't tell two runs apart: two sessions resuming the same
-PLAN slug under one account share the author and the head branch. So ownership
+Those checks (five in `owned-pr.sh`'s own list, which adds the state filter)
+can't tell two runs apart: two sessions resuming the same PLAN slug under one
+account share the author and the head branch. So ownership
 is decided by the run that created the PR. Every PR `/execute` opens (the home
 PR in `adopt-or-create-pr.sh --create`, a node PR in `node-push.sh`) carries one
 hidden line naming the run, `<!-- shirabe-run: <id> -->`, and every lookup
@@ -1301,7 +1302,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/execute-open.sh` | Step 2's entry: maps the invocation's tokens to variable pairs with `jq` and opens the session through `scripts/koto-open.sh` with `--attach-live --replace-terminal [--koto-leg]` |
 | `skills/execute/scripts/record-write-set.sh` | `write_set_record`'s action: fixes the write set as `repos`; `--print` derives it for the Resume lookup |
 | `skills/execute/scripts/owned-pr.sh` | the one ownership-filtered PR lookup, shared with `/scope` and `/deliver` (see **Owned-PR lookup**) |
-| `skills/execute/scripts/run-id.sh` | the run identity: mints the session's `run_id`, stamps the marker line on a PR body, and carries it through a body rewrite (see **Owned-PR lookup**) |
+| `skills/execute/scripts/run-id.sh` | the run identity: mints the session's `run_id`, stamps the marker line on a PR body, carries it through a body rewrite, and restamps it for `owned-pr.sh --take-over` (see **Owned-PR lookup**) |
 | `skills/execute/scripts/adopt-or-create-pr.sh` | `orchestrator_setup`'s home-PR step: adopts the owned PR or opens one, and records `home_pr` |
 | `skills/execute/scripts/push-and-record.sh` | every single-pr push outside the cascade; records `expected_head` after a successful push |
 | `skills/execute/scripts/record-merge-verdict.sh` | `merge_readiness`'s and `merge_confirm`'s action: finds the owned PR and records the verdict, `reason`, `step`, or `confirm_verdict` |
