@@ -736,7 +736,11 @@ dispatch path and reconcile have fixed seams and one shared helper to build on.
 
 **Negative.** The template is large (about forty states) and the scripts are many. Authors have
 to remember that a check state takes no evidence, that a gate never reads context, and that a
-capture is one line. A `--to` is detected, not prevented, until koto#251 is fixed. A restart
+capture is one line. A `--to` is detected, not prevented, until koto#251 is fixed. A check reads
+through the tools on the coordinator's `PATH`, and an exported shell function reaches every bash a
+check starts, so a coordinator that rewrites its own tools, or a shim left first on `PATH`, can answer a check
+(koto#261). The checks don't defend against that, and prefixing one interpreter call with `bash -p`
+wouldn't either while `PATH` is the coordinator's. A restart
 resets the quiet-worker counts, which errs toward one more status message.
 
 **Mitigations.** A structure test lints every check state (no `accepts`, non-overridable command

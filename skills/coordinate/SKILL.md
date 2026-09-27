@@ -296,6 +296,14 @@ until then it is a procedure the coordinator runs with a local agent.
   without a report the pass sealed in this visit; a skip past `reconcile` as
   well leaves no reconcile report, and `reconcile-report-get.sh` names the
   directed transition to any reader.
+- **Checks run in the coordinator's own environment (koto#261).** koto runs
+  every action and gate with the environment of the `koto next` call that
+  triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an
+  exported shell function where `/bin/sh` is bash (not dash). The same goes for a
+  shim put first on `PATH` by accident, which a check then reads silently. The
+  checks hold against a wrong submitted value or a skipped step. They don't hold
+  against a coordinator that rewrites its own tools, or its files, which no fix
+  to the environment covers.
 - **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches
   report by message only. Reconcile can show a leg's result only for a holding
