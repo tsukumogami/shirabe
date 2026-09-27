@@ -87,9 +87,8 @@ With a well-formed value, the one `koto init` that opens the fresh
 `deliver-<topic>` session carries `--koto-leg`, and koto either binds the
 session to the leg or records its refusal there: `result_source: refused`
 (`source: refused` on a `request-leg` gate), with `outcome: refused` and a
-`reason` such as `invalid-var:TOPIC`. A
-same-named session this run won't touch is refused as `already-exists` on the
-leg. Once bound, the run's terminal result reaches the leg by promotion on the
+`reason` such as `invalid-var:TOPIC`. A same-named session this run won't
+touch is refused as `already-exists` on the leg. Once bound, the run's terminal result reaches the leg by promotion on the
 terminal tick, `--no-cleanup` notwithstanding: the same `outcome`, `step`,
 `reason`, `pr`, and other keys `deliver-report.sh` prints.
 
@@ -113,9 +112,10 @@ koto records a refusal only on a leg that is still open and unbound. koto's
 refusal of this run's open reaches the leg, including a same-named session the
 probe stopped on. Nothing that stops before that open does: no topic, a failed
 preflight, `deliver-open.sh`'s usage refusals, `failed=jq_missing`, or
-`failed=cleanup`. Neither does a run that stops before its terminal. In those cases the leg stays open, and a
-`request-leg` gate would wait on it indefinitely, so the coordinator needs its
-own fallback for a worker that ended without a result.
+`failed=cleanup`. Neither does a run that stops before its terminal. In those
+cases the leg stays open, and a `request-leg` gate would wait on it
+indefinitely, so the coordinator needs its own fallback for a worker that
+ended without a result.
 
 Keep the two requests apart. The caller's request and its `deliver` leg
 belong to the caller: `/deliver` never lists, closes, or abandons it, and the

@@ -21,8 +21,8 @@
 # live session from another template or worktree, a leg that names another
 # template or pins other inputs. koto records each of those refusals on the leg
 # itself when the leg is still open and unbound; on a leg already bound to this
-# session (a re-dispatch) it records nothing and the leg stays bound. This script's own refusals are the ones
-# where there is no leg to record anything on: no --koto-leg, a repeated one, a
+# session (a re-dispatch) it records nothing and the leg stays bound. This
+# script's own refusals are the ones where there is no leg to record anything on: no --koto-leg, a repeated one, a
 # value that isn't <request-id>:work-on with a request id koto would accept, or
 # a tokens file it cannot read. Each exits 64 with `error=usage` and makes no
 # koto call. koto-open.sh adds two: an args file inside the work tree, and no
@@ -37,7 +37,7 @@
 #                  ARTIFACT_PREFIX. Written to the pairs file with jq, never
 #                  through a shell.
 #   <tokens-file>  a JSON array of strings, the invocation's tokens in order,
-#                  written with jq into a directory from
+#                  written with the Write tool or jq into a directory from
 #                  `koto-open.sh --alloc-dir`. Only the --koto-leg tokens are
 #                  read from it: `--koto-leg=<v>` or `--koto-leg <v>`. This
 #                  script removes it, and koto-open.sh removes the pairs file

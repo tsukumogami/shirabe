@@ -379,7 +379,10 @@ per-parent input. `/scope`, `/execute`, `/deliver`, and `/work-on`
 own it. A child whose terminals declare no result map, as `/work-on`'s
 don't, has koto's own result promoted instead: a status and the
 terminal state, with no `outcome` key, so its caller routes that leg
-on the final state. The driver that uses it is described under
+on the final state. That difference exists only because `/work-on`
+keeps koto 0.12.2 as its floor for runs without the flag, and 0.12.2
+can't compile a result map; once that floor reaches 0.13.0, give
+`work-on.md`'s terminals result maps and drop the special case. The driver that uses it is described under
 Parent-of-the-Parent Binding in the Dispatch Contract below.
 
 ## Named Substitution Surfaces

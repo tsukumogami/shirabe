@@ -235,15 +235,14 @@ applies and the run is unchanged.
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on --mode koto-leg 2>&1 || true
    ```
    Anything it prints is a missing prerequisite: report it and stop.
-2. **Write the tokens.** Split the original `$ARGUMENTS`, `--koto-leg` included, into
-   tokens as typed and write them as a
-   JSON array of strings, with the Write tool or `jq`, into a private directory
-   outside the work tree:
+2. **Apply the Resume guard first.** A finished `<WF>` must be cleaned up or the run
+   renamed before the open (see **Resume**); the open never replaces one.
+3. **Write the tokens.** Split the original `$ARGUMENTS`, `--koto-leg` included, into
+   tokens as typed and write them as a JSON array of strings, with the Write tool
+   or `jq`, into a private directory outside the work tree:
    ```bash
    ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
    ```
-3. **Apply the Resume guard first.** A finished `<WF>` must be cleaned up or the run
-   renamed before the open (see **Resume**); the open never replaces one.
 4. **Open.**
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
@@ -259,7 +258,9 @@ applies and the run is unchanged.
    koto call was made, so nothing is on the leg; report it and stop. `refused=<code>`
    (exit 2, or koto's own code such as 1 for lock contention) is a refusal; report
    it and stop. `refused=args_file_in_work_tree` is `koto-open.sh`'s own and never
-   reaches koto. koto records a refusal only on a leg that
+   reaches koto. `failed=<kind>` (exit 127 for a missing koto or jq, or koto's own
+   code) means no session was opened and nothing is on the leg; report it and
+   stop. koto records a refusal only on a leg that
    is still open and unbound (`result_source: refused`, payload `outcome: refused`
    and a kebab-case `reason` such as `input-mismatch` or `var-mismatch:ISSUE_NUMBER`).
    On a leg already bound to this session, a re-dispatch that koto refuses (from
@@ -335,7 +336,7 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   then makes one `koto init --attach-live --koto-leg` through the shared
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
-  with no koto call.
+  with no koto call, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/record-changed-paths_test.sh`, `scripts/work-on-open_test.sh` — the
   harnesses; see each file's header.
@@ -484,7 +485,8 @@ Then:
    first: every `koto next` below carries `--no-cleanup` when `ROLE` is `root`,
    and a resumed run can reach a terminal on its very first tick — that is the
    one path where resolving `ROLE` later would leave the tick that matters bare.
-3. On a resumed workflow, apply the **Resume** guard above before ticking it:
+3. On a resumed workflow, apply the **Resume** guard above before ticking it
+   (under `--koto-leg`, step 1 already did):
    `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not
    a resume. Never tick it and never report the issue complete on its strength.
    Otherwise resume with `koto next <WF>`, carrying `--no-cleanup` per `ROLE`.
