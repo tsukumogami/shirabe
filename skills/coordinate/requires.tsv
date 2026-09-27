@@ -9,3 +9,12 @@ git	-	-	always
 # The record's codec (record-render.sh, record-parse.sh) and every script
 # that reads or writes the record are jq programs over the rendered tables.
 jq	-	-	always
+#
+# The record's lifecycle scripts (record-find.sh, record-open.sh,
+# record-write.sh, record-holding.sh, record-confirm.sh, start-check.sh,
+# posture-read.sh) read GitHub with gh, decode the roadmap file with base64
+# (coreutils, undeclared), and store each check's detail as data with
+# `koto context add --from-file`; record-confirm.sh finds the session's log
+# through `koto session dir`, as coord-log.sh does.
+koto	context add	--from-file	always
+koto	session dir	-	always

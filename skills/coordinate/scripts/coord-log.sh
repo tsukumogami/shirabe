@@ -42,6 +42,12 @@
 #       --template is for tests that run a localized copy.
 #   coord-log.sh live-session --scope-slug SLUG
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
+#   coord-log.sh vars --session S
+#       Prints the workflow_initialized variables object as compact JSON, the
+#       run's scope, roadmap or discipline, and host. Exit 0; 2 read failure.
+#   coord-log.sh entered --session S --state ST
+#       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
+#       failure. Write scripts ask it whether the run has dispatched yet.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -49,7 +55,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 KOTO=${KOTO_BIN:-koto}
 
-usage() { sed -n '19,48p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+usage() { sed -n '/^# Usage:/,/^# Exit 64/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "coord-log: $*" >&2; exit 2; }
 
 sha256() {
@@ -216,6 +222,18 @@ live-session)
     [ $n -eq 0 ] && exit 1
     [ $n -gt 1 ] && { echo "coord-log: several live sessions for $SLUG" >&2; exit 3; }
     printf '%s\n' "$LIVE"
+    ;;
+vars)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
+    [ -n "$VARS" ] || die "no workflow_initialized event"
+    printf '%s\n' "$VARS"
+    ;;
+entered)
+    need SESSION STATE
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    [ -n "$(latest_entry "$LOG" "$STATE")" ] || exit 1
     ;;
 *) usage ;;
 esac

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# koto stand-in for the board, land and merge tests (KOTO_BIN points here).
+# Serves hand-written session logs from $KOTO_BOARD_DIR/sessions/<S>/, keeps
+# context keys as files beside them, and answers `template compile` with a
+# path whose name is $KOTO_BOARD_HASH, which is what coord-log.sh provenance
+# compares with the header's template_hash. Anything else exits 9.
+set -uo pipefail
+D=${KOTO_BOARD_DIR:?}
+printf '%s\n' "$*" >> "$D/koto.calls"
+case "${1-} ${2-}" in
+    "session dir") [ -d "$D/sessions/${3-}" ] || exit 1; printf '%s\n' "$D/sessions/$3" ;;
+    "context add")
+        [ -f "$D/fail-context" ] && exit 1
+        [ "${5-}" = --from-file ] || exit 9
+        mkdir -p "$D/sessions/$3/ctx"
+        cp "$6" "$D/sessions/$3/ctx/$(printf '%s' "$4" | sed 's#/#__#g')" ;;
+    "context get") cat "$D/sessions/$3/ctx/$(printf '%s' "$4" | sed 's#/#__#g')" 2>/dev/null || exit 1 ;;
+    "template compile") printf '%s\n' "$D/cache/${KOTO_BOARD_HASH:-none}.json" ;;
+    *) echo "koto stand-in: unexpected: $*" >&2; exit 9 ;;
+esac

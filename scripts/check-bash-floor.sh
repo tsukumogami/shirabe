@@ -248,6 +248,13 @@ suite_scripts() {
             # Its engine suites (*_engine_test.sh) need real koto and run on
             # ubuntu only.
             echo "skills/coordinate/scripts/record-codec_test.sh"
+            echo "skills/coordinate/scripts/record-find_test.sh"
+            echo "skills/coordinate/scripts/record-open_test.sh"
+            echo "skills/coordinate/scripts/record-write_test.sh"
+            echo "skills/coordinate/scripts/record-holding_test.sh"
+            echo "skills/coordinate/scripts/record-confirm_test.sh"
+            echo "skills/coordinate/scripts/start-check_test.sh"
+            echo "skills/coordinate/scripts/posture-read_test.sh"
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
