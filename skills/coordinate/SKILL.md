@@ -321,6 +321,10 @@ it lands, it is a procedure the coordinator runs with a local agent.
   worker on a topic whose session is still live would be refused; the dispatch
   script refuses the topic first. A unit dispatched again after a failure takes
   a new topic.
+- **A worker launched outside the dispatch script can't be adopted.** The
+  dispatch script refuses a topic whose session is already live, so a worker
+  started by hand never gets a holding through it. Stop that worker's session
+  and dispatch the unit again through the script, under a new topic.
 - **Session names aren't predictable (niwa#325).** niwa appends a random token to
   the name it's given and doesn't report the launched session in a
   machine-readable form, so the dispatch script reads the name from the dispatch
