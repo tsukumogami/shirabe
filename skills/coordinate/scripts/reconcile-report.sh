@@ -37,16 +37,22 @@
 #                  or missing run)
 #       branch     state present|gone, tip
 #       appeared   prs[] {number, url, state}
-#       files      outside_docs (bool), truncated (bool)
+#       files      paths[] (the pull request's changed paths, both sides of
+#                  a rename), truncated (bool); classified here, see phase
+#                  below
 #       host       state found|missed|ambiguous, reads (count)
 #       inventory  taken (bool), items[] {clone, kind: commit|change|file,
 #                  path}, truncated (bool)
-#       leg        disposition, result
+#       leg        disposition (open|resolved|abandoned), result: a short
+#                  token -- a result map's outcome, or the engine's own
+#                  terminal status and final state, or "refused:<reason>"
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
 #                          reason, status, read_at}}
-#   deferrals[]    {row: {deferral, reason, raised}, disposed (bool), how}
+#   deferrals[]    {row: {deferral, reason, raised}, disposed (bool), how,
+#                   status: ok|not_verified, reason}; a deferral whose
+#                   disposal check failed is not reported either way
 #   reasoning      present|absent|not_recorded, or null at roadmap scope
 #   unparseable[]  {raw, reason}: rows the reader couldn't parse
 #
@@ -54,20 +60,33 @@
 #
 #   header         {scope, written, reconciled_at, source, handoff_date}
 #   changes[]      {topic, what, recorded, live, written, grade}
-#   holdings[]     {topic, unit, phase, phase_flag, state, board, next,
-#                   read_at, grade}
-#   waiting[]      {topic|target, why}
-#   nowhere_else[] {topic, why, inventory}
+#   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
+#                   board, leg, next, read_at, grade: {state, board, leg,
+#                   phase, next}}
+#   waiting[]      {topic, why, grade}
+#   nowhere_else[] {topic, why, inventory, grade}
 #   side_effects[] {action, target, verdict, reason, grade}
-#   deferrals[]    {deferral, reason, raised}: undisposed only
+#   deferrals[]    {deferral, reason, raised, grade}: undisposed only
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
+#
+# Phase. A row's `phase` value decides it, matched whole and ignoring case:
+# "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing.
+# An empty `phase` falls back to the entry point and mode: the scoping entry
+# point (".../scope"), or a mode carrying `--intent=stop` or `--intent stop`,
+# is scoping ahead; anything else is executing. Any other `phase` value is
+# not guessed at: the holding is marked executing and the value is listed
+# under "not verified". A scoping-ahead holding is flagged when its pull
+# request changes a path outside docs/: a path is inside docs/ only when it
+# starts with "docs/" exactly, so "docsx/a" is outside.
 #
 # Grades: "measured" for a value read live (pull request state, branch tip,
 # a listing read, an inventory, a leg); "verified by reading" for a
 # conclusion drawn by comparing reads (a board judged by its property, a side
 # effect confirmed, a deferral's disposal); "inferred" for anything taken
-# from the record's text without a live read (a phase mark, a next line).
+# from the record's text without a live read (a phase mark, a next line, the
+# waiting list). A claim whose read failed is graded "not verified", never
+# with the grade a successful read would have earned.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -96,13 +115,17 @@ def ok($f): $f != null and $f.status == "ok";
 def safe_path: if type == "string" and startswith("/") then "(absolute path withheld)" else . end;
 def topic: .row.worker // "(no worker)";
 
+def phase_key: (.row.phase // "") | ascii_downcase;
+def phase_known: phase_key | . == "" or . == "scoping" or . == "scoping-ahead" or . == "executing";
 def phase_of:
-  (.row.phase // "") as $p
-  | if $p != "" then
-      (if ($p | test("^scop")) then "scoping ahead" else "executing" end)
+  phase_key as $p
+  | if $p == "scoping" or $p == "scoping-ahead" then "scoping ahead"
+    elif $p == "executing" then "executing"
+    elif $p != "" then "executing"
     elif ((.row.entry_point // "") | test("(^|:|/)scope$"))
-      or ((.row.mode // "") | test("--intent=stop")) then "scoping ahead"
+      or ((.row.mode // "") | test("--intent(=| +)stop( |$)")) then "scoping ahead"
     else "executing" end;
+def outside_docs: fact("files") as $f | ok($f) and ((($f.paths // []) | map(select(startswith("docs/") | not)) | length) > 0);
 
 def state_of:
   if .refused != null then "refused"
@@ -113,6 +136,11 @@ def state_of:
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
     else "not verified" end
   end;
+
+def leg_of:
+  fact("leg") as $l
+  | if ok($l) then (($l.disposition // "") + (if ($l.result // "") != "" then ": " + $l.result else "" end)) else null end;
+def grade_of($f): if ok($f) then "measured" elif $f == null then null else "not verified" end;
 
 def board_of:
   [.facts // [] | .[] | select(.kind == "board" and .status == "ok")]
@@ -168,10 +196,18 @@ def changes_of($written):
     changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
-        phase_flag: ($ph == "scoping ahead" and (fact("files") as $f | ok($f) and $f.outside_docs == true)),
-        state: state_of, board: board_of, next: next_of,
+        phase_flag: ($ph == "scoping ahead" and outside_docs),
+        state: state_of,
+        merge_state: (fact("pr") as $pr | if ok($pr) then ($pr.merge_state // null) else null end),
+        board: board_of, leg: leg_of, next: next_of,
         read_at: ([.facts // [] | .[].read_at // empty] | max),
-        grade: {state: "measured", board: "verified by reading", phase: "inferred", next: "inferred"}
+        grade: {
+          state: (fact("pr") as $pr | fact("host") as $h
+                  | if .refused != null then "not verified"
+                    elif ok($pr) or ok($h) then "measured" else "not verified" end),
+          board: (if board_of == null then null else "verified by reading" end),
+          leg: grade_of(fact("leg")),
+          phase: "inferred", next: "inferred"}
       }],
     nowhere_else: [$in.holdings[]? | select(.refused == null)
       | fact("pr") as $pr | fact("host") as $h | fact("inventory") as $inv
@@ -181,6 +217,7 @@ def changes_of($written):
       | {topic: topic,
          why: (if $nopr and ok($h) and $h.state != "found" then "no pull request; worker not found on this read"
                elif $nopr then "no pull request" else "unpushed work" end),
+         grade: (if ok($inv) then "measured" else "not verified" end),
          inventory: (if ok($inv) and $inv.taken == true then
                        (if (($inv.items // []) | length) == 0 then "nothing unique found"
                         else ([$inv.items[] | "\(.clone // "."): \(.kind) \(.path | safe_path)"] | join("; "))
@@ -190,7 +227,8 @@ def changes_of($written):
         verdict: (.fact.verdict // "not_rechecked" | gsub("_"; " ")),
         reason: (.fact.reason // ""),
         grade: (if (.fact.verdict // "") == "not_rechecked" then "inferred" else "verified by reading" end)}],
-    deferrals: [$in.deferrals[]? | select(.disposed != true) | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // "")}],
+    deferrals: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed != true)
+      | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""), grade: "verified by reading"}],
     reasoning: (if $in.reasoning == null then null
                 else {status: $in.reasoning, key: (if $in.reasoning == "present" then "reconcile/reasoning.md" else null end)} end),
     not_verified: (
@@ -198,12 +236,16 @@ def changes_of($written):
       + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), reason: ("refused: " + .refused), raw: null}]
       + [$in.holdings[]? | topic as $t | (.facts // [])[] | select(.status != "ok")
           | {what: ($t + ": " + .kind), reason: (.reason // "read failed"), raw: null}]
+      + [$in.holdings[]? | select(phase_known | not)
+          | {what: ("holding " + topic + ": phase"), reason: ("unrecognised phase value; marked executing"), raw: null}]
+      + [$in.deferrals[]? | select((.status // "ok") != "ok")
+          | {what: ("deferral " + (.row.deferral // "")), reason: (.reason // "disposal check failed"), raw: null}]
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
           | {what: ((.row.action // "") + " " + (.row.target // "")), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next == "ready to land" or .next == "decide: re-dispatch or drop") | {topic, why: .next}]
-    + [.side_effects[] | select(.action == "merge" and .verdict == "not confirmed") | {topic: .target, why: "merge not confirmed"}])
+    [.holdings[] | select(.next == "ready to land" or .next == "decide: re-dispatch or drop") | {topic, why: .next, grade: "inferred"}]
+    + [.side_effects[] | select(.action == "merge" and .verdict == "not confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 '
 
 REPORT=$(printf '%s' "$INPUT" | jq -c "$REPORT_JQ") || { echo "$PROG: could not build the report" >&2; exit 65; }
@@ -224,12 +266,15 @@ def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "No
 section("Changed since then"; [.changes[] | "- \(.topic): \(.what): record said \(.recorded), now \(.live) (written \(.written); \(.grade))."]),
 section("Holding"; [.holdings[] | "- \(.topic) (\(.unit)): \(.phase)"
     + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
-    + "; \(.state)" + (if .board != null then "; board \(.board)" else "" end)
-    + ". Next: \(.next). Read \(.read_at // "not read")."]),
-section("Waiting on a person"; [.waiting[] | "- \(.topic): \(.why)."]),
-section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic): \(.why); \(.inventory)."]),
+    + "; \(.state) (\(.grade.state))"
+    + (if .merge_state != null then ", merge state \(.merge_state)" else "" end)
+    + (if .leg != null then "; leg \(.leg) (\(.grade.leg))" else "" end)
+    + (if .board != null then "; board \(.board) (\(.grade.board))" else "" end)
+    + ". Next: \(.next) (inferred). Read \(.read_at // "not read")."]),
+section("Waiting on a person"; [.waiting[] | "- \(.topic): \(.why) (\(.grade))."]),
+section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | "- \(.action) \(.target): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
-section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason)."]),
+section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),
 (if .reasoning != null then
   section("Predecessor'"'"'s reasoning";
     [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it."

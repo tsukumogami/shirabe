@@ -118,7 +118,9 @@ w=$(facts "$MIX" "$SE" | report | jq -c '[.waiting[] | .topic] | sort')
 echo "== grades =="
 out=$(facts "$MIX" "$SE" '[{"row":{"deferral":"d1","reason":"r","raised":"2026-09-20"},"disposed":false}]' | report)
 printf '%s' "$out" | jq -e '
-  (.holdings | all(.grade.state == "measured" and .grade.board == "verified by reading" and .grade.phase == "inferred" and .grade.next == "inferred"))
+  (.holdings | all(.grade.state == "measured" and (.grade.board == "verified by reading" or (.board == null and .grade.board == null)) and .grade.phase == "inferred" and .grade.next == "inferred"))
+  and (.waiting | all(.grade == "inferred"))
+  and (.deferrals | all(.grade == "verified by reading"))
   and (.changes | all(.grade == "measured"))
   and (.side_effects | all(.grade == "verified by reading"))' >/dev/null \
   && ok "each claim kind carries its grade" || bad "each claim kind carries its grade" "$out"
@@ -136,10 +138,46 @@ got=$(ph "$(holding a "[]" '{"phase":"","entry_point":"/shirabe:scope"}')")
 [ "$got" = "scoping ahead|false" ] && ok "no phase key falls back to the entry point" || bad "no phase key falls back to the entry point" "$got"
 got=$(ph "$(holding a "[]" '{"phase":"","mode":"--auto --intent=stop"}')")
 [ "$got" = "scoping ahead|false" ] && ok "no phase key falls back to a scoping mode" || bad "no phase key falls back to a scoping mode" "$got"
-got=$(ph "$(holding a '[{"kind":"files","status":"ok","outside_docs":true}]' '{"phase":"scoping"}')")
-[ "$got" = "scoping ahead|true" ] && ok "a scoping holding changing paths outside docs/ is flagged" || bad "a scoping holding changing paths outside docs/ is flagged" "$got"
-got=$(ph "$(holding a '[{"kind":"files","status":"ok","outside_docs":false}]' '{"phase":"scoping"}')")
+got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docs/x/y.md","src/x"]}]' '{"phase":"scoping"}')")
+[ "$got" = "scoping ahead|true" ] && ok "a scoping holding changing src/x is flagged" || bad "a scoping holding changing src/x is flagged" "$got"
+got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docs/x/y.md","docs/plans/PLAN-a.md"]}]' '{"phase":"scoping"}')")
 [ "$got" = "scoping ahead|false" ] && ok "a scoping holding changing only docs/ is not flagged" || bad "a scoping holding changing only docs/ is not flagged" "$got"
+got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docsx/a"]}]' '{"phase":"scoping"}')")
+[ "$got" = "scoping ahead|true" ] && ok "docsx/a is outside docs/" || bad "docsx/a is outside docs/" "$got"
+got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["src/x"]}]' '{"phase":"executing"}')")
+[ "$got" = "executing|false" ] && ok "an executing holding is never flagged" || bad "an executing holding is never flagged" "$got"
+got=$(ph "$(holding a "[]" '{"phase":"Scoping-Ahead"}')")
+[ "$got" = "scoping ahead|false" ] && ok "phase values match whole, ignoring case" || bad "phase values match whole, ignoring case" "$got"
+out=$(facts "[$(holding a "[]" '{"phase":"scoped"}')]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].phase == "executing" and (.not_verified | any(.what == "holding a: phase"))' >/dev/null \
+  && ok "an unrecognised phase value is marked executing and listed as not verified" || bad "an unrecognised phase value is marked executing and listed as not verified" "$out"
+got=$(ph "$(holding a "[]" '{"phase":"","mode":"--auto --intent stop"}')")
+[ "$got" = "scoping ahead|false" ] && ok "the mode fallback accepts --intent stop" || bad "the mode fallback accepts --intent stop" "$got"
+got=$(ph "$(holding a "[]" '{"phase":"","mode":"--intent=stopper"}')")
+[ "$got" = "executing|false" ] && ok "the mode fallback doesn't match --intent=stopper" || bad "the mode fallback doesn't match --intent=stopper" "$got"
+
+echo "== grades follow the read =="
+out=$(facts "[$(holding a '[{"kind":"pr","status":"not_verified","reason":"timeout"}]')]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].grade.state == "not verified" and .holdings[0].grade.board == null' >/dev/null \
+  && ok "a failed pull request read is graded not verified, with no board grade" || bad "a failed pull request read is graded not verified, with no board grade" "$out"
+out=$(facts "[$(holding a "[$(pr OPEN "$VH")]")]" | render)
+printf '%s\n' "$out" | grep -q 'open (measured)' && ok "the rendered holding shows its state grade" || bad "the rendered holding shows its state grade" "$out"
+
+echo "== merge state and legs =="
+P=$(jq -nc --arg h "$VH" '{kind: "pr", status: "ok", state: "OPEN", head: $h, draft: false, merge_state: "BLOCKED", read_at: "2026-09-27T09:59:00Z"}')
+L='{"kind":"leg","status":"ok","disposition":"resolved","result":"merged","read_at":"2026-09-27T09:58:30Z"}'
+out=$(facts "[$(holding a "[$P,$L]" '{"return_path":"leg req1:deliver"}')]" | render)
+printf '%s\n' "$out" | grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' \
+  && ok "the holding line carries the merge state and the leg's result beside the pull request state" || bad "merge state and leg beside the pull request state" "$out"
+out=$(facts "[$(holding a "[$P,{\"kind\":\"leg\",\"status\":\"not_verified\",\"reason\":\"request store not on this host\"}]")]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].leg == null and (.not_verified | any(.what == "a: leg" and .reason == "request store not on this host"))' >/dev/null \
+  && ok "an unreadable leg is not verified" || bad "an unreadable leg is not verified" "$out"
+
+echo "== deferrals =="
+D='[{"row":{"deferral":"d1","reason":"r1","raised":"2026-09-20"},"disposed":false,"status":"ok"},{"row":{"deferral":"d2","reason":"r2","raised":"2026-09-21"},"disposed":true,"how":"filed #5","status":"ok"},{"row":{"deferral":"d3","reason":"r3","raised":"2026-09-22"},"status":"not_verified","reason":"issue read timed out"}]'
+out=$(facts '[]' '[]' "$D" | report)
+printf '%s' "$out" | jq -e '([.deferrals[].deferral] == ["d1"]) and (.not_verified | any(.what == "deferral d3" and .reason == "issue read timed out"))' >/dev/null \
+  && ok "a deferral whose check failed is not verified, not disposed or undisposed" || bad "deferral disposal failures" "$out"
 
 echo "== bound, raw output, identifiers =="
 HS=""
@@ -150,6 +188,10 @@ done
 out=$(facts "[$HS]" | render)
 lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
 [ "$lines" -le 100 ] && ok "10 holdings render within 40 + 6 per holding ($lines lines)" || bad "10 holdings render within the bound" "$lines"
+SES=$(jq -nc '[range(10) | {row: {action: "merge", target: "acme/widgets#\(.)"}, fact: {kind: "merge", verdict: "not_confirmed", reason: "file differs", status: "ok"}}]')
+DES=$(jq -nc '[range(10) | {row: {deferral: "d\(.)", reason: "later", raised: "2026-09-20"}, disposed: false, status: "ok"}]')
+lines=$(facts "[$HS]" "$SES" "$DES" | render | wc -l | tr -d ' ')
+[ "$lines" -le 220 ] && ok "10 holdings, 10 side effects and 10 deferrals render within the bound ($lines lines)" || bad "30 items render within the bound" "$lines"
 printf '%s' "$out" | grep -q 'RAW-GH-OUTPUT' && bad "raw read output never reaches the report" || ok "raw read output never reaches the report"
 printf '%s' "$out" | grep -qE '/home/|deadbeef|cfg\+' && bad "no absolute path, session id or instance name reaches the report" "$(printf '%s' "$out" | grep -E '/home/|deadbeef|cfg\+')" \
   || ok "no absolute path, session id or instance name reaches the report"
