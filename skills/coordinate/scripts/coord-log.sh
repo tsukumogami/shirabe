@@ -126,7 +126,7 @@ seal)
         printf '%s sealed:%s:%s\n' "$TOKEN" "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$TOKEN")"
     else
         [ -r "$FILE" ] || usage
-        "$KOTO" context add "$SESSION" "$KEY" --from-file "$FILE" >/dev/null 2>&1 || { echo "coord-log: koto context add failed" >&2; exit 66; }
+        "$KOTO" context add "$SESSION" "$KEY" --from-file "$FILE" >/dev/null || { echo "coord-log: koto context add failed" >&2; exit 66; }
         DIGEST=$(sha256 < "$FILE")
         printf 'sealed:%s:%s\n' "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$DIGEST")"
     fi
@@ -224,11 +224,11 @@ live-session)
     n=0
     # A run's name is coordinate-<slug>-<UTC stamp>; matching the stamp keeps a
     # longer slug (a -v2 roadmap) from reading as this scope's run.
-    for id in $("$KOTO" session list 2>/dev/null | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
+    for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
         st=$("$KOTO" status "$id" 2>/dev/null) || continue
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
-        jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null 2>&1 && continue
+        jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
         LIVE=$id
         n=$((n + 1))
     done

@@ -196,7 +196,7 @@ bl_human_holds_merge() {
     local t
     t=$(mktemp "${TMPDIR:-/tmp}/board-lib.XXXXXX") || return 2
     if ! bl_gh "$t" api --method GET "repos/$repo/issues/$ref"; then rm -f "$t" "$t.err" "$t.fail"; return 2; fi
-    body=$(jq -r '.body // ""' "$t" 2>/dev/null)
+    body=$(jq -r '.body // ""' "$t")
     rm -f "$t" "$t.err" "$t.fail"
     local cont=issue
     [ "$scope" = discipline ] && cont=pr
@@ -247,15 +247,15 @@ bl_merge_compare() {
     local repo=$1 pr=$2 sha=$3 d state def n i p ref k a b
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-merge.XXXXXX") || return 2
     if ! bl_gh "$d/pr" pr view "$pr" --repo "$repo" --json state,files; then rm -rf "$d"; return 2; fi
-    state=$(jq -r '.state // ""' "$d/pr" 2>/dev/null)
+    state=$(jq -r '.state // ""' "$d/pr")
     case "$state" in
         MERGED) ;;
         OPEN|CLOSED) rm -rf "$d"; echo not-merged; return 0 ;;
         *) echo "$PROG: pull request state [$state]" >&2; rm -rf "$d"; return 2 ;;
     esac
-    jq -r '.files[]?.path' "$d/pr" > "$d/paths" 2>/dev/null || { rm -rf "$d"; return 2; }
+    jq -r '.files[]?.path' "$d/pr" > "$d/paths" || { rm -rf "$d"; return 2; }
     if ! bl_gh "$d/repo" api --method GET "repos/$repo"; then rm -rf "$d"; return 2; fi
-    def=$(jq -r '.default_branch // ""' "$d/repo" 2>/dev/null)
+    def=$(jq -r '.default_branch // ""' "$d/repo")
     bl_branch_ok "$def" || { echo "$PROG: default branch [$def]" >&2; rm -rf "$d"; return 2; }
     n=0
     while IFS= read -r p; do
@@ -280,7 +280,7 @@ bl_merge_compare() {
                     rm -rf "$d"; return 2
                 fi
             else
-                jq -r 'if type == "object" and .type == "file" and (.sha | type) == "string" then .sha else "not-a-file" end' "$d/blob.$i.$k" > "$d/sha.$i.$k" 2>/dev/null || { rm -rf "$d"; return 2; }
+                jq -r 'if type == "object" and .type == "file" and (.sha | type) == "string" then .sha else "not-a-file" end' "$d/blob.$i.$k" > "$d/sha.$i.$k" || { rm -rf "$d"; return 2; }
             fi
         done
         a=$(cat "$d/sha.$i.def"); b=$(cat "$d/sha.$i.sha")

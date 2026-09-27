@@ -158,15 +158,15 @@ lib_authority() {
     local kind=$1 n=$2 q out author editor login perm seen=
     AUTH_REASON=
     q="query(\$owner: String!, \$name: String!, \$number: Int!) { repository(owner: \$owner, name: \$name) { $kind(number: \$number) { author { login } editor { login } } } }"
-    out=$(gh api graphql -f query="$q" -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$n" 2>/dev/null < /dev/null) || return 2
-    author=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].author.login // ""' 2>/dev/null) || return 2
-    editor=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].editor.login // ""' 2>/dev/null) || return 2
+    out=$(gh api graphql -f query="$q" -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$n" < /dev/null) || return 2
+    author=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].author.login // ""') || return 2
+    editor=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].editor.login // ""') || return 2
     [ -n "$editor" ] || editor=$author
     for login in "$author" "$editor"; do
         [ "$login" = "$seen" ] && continue
         seen=$login
         if ! [[ $login =~ $RE_LOGIN ]]; then AUTH_REASON="no usable login"; return 1; fi
-        perm=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission 2>/dev/null < /dev/null) || return 2
+        perm=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission < /dev/null) || return 2
         case "$perm" in
             admin|maintain|write) ;;
             *) AUTH_REASON="$login has $perm access"; return 1 ;;
@@ -185,7 +185,7 @@ lib_emit() {
     fi
     [ -n "$SESSION" ] || { echo "$PROG: sealing needs --session" >&2; exit 64; }
     if [ -n "$3" ]; then
-        "$KOTO" context add "$SESSION" "$3" --from-file "$4" >/dev/null 2>&1 || lib_die2 "koto context add $3 failed"
+        "$KOTO" context add "$SESSION" "$3" --from-file "$4" >/dev/null || lib_die2 "koto context add $3 failed"
     fi
     local sealed
     sealed=$(bash "$HERE/coord-log.sh" seal --session "$SESSION" --state "$1" --token "$2") || lib_die2 "cannot seal the verdict"

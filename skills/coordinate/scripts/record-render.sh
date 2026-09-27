@@ -53,7 +53,7 @@ else
     DATA=$(cat "$INPUT")
 fi
 
-if ! printf '%s' "$DATA" | jq empty >/dev/null 2>&1; then
+if ! printf '%s' "$DATA" | jq empty >/dev/null; then
     echo "record-render: refused: input is not JSON" >&2
     exit 65
 fi

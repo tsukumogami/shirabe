@@ -96,7 +96,7 @@ PR=$2 SHA=$3
 
 if [ -z "$REPO" ]; then
     if [ "$CLOSEOUT" = 1 ]; then
-        REPO=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" 2>/dev/null | jq -r '.HOST_REPO // ""')
+        REPO=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.HOST_REPO // ""')
         bl_repo_ok "$REPO" || refuse "no host repository in the session's variables"
     else
         REPO=$(bl_unit_repo "$SESSION" "$PR") || refuse "can't tell pull request #$PR's repository from the record"
