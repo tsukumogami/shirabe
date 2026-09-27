@@ -2,28 +2,29 @@
 # terminal-retention_test.sh -- the orchestrator's terminal tick keeps its record
 # Part of the execute skill
 #
-# koto deletes a session on the tick that reaches a terminal state, and the
-# deletion takes the session's `ctx/` with it. `/execute` ends at `done_blocked`
-# when the chain cannot proceed and at `paused_for_review` when an interactive
-# run hands a DRAFT PR back for review; both lose their context without
-# `koto next --no-cleanup` (#360). The second is the worse loss -- a pause is
-# solicited, and what dies with it is what a resume reads.
+# koto disposes of a session on the tick that reaches a success terminal, and
+# the disposal takes the session's `ctx/` with it. `/execute` ends at
+# `paused_for_review` when an interactive run hands a DRAFT PR back for review,
+# and at `merged`, `ready_awaiting_merge` or `done` otherwise; each loses its
+# context without `koto next --no-cleanup` (#360). The pause is the worst loss
+# -- it is solicited, and what dies with it is what a resume reads. From koto
+# 0.14.0, shirabe's koto minimum, `done_blocked` is a failure terminal koto
+# keeps either way, so its cases assert the record survives with and without
+# the flag.
 #
-# `/execute` passes the flag unconditionally, where `/work-on` has to decide per
-# run. That is sound only while an orchestrator session is always a root, so this
-# harness checks the premise rather than trusting it. Case groups, in execution
-# order -- deliberately not numbered, because a numbered map goes stale the first
-# time a case is inserted and then misdirects the reader it was written for:
+# `/execute` passes the flag on every tick, as every shirabe skill does. Case
+# groups, in execution order -- deliberately not numbered, because a numbered
+# map goes stale the first time a case is inserted and then misdirects the
+# reader it was written for:
 #
 #   engine-free, so they also run on the bash 3.2 floor where koto is absent:
-#     nothing in the corpus names execute.md as a child template (the tripwire)
 #     SKILL.md and the template frontmatter both state the rule
 #     every koto next command line in the template carries the flag
 #     escalate still has the shape that chains
 #
 #   engine-backed, against the SHIPPED execute.md (or, in a checkout whose path
 #   koto's --var allowlist refuses, a copy with that path written in):
-#     the blocked terminal keeps its context, and a control without the flag
+#     the blocked terminal keeps its context, with the flag and without it
 #     the PAUSE terminal keeps its context, and a control
 #     retention does not block the resume it exists to protect: a plain init
 #       is refused, and koto-open.sh --replace-terminal replaces the session
@@ -40,11 +41,6 @@
 #   The engine-backed cases drive the real verdict scripts: a `gh` stub on PATH
 #   serves the PR, its checks, and its base's rules, and koto hands that PATH to
 #   the actions it runs.
-#
-# The tripwire matters most: if a future change makes `/execute` spawnable as a
-# child, the unconditional flag would withhold its result from its parent, as
-# references/koto-session-retention.md documents, and that case says so before
-# it ships.
 #
 # The pause cases walk the declared edges with `koto next --to`, because reaching
 # pr_finalization by evidence alone would mean satisfying the children-complete
@@ -113,35 +109,6 @@ resolve() { # $1 citation, $2 citing file (repo-relative) -> repo-relative path,
 }
 
 # --- the engine-free cases, which run before the koto skip -------------------
-#
-# The premise behind /execute's unconditional flag: nothing materializes
-# execute.md as a child.
-#
-# Three routes, not one. `default_template` is what /execute uses for its own
-# children; a per-task `template:` field overrides it per child; and a session
-# started under an explicit parent makes a child of any template at all.
-#
-# The scan covers every markdown file under skills/, not just templates and
-# SKILL.md: this repo puts `koto init` in references/phases too (see
-# skills/scope/references/phases/phase-0-setup.md), so a narrower scan would
-# report a guarantee it had not checked. It still cannot see a `koto init
-# --parent` issued from outside this repo, which is the residual blind spot --
-# the premise this case asserts is "nothing in the shirabe corpus spawns
-# execute.md as a child", not "koto could not be made to".
-#
-# The awk drops the `path:line:` prefix before matching, or every hit inside
-# execute.md would match on its own filename.
-CHILD_DECLS=$(grep -rn 'default_template:\|template:\|--parent' \
-        --include='*.md' "$SKILLS_DIR" 2>/dev/null \
-    | grep -v '^[^:]*:[0-9]*: *#' \
-    | grep -v '/evals/' \
-    | awk -F: '{ line = $0; sub(/^[^:]*:[0-9]*:/, "", line); if (line ~ /execute\.md/) print $0 }')
-if [ -z "$CHILD_DECLS" ]; then
-    pass "nothing names execute.md as a child template, so an orchestrator session is always a root"
-else
-    fail "execute.md is named as a child template, so /execute can now run as a child and its unconditional --no-cleanup would block the parent's converge:
-$CHILD_DECLS"
-fi
 
 if grep -q -- '--no-cleanup' "$SKILL_MD"; then
     pass "SKILL.md states the terminal-tick retention rule"
@@ -344,32 +311,6 @@ mkdir -p "$FIXREPO"
 ) >/dev/null 2>&1
 k() { (cd "$FIXREPO" && koto "$@"); }
 
-# koto 0.14.0 (koto#259, closing koto#240) keeps a session that reaches a
-# failure terminal whether or not the tick carried --no-cleanup. The controls
-# below that reach done_blocked without the flag assert the behaviour of the
-# koto on PATH, so the suite holds on both sides of the release until shirabe's
-# koto minimum moves past it (#439). Non-failure terminals (paused_for_review,
-# ready_awaiting_merge, merged) are still disposed without the flag on either
-# side, so their controls are unchanged.
-#
-# The version is read with scripts/assert-koto-floor.sh's own sed (an optional
-# `v`, then major.minor.patch), and a line it can't read stops the suite rather
-# than defaulting to a branch. work-on's terminal-retention suite carries the
-# same reader; #439 removes both with the older branch.
-KOTO_VERSION_LINE=$(koto version 2>/dev/null | head -1)
-KOTO_VERSION=$(printf '%s' "$KOTO_VERSION_LINE" \
-    | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p')
-if [ -z "$KOTO_VERSION" ]; then
-    echo "FAIL: cannot read a version from \`koto version\` [$KOTO_VERSION_LINE] -- the version-dependent cases cannot pick a branch" >&2
-    exit 1
-fi
-koto_at_least_0_14() {
-    local major minor
-    major=${KOTO_VERSION%%.*}
-    minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
-    [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
-}
-
 # --- the plugin root ------------------------------------------------------------
 #
 # koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
@@ -515,21 +456,14 @@ else
     fail "an orchestrator run reaching done_blocked with the flag lost its context"
 fi
 
-# Without the control this suite would pass on a koto that had stopped cleaning
-# up at all, and the flag would look load-bearing while doing nothing.
+# done_blocked is a failure terminal, which koto keeps without the flag. The
+# control for a success terminal is the paused_for_review pair below.
 init_orchestrator block-drop
 k next execute-block-drop --with-data '{"status":"blocked","detail":"probe"}' >/dev/null 2>&1
-if koto_at_least_0_14; then
-    # The control for a non-failure terminal is the paused_for_review pair below.
-    if [ "$(k context get execute-block-drop summary.md 2>/dev/null)" = "the orchestrator record" ]; then
-        pass "an orchestrator run reaching done_blocked without the flag keeps its context (koto >= 0.14 keeps failure terminals)"
-    else
-        fail "an orchestrator run reaching done_blocked without the flag lost its context on koto $KOTO_VERSION, which should keep a failure terminal"
-    fi
-elif k context get execute-block-drop summary.md >/dev/null 2>&1; then
-    fail "an orchestrator run reaching done_blocked without the flag kept its context -- the control did not fire"
+if [ "$(k context get execute-block-drop summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+    pass "an orchestrator run reaching done_blocked without the flag keeps its context (a failure terminal is kept)"
 else
-    pass "an orchestrator run reaching done_blocked without the flag loses its context (control)"
+    fail "an orchestrator run reaching done_blocked without the flag lost its context; koto should keep a failure terminal"
 fi
 
 # --- the pause terminal keeps its context ------------------------------------
@@ -676,16 +610,16 @@ expect_payload() {
 
 # expect_control <label> <session> <outcome> [failure] — without the flag: the
 # response carries the result and the session is gone. With `failure` (the
-# terminal is done_blocked) on koto 0.14 or later, the session is kept instead,
-# since a failure terminal is kept whatever the tick carried.
+# terminal is done_blocked) the session is kept instead, since a failure
+# terminal is kept whatever the tick carried.
 expect_control() {
     local s="$2" got
     got=$(printf '%s' "$RESP" | jq -r '.result.payload.outcome // "none"' 2>/dev/null)
-    if [ "${4:-}" = failure ] && koto_at_least_0_14; then
+    if [ "${4:-}" = failure ]; then
         if [ "$got" = "$3" ] && k status "$s" >/dev/null 2>&1; then
-            pass "$1 without the flag: the tick's response carries outcome=$3 and the failure terminal is kept (koto >= 0.14)"
+            pass "$1 without the flag: the tick's response carries outcome=$3 and the failure terminal is kept"
         else
-            fail "$1 without the flag on koto $KOTO_VERSION: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no), want outcome=$3 and the session kept"
+            fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no), want outcome=$3 and the session kept"
         fi
         return
     fi
@@ -874,9 +808,11 @@ expect_payload "an unreadable confirm read" execute-override-confirm ready_await
 #
 # escalate's shape asserted above is only worth asserting if that shape actually
 # chains. This drives koto with a minimal template of exactly that shape -- a
-# state declaring required evidence whose single transition to a failure
-# terminal carries no `when` -- and shows one bare tick two states upstream
-# landing on the terminal and taking the record with it. A stand-in rather than
+# state declaring required evidence whose single transition to a terminal
+# carries no `when` -- and shows one bare tick two states upstream landing on
+# the terminal and taking the record with it. The terminal is a success one,
+# since koto keeps a failure terminal's record anyway and the loss would not
+# show. A stand-in rather than
 # execute.md because reaching spawn_and_await for real means satisfying the
 # settled-branch capture and materializing children, none of which is what this
 # case is about.
@@ -910,7 +846,6 @@ states:
       - target: dead_end
   dead_end:
     terminal: true
-    failure: true
   finished_ok:
     terminal: true
 ---
@@ -930,16 +865,9 @@ CHAIN_EOF
 
 koto init chain_bare --template "$WORKDIR/chain.md" >/dev/null 2>&1
 printf 'the orchestrator record\n' | koto context add chain_bare summary.md >/dev/null 2>&1
-koto next chain_bare --with-data '{"outcome":"bad"}' >/dev/null 2>&1
-if koto_at_least_0_14; then
-    # dead_end is a failure terminal, which koto 0.14 keeps without the flag, so
-    # the chain shows in where the session stands rather than in a lost record.
-    if [ "$(koto status chain_bare 2>/dev/null | jq -r '.current_state')" = "dead_end" ] \
-        && [ "$(koto context get chain_bare summary.md 2>/dev/null)" = "the orchestrator record" ]; then
-        pass "a bare tick chains through a state that declares required evidence into the failure terminal, which koto >= 0.14 keeps"
-    else
-        fail "a bare tick did not chain to dead_end, or lost the record, on koto $KOTO_VERSION -- re-check whether spawn_and_await's ticks still need the flag"
-    fi
+RESP=$(koto next chain_bare --with-data '{"outcome":"bad"}' 2>/dev/null)
+if ! printf '%s' "$RESP" | jq -e '.state == "dead_end"' >/dev/null 2>&1; then
+    fail "a bare tick did not chain to dead_end: $(printf '%s' "$RESP" | head -c 300)"
 elif koto context get chain_bare summary.md >/dev/null 2>&1; then
     fail "a bare tick did not chain through the accepts-declaring state -- re-check whether spawn_and_await's ticks still need the flag"
 else

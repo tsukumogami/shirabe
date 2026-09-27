@@ -159,7 +159,7 @@ for KEY in plan.md scrutiny_results.json review_results.json qa_results.json sum
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}" --no-cleanup
 ```
 
 The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.

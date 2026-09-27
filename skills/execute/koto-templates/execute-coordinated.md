@@ -14,8 +14,7 @@
 # (template_mismatch), and --replace-terminal replaces a finished one.
 #
 # Terminal-tick retention: EVERY `koto next` on this session carries
-# --no-cleanup, as it does on execute.md. The session is always a root, so the
-# flag withholds nothing from a parent; under --koto-leg the result reaches
+# --no-cleanup, as it does on execute.md; under --koto-leg the result reaches
 # the leg by promotion. See ../../../references/koto-session-retention.md.
 #
 # Results. Every edge into a terminal assigns `outcome`, and assigns `step` or
@@ -39,9 +38,10 @@ variables:
     description: >
       Path to the coordinated PLAN in the coordination checkout, relative to
       it. Interpolated into the verdict's default action, so it is held to a
-      path of plain characters with no `..` segment. Not rebindable.
+      path of plain characters (letters, digits, `.`, `_`, `-`, and the `+` an
+      absolute checkout path can carry) with no `..` segment. Not rebindable.
     required: true
-    pattern: '^/?([A-Za-z0-9_][A-Za-z0-9._-]*/)*[A-Za-z0-9_][A-Za-z0-9._-]*\.md$'
+    pattern: '^/?([A-Za-z0-9_+][A-Za-z0-9._+-]*/)*[A-Za-z0-9_+][A-Za-z0-9._+-]*\.md$'
   PLAN_SLUG:
     description: >
       The PLAN's topic slug, matching ^[a-z0-9-]+$. It names the session

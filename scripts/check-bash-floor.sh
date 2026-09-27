@@ -195,7 +195,8 @@ suite_scripts() {
             # Needs no engine at all: it builds repositories and reads commits,
             # so every case genuinely executes on the floor.
             echo "skills/work-on/scripts/verify-cascade-commit_test.sh"
-            # Drives real koto sessions, and skips cleanly without them.
+            # Drives real koto sessions, and skips cleanly without them. Its
+            # engine-free case invokes the discriminator it carries.
             echo "skills/work-on/scripts/ci-monitor-role_test.sh"
             # Needs no engine: it runs the gate expression against stubbed gh.
             echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
@@ -203,8 +204,8 @@ suite_scripts() {
             echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions, and skips cleanly without them.
             echo "skills/work-on/scripts/finalization-shape_test.sh"
-            # Drives real koto sessions for the same reason, and carries the
-            # discriminator the retention rule reads.
+            # Its rule-text cases need no engine; its engine cases skip without
+            # koto.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
@@ -221,8 +222,8 @@ suite_scripts() {
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
-            # reaches the floor through the suite above, whose engine-free
-            # cases run without koto and include invoking it.
+            # reaches the floor through ci-monitor-role_test.sh, whose
+            # engine-free case runs without koto and invokes it.
             ;;
         preflight)
             # Runs on the system backend only. In the docker container it fails

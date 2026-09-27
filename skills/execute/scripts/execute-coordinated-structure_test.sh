@@ -32,6 +32,7 @@
 #     script's)
 #   every terminal declares the result map (outcome, step, reason, pr, repos,
 #     resume, waiting), step and reason read from context
+#   PLAN_DOC's pattern admits a path with `+` and refuses `..`, spaces and `$(`
 #   the variables: PLAN_DOC and PLAN_SLUG not rebindable (PLAN_SLUG pattern
 #     ^[a-z0-9-]+$), MERGE and PAUSE_BEFORE_FINALIZE values [true, false]
 #     default false rebind, PLUGIN_ROOT the same absolute-path pattern as
@@ -158,6 +159,28 @@ if [ -z "$SHIPPED" ] || [ ! -f "$SHIPPED" ]; then
     exit 1
 fi
 pass "execute-coordinated.md compiles"
+
+# PLAN_DOC's declared pattern narrows koto's own value check, so it has to admit
+# every path shirabe hands it -- including an absolute one under a directory
+# with a `+`, which koto's own check accepts from 0.14.1 -- while still refusing
+# a `..` segment and shell-active characters. Read from the compiled template
+# and run as an ERE, which its plain classes are.
+PLAN_DOC_PATTERN=$(jq -r '.variables.PLAN_DOC.pattern // ""' "$SHIPPED")
+plan_doc_ok() { printf '%s' "$1" | grep -Eq -- "$PLAN_DOC_PATTERN"; }
+for good in 'docs/plans/PLAN-x.md' '/home/u/ws/tsuku+shirabe_1/public/shirabe/docs/plans/PLAN-x.md' 'docs/plans/PLAN-a+b.md'; do
+    if plan_doc_ok "$good"; then
+        pass "PLAN_DOC's pattern admits $good"
+    else
+        fail "PLAN_DOC's pattern refuses $good"
+    fi
+done
+for bad in 'docs/../PLAN-x.md' 'docs/plans/PLAN x.md' 'docs/plans/PLAN-$(x).md' 'docs/plans/PLAN-x.txt'; do
+    if plan_doc_ok "$bad"; then
+        fail "PLAN_DOC's pattern admits $bad"
+    else
+        pass "PLAN_DOC's pattern refuses $bad"
+    fi
+done
 FAILED=$(run_checks "$SHIPPED")
 for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries execute.md's absolute-path pattern|"; do
     label="${entry%%|*}"

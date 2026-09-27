@@ -1,23 +1,13 @@
 ---
-# Terminal-tick retention (#360). --no-cleanup is DELIBERATELY ABSENT from this
-# template and must stay absent. This file is also the child template for
-# /execute's spawn_and_await, and on a koto child the flag suppresses the events
-# that carry the child's result to the parent, so the parent never receives it.
-#
-# Root runs still get retention: the rule lives in ../SKILL.md's Execution Loop,
-# gated on scripts/session-role.sh. A root passes the flag on every tick; a child
-# passes it nowhere.
-#
-# The rule and the measurements behind it, including why /execute's template
-# takes the opposite position: ../../../references/koto-session-retention.md
-#
-# scripts/terminal-retention_test.sh greps this file to keep the flag out, and
-# pins what the flag does to a child's result. koto#240 is the platform fix that
-# would retire the exception.
+# Terminal-tick retention (#360). Every `koto next` a /work-on run makes
+# carries --no-cleanup, whether the run is a root or a child /execute
+# materialized from this template: on a child the flag only keeps the session,
+# and its result still reaches the parent. The rule lives in ../SKILL.md's
+# Execution Loop, and the command lines in the phase files carry the flag.
+# Why every tick: ../../../references/koto-session-retention.md
 #
 # A YAML comment, so it reaches a template editor without koto rendering it into
-# any state's directive -- which is also why the grep above excludes frontmatter
-# comments but nothing below them.
+# any state's directive.
 name: work-on
 version: "1.0"
 description: >
@@ -871,10 +861,10 @@ states:
       # and pre_pr.md are written. They gate the advancing edge only and no edge
       # routes their failure anywhere, so a malformed artifact holds the run in
       # this state with the failing gate named, and the agent fixes it in place.
-      # At pre_pr_evidence the same failure ends the run at done_blocked, and for
-      # a child that terminal also disposes of its log (tsukumogami/koto#240) -- the gates
-      # there stay as the backstop, and these keep a run from reaching them with
-      # a shape it could still have fixed. The patterns must stay identical to
+      # At pre_pr_evidence the same failure ends the run at done_blocked, which
+      # has to be re-entered to fix one artifact -- the gates there stay as the
+      # backstop, and these keep a run from reaching them with a shape it could
+      # still have fixed in place. The patterns must stay identical to
       # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
       summary_shape:
         type: context-matches
@@ -1835,7 +1825,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md;
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}" --no-cleanup
 ```
 
 The check is on both signals deliberately: `koto context exists` cannot tell a key that

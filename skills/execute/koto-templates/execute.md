@@ -7,11 +7,11 @@
 # version of this note had one, reasoning that spawn_and_await routes only to
 # pr_finalization or escalate. A tick does not stop at the state it routes to:
 # escalate declares required evidence and still exits unconditionally to
-# done_blocked, so needs_attention chains straight there and bare it destroyed
-# the record of the batch that FAILED.
+# done_blocked, so needs_attention chains straight there. koto keeps
+# done_blocked, a failure terminal, without the flag, but the same chaining can
+# land a tick on a success terminal that it would dispose of.
 #
-# The rule, the measurements behind it, and the child exception that makes
-# work-on.md's position the opposite of this one:
+# The rule and the measurements behind it:
 # ../../../references/koto-session-retention.md
 #
 # scripts/terminal-retention_test.sh pins the flag count, escalate's shape, and
