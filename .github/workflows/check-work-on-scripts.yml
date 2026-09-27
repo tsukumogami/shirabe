@@ -129,6 +129,14 @@ jobs:
       - name: Run changed-paths record tests
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
 
+      # check-staleness_test.sh runs the ported staleness check against a
+      # stubbed gh and a throwaway repository, which needs only jq and git, so
+      # those cases run on both legs. Its gate cases run the staleness_check
+      # gate command extracted from the template; its engine cases drive the
+      # state through koto and skip where koto is absent.
+      - name: Run staleness check tests
+        run: bash skills/work-on/scripts/check-staleness_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.
