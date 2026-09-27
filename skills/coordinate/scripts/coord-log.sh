@@ -13,7 +13,7 @@
 # not a secret: what makes a seal trustworthy is that readers take it from the
 # log themselves, never from an argument the coordinator passes.
 #
-# `koto next --to` moves a session past any gate (koto#251); `directed-since`
+# `koto next --to` could move a session past a gate before koto 0.14.0 (koto#251); `directed-since`
 # is how every write script detects that and refuses.
 #
 # Usage:

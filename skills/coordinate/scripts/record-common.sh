@@ -221,7 +221,7 @@ lib_slug() {
 # one live session for its scope (coord-log.sh live-session; so a --session
 # naming an older run of the same scope, still provenanced and pointing at
 # the same record, is refused), or when the run has any directed transition
-# (`koto next --to` skips gates, koto#251).
+# (`koto next --to` skipped gates before koto 0.14.0, koto#251; kept as defence in depth).
 # --skip-session-checks bypasses it, only with the test override flags.
 lib_write_guard() {
     if [ "$SKIP_CHECKS" = 1 ]; then

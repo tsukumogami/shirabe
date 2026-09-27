@@ -66,9 +66,10 @@ description: >
 
   Every GitHub write (opening, rewriting or closing the record, a merge, a
   close-out commit) is a script the coordinator runs from a directive, and
-  each re-reads GitHub and the session log first. `koto next --to` moves a
-  session past any gate (koto#251); the write scripts and later readers scan
-  the log for a directed transition and refuse on one.
+  each re-reads GitHub and the session log first. koto 0.14.0 and later refuse
+  `koto next --to` past a failing non-overridable gate (koto#251); the write
+  scripts and later readers also scan the log for any directed transition and
+  refuse on one, as defence in depth.
 
   After the start and record phase, `wait` is a hub the coordinator ticks on
   every message or notification, naming the event. Every edge out of it lands

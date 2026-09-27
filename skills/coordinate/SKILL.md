@@ -111,8 +111,8 @@ work.
 
 If you lose a directive, `koto status <session>` returns it without ticking.
 Never run a cleanup or cancel verb against a session this run didn't open, and
-never `koto next --to`: a directed transition skips the workflow's checks, and
-every write script refuses for the rest of the run once one is in the log.
+never `koto next --to`: koto refuses one past a failing check, and every write
+script refuses for the rest of the run once a directed transition is in the log.
 
 ## Glossary
 
@@ -313,16 +313,12 @@ until then it is a procedure the coordinator runs with a local agent.
 - **No delivered wake when a leg resolves (koto#250).** koto's waker is a stub, so
   the coordinator ticks the workflow on each message or notification rather than
   being woken by a leg.
-- **`koto next --to` skips gates (koto#251).** A directed transition moves a
-  session past any gate, the non-overridable ones included, so no template can
-  fully hold "no value the coordinator supplies satisfies a check" while it
-  exists. Each check's verdict is sealed to the visit that produced it, and every
-  write script and later reader scans the session log and refuses after a
-  directed transition, so a skip is detected at the next write rather than
-  prevented. koto#257 fixes it on koto's main branch by refusing `--to` past a
-  failing non-overridable gate; the fix takes effect once shirabe's koto
-  minimum moves to the release that carries it, and until then this limitation
-  stands.
+- **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
+  0.14.0 and later refuse a directed transition past a failing non-overridable
+  gate, so no check can be skipped that way. The seal stays as defence in depth:
+  each check's verdict is sealed to the visit that produced it, and every write
+  script and later reader scans the session log and refuses after any directed
+  transition.
 - **Checks run in the coordinator's own environment (koto#261).** koto runs
   every action and gate with the environment of the `koto next` call that
   triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an

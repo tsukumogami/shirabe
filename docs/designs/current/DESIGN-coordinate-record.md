@@ -20,8 +20,9 @@ rationale: |
   lets the agent write; context keys and evidence are the agent's to write. Keeping writes
   agent-run follows shirabe's default-action rule. Visible tables keep what the checks read
   and what a person reads the same. The hub fits a loop whose input is one message at a
-  time about any holding. `koto next --to` still skips gates (koto#251); a seal on each
-  token and a log scan in every write script make that visible until koto fixes it.
+  time about any holding. koto 0.14.0 and later refuse `koto next --to` past a failing
+  non-overridable gate (koto#251); a seal on each token and a log scan in every write script
+  stay as defence in depth.
 ---
 
 # DESIGN: The coordination record and the coordinator's workflow
@@ -159,8 +160,9 @@ runs the same check, so a capture left over from an earlier visit can't be carri
 sequence number. Every check script and every agent-run write script scans the whole run (from
 sequence 0) and refuses when one is found, naming the event, so any directed transition blocks
 every write until the coordinator restarts, which opens a new run. This is the skill's own integrity rule
-for its record and merges while koto#251 lets `--to` skip gates. That's detection, not prevention: koto#251 is the defect and the
-seal is the interim.
+for its record and merges. koto 0.14.0 fixed koto#251: a `--to` past a failing
+non-overridable gate is refused, so the engine now prevents what the seal detects, and the seal
+stays as defence in depth (a `--to` along an edge with no failing gate still shows in the log).
 
 Run facts come from the engine too. The run's start is the session header's `created_at`,
 which koto sets once at init; the deferral check reads it through `coord-log.sh run-start`. Each `/coordinate` invocation
@@ -751,8 +753,8 @@ the posture can't be read, the human's answer to the one question about which st
 through the coordinator; it's recorded in the record's Reversals table with the human as its source, so it's
 auditable, and it's the one posture fact the workflow takes on the coordinator's word.
 
-**`--to` is detected, not prevented.** `koto next --to` takes a declared edge without the source state's gates
-(koto#251). Check states capture a token tied to the log's latest entry into that state; agent-run scripts read that
+**`--to` is prevented by koto, and detected here too.** koto 0.14.0 and later refuse `koto next --to` past a
+failing non-overridable gate (koto#251); before that release it took a declared edge without the source state's gates. Check states capture a token tied to the log's latest entry into that state; agent-run scripts read that
 capture from the log rather than taking it as an argument, and any `directed_transition` in the run makes every
 write script refuse until the run restarts. A coordinator acting outside koto's CLI (editing session files, shimming
 `gh`, calling `gh pr merge` directly) isn't stopped by the template; GitHub branch protection and the workspace's
@@ -801,7 +803,8 @@ dispatch path and reconcile have fixed seams and one shared helper to build on.
 
 **Negative.** The template is large (about forty states) and the scripts are many. Authors have
 to remember that a check state takes no evidence, that a gate never reads context, and that a
-capture is one line. A `--to` is detected, not prevented, until koto#251 is fixed. A check reads
+capture is one line. A `--to` past a check is refused by koto 0.14.0 and later (koto#251), and the
+seal still detects any directed transition on an older koto. A check reads
 through the tools on the coordinator's `PATH`, and an exported shell function reaches every bash a
 check starts, so a coordinator that rewrites its own tools, or a shim left first on `PATH`, can answer a check
 (koto#261). The checks don't defend against that, and prefixing one interpreter call with `bash -p`

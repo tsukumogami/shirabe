@@ -459,14 +459,10 @@ Packaging:
 - **Leg flags on `/deliver` and `/work-on` (shirabe#401, fixed by shirabe#407).** All four
   entry points accept `--koto-leg`; binding a leg at dispatch is the dispatch path's work, so
   until it lands a dispatched worker reports by message.
-- **`koto next --to` skips gates (koto#251).** A directed transition moves a session past
-  any gate, non-overridable ones included, so no template can fully hold "no value the
-  coordinator supplies satisfies a check" while it exists. Each check's result is sealed to
-  the visit that produced it, and every write script and downstream reader scans the session
-  log for a directed transition and refuses on one, so a skip is detected at the next write
-  rather than prevented.
-  koto#257 fixes it on koto's main branch; it takes effect once shirabe's koto minimum moves to
-  the release that carries it.
+- **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto 0.14.0 and later
+  refuse a directed transition past a failing non-overridable gate. Each check's result is
+  still sealed to the visit that produced it, and every write script and downstream reader
+  refuses after any directed transition in the log, as defence in depth.
 - **Checks run in the coordinator's environment (koto#261).** The engine runs every action
   and gate with the environment of the `koto next` call, so a `PATH` entry, or an exported
   shell function where `/bin/sh` is bash, can stand in for `gh`, `jq` or `git`, by accident
