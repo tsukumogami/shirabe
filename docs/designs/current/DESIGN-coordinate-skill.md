@@ -359,7 +359,8 @@ Sections, in order:
 8. **What this version leaves for later** — record tooling, a mechanised
    reconcile, dispatch-path tooling (R32).
 9. **Known limitations** — #395 and #396, each stated as the invariant
-   the skill depends on (R33).
+   the skill depends on (R33); #396, now fixed, as the behaviour its fix
+   provides.
 10. **Changing this skill** — the admission rule (R34).
 11. **Reporting** — the report up to the dispatcher (R23), naming what
     was verified and what wasn't (R10), naming the record, and ending
