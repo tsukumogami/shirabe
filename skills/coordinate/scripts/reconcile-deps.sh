@@ -68,15 +68,18 @@ rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # its children get TERM, and KILL a second later. Exit status is CMD's, or
 # 124 when the deadline ended it. CMD's stderr passes through.
 rd_deadline() {
-    local secs=$1 pid watcher rc out mark
+    local secs=$1 pid watcher rc out mark done
     shift
     rd_valid_secs "$secs" || secs=8
     out=$(mktemp "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
     mark="$out.late"
+    done="$out.done"
     "$@" > "$out" &
     pid=$!
     (
         sleep "$secs"
+        # CMD ended and the caller is stopping this watcher: nothing is late.
+        [ -e "$done" ] && exit 0
         : > "$mark"
         pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null
         sleep 1
@@ -85,11 +88,15 @@ rd_deadline() {
     watcher=$!
     wait "$pid"
     rc=$?
+    : > "$done"
+    # The watcher's own sleep too: left running, it would outlive this call
+    # holding whatever descriptors it inherited.
+    pkill -TERM -P "$watcher" 2>/dev/null
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
     [ -e "$mark" ] && rc=124
     cat "$out"
-    rm -f "$out" "$mark"
+    rm -f "$out" "$mark" "$done"
     return "$rc"
 }
 

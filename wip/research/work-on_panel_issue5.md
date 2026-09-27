@@ -1,0 +1,209 @@
+# Panel review: Issue 5 (sealed reconcile pass and the reconcile state)
+
+Head reviewed: d76ed2d on docs/coordinate-reconcile. Probe scripts live in
+the job scratch directory (panel5/forge_test.sh, toctou_test.sh,
+cutoff_test.sh, fn/run.sh, kotofd/run.sh); each reuses the harness of
+reconcile-pass_test.sh through `--test-entry`.
+
+Tests run:
+
+- reconcile-pass_test.sh: 79 passed, 0 failed
+- reconcile-pass_engine_test.sh: 24 passed, 0 failed
+- coordinate-template-structure_engine_test.sh: 47 passed, 0 failed
+- rule-coverage_test.sh: 198 passed, 0 failed
+
+The agreed deviations hold up. They are the `reconcile_pass` state ahead of
+F2's `reconcile`, the report-digest gate on both of reconcile's arms, the
+`reconciled <digest> sealed:` line, keeping GH_TOKEN, and the merged F2
+branch. The template side meets the outline: no accepts or polling on
+reconcile_pass, every gate is `overridable: false`, no override edge, both
+reconcile commands start with `env -u BASH_ENV -u ENV`, no gate names
+reasoning.md, PLUGIN_ROOT has no rebind, and the directive never names
+RECONCILE_SEAL. The capture-based seal is sound: an agent can't set a
+capture, and report-get reads the capture from the log itself. The
+blocking findings are all ways to get forged facts into a report that the
+engine then legitimately seals.
+
+## Blocking
+
+### B1. Exported bash functions survive the scrub, so the engine-run pass can be fed forged tool output
+
+`reconcile-env.sh:78-94` unsets every variable outside the allowlist, but
+`compgen -e` doesn't list exported functions (`BASH_FUNC_name%%`). They
+survive `exec "$BASH"` and every child `bash`, including reconcile-check.sh
+and coord-log.sh. An agent that runs `koto next` with `gh`, `git`, `niwa`,
+`koto`, `date` or `sleep` exported as functions controls what the pass
+reads and what time it thinks it is. The capture is still real, so the
+seal is real too.
+
+Failing input (panel5/fn/run.sh, against the shipped reconcile-env.sh):
+
+```
+gh() { echo '{"state":"MERGED"} (forged ...)'; }; date() { echo 1; }; koto() { ...; }
+export -f gh date koto; env -u BASH_ENV -u ENV bash ./probe.sh
+-> after scrub: type gh -> function
+   {"state":"MERGED"} (forged by an exported function)
+   date -> 1
+   koto -> function
+```
+
+This breaks the outline criteria that a shadowing `gh` never runs and that
+nothing in the environment changes the clock or the sleep. Unsetting the
+functions inside rd_scrub isn't enough on its own. The pre-scrub lines
+(`HERE=$(cd "$(dirname "$0")" && pwd)`, then `. "$HERE/reconcile-env.sh"`)
+already run the imported `cd`/`dirname`/`pwd`, and even `builtin` and
+`declare` can be shadowed (confirmed). The fix has to strip `BASH_FUNC_*`
+before bash starts: a launcher on the template's command line that isn't
+bash, or refusing to run when the environment holds any `BASH_FUNC_` name,
+checked by something other than a shadowable bash builtin. Add a test that
+exports `gh` and `date` as functions.
+
+### B2. Work state outside the anchored work file is trusted between passes
+
+Only `visit.json` is hash-anchored (`reconcile-pass.sh:118-139`). Two other
+files feed facts and are never checked.
+
+(a) Deferral row files. They're written once per visit
+(`reconcile-pass.sh:169-175`) and handed to the deferral check on whatever
+pass reaches it (`:227`). Failing input (forge_test.sh case A): a
+10-holding record plus one undisposed deferral. After pass 1 (pending, no
+deferral read yet), change `d0.row.json` to `"disposition":"closed: done"`.
+The work file's hash doesn't change and the pass resumes. The deferral
+check gets the edited row, and the sealed report's `deferrals` goes from
+`[flaky test ...]` (control run) to `[]`. `report-get --check` passes.
+
+(b) The reads directory. `$R` isn't cleared on resume (`discard` is the
+only thing that clears it), and `launch` doesn't remove a stale
+`$R/<id>.rc` (`:282-292`), so `collect` takes any `.rc` it finds as done
+and reads `.out` (`:242-243`). Failing input (forge_test.sh case B): after
+pass 1, plant `reads/h9.pr.rc` and a read-only `reads/h9.pr.out` with
+`"state":"MERGED"`. The mode makes the real re-check's `>` redirect fail,
+so the planted bytes stay. The work file is unchanged, the real PR read of
+#10 never runs (0 calls), and the sealed report says "w10: pull request:
+record said open, now merged (measured)".
+
+Fix: write each row file from the work file right before its launch (or
+pass the row through `$T`), put per-pass read files in the per-pass `$T`
+rather than the session directory, and `rm -f "$R/$id".*` before a launch.
+
+### B3. The work file can be edited during a pass, and the pass seals the edit
+
+`save` rewrites `$WORK` from whatever is on disk (`reconcile-pass.sh:251`,
+`:116`), and the pending hash is taken from the file at the end of the pass
+(`:333`). A write made during a pass is folded in and then anchored by the
+engine-logged hash. An agent can do this by running `koto next` in the
+background and editing `visit.json` a moment later, or by running
+`--test-entry` (unscrubbed) at the same time. The design's promise that
+facts are "only ever the ones earlier passes of this visit wrote" doesn't
+hold.
+
+Failing input (toctou_test.sh): the first branch read's stand-in plays the
+concurrent writer and sets `facts["h9.pr"]` to MERGED. The passes run to
+the seal, #10 is never read, the report says w10 is merged (measured), and
+`report-get --check` passes. Fix: keep the facts in memory within a pass,
+or check before each save that the file still hashes to the last value
+this pass wrote, and discard it when it doesn't.
+
+### B4. A re-read due exactly at the 20-second cutoff sleeps 20 s and then launches nothing
+
+`reconcile-pass.sh:323` allows the wait when `wait_until - T0 <= CUTOFF`.
+But `:315` launches only when `el < CUTOFF`, so a re-read due at +20 s
+waits and is then refused. Failing input (cutoff_test.sh): a missed worker,
+with the second pass started exactly 20 s before `host1.t + 30`. The clock
+advances 20 s, no launch happens, and the pass prints `pending:` with the
+host read count still 1. The outline says a re-read happens in the same
+pass only "when the wait ends before the 20-second cutoff". Fix: use `-lt`
+at `:323`. Low impact (one wasted 20 s tick), but it's a demonstrated
+defect.
+
+### B5. The record read's deadline watcher holds koto's stdout open for 12 s
+
+`exec 3>&1 1>&2` (`:60`) leaves fd 3 open during `rd_deadline 12 bash
+reconcile-read.sh` (`:144`). The watcher subshell in
+`reconcile-deps.sh:rd_deadline` redirects only stdout and stderr. Its
+`sleep 12` inherits fd 3 and outlives `kill "$watcher"`. So do the watchers
+inside reconcile-read.sh, which runs with fd 3 too. koto waits for EOF on
+the action's stdout (kotofd/run.sh: an action that exits at once but
+leaves a 6 s child holding the pipe makes `koto next` take 6 s).
+
+Failing input (forge_test.sh case C): a `blocked:none` pass prints at once,
+but its stdout closes after 12 s. Every first pass of a visit takes at
+least 12 s, and so does every blocked tick. a19afdb fixed the same thing
+for the re-checks but not for the record read. Fix: `3>&-` on the record
+read (inside the `$(...)`), and close fd 3 in rd_deadline's watcher.
+
+## Advisory
+
+1. The budget margin is at most 2 s. `RUN_END = now + budget + 2`
+   (`:294`) lets a read end at T0+28. Assembly, two reconcile-report.sh
+   runs, three `koto context add`, one get, the save and the seal then have
+   2 s before koto's 30 s kill. Use `RUN_END = now + budget`, or
+   READS_END=24.
+2. The board read's natural deadline (26) equals READS_END. It's clipped
+   whenever it launches at `el >= 1`, and with whole seconds that happens
+   whenever the startup crosses a second boundary. A board read clipped
+   and then timed out is thrown away (`:248`) and costs another pass.
+3. The final line isn't checked against `$VISIT` (`:384`). If a new entry
+   into reconcile_pass lands mid-pass, the old visit's facts get sealed to
+   the new visit. Require `sealed:$VISIT:` in `$LINE`.
+4. A failed `koto context add` while sealing leaves an unsealed
+   `reconcile/report.json` in context, and the next pass discards the whole
+   visit's reads (forge_test.sh case D: pr reads went from 1 to 2). It
+   fails in the safe direction but costs a full re-read. Consider removing
+   the report keys on `die` after `:374`.
+5. Once the workflow is in `reconcile`, a removed or altered
+   `reconcile/report.json` can't be put back. The reprint path only runs in
+   reconcile_pass, so a rewind (and a full re-read) is the only way out.
+   The directive should say so.
+6. The `reconcile` directive sends the agent to read `reconcile/report.md`.
+   No gate checks that key, and the reprint path restores it from the
+   unanchored `$W/report.md` (`:129`). Point the directive at
+   `reconcile-report-get.sh --session S --md`, which renders from the
+   verified JSON.
+7. `$W/reasoning.md` is unanchored between passes. That matches "no gate
+   names reasoning.md", but it's worth a line in the script header.
+8. `--clock-file` is accepted on the scrubbed path (`:74`). The template
+   never passes it, but reject it unless `--test-entry` was given.
+   `--test-entry` skips the scrub. That's fine on its own because its
+   output never becomes a capture, but it's also a ready-made concurrent
+   writer for B3.
+9. Stopping a read at its budget sends `pkill -P` to the subshell's direct
+   child only (`:257`). reconcile-check's `gh` and its rd_deadline watcher
+   are orphaned, and the watcher later kills a PID that may have been
+   reused. The subshells still hold koto's stderr pipe through fd 1 and 2,
+   so a `die` mid-loop can leave them delaying the action's end.
+10. There are vacuous tests. `reconcile-pass_test.sh:401` (`grep -q ... |
+    grep -v` is always false) always passes. `:406` greps only `${NAME`
+    forms and can't see a function override. `:363` is hard to read. The
+    pass suite never checks its own stub log against the outline's command
+    allowlist; it checks only the `reconcile/` key prefix. The pass's `git
+    rev-parse --show-toplevel` falls outside the outline's git list,
+    though the design allows rev-parse.
+11. `blocked:` only ever prints `none` or `unreadable`. The outline's
+    `ambiguous` and `undeclared` are now settled upstream by F2's
+    record_find, which is fine but should be stated. Exit 5 (a transient
+    failure or a timeout) also maps to `blocked:unreadable`, and the
+    directive says "say it up and stop". A network blip then halts the
+    coordinator. Consider "tick again once" for a failed read.
+12. Close-kind inference (`:219`) uses `holding_repo($t.n)` and ignores
+    `$t.r`. `other/repo#12` is read as a PR whenever a host-repo holding is
+    #12.
+13. Allowlist. Keeping KOTO_HOME and KOTO_SESSIONS_BASE is sound: the
+    engine that ran the pass used the same values. HOME from passwd
+    differs from an agent-set HOME, and when it does the pass can't find
+    the log and fails closed. The fixed PATH includes user-writable
+    directories (`~/bin`, `~/.local/bin`, `~/go/bin`, `~/.cargo/bin`,
+    `/opt/*/bin`) after the system ones. That's the same class as editing
+    the plugin, but worth saying in the header.
+14. F2's `coord-verdict.sh` gate on reconcile_pass isn't scrubbed and
+    honours `KOTO_BIN` (coord-log.sh:60). It can't forge `reconciled` on
+    its own, because reconcile's scrubbed report gate re-checks. It's
+    noted only because the pass's security story leans on the second gate.
+15. No leaks found. Refusal reasons are fixed strings, the host path is
+    dropped from the facts (`del(.path)`), and the suite checks for session
+    ids, paths and job ids in the stored keys.
+16. Portability looks fine. CI runs the unit suites under macOS
+    `/bin/bash` 3.2 and in the bash-floor container, and run-tests.sh
+    `--engine` picks up the engine suite. The jq features used (named
+    `capture`, `def f($x)`, `ascii_downcase`) are in 1.5, and BSD `sleep`
+    takes fractions.

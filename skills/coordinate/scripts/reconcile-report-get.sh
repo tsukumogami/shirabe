@@ -51,7 +51,7 @@ done
 
 fail() { echo "reconcile-report-get: $2" >&2; exit "$1"; }
 
-CAP=$(bash "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL --state "$STATE")
+CAP=$("$BASH" -p "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL --state "$STATE")
 case $? in
     0) ;;
     1) fail 1 "no sealed reconcile capture from the latest visit to $STATE" ;;
@@ -70,9 +70,9 @@ jq -e '.schema == "coordinate-reconcile-report/v1"' "$T/report.json" >/dev/null 
 
 case "$MODE" in
     check) exit 0 ;;
-    md) bash "$HERE/reconcile-report.sh" md < "$T/report.json" || fail 2 "the report could not be rendered" ;;
+    md) "$BASH" -p "$HERE/reconcile-report.sh" md < "$T/report.json" || fail 2 "the report could not be rendered" ;;
     json)
-        DIRECTED=$(bash "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
+        DIRECTED=$("$BASH" -p "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
         case $? in 0|1) ;; *) fail 2 "the session log can't be read" ;; esac
         jq -c --arg d "$DIRECTED" '{report: ., directed_transitions: ($d | split("\n") | map(select(length > 0)))}' "$T/report.json" \
             || fail 2 "the report could not be read"

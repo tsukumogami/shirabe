@@ -116,10 +116,13 @@ else in context.
 A non-polling `default_action`, `reconcile-pass.sh`, runs on every tick that
 reaches the state. Each run does one pass: it resumes a work file under the
 session directory, launches the reads that remain (up to four in parallel)
-until 20 seconds have passed, clips each read's deadline to the time left,
-saves after every read with an atomic rename, and keeps the last few
-seconds for the report and the context writes, so no run reaches koto's
-30-second kill. When work remains it exits 0 printing
+until 20 seconds have passed, clips each read's deadline to the time left
+before 24 seconds, holds the work document in memory and saves it after
+every read with an atomic rename, and keeps the last seconds for the report
+and the context writes, so no run reaches koto's 30-second kill. Everything
+else a pass needs (each read's output, each deferral's row) lives in the
+pass's own temporary directory and is gone when it ends; nothing but the
+hashed work document carries over between passes. When work remains it exits 0 printing
 `pending:<visit-seq>:<n>:<sha256 of the work file>`. The state's gate then
 fails, the tick returns blocked, and the directive tells the agent to tick
 again. A missed listing read is retried on a later pass once 30 seconds
@@ -138,15 +141,27 @@ was killed or failed logs no `pending:` hash, so the next pass restarts the
 visit's reads rather than resuming them; the per-read saves are the pass's
 own bookkeeping within one run.
 
-The pass and the gate run in a scrubbed environment. koto spawns actions and
-command gates with the environment of whoever ran `koto next`, and that is
-the agent. So the first thing each script does is re-execute itself under
-`env -i` with a fixed `PATH` of system directories plus the tool directories
-of the account's own home (read from the password database, not from
-`HOME`), and it refuses to run when `BASH_ENV`, `ENV`, `LD_PRELOAD`,
-`GIT_CONFIG_*`, `GIT_DIR` or a `GH_HOST`, `GH_REPO` or `GH_TOKEN` override is
-set. The command line in the template invokes the script through `env -u
-BASH_ENV -u ENV` so no startup file runs before that check. There is no test
+The pass and the report check run in a scrubbed environment. koto spawns
+actions and command gates with the environment of whoever ran `koto next`,
+and that is the agent. The template starts each script as
+`/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p <script>`: absolute paths, so no
+PATH lookup picks the interpreter, and bash's privileged mode, so no function
+exported into the environment is imported (one could otherwise stand in for
+`gh`, `date` or any command) and no startup file runs. The script then
+refuses to run when `BASH_ENV`, `ENV`, `LD_PRELOAD` or another loader
+variable, `GIT_CONFIG_*`, `GIT_DIR`, `GH_HOST` or `GH_REPO` is set, and
+re-executes itself with `-p` under a fixed `PATH` (the system directories,
+each `/opt/*/bin`, then the tool directories of the account's own home, read
+from the password database, not from `HOME`) with every variable outside a
+short allowlist unset. Every bash it starts runs with `-p` too.
+
+The allowlist keeps the operator's GitHub credential (`GH_TOKEN`,
+`GITHUB_TOKEN`), what `gh` needs to reach a keyring, and where koto keeps
+sessions. An earlier draft refused `GH_TOKEN`; that was corrected, because a
+workspace that sets it would refuse every start, and the token decides who
+reads, not what is read. The scrub unsets the other variables rather than
+re-executing under `env -i NAME=value`, so the token never appears on a
+command line. There is no test
 hook in the environment: tests drive an internal entry point with an
 injected clock, which the template's command line never calls.
 
@@ -409,37 +424,48 @@ The re-checks and their sources of truth:
 
 ### The state
 
-The reconcile state in `skills/coordinate/koto-templates/coordinate.md`
-becomes:
+The record feature's template already has a `reconcile` state, and it takes
+evidence (`reconciled: reported`) and routes on a posture gate to
+`pick_facts` or `posture_ask`. koto skips a state's action on a tick that
+carries evidence, so the pass can't live there. It gets a state of its own,
+`reconcile_pass`, between `record_find` and `reconcile`:
 
 ```yaml
-reconcile:
+reconcile_pass:
   default_action:
-    command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
+    command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
     capture_stdout_as: RECONCILE_SEAL
-    fallback: >-
-      The reconcile pass failed. Read its stderr above, fix the cause and
-      tick again. Never write any reconcile/ context key yourself.
   gates:
-    report_sealed:
+    reconcile_pass_verdict:
       type: command
-      command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}" --state reconcile --key reconcile/report.json --capture "{{RECONCILE_SEAL}}"'
-      timeout: 10
+      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
       overridable: false
   transitions:
-    - target: pick_facts
+    - target: reconcile
       when:
-        gates.report_sealed.exit_code: 0
+        gates.reconcile_pass_verdict.exit_code: 140
+
+reconcile:        # the record feature's, with one gate added
+  gates:
+    reconcile_posture: ...          # the record feature's
+    reconcile_report:
+      type: command
+      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
+      overridable: false
+  # both arms (to pick_facts and posture_ask) also require
+  # gates.reconcile_report.exit_code: 0
 ```
 
-No `accepts`, no `polling`, no override edge. The directive tells the agent
-to tick again while the gate fails and `reconcile/progress` is set, to read
-`reconcile/refusal` and escalate when it's set, and to read
-`reconcile/report.md` once the state passes. The directive doesn't
-reference `RECONCILE_SEAL`, because a tick that reaches the state without
-running the action would stop on an unset capture. The state's name, its
-predecessor and its successor are the record feature's; if that feature
-names them differently, this block takes its names.
+`reconcile_pass` has no `accepts`, no `polling` and no override edge, which is
+the record feature's contract for every check state: one gate, its shared
+verdict script over the state's own capture. The directive tells the agent to
+tick again while the state holds and `reconcile/progress` is set, and to read
+`reconcile/refusal` when it's set. It doesn't reference `RECONCILE_SEAL`,
+because a tick that reaches the state without running the action would stop
+on an unset capture. In `reconcile`, the agent prints the report with
+`reconcile-report-get.sh --md`, which checks it against the seal, reports it
+up, and submits `reconciled: reported`; the added gate holds the workflow
+there unless the stored report is the one the pass sealed in its visit.
 
 ### The pass
 
@@ -484,20 +510,26 @@ matches `sealed:<seq>:<hash>`.
 
 ### The gate
 
-The shared verdict gate (`coord-verdict.sh` over `coord-log.sh check`, the
-record feature's; their final flags are that feature's) exits 0 only when
-all of these hold:
+The pass's last line is `reconciled <sha256 of report.json> sealed:<seq>:<hash>`,
+sealed with the record feature's `coord-log.sh seal --token` for the
+`reconcile_pass` visit `<seq>`. Two gates check it, because the record
+feature's check states allow one gate of one kind:
 
-1. The capture has the form `reconciled sealed:<seq>:<64 hex>`.
-2. `<seq>` is the seq of the latest event in the session log that entered
-   the reconcile state (`transitioned`, `directed_transition` or `rewound`
-   with this state as its target).
-3. The sha256 of `koto context get <session> reconcile/report.json` equals
-   the sealed hash.
-4. The report parses and its schema is `coordinate-reconcile-report/v1`.
+1. `reconcile_pass`'s gate, the record feature's `coord-verdict.sh`, exits 140
+   only when the capture's seal checks and `<seq>` is the latest event that
+   entered `reconcile_pass` (`transitioned`, `directed_transition` or
+   `rewound`). A `pending:` or `blocked:` line is unsealed and fails.
+2. `reconcile`'s added gate, `reconcile-report-get.sh --check`, reads that
+   capture from the session log itself and exits 0 only when the seal checks
+   for the latest visit, the sha256 of `koto context get <session>
+   reconcile/report.json` equals the digest in the capture, and the report's
+   schema is `coordinate-reconcile-report/v1`. Any other outcome exits 1, and a
+   read it can't complete exits 2.
 
-Any other outcome exits 1, and a read it can't complete exits 2. The koto
-gate routes only on 0.
+Because the digest is checked in `reconcile`, a report changed after the
+pass sealed it, or one reached by skipping `reconcile_pass`, holds the
+workflow there. The pass also refuses to seal when the state was entered
+again while it ran, so a visit's facts are never sealed to another visit.
 
 ### The pick state's read
 

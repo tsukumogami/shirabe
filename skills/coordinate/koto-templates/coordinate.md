@@ -284,14 +284,14 @@ states:
 
   reconcile_pass:
     default_action:
-      command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
+      command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
       capture_stdout_as: RECONCILE_SEAL
       fallback: >-
         The reconcile pass failed; its own output above says why. Fix the cause and tick again with no evidence: the pass re-runs on entry and resumes the visit's reads. There is no evidence to submit here and no override, and no reconcile/ context key is ever yours to write.
     gates:
       reconcile_pass_verdict:
         type: command
-        command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
+        command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
         overridable: false
     transitions:
       - target: reconcile
@@ -306,7 +306,7 @@ states:
         overridable: false
       reconcile_report:
         type: command
-        command: 'env -u BASH_ENV -u ENV "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
+        command: '/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
         overridable: false
     accepts:
       reconciled:
@@ -1216,8 +1216,10 @@ predecessor still holds; submit `recheck: recheck` once it has merged or closed.
 The reconcile pass is running against the record: tick again with no evidence
 until this state lets you through. While reads remain, `reconcile/progress`
 says how many; each tick runs one bounded pass and resumes where the last one
-stopped. If `reconcile/refusal` is set, the record couldn't be read: say what
-it names up to the human and stop. Never write a `reconcile/` context key.
+stopped. If `reconcile/refusal` is set, the record couldn't be read. When its
+reason is a read that failed or timed out, tick again once; otherwise, or when
+it happens again, say what it names up to the human and stop. Never write a
+`reconcile/` context key.
 
 <!-- details -->
 
@@ -1239,8 +1241,9 @@ report to this visit. The gate lets you through only on that seal.
 
 ## reconcile
 
-Read `reconcile/report.md`, the report the reconcile pass sealed, and report it
-up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
+Print the report the reconcile pass sealed, checked against its seal, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
+and report it up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
 Reconcile, in Order", for how to present it.
 
 <!-- details -->

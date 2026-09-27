@@ -1,9 +1,13 @@
 # reconcile-env.sh -- the environment scrub for the scripts koto runs.
 #
 # Sourced first, never run. koto runs a state's action and its command gates
-# with the environment of whoever ran `koto next`, and that is the agent. A
-# script koto runs for reconcile (the pass and the report reader) calls
-# rd_scrub before anything else:
+# with the environment of whoever ran `koto next`, and that is the agent. The
+# template starts each script koto runs for reconcile (the pass and the report
+# reader) as `/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p <script>`: absolute
+# paths, so no PATH lookup picks the interpreter, and privileged mode, so bash
+# imports no function from the environment (an exported function could
+# otherwise stand in for gh, date or any command) and reads no BASH_ENV. The
+# script then calls rd_scrub before anything else:
 #
 #   . "$(dirname "$0")/reconcile-env.sh"
 #   if [ "${1-}" = --scrubbed ]; then shift; else rd_scrub "$0" "$@"; fi
@@ -26,9 +30,9 @@
 # too. HOME is the account's home from the password database, never the
 # inherited HOME; LC_ALL is C.
 #
-# The fixed PATH: the system directories, the account's own tool directories
-# under that home, and each existing /opt/*/bin, where tools installed by an
-# administrator live.
+# The fixed PATH: the system directories, each existing /opt/*/bin (where tools
+# installed by an administrator live), then the account's own tool
+# directories under that home.
 #
 # Exit 70 on a refusal, with the reason on stderr.
 
@@ -36,7 +40,7 @@ RD_SCRUB_KEEP="GH_TOKEN GITHUB_TOKEN DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR KO
 
 # rd_home -- the account's home directory from the password database.
 rd_home() {
-    local u h=""
+    local u h="" PATH=/usr/bin:/bin
     u=$(id -un 2>/dev/null) || return 1
     if command -v getent >/dev/null 2>&1; then
         h=$(getent passwd "$u" 2>/dev/null | cut -d: -f6)
@@ -55,11 +59,13 @@ rd_home() {
 rd_fixed_path() {
     local h=$1 p d
     p=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin
-    for d in "$h/.tsuku/bin" "$h/.tsuku/tools/current" "$h/.koto/bin" "$h/.local/bin" "$h/bin" "$h/go/bin" "$h/.cargo/bin"; do
-        p="$p:$d"
-    done
     for d in /opt/*/bin; do
         [ -d "$d" ] && p="$p:$d"
+    done
+    # The account's own tool directories come last, so nothing placed there
+    # stands in for a tool the system directories have.
+    for d in "$h/.tsuku/bin" "$h/.tsuku/tools/current" "$h/.koto/bin" "$h/.local/bin" "$h/bin" "$h/go/bin" "$h/.cargo/bin"; do
+        p="$p:$d"
     done
     printf '%s' "$p"
 }
@@ -91,5 +97,5 @@ rd_scrub() {
     done
     export HOME="$h" PATH="$p" LC_ALL=C
     # The bash already running this script, whatever its path.
-    exec "$BASH" "$script" --scrubbed "$@"
+    exec "$BASH" -p "$script" --scrubbed "$@"
 }

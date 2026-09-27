@@ -72,6 +72,14 @@ echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
+if [ "$sub" = deferral ]; then
+    rf=""; prev=""; for a in "$@"; do [ "$prev" = --row-file ] && rf=$a; prev=$a; done
+    [ -n "$rf" ] && cat "$rf" >> "$STUB_DIR/rows-seen" && echo >> "$STUB_DIR/rows-seen"
+fi
+if [ -f "$STUB_DIR/inject.$sub" ] && [ -f "$WORKFILE" ]; then
+    jq -c '.facts["h0.pr"] = {kind: "pr", status: "ok", state: "MERGED", draft: false, head: "x", merge_state: "UNKNOWN", base: "main", read_at: "t", t: 0}' "$WORKFILE" > "$WORKFILE.x" && mv "$WORKFILE.x" "$WORKFILE"
+fi
+[ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
 sleep 0.2
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
@@ -167,7 +175,7 @@ new_case() {
 # pass -- one pass through the test entry; the line goes to $LINE, and the
 # engine's capture becomes it.
 pass() {
-    LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+    LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
         bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
     RC=$?
     printf '%s\n' "$LINE" > "$CASE/capture"
@@ -256,8 +264,8 @@ launches=$(sed -n 's/^reconcile-pass: launch [^ ]* at +\([0-9]*\)s with \([0-9]*
 [ -n "$launches" ]; check "the pass logs its launches" $?
 late=$(printf '%s\n' "$launches" | awk '$1 >= 20')
 [ -z "$late" ]; check "no re-check starts at or after 20 seconds" $? "$late"
-over=$(printf '%s\n' "$launches" | awk '$1 + $2 > 26')
-[ -z "$over" ]; check "every re-check's budget is clipped to the time left before 26 seconds" $? "$over"
+over=$(printf '%s\n' "$launches" | awk '$1 + $2 > 24')
+[ -z "$over" ]; check "every re-check's budget is clipped to the time left before 24 seconds" $? "$over"
 over=$(awk '{ split($NF, b, "="); split($(NF-1), d, "="); if (d[2] > 8 || b[2] > 26) print }' "$CASE/checks")
 [ -z "$over" ]; check "no re-check is given more than its own deadline" $? "$over"
 n=0; while [ "$n" -lt 8 ] && case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 1; pass; n=$((n + 1)); done
@@ -334,6 +342,54 @@ pass
 case "$LINE" in "reconciled "*" sealed:9:"*) ok "a new visit starts its own reads" ;; *) bad "a new visit starts its own reads" "$LINE" ;; esac
 has_ctx reconcile/reasoning.md && bad "a new visit removes the old visit's reconcile/ keys" || ok "a new visit removes the old visit's reconcile/ keys"
 [ "$(grep -c '^read ' "$CASE/log")" = 2 ]; check "and reads the record again" $?
+new_case planted
+record "[$(hold with-pr "$PR12")]"
+# Read results left in the session directory, as an earlier pass's layout
+# kept them: never read.
+mkdir -p "$SDIR/coordinate-reconcile/reads"
+echo '{"kind":"pr","status":"ok","state":"MERGED","draft":false,"head":"x","merge_state":"UNKNOWN","base":"main","read_at":"t"}' > "$SDIR/coordinate-reconcile/reads/h0.pr.out"
+echo 0 > "$SDIR/coordinate-reconcile/reads/h0.pr.rc"
+pass
+ctx reconcile/report.json | jq -e '.holdings[0].state == "open"' >/dev/null; check "read results planted in the session directory are never taken" $? "$(ctx reconcile/report.json | jq -c .holdings)"
+grep -q ' pr ' "$CASE/checks"; check "the pull request is read" $?
+new_case deferral-row
+record "[]" '[]' '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
+# A row file where an earlier layout kept them, saying the deferral is
+# disposed: the check must see the work document's own row instead.
+mkdir -p "$SDIR/coordinate-reconcile"
+printf '{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"closed: done"}' > "$SDIR/coordinate-reconcile/d0.row.json"
+pass
+jq -e -s 'length >= 1 and all(.disposition == "")' "$CASE/rows-seen" >/dev/null 2>&1; check "each deferral is checked from the work document's own row" $? "$(cat "$CASE/rows-seen" 2>&1)"
+grep ' deferral ' "$CASE/checks" | grep -q -- "--row-file $SDIR" && bad "no deferral row is read from the session directory" || ok "no deferral row is read from the session directory"
+new_case edited-mid-pass
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/inject.branch"
+pass
+case "$LINE" in "reconciled "*) ok "the pass seals" ;; *) bad "the pass seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+ctx reconcile/report.json | jq -e '.holdings[0].state == "open"' >/dev/null; check "a fact written into the work file while a pass runs never reaches the report" $? "$(ctx reconcile/report.json | jq -c .holdings)"
+new_case reentered
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/reenter.branch"
+pass
+[ "$RC" != 0 ] && [ -z "$LINE" ]; check "a pass whose state was entered again while it ran seals nothing" $? "$RC $LINE"
+new_case due-at-cutoff
+record "[$(hold late-one "")]"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host.1"
+pass
+t1=$(awk '$2 == "host" {print $1; exit}' "$CASE/checks")
+# The next pass starts 10 seconds after the first read: the re-read is due
+# exactly 20 seconds in, at the cutoff, where nothing is launched.
+echo $((t1 + 10)) > "$CASE/clock"
+start=$(cat "$CASE/clock")
+pass
+[ $(( $(cat "$CASE/clock") - start )) -lt 20 ]; check "a re-read due at the cutoff doesn't make the pass wait for nothing" $? "clock moved $(( $(cat "$CASE/clock") - start ))s: $LINE"
+case "$LINE" in pending:*) ok "and it is left to the next pass" ;; *) bad "and it is left to the next pass" "$LINE" ;; esac
+new_case blocked-fast
+echo '{"status":"none","reason":"no record"}' > "$CASE/read.out"; echo 3 > "$CASE/read.rc"
+start=$SECONDS
+pass
+[ $((SECONDS - start)) -lt 10 ]; check "a blocked pass returns without waiting on the record read's 12-second deadline" $? "$((SECONDS - start))s; $(cat "$CASE/stderr" | tail -3)"
+
 new_case cleared
 record "[]"
 echo x > "$CASE/ctx/reconcile%refusal"; echo x > "$CASE/ctx/reconcile%progress"
@@ -360,7 +416,9 @@ echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
 get --check; [ $? = 2 ]; check "an absent report can't be read" $?
 echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
 get --check; [ $? = 1 ]; check "a pending capture is no report" $?
-grep -q -- '--sealed\|RECONCILE_SEAL' "$G" && ! grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G" && bad "the reader reads the capture from the log itself" || ok "the reader reads the capture from the log itself"
+if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
+    ok "the reader takes no sealed token and reads the capture from the log itself"
+else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
 
 echo "== the environment =="
 PROBE="$SC/env-probe.sh"
@@ -373,6 +431,7 @@ if [ "${1-}" = --scrubbed ]; then shift; else rd_scrub "$0" "$@"; fi
 echo "home=$HOME"
 echo "gh=$(command -v gh || echo none)"
 echo "path=$PATH"
+echo "gh-type=$(type -t gh 2>/dev/null || echo none)"
 EOF
 chmod +x "$PROBE"
 mkdir -p "$T/shadow"; printf '#!/bin/sh\necho shadow\n' > "$T/shadow/gh"; chmod +x "$T/shadow/gh"
@@ -398,7 +457,11 @@ printf '%s' "$out" | grep -q '^agent-var-kept$' && bad "a variable outside the a
 printf '%s' "$out" | grep -q '^home=/tmp/elsewhere$' && bad "HOME comes from the password database" "$out" || ok "HOME comes from the password database"
 printf '%s' "$out" | grep -q "gh=$T/shadow" && bad "a gh shadowing the fixed PATH is never run" "$out" || ok "a gh shadowing the fixed PATH is never run"
 printf '%s' "$out" | grep -q "$SECRET" && bad "the token's value is never printed" || ok "the token's value is never printed"
-grep -q 'env -i' "$HERE/reconcile-env.sh" | grep -v '^#' && bad "the token is never passed as an argument" || ok "the token is never passed as an argument"
+# An exported function standing in for gh: the template starts the script with
+# bash -p, and the scrub re-executes with -p, so it never reaches the script.
+out=$(gh() { echo forged; }; export -f gh; clean "$BASH" -p "$PROBE" 2>&1)
+printf '%s' "$out" | grep -q '^gh-type=function$' && bad "an exported function never stands in for a tool" "$out" || ok "an exported function never stands in for a tool"
+grep -v '^[[:space:]]*#' "$HERE/reconcile-env.sh" | grep -q 'env -i' && bad "the token is never passed as an argument" || ok "the token is never passed as an argument"
 new_case token
 record "[$(hold with-pr "$PR12")]"
 TOKEN=$SECRET pass

@@ -7,7 +7,8 @@
 # visit: it reads the record once per visit (reconcile-read.sh), then runs the
 # re-checks (reconcile-check.sh), at most four at once, launching none after
 # 20 seconds and giving each a deadline clipped to the time left before the
-# 26-second mark. When every re-check is done it builds the report
+# 24-second mark, which leaves the report and its seal the rest of koto's
+# 30-second cap. When every re-check is done it builds the report
 # (reconcile-report.sh), writes it to context, and prints the sealed line.
 #
 # Output, one line on stdout (every child's stdout goes to stderr):
@@ -53,6 +54,9 @@ case "${1-}" in
 esac
 
 PROG=reconcile-pass
+# Every bash started from here runs in privileged mode (-p): it imports no
+# function from the environment and reads no BASH_ENV.
+BASHP=("$BASH" -p)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
 
@@ -61,7 +65,7 @@ exec 3>&1 1>&2
 
 STATE=reconcile_pass
 CUTOFF=20
-READS_END=26
+READS_END=24
 PARALLEL=4
 RELISTEN=30
 
@@ -95,41 +99,51 @@ ctx_rm_all() { local k; for k in progress refusal report.json report.md reasonin
 T0=$(now)
 W="$SDIR/coordinate-reconcile"
 WORK="$W/visit.json"
-R="$W/reads"
-mkdir -p "$W" "$R" || die "can't create the work directory"
+mkdir -p "$W" || die "can't create the work directory"
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass.XXXXXX") || die "no temp directory"
 trap 'rm -rf "$T"' EXIT
+# This pass's reads and deferral rows: its own directory, gone when it ends.
+R="$T/reads"
+mkdir -p "$R" || die "can't create the reads directory"
 
 ctx_rm reconcile/refusal
 ctx_rm reconcile/progress
 
 # The visit: the sequence number of the latest entry into this state.
-PROBE=$(bash "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
+PROBE=$("${BASHP[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
     || die "the session log has no entry into $STATE"
 [[ $PROBE =~ ^visit\ sealed:([0-9]+): ]] || die "unreadable seal from coord-log.sh"
 VISIT=${BASH_REMATCH[1]}
 
 # discard -- drop the work file and every reconcile/ key.
-discard() { rm -rf "$WORK" "$R" "$W/report.json" "$W/report.md" "$W/reasoning.md"; mkdir -p "$R"; ctx_rm_all; }
+discard() { rm -rf "$WORK" "$W/report.json" "$W/report.md" "$W/reasoning.md" "$W/reads" "$W"/d*.row.json; WJ=""; ctx_rm_all; }
 
-# save JSON -- replace the work file atomically.
-save() { printf '%s\n' "$1" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"; }
+# The work document, held in memory for the whole pass. It is read from the
+# file once, after its hash is checked against the last logged pass, and the
+# file is only ever written after that, so an edit made while a pass runs is
+# overwritten rather than trusted.
+WJ=""
+# save JSON -- keep JSON as the work document and replace the file atomically.
+save() { WJ=$1; printf '%s\n' "$WJ" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"; }
+wj() { printf '%s\n' "$WJ" | jq "$@"; }
 
 if [ -f "$WORK" ]; then
-    LAST=$(bash "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL 2>/dev/null) || LAST=""
-    WV=$(jq -r '.visit // empty' "$WORK" 2>/dev/null)
+    WJ=$(cat "$WORK")
+    WSHA=$(printf '%s\n' "$WJ" | rd_sha256)
+    LAST=$("${BASHP[@]}" "$RD_COORD_LOG" capture --session "$SESSION" --name RECONCILE_SEAL 2>/dev/null) || LAST=""
+    WV=$(wj -r '.visit // empty' 2>/dev/null)
     if [ "$WV" != "$VISIT" ]; then
         discard
     elif [[ $LAST =~ ^reconciled\ ([0-9a-f]{64})\ sealed:([0-9]+): ]] && [ "${BASH_REMATCH[2]}" = "$VISIT" ] \
          && [ -f "$W/report.json" ] && [ "$(rd_sha256 < "$W/report.json")" = "${BASH_REMATCH[1]}" ] \
-         && [ "$(jq -r '.done // false' "$WORK")" = true ]; then
+         && [ "$(wj -r '.done // false')" = true ]; then
         # This visit is already sealed: put the sealed report back (the keys
         # may have been removed) and say the same line again.
         ctx_put reconcile/report.json "$W/report.json"
         ctx_put reconcile/report.md "$W/report.md"
         [ -f "$W/reasoning.md" ] && ctx_put reconcile/reasoning.md "$W/reasoning.md"
         say "$LAST"
-    elif ! [[ $LAST =~ ^pending:$VISIT:[0-9]+:([0-9a-f]{64})$ ]] || [ "${BASH_REMATCH[1]}" != "$(rd_sha256 < "$WORK")" ]; then
+    elif ! [[ $LAST =~ ^pending:$VISIT:[0-9]+:([0-9a-f]{64})$ ]] || [ "${BASH_REMATCH[1]}" != "$WSHA" ]; then
         # Edited since the last logged pass, or left by a pass that never
         # finished: its reads aren't trusted.
         discard
@@ -139,9 +153,9 @@ else
 fi
 
 # The record, once per visit.
-if [ ! -f "$WORK" ]; then
+if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
-    REC=$(rd_deadline 12 bash "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null)
+    REC=$(rd_deadline 12 "${BASHP[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
     RC=$?
     if [ "$RC" -ne 0 ]; then
         case "$RC" in
@@ -155,7 +169,7 @@ if [ ! -f "$WORK" ]; then
         ctx_put reconcile/refusal "$T/refusal"
         say "blocked:$CASE"
     fi
-    RUN_START=$(bash "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
+    RUN_START=$("${BASHP[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -166,20 +180,13 @@ if [ ! -f "$WORK" ]; then
     save "$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --argjson place "$PLACE" \
         '{visit: $v, record: $rec, run_start: $rs, plugin_root: $place, facts: {}, done: false}')" \
         || die "the record could not be stored"
-    # One row file per deferral, for the record feature's disposal check.
-    n=$(jq '.record.deferrals | length' "$WORK")
-    k=0
-    while [ "$k" -lt "$n" ]; do
-        jq -c ".record.deferrals[$k].row" "$WORK" > "$W/d$k.row.json"
-        k=$((k + 1))
-    done
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
 # {id, sub, args, natural, due}. natural is the read's own deadline; a read
 # with due later than NOW waits.
 plan() {
-    jq -c --argjson now "$1" --arg w "$W" '
+    wj -c --argjson now "$1" --arg w "$R" '
         . as $work | .facts as $f | .record as $rec
         | def okf($id): (($f[$id].status // "") == "ok");
           def prnum: [(. // "") | capture("^\\[#(?<n>[0-9]+)\\]") | .n][0];
@@ -226,7 +233,7 @@ plan() {
           ($rec.deferrals | to_entries[] | "d\(.key)" as $p
             | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start], natural: 8})
         ]
-        | map(select($f[.id] == null) | .due = (.due // 0))[]' "$WORK"
+        | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
 
 # The launch loop.
@@ -248,7 +255,7 @@ collect() {
             if [ "$clipped" = 1 ] && printf '%s' "$fact" | jq -e '.status != "ok" and ((.reason // "") | test("timed out"))' >/dev/null 2>&1; then
                 :   # cut short by this pass's budget, not by its own deadline: read again next pass
             else
-                save "$(jq -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})' "$WORK")"
+                save "$(wj -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})')"
             fi
             rm -f "$R/$id".*
         elif [ "$t" -ge "${RUN_END[$i]}" ]; then
@@ -280,6 +287,8 @@ launch() {
     bd=26; [ "$budget" -lt "$bd" ] && bd=$budget
     echo "reconcile-pass: launch $id at +$((READS_END - left))s with ${budget}s" >&2
     printf '%s' "$spec" | jq -r '.args[]' > "$R/$id.args"
+    # A deferral's row, from the work document, written for this launch only.
+    case "$id" in d[0-9]*) wj -c ".record.deferrals[${id#d}].row" > "$R/$id.row.json" || die "can't write a deferral row" ;; esac
     (
         # The engine's stdout stays with the pass: a re-check left running
         # past its budget must not hold the capture open.
@@ -287,7 +296,7 @@ launch() {
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
         RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
-            bash "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+            "${BASHP[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
@@ -320,7 +329,7 @@ while :; do
     if [ "${#RUN_IDS[@]}" -eq 0 ]; then
         [ "$ready" -gt 0 ] && break                        # past the cutoff with reads left
         [ "$wait_until" = 0 ] && break                     # nothing left: done
-        [ $((wait_until - T0)) -le "$CUTOFF" ] || break    # the wait doesn't fit this pass
+        [ $((wait_until - T0)) -lt "$CUTOFF" ] || break    # the wait doesn't fit this pass
         wait_secs $((wait_until - t))
         continue
     fi
@@ -330,7 +339,7 @@ done
 # Anything left is read in a later pass.
 LEFT=$(plan "$(now)" | grep -c . || true)
 if [ "$LEFT" -gt 0 ]; then
-    H=$(rd_sha256 < "$WORK")
+    H=$(printf '%s\n' "$WJ" | rd_sha256)
     printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
     ctx_put reconcile/progress "$T/progress"
     say "pending:$VISIT:$LEFT:$H"
@@ -366,21 +375,24 @@ jq -c --arg at "$(iso)" '
                  else {kind: "other", status: "ok", verdict: "not_rechecked", reason: ""} end)}],
      deferrals: [$rec.deferrals | to_entries[] | "d\(.key)" as $p
        | {row: .value.row} + (if $f[$p] != null then (get($p) | {disposed, how, status, reason}) else {status: "not_verified", reason: "not read"} end)],
-     reasoning: $rec.reasoning, unparseable: $rec.unparseable}' "$WORK" > "$T/facts.json" \
+     reasoning: $rec.reasoning, unparseable: $rec.unparseable}' > "$T/facts.json" <<< "$WJ" \
     || die "the facts could not be assembled"
-bash "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
-bash "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
+"${BASHP[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
+"${BASHP[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
 DIGEST=$(rd_sha256 < "$W/report.json")
 ctx_put reconcile/report.json "$W/report.json"
 ctx_put reconcile/report.md "$W/report.md"
-if [ "$(jq -r '.record.reasoning // empty' "$WORK")" = present ] && [ -f "$W/reasoning.md" ]; then
+if [ "$(wj -r '.record.reasoning // empty')" = present ] && [ -f "$W/reasoning.md" ]; then
     ctx_put reconcile/reasoning.md "$W/reasoning.md"
 else
     rm -f "$W/reasoning.md"
 fi
 koto context get "$SESSION" reconcile/report.json > "$T/back.json" 2>/dev/null || die "the stored report can't be read back"
 [ "$(rd_sha256 < "$T/back.json")" = "$DIGEST" ] || die "the stored report differs from the one written"
-save "$(jq -c '.done = true' "$WORK")"
-LINE=$(bash "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
+save "$(wj -c '.done = true')"
+LINE=$("${BASHP[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
     || die "the report could not be sealed"
+# The facts are this visit's: a seal for a later entry into the state would
+# put them on a visit they weren't read in.
+[[ $LINE =~ \ sealed:$VISIT: ]] || die "the state was entered again during this pass; tick again"
 say "$LINE"

@@ -156,8 +156,8 @@ eq "every reconcile_pass gate is overridable: false" true "$(jq '[.states.reconc
 eq "reconcile_pass has one transition, to reconcile" '["reconcile"]' "$(jq -c '[.states.reconcile_pass.transitions[].target]' "$CJ")"
 eq "every reconcile gate is overridable: false" true "$(jq '[.states.reconcile.gates[] | .overridable == false] | all' "$CJ")"
 eq "no gate names reconcile/reasoning.md" 0 "$(jq '[.states[] | (.gates // {})[] | (.command // "") + (.key // "") | select(test("reasoning"))] | length' "$CJ")"
-eq "the pass and the report check start with env -u BASH_ENV -u ENV" true \
-    "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("env -u BASH_ENV -u ENV "))' "$CJ")"
+eq "the pass and the report check start with /usr/bin/env -u BASH_ENV -u ENV /bin/bash -p" true \
+    "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("/usr/bin/env -u BASH_ENV -u ENV /bin/bash -p "))' "$CJ")"
 eq "the reconcile_pass directive does not name RECONCILE_SEAL" 0 "$(jq '[.states.reconcile_pass | (.directive // "") + (.details // "") | select(test("RECONCILE_SEAL"))] | length' "$CJ")"
 eq "PLUGIN_ROOT is declared without rebind" null "$(jq -c '.variables.PLUGIN_ROOT.rebind' "$CJ")"
 
