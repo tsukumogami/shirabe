@@ -129,7 +129,8 @@ sections, in this order, each line carrying its grade:
 - **Changed since then:** each claim the reads contradict, with what the
   record said and what GitHub or the host says now.
 - **Where things stand:** one table, `Kind | Unit | Session | PR | Status |
-  Next or needs`, with N/A where a column doesn't apply. Its rows come in four
+  Next or needs`, with N/A where a column can't apply (a pull request that
+  isn't there yet but could be reads "none yet"). Its rows come in four
   kinds, always in this order:
   1. **Ready to merge:** pull requests ready to be reviewed and merged (ready to
      land, or held by the person's direction), each with its session so the

@@ -278,7 +278,9 @@ def changes_of($written):
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
         pull_request: ((.row.pull_request // "") as $p
-          | if ($p | test("^\\[#[0-9]+\\]\\(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+\\)$")) then $p else null end),
+          | if ($p | test("^\\[#[0-9]+\\]\\(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+\\)$")) then $p
+            elif ($p | test("^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+$")) then $p
+            else null end),
         phase_flag: ($ph == "scoping ahead" and outside_docs),
         state: state_of,
         merge_state: (fact("pr") as $pr | if ok($pr) then ($pr.merge_state // null) else null end),
@@ -359,7 +361,9 @@ def changes_of($written):
       + (if .board != null then "; board " + .board + " (" + .grade.board + ")" else "" end)
       + "; read " + (.read_at // "not read")
       + (if .source == "handoff" then "; row as written by the previous rotation" else "" end);
-  def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: .pull_request, status: status_of, next: .next};
+  # A holding with no pull request yet reads "none yet": a pull request still
+  # applies to it. N/A is only for a cell that cannot apply.
+  def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: (.pull_request // "none yet"), status: status_of, next: .next};
   .table = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | row("Ready to merge")]
     + [.holdings[] | select(.next_code == "decide") | row("Blocked on you")]
