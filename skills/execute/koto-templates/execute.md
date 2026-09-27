@@ -1165,6 +1165,15 @@ Exit 0 means you own exactly one open PR there. That PR (including a `docs/<topi
 ```bash
 REPO=$(koto context get {{SESSION_NAME}} repos)
 git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}}
+# Before anything is pushed: whose PR is on impl/<slug>, if any?
+{{PLUGIN_ROOT}}/skills/execute/scripts/adopt-or-create-pr.sh \
+  --session {{SESSION_NAME}} --repo "$REPO" --head impl/{{PLAN_SLUG}}
+echo "exit=$?"
+```
+
+Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes on to the push and the create below. Anything else stops here, **before the push**, so this run never pushes onto a branch whose PR another run opened: exit 6 is **Another run's PR** below (after a takeover that exits 0, go on to the push); exit 3 submits `status: pr_adopt`; exit 2 submits `status: status_read`.
+
+```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}
 {{PLUGIN_ROOT}}/skills/execute/scripts/adopt-or-create-pr.sh \
   --session {{SESSION_NAME}} --repo "$REPO" --head impl/{{PLAN_SLUG}} \
@@ -1176,10 +1185,10 @@ echo "exit=$?"
 
 `adopt-or-create-pr.sh --create` reuses an owned PR if one is already there (after a crash and re-run) and otherwise makes exactly one `gh pr create --draft`, stamped with this run's marker, then resolves the PR again and records it. Exit 0 submits `status: completed`. Exit 3 (several owned PRs, an ambiguous lookup, or still none after the create) submits `status: pr_adopt`; exit 2 submits `status: status_read`; exit 5 (the create failed) submits `status: blocked` with `detail`; exit 6 is **Another run's PR** below.
 
-**Another run's PR (exit 6).** The one PR on the branch carries a marker naming a different run, so it is neither adopted nor replaced (GitHub allows one open PR per head). Nothing was recorded or created. Decide which case this is:
+**Another run's PR (exit 6).** The one PR on the branch carries a marker naming a different run, so it is neither adopted nor replaced (GitHub allows one open PR per head). Nothing was recorded, created, or pushed. A PR marked by a run that is still going looks exactly the same as one marked by a run that ended and lost its identity, and nothing in this checkout can tell a live session in another checkout or on another machine apart from a finished one. So the default is **not** to take it over, and taking over needs a positive signal:
 
-- **You are re-entering this PLAN after an earlier `/execute` run on it ended** -- the user re-invoked `/execute` on the same PLAN, and no other session is driving it now. The earlier run's PR is this PLAN's PR; the identity that marked it was lost with that run's session. Take it over: re-run the same `adopt-or-create-pr.sh` command with `--take-over` added. `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Then submit as that run's exit code says.
-- **Anything else** -- another session may still be running this PLAN, or you can't tell why the PR carries another run's marker. Don't take it over: submit `status: pr_adopt` with `detail` naming the PR.
+- **Take it over** only when the invocation that started this run says the earlier run on this PLAN has ended and this is its re-entry (the user or the coordinating session said so, in so many words). A replaced session is not that signal: `execute-open.sh` carries a finished session's identity into its replacement, so a PR still marked by another run after a replacement was marked by a run somewhere else. Then re-run the same `adopt-or-create-pr.sh` command with `--take-over` added. `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Submit as that run's exit code says, and name the PR you took over in `detail`.
+- **Otherwise** -- no such signal, or any doubt -- don't take it over: submit `status: pr_adopt` with `detail` naming the PR and saying it carries another run's marker, so whoever re-invokes can confirm the earlier run is over.
 
 `--take-over` is never passed on the first attempt and never by any other lookup; only this exit-6 decision adds it.
 
@@ -1381,16 +1390,19 @@ BODY
 # marker line is what tells the next lookup which run opened the PR. carry
 # drops any marker line the new body has and appends the live body's; an
 # adopted PR with no marker (a /scope PR) stays unmarked.
+# The three steps are chained: a failed read must never reach the edit, or
+# carry would see an empty live body and the edit would drop the marker.
 LIVE_FILE=$(mktemp)
-gh pr view "$PR_NUMBER" --json body --jq .body > "$LIVE_FILE"
-{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh carry "$LIVE_FILE" "$BODY_FILE"
-gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
+gh pr view "$PR_NUMBER" --json body --jq .body > "$LIVE_FILE" \
+  && {{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh carry "$LIVE_FILE" "$BODY_FILE" \
+  && gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
+echo "exit=$?"
 rm -f "$BODY_FILE" "$LIVE_FILE"
 ```
 
 Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
 
-`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. Submit `finalization_status: updated` after the PR title and body are updated, or `finalization_status: update_failed` if the edit step fails (the `gh pr view` read or the `carry` included). When the lookup finds no single owned PR, submit `finalization_status: pr_adopt`, and when its read fails, `finalization_status: status_read`. The `update_failed`→`done_blocked` route and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged.
+`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. Submit `finalization_status: updated` when the chain printed `exit=0`, or `finalization_status: update_failed` when it printed anything else (the `gh pr view` read, the `carry`, or the edit failed; the body was not edited unless the edit itself ran). When the lookup finds no single owned PR, submit `finalization_status: pr_adopt`, and when its read fails, `finalization_status: status_read`. The `update_failed`→`done_blocked` route and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged.
 
 **4. Submit the mode-driven `pause_decision` (D2).** Alongside `finalization_status: updated`, set `pause_decision` from the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag.
 

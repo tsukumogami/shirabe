@@ -42,10 +42,12 @@
 #   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
 #      commit, so the pushed head carries no wip/ file (the sweep single-pr
 #      finalization runs, since a node PR is finalized on its own);
-#   4. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
+#   4. before any push, find the coordination PR (owned-pr.sh on home repo
+#      and coordination branch, carrying the `This is a **coordination PR**`
+#      marker) and, in node mode, check the node branch's PR: another run's
+#      PR there, or several, stops with 73 and nothing pushed;
+#   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
-#   5. find the coordination PR (owned-pr.sh on home repo and coordination
-#      branch, carrying the `This is a **coordination PR**` marker);
 #   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `feat(<slug>): <node-id>`, with a body from a fixed
@@ -174,19 +176,10 @@ if [ -n "$(git ls-files -- wip/)" ]; then
         || { echo "$PROG: committing the wip/ sweep failed" >&2; exit 69; }
 fi
 
-# 4. The push: the explicit refspec, never a force option.
-if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
-    echo "$PROG: the push failed; nothing was recorded" >&2
-    exit 68
-fi
-SHA=$(git rev-parse HEAD)
-[[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
-if [ -n "$(git ls-tree -r --name-only "$SHA" -- wip/)" ]; then
-    echo "$PROG: the pushed head $SHA still carries wip/ files" >&2
-    exit 69
-fi
-
-# 5. The coordination PR.
+# 4. Ownership, before anything is pushed: the coordination PR, and in node
+# mode whose PR (if any) is already on the node branch. A branch whose PR
+# another run opened is never pushed to, so a run can't move another run's
+# PR head.
 coord_find_pr "$HOME_REPO" "$CB" open
 case $? in
     0) ;;
@@ -200,6 +193,26 @@ case $? in
     0|1) ;;
     *) echo "$PROG: the index lists $ENTRY_NODE more than once" >&2; exit 73 ;;
 esac
+if [ "$MODE" = node ]; then
+    coord_owned "$REPO" "$BRANCH" open >/dev/null
+    case $? in
+        0) ;;
+        2) exit 72 ;;
+        *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
+    esac
+fi
+
+# 5. The push: the explicit refspec, never a force option.
+if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
+    echo "$PROG: the push failed; nothing was recorded" >&2
+    exit 68
+fi
+SHA=$(git rev-parse HEAD)
+[[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
+if [ -n "$(git ls-tree -r --name-only "$SHA" -- wip/)" ]; then
+    echo "$PROG: the pushed head $SHA still carries wip/ files" >&2
+    exit 69
+fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
 trap 'rm -rf "$WORK"' EXIT

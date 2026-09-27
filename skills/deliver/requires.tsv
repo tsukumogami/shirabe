@@ -38,6 +38,8 @@ koto	status	-	always
 koto	session cleanup	-	always
 koto	context add	-	always
 koto	context remove	-	always
+koto	context get	-	always
+koto	context exists	-	always
 koto	request create	--with-data,--requested-by,--coordinator-of-record	always
 koto	request list	--coordinator-of-record,--state	always
 koto	request abandon-request	--rationale	always

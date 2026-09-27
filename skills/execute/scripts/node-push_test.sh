@@ -252,6 +252,11 @@ if [ "$RC" -eq 73 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q
 else
     fail "marker-foreign: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
 fi
+if [ -z "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; then
+    pass "--run-id: nothing is pushed onto a branch whose PR another run opened"
+else
+    fail "marker-foreign: the node branch was pushed onto another run's PR"
+fi
 
 ct_case marker-kept
 ct_write_db

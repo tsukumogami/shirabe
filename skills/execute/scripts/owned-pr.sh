@@ -74,7 +74,9 @@
 #
 #   0  exactly one survivor: its URL is the only line on stdout
 #   0  zero survivors: stdout is empty. A branch whose only PRs come from
-#      forks, other authors, another base, or another run counts as zero.
+#      forks, other authors, or another base counts as zero. A PR another
+#      run marked is never a survivor either, but it is reported: exit 5
+#      for one, exit 4 for several.
 #   3  several survivors, none of them carrying a run marker: stdout is empty
 #   4  several survivors, at least one of them carrying a run marker (two
 #      runs' PRs, or a marked PR beside an unmarked one): the lookup is

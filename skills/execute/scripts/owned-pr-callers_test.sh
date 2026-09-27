@@ -143,9 +143,36 @@ else
     fail "pr_finalization: carry at [$CARRY], gh pr edit at [$EDIT]"
 fi
 
+CHAIN=$(grep -n 'run-id.sh carry "$LIVE_FILE"' "$E" | head -1)
+if printf '%s' "$CHAIN" | grep -q '&&' && grep -q -- '--jq .body > "$LIVE_FILE" \\$' "$E"; then
+    pass "pr_finalization chains the read, the carry, and the edit, so a failed read never edits"
+else
+    fail "pr_finalization's read, carry, and edit are not chained with &&"
+fi
+
+# --- ownership is checked before the shared branch is pushed ------------------
+
+# Step 2 of orchestrator_setup: the first adopt-or-create-pr.sh call on
+# impl/<slug> (without --create) comes before the push.
+LOOK=$(awk '/\*\*2\. The shared branch/{f=1} f && /adopt-or-create-pr\.sh/{print NR; exit}' "$E")
+PUSH=$(awk '/\*\*2\. The shared branch/{f=1} f && /push-and-record\.sh \{\{SESSION_NAME\}\}/{print NR; exit}' "$E")
+if [ -n "$LOOK" ] && [ -n "$PUSH" ] && [ "$LOOK" -lt "$PUSH" ]; then
+    pass "orchestrator_setup looks up impl/<slug>'s PR before pushing it"
+else
+    fail "orchestrator_setup: lookup at [$LOOK], push at [$PUSH]"
+fi
+NP=skills/execute/scripts/node-push.sh
+OWN=$(grep -n '^    coord_owned "$REPO" "$BRANCH" open >/dev/null' "$NP" | head -1 | cut -d: -f1)
+GP=$(grep -n '^if ! git push' "$NP" | head -1 | cut -d: -f1)
+if [ -n "$OWN" ] && [ -n "$GP" ] && [ "$OWN" -lt "$GP" ]; then
+    pass "node-push.sh checks the node branch's PR before it pushes"
+else
+    fail "node-push.sh: ownership check at [$OWN], push at [$GP]"
+fi
+
 # --- --take-over is never passed silently -------------------------------------
 
-TAKE=$(grep -rn --include='*.sh' --include='*.md' -e '--take-over' skills \
+TAKE=$(grep -rn --include='*.sh' --include='*.md' --exclude-dir=workspace -e '--take-over' skills \
     | grep -v '_test.sh:' | grep -v 'skills/execute/scripts/owned-pr.sh:' \
     | grep -v 'skills/execute/scripts/adopt-or-create-pr.sh:' \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#')

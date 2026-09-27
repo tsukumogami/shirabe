@@ -10,7 +10,9 @@
 # and owned-pr.sh --run-id keeps only PRs whose marker names the caller's run
 # (or that carry none). The id is 32 lowercase hex characters from
 # /dev/urandom. It says nothing about where the run happened: no path, no
-# session name, no host.
+# session name, no host. It is minted rather than derived from the koto
+# session name because that name is the same for two runs of one PLAN
+# (execute-<slug>), which is exactly the pair this has to tell apart.
 #
 # The id lives in the run's koto session context under `run_id`. This script
 # is the one place it is minted and the one place the marker line is written;
@@ -64,12 +66,20 @@ usage_error() {
 marker_line() { printf '<!-- shirabe-run: %s -->' "$1"; }
 
 # stored <session> -- print the session's stored id, empty when it has none.
+# Only `exists` answering 1 means "none": any other failure is an error, so a
+# koto that could not read the store never leads to a second id being minted
+# over the first.
 stored() {
-    local v
-    if koto context exists "$1" run_id >/dev/null; then
-        v=$(koto context get "$1" run_id </dev/null) || { echo "$PROG: could not read run_id from session $1" >&2; exit 66; }
-        printf '%s' "$v"
-    fi
+    local v rc
+    koto context exists "$1" run_id </dev/null >/dev/null
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) echo "$PROG: could not check run_id in session $1 (koto exit $rc)" >&2; exit 66 ;;
+    esac
+    v=$(koto context get "$1" run_id </dev/null) || { echo "$PROG: could not read run_id from session $1" >&2; exit 66; }
+    printf '%s' "$v"
 }
 
 store() {

@@ -531,15 +531,23 @@ re-invocation after the earlier run's session is gone, so `execute-open.sh`
 had nothing to carry forward -- finds the PLAN's own PR marked by that earlier
 run. The lookup refuses it (exit 5, which `adopt-or-create-pr.sh` reports as
 its exit 6), and GitHub refuses a second open PR on the same head. The way out
-is explicit: at `orchestrator_setup`, when the agent can tell this invocation
-is a re-entry of the PLAN after the earlier run ended and no other session is
-driving it, it re-runs the lookup with `--take-over`. `owned-pr.sh --take-over`
+is explicit: at `orchestrator_setup`, the agent re-runs the lookup with
+`--take-over` only on a positive signal that the earlier run ended: the
+invocation says, in so many words, that this is its re-entry. A replaced
+session is not that signal, because `execute-open.sh` carries the finished
+session's identity forward, so a foreign marker after a replacement came from
+a run somewhere else. Proving that the earlier session is
+terminal is not attempted: a live run elsewhere is invisible from here, and
+koto disposes a child session at its terminal (koto#240), so "no session
+found" proves nothing. `owned-pr.sh --take-over`
 rewrites that one PR's marker to name this run and adopts it; it only ever
 touches a PR that passed the four checks above (this repository, this login,
 the base, the branch), and it picks nothing when several foreign-marked PRs
 are there. No other lookup passes `--take-over`, so an ordinary lookup never
-takes a PR over silently. When the agent can't tell, the run ends
-`step=execute:pr-adopt` instead. Coordinated node PRs have no takeover path:
+takes a PR over silently. Without the signal the run ends
+`step=execute:pr-adopt` instead, before anything is pushed: the ownership
+check on `impl/<slug>` runs before the branch is pushed, so a run never
+pushes onto another run's PR. Coordinated node PRs have no takeover path:
 a coordinated re-entry relies on the carried-forward identity, and a node PR
 marked by a run whose identity is gone ends `step=execute:pr-adopt`.
 
@@ -876,9 +884,11 @@ done
 The codes map as in **Owned-PR lookup**: one URL is the home PR, empty output
 means none on that branch, exit 3 or 4 (several, or ambiguous) and exit 2 (a
 failed read) stop the ladder with `step=execute:pr-adopt` and
-`step=execute:status-read`. Exit 5 (another run's PR on the branch) is the
-PLAN's PR under a lost identity: the run re-enters and `orchestrator_setup`
-decides whether to take it over.
+`step=execute:status-read`. Exit 5 (another run's PR on the branch) is either
+the PLAN's PR marked by an earlier run whose identity is gone, or the PR of a
+run that is still going somewhere else; nothing here tells the two apart. The
+run re-enters, and `orchestrator_setup` takes the PR over only on a positive
+signal that the earlier run ended (see **Taking over another run's PR**).
 
 - If a home PR is found, the run is not fresh: rebuild the `wip-yaml-md` projection
   from the home PR's durable state and **resume the run on the found PR's branch**,

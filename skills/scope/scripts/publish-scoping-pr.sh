@@ -7,8 +7,8 @@
 # publish_abandonment) and `republish` have the agent run it, because a push and
 # `gh pr create` are externally visible events and never a default action
 # (references/default-action-conversion.md). Each of those states then gates on
-# this script's --verify mode, which makes no write, so a run cannot claim a PR
-# it did not open.
+# this script's --verify mode, which makes no GitHub or git write, so a run
+# cannot claim a PR it did not open.
 #
 # Publish, in order; any failure stops with its step and no later write:
 #
@@ -61,7 +61,10 @@
 # --verify exits 0 only when `git ls-remote origin refs/heads/<branch>` equals
 # `git rev-parse HEAD`, exactly one owned open PR exists on the branch, and,
 # with --expect-intent, that PR's body records `intent=<value>`. It makes no
-# write call of any kind.
+# GitHub or git write. Its one possible write is to koto context: given
+# --session, it reads the session's run identity through run-id.sh, which
+# mints `run_id` on the session's first use (publish mode, run earlier with
+# the same --session, has normally minted it already).
 #
 # The public-content visibility check. In a repository whose CLAUDE.md (or
 # CLAUDE.local.md) declares `## Repo Visibility: Public`, a wip/ file in
@@ -75,11 +78,12 @@
 #   publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>]
 #                         [--session <name> | --run-id <id>]
 #
-# With --session (publish mode only), the script clears the context keys
+# With --session in publish mode, the script clears the context keys
 # publish_step and wip_paths when it starts, writes wip_paths when unpushed
 # history holds any, and writes publish_step (scope:push or scope:pr-create)
 # with `koto context add` when it fails. The publish states route on
-# publish_step through non-overridable context-matches gates.
+# publish_step through non-overridable context-matches gates. In either mode,
+# --session is also where the run identity comes from (run_id, above).
 #
 # Output (stdout, key=value lines):
 #   publish:  mode=<mode>, wip_paths=<comma-joined> when any, pr=<url> on
