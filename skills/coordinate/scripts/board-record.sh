@@ -4,7 +4,13 @@
 # koto context key coord/board.json, and print one sealed verdict token for
 # the state's gate (captured as VERIFIED).
 #
-# Usage: board-record.sh --session S --pr N [--repo R] [--no-seal]
+# Usage: board-record.sh --session S [--pr N] [--repo R] [--no-seal]
+#
+# The pull request is the one report_facts found for the report being
+# verified: the latest REPORT capture, sealed at the latest entry into
+# report_facts, reading `holding <pr> <topic>`. A capture reading `holding
+# none <topic>` (no pull request yet), or a missing, stale or unsealed one,
+# exits 2. --pr overrides it (tests, or a caller that names the pull request).
 #
 # It refuses (exit 2, nothing read from GitHub) unless the session log shows
 # the prediction: an evidence_submitted in state `verify` after the latest
@@ -42,7 +48,8 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-bl_session_ok "$SESSION" && bl_pr_ok "$PR" || usage
+bl_session_ok "$SESSION" || usage
+[ -z "$PR" ] || bl_pr_ok "$PR" || usage
 [ -z "$REPO" ] || bl_repo_ok "$REPO" || usage
 
 LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
@@ -52,6 +59,20 @@ if ! jq -s -e '
     | $last != null and any(.[]; .type == "evidence_submitted" and .payload.state == "verify" and .seq > $last)' "$LOG" >/dev/null 2>&1; then
     echo "$PROG: refused: the log shows no prediction submitted since the latest arrival at verify" >&2
     exit 2
+fi
+
+if [ -z "$PR" ]; then
+    REP=$(bl_capture "$SESSION" REPORT report_facts) || {
+        echo "$PROG: no valid REPORT capture from the latest entry into report_facts" >&2; exit 2; }
+    set -f; set -- $REP; set +f
+    if [ $# -ne 3 ] || [ "$1" != holding ] || ! bl_topic_ok "$3"; then
+        echo "$PROG: the report capture reads [$REP], not a holding" >&2; exit 2
+    fi
+    if [ "$2" = none ]; then
+        echo "$PROG: the holding for $3 has no pull request to verify yet" >&2; exit 2
+    fi
+    bl_pr_ok "$2" || { echo "$PROG: the report capture names [$2], not a pull request" >&2; exit 2; }
+    PR=$2
 fi
 
 if [ -z "$REPO" ]; then

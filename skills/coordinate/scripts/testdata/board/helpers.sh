@@ -18,7 +18,7 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh record-parse.sh record-render.sh record-codec.jq; do
+             merged-facts.sh coord-log.sh coord-verdict.sh record-parse.sh record-render.sh record-codec.jq; do
         cp "$HERE/$f" "$S/$f"
     done
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
@@ -92,3 +92,48 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+
+# bt_run <S> <start-posture-token>: a run that started, read its posture,
+# found record #7, and reached verify with a prediction.
+bt_run() {
+    bt_session "$1"
+    bt_enter "$1" start_posture
+    bt_sealed "$1" start_posture POSTURE "$2"
+    bt_enter "$1" record_find
+    bt_sealed "$1" record_find RECORD_FIND "found 7"
+    bt_enter "$1" verify
+    bt_evidence "$1" verify '{"prediction":"every job green"}'
+}
+# bt_verified <S> <pr> <sha>: verify_board's sealed verdict, then on to land.
+bt_verified() {
+    bt_enter "$1" verify_board
+    bt_sealed "$1" verify_board VERIFIED "verified $2 $3"
+    bt_enter "$1" verified_confirm
+}
+# bt_record_body <reversals-json>: record #7 on the stand-in, rendered by the
+# real codec, with the given Reversals rows.
+bt_record_body() {
+    jq -nc --argjson r "$1" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r}' > "$T/rec.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
+    local l
+    for l in "$@"; do jq -nc --arg l "$l" '{worker: "w", pull_request: $l, repo: "x"}'; done | jq -sc . > "$BT_STATE/holdings"
+}
+
+# bt_merged <state> <files-json>: pull request #12's view, and the default
+# branch; then bt_blob <ref> <path> <sha|absent|fail> for each blob read.
+bt_merged() {
+    jq -nc --arg s "$1" --argjson f "$2" '{state: $s, files: [$f[] | {path: ., additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
+    echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"
+}
+bt_blob() {
+    local k="contents-$1-$(printf '%s' "$2" | sed 's#/#__#g')"
+    rm -f "$GH_BOARD_DIR/$k.out" "$GH_BOARD_DIR/$k.err" "$GH_BOARD_DIR/$k.rc"
+    case "$3" in
+        absent) echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
+        fail) echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
+        *) jq -nc --arg p "$2" --arg s "$3" '{type: "file", path: $p, sha: $s}' > "$GH_BOARD_DIR/$k.out" ;;
+    esac
+}

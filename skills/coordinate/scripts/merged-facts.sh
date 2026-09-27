@@ -3,7 +3,11 @@
 # parked pull request after a hand-over; did it land the head this run
 # verified? Read-only.
 #
-# Usage: merged-facts.sh --session S --unit <topic> [--pr N --repo R] [--no-seal]
+# Usage: merged-facts.sh --session S [--unit <topic>] [--pr N --repo R] [--no-seal]
+#
+# The unit is the one the `merged` event named: the `unit` field of the latest
+# evidence_submitted in state `wait` in the session log. No unit there exits
+# 2. --unit overrides it.
 #
 # The unit's topic only locates the holding: record-holding.sh --read finds
 # its row on GitHub, whose Pull request cell gives the number and the
@@ -39,10 +43,16 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-bl_session_ok "$SESSION" && bl_topic_ok "$UNIT" || usage
+bl_session_ok "$SESSION" || usage
+[ -z "$UNIT" ] || bl_topic_ok "$UNIT" || usage
 if [ -n "$PR$REPO" ]; then
     bl_pr_ok "$PR" && bl_repo_ok "$REPO" || usage
 else
+    if [ -z "$UNIT" ]; then
+        LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
+        UNIT=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait") | .payload.fields.unit // ""' "$LOG" 2>/dev/null | tail -1)
+        bl_topic_ok "$UNIT" || { echo "$PROG: the latest wait evidence names no unit [$UNIT]" >&2; exit 2; }
+    fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
     case $? in
         0) ;;

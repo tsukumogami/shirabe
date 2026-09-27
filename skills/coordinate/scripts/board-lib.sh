@@ -97,31 +97,25 @@ bl_log() {
 }
 
 # bl_capture <session> <NAME> <state> [--any-visit] [--for KEY]: the latest
-# engine-written capture NAME whose seal checks against <state> (the latest
-# entry into it, unless --any-visit). Prints the token without its seal.
-# Returns 0 found and valid; 1 absent or invalid; 2 read failure.
+# engine-written capture NAME (with --for, the latest naming KEY), printed
+# without its seal, only when coord-log.sh finds that seal valid for <state>
+# (sealed at the latest entry into it, or with --any-visit at any real
+# entry). Returns 0 found and valid; 1 absent or invalid; 2 read failure.
 bl_capture() {
-    local s=$1 name=$2 state=$3 any= for= cap rc
+    local s=$1 name=$2 state=$3 cap rc
     shift 3
+    local extra=
     while [ $# -gt 0 ]; do
         case "$1" in
-            --any-visit) any=--any-visit; shift ;;
-            --for) for=$2; shift 2 ;;
+            --any-visit) extra="$extra --any-visit"; shift ;;
+            --for) [ $# -ge 2 ] || return 2; bl_pr_ok "$2" || bl_topic_ok "$2" || return 2; extra="$extra --for $2"; shift 2 ;;
             *) return 2 ;;
         esac
     done
-    if [ -n "$for" ]; then
-        cap=$(bash "$HERE/coord-log.sh" capture --session "$s" --name "$name" --for "$for"); rc=$?
-    else
-        cap=$(bash "$HERE/coord-log.sh" capture --session "$s" --name "$name"); rc=$?
-    fi
+    # $extra holds only fixed flags and a value held to its pattern above.
+    cap=$(bash "$HERE/coord-log.sh" capture --session "$s" --name "$name" --state "$state" $extra); rc=$?
     [ $rc -eq 0 ] || return $rc
-    if [ -n "$any" ]; then
-        bash "$HERE/coord-log.sh" check --session "$s" --state "$state" --sealed "$cap" --any-visit >/dev/null; rc=$?
-    else
-        bash "$HERE/coord-log.sh" check --session "$s" --state "$state" --sealed "$cap" >/dev/null; rc=$?
-    fi
-    [ $rc -eq 0 ] || return $rc
+    case "$cap" in *' sealed:'*) ;; *) return 1 ;; esac
     printf '%s\n' "${cap% sealed:*}"
 }
 
@@ -161,12 +155,17 @@ bl_unit_repo() {
 bl_posture_rank() {
     case "$1" in permit) echo 0 ;; unread) echo 1 ;; confirm) echo 2 ;; deny) echo 3 ;; *) echo 9 ;; esac
 }
-bl_posture_merge() { # the merge= value of a posture token
-    local v
+# bl_posture_merge <token>: the merge step's value in a posture token
+# (`readable|unread merge<sep><v> ...`). The separator may be `=` or `:`:
+# koto refuses a capture holding `=`, so the captured form may use `:`.
+bl_posture_merge() {
+    local w
     case "$1" in readable\ *|unread\ *) ;; *) return 0 ;; esac
-    v=${1#* merge=}
-    [ "$v" != "$1" ] || return 0
-    printf '%s\n' "${v%% *}"
+    set -f
+    for w in $1; do
+        case "$w" in merge=*|merge:*) set +f; printf '%s\n' "${w#merge?}"; return 0 ;; esac
+    done
+    set +f
 }
 
 # bl_human_holds_merge <session>: 0 when the live record carries a Reversals

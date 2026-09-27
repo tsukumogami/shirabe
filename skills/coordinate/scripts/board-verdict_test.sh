@@ -5,7 +5,8 @@
 #
 # Each case's header says what it expects: `# expect: <verdict> [codes...]`
 # (every code listed must appear among the reasons, and a verified board must
-# have none), optional `# args:` (default --repo acme/widgets --pr 12),
+# have none), optional `# args:` (--repo acme/widgets always, and --pr 12
+# unless the case names --pr or --sha),
 # `# env:` and `# check:` (a jq expression the output must satisfy). Every
 # output is also held to the contract: one JSON line, a verdict from the
 # closed list, codes from the closed set, and verified only with no reasons
@@ -52,7 +53,7 @@ for cf in "$TD"/board/cases/*.jq; do
     args=$(sed -n 's/^# args: //p' "$cf")
     envs=$(sed -n 's/^# env: //p' "$cf")
     check=$(sed -n 's/^# check: //p' "$cf")
-    [ -n "$args" ] || args="--pr 12"
+    case " $args " in *" --pr "*|*" --sha "*) ;; *) args="--pr 12 $args" ;; esac
     bt_board "$name" || { bad "$name: fixture builds"; continue; }
     rm -f "$GH_BOARD_DIR/calls"
     # shellcheck disable=SC2086

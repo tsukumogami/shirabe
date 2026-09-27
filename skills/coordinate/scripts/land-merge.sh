@@ -61,11 +61,12 @@ case $? in
 esac
 
 # capture_seq <NAME> <state>: the latest capture NAME, if its seal checks
-# against the latest entry into <state>, as "<seq> <token>".
+# against the latest entry into <state> (coord-log.sh capture --state), as
+# "<seq> <token>".
 capture_seq() {
     local cap seal
-    cap=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name "$1" 2>/dev/null) || return 1
-    bash "$HERE/coord-log.sh" check --session "$SESSION" --state "$2" --sealed "$cap" >/dev/null 2>&1 || return 1
+    cap=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name "$1" --state "$2" 2>/dev/null) || return 1
+    case "$cap" in *' sealed:'*) ;; *) return 1 ;; esac
     seal=${cap##* sealed:}
     printf '%s %s\n' "${seal%%:*}" "${cap% sealed:*}"
 }
@@ -73,8 +74,7 @@ capture_seq() {
 if [ "$CLOSEOUT" = 1 ]; then
     WANT=land
     BEST= BESTSEQ=-1
-    for pair in ROTATION_CLOSE:rotation_close PREDECESSOR_CLOSE:predecessor_close \
-                ROTATION_CLOSE:predecessor_close PREDECESSOR_CLOSE:rotation_close; do
+    for pair in ROTATION_CLOSE:rotation_close PREDECESSOR_CLOSE:predecessor_close; do
         got=$(capture_seq "${pair%%:*}" "${pair#*:}") || continue
         seq=${got%% *}
         case "$seq" in ''|*[!0-9]*) continue ;; esac
