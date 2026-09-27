@@ -86,7 +86,16 @@ scripts/run-evals.sh --scenario standalone-decision-simple --runs 5 decision
 
 Exit status: 0 all graded and passing, 1 an assertion failed, 2 something graded
 nothing (no results, a missing grading.json, or a scenario with an empty criteria
-list), 3 a missing prerequisite.
+list), 3 a missing prerequisite, 4 the nested claude session stopped in plan
+mode or ran no command and wrote no file, so no scenario ran and the runner or
+the host is at fault rather than the skill.
+
+The runner starts its nested `claude -p` session with
+`--permission-mode acceptEdits --allowedTools Bash`, from the repo root, with a
+scratch directory it creates per run as the session's `TMPDIR` and its one
+`--add-dir`. The host's default permission mode never reaches it. The session's
+transcript is saved as `runner_session.jsonl` in the iteration directory; the
+header of `scripts/run-evals.sh` says why the mode is this one.
 
 ### Interactive (Claude Code with /skill-creator)
 
