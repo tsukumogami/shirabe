@@ -36,10 +36,26 @@ done
 TMPS=()
 # The trailing `return 0` keeps an EXIT trap from replacing the script's status
 # when TMPS is empty; see closing-keyword-gate_test.sh for the measurement.
-cleanup() { for d in "${TMPS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; return 0; }
+# Sessions the engine cases open are removed here, so an interrupted run leaves
+# none behind. The cases open them inside command substitutions, whose array
+# appends never reach this shell, so the names go to a file instead. Each
+# session ends at a terminal or holds in staleness_check, and
+# `koto session cleanup` removes either, where `koto cancel` refuses a
+# finished one.
+SESSIONS_FILE=""
+cleanup() {
+    if [ -n "$SESSIONS_FILE" ] && [ -f "$SESSIONS_FILE" ]; then
+        while IFS= read -r s; do
+            [ -n "$s" ] && koto session cleanup "$s" >/dev/null 2>&1
+        done < "$SESSIONS_FILE"
+    fi
+    for d in "${TMPS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done
+    return 0
+}
 trap cleanup EXIT
 
 WORK=$(mktemp -d); TMPS+=("$WORK")
+SESSIONS_FILE="$WORK/sessions"
 
 # iso_days_ago <n> -- an ISO-8601 UTC timestamp n days before now.
 iso_days_ago() { jq -nr --argjson n "$1" '(now - ($n * 86400)) | floor | todate'; }
@@ -311,7 +327,6 @@ else
     ' "$TEMPLATE")
     [ -n "$BLOCK" ] || { echo "staleness_check not found in $TEMPLATE" >&2; exit 2; }
 
-    SESSIONS=()
     # drive <exit-or-timeout> <evidence-json> -- prints the state the run is in
     # after one submission. `timeout` makes the gate outlive a 1-second limit so
     # koto reports exit_code -1.
@@ -341,7 +356,7 @@ else
                 '## analysis' 'Analysis.' '## introspection' 'Introspection.' '## done_blocked' 'Blocked.'
         } > "$dir/fixture.md"
         koto init "$session" --template "$dir/fixture.md" --var ISSUE_NUMBER=7 >/dev/null 2>&1 || { echo "init-failed"; return; }
-        SESSIONS+=("$session")
+        printf '%s\n' "$session" >> "$SESSIONS_FILE"
         koto next "$session" >/dev/null 2>&1
         koto next "$session" --with-data "$data" 2>/dev/null | jq -r '.state // "none"'
     }
@@ -371,8 +386,6 @@ else
     route_expect "override on a usage error" analysis 2 "$O"
     route_expect "blocked on a usage error" done_blocked 2 "$B"
     route_expect "blocked on a passing gate" done_blocked 0 "$B"
-
-    for s in "${SESSIONS[@]:-}"; do [ -n "$s" ] && koto session cleanup "$s" >/dev/null 2>&1; done
 fi
 
 echo
