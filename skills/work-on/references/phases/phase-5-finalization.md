@@ -19,8 +19,9 @@ and the PR body are built from; the rest of the template below is guidance.
 The `pre_pr.md` lines are referents rather than claims, so a word such as `done`
 or `yes` where a sha or a path belongs fails, and so does a sha that names no
 commit on this branch or a path that isn't committed.
-`scripts/check-pre-pr-referents.sh` makes both checks; its stderr, in the
-gate's output, says which one failed. `not-applicable` is hyphenated and
+`scripts/check-pre-pr-referents.sh` makes both checks. koto keeps only the
+gate's exit status, so when one fails, run the script yourself (the template's
+finalization directive gives the command) and read the reason it prints. `not-applicable` is hyphenated and
 needs a reason after it. Don't confuse it with the `not_applicable` evidence
 value you submit later at `pre_pr_evidence`: that one is an enum, this one is a
 line of text, and neither accepts the other's spelling.

@@ -68,8 +68,10 @@ I(\d+).*-->.*I(\d+)
 ### Validate and Commit
 
 1. Verify the modified Mermaid syntax is valid (all `classDef` statements present, balanced brackets)
-2. Stage the design document with the implementation changes
-3. The design doc update will be included in the same commit/PR as the implementation
+2. Commit the design document with the implementation changes, before
+   finalization submits `ready_for_pr`: the `diagram_referent` gate looks for the
+   path in `HEAD`'s tree, so a staged but uncommitted update holds the run
+3. The design doc update is included in the same PR as the implementation
 
 **Error handling:**
 - Diagram section not found: Log warning, skip update (old format design)

@@ -883,17 +883,19 @@ states:
       # design_diagram path to name a file in HEAD's tree. A pattern alone passed
       # any hex string (shirabe#422). The script answers 0 or 1 only, and the
       # test -x guard turns an empty or wrong PLUGIN_ROOT into 1 rather than
-      # 127, so a gate that cannot run fails closed on the edges below.
+      # 127, so a gate that cannot run fails closed on the edges below. koto
+      # discards a failed gate's output, so the directive tells the agent to
+      # run the script itself for the reason.
       summary_shape:
         type: context-matches
         key: summary.md
         pattern: "## Changes Made"
       cleanup_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       finalization_status:
         type: enum
@@ -913,7 +915,7 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
-      # It also requires both artifacts to have the shape pre_pr_evidence checks.
+      # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
           finalization_status: ready_for_pr
@@ -946,10 +948,10 @@ states:
         pattern: "## Changes Made"
       cleanup_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       approval_decision:
         type: enum
@@ -1010,10 +1012,10 @@ states:
       # diagram. Exit 0 or 1 only, which the ladder below routes on.
       cleanup_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || { echo "check-pre-pr-referents.sh not found under PLUGIN_ROOT" >&2; exit 1; }; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       pre_pr_status:
         type: enum
@@ -1891,10 +1893,22 @@ Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
   `## Changes Made` section.
 - `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, the
   sha `git rev-parse HEAD` prints, not a word such as `done` and not a sha typed
-  by hand. The gate's output says which check failed.
+  by hand.
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
   committed on this branch, or `design_diagram: not-applicable: <reason>`, in
   `pre_pr.md`.
+
+koto keeps only a referent gate's exit status, not what it printed. To see why
+one failed, run its check yourself; it prints the reason on stderr:
+
+```bash
+{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --cleanup {{SESSION_NAME}}
+{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --diagram {{SESSION_NAME}}
+```
+
+If it fails with "No such file", `PLUGIN_ROOT` doesn't point at the plugin and
+no edit to `pre_pr.md` will help: stop and report it rather than rewriting the
+record.
 
 Reaching this state means verification ran and passed (the `verification` state only
 routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
@@ -1937,8 +1951,13 @@ Evidence schema:
 ## pre_pr_evidence
 
 The finishing obligations that can be decided before a pull request exists.
-`pre_pr.md` was written and its shape checked at `finalization`; don't rewrite
-it here. Its two lines are the referents:
+`pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
+The one exception is history rewritten since then (an amend or rebase of the
+reviewed commit): its old sha is no longer on the branch and the gate fails. A
+failure here ends the run rather than holding it, so if you rewrote history,
+run `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --cleanup {{SESSION_NAME}}`
+before submitting, and on a failure record the reviewed commit's new sha.
+Its two lines are the referents:
 
 `cleanup_commit` is the commit whose diff you reviewed for debug statements,
 commented-out code, addressed TODOs and unused imports. `design_diagram` is the

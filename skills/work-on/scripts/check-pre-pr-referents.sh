@@ -18,7 +18,8 @@
 #       The design document whose diagram was updated, or the reason no diagram
 #       applies. A path must name a file in HEAD's tree (`git cat-file -t
 #       HEAD:<path>` is `blob`), so a path that was never written, or was
-#       written and not committed, fails. The not-applicable form needs a reason after it.
+#       written and not committed, fails. The not-applicable form needs a
+#       reason after it.
 #
 # The template runs this as the command of two gates, `cleanup_referent` and
 # `diagram_referent`, in `finalization`, in `deferral_approval` and in
@@ -26,10 +27,12 @@
 # shape alone, which a sha naming nothing passed (shirabe#422).
 #
 # The value stays evidence the agent writes rather than something the template
-# derives: pre_pr.md also holds the design_diagram line, and it is written and
-# first checked at `finalization`, where cleanup commits can still land, so no
-# state before that gate could record the reviewed commit on the agent's
-# behalf.
+# derives. The line records which commit the cleanup pass reviewed, and only the
+# agent knows that. A HEAD koto recorded itself could never fail this check, so
+# it would attest nothing about the review, and it would be the wrong commit
+# besides: the summary commit lands after pre_pr.md is written, so HEAD at
+# pre_pr_evidence is past the reviewed one. What the gate can check is that the
+# agent's answer names a real commit on this branch.
 #
 # Each key must appear on exactly one line, starting at the beginning of the
 # line. A second line for the same key is refused rather than resolved: which
@@ -44,7 +47,9 @@
 #        check-pre-pr-referents.sh --diagram <koto-session-name>
 #
 # Nothing on stdout. The reason for a failure goes to stderr, together with the
-# stderr of the command that failed.
+# stderr of the command that failed. koto discards a failed gate's output, so
+# the reason is seen only when the agent runs this script itself, which the
+# finalization directive tells it to do.
 #
 # Exit codes:
 #   0 -- the referent exists

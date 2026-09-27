@@ -50,8 +50,8 @@ enforced in the record.
 
 | Obligation | State | Field | Why a placeholder cannot satisfy it |
 |---|---|---|---|
-| The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated for shape. |
-| The design diagram was updated, or does not apply | `pre_pr_evidence` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md` and gated for shape. |
+| The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as a commit on the branch. |
+| The design diagram was updated, or does not apply | `pre_pr_evidence` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
 | The run knows whether it is a root or a child | `ci_monitor` | `session_role` | A closed enum read from `session-role.sh`, which reads koto's own `parent_workflow`. Required, because the state's last edge is unconditional and a missing value would take it. |
 | What the cascade did | `cascade_run` | `cascade_status` | A closed enum. |
 | What the repository shows after the cascade | `cascade_run` | `post_state` | A closed enum of one success and five distinct causes, read from the verifier's exit code. |

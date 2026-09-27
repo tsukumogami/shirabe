@@ -122,8 +122,10 @@ expect 0 --cleanup "an abbreviated HEAD sha passes" "cleanup_commit: ${HEAD_SHA:
 $NA"
 expect 0 --cleanup "an ancestor of HEAD passes" "cleanup_commit: $ANCESTOR
 $NA"
-expect 0 --cleanup "trailing blanks after the sha are ignored" "cleanup_commit: $HEAD_SHA
-$NA"
+# Built with printf so the trailing blanks and the CR survive any editor.
+TRAILING=$(printf 'cleanup_commit: %s  \t\r\n%s\r' "$HEAD_SHA" "$NA")
+expect 0 --cleanup "trailing blanks and a CR after the sha are ignored" "$TRAILING"
+expect 0 --diagram "a CR after the not-applicable reason is ignored" "$TRAILING"
 expect 1 --cleanup "a sha that names no object fails" "cleanup_commit: $MISTYPED
 $NA"
 reason "does not name a commit"
@@ -172,7 +174,9 @@ $NA"
 
 echo "--- fail closed"
 expect 1 --cleanup "an absent pre_pr.md fails --cleanup"
+reason "could not read pre_pr.md"
 expect 1 --diagram "an absent pre_pr.md fails --diagram"
+reason "could not read pre_pr.md"
 printf '%s\n' "$C" "$NA" | koto context add "$SESSION" pre_pr.md >/dev/null
 for args in "--cleanup no-such-session" "--bogus $SESSION" "--cleanup" "" "--cleanup $SESSION extra"; do
     # shellcheck disable=SC2086
