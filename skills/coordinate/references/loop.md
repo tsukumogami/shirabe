@@ -14,10 +14,9 @@ Hand the reads to a local agent when there are more than a few holdings, and
 have it return the report below rather than the raw output. Your context is
 for the judgment at the end, not for the reads.
 
-1. **Find the record.** Run "Finding or Opening the Record" from
-   `references/record-template.md`. It adopts the record (an issue at
-   roadmap scope, a pull request at discipline scope), opens a new one, or
-   stops to ask. Read the body and note its `Written:` time: every row
+1. **Read the record.** The record is the one `record_find` adopted (the
+   reconcile directive names it; an issue at roadmap scope, a pull request at
+   discipline scope). Read its body and note its `Written:` time: every row
    under it is a claim as of that time.
 2. **Read the scope.** For a roadmap, read its Features section from the
    default branch (each feature's status and dependencies). For a

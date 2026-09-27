@@ -9,6 +9,44 @@ version: "1.0"
 # The session is a root on every tick (`koto next --no-cleanup`); see
 # references/koto-session-retention.md. Nothing materializes this template as
 # a child.
+#
+# Every check-state arm carries its verdict word as a comment
+# (`exit_code: 14  # foreign`); the word-to-code table is
+# scripts/coord-verdict.sh, and coord-verdict-table_test.sh pins the two
+# together. A word with no arm holds the state: `waiting` and `land-blocked`
+# by design (coord-verdict.sh exit 4), anything else is a bug (exit 3).
+#
+# Context keys. Each check writes one detail key as data, named for what it
+# describes; directives, deciders and the progress table read them, and no gate
+# reads one except as a decider input (pick_input, report_input):
+#   coord/record_find.json      record_find: the verdict, the record's ref and
+#                               URL, the candidates, the rotation's dates
+#   record_url                  record_find on `found`: the record's URL, for
+#                               the terminal results' `record`
+#   coord/posture.json          start_posture: each finishing step's posture
+#                               and why
+#   coord/pick.json             pick_facts: units in order, holdings with
+#                               parked flags, counts, cap and bound (pick's
+#                               decider input; progress-view.sh's input)
+#   coord/dispatch_check.json   dispatch_check: the verdict, the checked
+#                               choice and topic, open deferrals, counts
+#   coord/record_confirm.json   record, verified_confirm: the source state, the
+#                               expectation and why it isn't met yet
+#   coord/report.json           report_facts: the unit's holding and pull
+#                               request facts (classify_report's decider input)
+#   coord/board.json            verify_board: board-verdict.sh's full JSON
+#                               (reasons, skipped jobs, the required set)
+#   coord/quiet.json            quiet_check: the quiet workers and why
+#   coord/closeout.json         roadmap_close, rotation_close,
+#                               predecessor_close: the stage and its facts
+#   dispatch_topic              pick's edges: the topic chosen, for the
+#                               dispatch path's dispatch-worker.sh
+#
+# Scripts already handle states the dispatch path (shirabe#404) adds:
+# leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
+# WAIT_REQ and WAIT_LEG), teardown_inventory and destroy (record-confirm.sh,
+# capture TEARDOWN_SEAL, key teardown_verdict). The reconcile feature
+# (shirabe#406) adds reconcile_pass (verdict `reconciled`, 140).
 description: >
   /coordinate's loop: a coordinator that drives a roadmap or one rotation of a
   discipline by handing units of work to other sessions, verifying what they
@@ -98,13 +136,13 @@ states:
     transitions:
       - target: start_posture
         when:
-          gates.start_verdict.exit_code: 20
+          gates.start_verdict.exit_code: 20  # active
       - target: start_posture
         when:
-          gates.start_verdict.exit_code: 21
+          gates.start_verdict.exit_code: 21  # discipline
       - target: done_not_active
         when:
-          gates.start_verdict.exit_code: 22
+          gates.start_verdict.exit_code: 22  # not-active
         context_assignments:
           outcome: not-active
           failure_reason: "the roadmap is missing or not Active"
@@ -123,10 +161,10 @@ states:
     transitions:
       - target: record_find
         when:
-          gates.start_posture_verdict.exit_code: 25
+          gates.start_posture_verdict.exit_code: 25  # readable
       - target: record_find
         when:
-          gates.start_posture_verdict.exit_code: 26
+          gates.start_posture_verdict.exit_code: 26  # unread
 
   record_find:
     default_action:
@@ -142,31 +180,31 @@ states:
     transitions:
       - target: reconcile
         when:
-          gates.record_find_verdict.exit_code: 10
+          gates.record_find_verdict.exit_code: 10  # found
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 11
+          gates.record_find_verdict.exit_code: 11  # none
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 12
+          gates.record_find_verdict.exit_code: 12  # stale-branch
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 13
+          gates.record_find_verdict.exit_code: 13  # unopened
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 14
+          gates.record_find_verdict.exit_code: 14  # foreign
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 15
+          gates.record_find_verdict.exit_code: 15  # ambiguous
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 16
+          gates.record_find_verdict.exit_code: 16  # malformed
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 17
+          gates.record_find_verdict.exit_code: 17  # unauthorized
       - target: predecessor_handoff
         when:
-          gates.record_find_verdict.exit_code: 18
+          gates.record_find_verdict.exit_code: 18  # predecessor
 
   record_open:
     accepts:
@@ -213,10 +251,10 @@ states:
     transitions:
       - target: predecessor_close
         when:
-          gates.predecessor_handoff_verdict.exit_code: 110
+          gates.predecessor_handoff_verdict.exit_code: 110  # rendered
       - target: record_conflict
         when:
-          gates.predecessor_handoff_verdict.exit_code: 111
+          gates.predecessor_handoff_verdict.exit_code: 111  # unparseable
 
   predecessor_close:
     default_action:
@@ -232,16 +270,16 @@ states:
     transitions:
       - target: predecessor_step
         when:
-          gates.predecessor_close_verdict.exit_code: 120
+          gates.predecessor_close_verdict.exit_code: 120  # handoff-missing
       - target: predecessor_step
         when:
-          gates.predecessor_close_verdict.exit_code: 122
+          gates.predecessor_close_verdict.exit_code: 122  # land
       - target: predecessor_done
         when:
-          gates.predecessor_close_verdict.exit_code: 90
+          gates.predecessor_close_verdict.exit_code: 90  # merged
       - target: record_conflict
         when:
-          gates.predecessor_close_verdict.exit_code: 125
+          gates.predecessor_close_verdict.exit_code: 125  # closed-unmerged
 
   predecessor_step:
     accepts:
@@ -347,14 +385,14 @@ states:
     transitions:
       - target: pick
         when:
-          gates.pick_facts_verdict.exit_code: 30
+          gates.pick_facts_verdict.exit_code: 30  # pick
           gates.pick_input.exists: true
       - target: roadmap_close
         when:
-          gates.pick_facts_verdict.exit_code: 31
+          gates.pick_facts_verdict.exit_code: 31  # scope-complete
       - target: rotation_close
         when:
-          gates.pick_facts_verdict.exit_code: 32
+          gates.pick_facts_verdict.exit_code: 32  # rotation-over
 
   pick:
     # choice carries a decider in shadow mode: its answer is recorded beside the
@@ -441,19 +479,19 @@ states:
     transitions:
       - target: dispatch
         when:
-          gates.dispatch_check_verdict.exit_code: 40
+          gates.dispatch_check_verdict.exit_code: 40  # ok
       - target: deferral_dispose
         when:
-          gates.dispatch_check_verdict.exit_code: 41
+          gates.dispatch_check_verdict.exit_code: 41  # deferral-open
       - target: record_find
         when:
-          gates.dispatch_check_verdict.exit_code: 42
+          gates.dispatch_check_verdict.exit_code: 42  # record-changed
       - target: wait
         when:
-          gates.dispatch_check_verdict.exit_code: 43
+          gates.dispatch_check_verdict.exit_code: 43  # at-cap
       - target: pick_facts
         when:
-          gates.dispatch_check_verdict.exit_code: 44
+          gates.dispatch_check_verdict.exit_code: 44  # duplicate-topic
 
   deferral_dispose:
     accepts:
@@ -500,13 +538,13 @@ states:
     transitions:
       - target: pick_facts
         when:
-          gates.record_verdict.exit_code: 50
+          gates.record_verdict.exit_code: 50  # confirmed
       - target: record_conflict
         when:
-          gates.record_verdict.exit_code: 52
+          gates.record_verdict.exit_code: 52  # conflict
       - target: record_conflict
         when:
-          gates.record_verdict.exit_code: 54
+          gates.record_verdict.exit_code: 54  # directed
 
   wait:
     # The hub. No action, no gate and no details: an idle tick appends nothing,
@@ -570,14 +608,14 @@ states:
     transitions:
       - target: classify_report
         when:
-          gates.report_facts_verdict.exit_code: 60
+          gates.report_facts_verdict.exit_code: 60  # holding
           gates.report_input.exists: true
       - target: wait
         when:
-          gates.report_facts_verdict.exit_code: 61
+          gates.report_facts_verdict.exit_code: 61  # unknown
       - target: wait
         when:
-          gates.report_facts_verdict.exit_code: 62
+          gates.report_facts_verdict.exit_code: 62  # refused
 
   classify_report:
     # classification carries a decider in shadow mode, recorded beside the
@@ -655,13 +693,13 @@ states:
     transitions:
       - target: verified_confirm
         when:
-          gates.verify_board_verdict.exit_code: 70
+          gates.verify_board_verdict.exit_code: 70  # verified
       - target: failure
         when:
-          gates.verify_board_verdict.exit_code: 71
+          gates.verify_board_verdict.exit_code: 71  # unverified
       - target: wait
         when:
-          gates.verify_board_verdict.exit_code: 72
+          gates.verify_board_verdict.exit_code: 72  # pending
 
   verified_confirm:
     default_action:
@@ -677,16 +715,16 @@ states:
     transitions:
       - target: land
         when:
-          gates.verified_confirm_verdict.exit_code: 50
+          gates.verified_confirm_verdict.exit_code: 50  # confirmed
       - target: record_conflict
         when:
-          gates.verified_confirm_verdict.exit_code: 52
+          gates.verified_confirm_verdict.exit_code: 52  # conflict
       - target: verify
         when:
-          gates.verified_confirm_verdict.exit_code: 53
+          gates.verified_confirm_verdict.exit_code: 53  # moved
       - target: record_conflict
         when:
-          gates.verified_confirm_verdict.exit_code: 54
+          gates.verified_confirm_verdict.exit_code: 54  # directed
 
   land:
     default_action:
@@ -702,19 +740,19 @@ states:
     transitions:
       - target: land_merge
         when:
-          gates.land_verdict.exit_code: 80
+          gates.land_verdict.exit_code: 80  # permit
       - target: surface
         when:
-          gates.land_verdict.exit_code: 81
+          gates.land_verdict.exit_code: 81  # deny
       - target: surface
         when:
-          gates.land_verdict.exit_code: 82
+          gates.land_verdict.exit_code: 82  # confirm
       - target: verify
         when:
-          gates.land_verdict.exit_code: 53
+          gates.land_verdict.exit_code: 53  # moved
       - target: failure
         when:
-          gates.land_verdict.exit_code: 84
+          gates.land_verdict.exit_code: 84  # dirty
 
   land_merge:
     accepts:
@@ -748,10 +786,10 @@ states:
     transitions:
       - target: record
         when:
-          gates.merge_confirm_verdict.exit_code: 90
+          gates.merge_confirm_verdict.exit_code: 90  # merged
       - target: record
         when:
-          gates.merge_confirm_verdict.exit_code: 91
+          gates.merge_confirm_verdict.exit_code: 91  # unconfirmed
 
   merged_facts:
     default_action:
@@ -767,13 +805,13 @@ states:
     transitions:
       - target: record
         when:
-          gates.merged_facts_verdict.exit_code: 90
+          gates.merged_facts_verdict.exit_code: 90  # merged
       - target: record
         when:
-          gates.merged_facts_verdict.exit_code: 91
+          gates.merged_facts_verdict.exit_code: 91  # unconfirmed
       - target: wait
         when:
-          gates.merged_facts_verdict.exit_code: 92
+          gates.merged_facts_verdict.exit_code: 92  # not-merged
 
   surface:
     accepts:
@@ -819,13 +857,13 @@ states:
     transitions:
       - target: wait
         when:
-          gates.quiet_check_verdict.exit_code: 100
+          gates.quiet_check_verdict.exit_code: 100  # quiet-none
       - target: status_message
         when:
-          gates.quiet_check_verdict.exit_code: 101
+          gates.quiet_check_verdict.exit_code: 101  # first-silence
       - target: failure
         when:
-          gates.quiet_check_verdict.exit_code: 102
+          gates.quiet_check_verdict.exit_code: 102  # second-silence
 
   status_message:
     accepts:
@@ -886,22 +924,22 @@ states:
     transitions:
       - target: roadmap_close_step
         when:
-          gates.roadmap_close_verdict.exit_code: 130
+          gates.roadmap_close_verdict.exit_code: 130  # ready
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 131
+          gates.roadmap_close_verdict.exit_code: 131  # features-open
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 132
+          gates.roadmap_close_verdict.exit_code: 132  # holdings
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 133
+          gates.roadmap_close_verdict.exit_code: 133  # side-effects
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 134
+          gates.roadmap_close_verdict.exit_code: 134  # deferrals
       - target: done
         when:
-          gates.roadmap_close_verdict.exit_code: 135
+          gates.roadmap_close_verdict.exit_code: 135  # closed
         context_assignments:
           outcome: closed
 
@@ -948,19 +986,19 @@ states:
     transitions:
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 120
+          gates.rotation_close_verdict.exit_code: 120  # handoff-missing
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 121
+          gates.rotation_close_verdict.exit_code: 121  # title-stale
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 122
+          gates.rotation_close_verdict.exit_code: 122  # land
       - target: rotation_done
         when:
-          gates.rotation_close_verdict.exit_code: 90
+          gates.rotation_close_verdict.exit_code: 90  # merged
       - target: record_conflict
         when:
-          gates.rotation_close_verdict.exit_code: 125
+          gates.rotation_close_verdict.exit_code: 125  # closed-unmerged
 
   rotation_step:
     accepts:
@@ -1620,8 +1658,10 @@ worker's silent checks from this session's log.
 
 A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
-and pull request and its session on the host. The human's decisions may set other
-intervals, which you apply as guidance. One silent check earns a status message;
+and pull request and its session on the host. The 30-minute interval is the
+check's own and is fixed: a human's decision about intervals governs what your
+status message asks and when you follow up by hand, not when this check counts
+a silence. One silent check earns a status message;
 a second sends the unit to the failure branch. Silence alone never makes a worker
 dead: treat it as gone only on a signal that it is gone, such as a message that
 bounces.

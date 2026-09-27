@@ -248,7 +248,7 @@ Name the record in every report (a roadmap record's issue number, a rotation's
 pull request URL and host repository), so whoever starts the next coordinator
 passes it on as a decision. Include a "Waiting on the human" section and, per
 holding, what happens next; both are derived at each report and never stored.
-End every report with the progress table.
+End every report after the reconcile with the progress table.
 
 **The progress table.** One table, `Kind | Unit | Session | PR | Status | Next
 or needs`, with four kinds of row in this order: `Ready to merge`, pull requests
@@ -293,19 +293,19 @@ until then it is a procedure the coordinator runs with a local agent.
 
 ## Known Limitations
 
-- **Which pull requests a worker owns (#395).** The workflow relies on each
+- **Which pull requests a worker owns (shirabe#395).** The workflow relies on each
   worker's `/deliver`, `/execute` or `/work-on` run identifying only its own pull
   requests. Today those skills decide it by author login and branch name, and
   every worker a coordinator dispatches shares one login, so a worker can adopt a
   sibling's pull request on resume. The coordinator's own reads go by pull
   request number and dispatch topic.
-- **Where merge order is recorded (#396, fixed).** When a worker runs a
+- **The coordinator's record has no merge order (shirabe#396, fixed by shirabe#412).** When a worker runs a
   coordinated PLAN, `/execute` renders that PLAN's merge order into its
   coordination pull request's merge-order block from the `waits_on` graph, so
   a merge order survives the PLAN. The merge gate never reads the block, and
   the coordinator's own record has no merge-order section: the order it hands
   the human still comes from its reading of dependencies.
-- **Pull request bodies that aren't scoped (#398).** A worker's pull request body
+- **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body
   can describe more than the pull request carries. The verify step's file-list
   read is the defence, at one more read per report.
 - **No delivered wake when a leg resolves (koto#250).** koto's waker is a stub, so
@@ -329,10 +329,10 @@ until then it is a procedure the coordinator runs with a local agent.
   checks hold against a wrong submitted value or a skipped step. They don't hold
   against a coordinator that rewrites its own tools, or its files, which no fix
   to the environment covers.
-- **Leg flags on `/deliver` and `/work-on` (#401, fixed by #407).** All four
+- **A leg isn't bound at dispatch (shirabe#401, fixed by shirabe#407).** All four
   entry points now accept `--koto-leg`, but binding a leg at dispatch is the
   dispatch path's work, so until it lands a dispatched worker reports by message.
-- **One machine and one HOME (shirabe#407).** koto's request and session stores
+- **One machine and one HOME (no tracking issue: a property of koto's per-user store).** koto's request and session stores
   are per-user and machine-wide under the koto home, so a coordinator and the
   workers that answer its legs share one machine and one HOME, and a worker on
   another host reports by message. Session names are machine-wide too: a second
