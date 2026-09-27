@@ -22,11 +22,16 @@
 # template or pins other inputs. koto records each of those refusals on the leg
 # itself when the leg is still open and unbound; on a leg already bound to this
 # session (a re-dispatch) it records nothing and the leg stays bound. This
-# script's own refusals are the ones where there is no leg to record anything on: no --koto-leg, a repeated one, a
-# value that isn't <request-id>:work-on with a request id koto would accept, or
-# a tokens file it cannot read. Each exits 64 with `error=usage` and makes no
-# koto call. koto-open.sh adds two: an args file inside the work tree, and no
-# koto binary.
+# script's own refusals are the ones where there is no leg to record anything
+# on: no --koto-leg, a repeated one, a value that isn't <request-id>:work-on
+# with a request id koto would accept, or a tokens file it cannot read. It also
+# refuses the two input shapes the flag doesn't apply to, with the signals
+# SKILL.md's Mode Detection uses: tokens that begin with `-- plan-backed` (a
+# plan-backed child, whose result is /execute's) and a PLAN path (a token whose
+# file name is PLAN-*.md, or a .md file whose frontmatter says
+# `schema: plan/v1`), which runs several issues where one leg answers one. Each
+# exits 64 with `error=usage` and makes no koto call. koto-open.sh adds two: an
+# args file inside the work tree, and no koto binary.
 #
 # Usage:
 #   work-on-open.sh --workflow <name> [--var NAME=VALUE]... <tokens-file>
@@ -145,6 +150,31 @@ esac
 LEG=$(printf '%s' "$LEGS" | jq -j '.[0]')
 [[ "$LEG" =~ $RE_LEG ]] \
     || own_refusal "--koto-leg must be <request-id>:work-on, with a request id matching ^[a-z0-9_][a-z0-9_-]{0,63}\$, got [$LEG]"
+
+# The inputs --koto-leg doesn't apply to. Every token but --koto-leg's own
+# value is looked at.
+REST=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
+    | select(($t[$i] | startswith("--koto-leg")) | not)
+    | select($i == 0 or $t[$i - 1] != "--koto-leg")
+    | $t[$i]]')
+if printf '%s' "$REST" | jq -e '.[0] == "--" and .[1] == "plan-backed"' >/dev/null; then
+    own_refusal "--koto-leg does not apply to a plan-backed child: /execute receives its result"
+fi
+while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    plan=0
+    case "$(basename -- "$t")" in PLAN-*.md) plan=1 ;; esac
+    if [ "$plan" -eq 0 ] && [ -f "$t" ] \
+        && awk 'NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit 1; next }
+                /^---[[:space:]]*$/ { exit 1 }
+                /^schema:[[:space:]]*plan\/v1[[:space:]]*$/ { found = 1; exit 0 }
+                END { exit found ? 0 : 1 }' "$t"; then
+        plan=1
+    fi
+    [ "$plan" -eq 0 ] || own_refusal "--koto-leg does not apply to a PLAN ($t): one leg answers one issue's run"
+done <<TOKENS_EOF
+$(printf '%s' "$REST" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
+TOKENS_EOF
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 

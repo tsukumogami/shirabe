@@ -326,8 +326,16 @@ open_deliver "[\"t-tpl\",\"--koto-leg=$REQ:deliver\"]"
 refused "another template under --koto-leg"
 has "prints the probe's refused=template_mismatch" "refused=template_mismatch" "$STDOUT"
 eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .result_source)"
-eq "the collision's recorded reason" '"already-exists"' "$(leg "$REQ" .result.payload.reason)"
+eq "the collision's recorded reason matches the printed code" '"template-mismatch"' "$(leg "$REQ" .result.payload.reason)"
 eq "that session is still left alone" work "$(state_of t-tpl)"
+
+# The same for a session from another worktree: origin_mismatch on both.
+REQ=$(new_request t-away)
+open_deliver "[\"t-away\",\"--koto-leg=$REQ:deliver\"]"
+refused "another worktree's session under --koto-leg"
+has "prints the probe's refused=origin_mismatch" "refused=origin_mismatch" "$STDOUT"
+eq "the leg records the same refusal" '"origin-mismatch"' "$(leg "$REQ" .result.payload.reason)"
+eq "that session is still at preflight" preflight "$(KDIR="$OTHER" state_of t-away)"
 
 # A leg that pins another topic: koto's input check refuses the open.
 REQ=$(new_request some-other-topic)

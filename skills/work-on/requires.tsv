@@ -94,6 +94,14 @@
 # Caller's Leg section runs `skill-preflight.sh work-on --mode koto-leg` before
 # the open. The parity scan cannot see these flags in this skill's own files,
 # because the call site is the shared script.
+#
+# When this floor moves to 0.13.0, two things follow, and both should go
+# together. work-on.md's terminals get result maps, so a work-on leg carries a
+# payload `outcome` like /scope's, /execute's and /deliver's, and coordinators
+# drop their final_state special case. And every /work-on open, with the flag
+# or without, goes through work-on-open.sh and koto-open.sh, as the other three
+# skills' entries do, retiring the plain `koto init --var` path in SKILL.md; the
+# mode:koto-leg record then becomes the one `always` init record.
 koto	init	--template,--var	always
 koto	init	--template,--vars-file,--attach-live,--koto-leg	mode:koto-leg
 koto	next	--with-data,--no-cleanup	always

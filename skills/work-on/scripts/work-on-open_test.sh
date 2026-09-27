@@ -5,9 +5,10 @@
 #
 #   engine-free (a logging koto stub on PATH):
 #     no --koto-leg, a repeated one, a value that isn't <request-id>:work-on,
-#     an empty or malformed request id, a bare --koto-leg, and a tokens file
-#     that isn't an array of strings are this script's own refusals: exit 64,
-#     error=usage, no koto call, and the tokens file removed
+#     an empty or malformed request id, a bare --koto-leg, a tokens file that
+#     isn't an array of strings, and the flag on a plan-backed child or a PLAN
+#     path are this script's own refusals: exit 64, error=usage, no koto call,
+#     and the tokens file and its directory removed
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
@@ -99,6 +100,10 @@ own_refusal "--koto-leg with an uppercase request id" '["7","--koto-leg=REQ:work
 own_refusal "a bare --koto-leg" '["7","--koto-leg"]'
 own_refusal "--koto-leg given twice" '["7","--koto-leg=r1:work-on","--koto-leg","r2:work-on"]'
 own_refusal "a tokens file that is not an array of strings" '{"leg":"r1:work-on"}'
+own_refusal "--koto-leg on a plan-backed child" '["--","plan-backed","github","7","--koto-leg=r1:work-on"]'
+own_refusal "--koto-leg on a PLAN path" '["docs/plans/PLAN-x.md","--koto-leg=r1:work-on"]'
+printf -- '---\nschema: plan/v1\n---\n# a plan\n' > "$FIXREPO/roadmap-plan.md"
+own_refusal "--koto-leg on a .md file with plan/v1 frontmatter" '["roadmap-plan.md","--koto-leg=r1:work-on"]'
 
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
@@ -149,7 +154,7 @@ eq "the leg's status is failure" '"failure"' "$(leg "$REQ" .result.status)"
 
 # A free-form run, driven to validation_exit.
 REQ=$(new_request '{}')
-run_open task_ff "[\"do a thing\",\"--koto-leg\",\"$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_ff
+run_open task_ff "[\"tidy notes.md\",\"--koto-leg\",\"$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_ff
 eq "free-form under --koto-leg: exit 0" 0 "$RC"
 tick task_ff --with-data '{"mode":"free_form","task_description":"do a thing"}'
 tick task_ff --with-data '{"verdict":"exit","rationale":"not needed"}'

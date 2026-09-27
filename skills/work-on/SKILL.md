@@ -225,9 +225,10 @@ instead of from what the worker says. Mode Detection sets it aside; it is not pa
 of the issue reference or the task description. The leg must be
 named `work-on`, the one leg `/work-on` answers. It applies to issue-backed and
 free-form runs only: a plan-backed child is `/execute`'s, which already receives its
-result, and a PLAN path runs several issues, so with either of those stop and tell
-the user the flag doesn't apply, before any koto call. Without the flag nothing below
-applies and the run is unchanged.
+result, and a PLAN path runs several issues. `work-on-open.sh` refuses the flag with
+either (`error=usage`, exit 64, no koto call), on the same signals Mode Detection
+uses; stop there and tell the user the flag doesn't apply. Without the flag nothing
+below applies and the run is unchanged.
 
 1. **Check the floor.** The flag needs koto's entry flags, which a koto older than
    the one `requires.tsv` names lacks:
@@ -273,7 +274,9 @@ promotes the result onto the leg. That
 result is koto's own for a terminal with no result map: `status` (`success`, or
 `failure` for `done_blocked`) and the terminal state, which the leg records as
 `result_final_state` and a `request-leg` gate exposes as `final_state` (`done`,
-`done_already_complete`, `done_blocked`, `validation_exit`). A coordinator routes a
+`done_already_complete`, `done_blocked`, `validation_exit`). koto 0.13.0 defines
+that gate output, empty for explicit and refused results, in its koto-author
+template-format reference (the `request-leg` rows of the gate output table). A coordinator routes a
 promoted `work-on` leg on both, since `validation_exit` is a success too, and routes
 a refusal on its source rather than on the payload: the leg records
 `result_source: refused`, which a `request-leg` gate exposes as `source`. work-on.md

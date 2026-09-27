@@ -25,15 +25,16 @@
 # to it, or records its refusal there. The probe never does, because its thin
 # args file would be compared against inputs the leg pins (COORDINATION,
 # UPSTREAM) and refused where the real open is not. When the probe stops the
-# run under a leg, the open is still made, with the full args file and the
-# leg, so that koto records a refusal on the leg. A bad variable is refused
-# again with the same code. A session this script will not touch is refused as
-# koto's untyped already-exists. Should that open be accepted, because the
-# colliding session went away in between, the run proceeds as opened.
-#
-# In that case stdout carries the probe's refused= line, the reason this run
-# stopped, while the leg records the open's refusal: the same code for a bad
-# variable, already-exists for a collision.
+# run under a leg, the probe is made once more with the full args file and the
+# leg, so koto records the refusal on the leg. It carries the probe's own
+# flags (--attach-live --replace-terminal), so koto refuses it for the same
+# reason: a bad variable with the same code, a collision as template_mismatch
+# or origin_mismatch. stdout's refused= line and the leg's reason then name the
+# same refusal (the leg spells it in kebab-case). Should that call be accepted
+# after all (the colliding session went away, or the probe's refusal was
+# transient), the run goes on exactly as after an accepted probe: the session
+# it opened is removed and the open below makes a fresh one, which re-binds
+# the leg by name.
 #
 # It never reads a session's origin record or state file.
 #
@@ -276,43 +277,50 @@ PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
 PROBE=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$PROBE_VARS" --attach-live --replace-terminal --wording "$WORDING")
 RC=$?
 
-# open_session -- the open: the full vars file, no attach flags, and the leg
-# when one was given. Sets OUT and RC.
+# open_session [flag...] -- the full vars file, the leg when one was given,
+# and any extra koto-open.sh flags. Without flags it is the open: no attach
+# flags, so the session is always new. Sets OUT and RC.
 open_session() {
     local vars
     vars=$(write_vars '.vars + [["PLUGIN_ROOT", $root]]') \
         || stop "error=usage" "could not write the vars file" 64
-    set -- "$SESSION" "$TEMPLATE" "$vars" --wording "$WORDING"
+    set -- "$SESSION" "$TEMPLATE" "$vars" --wording "$WORDING" "$@"
     [ -n "$LEG" ] && set -- "$@" --koto-leg "$LEG"
     OUT=$(bash "$KOTO_OPEN" "$@")
     RC=$?
 }
 
+# fresh_start -- remove this worktree's deliver-<topic>, found by an accepted
+# probe, so the open makes a new one.
+fresh_start() {
+    if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
+        stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
+    fi
+}
+
 case "$PROBE" in
-    opened=*)
-        if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
-            stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
-        fi
-        ;;
+    opened=*) fresh_start ;;
     *)
         # A collision (origin_mismatch, template_mismatch) or any other
         # refusal: koto's own wording is already on stderr, and the session,
-        # if any, is untouched. Under a leg, the open is made anyway so koto
-        # records a refusal on the leg; its own wording would repeat the
-        # probe's, so it is dropped.
+        # if any, is untouched. Under a leg, the probe is repeated with the
+        # full vars and the leg so koto records the same refusal on the leg;
+        # its wording would repeat the probe's, so it is dropped.
         PROBE_RC=$RC
+        RECORDED=""
         if [ -n "$LEG" ]; then
-            open_session 2>/dev/null
-            if [ "$RC" -eq 0 ]; then
-                printf '%s\n' "$OUT"
-                printf 'session=%s\n' "$SESSION"
-                exit 0
-            fi
+            open_session --attach-live --replace-terminal 2>/dev/null
+            RECORDED=$OUT
         fi
-        [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
-        bash "$REPORT" --refused
-        [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
-        exit "$PROBE_RC"
+        case "$RECORDED" in
+            opened=*) fresh_start ;;
+            *)
+                [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
+                bash "$REPORT" --refused
+                [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
+                exit "$PROBE_RC"
+                ;;
+        esac
         ;;
 esac
 

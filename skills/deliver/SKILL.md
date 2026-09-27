@@ -64,9 +64,12 @@ run's.
 | `--upstream <path>`, `--max-rounds=N`, `--coordinated` / `--no-coordinated` | Forwarded to `/scope` unchanged. |
 | `--koto-leg=<request-id>:deliver` | Binds this run's `deliver-<topic>` session to a leg of a caller's koto request; see Answering a Caller's Leg. Not forwarded to either child. |
 
-koto checks every argument, not this file: a repeated flag, both mode flags,
-both coordination flags, a malformed topic or upstream, or a `--max-rounds`
-outside 1 to 50 is refused at `koto init` with exit 2 and no session.
+koto checks every argument a koto variable can express, not this file: a
+repeated flag, both mode flags, both coordination flags, a malformed topic or
+upstream, or a `--max-rounds` outside 1 to 50 is refused at `koto init` with
+exit 2 and no session. `--koto-leg` is the one exception: `deliver-open.sh`
+checks it before any koto call, because without a well-formed value there is
+no leg to record a refusal on (see Answering a Caller's Leg).
 
 `--merge` and the mode belong to one invocation. Nothing is remembered from an
 earlier run: a re-invocation without `--no-merge` merges, and one with it
@@ -88,9 +91,11 @@ With a well-formed value, the one `koto init` that opens the fresh
 session to the leg or records its refusal there: `result_source: refused`
 (`source: refused` on a `request-leg` gate), with `outcome: refused` and a
 `reason` such as `invalid-var:TOPIC`. A same-named session this run won't
-touch is refused as `already-exists` on the leg. Once bound, the run's terminal result reaches the leg by promotion on the
-terminal tick, `--no-cleanup` notwithstanding: the same `outcome`, `step`,
-`reason`, `pr`, and other keys `deliver-report.sh` prints.
+touch (another worktree's, or one from another template) is refused with the
+code the run prints, `origin-mismatch` or `template-mismatch` on the leg. Once
+bound, the run's terminal result reaches the leg by promotion on the terminal
+tick, `--no-cleanup` notwithstanding: the same `outcome`, `step`, `reason`,
+`pr`, and other keys `deliver-report.sh` prints.
 
 What the coordinator puts on the leg, so koto admits the session:
 
