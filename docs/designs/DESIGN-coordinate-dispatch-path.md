@@ -561,7 +561,10 @@ from GitHub, one read per commit. For every clone:
    else's branch as last fetched and isn't the worker's. That rule depends
    on the ref's log. A ref `git clone` created has no log file, which is
    normal and reads as not pushed; counting it would count every bystander
-   branch deleted since the clone. A gone-from-origin ref whose log exists
+   branch deleted since the clone. (Measured on git 2.43: `git clone` writes
+   origin's tracking refs to packed-refs with no log, even with ref logging
+   on. That is why "an empty log means pushed", the obvious fix for a
+   missing log, is wrong.) A gone-from-origin ref whose log exists
    but reads empty (expired or unreadable), or any such ref in a clone with
    ref logging turned off, is an error rather than a guess. What remains
    open is a log file deleted by hand, or ref logging turned off for the
