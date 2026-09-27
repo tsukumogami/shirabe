@@ -296,7 +296,7 @@ else
     serve issue-view 1 "$(body "$CASE/body.md")"
     capture $ROADMAP_ARGS
     expect "the real parser: a row whose cell breaks the grammar is set aside with its line; the rest is read" \
-        '.status == "found" and (.holdings | length) == 0 and (.deferrals | length) == 1 and (.unparseable | length) == 1 and (.unparseable[0].raw | test("hand edit")) and (.unparseable[0].reason | test("Holdings: worker"))'
+        '.status == "found" and (.holdings | length) == 0 and (.deferrals | length) == 1 and (.unparseable | length) == 1 and (.unparseable[0].raw | test("hand edit")) and (.unparseable[0].reason | test("^worker: "))'
     case "$OUT" in *"$C"*) bad "the real parser: no path of the parser in the output" "$OUT" ;; *) ok "the real parser: no path of the parser in the output" ;; esac
     RB="$T/real-roadmap-body.md"
     cp "$CASE/../case-$((CASES - 1))-real-roadmap/body.md" "$RB"
@@ -307,6 +307,13 @@ else
     capture $ROADMAP_ARGS
     expect "the real parser: a row with an extra cell is set aside; every other row is still read" \
         '.status == "found" and (.holdings | length) == 1 and (.deferrals | length) == 0 and (.side_effects | length) == 1 and (.unparseable[0].raw | test("extra")) and (.unparseable[0].reason | test("Deferrals"))'
+
+    new_case real-phrase
+    sed 's/| flaky test | not now |/| the record is for later, 5 bytes, over | x | not now |/' "$RB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a hand edit quoting the parser's refusal words is still read row by row" \
+        '.status == "found" and (.holdings | length) == 1 and (.unparseable | length) == 1'
 
     new_case real-spacing
     sed 's/^Written: /Written:  /' "$RB" > "$CASE/body.md"

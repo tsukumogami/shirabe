@@ -125,6 +125,16 @@ jq -e '(.state | type) == "string" and (.body | type) == "string"' "$T/view.json
 [ "$(jq -r .state "$T/view.json")" = OPEN ] || refuse 4 unreadable "the record is no longer open"
 jq -j .body "$T/view.json" > "$T/body.md"
 
+# codec_program EXPR -- a jq program file: the record feature's codec, the
+# salvage definitions, then EXPR. One file rather than jq's include, because
+# a function reached through two levels of include aborts jq 1.8.
+codec_program() {
+    { cat "$RD_HERE/record-codec.jq"
+      sed '/^include "record-codec";$/d' "$RD_HERE/reconcile-salvage.jq"
+      printf '\n%s\n' "$1"; } > "$T/program.jq"
+    printf '%s' "$T/program.jq"
+}
+
 # parse FORMAT FILE OUT -- read FILE as FORMAT for this scope into OUT, with
 # `unparseable` rows. The record feature's parser first; a body it doesn't
 # take as canonical, or refuses for a row, is read row by row with
@@ -142,10 +152,15 @@ parse() {
     fi
     [ "$rc" -eq 3 ] || [ "$rc" -eq 65 ] || return 1
     # Refusals no row can explain: size and scope.
-    grep -q 'bytes, over\|the record is for ' "$out.err" && return 65
+    # Only the parser's own refusal line, and only on a refusal: a
+    # non-canonical body's stderr echoes the body's line, which anyone who
+    # edits the body controls.
+    if [ "$rc" -eq 65 ] && grep -Eq '^record-parse: refused: (body is [0-9]+ bytes, over|the record is for )' "$out.err"; then
+        return 65
+    fi
     fn=salvage_record
     [ "$fmt" = handoff ] && fn=salvage_handoff
-    jq -R -s -c -L "$RD_HERE" "include \"reconcile-salvage\"; $fn" < "$in" > "$out" 2>/dev/null || return 65
+    jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65
     got=$(jq -r '.scope.kind + ":" + .scope.name' "$out")
     [ "$got" = "$SCOPE:$NAME" ] || return 65
     # The parser's own line for a body that parses but doesn't render back:
@@ -177,7 +192,8 @@ esac
 # committed, on the host's default branch.
 HANDOFF=null
 REASONING=null
-[ -z "$REASONING_OUT" ] || rm -f "$REASONING_OUT"
+# A reasoning file from an earlier read is not left to be taken as this one.
+[ -n "$REASONING_OUT" ] && [ -f "$REASONING_OUT" ] && rm -f "$REASONING_OUT"
 if [ "$SCOPE" = discipline ]; then
     DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null) \
         || refuse 5 failed "the host's default branch could not be read"
@@ -191,13 +207,13 @@ if [ "$SCOPE" = discipline ]; then
             65) refuse 4 unreadable "the handoff file isn't a handoff for this discipline" ;;
             *) refuse 5 failed "the handoff could not be parsed" ;;
         esac
-        [ "$(jq -r '.rotation.host_repo' "$T/handoff.json")" = "$REPO" ] \
+        [ "$(jq -r '.rotation.host_repo | ascii_downcase' "$T/handoff.json")" = "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ] \
             || refuse 4 unreadable "the handoff names another host repository"
         HANDOFF=$(cat "$T/handoff.json")
         # The predecessor's reasoning, verbatim, or its absence. A predecessor
         # copy, an empty or missing section, and the record feature's fixed
         # not-recorded sentence all read as not recorded.
-        SENTENCE=$(jq -n -r -L "$RD_HERE" 'include "record-codec"; predecessor_sentence' 2>/dev/null) \
+        SENTENCE=$(jq -n -r -f "$(codec_program predecessor_sentence)" 2>/dev/null) \
             || refuse 5 failed "the record feature's codec could not be read"
         if jq -e --arg s "$SENTENCE" 'has("predecessor_copy") or ((.reasoning // "") | test("^\\s*$"))
                 or ((.reasoning // "") | gsub("^\\s+|\\s+$"; "") == $s)' "$T/handoff.json" >/dev/null 2>&1; then
@@ -233,7 +249,7 @@ jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REAS
        record: {written: .written,
                 source: (if $handoff == null then "record" else "record and handoff" end),
                 handoff_date: (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $d else null end)},
-       holdings: add_new(.holdings; ($h.holdings // []); .worker),
+       holdings: add_new(.holdings; ($h.holdings // []); [.worker, .unit]),
        deferrals: add_new(.deferrals; ($h.deferrals // []); [.deferral, .raised]),
        side_effects: add_new(.side_effects; ($h.side_effects // []); [.action, .target, .attempted]),
        unparseable: (.unparseable

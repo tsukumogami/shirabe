@@ -15,6 +15,13 @@
 # section is missing or empty, `reasoning` is "" (the caller reads that as
 # not recorded).
 
+# A handoff with a Reasoning heading and no tables is refused too: there is no
+# row to salvage.
+#
+# reconcile-read.sh runs this as one program with the codec prepended (jq 1.8
+# aborts on a function reached through two levels of include); the include
+# line below is for reading the file on its own.
+
 include "record-codec";
 
 def reason_of: sub("^refused: "; "");
@@ -36,7 +43,7 @@ def salvage_table($sec; $body):
               | {ok: .})
          catch {err: (. | tostring | reason_of)}) as $r
         | if $r.ok != null then .rows += [$r.ok]
-          else .bad += [{raw: $line, reason: "\($sec.title): \($r.err)"}] end)
+          else .bad += [{raw: ($line | gsub("[\u0000-\u001f\u007f]"; "")), reason: $r.err}] end)
       end
   end;
 

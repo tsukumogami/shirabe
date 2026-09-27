@@ -274,3 +274,132 @@ fixed sentence without the predecessor-copy line, and a malformed row.
 - Portability: the suite passes on bash 3.2.57 in the floor image; no
   `case` inside `$(...)`, no GNU-only flags (`head -c`, `tr` ranges, `mktemp -d`
   templates, `awk`, `sed` without `-i`), no empty-array expansions.
+
+## Round 2 (e3c1be7, with 9e1f50d)
+
+Probes: round-1 `probe1.sh`-`probe3.sh` rerun, plus `probe4.sh` (salvage path)
+and `floor-inner*.sh` (bash 3.2 / jq 1.8.2 floor image), all under
+`/home/dangazineu/.claude/jobs/d0fd18fd/tmp/panel4`. `setup.sh` now also copies
+`reconcile-salvage.jq`.
+
+### Tests
+
+- Linux, bash 5, jq 1.7, `RECORD_FEATURE_SCRIPTS` set: 52 passed, 0 failed.
+- Linux, bash 5, jq 1.7, without it: 38 passed, 0 failed (contract cases skipped).
+- `reconcile-report_test.sh`: 66 passed, 0 failed.
+- Floor image (bash 3.2.57, jq 1.8.2), `RECORD_FEATURE_SCRIPTS` set: **45 passed, 7 failed**
+  -- every real-parser salvage case. Without it: 38 passed, 0 failed.
+
+### Round-1 blockers
+
+- B1 (missing or empty reasoning section refuses): fixed on jq 1.7. Probes P1
+  and P2 now exit 0 with `reasoning: "not_recorded"` and no reasoning file.
+  Still broken on jq 1.8 (R2-B1 below).
+- B2 (the fixed sentence counts as present): fixed. P3 gives `not_recorded`
+  and no file.
+- B3 (unlabelled handoff rows, handoff date lost): fixed. Deferrals and side
+  effects are `{row, source}`, the carried-forward "flaky test" deferral is
+  listed once, and with 9e1f50d the rendered header reads "Rows marked as
+  the previous rotation's are as it wrote them on 2026-09-23".
+- B4 (no per-row unparseable): fixed on jq 1.7. Probes Q4 and Q4c now set the
+  bad row aside with its raw line and the codec's reason, and every other row
+  is read. The absolute-path leak is gone (P8b's raw is now the body line
+  `abcdef`). Still broken on jq 1.8 (R2-B1).
+
+### Blocking
+
+#### R2-B1. On jq 1.8 the salvage module aborts, and every non-canonical body is refused
+
+`reconcile-salvage.jq:18` includes `record-codec`, and `reconcile-read.sh:148`
+includes `reconcile-salvage`. jq 1.8.2 (the floor image's jq, and the
+current jq release line) hits an internal assertion when a function reached
+through that two-level include calls into the codec:
+
+```
+Assertion failed: 0 && "Unknown function type" (src/compile.c: expand_call_arglist: 1158)
+```
+
+Minimal repro (`floor-inner6.sh`): a module that does `include
+"record-codec"` and defines `def t: "| a | b |" | split_cells;`, included
+from the top level, aborts. `check_row` and `parse_scope` do the same. The
+codec's own functions work with a single include, and `sections`,
+`normalized`, `refuse` and `predecessor_sentence` pass. `import ... as c`
+aborts too.
+
+`reconcile-read.sh:148` sends jq's stderr to `/dev/null` and maps the
+failure to 65, so on jq 1.8 a body the canonical parse rejects for any
+reason exits 4 "the body isn't a coordinator record for this scope". That's
+worse than round 1, which read such bodies with `--no-canonical`. The
+floor run shows it: the 7 failing cases are exactly the salvage cases
+(extra cell, grammar break, differing line, missing or empty reasoning, the
+fixed sentence, a bad handoff row). CI doesn't see it yet because the
+contract cases skip until F2 lands.
+
+Fix, verified in the floor image (`floor-inner7.sh`): build the salvage
+program as one file, the codec followed by the salvage definitions without
+their `include`, and run it with `jq -f`. That returns the correct salvage
+output on jq 1.8.2. Or have F2's codec export salvage-friendly entry points
+so reconcile needs only one include level. Add a floor run with the F2
+scripts present to the CI job once F2 is on the default branch.
+
+#### R2-B2. A non-canonical row that mentions "the record is for " or "bytes, over" refuses the whole record
+
+`reconcile-read.sh:145`: `grep -q 'bytes, over\|the record is for ' "$out.err"`
+runs over the parser's whole stderr. For a non-canonical body (exit 3) that
+stderr echoes the body's differing line and the expected line. So when the
+edited line itself contains either phrase, the script takes it for a
+size or scope refusal and exits 4 without salvaging anything.
+
+- Probe S4: deferral text "the record is for later & more" with a raw `&`
+  (a hand edit that parses but doesn't render back) gives
+  `{"status":"unreadable","reason":"the body isn't a coordinator record for this scope"}`, exit 4.
+- S4c: "5 bytes, over & out" does the same.
+- S4b: the same edit without the phrase is read, with the line listed.
+
+Anyone who can edit the body can use this to turn reconcile into a refusal
+by typing one of those phrases into a cell. Fix: match only the parser's
+refusal line, anchored, e.g. `grep -q -e '^record-parse: refused: body is [0-9]* bytes, over' -e '^record-parse: refused: the record is for '`,
+and only when the exit was 65. That also drops the `\|` alternation, which
+is a GNU basic-regex extension (it works in busybox and GNU grep; don't
+count on it in every BSD grep).
+
+### Advisory (round 2)
+
+- R2-A1. Dedup by worker drops a different holding. `reconcile-read.sh:236`
+  keys holdings on `.worker` alone. Probe H3: a handoff holding with the
+  record's worker but a different unit ("Feature 9") and pull request (#99)
+  disappears, and nothing is listed. Key on more than the worker (worker
+  plus unit or pull request), or list the collision as unparseable instead
+  of dropping it.
+- R2-A2. host_repo is compared case-sensitively (`reconcile-read.sh:194`).
+  Probe H4: `Acme/Widgets` against `acme/widgets` refuses the handoff with
+  exit 4. GitHub owner and repo names are case-insensitive, so compare with
+  `ascii_downcase`.
+- R2-A3. `rm -f "$REASONING_OUT"` (`reconcile-read.sh:180`) deletes whatever
+  path it's given, at either scope, before anything is read. Probe P9b
+  tried to remove `/dev/full`. Only the pass calls it, but a one-line
+  guard (for example, a path under the session directory) costs little.
+- R2-A4. A differing row is both trusted and listed. For an exit-3 body the
+  salvage keeps the row that differs (S1c `Feature 2\`, S2c `Feature<CR>2`
+  in holdings) and also lists its line under unparseable. That's
+  defensible, since the row passed the codec's grammar, but the report will
+  re-check it as if clean.
+- R2-A5. The reason is doubled: "Holdings: Holdings: a row with 13 cells,
+  not 12" (`reconcile-salvage.jq:33` and `:39` both prefix the title).
+- R2-A6. Unparseable `raw` from salvage is the body line unscrubbed. Probe
+  S5 carries an ESC sequence. The report fences it, but the exit-3 path
+  strips control characters (`:155`) and this path doesn't. Be consistent.
+- R2-A7. A handoff with a Reasoning heading and no tables (H1) is exit 4
+  unreadable. That's reasonable, since there's no table structure to
+  salvage, but the AC's "first rotation" and "not recorded" cases don't
+  cover it. Say so in the header.
+- R2-A8. The report doesn't mark handoff deferrals or side effects. The
+  header says "Rows marked as the previous rotation's", but
+  `reconcile-report.sh` marks only holdings rows (`:263`, `:362`); a handoff
+  deferral renders exactly like the record's. That's Issue 5 or the report's
+  side, noted here so the label added in this round isn't lost.
+- Round-1 advisories still open: A2 (codes, now documented in the header),
+  A5 (handoff authority and verbatim reasoning), A6 (any 404 is a first
+  rotation), A7 (64 KiB cap, probe P7b still exit 4), A8 (empty handoff file,
+  P4 still exit 4), A10 (deadline budget), A15 (contract cases skip in CI,
+  which is how R2-B1 passes CI). A3, A4, A9 and A12 are addressed or moot.
