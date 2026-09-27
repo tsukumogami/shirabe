@@ -21,8 +21,60 @@
 #   2  No results produced, or a scenario graded zero assertions
 #      (infrastructure failure -- see "Grading nothing is a failure" below)
 #   3  Missing prerequisites
+#   4  The nested claude session stopped in plan mode or ran no command and
+#      wrote no file, so no scenario ran (runner or host failure -- see "Nested
+#      session permission mode" below)
 #
 # Prerequisites: claude CLI, python3, skill-creator plugin installed
+#
+# Nested session permission mode
+#   The runner starts one nested `claude -p` session per run, and that session
+#   would otherwise inherit whatever default permission mode the host has
+#   configured. On a host whose default is plan, it writes a plan and stops, and
+#   the run grades nothing for a reason no scenario declared. So the runner pins
+#   the mode (EVAL_CLAUDE_PERMISSION_ARGS below), runs the session from the repo
+#   root, and gives it one extra directory, a scratch root it creates per run and
+#   removes afterwards:
+#
+#     --permission-mode acceptEdits   the edit tools (Write, Edit) are accepted
+#                                     inside the repo and the scratch root only;
+#                                     any other tool that would prompt (web
+#                                     fetches, MCP tools, edits elsewhere) is
+#                                     denied, since a -p session has nobody to
+#                                     answer a prompt
+#     --allowedTools Bash             the scenarios run shell: /skill-creator
+#                                     grades with python3, and tier-2 scenarios
+#                                     run gh, koto, git and bash with an
+#                                     environment prefix, which acceptEdits
+#                                     alone would deny. This allows every shell
+#                                     command, so a command can still write
+#                                     outside the repo; the bound above is on
+#                                     the edit tools, not on the shell
+#     --add-dir <scratch root>        the session's TMPDIR, where a scenario's
+#                                     "empty directory" and the tier-2 clone live
+#
+#   Rejected: plan and manual execute nothing in a -p session; acceptEdits
+#   without the allow rule denies python3; dontAsk runs only what allow rules
+#   name, and with plain Write and Edit rules it let a write outside the repo and
+#   the scratch root through, so matching the bound acceptEdits gives would take
+#   hand-written path rules for both directories; auto leaves each call to a
+#   classifier, so results would vary with it; bypassPermissions also admits
+#   every prompting tool. A pattern
+#   allow list (Bash(koto *) and the like) denies the environment-prefixed,
+#   absolute-path and `bash -c` forms this runner's own instructions produce.
+#
+#   Subagents the session spawns inherit all three. The same mode and allow rule
+#   go on the one nested `claude` the session is told to start itself, for the
+#   preflight liveness eval. --verbose is there because the CLI requires it for
+#   stream-json in -p.
+#
+#   The session's stream-json transcript is saved as runner_session.jsonl in the
+#   iteration directory. When a run grades nothing and that transcript shows the
+#   session stopped in plan mode, or ran no command and wrote no file, the
+#   runner reports NESTED SESSION DID NOT EXECUTE with the permission mode that
+#   was in effect and exits 4, so the
+#   failure is not mistaken for a suite that graded nothing. The classification
+#   lives in scripts/lib/classify-eval-session.py.
 #
 # Scenario criteria: expectations, falling back to assertions
 #   A scenario's graded criteria come from its `expectations` key. `assertions`
@@ -72,7 +124,22 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SKILLS_DIR="$REPO_ROOT/skills"
+# RUN_EVALS_SKILLS_DIR exists for scripts/run-evals_test.sh, which runs the
+# harness against a throwaway suite instead of writing iterations into this tree.
+# It is test-only: the nested session may edit files only under the repo and the
+# scratch root, so a real run with it pointing outside the repo would have every
+# output and grading.json write denied unless that directory were also passed
+# with --add-dir.
+SKILLS_DIR="${RUN_EVALS_SKILLS_DIR:-$REPO_ROOT/skills}"
+CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
+
+# The permission mode every nested claude session runs under. See "Nested
+# session permission mode" in the header for why it is this and nothing wider.
+# The mode is kept separately because the not-executed report compares it with
+# the mode the session says was in effect. The prompt's PERMISSIONS AND SCRATCH
+# DIRECTORY block describes what these flags allow in words; change it with them.
+EVAL_CLAUDE_PERMISSION_MODE="acceptEdits"
+EVAL_CLAUDE_PERMISSION_ARGS=(--permission-mode "$EVAL_CLAUDE_PERMISSION_MODE" --allowedTools Bash)
 
 # ---------------------------------------------------------------------------
 # Preflight kill switch
@@ -518,7 +585,9 @@ TIER2_ISOLATION_ROOT=""
 TIER2_CHECKOUT=""
 setup_tier2_isolation() {
   local iso_root checkout bare branch
-  iso_root=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-iso.XXXXXX") || return 1
+  # Under the run's scratch root when there is one, because that is the one
+  # directory outside the repo the nested session may edit files in.
+  iso_root=$(mktemp -d "${EVAL_SCRATCH_ROOT:-${TMPDIR:-/tmp}}/shirabe-eval-iso.XXXXXX") || return 1
   TIER2_ISOLATION_ROOT="$iso_root"
   checkout="$iso_root/checkout"
   bare="$iso_root/origin.git"
@@ -554,9 +623,32 @@ cleanup_tier2_isolation() {
   TIER2_CHECKOUT=""
 }
 
+# The per-run scratch root: the nested session's TMPDIR and the one directory
+# outside the repo it is given with --add-dir. Sets EVAL_SCRATCH_ROOT; like
+# setup_tier2_isolation it must be called directly, not in $(...).
+EVAL_SCRATCH_ROOT=""
+setup_eval_scratch() {
+  EVAL_SCRATCH_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-scratch.XXXXXX") || {
+    EVAL_SCRATCH_ROOT=""
+    return 1
+  }
+}
+
+cleanup_eval_scratch() {
+  if [ -n "$EVAL_SCRATCH_ROOT" ] && [ -d "$EVAL_SCRATCH_ROOT" ]; then
+    rm -rf "$EVAL_SCRATCH_ROOT"
+  fi
+  EVAL_SCRATCH_ROOT=""
+}
+
+cleanup_run_dirs() {
+  cleanup_tier2_isolation
+  cleanup_eval_scratch
+}
+
 # Belt-and-suspenders: ensure the sandbox is removed even if the run exits early
 # (failed assertions, signal, or error) before run_skill_evals reaches cleanup.
-trap cleanup_tier2_isolation EXIT
+trap cleanup_run_dirs EXIT
 
 # Copy each scenario's post-run working tree into its output directory, with a
 # manifest saying what the run did to it.
@@ -666,6 +758,13 @@ run_skill_evals() {
   eval_count="$PREP_EVAL_COUNT"
   iteration="$PREP_ITERATION"
 
+  # Step 1a: The scratch root comes first, so the tier-2 clone lands inside it.
+  if ! setup_eval_scratch; then
+    echo "  Error: could not create a scratch directory for the nested session." >&2
+    return 2
+  fi
+  local scratch="$EVAL_SCRATCH_ROOT"
+
   # Step 1b: For skills with tier-2 evals, stand up an isolated clone so the
   # real workflow (run-cascade.sh --push, folder moves, git mv) executes against
   # a sandbox checkout instead of the live working tree. See the "Tier-2
@@ -699,7 +798,7 @@ ISOBLOCK
     else
       echo "  WARNING: failed to set up isolated checkout for tier-2 evals." >&2
       echo "  Refusing to run tier-2 evals against the live working tree." >&2
-      cleanup_tier2_isolation
+      cleanup_run_dirs
       return 2
     fi
   fi
@@ -715,6 +814,7 @@ ISOBLOCK
     preflight_fixture="$tier2_checkout/skills/$skill_name/evals/fixtures/preflight-liveness"
   fi
   local tier_instructions
+  local nested_permission_text="${EVAL_CLAUDE_PERMISSION_ARGS[*]}"
   tier_instructions=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 << PYEOF
 import json, os
 
@@ -742,7 +842,8 @@ for ev in data["evals"]:
                      f"with the variable set it would assert nothing. "
                      f"A self-contained fixture plugin is at $preflight_fixture. "
                      f"Instruct agent: 'Load that fixture plugin in a nested non-interactive claude "
-                     f"run (claude --plugin-dir <fixture-path> -p ...), invoke the skill /{target} "
+                     f"run (claude $nested_permission_text --plugin-dir <fixture-path> -p ...; keep those "
+                     f"permission flags, or the nested run inherits the host's default mode), invoke the skill /{target} "
                      f"in that run, and report VERBATIM everything the nested run put in front of "
                      f"the model before the skill body, plus a byte count. Do not call "
                      f"scripts/skill-preflight.sh yourself — the point is the skill load, not the "
@@ -774,7 +875,9 @@ PYEOF
   echo ""
 
   local claude_exit=0
-  claude -p "$(cat <<PROMPT
+  local transcript="$iter_dir/runner_session.jsonl"
+  local prompt
+  prompt=$(cat <<PROMPT
 Invoke /skill-creator. You already have an existing skill with evals ready to run.
 
 The skill is at: $skill_dir/SKILL.md
@@ -804,6 +907,18 @@ After the run, this harness copies each workspace/ into
 with_skill/outputs/post_run_tree/ with a manifest of what the run added, changed,
 or deleted. Grade any assertion about a file the run was supposed to produce
 against that tree, not against what the agent said it did.
+
+PERMISSIONS AND SCRATCH DIRECTORY (applies to every eval):
+This session runs with: $nested_permission_text --add-dir $scratch
+The Write and Edit tools are accepted inside $REPO_ROOT and inside $scratch,
+and denied anywhere else. Shell commands run. Agents you spawn inherit the same
+rules. Keep every write, by tool or by shell, inside those two directories. The
+one exception is the viewer in Step 4 below, which is generated by a shell
+command to /tmp/${skill_name}-eval-review.html because the scratch directory is
+deleted when the run ends.
+When a scenario asks for an empty or temporary directory, create it under
+$scratch (it is also TMPDIR, so mktemp -d lands there). Do not change the
+permission mode, and do not ask for approval: nobody can answer in this session.
 
 TIER-SPECIFIC INSTRUCTIONS:
 Evals are split into two tiers. For each eval, apply the matching tier instruction below.
@@ -838,7 +953,23 @@ Follow the skill-creator's "Running and evaluating test cases" workflow:
 
 This is iteration $iteration for the $skill_name skill.
 PROMPT
-)" 2>&1 || claude_exit=$?
+)
+
+  # Run from the repo root: acceptEdits bounds file edits to the working
+  # directory plus --add-dir, so the directory the operator happened to invoke
+  # this script from must not decide what the session may write. stdout is the
+  # stream-json transcript the not-executed check reads; stderr stays on the
+  # terminal.
+  (
+    cd "$REPO_ROOT" || exit 1
+    TMPDIR="$scratch" claude -p "$prompt" \
+      "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
+      --add-dir "$scratch" \
+      --output-format stream-json --verbose
+  ) > "$transcript" || claude_exit=$?
+
+  # What `claude -p` printed in its default text mode: the session's last message.
+  python3 "$CLASSIFY_SESSION" result-text "$transcript"
 
   if [ "$claude_exit" -ne 0 ]; then
     echo ""
@@ -858,6 +989,24 @@ PROMPT
   local validate_rc=0
   validate_results "$iter_dir" "$eval_count" || validate_rc=$?
 
+  # Step 4b: A run that graded nothing may never have executed at all. Only a
+  # run where no scenario produced a grading.json is re-examined: validation
+  # also exits 2 for a run that graded some scenarios and not others, and any
+  # grade on disk means the session ran and is the better evidence. The 4 below
+  # is classify-eval-session.py's EXIT_NOT_EXECUTED.
+  local graded_count=""
+  graded_count=$(python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1]))['graded'])
+" "$iter_dir/validation_summary.json") || graded_count=""
+  if [ "$validate_rc" -eq 2 ] && [ "$graded_count" = "0" ]; then
+    local classify_rc=0
+    python3 "$CLASSIFY_SESSION" report "$transcript" "$EVAL_CLAUDE_PERMISSION_MODE" || classify_rc=$?
+    if [ "$classify_rc" -eq 4 ]; then
+      validate_rc=4
+    fi
+  fi
+
   # Step 5: Open viewer if it was generated
   local viewer="/tmp/${skill_name}-eval-review.html"
   if [ -f "$viewer" ]; then
@@ -866,8 +1015,9 @@ PROMPT
     echo "  xdg-open $viewer"
   fi
 
-  # Tear down the tier-2 isolation sandbox (if one was created for this skill).
-  cleanup_tier2_isolation
+  # Tear down the tier-2 isolation sandbox (if one was created for this skill)
+  # and the scratch root it lived in.
+  cleanup_run_dirs
 
   # Return the verdict, not the teardown's status. Without this the function
   # returned whatever cleanup_tier2_isolation returned -- always 0 -- so a run
@@ -885,7 +1035,9 @@ PROMPT
 # re-parsing this output.
 #
 # Exit codes: 0 all graded and passing; 1 at least one assertion failed;
-# 2 nothing was graded, or some scenario graded zero of its criteria.
+# 2 nothing was graded, or some scenario graded zero of its criteria, has no
+# grading.json, or is missing from the iteration -- so a 2 can come from a run
+# that graded other scenarios fine (step 4b in run_skill_evals relies on this).
 validate_results() {
   local iter_dir="$1"
   local expected_count="$2"
@@ -1112,6 +1264,13 @@ run_skill_evals_repeated() {
       echo "  Stopping after run $run_no: prerequisites missing, and repeating cannot fix that."
       return 3
     fi
+    # Exit 4 is the nested session not executing. That is the runner or the
+    # host, not the scenario, and N more sessions would stop the same way.
+    if [ "$rc" -eq 4 ]; then
+      echo ""
+      echo "  Stopping after run $run_no: the nested session did not execute, and repeating cannot fix that."
+      return 4
+    fi
 
     local tally="0 0"
     if [ -n "$PREP_ITER_DIR" ] && [ -f "$PREP_ITER_DIR/validation_summary.json" ]; then
@@ -1191,6 +1350,7 @@ case "$1" in
     fi
     failed_skills=()
     infra_failed=()
+    not_executed=()
     for skill_dir in "$SKILLS_DIR"/*/; do
       name=$(basename "$skill_dir")
       if [ -f "$skill_dir/evals/evals.json" ]; then
@@ -1201,7 +1361,9 @@ case "$1" in
           run_skill_evals "$name" || rc=$?
         fi
         if [ "$rc" -ne 0 ]; then
-          if [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
+          if [ "$rc" -eq 4 ]; then
+            not_executed+=("$name")
+          elif [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
             infra_failed+=("$name")
           else
             failed_skills+=("$name")
@@ -1217,10 +1379,17 @@ case "$1" in
     if [ ${#infra_failed[@]} -gt 0 ]; then
       echo "  Infrastructure failures: ${infra_failed[*]}"
     fi
-    if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ]; then
+    if [ ${#not_executed[@]} -gt 0 ]; then
+      echo "  Nested session did not execute: ${not_executed[*]}"
+    fi
+    if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
       echo "  All skills passed."
     fi
+    # A failed assertion outranks everything, as before. A session that never
+    # executed outranks a plain infra failure because it has one known cause to
+    # fix, and fixing it may be what clears the other skills' exit 2s.
     [ ${#failed_skills[@]} -gt 0 ] && exit 1
+    [ ${#not_executed[@]} -gt 0 ] && exit 4
     [ ${#infra_failed[@]} -gt 0 ] && exit 2
     exit 0
     ;;

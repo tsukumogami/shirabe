@@ -1,11 +1,12 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# The heaviest declaration in the corpus, and every record is `always`. There
-# is no mode declaration here because /work-on has no named execution mode that
-# gates a call: issue-backed, free-form, and plan-backed all run the same koto
-# loop over the same template, differing only in the entry evidence they submit
-# to `koto next`. A reader looking for a mode: record should stop looking.
+# The heaviest declaration in the corpus, and every record but one is `always`.
+# Issue-backed, free-form, and plan-backed all run the same koto loop over the
+# same template, differing only in the entry evidence they submit to
+# `koto next`, so none of them is a mode. The one mode record is
+# `mode:koto-leg`: the koto init entry flags a run needs only under
+# --koto-leg, explained with the koto floor below.
 #
 # `koto context remove` and `koto context exists` are declared for
 # scripts/record-changed-paths.sh, which koto runs as a default_action: it tests
@@ -72,10 +73,13 @@
 # in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 #
-# The koto floor stays where it was. /scope and /execute declare the koto init
-# entry flags (--vars-file, --attach-live, --replace-terminal, --koto-leg) as
-# their floor; /work-on does not, because it calls none of them and nothing it
-# routes on changed. work-on.md's transition context_assignments execute from
+# The koto floor stays where it was for a run without --koto-leg. /scope,
+# /execute and /deliver declare the koto init entry flags (--vars-file,
+# --attach-live, --replace-terminal, --koto-leg) as their floor; /work-on's
+# always records do not, because such a run calls none of them and nothing it
+# routes on changed.
+#
+# work-on.md's transition context_assignments execute from
 # koto 0.13.0 on, writing `failure_reason` (and the other
 # assigned keys) into the session's context on a blocked or escalating edge,
 # where koto's batch view shows it for a failed child. An older koto drops
@@ -83,7 +87,26 @@
 # reaches the same terminals, and only the recorded reason is missing. A
 # missing reason is not worth refusing a run over, so /work-on keeps the
 # v0.12.2 floor the README states and check-koto-floor.yml checks.
+#
+# The one exception is `--koto-leg=<request-id>:work-on`. Under it,
+# scripts/work-on-open.sh opens the session through the shared
+# scripts/koto-open.sh with `koto init --vars-file --attach-live --koto-leg`,
+# flags that exist only from koto 0.13.0, the floor /scope, /execute and
+# /deliver declare. That record is `mode:koto-leg`, so a run without the flag
+# keeps the older floor: it is not checked at load, and SKILL.md's Answering a
+# Caller's Leg section runs `skill-preflight.sh work-on --mode koto-leg` before
+# the open. The parity scan cannot see these flags in this skill's own files,
+# because the call site is the shared script.
+#
+# When this floor moves to 0.13.0, two things follow, and both should go
+# together. work-on.md's terminals get result maps, so a work-on leg carries a
+# payload `outcome` like /scope's, /execute's and /deliver's, and coordinators
+# drop their final_state special case. And every /work-on open, with the flag
+# or without, goes through work-on-open.sh and koto-open.sh, as the other three
+# skills' entries do, retiring the plain `koto init --var` path in SKILL.md; the
+# mode:koto-leg record then becomes the one `always` init record.
 koto	init	--template,--var	always
+koto	init	--template,--vars-file,--attach-live,--koto-leg	mode:koto-leg
 koto	next	--with-data,--no-cleanup	always
 koto	workflows	-	always
 koto	session list	-	always

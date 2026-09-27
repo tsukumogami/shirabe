@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Stub claude for scripts/run-evals_test.sh. Never calls a model.
+#
+# Records what the runner handed it into $STUB_CLAUDE_LOG_DIR:
+#   args    every argument except the -p prompt, one per line
+#   prompt  the -p prompt
+#   cwd     the directory it was started in
+#   tmpdir  the TMPDIR it was started with
+#
+# Then behaves as $STUB_CLAUDE_MODE says:
+#   plan     prints the plan-mode fixture transcript and writes nothing
+#   denied   prints the all-denied fixture transcript and writes nothing
+#   failed   prints the all-failed fixture transcript and writes nothing
+#   grade    writes outputs and a passing grading.json for every scenario in the
+#            workspace named in the prompt, then prints the executed transcript
+#   nograde  writes outputs but no grading.json, then prints the executed
+#            transcript (the session ran; the suite graded nothing)
+#   partial  grades only the first scenario, then prints the plan-mode
+#            transcript (some grades exist, so the session ran whatever the
+#            transcript says)
+#
+# The workspace is read from the prompt line "The eval workspace is prepared
+# at: <dir>" that run-evals.sh writes; if that line changes, the grade and
+# partial modes find no workspace and their tests fail.
+
+set -u
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+log="${STUB_CLAUDE_LOG_DIR:?STUB_CLAUDE_LOG_DIR must be set}"
+mkdir -p "$log"
+: > "$log/args"
+prompt=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-p" ] && [ $# -ge 2 ]; then
+    prompt="$2"
+    shift 2
+    continue
+  fi
+  printf '%s\n' "$1" >> "$log/args"
+  shift
+done
+printf '%s' "$prompt" > "$log/prompt"
+pwd > "$log/cwd"
+printf '%s\n' "${TMPDIR:-}" > "$log/tmpdir"
+
+workspace=$(printf '%s\n' "$prompt" | sed -n 's/^The eval workspace is prepared at: //p' | head -n 1)
+
+write_outputs() {
+  local with_grading="$1" dir
+  for dir in "$workspace"/*/; do
+    [ -f "$dir/eval_metadata.json" ] || continue
+    echo "with skill" > "$dir/with_skill/outputs/response.md"
+    echo "without skill" > "$dir/without_skill/outputs/response.md"
+    if [ "$with_grading" = yes ] || [ "$with_grading" = first ]; then
+      echo '{"expectations": [{"text": "stub criterion", "passed": true, "evidence": "stub"}]}' \
+        > "$dir/with_skill/grading.json"
+      [ "$with_grading" = first ] && with_grading=no
+    fi
+  done
+}
+
+case "${STUB_CLAUDE_MODE:-plan}" in
+  plan)    cat "$here/plan-mode.jsonl" ;;
+  denied)  cat "$here/all-denied.jsonl" ;;
+  failed)  cat "$here/all-failed.jsonl" ;;
+  grade)   write_outputs yes; cat "$here/executed.jsonl" ;;
+  nograde) write_outputs no; cat "$here/executed.jsonl" ;;
+  partial) write_outputs first; cat "$here/plan-mode.jsonl" ;;
+  *)       echo "stub claude: unknown STUB_CLAUDE_MODE" >&2; exit 64 ;;
+esac
