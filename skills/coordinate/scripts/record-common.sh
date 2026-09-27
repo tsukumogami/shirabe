@@ -383,7 +383,8 @@ lib_roadmap_features() {
 
 # lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
 # into LINK_REPO and LINK_NUM. Returns 1 when the cell isn't that shape or the
-# two numbers differ.
+# two numbers differ. The one bash parser of the cell; record-codec.jq's
+# pr_link is the jq one, with the same grammar.
 lib_pr_link() {
     local re='^\[#([0-9]+)\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)\)$'
     LINK_REPO= LINK_NUM=

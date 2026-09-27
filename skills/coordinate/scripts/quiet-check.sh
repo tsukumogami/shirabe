@@ -112,7 +112,7 @@ while [ "$i" -lt "$N" ]; do
     ROW=$(jq -c --argjson i "$i" '.[$i]' "$T/holdings.json")
     i=$((i + 1))
     W=$(printf '%s' "$ROW" | jq -r .worker)
-    [[ $W =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue
+    [[ $W =~ $RE_TOPIC ]] || continue
     LAST=$START_S
     for S in "$(latest_evidence wait unit "$W")" "$(latest_evidence dispatch topic "$W")"; do
         [ -n "$S" ] && [ "$S" -gt "$LAST" ] && LAST=$S

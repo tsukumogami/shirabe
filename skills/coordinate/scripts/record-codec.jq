@@ -36,6 +36,18 @@ def re_date: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def re_repo: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$";
 def re_name: "^[A-Za-z0-9._-]+$";
 def re_pr_url: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$";
+# A dispatch topic, the Worker cell's shape: record-common.sh's RE_TOPIC, the
+# grammar every bash script holds a topic to.
+def re_topic: "^[A-Za-z0-9][A-Za-z0-9._-]*$";
+
+# pr_link_parts: a Pull request cell `[#a](https://github.com/o/r/pull/b)` as
+# {a, r, b}, or nothing for any other value. The one jq parser of the cell
+# (record-common.sh lib_pr_link is the bash one); scripts outside the codec
+# reach it with `jq -L <scripts dir> 'include "record-codec"; ...'`.
+def pr_link_parts:
+  strings | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$");
+# pr_link: the cell as {repo, number} when its two numbers agree, else nothing.
+def pr_link: pr_link_parts | select(.a == .b) | {repo: .r, number: .a};
 
 # Columns a person may leave empty; every other column must hold a value.
 def optional_cols: ["mode", "branch", "verified_head", "pull_request", "disposition"];
@@ -66,7 +78,7 @@ def check_worker:
   elif test("^session_"; "i") then refuse("worker: the shape of a session id")
   elif test("\\+") then refuse("worker: the shape of an instance name")
   elif test("^[0-9]+$") then refuse("worker: the shape of a job id")
-  elif (test("^[A-Za-z0-9][A-Za-z0-9._-]*$") | not) then refuse("worker: not a dispatch topic")
+  elif (test(re_topic) | not) then refuse("worker: not a dispatch topic")
   else . end;
 
 # names_repo($r): does this cell name repository $r (case-insensitive), as a
@@ -90,12 +102,13 @@ def check_cell($key; $private):
     elif $key == "verified_head" then (if test("^[0-9a-f]{40}$") then . else refuse("verified_head: not a full sha") end)
     elif $key == "dispatched" then (if test(re_date) then . else refuse("dispatched: not YYYY-MM-DD") end)
     elif ($key == "raised" or $key == "attempted" or $key == "date") then (if test(re_time_min) then . else refuse("\($key): not YYYY-MM-DDTHH:MMZ") end)
-    elif $key == "pull_request" then (if test("^\\[#[0-9]+\\]\\(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+\\)$") then . else refuse("pull_request: not [#n](https://github.com/owner/repo/pull/n), or empty for none yet") end)
+    elif $key == "pull_request" then (if ([pr_link_parts] | length) > 0 then . else refuse("pull_request: not [#n](https://github.com/owner/repo/pull/n), or empty for none yet") end)
     elif $key == "disposition" then (if test("^(filed #[0-9]+|closed: [\\s\\S]+|carried [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z: [\\s\\S]+)$") then . else refuse("disposition: not filed #<n>, closed: <reason> or carried <YYYY-MM-DDTHH:MMZ>: <reason>") end)
     else . end
-  | if ($v != "") and (($key == "repo") or ($key == "pull_request") or ($key == "target"))
-      and ([$private[] as $p | select($v | names_repo($p))] | length) > 0
-    then refuse("\($key): names a repository that isn't public") else . end;
+  | if ($v != "") and (($key == "repo") or ($key == "pull_request") or ($key == "target")) then
+      ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
+      | if $hit != null then refuse("\($key): names \($hit), a repository that isn't public") else . end
+    else . end;
 
 def check_row($sec; $private):
   . as $row

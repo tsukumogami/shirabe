@@ -23,14 +23,13 @@
 # Requires: bash 3.2+, jq, gh, and coord-log.sh and record-common.sh beside
 # the caller.
 
-. "$HERE/record-common.sh"
+. "$HERE/record-common.sh" || { echo "${PROG:-board-lib}: cannot source record-common.sh" >&2; exit 2; }
 
 BL_RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 BL_RE_PR='^[1-9][0-9]*$'
 BL_RE_SHA='^[0-9a-f]{40}$'
 BL_RE_BRANCH='^[A-Za-z0-9._/-]+$'
 BL_RE_SESSION='^[A-Za-z0-9._-]+$'
-BL_RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 KOTO=${KOTO_BIN:-koto}
 
 bl_repo_ok() {
@@ -46,7 +45,7 @@ bl_branch_ok() {
     return 0
 }
 bl_session_ok() { [[ $1 =~ $BL_RE_SESSION ]]; }
-bl_topic_ok() { [[ $1 =~ $BL_RE_TOPIC ]]; }
+bl_topic_ok() { [[ $1 =~ $RE_TOPIC ]]; }
 
 BL_DEADLINE=24
 case "${BOARD_DEADLINE_SECS-}" in
@@ -136,9 +135,8 @@ bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    repos=$(printf '%s' "$rows" | jq -r --arg n "$2" '
-        [.[]? | .pull_request // "" | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$")?
-         | select(.a == $n and .b == $n) | .r] | unique | .[]') || {
+    repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "record-codec";
+        [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     n=$(printf '%s' "$repos" | grep -c . )
     if [ "$n" -ne 1 ]; then

@@ -62,10 +62,9 @@ case "$MODE" in
     list) [ -z "$TOPIC" ] || usage ;;
     *) usage ;;
 esac
-# The topic is a Worker cell: the codec's dispatch-topic shape.
-RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
-if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 . "$HERE/record-common.sh"
+# The topic is a Worker cell: the dispatch-topic shape.
+if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
     [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }

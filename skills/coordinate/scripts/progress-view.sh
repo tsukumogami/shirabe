@@ -37,6 +37,7 @@
 set -uo pipefail
 
 PROG=progress-view
+HERE=$(cd "$(dirname "$0")" && pwd)
 usage() { sed -n '/^# Flags/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 IN=/dev/stdin ORDER='' BLOCKED='{}' NEXT='{}'
 pair() { # pair <json-object> <KEY=TEXT>: the object with KEY set to TEXT
@@ -56,18 +57,17 @@ done
 
 T=$(mktemp "${TMPDIR:-/tmp}/progress-view.XXXXXX")
 trap 'rm -f "$T"' EXIT
-OUT=$(jq -r --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" '
+OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" '
+    include "record-codec";
     def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
     def hashy: [scan("(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")]
         | any(.[]; test("[0-9]") and test("[a-f]"));
     def link($w):
         if . == "" or . == null then "none yet"
-        elif (test("^\\[#[0-9]+\\]\\(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+\\)$")
-              and (capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/[^/]+/[^/]+/pull/(?<b>[0-9]+)\\)$") | .a == .b))
-        then .
+        elif ([pr_link] | length) > 0 then .
         else error("\($w): the pull request cell is not a link to one pull request")
         end;
-    def code($w): if ($w | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) then "`\($w)`"
+    def code($w): if ($w | test(re_topic)) then "`\($w)`"
         else error("\($w): not a session name") end;
     def row($kind; $unit; $session; $pr; $status; $next):
         [$kind, $unit, $status, $next] as $plain
