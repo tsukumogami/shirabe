@@ -453,8 +453,8 @@ fi
 # --- a blocked edge's context_assignments execute --------------------------------
 #
 # The blocked edge out of context_injection writes `failure_reason` into the
-# session's context with the submitted evidence interpolated, and koto's batch
-# view reads that key for a failed child. Compiling proves only that the blocks
+# session's context with the submitted evidence interpolated, where `koto
+# context get` reads it for a failed run. Compiling proves only that the blocks
 # are well-formed; this drives one edge and reads the key back, so it proves
 # they run. The kept failure terminal is what makes the key readable afterwards.
 koto init assign_probe --template "$TEMPLATE" \
