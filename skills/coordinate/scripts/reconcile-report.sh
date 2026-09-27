@@ -40,7 +40,9 @@
 #                  row carries no facts
 #     facts[]      {kind, status: ok|not_verified, read_at, reason, ...}:
 #       pr         state OPEN|MERGED|CLOSED, draft, head, merge_state
-#       board      at (sha), verdict holds|fails, detail (first failing job
+#       board      at (sha), verdict holds|pending|fails (a pending board
+#                  is neither: it isn't ready to land and it isn't the
+#                  worker's to fix), detail (first failing job
 #                  or missing run)
 #       branch     state present|gone, tip
 #       appeared   prs[] {number, url, state}
@@ -184,6 +186,7 @@ def board_of:
   [.facts // [] | .[] | select(.kind == "board" and .status == "ok")]
   | if length == 0 then null
     elif any(.[]; .verdict == "fails") then "fails" + (map(select(.verdict == "fails"))[0].detail // "" | if . == "" then "" else ": " + . end)
+    elif any(.[]; .verdict == "pending") then "pending"
     else "holds" end;
 
 # The next line is decided as a token, the one readers route on (the pick

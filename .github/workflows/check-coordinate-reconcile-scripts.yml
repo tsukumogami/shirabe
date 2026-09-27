@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
+      # reconcile-deps.sh sources /execute's validators.
+      - 'skills/execute/scripts/coord-common.sh'
       - '.github/workflows/check-coordinate-reconcile-scripts.yml'
 
 jobs:
@@ -24,3 +26,4 @@ jobs:
       - name: Run reconcile script tests
         run: |
           bash skills/coordinate/scripts/reconcile-report_test.sh
+          bash skills/coordinate/scripts/reconcile-check_test.sh
