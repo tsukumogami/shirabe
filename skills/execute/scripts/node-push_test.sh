@@ -34,8 +34,8 @@
 #                                                gh write
 #   order mode                                   renders the block into the
 #     coordination body with no push, no PR created, and the index untouched;
-#     a second render is the same; an unreadable PLAN exits 76 with no edit;
-#     usage errors exit 64
+#     a second render is the same; an unreadable PLAN, or one that isn't
+#     coordinated, exits 76 with no edit; usage errors exit 64
 #   coordination mode                            pushes the coordination branch
 #     and records the coordination PR's own line with head=, leaving the
 #     merge-order section as it was
@@ -352,6 +352,36 @@ if [ "$RC" -eq 76 ] && [ "$(ct_calls | grep -c '^pr edit 10')" -eq "$EDITS" ]; t
     pass "order mode on a PLAN plan-to-tasks.sh can't read exits 76 with no edit"
 else
     fail "order mode, unreadable PLAN: rc=$RC"
+fi
+# A PLAN that parses but isn't coordinated: its tasks carry no NODE_KIND, and
+# rendering them as PR nodes would put a wrong order on the record.
+cat > "$CT_WORK/multi-pr-plan.md" <<'PLAN'
+---
+schema: plan/v1
+status: Active
+execution_mode: multi-pr
+milestone: "t"
+issue_count: 2
+---
+
+# PLAN: t
+
+## Status
+
+Active
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat parser](https://example.com/1) | None | testable |
+| [#2: test parser](https://example.com/2) | [#1](https://example.com/1) | testable |
+PLAN
+order_run --plan "$CT_WORK/multi-pr-plan.md"
+if [ "$RC" -eq 76 ] && [ "$(ct_calls | grep -c '^pr edit 10')" -eq "$EDITS" ]; then
+    pass "order mode on a PLAN that isn't coordinated exits 76 with no edit"
+else
+    fail "order mode, multi-pr PLAN: rc=$RC"
 fi
 for args in "" "--plan $PLAN --node $CT_CORE" "--plan $PLAN --remote origin" "--plan $CT_WORK/no-such-plan.md"; do
     # shellcheck disable=SC2086

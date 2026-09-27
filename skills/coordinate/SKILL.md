@@ -404,7 +404,7 @@ design question the record's tooling will settle.
   those skills decide it by author login and branch name, and every worker
   a coordinator dispatches shares one login. The coordinator's own lookups
   go by pull request number and by dispatch topic.
-- **Where merge order is recorded (#396).** When a worker runs a
+- **Where merge order is recorded (#396, fixed).** When a worker runs a
   coordinated PLAN, the skill depends on that PLAN's merge order being
   recorded where a reader can find it after the PLAN is gone. `/execute`
   renders it into the merge-order block of that PLAN's coordination pull

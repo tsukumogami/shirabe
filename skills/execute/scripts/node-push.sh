@@ -104,8 +104,10 @@
 #   74  shirabe validate --coordination-body refused the new body; nothing
 #       was edited
 #   75  gh pr create or gh pr edit failed
-#   76  node or order mode: plan-to-tasks.sh could not read the PLAN, or (node
-#       mode) the PLAN has no node named --node; nothing was pushed or edited
+#   76  node or order mode: plan-to-tasks.sh could not read the PLAN, the
+#       PLAN is not coordinated (a node without NODE_KIND pr or gate), or
+#       (node mode) the PLAN has no node named --node; nothing was pushed or
+#       edited
 #
 # Requires: bash 3.2+, git, gh, jq, shirabe.
 set -uo pipefail
@@ -186,14 +188,18 @@ command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 ORDER_BLOCK=""
 if [ "$MODE" != coordination ]; then
     # jq given no input runs nothing and exits 0, so an empty result is
-    # checked as well as each command's status.
-    TASKS=$("$BASH" "$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh" "$PLAN" </dev/null) \
+    # checked as well as each command's status. Only a coordinated PLAN's
+    # nodes carry NODE_KIND (pr or gate); any other PLAN's tasks don't, and
+    # are refused rather than rendered as PR nodes.
+    TASKS=$("$BASH" "$COORD_PLAN_TO_TASKS" "$PLAN" </dev/null) \
     && ORDER_LINES=$(printf '%s' "$TASKS" | jq -r --arg re "$RE_COORD_NODE" '
-        if type == "array" and length > 0 and all(.[]; (.name | type) == "string" and (.name | test($re)))
-        then .[] | "\(.name) | \(.vars.NODE_KIND // "pr") | after: \(if (.waits_on | length) == 0 then "-" else (.waits_on | join(", ")) end)"
+        if type == "array" and length > 0
+            and all(.[]; (.name | type) == "string" and (.name | test($re))
+                         and (.vars.NODE_KIND == "pr" or .vars.NODE_KIND == "gate"))
+        then .[] | "\(.name) | \(.vars.NODE_KIND) | after: \(if (.waits_on | length) == 0 then "-" else (.waits_on | join(", ")) end)"
         else error("no usable node list") end' 2>/dev/null) \
     && [ -n "$ORDER_LINES" ] || {
-        echo "$PROG: plan-to-tasks.sh could not read [$PLAN] into a merge order; nothing was pushed or edited" >&2
+        echo "$PROG: plan-to-tasks.sh could not read [$PLAN] into a coordinated merge order; nothing was pushed or edited" >&2
         exit 76
     }
     if [ "$MODE" = node ] && ! printf '%s\n' "$ORDER_LINES" | grep -q "^$NODE |"; then

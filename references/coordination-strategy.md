@@ -21,7 +21,8 @@ The companion references fill in the details this document points at:
   the `owner/repo:path` reference syntax and the visibility-direction rules the
   coordination index must respect.
 - [`${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`](dependency-diagram.md) —
-  the dependency-graph rendering conventions the merge-order block follows.
+  the diagram conventions the PLAN's dependency graph follows; the merge-order
+  block's own line format is under **Coordination PR Body Template** below.
 
 ## The Coordinated Mode
 
