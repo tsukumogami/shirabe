@@ -479,6 +479,11 @@ Packaging:
 - **The check is a read the workflow runs, not a value it is told.** A check over a sha or
   record number the coordinator submits proves a value was supplied, not that anyone
   verified it. Each check reads GitHub itself.
+- **One progress table, rendered by a script.** Added during implementation at the
+  repository owner's request: the human's status view is one table (ready to merge, in merge
+  order; blocked on the human; ongoing; waiting to be assigned) with pull requests as links,
+  sessions as inline code and no commit hashes, rendered and checked by `progress-view.sh`.
+  The waiting queue is derived from the roadmap each time rather than stored in the record.
 - **Every GitHub write stays the coordinator's.** Opening, rewriting and closing the record,
   and every merge, are externally visible writes, which shirabe keeps out of steps the
   workflow runs unprompted; the read that follows is what the check trusts.

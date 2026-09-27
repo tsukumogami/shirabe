@@ -364,7 +364,7 @@ The record is the visible tables, parsed and rendered by one codec, so what the 
 what a person reads. The loop is a hub that routes one event at a time into spokes, and the only
 way back from a record-changing spoke is through a state that confirms the change on GitHub.
 
-Three reconciliations were made across the decisions:
+These reconciliations were made across the decisions and in review:
 
 - Decisions 4 and 5 were written against context-key gates; both move to decision 1's sealed
   captures. The context keys they named stay as data for directives, reports and deciders.
@@ -385,6 +385,20 @@ Three reconciliations were made across the decisions:
   record row raised before the run started is undisposed, but it compares the predecessor's handoff
   only until the session log shows the check passed once in this run, because disposed rows drop
   out of the record at the first rewrite after the first dispatch.
+- The human reads one progress table, and a script renders it. The repository owner asked, during
+  implementation, for every table a coordinator puts on screen to show a pull request as a
+  clickable link and a session as inline code, with no commit hash, and for the status report to
+  be one table with four kinds of row in order: pull requests ready to merge in merge order,
+  sessions blocked on the human, ongoing sessions, and work waiting to be assigned. Guidance alone
+  would drift, so `progress-view.sh` renders the table from the pick facts (`coord/pick.json`),
+  checks the merge order and blockers the coordinator passes against those facts, and refuses a
+  cell that breaks the display rule. The queue of work waiting to be assigned is derived from the
+  roadmap every time, never stored in the record: it is state GitHub recomputes, and the record's
+  four sections stay the record's four sections.
+- Close and teardown are gated by posture in guidance, merge by a check. `posture_ask` asks for all
+  three, but only the merge has a check that reads the answer (`land-check.sh`, `land-merge.sh`);
+  the close-out and teardown steps follow the directive's "where the posture permits". Mechanising
+  the other two is left to the feature that adds a teardown inventory (shirabe#404).
 
 ## Solution Architecture
 
@@ -428,7 +442,10 @@ skills/coordinate/
     predecessor-handoff.sh         check: render a predecessor's handoff
     closeout-read.sh               check: the next close-out stage
     rotation-close.sh              agent-run: --step handoff|ready|delete-branch
-    <each>_test.sh, testdata/      stand-in gh and koto, fixtures, rule-coverage.tsv
+    progress-view.sh               the human's progress table from coord/pick.json
+    <each>_test.sh, testdata/      stand-in gh and koto, fixtures, rule-coverage.tsv;
+                                   coord-verdict-table_test.sh pins the verdict table to the
+                                   template's arms; skill-hygiene_test.sh scans shipped files
 ```
 
 ### Variables
@@ -477,6 +494,10 @@ same state twice (koto's "cycle detected").
   calling script lives in.
 - `live-session <scope-slug>`: the one live coordinate session for the scope, so a write script
   finds its session itself rather than trusting a `--session` pointed at an older run's log.
+- `vars`, `entered <state>`, `entry <state> [--before <seq>]` and `evidence <state> [--after
+  <seq>] [--before <seq>]`: the run's variables, whether the run ever entered a state, the latest
+  entry into a state with the state it came from, and a state's latest evidence in a window.
+  Scripts read the event stream only through these.
 
 ### States
 
@@ -601,8 +622,32 @@ dispatch_status, return_path, worker, repo, branch, verified_head, dispatched, p
 row, in record order, as a JSON array (empty when there are none). Exit codes: 0
 written or printed, 1 no row for the topic (`--read` only), 10 refused because the target isn't an
 open record, the session fails `coord-log.sh provenance`, or the run log shows a directed
-transition, 11 the write failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer
-(the reason on stderr).
+transition, 12 the record changed between the read and the write, 11 the write failed, 2 a read
+failed, 64 usage, 65 the row was refused by the renderer (the reason on stderr).
+
+Every record write is a compare-and-swap on the `Written:` line. The body handed to
+`record-write.sh` carries the `Written:` time of the version it was edited from, and the write
+refuses with exit 12 (`record-changed`) when the live record carries another, so an edit by another
+coordinator or a person between the read and the write is never silently lost. `record-holding.sh`
+passes its own read's time through.
+
+The seam names below are the contract the dispatch path (shirabe#404) and reconcile (shirabe#406)
+build on. This feature's scripts already read them, so a different name there would leave a branch
+that never fires with no test failing:
+
+| Name | Kind | Written by | Read by |
+|---|---|---|---|
+| `leg_pick`, `wait_leg`, `take_report` | states | shirabe#404 | `report-facts.sh` (the leg path: entry into `take_report` from `wait_leg`) |
+| `WAIT_REQ`, `WAIT_LEG` | captures | shirabe#404's `wait_leg` | `report-facts.sh`, `record-confirm.sh` (the unit whose Return path is `leg <req>:<leg>`) |
+| `teardown_inventory`, `destroy` | states | shirabe#404 | `record-confirm.sh` (source `destroy`) |
+| `TEARDOWN_SEAL`, key `teardown_verdict` | capture, context key | shirabe#404's `teardown_inventory` | `record-confirm.sh` (the topic, through `coord-log.sh check --key`) |
+| `destroyed`, `handed_over` | `destroy` evidence values | shirabe#404 | `record-confirm.sh` |
+| `dispatch_topic` | context key | `pick`'s edges | shirabe#404's `dispatch-worker.sh` |
+| `worker_report` | context key | shirabe#404 | `classify_report`'s decider |
+| `reconcile_pass`, `reconciled` (140) | state, verdict | shirabe#406 | `coord-verdict.sh` |
+
+`board-verdict.sh --sha --base` and `deferral-check.sh`'s row mode (`--row-file --run-start`) are
+called by shirabe#406's `reconcile-check.sh`.
 
 ### Record format
 
