@@ -62,5 +62,7 @@ case "$WORD" in
     # roadmap_close
     ready) exit 130 ;; features-open) exit 131 ;; holdings) exit 132 ;;
     side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;;
+    # reconcile (reserved for the reconcile feature's sealed pass)
+    reconciled) exit 140 ;;
     *) exit 3 ;;
 esac
