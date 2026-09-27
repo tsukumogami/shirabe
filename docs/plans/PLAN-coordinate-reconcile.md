@@ -168,13 +168,19 @@ emits the record as facts input with the refusal cases of R3.
 **Acceptance Criteria**:
 - [ ] At roadmap scope the exact-title issue is read and a longer title
   containing it is ignored; at discipline scope the record branch's pull
-  request body is read.
+  request body is read; a record whose author or last editor lacks write
+  access to the host repository is a refusal (the reader's rule, inherited).
+- [ ] A holding the reader's facts refuse (pull request outside the scope's
+  repositories, or head branch differing from the row's branch) reaches the
+  report as a refused row and triggers no re-check call.
 - [ ] No record, two candidates, a candidate without the declaration line,
   an unreadable body and a timed-out read each exit with a distinct code
   naming the case.
 - [ ] A row the reader returns as unparseable reaches the facts with its raw
   text for a fence and the reader's reason.
-- [ ] A handoff's tables are labelled with its heading date; its reasoning
+- [ ] The handoff is read through the record feature's `predecessor_handoff`
+  read, never by fetching the file directly; its tables are labelled with its
+  heading date; its reasoning
   section is emitted verbatim for `reconcile/reasoning.md`; a missing, empty
   or "not recorded" section yields "no reasoning received" and no reasoning
   output; a missing handoff file yields a first rotation.
@@ -249,9 +255,11 @@ verdict gate as its non-overridable gate, and `pick_facts` as its target.
   directive doesn't reference `RECONCILE_SEAL`.
 - [ ] The pass reports whether the plugin root lies inside the repository
   being worked on.
-- [ ] `reconcile-report-get.sh` refuses a report whose hash doesn't match the
-  seal; with a log holding a `directed_transition` out of `reconcile` it
-  names it, and with only ordinary transitions it names none.
+- [ ] `reconcile-report-get.sh` takes no sealed token as an argument and
+  reads the capture from the session log through `coord-log.sh`; it refuses
+  a report whose hash doesn't match; with a log holding a
+  `directed_transition` anywhere in the run it names it, and with only
+  ordinary transitions it names none.
 - [ ] The template passes every template check CI runs, and the mermaid
   companion is regenerated.
 

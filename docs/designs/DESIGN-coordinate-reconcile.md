@@ -475,10 +475,13 @@ gate routes only on 0.
 The record feature's `pick_facts` state, which runs before `pick`, reads the
 report through
 `reconcile-report-get.sh`, which this feature ships because it knows the
-report's schema. It runs the shared seal check against `RECONCILE_SEAL` (a
-capture later states can read) with `coord-log.sh check`, refuses the report
-when it fails, and names an entry past reconcile by `directed_transition`
-with `coord-log.sh directed-since`.
+report's schema. Like every agent-run script in the template, it takes no
+sealed token as an argument: it reads the reconcile state's capture from the
+session log itself through `coord-log.sh`, checks the report against it with
+`coord-log.sh check`, refuses the report when it fails, and names any
+`directed_transition` in the run with `coord-log.sh directed-since`. A
+directed transition anywhere in the run also blocks the record feature's
+write scripts until a restart; the report names it either way.
 When pick is reached by `--to` before any pass delivered the capture, koto
 itself refuses to run a command that references it, so the workflow stops
 on koto's unset-capture refusal instead; either way it stops. This is
@@ -501,9 +504,11 @@ detection for the `--to` case in Consequences, not prevention.
 
 ### Rotation handoff
 
-At discipline scope `reconcile-read.sh` also reads
-`docs/disciplines/<name>.md` from the host repository's default branch
-through the contents API. Its tables join the work queue labelled with the
+At discipline scope `reconcile-read.sh` also reads the predecessor's
+handoff, `docs/disciplines/<name>.md` on the host repository's default
+branch, through the record feature's `predecessor_handoff` read (the
+read-only half of its rotation close-out; the agent-run close ladder,
+`predecessor_close`, is not reconcile's). Its tables join the work queue labelled with the
 handoff's heading date. Its reasoning section is copied verbatim into
 `reconcile/reasoning.md`; when the section is missing, empty or says the
 reasoning wasn't recorded, the report's `reasoning` field says so and no
@@ -511,6 +516,14 @@ key is written. No gate names `reconcile/reasoning.md`. A missing handoff
 file is reported as a first rotation.
 
 ### The contract with the record feature
+
+Two properties of the record feature's reader carry into reconcile
+unchanged. The record is adopted only when its author and last editor have
+write access to the host repository, so a record anyone else wrote is a
+refusal, not a report. And a holding whose pull request lies outside the
+scope's repositories, or whose head branch differs from the row's branch,
+is refused by the reader's facts; reconcile reports such a row as refused
+and doesn't re-check it.
 
 Inbound, reconcile uses four things the record feature ships, named only
 in `reconcile-deps.sh`: the record reader (with per-row unparseable results
