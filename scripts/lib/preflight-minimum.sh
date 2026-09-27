@@ -32,10 +32,13 @@
 #   below it                         the below-minimum block
 #   `koto version` ran and printed   the version-unreadable block: whether koto
 #     no MAJOR.MINOR.PATCH, or       meets the minimum was not established. A
-#     nothing at all                 koto built without a release tag prints
-#                                    `dev+<hash>` and lands here.
-#   `koto version` timed out or      nothing: the surface probe of the same
-#     overflowed the cap             binary's `--help` reports it inconclusive
+#     nothing at all                 released koto built without a release tag
+#                                    prints `dev+<hash>` and lands here.
+#   `koto version` timed out or      the same block, naming which bound it hit.
+#     overflowed the cap             It also claims the probe's "inconclusive
+#                                    koto" slot, so the surface probe of the
+#                                    same binary's `--help` doesn't print a
+#                                    second block about it.
 #   the probe is unbounded (no       nothing, as for every probe
 #     sleep or head)
 #   no readable minimum              nothing: a reader can't act on it, and CI
@@ -142,6 +145,13 @@ preflight_check_minimum() {
     preflight_probe_version "$path"
     case "$PREFLIGHT_PROBE_OUTCOME" in
         ok|empty) ;;
+        timeout|overcap)
+            if declare -f preflight_probe_once >/dev/null 2>&1; then
+                preflight_probe_once "inconclusive $tool" || return 0
+            fi
+            preflight_emit_version_unreadable "$skill" "$tool" "$PREFLIGHT_MINIMUM_FLOOR" "$PREFLIGHT_PROBE_OUTCOME"
+            return 0
+            ;;
         *) return 0 ;;
     esac
 
@@ -173,11 +183,16 @@ preflight_emit_below_minimum() {
 fi
 if ! declare -f preflight_emit_version_unreadable >/dev/null 2>&1; then
 preflight_emit_version_unreadable() {
-    local skill="$1" tool="$2" floor="$3"
+    local skill="$1" tool="$2" floor="$3" reason="${4-unreadable}" what
+    case "$reason" in
+        timeout) what="did not finish within the budget this check gives it" ;;
+        overcap) what="wrote more than this check reads" ;;
+        *)       what="printed no version this check can read" ;;
+    esac
     preflight_probe_separator
     preflight_probe_wrap "shirabe /$skill: prerequisite could not be checked."
     printf '\n'
-    preflight_probe_wrap "\`$tool version\` printed no version this check can read, so whether $tool meets shirabe's minimum, $floor, was not established."
+    preflight_probe_wrap "\`$tool version\` $what, so whether $tool meets shirabe's minimum, $floor, was not established."
     return 0
 }
 fi

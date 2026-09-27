@@ -15,8 +15,9 @@ decision: |
   version. Surface probing stays the rule for every other tool and for koto's
   own surface, and requires.tsv still carries no version.
 rationale: |
-  shirabe's skills pass --no-cleanup on every tick, including on children
-  /execute materializes, and that is correct only from koto 0.14.0 on. On an
+  With #457 merged, shirabe's skills pass --no-cleanup on every tick,
+  including on children /execute materializes, and that is correct only from
+  koto 0.14.0 on. On an
   older koto the same flag withholds a child's result from its parent, whose
   gate reports the batch complete with the result missing: every call succeeds
   and the run's outcome is wrong. That is semantic drift behind a stable
@@ -25,9 +26,11 @@ rationale: |
   The first two no longer hold, because the minimum is now one value in the
   tree and a consistency test fails when a restatement drifts. The third, the
   -dev comparator, is bounded by how koto stamps its builds, and the builds the
-  check can't judge are named below. The fourth, prediction versus description,
-  doesn't reach this floor: it describes the release CI installs and runs every
-  koto-backed suite on, written in the change that adopts the behaviour.
+  check can't judge are named below. The fourth, PR #278's choice of removing
+  a dependency and testing in CI over a runtime floor, isn't open here: shirabe
+  can't remove its dependency on koto, and CI doesn't reach a user's machine.
+  Nor is this floor a prediction: it describes the release CI installs and runs
+  every koto-backed suite on, written in the change that adopts the behaviour.
 ---
 
 # DECISION: the preflight checks koto's minimum
@@ -57,8 +60,20 @@ Nothing at load catches that. The commands `/work-on` calls exist on 0.13.0
 with the same flags, so the surface probe passes. The minimum is stated in the
 README and enforced in CI, but a user's machine never runs CI.
 
-This record depends on #457: the minimum it reads is 0.14.0 only once #457 has
-merged, and the consistency test it cites arrives with #457.
+This record depends on #457. Four statements in it describe the tree #457
+produces and are true only once it has merged:
+
+1. shirabe's koto minimum is 0.14.0. On `main` before #457 it is 0.13.0.
+2. Every `koto next` in `/work-on` carries `--no-cleanup`, root or child. On
+   `main` before #457, `skills/work-on/scripts/session-role.sh` keeps the flag
+   off a child's ticks for exactly the reason given above, so the hazard is
+   prevented there. #457 is what makes shirabe depend on 0.14.0's behaviour.
+3. The minimum is the release CI installs exactly and runs every koto-backed
+   suite on. On `main` before #457, `/work-on`'s floor job runs koto v0.12.2.
+4. `scripts/koto-minimum-consistency_test.sh` guards the restatements of the
+   minimum. It arrives with #457.
+
+A ruling made before #457 merges is a ruling on that tree.
 
 ## Decision
 
@@ -103,10 +118,13 @@ runs `koto version` once and compares it with the minimum.
 What stays as it was: surface probing for every tool, koto included; no version
 for any other tool; no version in any declaration.
 
-A session begun on koto 0.13.0 keeps working after an upgrade to 0.14.0 (checked
-by ticking one on each), so upgrading when the block appears
-doesn't cost a run already in progress. Sessions from before 0.13.0 don't carry
-across, as the README's upgrade section says.
+A session begun on koto 0.13.0 keeps working after an upgrade to 0.14.0, so
+upgrading when the block appears doesn't cost a run already in progress. That
+was checked by hand on 2026-09-27, not by a test: a three-state template's
+session was created and ticked once with koto 0.13.0 (b4db451), then ticked to
+its terminal with koto 0.14.0 (62fec27) in the same home, and the second tick
+succeeded. Sessions from before 0.13.0 don't carry across, as the README's
+upgrade section says.
 
 ## The four reasons, answered
 
@@ -146,8 +164,17 @@ can pass a minimum set to that version before the release exists. That build
 is a developer's choice to run unreleased koto, and the check's job is the
 released path.
 
-**Prediction versus description (PR #278).** The earlier record's objection to
-floors was that a floor is a prediction: a guess about the future that goes
+**PR #278 declined a runtime floor.** What #278 declined was a runtime floor
+for `bash`, the one floor-natural tool at the time, in favour of removing the
+dependency and testing on a CI matrix; that fix worked, so a `bash` floor would
+now be wrong. Neither route is open here. The behaviour this guards is koto's,
+and shirabe can't remove its dependency on koto. The CI route is already in
+place (check-koto-entry-floor.yml runs every koto-backed suite on exactly the
+minimum), and it doesn't reach a user's machine, which is where the wrong
+result happens.
+
+The earlier record's broader objection to floors was that a floor is a
+prediction: a guess about the future that goes
 stale while the code around it stays correct, as the pattern list #278
 discredited did. This floor is a description. It names the release CI installs
 and runs every koto-backed suite on, it was written in the change that adopted
@@ -165,10 +192,16 @@ release and a floor already exists to name it.
 
 - **An untagged released koto build can't be judged.** It prints `dev+<hash>`,
   and the check reports the comparison as not established rather than passing
-  or failing it.
-- **A timed-out or over-cap `koto version` is silent here.** The surface probe
-  of the same binary's `--help` reports it inconclusive on its own, so a second
-  block would say the same thing twice.
+  or failing it. The ordinary install path doesn't land here:
+  check-koto-entry-floor.yml installs the floor release through tsuku and fails
+  unless `koto version` reads exactly that release, so a tsuku-installed
+  release prints a readable version.
+- **A timed-out or over-cap `koto version` is reported, not compared.** The
+  check prints the could-not-be-checked block naming the bound it hit, and
+  claims the probe's "inconclusive koto" slot so the surface probe of the same
+  binary's `--help` doesn't print a second block about it. `koto version` is the
+  first call a load makes to koto, so on a cold host it is the one most likely
+  to reach the budget.
 - **An unreadable minimum is silent.** A reader can't act on a reshaped FLOOR
   line, and CI fails when the line can't be read.
 - **A between-releases build under koto's newer stamping can pass early**, as

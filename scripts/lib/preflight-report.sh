@@ -899,7 +899,7 @@ preflight_report_version_ok() {
 # the skill runs. Like every block, it reports and does not stop the skill.
 preflight_emit_below_minimum() {
     local skill="$1" tool="$2" got="$3" floor="$4"
-    preflight_report_version_ok "$got" || got="an unreadable version"
+    preflight_report_version_ok "$got" || return 0
     preflight_report_version_ok "$floor" || return 0
 
     preflight_report_separator
@@ -913,20 +913,28 @@ preflight_emit_below_minimum() {
     return 0
 }
 
-# preflight_emit_version_unreadable <skill> <tool> <minimum>
+# preflight_emit_version_unreadable <skill> <tool> <minimum> [<reason>]
 #
-# `<tool> version` ran and printed no MAJOR.MINOR.PATCH -- a koto built without
-# a release tag prints `dev+<hash>`. The comparison was not made, and the block
-# says so rather than passing in silence, in the shape of the inconclusive
-# surface block.
+# `<tool> version` printed no MAJOR.MINOR.PATCH -- a released koto built
+# without a release tag prints `dev+<hash>` -- or did not finish within the
+# budget (`timeout`), or wrote past the cap (`overcap`). The comparison was not
+# made, and the block says so rather than passing in silence, in the shape of
+# the inconclusive surface block.
 preflight_emit_version_unreadable() {
-    local skill="$1" tool="$2" floor="$3"
+    local skill="$1" tool="$2" floor="$3" reason="${4-unreadable}" what
+    local budget="${PREFLIGHT_PROBE_BUDGET-2}" cap="${PREFLIGHT_PROBE_CAP-65536}"
     preflight_report_version_ok "$floor" || return 0
+
+    case "$reason" in
+        timeout) what="did not finish within the ${budget}-second budget this check gives it" ;;
+        overcap) what="wrote more than $cap bytes, which is more than this check reads" ;;
+        *)       what="printed no version this check can read. A $tool built without a release tag may print none" ;;
+    esac
 
     preflight_report_separator
     preflight_report_wrap "shirabe /$skill: prerequisite could not be checked."
     printf '\n'
-    preflight_report_wrap "\`$tool version\` printed no version this check can read, so whether $tool meets shirabe's minimum, $floor, was not established. A $tool built without a release tag prints no version."
+    preflight_report_wrap "\`$tool version\` $what, so whether $tool meets shirabe's minimum, $floor, was not established."
     printf '\n'
     preflight_report_wrap "/$skill declares $tool. On a $tool older than $floor a run can finish with a wrong result and no error; if this $tool may be older, upgrade it before running /$skill."
     return 0

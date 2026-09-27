@@ -23,7 +23,10 @@
 #   0.14.0-dev+abc1234 / 0.13.0-dev+abc1234    compared as 0.14.0 / 0.13.0
 #   dev+abc1234 (an untagged build)            the version-unreadable block
 #   `koto version` exits 2 with no output      the version-unreadable block
-#   `koto version` hangs past the budget       zero bytes, within the budget
+#   `koto version` hangs past the budget       the could-not-be-checked block, within
+#                                              the budget
+#   0.14.1-dev (koto main's untagged stamp)    compared as 0.14.1
+#   no reporter in the root                    the lib's fallback blocks
 #   a component longer than six digits         the version-unreadable block
 #   no readable minimum                        zero bytes
 #   koto absent                                the absent block only
@@ -205,7 +208,15 @@ if [ "$elapsed" -le 5 ]; then
 else
     fail "a hung koto version held the preflight for ${elapsed}s"
 fi
-silent "a hung koto version prints zero bytes (the surface probe reports the same binary)"
+case "$(flat)" in
+    *"prerequisite could not be checked."*"\`koto version\` did not finish within the 1-second budget"*"minimum, 0.14.0, was not established"*)
+        pass "a hung koto version gets the could-not-be-checked block naming the budget" ;;
+    *) fail "a hung koto version was not reported: $OUT" ;;
+esac
+
+stub "koto 0.14.1-dev (abc1234 2026-01-01T00:00:00Z)"
+run "$BIN" kskill
+silent "koto main's untagged stamp (0.14.1-dev) compares as 0.14.1, above 0.14.0"
 
 # No readable minimum.
 stub "koto 0.9.0 (0000000 2026-01-01T00:00:00Z)"
@@ -238,6 +249,23 @@ case "$(flat)" in
     *"koto 0.9.0 is installed"*) pass "a --mode run whose only koto record is that mode checks the minimum" ;;
     *) fail "a mode-only koto declaration was not checked: $OUT" ;;
 esac
+
+# Without the reporter, the lib's fallback blocks carry the same finding.
+mv "$ROOT/scripts/lib/preflight-report.sh" "$T/report.bak"
+stub "koto 0.9.0 (0000000 2026-01-01T00:00:00Z)"
+run "$BIN" kskill
+case "$(flat)" in
+    *"koto 0.9.0 is installed. shirabe's skills are tested on koto 0.14.0 and later"*) pass "without the reporter, the fallback below-minimum block renders" ;;
+    *) fail "the fallback below-minimum block did not render: $OUT" ;;
+esac
+stub "koto dev+abc1234 (abc1234 2026-01-01T00:00:00Z)"
+run "$BIN" kskill
+case "$(flat)" in
+    *"\`koto version\` printed no version this check can read"*) pass "without the reporter, the fallback version-unreadable block renders" ;;
+    *) fail "the fallback version-unreadable block did not render: $OUT" ;;
+esac
+mv "$T/report.bak" "$ROOT/scripts/lib/preflight-report.sh"
+stub "koto 0.9.0 (0000000 2026-01-01T00:00:00Z)"
 
 write_decl many 'koto\t-\t-\talways' 'koto\t-\t-\talways' 'koto\t-\t-\talways'
 run "$BIN" many
