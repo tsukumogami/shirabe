@@ -136,8 +136,11 @@ The declaration line is for readers. It is deliberately different from the
 written for coordination pull requests ever parses a record.
 
 **Updating.** Parse the live body, change the JSON, and render the whole body
-again with a new `Written:` time; apply it with the record's write script,
-never by editing the body on GitHub. Every pull request in the record is a
+again keeping the live body's `Written:` time (`record-render.sh --written
+<that time>`); apply it with the record's write script, never by editing the
+body on GitHub. The write script compares that time with the live record's,
+refuses with `record-changed` (exit 12) when someone wrote since, and stamps
+its own time on what it writes. Every pull request in the record is a
 link. Follow the host repository's conventions (its CLAUDE.md) for commit
 messages and bodies.
 
