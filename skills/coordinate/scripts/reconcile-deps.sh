@@ -19,11 +19,17 @@
 #
 #   deferral-check.sh --row-file <json> --run-start <ISO time>
 #     One line on stdout: "disposed filed <n>", "disposed closed",
-#     "disposed carried <time>", or "undisposed <why>". Exit 0 disposed (or
-#     raised this run), 1 undisposed, 64 usage. It checks the row's form
-#     only; whether a filed issue exists is read here, from GitHub.
+#     "disposed carried <time>", or "undisposed <why>", where a row raised at
+#     or after the run start prints "undisposed raised-this-run" and exits 0
+#     (it isn't the predecessor's to dispose of). Exit 0 disposed or raised
+#     this run, 1 undisposed, 64 usage. It checks the row's form only;
+#     whether a filed issue exists is read by reconcile, from GitHub.
 #
-# Requires: bash 3.2+, jq.
+# The checks are always the ones beside this file. There is no environment
+# override: the environment of a tick is the agent's, and a variable that
+# chose which board check runs would let it choose the verdict.
+#
+# Requires: bash 3.2+, jq, and pkill (procps on Linux, base system on macOS).
 
 RD_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -32,35 +38,50 @@ RD_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=/dev/null
 . "$RD_HERE/../../execute/scripts/coord-common.sh"
 
-# The record feature's checks. Overridable for tests only, by path.
-RD_BOARD_CHECK=${RECONCILE_BOARD_CHECK:-$RD_HERE/board-verdict.sh}
-RD_DEFERRAL_CHECK=${RECONCILE_DEFERRAL_CHECK:-$RD_HERE/deferral-check.sh}
+RD_BOARD_CHECK=$RD_HERE/board-verdict.sh
+RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh
 
-rd_valid_repo()   { coord_valid_repo "$1"; }
+rd_valid_repo()   { coord_valid_repo "$1" && [[ $1 != -* ]]; }
 rd_valid_branch() { coord_valid_branch "$1"; }
 rd_valid_sha()    { [[ $1 =~ $RE_COORD_SHA ]]; }
 rd_valid_topic()  { [[ $1 =~ $RE_COORD_SLUG ]]; }
 rd_valid_number() { [[ $1 =~ ^[1-9][0-9]{0,9}$ ]]; }
+rd_valid_secs()   { [[ $1 =~ ^[1-9][0-9]{0,3}$ ]]; }
 
 # rd_now -- the time a read finished, ISO 8601 UTC.
 rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # rd_deadline SECS CMD... -- run CMD with a deadline, in pure bash because
-# macOS has no timeout(1). Exit status is CMD's, or 124 when the deadline
-# killed it. CMD's stdout and stderr pass through.
+# macOS has no timeout(1). CMD's stdout goes to a file, not a pipe, so a
+# grandchild left running can't hold the caller's $(...) open past the
+# deadline; the file is printed once CMD has ended. At the deadline CMD and
+# its children get TERM, and KILL a second later. Exit status is CMD's, or
+# 124 when the deadline ended it. CMD's stderr passes through.
 rd_deadline() {
-    local secs=$1 pid watcher rc
+    local secs=$1 pid watcher rc out mark
     shift
-    "$@" &
+    rd_valid_secs "$secs" || secs=8
+    out=$(mktemp "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
+    mark="$out.late"
+    "$@" > "$out" &
     pid=$!
-    ( sleep "$secs" && kill -TERM "$pid" 2>/dev/null && touch "${RD_TIMED_OUT_MARK:-/dev/null}" ) >/dev/null 2>&1 &
+    (
+        sleep "$secs"
+        : > "$mark"
+        pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null
+        sleep 1
+        pkill -KILL -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null
+    ) >/dev/null 2>&1 &
     watcher=$!
     wait "$pid"
     rc=$?
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
-    # A command killed by the watchdog dies of SIGTERM: 128 + 15.
-    [ "$rc" -eq 143 ] && rc=124
+    # The watcher's own sleep may outlive it; it holds nothing of ours.
+    pkill -P "$watcher" 2>/dev/null
+    [ -e "$mark" ] && rc=124
+    cat "$out"
+    rm -f "$out" "$mark"
     return "$rc"
 }
 
@@ -71,13 +92,14 @@ rd_not_verified() {
 }
 
 # rd_urlencode_path PATH -- percent-encode each segment of a repository path
-# for the contents API. Refuses (returns 1) a path with an empty segment,
-# a "." or ".." segment, a leading "/", or any control character.
+# for the contents API. Refuses (returns 1) a path that is empty, starts with
+# "/", has an empty, "." or ".." segment, or holds any control character,
+# newline and tab included.
 rd_urlencode_path() {
     local p=$1
     case "$p" in ""|/*|*//*) return 1 ;; esac
-    if printf '%s' "$p" | LC_ALL=C grep -q '[[:cntrl:]]'; then return 1; fi
-    printf '%s' "$p" | jq -Rr 'split("/")
+    case "$p" in *[[:cntrl:]]*) return 1 ;; esac
+    printf '%s' "$p" | jq -Rsr 'split("/")
         | if any(. == "" or . == "." or . == "..") then error("bad") else . end
         | map(@uri) | join("/")' 2>/dev/null
 }

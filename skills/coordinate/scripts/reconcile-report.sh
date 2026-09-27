@@ -152,6 +152,10 @@ def phase_of:
       or ((.row.mode // "") | test("--intent(=| +)stop( |$)")) then "scoping ahead"
     else "executing" end;
 def outside_docs: fact("files") as $f | ok($f) and ((($f.paths // []) | map(select(startswith("docs/") | not)) | length) > 0);
+# A truncated list with no path outside docs/ settles nothing: the paths it
+# left out may include one. The holding is then not flagged, and the open
+# question is listed under not_verified.
+def docs_unsettled: fact("files") as $f | ok($f) and $f.truncated == true and (outside_docs | not);
 
 # Whether the holding has a pull request is a claim about the record and
 # the appeared read, not about whether the pr read succeeded. One test,
@@ -298,6 +302,8 @@ def changes_of($written):
       + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
           | select(ok($inv) and $inv.taken != true)
           | {what: ($t + ": inventory"), reason: ($inv.reason // "inventory not taken"), raw: null}]
+      + [$in.holdings[]? | select(phase_of == "scoping ahead" and docs_unsettled)
+          | {what: ("holding " + topic + ": files"), reason: "file list truncated; whether it changes paths outside docs/ is unsettled", raw: null}]
       + [$in.holdings[]? | select(phase_known | not)
           | {what: ("holding " + topic + ": phase"), reason: ("unrecognised phase value; marked executing"), raw: null}]
       + [$in.deferrals[]? | select((.status // "ok") != "ok")

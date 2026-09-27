@@ -143,6 +143,9 @@ got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docs/x/y.md","sr
 [ "$got" = "scoping ahead|true" ] && ok "a scoping holding changing src/x is flagged" || bad "a scoping holding changing src/x is flagged" "$got"
 got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docs/x/y.md","docs/plans/PLAN-a.md"]}]' '{"phase":"scoping"}')")
 [ "$got" = "scoping ahead|false" ] && ok "a scoping holding changing only docs/ is not flagged" || bad "a scoping holding changing only docs/ is not flagged" "$got"
+out=$(facts "[$(holding tr '[{"kind":"files","status":"ok","paths":["docs/a.md"],"truncated":true}]' '{"phase":"scoping"}')]" | report)
+printf '%s' "$out" | jq -e '.holdings[0].phase_flag == false and (.not_verified | any(.what == "holding tr: files"))' >/dev/null \
+  && ok "a truncated all-docs list is unsettled, not consistent" || bad "a truncated all-docs list is unsettled, not consistent" "$out"
 got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["docsx/a"]}]' '{"phase":"scoping"}')")
 [ "$got" = "scoping ahead|true" ] && ok "docsx/a is outside docs/" || bad "docsx/a is outside docs/" "$got"
 got=$(ph "$(holding a '[{"kind":"files","status":"ok","paths":["src/x"]}]' '{"phase":"executing"}')")
