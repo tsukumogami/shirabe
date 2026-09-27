@@ -328,7 +328,15 @@ check_repo() {
 
     local why="" key
     : >"$WORK/targets"
+    : >"$WORK/reflog-failed"
     key=$(printf '%s' "$repo" | tr / _)
+    # A pushed branch that's gone from origin is told apart from someone
+    # else's by its tracking ref's reflog; with ref logging off there is none
+    # to read, and the clone can't be judged.
+    if [ "$(ig "$d" config --bool core.logAllRefUpdates)" = false ]; then
+        note 2 "error $rel: ref logging is off, so a branch it pushed can't be told from someone else's"
+        return
+    fi
     files_changed "$d" || { note 2 "error $rel: its files could not be read"; return; }
     why=$(cat "$WORK/why")
     # A clone and its linked worktrees share one git directory, and with it
@@ -363,7 +371,13 @@ check_repo() {
                     [ -z "$tsym" ] || continue
                     tb=${tref#refs/remotes/origin/}
                     printf '%s\n' "$live" | awk -v r="refs/heads/$tb" '$2 == r { f = 1 } END { exit !f }' && continue
-                    ig "$d" reflog show --format=%gs "$tref" -- >"$WORK/reflog" 2>"$WORK/err"
+                    # A reflog that can't be read is an error, never "not
+                    # pushed". An empty one is normal: git clone logs nothing
+                    # for the tracking refs it creates.
+                    if ! ig "$d" reflog show --format=%gs "$tref" -- >"$WORK/reflog" 2>"$WORK/err"; then
+                        printf '%s\n' "$tref" >>"$WORK/reflog-failed"
+                        continue
+                    fi
                     grep -q '^update by push' "$WORK/reflog" || continue
                     printf '%s\tremote-tracking origin/%s\n' "$tsha" "$tb"
                 done
@@ -372,6 +386,10 @@ check_repo() {
             printf '%s\tHEAD\n' "$(ig "$d" rev-parse HEAD)"
         fi
     } >"$WORK/tips"
+    if [ -s "$WORK/reflog-failed" ]; then
+        note 2 "error $rel: the ref log of $(head -1 "$WORK/reflog-failed") could not be read"
+        return
+    fi
     local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
         note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }

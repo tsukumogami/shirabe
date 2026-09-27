@@ -398,6 +398,8 @@ put wait_target "{\"path\":\"leg\",\"topic\":\"w1\",\"request\":\"$REQ\",\"leg\"
 put worker_report "leg result: status success; final state done; outcome scoped; step ; reason ; pull request https://github.com/acme/widgets/pull/666"
 tick
 eq  "message: a leg report rewritten in context is refused, and goes to the human" surface "$(at)"
+eq  "message: that surface step still names the worker" w1 "$(ctx report_topic)"
+eq  "message: and the rewritten report is cleared" "" "$(ctx worker_report)"
 
 # --- teardown ------------------------------------------------------------------------------------------
 

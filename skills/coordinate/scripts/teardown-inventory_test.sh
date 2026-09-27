@@ -377,9 +377,21 @@ git -C "$SEED" commit -q -am theirs
 git -C "$SEED" push -q origin others
 git -C "$SEED" checkout -q main
 git clone -q "$GHURL" "$I12/bystander"
+git clone -q "$GHURL" "$I12/advanced"
+# Someone else's branch advancing on origin after this clone's last fetch.
+git -C "$SEED" checkout -q others
+printf 'theirs again\n' >"$SEED/b.txt"
+git -C "$SEED" commit -q -am "theirs again"
+git -C "$SEED" push -q origin others
+git -C "$SEED" checkout -q main
 git --git-dir="$O" update-ref -d refs/heads/others
+# Ref logging off: a pushed branch can't be told from someone else's.
+git clone -q "$GHURL" "$I12/nolog"
+git -C "$I12/nolog" config core.logAllRefUpdates false
 OUT12=$(bash "$S" --topic plugin-api --instance "$I12" 2>&1)
 has "someone else's deleted branch doesn't make a clean clone unique" "$OUT12" "durable bystander"
+has "someone else's branch moving on origin doesn't either" "$OUT12" "durable advanced"
+has "ref logging off is an error, never durable" "$OUT12" "error nolog: ref logging is off"
 has "a commit only a stale remote-tracking ref holds: unique" "$OUT12" "unique lost: remote-tracking origin/lostb changed c.txt"
 has "a squash-merged branch's stale remote-tracking ref: durable" "$OUT12" "durable landed (vs "
 has "that ref is judged against its merge commit" "$OUT12" "merge $MERGE12)"

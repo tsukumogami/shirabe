@@ -558,7 +558,16 @@ from GitHub, one read per commit. For every clone:
    origin's live refs, and each origin tracking ref whose branch is gone from
    origin and that this clone pushed (its reflog says so), since that ref can
    be the only thing holding a commit; any other tracking ref is someone
-   else's branch as last fetched and isn't the worker's. The paths it changed are the `diff-tree --no-renames`
+   else's branch as last fetched and isn't the worker's. That rule depends
+   on the clone's ref log, so a clone with ref logging turned off, or a ref
+   log that can't be read, is an error rather than a guess. An empty ref log
+   can't be read as "pushed": `git clone` logs nothing for the tracking refs
+   it creates, so that would count every bystander branch deleted since the
+   clone. What remains open is a ref log expired or removed while logging was
+   on, which reads as not pushed; a worker's session is far shorter than
+   git's expiry. A push to a remote other than origin, or by
+   URL, leaves no origin tracking ref and isn't seen; a worker that pushes
+   anywhere but its origin is outside what the inventory can prove. The paths it changed are the `diff-tree --no-renames`
    paths from its merge base with the default branch. The comparison target
    is the squash merge commit of the merged pull request whose head was that
    branch (`gh pr list --head <branch> --state merged --json mergeCommit`),
