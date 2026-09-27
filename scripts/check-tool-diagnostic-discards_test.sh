@@ -12,6 +12,10 @@
 # `koto` matching a directory name, and the unread-variable arm firing on a .md
 # template whose consumer is an agent reading prose.
 #
+# The third is a tool held in a variable (shirabe#418): each traced
+# assignment shape, a binding made in a sourced lib, and the name held as
+# data rather than at command position, which must stay out.
+#
 # Usage: scripts/check-tool-diagnostic-discards_test.sh
 #
 # Exit codes:
@@ -403,6 +407,144 @@ if [ "$rc" -eq 2 ]; then
 else
   fail "two record blocks should exit 2; got $rc: $out"
 fi
+
+# --- Case 27 (NEGATIVE FIXTURE): a discard through a variable ---------------
+# shirabe#418. A script that has to locate a tool resolves it first and calls
+# it through a variable, and that call carries no literal name. The variable
+# is charged to the tool its assignment resolves to.
+new_fixture var-held
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' 'KOTO=${KOTO_BIN:-koto}' '"$KOTO" status "$id" 2>/dev/null || true'
+enum_open; enum_close
+assert_rejects "a discard through a variable holding a declared tool is charged" "is not enumerated"
+
+new_fixture var-held-enumerated
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' 'KOTO=${KOTO_BIN:-koto}' '"$KOTO" status "$id" 2>/dev/null || true'
+enum_open
+enum_record 'skills/var-held-enumerated/probe.sh' '"$KOTO" status "$id" 2>/dev/null || true' 1 1 "$WHY" "shirabe#418"
+enum_close
+assert_accepts "the same variable-held site with a record is accepted"
+
+# --- Case 28: the same call with its diagnostic kept -------------------------
+new_fixture var-held-kept
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' 'KOTO=${KOTO_BIN:-koto}' \
+  '"$KOTO" status "$id" 2>"$ERR" || cat "$ERR" >&2' \
+  '"$KOTO" context add "$S" k --from-file f >/dev/null || exit 1'
+enum_open; enum_close
+assert_accepts "a variable-held call that keeps its diagnostic passes"
+
+# --- Case 29: a variable holding a tool's name as data -----------------------
+# Only command position counts. The name as an argument, a message, or the
+# subject of a `command -v` probe runs nothing.
+new_fixture var-as-data
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' 'KOTO=koto' \
+  'echo "running $KOTO" 2>/dev/null' \
+  'printf "%s\n" "$KOTO" >/dev/null 2>&1' \
+  'grep -q "$KOTO" list.txt 2>/dev/null || true' \
+  'if ! command -v "$KOTO" >/dev/null 2>&1; then exit 127; fi' \
+  'MSG="koto failed"' \
+  '"$MSG" 2>/dev/null || true'
+enum_open; enum_close
+assert_accepts "a variable holding a tool's name as data is not charged"
+
+# --- Case 30: each traced assignment shape -----------------------------------
+# One fixture per shape, each with a single unenumerated discard, so a shape
+# the pass stops resolving shows up by name.
+shape_case() {
+  local label="$1" assign="$2" call="$3"
+  new_fixture "shape-$label"
+  add_requires koto
+  add_file 'probe.sh' '#!/usr/bin/env bash' 'f() {' "  $assign" "  $call" '}'
+  enum_open; enum_close
+  assert_rejects "assignment shape '$assign' is traced" "is not enumerated"
+}
+shape_case plain       'K=koto'                           '"$K" status 2>/dev/null'
+shape_case quoted      'K="koto"'                         '$K status 2>/dev/null'
+shape_case command-v   'K=$(command -v koto)'             '"$K" status 2>/dev/null'
+shape_case command-vq  'K="$(command -v koto)"'           '"${K}" status 2>/dev/null'
+shape_case default     'K="${KOTO_BIN:-koto}"'            'x=$("$K" status 2>/dev/null)'
+shape_case default-eq  'K=${KOTO_BIN:=koto}'              'true && "$K" status 2>/dev/null'
+shape_case default-cv  'K=${KOTO_BIN:-$(command -v koto)}' '"$K" status 2>/dev/null'
+shape_case path        'K=/opt/koto/bin/koto'             '"$K" status &>/dev/null'
+shape_case path-var    'K="$HOME/.local/bin/koto"'        'if "$K" status 2>/dev/null; then :; fi'
+shape_case local       'local K=koto'                     '"$K" status 2>/dev/null'
+shape_case readonly    'readonly K=koto'                  '"$K" status 2>/dev/null'
+shape_case export      'export K=koto'                    '"$K" status 2>/dev/null'
+shape_case declare     'declare -r K=koto'                '"$K" status 2>/dev/null'
+
+# The override variable in `${OTHER:-tool}` holds the same tool.
+shape_case override    'K=${KOTO_BIN:-koto}'              '"$KOTO_BIN" status 2>/dev/null'
+
+# --- Case 31: a value that only contains a tool's name is not a binding -----
+# `koto-open.sh` is not `koto`, and a path whose last segment is something else
+# is not a call of the tool its directory is named after.
+new_fixture not-a-binding
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' \
+  'KOTO_OPEN="$HERE/../scripts/koto-open.sh"' \
+  'bash "$KOTO_OPEN" --alloc-dir 2>/dev/null || true' \
+  'D=/opt/koto/bin' \
+  '"$D" status 2>/dev/null || true' \
+  'M="koto status"' \
+  '$M 2>/dev/null || true'
+enum_open; enum_close
+assert_accepts "a value merely containing a tool's name is not a binding"
+
+# --- Case 32: the unread-capture arm sees a variable-held tool too ----------
+new_fixture var-unread
+add_requires jq
+add_file 'probe.sh' '#!/usr/bin/env bash' 'JQ=$(command -v jq)' 'OUT=$("$JQ" -r .x f.json)' 'echo done'
+enum_open; enum_close
+assert_rejects "a variable-held capture nobody reads is a finding" "is not enumerated"
+
+# --- Case 33: a binding in a sourced lib -------------------------------------
+# The coordinate scripts set KOTO in a shared lib and call it from the script
+# that sources it. The lib's own call is charged as well.
+new_fixture sourced
+add_requires koto
+add_file 'lib.sh' 'KOTO=${KOTO_BIN:-koto}' 'helper() { local K2=koto; "$K2" version; }'
+add_file 'main.sh' '#!/usr/bin/env bash' 'HERE="$(cd "$(dirname "$0")" && pwd)"' \
+  '. "$HERE/lib.sh"' '"$KOTO" session dir "$S" 2>/dev/null || exit 2'
+enum_open; enum_close
+assert_rejects "a binding made in a sourced lib is charged in the sourcing file" "skills/sourced/main.sh"
+
+# The lib's `local` binding belongs to its function, not to the caller.
+new_fixture sourced-local
+add_requires koto
+add_file 'lib.sh' 'helper() { local K2=koto; "$K2" version; }'
+add_file 'main.sh' '#!/usr/bin/env bash' '. "${HERE}/lib.sh"' '"$K2" version 2>/dev/null || exit 2'
+enum_open; enum_close
+assert_accepts "a sourced lib's local binding does not reach the caller"
+
+# Two levels, the way board-record.sh reaches record-common.sh through
+# board-lib.sh, with the source paths spelled the other supported ways.
+new_fixture sourced-chain
+add_requires koto
+add_file 'common.sh' 'export KOTO=koto'
+add_file 'mid.sh' 'source "$(dirname "${BASH_SOURCE[0]}")/common.sh"'
+add_file 'sub/main.sh' '#!/usr/bin/env bash' '. "$(dirname "$0")/../mid.sh"' \
+  'st=$("$KOTO" status "$id" 2>/dev/null) || continue'
+enum_open; enum_close
+assert_rejects "a binding two sourced levels down is charged" "skills/sourced-chain/sub/main.sh"
+
+# A lib nobody sources lends its bindings to nobody.
+new_fixture unsourced
+add_requires koto
+add_file 'lib.sh' 'KOTO=koto'
+add_file 'main.sh' '#!/usr/bin/env bash' '"$KOTO" status 2>/dev/null || true'
+enum_open; enum_close
+assert_accepts "a binding in a file that is not sourced does not reach another file"
+
+# A cycle of sources terminates.
+new_fixture sourced-cycle
+add_requires koto
+add_file 'a.sh' '. "$HERE/b.sh"' 'KA=koto'
+add_file 'b.sh' '. "$HERE/a.sh"' '"$KA" status 2>/dev/null || true'
+enum_open; enum_close
+assert_rejects "a source cycle terminates and still charges the binding" "skills/sourced-cycle/b.sh"
 
 echo
 echo "check-tool-diagnostic-discards_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

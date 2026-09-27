@@ -48,6 +48,37 @@
 #   - Tool names come from skills/*/requires.tsv, never a hardcoded list, so
 #     the scan's scope grows with the declarations.
 #   - Test files are out of scope: *_test.sh and anything under evals/.
+#   - A tool called through a variable is charged to the tool the variable's
+#     assignment resolves to (shirabe#418), in both arms. The assignment is
+#     read, never run. Traced, on a line whose first word is the assignment,
+#     with an optional export/readonly/local/declare/typeset and optional
+#     quotes around the value:
+#         VAR=tool                      VAR=$(command -v tool)
+#         VAR=${OTHER:-tool}            VAR=${OTHER:-$(command -v tool)}
+#         VAR=/any/path/tool            VAR="$DIR/tool"
+#     The `:=`, `-` and `=` expansions count like `:-`, and OTHER is charged
+#     with VAR, since it is the override for the same tool. A value that only
+#     contains the name (`koto-open.sh`, `"koto failed"`) is not a binding.
+#     A file also takes the bindings of every file it sources with `.` or
+#     `source`, recursively, where the path is literal or starts with one
+#     `$NAME/`, `${NAME}/`, `$(dirname "$0")/` or
+#     `$(dirname "${BASH_SOURCE[0]}")/` read as the sourcing file's
+#     directory; a sourced file's `local` bindings stay in its functions.
+#     A variable is charged only at command position: `$VAR`, `"$VAR"`,
+#     `${VAR}` or `"${VAR}"` at the start of the line or after `;`, `&`, `|`,
+#     `(`, `{`, `!`, a backtick, or then/do/else/elif/if/while/until/exec/
+#     command/time. A name held as data (an argument, a message) is not, and
+#     `command -v "$VAR"` falls under the carve-out below.
+#     NOT traced, and enumerated by hand if a site ever depends on one: a
+#     copy (`A=$B`), an array element, indirect expansion, eval, an
+#     assignment that is not the line's first word (`[ -n "$X" ] || K=koto`),
+#     a variable set only by a caller or the environment, a call behind an
+#     env prefix (`FOO=1 "$VAR" ...`), and a source path spelled any other
+#     way. Any traced assignment charges the variable, even if another
+#     assignment in the file gives it a different value.
+#   - Like a literal call, a call is judged on the line holding the redirect.
+#     A command continued with `\` whose redirect sits on a later line than
+#     the tool is not seen, whether the tool is named or held.
 #
 # The join key is path + trimmed source line + occurrence count, never
 # `path:lineno`. Line numbers drift whenever anything above a site is edited,
@@ -171,13 +202,175 @@ trim() {
   TRIMMED="$s"
 }
 
-# Does a command line name a declared tool? The `command -v <word>` text is
-# removed first, so a pure builtin probe drops out while a line that probes and
-# then calls the tool survives.
+# Does a command line name a declared tool, literally or through a variable
+# the file holds it in (VAR_RE, set per file by bind_file_vars)? The
+# `command -v <word>` text, `command -v "$VAR"` included, is removed first, so
+# a pure builtin probe drops out while a line that probes and then calls the
+# tool survives.
 names_declared_tool() {
   local probe
-  probe=$(printf '%s\n' "$1" | sed 's/command -v [A-Za-z0-9_.-]*//g')
-  printf '%s\n' "$probe" | grep -qE "$TOOL_RE"
+  probe=$(printf '%s\n' "$1" \
+    | sed -E 's/command -v ("?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|[A-Za-z0-9_.-]*)//g')
+  printf '%s\n' "$probe" | grep -qE "$TOOL_RE" && return 0
+  [ -n "$VAR_RE" ] || return 1
+  printf '%s\n' "$probe" | grep -qE "$VAR_RE"
+}
+
+# ---------------------------------------------------------------------------
+# Variable-held tools
+# ---------------------------------------------------------------------------
+
+# A script that has to locate a tool resolves it first and calls it through a
+# variable -- `KOTO=${KOTO_BIN:-koto}` and then `"$KOTO" status "$id"
+# 2>/dev/null` -- and that call has no literal name for the tool test to find.
+# This pass reads each file's assignments, without running anything, and
+# charges a variable to a declared tool when its value resolves to one. The
+# shapes it resolves and the ones it leaves alone are listed in the header.
+
+# own_bindings FILE -- print `V<TAB>name<TAB>global|local` for every traced
+# assignment in FILE and `S<TAB>path` for every `.`/`source` of a literal
+# path. Only lines whose first word is the assignment (after an optional
+# export/readonly/local/declare/typeset) are read.
+own_bindings() {
+  awk -v tools=" $TOOLS " '
+    function istool(w) { return w != "" && index(tools, " " w " ") > 0 }
+    function unq(v) {
+      if (length(v) >= 2 && ((v ~ /^".*"$/) || (v ~ /^\047.*\047$/)))
+        return substr(v, 2, length(v) - 2)
+      return v
+    }
+    # The declared tool a value resolves to, or "".
+    function resolve(v,   w, n, parts) {
+      if (v ~ /^\$\(command -v [^ ()]+\)$/) {
+        w = unq(substr(v, 14, length(v) - 14))
+        return istool(w) ? w : ""
+      }
+      if (istool(v)) return v
+      if (v ~ /\// && v !~ /[ \t]/) {
+        n = split(v, parts, "/")
+        if (istool(parts[n])) return parts[n]
+      }
+      return ""
+    }
+    # The value token of an assignment: up to the closing quote or `)` of a
+    # quoted, `${...}` or `$(...)` value, else up to the first blank or
+    # operator.
+    function token(v,   i, c, q) {
+      if (substr(v, 1, 3) == "\"$(") {
+        i = index(v, ")\""); return i ? substr(v, 1, i + 1) : v
+      }
+      if (substr(v, 1, 3) == "\"${") {
+        i = index(v, "}\""); return i ? substr(v, 1, i + 1) : v
+      }
+      if (substr(v, 1, 2) == "${") {
+        i = index(v, "}"); return i ? substr(v, 1, i) : v
+      }
+      if (substr(v, 1, 2) == "$(") {
+        i = index(v, ")"); return i ? substr(v, 1, i) : v
+      }
+      c = substr(v, 1, 1)
+      if (c == "\"" || c == "\047") {
+        q = index(substr(v, 2), c); return q ? substr(v, 1, q + 1) : v
+      }
+      if (match(v, /[ \t;|&)]/)) return substr(v, 1, RSTART - 1)
+      return v
+    }
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      if (line ~ /^#/) next
+
+      if (match(line, /^(\.|source)[ \t]+/)) {
+        v = token(substr(line, RLENGTH + 1))
+        if (v != "") printf "S\t%s\n", unq(v)
+        next
+      }
+
+      scope = "global"
+      if (match(line, /^(export|readonly|local|declare|typeset)([ \t]+-[A-Za-z]+)*[ \t]+/)) {
+        if (line ~ /^local/) scope = "local"
+        line = substr(line, RLENGTH + 1)
+      }
+      if (!match(line, /^[A-Za-z_][A-Za-z0-9_]*=/)) next
+      name = substr(line, 1, RLENGTH - 1)
+      v = unq(token(substr(line, RLENGTH + 1)))
+
+      # ${OTHER:-tool}, and the :=, - and = forms. Both names hold the tool:
+      # OTHER is the override, VAR the resolved value.
+      if (match(v, /^\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=]/) && v ~ /\}$/) {
+        other = substr(v, 3, RLENGTH - 2)
+        sub(/:?[-=]$/, "", other)
+        if (resolve(unq(substr(v, RLENGTH + 1, length(v) - RLENGTH - 1))) != "") {
+          printf "V\t%s\t%s\n", name, scope
+          printf "V\t%s\t%s\n", other, scope
+        }
+        next
+      }
+      if (resolve(v) != "") printf "V\t%s\t%s\n", name, scope
+    }
+  ' "$1"
+}
+
+# resolve_source FROM PATH -- print the file a `.`/`source` of PATH in FROM
+# names, or nothing. A literal path is read relative to FROM's directory, and
+# so is a path under one leading `$NAME/`, `${NAME}/`, `$(dirname "$0")/` or
+# `$(dirname "${BASH_SOURCE[0]}")/`, the ways a script names its own
+# directory. Anything else computed at run time is not resolved.
+resolve_source() {
+  local from="$1" p="$2" dir
+  dir="$(dirname "$from")"
+  case "$p" in
+    '$(dirname "$0")/'*) p="${p#*)/}" ;;
+    '$(dirname "${BASH_SOURCE[0]}")/'*|'$(dirname "$BASH_SOURCE")/'*) p="${p#*)/}" ;;
+    '${'*'}/'*) p="${p#*\}/}" ;;
+    '$'*/*) p="${p#*/}" ;;
+  esac
+  case "$p" in
+    *'$'*|*'`'*|'') return 0 ;;
+    /*) ;;
+    *) p="$dir/$p" ;;
+  esac
+  [ -f "$p" ] || return 0
+  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd)" "$(basename "$p")"
+}
+
+# file_vars FILE WITH_LOCAL SEEN -- print the variable names FILE holds a
+# declared tool in, its own and those of every file it sources. A sourced
+# file's `local` bindings belong to its functions, not to the caller.
+file_vars() {
+  local file="$1" with_local="$2" seen="$3"
+  local kind a b src
+  case "$seen" in *"|$file|"*) return 0 ;; esac
+  seen="$seen|$file|"
+  while IFS="$TAB" read -r kind a b; do
+    case "$kind" in
+      V)
+        if [ "$b" = global ] || [ "$with_local" = 1 ]; then echo "$a"; fi
+        ;;
+      S)
+        src=$(resolve_source "$file" "$a")
+        [ -n "$src" ] && file_vars "$src" 0 "$seen"
+        ;;
+    esac
+  done <<EOF
+$(own_bindings "$file")
+EOF
+}
+
+# bind_file_vars FILE -- set VAR_RE to match a reference to any of FILE's
+# tool-holding variables at command position: at the start of the line, or
+# after an operator or a keyword that starts a command. A variable holding a
+# tool's name as data -- an argument, a message -- is not at command position
+# and is not charged.
+VAR_RE=""
+bind_file_vars() {
+  local v alt=""
+  VAR_RE=""
+  for v in $(file_vars "$1" 1 "" | LC_ALL=C sort -u); do
+    if [ -z "$alt" ]; then alt="$v"; else alt="$alt|$v"; fi
+  done
+  [ -n "$alt" ] || return 0
+  VAR_RE="(^|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt)([^A-Za-z0-9_]|\$))"
 }
 
 # The files a scan target contributes. Test files are out of scope; a fixture
@@ -422,6 +615,7 @@ main() {
   for target in "${targets[@]}"; do
     if [ -f "$target" ]; then
       files_scanned=$((files_scanned + 1))
+      bind_file_vars "$target"
       scan_redirects "$target" "${target#"$REPO_ROOT"/}"
       scan_unread_vars "$target" "${target#"$REPO_ROOT"/}"
     elif [ -d "$target" ]; then
@@ -432,6 +626,7 @@ main() {
         files_scanned=$((files_scanned + 1))
         local rel="${f#"$REPO_ROOT"/}"
         if [ "$rel" = "$f" ]; then rel="${f#"$base"/}"; fi
+        bind_file_vars "$f"
         scan_redirects "$f" "$rel"
         scan_unread_vars "$f" "$rel"
       done <<EOF
