@@ -1,0 +1,40 @@
+name: Check directive invocations
+
+# A directive that runs a script as `bash <script>` is refused by a
+# worktree-isolated Claude Code session, which cannot show what the script
+# does with git; the same call by path passes. Running by path needs the
+# script committed executable and carrying a #! line, so those are checked for
+# every script a directive names.
+#
+# Its own workflow, not a job in check-templates.yml: it reads every directive
+# file, so it has to trigger on SKILL.md and reference edits, and those are
+# the most frequently edited files in the repository. Putting that trigger on
+# a shared workflow would run every other job in it on each such edit.
+#
+# The bash 3.2 floor for this check runs in check-bash-floor.yml's templates
+# suite.
+
+on:
+  pull_request:
+    paths:
+      # Every directive file the check scans.
+      - 'skills/**/*.md'
+      - 'references/**'
+      # The scripts a directive names: a mode or #! change there changes the
+      # exec-bit and shebang findings without touching a directive.
+      - 'skills/*/scripts/**'
+      - 'skills/*/references/scripts/**'
+      - 'scripts/**'
+      - '.github/workflows/check-directive-invocations.yml'
+
+jobs:
+  check-directive-invocations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run check-directive-invocations tests
+        run: bash scripts/check-directive-invocations_test.sh
+
+      - name: Check skill directives invoke scripts by path
+        run: bash scripts/check-directive-invocations.sh

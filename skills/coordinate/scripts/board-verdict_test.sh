@@ -124,7 +124,7 @@ GH_BOARD_DIR="$GH_BOARD_DIR" gh api repos/acme/widgets/pulls/12/merge >/dev/null
 GH_BOARD_DIR="$GH_BOARD_DIR" gh api graphql -f 'query=mutation { x }' >/dev/null 2>&1; eq "a GraphQL mutation exits 9" 9 $?
 
 echo "== the scripts' own reads =="
-for f in board-verdict.sh board-lib.sh board-record.sh land-check.sh merge-confirm.sh merged-facts.sh land-merge.sh; do
+for f in board-verdict.sh board-lib.sh record-common.sh board-record.sh land-check.sh merge-confirm.sh merged-facts.sh land-merge.sh; do
     if grep -n 'gh api' "$HERE/$f" | grep -v '^[0-9]*:#' | grep -v -- '--method GET' | grep -v 'api graphql' | grep -q .; then
         bad "$f: every gh api call is --method GET or GraphQL" "$(grep -n 'gh api' "$HERE/$f" | grep -v -- '--method GET')"
     else ok "$f: every gh api call is --method GET or GraphQL"; fi

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-coordinate-record.md
 problem: |
   `/coordinate` is prose, so the four checks it asks for (the record exists once with its
@@ -20,15 +20,16 @@ rationale: |
   lets the agent write; context keys and evidence are the agent's to write. Keeping writes
   agent-run follows shirabe's default-action rule. Visible tables keep what the checks read
   and what a person reads the same. The hub fits a loop whose input is one message at a
-  time about any holding. `koto next --to` still skips gates (koto#251); a seal on each
-  token and a log scan in every write script make that visible until koto fixes it.
+  time about any holding. koto 0.14.0 and later refuse `koto next --to` past a failing
+  non-overridable gate (koto#251); a seal on each token and a log scan in every write script
+  stay as defence in depth.
 ---
 
 # DESIGN: The coordination record and the coordinator's workflow
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
@@ -64,8 +65,9 @@ some of them resist a coordinator that wants to skip a step:
 So the design has to put each check where the agent can't pre-empt it, keep every GitHub
 write agent-run (opening, rewriting and closing the record; merges), and still carry a loop
 that runs for days, is driven by cross-session messages rather than engine wakes (koto's
-leg waker is a stub, koto#250), and hands most workers no koto leg at all (only `/scope` and
-`/execute` accept `--koto-leg`, shirabe#401).
+leg waker is a stub, koto#250), and hands most workers no koto leg at all (when this was written only `/scope`
+and `/execute` accepted `--koto-leg`, shirabe#401; shirabe#407 has since added it to `/deliver`
+and `/work-on`).
 
 The record's shape is the second problem. The PRD fixes four sections with fixed columns (R14),
 requires a body that parses back to the input it was rendered from, and cells that can't break a
@@ -158,8 +160,9 @@ runs the same check, so a capture left over from an earlier visit can't be carri
 sequence number. Every check script and every agent-run write script scans the whole run (from
 sequence 0) and refuses when one is found, naming the event, so any directed transition blocks
 every write until the coordinator restarts, which opens a new run. This is the skill's own integrity rule
-for its record and merges while koto#251 lets `--to` skip gates. That's detection, not prevention: koto#251 is the defect and the
-seal is the interim.
+for its record and merges. koto 0.14.0 fixed koto#251: a `--to` past a failing
+non-overridable gate is refused, so the engine now prevents what the seal detects, and the seal
+stays as defence in depth (a `--to` along an edge with no failing gate still shows in the log).
 
 Run facts come from the engine too. The run's start is the session header's `created_at`,
 which koto sets once at init; the deferral check reads it through `coord-log.sh run-start`. Each `/coordinate` invocation
@@ -363,20 +366,41 @@ The record is the visible tables, parsed and rendered by one codec, so what the 
 what a person reads. The loop is a hub that routes one event at a time into spokes, and the only
 way back from a record-changing spoke is through a state that confirms the change on GitHub.
 
-Three reconciliations were made across the decisions:
+These reconciliations were made across the decisions and in review:
 
 - Decisions 4 and 5 were written against context-key gates; both move to decision 1's sealed
   captures. The context keys they named stay as data for directives, reports and deciders.
 - Decision 4 had no Return path column; the PRD now carries one (`leg <request-id>:<leg>` or
   `message`), which the dispatch path fills and reconcile reads. This feature adds no request-leg
-  gate: the only workers that could bind a leg today are `/scope` and `/execute` runs
-  (shirabe#401), and binding one at dispatch is the dispatch path's work. The `wait` guidance says
+  gate: binding one at dispatch is the dispatch path's work, whichever entry point
+  accepts it (all four do since shirabe#407 closed shirabe#401). The `wait` guidance says
   which is which.
+- Leg names stay fixed, one request per worker (from shirabe#407). A skill that answers a leg
+  answers exactly one (`/deliver` answers `deliver`, `/work-on` answers `work-on`), so the
+  coordinator opens one request per dispatched worker and records it in Return path as
+  `leg <request-id>:<leg>`. The other choice was letting the skills accept any leg name and relying
+  on koto's template and input check; a worker never answers two legs, so that widens the input
+  every skill must validate and buys nothing. Fixed names also make a Return path readable
+  without the request in hand.
 - Decision 1 ran the deferral check only before the run's first dispatch; decision 4 ran it before
   every dispatch. Both hold: `dispatch_check` runs before every dispatch and always checks that no
   record row raised before the run started is undisposed, but it compares the predecessor's handoff
   only until the session log shows the check passed once in this run, because disposed rows drop
   out of the record at the first rewrite after the first dispatch.
+- The human reads one progress table, and a script renders it. The repository owner asked, during
+  implementation, for every table a coordinator puts on screen to show a pull request as a
+  clickable link and a session as inline code, with no commit hash, and for the status report to
+  be one table with four kinds of row in order: pull requests ready to merge in merge order,
+  sessions blocked on the human, ongoing sessions, and work waiting to be assigned. Guidance alone
+  would drift, so `progress-view.sh` renders the table from the pick facts (`coord/pick.json`),
+  checks the merge order and blockers the coordinator passes against those facts, and refuses a
+  cell that breaks the display rule. The queue of work waiting to be assigned is derived from the
+  roadmap every time, never stored in the record: it is state GitHub recomputes, and the record's
+  four sections stay the record's four sections.
+- Close and teardown are gated by posture in guidance, merge by a check. `posture_ask` asks for all
+  three, but only the merge has a check that reads the answer (`land-check.sh`, `land-merge.sh`);
+  the close-out and teardown steps follow the directive's "where the posture permits". Mechanising
+  the other two is left to the feature that adds a teardown inventory (shirabe#404).
 
 ## Solution Architecture
 
@@ -420,7 +444,10 @@ skills/coordinate/
     predecessor-handoff.sh         check: render a predecessor's handoff
     closeout-read.sh               check: the next close-out stage
     rotation-close.sh              agent-run: --step handoff|ready|delete-branch
-    <each>_test.sh, testdata/      stand-in gh and koto, fixtures, rule-coverage.tsv
+    progress-view.sh               the human's progress table from coord/pick.json
+    <each>_test.sh, testdata/      stand-in gh and koto, fixtures, rule-coverage.tsv;
+                                   coord-verdict-table_test.sh pins the verdict table to the
+                                   template's arms; skill-hygiene_test.sh scans shipped files
 ```
 
 ### Variables
@@ -467,8 +494,23 @@ same state twice (koto's "cycle detected").
 - `provenance`: exits non-zero unless the header's template hash equals the hash of the template
   the opener compiled for this plugin root, and `PLUGIN_ROOT` resolves to the directory the
   calling script lives in.
-- `live-session <scope-slug>`: the one live coordinate session for the scope, so a write script
-  finds its session itself rather than trusting a `--session` pointed at an older run's log.
+- `live-session <scope-slug> [--all]`: the one live coordinate session for the scope, so a write
+  script finds its session itself rather than trusting a `--session` pointed at an older run's
+  log; with `--all`, every live one, which is how `coordinate-open.sh` finds the runs it cancels.
+- `slug --scope --name`: the scope slug sessions are named by, the one derivation
+  `coordinate-open.sh` and the write guard share.
+- `vars`, `entered <state>`, `entry <state> [--before <seq>]`, `evidence <state> [--after <seq>]
+  [--before <seq>] [--where <field>=<value>] [--has <field>]`, `captures <name> [--after <seq>]
+  [--before <seq>]` and `count`: the run's variables, whether the run ever entered a state, the
+  latest entry into a state with the state it came from, a state's latest evidence in a window,
+  every capture of a name with its seq and time, and the number of events.
+- `unit [--before <seq>] [--event <e>]`: the unit the run's latest arrival names, as `topic <t>`
+  (a `wait` evidence's unit) or `leg <request>:<leg>` (the leg path, from `WAIT_REQ` and
+  `WAIT_LEG`); `record-common.sh`'s `lib_unit` resolves a leg to the holding whose Return path it
+  is, for `report-facts.sh` and `record-confirm.sh` alike.
+
+  Scripts read the event stream only through these, and only `coord-log.sh` finds the log file;
+  it refuses a log whose header `schema_version` isn't 1.
 
 ### States
 
@@ -496,7 +538,7 @@ The turn:
 | `pick_facts` | check + data: `pick-facts.sh` prints `pick`, `scope-complete` or `rotation-over`; writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts) | `pick` -> `pick`; `scope-complete` -> `roadmap_close`; `rotation-over` -> `rotation_close` |
 | `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider over `coord/pick.json`, `CAP` and `PARKED_BOUND`; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
 | `ask_up` | evidence `sent` | -> `wait` |
-| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait` |
+| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker; a `dispatch` or `scope_ahead` topic a Holdings row already names is refused, since worker session names are machine-wide); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait`; `duplicate-topic` -> `pick_facts` |
 | `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
 | `dispatch` | evidence `sent` or `failed`, `topic`; the dispatch path fills its procedure | sent -> `record`; failed -> `failure` |
 | `record` | check: `record-confirm.sh`, which reads the source state and its evidence from the log and checks the change it implies (below) | confirmed -> `pick_facts`; a `--to` in the run or an unconfirmable change -> `record_conflict` |
@@ -593,8 +635,32 @@ dispatch_status, return_path, worker, repo, branch, verified_head, dispatched, p
 row, in record order, as a JSON array (empty when there are none). Exit codes: 0
 written or printed, 1 no row for the topic (`--read` only), 10 refused because the target isn't an
 open record, the session fails `coord-log.sh provenance`, or the run log shows a directed
-transition, 11 the write failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer
-(the reason on stderr).
+transition, 12 the record changed between the read and the write, 11 the write failed, 2 a read
+failed, 64 usage, 65 the row was refused by the renderer (the reason on stderr).
+
+Every record write is a compare-and-swap on the `Written:` line. The body handed to
+`record-write.sh` carries the `Written:` time of the version it was edited from, and the write
+refuses with exit 12 (`record-changed`) when the live record carries another, so an edit by another
+coordinator or a person between the read and the write is never silently lost. `record-holding.sh`
+passes its own read's time through.
+
+The seam names below are the contract the dispatch path (shirabe#404) and reconcile (shirabe#406)
+build on. This feature's scripts already read them, so a different name there would leave a branch
+that never fires with no test failing:
+
+| Name | Kind | Written by | Read by |
+|---|---|---|---|
+| `leg_pick`, `wait_leg`, `take_report` | states | shirabe#404 | `report-facts.sh` (the leg path: entry into `take_report` from `wait_leg`) |
+| `WAIT_REQ`, `WAIT_LEG` | captures | shirabe#404's `wait_leg` | `report-facts.sh`, `record-confirm.sh` (the unit whose Return path is `leg <req>:<leg>`) |
+| `teardown_inventory`, `destroy` | states | shirabe#404 | `record-confirm.sh` (source `destroy`) |
+| `TEARDOWN_SEAL`, key `teardown_verdict` | capture, context key | shirabe#404's `teardown_inventory` | `record-confirm.sh` (the topic, through `coord-log.sh check --key`) |
+| `destroyed`, `handed_over` | `destroy` evidence values | shirabe#404 | `record-confirm.sh` |
+| `dispatch_topic` | context key | `pick`'s edges | shirabe#404's `dispatch-worker.sh` |
+| `worker_report` | context key | shirabe#404 | `classify_report`'s decider |
+| `reconcile_pass`, `reconciled` (140) | state, verdict | shirabe#406 | `coord-verdict.sh` |
+
+`board-verdict.sh --sha --base` and `deferral-check.sh`'s row mode (`--row-file --run-start`) are
+called by shirabe#406's `reconcile-check.sh`.
 
 ### Record format
 
@@ -602,7 +668,8 @@ Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, 
 Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side
 effects in flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date,
 Reversed, Now, Reason, From, where Date is `YYYY-MM-DDTHH:MMZ` so "added since the event" can't be
-met by an earlier reversal the same day. Phase is `scoping-ahead` or `executing`; Dispatch status is
+met by an earlier reversal the same day. Phase is `scoping-ahead`, `executing` or `held` (a verified pull request whose merge the human
+directed held although the workspace permits it; `merge: held` at land_merge routes to surface); Dispatch status is
 `dispatching`, `dispatched` or `dispatch-failed`; Return path is `message` or
 `leg <request-id>:<leg>`; Branch is empty until known; Raised, Attempted and a carry-forward's
 time are `YYYY-MM-DDTHH:MMZ`; Disposition is empty, `filed #<n>`, `closed: <text>` or
@@ -686,8 +753,8 @@ the posture can't be read, the human's answer to the one question about which st
 through the coordinator; it's recorded in the record's Reversals table with the human as its source, so it's
 auditable, and it's the one posture fact the workflow takes on the coordinator's word.
 
-**`--to` is detected, not prevented.** `koto next --to` takes a declared edge without the source state's gates
-(koto#251). Check states capture a token tied to the log's latest entry into that state; agent-run scripts read that
+**`--to` is prevented by koto, and detected here too.** koto 0.14.0 and later refuse `koto next --to` past a
+failing non-overridable gate (koto#251); before that release it took a declared edge without the source state's gates. Check states capture a token tied to the log's latest entry into that state; agent-run scripts read that
 capture from the log rather than taking it as an argument, and any `directed_transition` in the run makes every
 write script refuse until the run restarts. A coordinator acting outside koto's CLI (editing session files, shimming
 `gh`, calling `gh pr merge` directly) isn't stopped by the template; GitHub branch protection and the workspace's
@@ -736,7 +803,8 @@ dispatch path and reconcile have fixed seams and one shared helper to build on.
 
 **Negative.** The template is large (about forty states) and the scripts are many. Authors have
 to remember that a check state takes no evidence, that a gate never reads context, and that a
-capture is one line. A `--to` is detected, not prevented, until koto#251 is fixed. A check reads
+capture is one line. A `--to` past a check is refused by koto 0.14.0 and later (koto#251), and the
+seal still detects any directed transition on an older koto. A check reads
 through the tools on the coordinator's `PATH`, and an exported shell function reaches every bash a
 check starts, so a coordinator that rewrites its own tools, or a shim left first on `PATH`, can answer a check
 (koto#261). The checks don't defend against that, and prefixing one interpreter call with `bash -p`

@@ -46,7 +46,7 @@ set -uo pipefail
 PROG=rotation-close
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= STEP= FILE=
-NO_SEAL=1 SKIP_CHECKS=0 PRED=0
+SKIP_CHECKS=0 PRED=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do

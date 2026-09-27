@@ -13,10 +13,10 @@ description: >-
   generic advice would strip out. It is about how the prose reads, not what it
   says: it does not decide a document's content or supply what the document is
   missing.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh writing-style 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh writing-style 2>&1 || true`
 
 When invoked directly with a draft: identify patterns below, revise, return the revised text. When producing prose: apply these patterns from the start rather than producing and then revising.
 

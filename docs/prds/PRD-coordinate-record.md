@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A coordinator started with `/coordinate` can open a second record after a restart,
   dispatch past a predecessor's deferral, or land work on a head nobody verified, because
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinate-record.md
 
 ## Status
 
-In Progress
+Done
 
 ## Problem Statement
 
@@ -366,7 +366,7 @@ The record:
       the four sections with R14's columns, and parses back to its input; two renders
       differ only in `Written:`.
 - [ ] The renderer refuses a status, CI or merge-state column, a phase other than
-      `scoping-ahead` or `executing`, and worker values shaped like a session id, a path or a
+      `scoping-ahead`, `executing` or `held`, and worker values shaped like a session id, a path or a
       job id; it accepts a dispatch topic.
 - [ ] A cell holding a pipe, a newline, a backtick run or a fence opener round-trips
       unchanged and every row keeps its column count.
@@ -442,27 +442,27 @@ Packaging:
 
 ## Known Limitations
 
-- **Which pull requests a worker owns (shirabe#395).** The workflow relies on each worker's
-  `/deliver`, `/execute` or `/work-on` identifying only its own pull requests. Today every
-  worker shares one login, so a worker can adopt a sibling's pull request on resume. The
+- **Which pull requests a worker owns (shirabe#395, fixed for `/execute` by shirabe#421).** The
+  workflow relies on each worker identifying only its own pull requests. `/execute` now marks
+  and looks up its pull requests by run; `/scope`'s and older ones still fall back to login and
+  branch, and every worker shares one login. The
   coordinator's own reads go by pull request number and dispatch topic.
-- **Where merge order is recorded (shirabe#396).** A worker's coordinated PLAN writes an
-  empty merge-order block that is never updated, so the order a coordinator hands a person
-  comes from its own reading of dependencies.
+- **Where merge order is recorded (shirabe#396, fixed).** `/execute` now renders a
+  coordinated PLAN's merge order into its coordination pull request's merge-order block. The
+  coordinator's record has no merge-order section, so the order it hands a person still comes
+  from its own reading of dependencies.
 - **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body can
   describe more than the pull request carries; the verify step's file-list read is the
   defence, at one more read per report.
 - **No delivered wake when a leg resolves (koto#250).** The engine's waker is a stub, so the
   coordinator advances the workflow on each message or notification.
-- **No leg flag on `/deliver` and `/work-on` (shirabe#401).** Only `/scope` and `/execute`
-  accept `--koto-leg` today, so the workers a coordinator most often dispatches report by
-  message only.
-- **`koto next --to` skips gates (koto#251).** A directed transition moves a session past
-  any gate, non-overridable ones included, so no template can fully hold "no value the
-  coordinator supplies satisfies a check" while it exists. Each check's result is sealed to
-  the visit that produced it, and every write script and downstream reader scans the session
-  log for a directed transition and refuses on one, so a skip is detected at the next write
-  rather than prevented.
+- **Leg flags on `/deliver` and `/work-on` (shirabe#401, fixed by shirabe#407).** All four
+  entry points accept `--koto-leg`; binding a leg at dispatch is the dispatch path's work, so
+  until it lands a dispatched worker reports by message.
+- **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto 0.14.0 and later
+  refuse a directed transition past a failing non-overridable gate. Each check's result is
+  still sealed to the visit that produced it, and every write script and downstream reader
+  refuses after any directed transition in the log, as defence in depth.
 - **Checks run in the coordinator's environment (koto#261).** The engine runs every action
   and gate with the environment of the `koto next` call, so a `PATH` entry, or an exported
   shell function where `/bin/sh` is bash, can stand in for `gh`, `jq` or `git`, by accident
@@ -476,6 +476,11 @@ Packaging:
 - **The check is a read the workflow runs, not a value it is told.** A check over a sha or
   record number the coordinator submits proves a value was supplied, not that anyone
   verified it. Each check reads GitHub itself.
+- **One progress table, rendered by a script.** Added during implementation at the
+  repository owner's request: the human's status view is one table (ready to merge, in merge
+  order; blocked on the human; ongoing; waiting to be assigned) with pull requests as links,
+  sessions as inline code and no commit hashes, rendered and checked by `progress-view.sh`.
+  The waiting queue is derived from the roadmap each time rather than stored in the record.
 - **Every GitHub write stays the coordinator's.** Opening, rewriting and closing the record,
   and every merge, are externally visible writes, which shirabe keeps out of steps the
   workflow runs unprompted; the read that follows is what the check trusts.

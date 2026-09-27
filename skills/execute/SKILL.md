@@ -14,10 +14,10 @@ description: >-
   run through `/work-on` instead. Do NOT use it to work out a feature that has
   no plan yet (`/scope`), to write the plan (`/plan`), or to do a single issue
   (`/work-on`).
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
 
 # Execute
 
@@ -69,7 +69,7 @@ Field four of the declaration is where the deferral is visible. Run, right
 after the enum re-validation passes and before the loop drives anything:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
 ```
 
 Silence means the coordinated surface is present. Output means the merge-last
@@ -200,7 +200,7 @@ Before any child is spawned, assert the cross-skill `/work-on` child template
 resolves:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run with a clear message. This is the load-bearing
@@ -218,11 +218,11 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 
 ```bash
 # A private directory outside the work tree for the args file.
-ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
 # of --auto, --interactive, --merge, --koto-leg=<request-id>:execute.
 jq -n '$ARGS.positional' --args -- <token> <token> ... > "$ARGS_DIR/tokens.json"
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
 ```
 
 The call it makes is
@@ -478,21 +478,101 @@ no record at all, ends the run `ready-awaiting-merge` with `reason=head-moved`.
 #### Owned-PR lookup
 
 Every PR lookup `/execute` makes goes through `skills/execute/scripts/owned-pr.sh`
-(directly, or through `adopt-or-create-pr.sh` and `record-merge-verdict.sh`). It
-keeps only PRs whose head is in the same repository (`isCrossRepository` false),
-whose author is the authenticated user, whose base is the expected branch, and
-whose head is the expected branch, and it never picks among several. Its exit
-contract names no step; this table is the one place `/execute` maps it:
+(directly, or through `adopt-or-create-pr.sh`, `record-merge-verdict.sh`, and the
+coordinated scripts). It keeps only PRs whose head is in the same repository
+(`isCrossRepository` false), whose author is the authenticated user, whose base
+is the expected branch, and whose head is the expected branch, and it never
+picks among several.
+
+Those checks (five in `owned-pr.sh`'s own list, which adds the state filter)
+can't tell two runs apart: two sessions resuming the same PLAN slug under one
+account share the author and the head branch. So ownership
+is decided by the run that created the PR. Every PR `/execute` opens (the home
+PR in `adopt-or-create-pr.sh --create`, a node PR in `node-push.sh`) carries one
+hidden line naming the run, `<!-- shirabe-run: <id> -->`, and every lookup
+passes the run's own id as `owned-pr.sh --run-id`:
+
+- a PR whose marker names this run is this run's;
+- a PR with **no marker** falls back to the login-and-branch match, so PRs
+  opened before markers existed, and `/scope`'s PRs (which carry none), are
+  still adopted;
+- a PR whose marker names **any other run** is never this run's, however well
+  its login and branch match;
+- several candidates where any carries a marker (two runs' PRs, or a marked
+  PR beside an unmarked one) are ambiguous, and nothing is picked.
+
+The id is 32 random hex characters kept in the session's `run_id` context key.
+`skills/execute/scripts/run-id.sh` is the only thing that mints it (`mint`,
+called only where a session is born: `execute-open.sh`, `scope-open.sh`,
+`deliver-open.sh`; every later caller uses `get`, which never mints), writes the marker, or carries it through a body rewrite; the marker
+carries nothing but the id. `execute-open.sh` gives every session an id and,
+when koto replaces a finished session, seeds the replacement with the finished
+one's, so a re-invocation of the same PLAN in the same place is the same run.
+`pr_finalization` rewrites the whole body and keeps the live body's marker
+(`run-id.sh carry`), so an adopted unmarked PR stays unmarked. A lookup run by
+hand, outside any session, passes no `--run-id` and matches by login and branch
+alone.
+
+**Known limitation: `/scope`'s PRs are still matched by login and branch.**
+`/scope` stamps no marker on the PR it opens, and that PR is the home PR on
+the `/deliver` path (where `/execute` adopts the topic branch's PR) and the
+coordination PR on every coordinated run. Two runs sharing a login and a topic
+name can therefore still reach the same scoping or coordination PR, so on
+those paths unique topic names remain the only separation. Stamping the
+scoping PR with `/scope`'s own identity would make `/execute` and `/deliver`'s
+probes reject it as another run's, so the fix is a follow-up rather than part
+of this rule: one identity per workflow, minted by `/deliver` (or by `/scope`
+and handed on) and shared by the `/scope` and `/execute` legs that work on the
+same topic.
+
+The exit contract names no step; this table is the one place `/execute` maps it:
 
 | `owned-pr.sh` result | Where `/execute` creates the PR (`orchestrator_setup`) | Where it must adopt one (every later lookup) |
 |---|---|---|
 | one survivor (URL, exit 0) | reuse it | use it |
 | zero survivors (empty, exit 0) | one `gh pr create --draft` | `step=execute:pr-adopt` |
-| several survivors (exit 3) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| several survivors, none marked (exit 3) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| ambiguous: several, at least one marked (exit 4) | `step=execute:pr-adopt` | `step=execute:pr-adopt` |
+| another run's PR: the one candidate carries a foreign marker (exit 5) | the re-entry decision below | `step=execute:pr-adopt` |
 | a failed read (exit 2) | `step=execute:status-read` | `step=execute:status-read` |
 
-A branch whose only PRs come from forks, other authors, or another base has zero
-survivors: it is never adopted, edited, readied, or passed to `gh pr merge`.
+A branch whose only PRs come from forks, other authors, another base, or
+another run has no survivor: it is never adopted, edited, readied, or passed to
+`gh pr merge`.
+
+**Taking over another run's PR.** A run that has lost its identity -- a
+re-invocation after the earlier run's session is gone, so `execute-open.sh`
+had nothing to carry forward -- finds the PLAN's own PR marked by that earlier
+run. The lookup refuses it (exit 5, which `adopt-or-create-pr.sh` reports as
+its exit 6), and GitHub refuses a second open PR on the same head. The way out
+is explicit, and bound to this PLAN's own shared branch: at
+`orchestrator_setup` step 2, the agent re-runs the `impl/<slug>` lookup with
+`--take-over --plan-slug <slug>` only on a positive signal that the earlier
+run ended: the invocation says, in so many words, that this is its re-entry.
+`adopt-or-create-pr.sh` refuses `--take-over` on any other head, and step 1's
+lookup on the current branch never takes over (another PLAN's branch, or a
+coordinated node branch, can carry a live run's PR); its exit 6 ends
+`step=execute:pr-adopt`. A replaced
+session is not that signal: `execute-open.sh` carries the finished session's
+identity forward, so a foreign marker after a replacement usually came from a
+run somewhere else (the exception is a carry that failed, which
+`execute-open.sh` reports on stderr), and without the statement the run does
+not take the PR over either way. The rule does not try to prove that the
+earlier session is terminal: a live run in another checkout or on another
+machine is invisible from here, so "no session found" proves nothing. `owned-pr.sh --take-over`
+rewrites that one PR's marker to name this run and adopts it; it only ever
+touches a PR that passed the other checks above (this repository, this login,
+the base, the branch), and it picks nothing when several foreign-marked PRs
+are there. No other lookup passes `--take-over`, so an ordinary lookup never
+takes a PR over silently. Without the signal the run ends
+`step=execute:pr-adopt` instead, before anything is pushed: the ownership
+check on `impl/<slug>` (and, for a coordinated node, on its node branch in
+`node-push.sh`) runs before the branch is pushed, so a run never pushes onto a
+branch whose PR another run marked. A `/scope` PR carries no marker, so this
+does not cover the scoping or coordination branch (see the known limitation
+above). Coordinated node PRs have no takeover path:
+a coordinated re-entry relies on the carried-forward identity, and a node PR
+marked by a run whose identity is gone ends `step=execute:pr-adopt`.
 
 ## Coordinated Execution Path
 
@@ -532,7 +612,7 @@ Assert the same cross-skill `work-on.md` child template resolves (each node's
 work items dispatch to it):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run.
@@ -606,7 +686,11 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   the default branch (titled `feat(<slug>): <node-id>`, body from a fixed template
   of the node id, its work-item IDs, and the coordination PR's link, passed with
   `--body-file`), or adopts the one owned PR on the branch, and writes the node's
-  index line with `head=<sha>`.
+  index line with `head=<sha>`. It takes `--plan` set to the recorded `plan_abs`,
+  reads the PLAN's nodes through `plan-to-tasks.sh`, and replaces the coordination
+  PR's `## Merge Order` section with a fenced `merge-order` block: every PR and
+  gate node, each after its predecessors, as opaque node ids with their `waits_on`.
+  It renders the block on every node push.
 - `evaluate:<node>` — the node's PR is a draft, or its checks are pending. Mark it
   ready with `gh pr ready` only once every check passed and
   `git ls-tree -r --name-only <pushed head> -- wip/` prints nothing (the same `wip/`
@@ -622,10 +706,17 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   A merge that returned `merge-called` but whose confirm read never saw `MERGED`
   is recorded (`merge_attempts`), so the loop doesn't call it again and the node's
   successors stay blocked.
-- `cascade` — every node PR reports `MERGED` on a live read. Run the
-  chain-finalization cascade exactly once, on the coordination branch
-  (`run-cascade.sh --push <PLAN>`), then `node-push.sh coordination ...`, which
-  pushes the coordination branch and records the coordination PR's own `head=`.
+- `cascade` — every node PR reports `MERGED` on a live read. First,
+  `node-push.sh order ... --plan <plan_abs>` renders the PLAN's final merge order
+  into the coordination PR's body; it pushes nothing, and it catches a PLAN whose
+  `waits_on` changed after the last node push. It is skipped when no file exists
+  at `plan_abs` (a resumed run whose cascade already ran), and a failed render
+  stops the loop before the cascade. Then run the chain-finalization
+  cascade exactly once, on the coordination branch (`run-cascade.sh --push <PLAN>`),
+  then `node-push.sh coordination ...`, which pushes the coordination branch and
+  records the coordination PR's own `head=`. The cascade has deleted the PLAN by
+  then, so this push leaves the merge-order block as it was; from here the block
+  is the only record of the order.
 - `evaluate-coordination` — run `shirabe validate --merge-gate --mode=ready` over
   the index's refs, after dropping any entry that points at the coordination PR
   itself (`scripts/coordination-gate-refs.sh` does both halves); only when it
@@ -640,13 +731,15 @@ verify, so it fails closed and the nodes after it wait. Node PRs merge only afte
 all their predecessors, and the coordination PR merges last.
 
 **Ownership and the write set.** Every PR number read from the index and every
-head-branch lookup goes through `owned-pr.sh`, keeping only PRs with
-`isCrossRepository == false`, the authenticated author, the default branch as
-base, and, for index entries, head branch `impl/<slug>-<node-id>` for that node.
-Zero survivors let `node-push.sh` open a node's PR; where an existing PR must be
-adopted (an index entry, the coordination PR) zero survivors end
-`step=execute:pr-adopt`, several end `step=execute:pr-adopt`, and a failed read
-ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
+head-branch lookup goes through `owned-pr.sh` with the run's `--run-id`, keeping
+only PRs with `isCrossRepository == false`, the authenticated author, the
+default branch as base, for index entries head branch `impl/<slug>-<node-id>`
+for that node, and a run marker that names this run or none (see **Owned-PR
+lookup**). Zero survivors let `node-push.sh` open a node's PR, stamped with the
+run's marker; where an existing PR must be adopted (an index entry, the
+coordination PR) zero survivors end `step=execute:pr-adopt`, several, an
+ambiguous lookup, or another run's PR end `step=execute:pr-adopt`, and a failed
+read ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
 `_Repo:` row naming a repository outside `repos` ends the run `outcome=error` with
 `step=execute:write-set`.
 
@@ -688,7 +781,9 @@ The state file is a **reconstructable per-session projection**, not the source o
 truth. The durable source of truth is the **home pull request** — the single PR for
 single-pr (the committed koto context and in-flight PLAN on the `impl/<slug>`
 branch, reachable from any branch through that one PR), and the coordination PR for
-coordinated (its PR-Index plus the fenced merge-order block). Because the durable
+coordinated (its PR-Index, which resume reads, plus the fenced merge-order block
+`node-push.sh` renders, the human-readable order that outlives the PLAN; no script
+schedules or gates from the block). Because the durable
 state rides the home PR rather than on-disk scratch, a session that lost its
 `wip/` state — or runs on a different branch — rebuilds the projection from the home
 PR (see **Resume**). This is Decision 3 of `DESIGN-execute-skill.md`: on-home-PR
@@ -809,16 +904,27 @@ and forks' PRs as readily as this run's own.
 
 ```bash
 # The same owner/repo write_set_record will fix, derived the same way.
-REPO=$(bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/record-write-set.sh --print)
+REPO=$(${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/record-write-set.sh --print)
+# The retained session's run identity, when there is one; the lookup matches by
+# login and branch alone without it.
+RUN_ID=""
+if koto context exists execute-<slug> run_id >/dev/null; then
+  RUN_ID=$(koto context get execute-<slug> run_id)
+fi
 for BRANCH in "$(git rev-parse --abbrev-ref HEAD)" "impl/<slug>" "docs/<slug>"; do
-  bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh \
-    --repo "$REPO" --head "$BRANCH" --state open
+  ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh \
+    --repo "$REPO" --head "$BRANCH" --state open ${RUN_ID:+--run-id "$RUN_ID"}
 done
 ```
 
 The codes map as in **Owned-PR lookup**: one URL is the home PR, empty output
-means none on that branch, exit 3 (several) and exit 2 (a failed read) stop the
-ladder with `step=execute:pr-adopt` and `step=execute:status-read`.
+means none on that branch, exit 3 or 4 (several, or ambiguous) and exit 2 (a
+failed read) stop the ladder with `step=execute:pr-adopt` and
+`step=execute:status-read`. Exit 5 (another run's PR on the branch) is either
+the PLAN's PR marked by an earlier run whose identity is gone, or the PR of a
+run that is still going somewhere else; nothing here tells the two apart. The
+run re-enters, and `orchestrator_setup` takes the PR over only on a positive
+signal that the earlier run ended (see **Taking over another run's PR**).
 
 - If a home PR is found, the run is not fresh: rebuild the `wip-yaml-md` projection
   from the home PR's durable state and **resume the run on the found PR's branch**,
@@ -918,7 +1024,7 @@ renders them from the terminal result (the final `koto next` response, or
 pattern and dropping anything that fails:
 
 ```bash
-koto status execute-<plan-slug> | bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/print-exit.sh
+koto status execute-<plan-slug> | ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/print-exit.sh
 ```
 
 It prints `outcome=` always, `step=` on `error`, `exit=` (the state file's value
@@ -1214,6 +1320,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/execute-open.sh` | Step 2's entry: maps the invocation's tokens to variable pairs with `jq` and opens the session through `scripts/koto-open.sh` with `--attach-live --replace-terminal [--koto-leg]` |
 | `skills/execute/scripts/record-write-set.sh` | `write_set_record`'s action: fixes the write set as `repos`; `--print` derives it for the Resume lookup |
 | `skills/execute/scripts/owned-pr.sh` | the one ownership-filtered PR lookup, shared with `/scope` and `/deliver` (see **Owned-PR lookup**) |
+| `skills/execute/scripts/run-id.sh` | the run identity: mints the session's `run_id`, stamps the marker line on a PR body, carries it through a body rewrite, and restamps it for `owned-pr.sh --take-over` (see **Owned-PR lookup**) |
 | `skills/execute/scripts/adopt-or-create-pr.sh` | `orchestrator_setup`'s home-PR step: adopts the owned PR or opens one, and records `home_pr` |
 | `skills/execute/scripts/push-and-record.sh` | every single-pr push outside the cascade; records `expected_head` after a successful push |
 | `skills/execute/scripts/record-merge-verdict.sh` | `merge_readiness`'s and `merge_confirm`'s action: finds the owned PR and records the verdict, `reason`, `step`, or `confirm_verdict` |
@@ -1222,7 +1329,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/koto-templates/execute-coordinated.md` | the coordinated envelope: `coord_setup`, `coord_loop`, `coord_verdict`, `coord_merge_confirm`, and its terminals |
 | `skills/execute/scripts/record-coord-setup.sh` | `coord_setup`'s record: `repos`, `home_repo`, `coord_branch`, `plan_abs` |
 | `skills/execute/scripts/coordinated-next.sh` | the coordinated loop's one next action, stateless and read-only |
-| `skills/execute/scripts/node-cut.sh`, `node-push.sh` | a node's branch in its own worktree; its push, draft PR, and `head=` record (and the coordination PR's after the cascade) |
+| `skills/execute/scripts/node-cut.sh`, `node-push.sh` | a node's branch in its own worktree; its push, draft PR, and `head=` record (and the coordination PR's after the cascade); the coordination PR's merge-order block |
 | `skills/execute/scripts/coord-merge.sh` | `merge:<node>` and `merge-coordination`: the merge through `merge-exec.sh` at the recorded `head=`, then the confirm read |
 | `skills/execute/scripts/coordination-verdict.sh`, `record-coordination-verdict.sh` | where a coordinated run ended, and `coord_verdict`'s action that records it |
 | `skills/execute/scripts/coord-common.sh` | the shared computation and PR-index parser the coordinated scripts source |

@@ -13,7 +13,7 @@
         "The extra invocation text is treated as decisions (feature 3 held, at most three workers), not as a description of how to coordinate",
         "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
         "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
-        "The entry point chosen for a roadmap feature is /shirabe:deliver",
+        "The entry point chosen for a roadmap feature dispatched to be built is /shirabe:deliver; a feature scoped ahead may use /shirabe:scope with its execution sent later",
         "Features 1 and 4 are dispatched (or briefed for dispatch) to be built, and feature 2 is not dispatched to be built before feature 1 lands (scoping it ahead is allowed)",
         "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
         "The roadmap's Features section is not edited, and nothing is committed to the default branch",
@@ -59,10 +59,10 @@
         "The pull request's head sha is read from the remote before anything is relayed or acted on, and every later claim is about that sha",
         "Each CI job's runner and step count are read, not only the overall conclusion",
         "A job with no runner, or whose steps were all skipped, would be reported as not verified even though it shows green",
-        "The pull request's file list and git ls-remote for the branch are read",
+        "The pull request's file list is read, and the branch's remote ref is read and compared with the head",
         "The report separates what was verified from what was not, and marks each claim as measured, verified by reading, or inferred",
         "No merge is attempted, by gh pr merge or any other command or API call",
-        "The human is handed a merge-order table with the verified head sha and the reason for each position"
+        "The human is handed a merge-order table with each pull request as a clickable link and the reason for each position; no commit hash appears in the table, and the verified head is kept in the record"
       ],
       "requirements": [
         "R10",

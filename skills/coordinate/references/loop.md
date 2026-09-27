@@ -165,6 +165,9 @@ code, and no commit hash appears. Heads stay in the record's rows and in
 `reconcile/report.json`, where the checks read them. Keep the same form when
 you report it up.
 
+Every later report ends with the progress table `scripts/progress-view.sh`
+prints (SKILL.md, "Reporting").
+
 ## The Shape of an Escalation
 
 An escalation goes to whoever dispatched you, once, and carries everything
@@ -180,7 +183,7 @@ What I verified: <reads, with the head sha and time, each marked measured, verif
 What I tried: <re-dispatches so far, with what each learned>.
 Options: <two or three, each with its consequence>.
 Recommendation: <one option and why>.
-Until you answer: <what stays paused; everything else keeps moving>.
+Until you answer: <what stays paused, and the units that keep moving, each by name>.
 Waiting on the human:
 - <this decision> -- <recommendation>
 - <anything else already waiting on them>

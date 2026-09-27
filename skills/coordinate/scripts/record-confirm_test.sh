@@ -53,8 +53,15 @@ sealed_capture() { # sealed_capture <state> <KEY> <token> [timestamp]
     log_capture "$S" "$2" "$(bash "$CL" seal --session "$S" --state "$1" --token "$3")" "${4:-$EVT}"
 }
 
+# checked <topic>: the run passed dispatch_check on <topic>, sealed, then dispatched.
+checked() {
+    log_to "$S" pick dispatch_check
+    log_capture "$S" DISPATCH_CHECK "$(bash "$HERE/coord-log.sh" seal --session "$S" --state dispatch_check --token "ok $1")"
+    log_to "$S" dispatch_check dispatch
+}
 echo "== dispatch =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
@@ -65,6 +72,17 @@ body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE
 eq "dispatch: an older Written: time waits even with the row" waiting "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" 2026-09-26T10:00:00Z
 eq "dispatch: a Written: time in the event's own second waits" waiting "$(confirm)"
+session
+checked alpha
+log_evidence "$S" dispatch '{"outcome":"sent","topic":"beta"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+eq "dispatch: a topic other than the one dispatch_check passed is a conflict" conflict "$(confirm)"
+session
+log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+eq "dispatch: a topic named only in the evidence, with no dispatch_check pass, is a conflict" conflict "$(confirm)"
 
 echo "== surface =="
 session
@@ -77,6 +95,24 @@ body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD
 eq "surface: the unit's row with a Verified head confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "surface: the unit's row without a Verified head waits" waiting "$(confirm)"
+
+echo "== surface after a directed hold =="
+session
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait report_facts; log_to "$S" report_facts classify_report
+log_to "$S" classify_report verify; log_to "$S" verify land; log_to "$S" land land_merge
+log_evidence "$S" land_merge '{"merge":"held"}' "$EVT"
+log_to "$S" land_merge surface "$EVT"
+log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
+log_to "$S" surface record "$EVT"
+HELD_X=$(jq -nc --arg s "$SHA_HEAD" '{verified_head: $s, phase: "held"}')
+body "$(rec | jq -c --argjson h "$(holding alpha "$HELD_X")" '.holdings = [$h]')"
+eq "held: a Verified head and a held Phase confirms" confirmed "$(confirm)"
+EXEC_X=$(jq -nc --arg s "$SHA_HEAD" '{verified_head: $s, phase: "executing"}')
+body "$(rec | jq -c --argjson h "$(holding alpha "$EXEC_X")" '.holdings = [$h]')"
+eq "held: a Verified head with Phase executing waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"phase\":\"held\"}")" '.holdings = [$h]')"
+eq "held: a held Phase without a Verified head waits" waiting "$(confirm)"
 
 GADGETS12='{"repo":"acme/gadgets","branch":"feat/y","pull_request":"[#12](https://github.com/acme/gadgets/pull/12)"}'
 
@@ -195,7 +231,7 @@ eq "decision_apply deferral: only an older deferral waits" waiting "$(confirm)"
 
 echo "== posture_ask =="
 session
-log_evidence "$S" posture_ask '{"merge":"held","close":"reserved","teardown":"reserved"}' "$EVT"
+log_evidence "$S" posture_ask '{"merge":"permitted","close":"reserved","teardown":"reserved"}' "$EVT"
 log_to "$S" posture_ask record "$EVT"
 PREV='{"date":"2026-09-26T10:02Z","reversed":"posture unread","now":"coordinator holds merge","reason":"asked once","from":"the human"}'
 body "$(rec | jq -c --argjson r "$PREV" '.reversals = [$r]')"
@@ -233,9 +269,54 @@ body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12" | jq -c --arg h "$
 eq "--verified: only another unit's #12 row waits" waiting "$(confirm --verified)"
 body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$a]')"
 eq "--verified: the unit's row linking another pull request is a conflict" conflict "$(confirm --verified)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" '.holdings = [$h]')"
+log_ev "$S" directed_transition '{"from":"verify","to":"verified_confirm"}'
+eq "--verified: a directed transition in the run is directed" directed "$(confirm --verified)"
+
+echo "== the leg path =="
+# A report arriving on a koto request leg: the hub's wait evidence names no
+# unit, so the unit is the holding whose Return path is the captured leg, as
+# report-facts.sh finds it. alpha's earlier message report, and its own #12 in
+# acme/gadgets, must not stand in for it.
+leg_arrival() { # leg_arrival <request-id> <leg>
+    log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:40:00.000Z
+    log_to "$S" wait report_facts; log_to "$S" report_facts wait
+    log_evidence "$S" wait '{"event":"leg"}' 2026-09-26T09:50:00.000Z
+    log_to "$S" wait leg_pick
+    log_capture "$S" WAIT_REQ "$1"
+    log_to "$S" leg_pick wait_leg
+    log_capture "$S" WAIT_LEG "$2"
+    log_to "$S" wait_leg take_report
+    log_to "$S" take_report report_facts
+}
+THETA_X=$(jq -nc --arg s "$SHA_HEAD" '{return_path: "leg req-1:execute", verified_head: $s}')
+session
+leg_arrival req-1 execute
+log_to "$S" report_facts verify
+log_to "$S" verify verify_board
+log_capture "$S" VERIFIED "$(bash "$CL" seal --session "$S" --state verify_board --token "verified 12 $SHA_HEAD")" "$EVT"
+log_to "$S" verify_board verified_confirm "$EVT"
+reset_calls
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg --verified: the leg's holding confirms, not the last message's unit" confirmed "$(confirm --verified)"
+grep -q "pr view 12 --repo acme/widgets --json headRefOid" "$GH_DB.calls" && ok "leg --verified: the head is read from the leg holding's repository" || bad "leg --verified: the head is read from the leg holding's repository" "$(calls)"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
+eq "leg --verified: a leg no holding carries waits, as a unit with no row does" waiting "$(confirm --verified)"
+TWO_X='{"return_path":"leg req-1:execute"}'
+body "$(rec | jq -c --argjson a "$(holding alpha "$TWO_X")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg --verified: a leg two holdings carry is a conflict" conflict "$(confirm --verified)"
+session
+leg_arrival req-1 execute
+sealed_capture merge_confirm MERGE_CONFIRM "merged 12 $SHA_HEAD"
+log_to "$S" merge_confirm record "$EVT"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
+eq "leg merge_confirm: the leg's unit gone confirms though alpha links gadgets#12" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg merge_confirm: the leg's holding still linking #12 waits" waiting "$(confirm)"
 
 echo "== conflicts and refusals =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec)"; db '.issues[0].body = "gone"'
@@ -254,6 +335,7 @@ eq "an entry from a state with nothing to confirm is a conflict" conflict "$(con
 
 echo "== sealing =="
 session
+checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"

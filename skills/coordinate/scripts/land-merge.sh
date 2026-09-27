@@ -10,7 +10,7 @@
 #   1. provenance: coord-log.sh provenance (the session came from this
 #      plugin's coordinate.md);
 #   2. no directed transition anywhere in the run (coord-log.sh
-#      directed-since 0), since `koto next --to` skips gates (koto#251);
+#      directed-since 0), since before koto 0.14.0 `koto next --to` skipped gates (koto#251);
 #   3. the check's own capture, read from the log here, never taken as an
 #      argument: LAND, sealed at the latest entry into land, reading
 #      `permit <pr> <sha>`. With --closeout: the latest valid of

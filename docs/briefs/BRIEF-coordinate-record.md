@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A coordinator can open a second record after a restart, dispatch past a predecessor's
   deferral, or land work on a head nobody verified, because `/coordinate` is prose: each
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 This brief frames the second piece of the coordinator work: the record's tooling and the
 koto workflow that carries the coordinator's loop. The dispatch tooling and a mechanised

@@ -16,10 +16,10 @@ description: >-
   (`/work-on`), or to justify a project or sequence a multi-feature
   initiative (`/charter`).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>] [--intent=continue|stop] [--coordinated|--no-coordinated] [--auto|--interactive] [--max-rounds=N] [--koto-leg=<request-id>:<leg>]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
 
 # Scope
 
@@ -223,7 +223,7 @@ intent-scoped prerequisites at `setup`, before any hop, because a
 missing `gh` found at exit would strand a finished chain unpublished:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || true
 ```
 
 Two re-invocations with intent take shortcuts rather than re-scoping.
@@ -246,8 +246,20 @@ its own. Its results map to `/scope`'s steps in one place:
 |---------------|-----------------------------------|-------------------|
 | one URL (exit 0) | reuse it | report it |
 | none (empty, exit 0), a foreign-only branch included | create the PR | `scope:pr-create` |
-| several (exit 3) | `scope:pr-create` | `scope:pr-create` |
+| several (exit 3), or ambiguous (exit 4) | `scope:pr-create` | `scope:pr-create` |
+| another run's PR (exit 5) | `scope:pr-create` | `scope:pr-create` |
 | read failure (exit 2) | `scope:pr-create` | `scope:pr-create` |
+
+Every lookup carries the session's run identity (`owned-pr.sh --run-id`, the
+`run_id` that `scope-open.sh` mints through `skills/execute/scripts/run-id.sh`), so a PR
+another run marked as its own is never reused, edited, or reported here.
+`/scope` stamps no marker on the PR it opens: its PR is matched on the
+login-and-branch fallback, which is what lets `/execute` adopt it. A rewrite
+of the body keeps whatever marker the live PR carries. That is a known
+limitation, not a guarantee: two runs sharing a login and a topic name can
+still reach the same scoping PR, so unique topic names remain the only
+separation on this path until the `/scope` and `/execute` legs of one workflow
+share one identity (see `/execute`'s **Owned-PR lookup**).
 
 ## Request Leg Flag
 
@@ -303,7 +315,7 @@ before authoring anything, because a missing `gh` here means an authored body
 with nowhere to go:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
 ```
 
 **With `--intent` set, `/scope` never creates a coordination PR up front.** On
@@ -371,7 +383,7 @@ so when it applies.
 `skills/scope/references/phases/phase-0-setup.md` and follow its Tokenizing
 and Workflow Session sections: write the invocation's raw tokens to an args
 file outside the work tree and run
-`bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>`.
+`${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>`.
 koto checks every argument there, and in the same call opens a new session,
 attaches to this worktree's live one, or -- when an earlier run of the topic
 already reached a terminal -- replaces that finished session with a fresh one
@@ -403,7 +415,7 @@ is a terminal with a `result:` map. When a `koto next` answers
 of your own:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
+${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
 ```
 
 It prints `/scope finished: exit=<exit>; artifact=<path>`, then `intent=`,

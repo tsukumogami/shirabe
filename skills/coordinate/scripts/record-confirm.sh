@@ -10,9 +10,15 @@
 # Every case also needs the record's Written: time to be later than that
 # event's time, so an older body that happens to match doesn't count.
 #
-#   dispatch        a Holdings row whose Worker is the evidence's topic
+#   dispatch        a Holdings row whose Worker is the evidence's topic, which
+#                   must be the topic dispatch_check sealed (`ok <topic>`);
+#                   another topic is a conflict
 #   surface         (merge_table) the unit's row has a Verified head; the unit
-#                   is the latest `wait` evidence's `unit` before the source
+#                   is the one the run's latest arrival before the source
+#                   names (below).
+#                   When surface was entered from land_merge on `merge: held`
+#                   (the human directed a hold the workspace doesn't require),
+#                   the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
 #   merged_facts    the unit's Holdings row no longer links #<pr>;
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
@@ -38,11 +44,14 @@
 # the pull request's live head, read from the repository that row links, is
 # no longer <sha> the verdict is `moved`.
 #
-# The unit is always found by its Worker (dispatch topic) from the log: the
-# latest `wait` evidence's `unit`, else the latest `dispatch` evidence's
-# `topic`. A pull request is never found by its bare number, since two units
-# in different repositories can both hold #12: its row is the unit's row, and
-# its repository is the one in that row's full Pull request URL.
+# The unit is always found by its Worker (dispatch topic) from the log, as
+# report-facts.sh finds it (record-common.sh lib_unit): the latest `wait`
+# evidence naming a unit, or on the leg path (wait_leg, then take_report) the
+# Holdings row whose Return path is the leg the engine captured, whichever
+# arrived later; with neither, the latest `dispatch` evidence's `topic`. A
+# pull request is never found by its bare number, since two units in
+# different repositories can both hold #12: its row is the unit's row, and its
+# repository is the one in that row's full Pull request URL.
 #
 # Verdict tokens: confirmed | waiting (no route: the state stays blocked until
 # the coordinator writes the record and ticks) | conflict (the body is missing
@@ -61,12 +70,14 @@
 # GitHub reads: gh issue view N --repo R --json state,body |
 # gh pr view N --repo R --json state,body; with --verified,
 # gh pr view <pr> --repo <the unit's row's repository> --json headRefOid.
+#
+# The session log is read only through coord-log.sh.
 set -uo pipefail
 
 PROG=record-confirm
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF=
-VERIFIED=0 NO_SEAL=0 SKIP_CHECKS=0
+VERIFIED=0 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -104,7 +115,7 @@ case $? in
     1) VERDICT=directed; REASON="directed transition $(printf '%s' "$OUT" | head -1)"; finish ;;
     *) lib_die2 "cannot read the session log" ;;
 esac
-lib_log || lib_die2 "cannot read the session log"
+lib_log_readable || lib_die2 "cannot read the session log"
 if ! lib_run_ref; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
 
 # The live body.
@@ -122,29 +133,55 @@ WRITTEN=$(jq -r '.written' "$T/rec.json")
 # event's second; a write in the same second can't be ordered, so it waits.
 later() { [ "${1:0:19}" \> "${2:0:19}" ]; }
 
-evidence() { # evidence <state> <before-seq>: the last evidence event there
-    jq -c --arg s "$1" --argjson q "$2" 'select(.type == "evidence_submitted" and .payload.state == $s and .seq < $q)
-        | {seq, timestamp, fields: (.payload.fields // {})}' "$LOG" | tail -1
+# The session log, through coord-log.sh. Each sets a variable rather than
+# printing, so a failed read exits 2 from here instead of from a subshell.
+# evidence <state> <before-seq>: EVJ, the last evidence event there, or empty.
+evidence() {
+    EVJ=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state "$1" --before "$2" 2> /dev/null)
+    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+    return 0
+}
+# entry <state> [<before-seq>]: ENT_SEQ and ENT_FROM of the latest entry into
+# <state>, or both empty.
+entry() {
+    local e
+    if [ -n "${2-}" ]; then
+        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$1" --before "$2" 2> /dev/null)
+    else
+        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$1" 2> /dev/null)
+    fi
+    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+    ENT_SEQ= ENT_FROM=
+    [ -n "$e" ] || return 0
+    ENT_SEQ=${e%% *} ENT_FROM=${e#* }
 }
 has_value() { # has_value <word>: some evidence field's value is exactly <word>
     printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null
-}
-wait_unit() { # the latest `wait` evidence's unit before <seq>
-    jq -r --argjson q "$1" 'select(.type == "evidence_submitted" and .payload.state == "wait" and .seq < $q)
-        | .payload.fields.unit // empty' "$LOG" | tail -1
 }
 holds() { # holds <jq test over the record> [jq args...]: the expectation
     local f=$1; shift
     jq -e "$@" "$f" "$T/rec.json" > /dev/null
 }
-# unit_topic <before-seq>: the unit the step is about, by its Worker: the
-# latest `wait` evidence's unit, else the latest `dispatch` evidence's topic.
+rec_holdings() { jq -c '.holdings' "$T/rec.json"; }
+# arrival_unit <before-seq>: UNIT, the unit the run's latest arrival names
+# (lib_unit, resolving a leg against this record's rows), or empty. A leg no
+# row carries is a unit with no row, as a topic with no row is on the message
+# path (its row may be the one the step removed): UNIT is then the leg itself,
+# which no Worker cell can equal.
+arrival_unit() {
+    lib_unit "$1" "" rec_holdings
+    [ -n "$UNIT_LEG" ] && [ "$LEG_ROWS" = 0 ] && UNIT=$UNIT_LEG
+    return 0
+}
+# unit_topic <before-seq>: UNIT, the unit the step is about, by its Worker: the
+# latest arrival's unit, else, when the run has had no arrival, the latest
+# `dispatch` evidence's topic.
 unit_topic() {
-    local u
-    u=$(wait_unit "$1")
-    [ -n "$u" ] || u=$(jq -r --argjson q "$1" 'select(.type == "evidence_submitted" and .payload.state == "dispatch" and .seq < $q)
-        | .payload.fields.topic // empty' "$LOG" | tail -1)
-    printf '%s' "$u"
+    lib_unit "$1" "" rec_holdings
+    [ $? -eq 1 ] || { [ -n "$UNIT_LEG" ] && [ "$LEG_ROWS" = 0 ] && UNIT=$UNIT_LEG; return 0; }
+    evidence dispatch "$1"
+    [ -n "$EVJ" ] && UNIT=$(printf '%s' "$EVJ" | jq -r '.fields.topic // empty')
+    return 0
 }
 # unit_row <topic>: sets ROW (the Holdings row whose Worker is the topic, or
 # empty) and, when its Pull request cell is a full link, ROW_REPO and ROW_PR.
@@ -152,13 +189,8 @@ unit_row() {
     ROW=$(jq -c --arg t "$1" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/rec.json")
     ROW_REPO= ROW_PR=
     [ -n "$ROW" ] || return 0
-    local parts
-    parts=$(printf '%s' "$ROW" | jq -r '.pull_request // ""
-        | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$")?
-        | select(.a == .b) | "\(.a) \(.r)"' 2> /dev/null)
-    set -f; set -- $parts; set +f
-    [ $# -eq 2 ] || return 0
-    ROW_PR=$1 ROW_REPO=$2
+    lib_pr_link "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" || return 0
+    ROW_PR=$LINK_NUM ROW_REPO=$LINK_REPO
 }
 
 if [ "$VERIFIED" = 1 ]; then
@@ -172,9 +204,9 @@ if [ "$VERIFIED" = 1 ]; then
     if [ "${1-}" != verified ] || ! [[ $PR =~ $RE_NUM ]] || ! [[ $SHA =~ $RE_SHA ]]; then
         VERDICT=conflict; REASON="the VERIFIED capture is not verified <pr> <sha>"; finish
     fi
-    VSEQ=$(jq -r 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound") and .payload.to == "verified_confirm") | .seq' "$LOG" | tail -1)
+    entry verified_confirm; VSEQ=$ENT_SEQ
     [ -n "$VSEQ" ] || { VERDICT=conflict; REASON="the log has no entry into verified_confirm"; finish; }
-    UNIT=$(unit_topic "$VSEQ")
+    unit_topic "$VSEQ"
     [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the log names no unit for the verified pull request"; finish; }
     EXPECT="the Holdings row for $UNIT links #$PR and has Verified head $SHA"
     unit_row "$UNIT"
@@ -194,16 +226,14 @@ if [ "$VERIFIED" = 1 ]; then
 fi
 
 # The latest entry into `record`, and where it came from.
-ENTRY=$(jq -c 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound") and .payload.to == "record")
-    | {seq, from: (.payload.from // "")}' "$LOG" | tail -1)
-[ -n "$ENTRY" ] || { VERDICT=conflict; REASON="the log has no entry into record"; finish; }
-ESEQ=$(printf '%s' "$ENTRY" | jq -r .seq)
-SOURCE=$(printf '%s' "$ENTRY" | jq -r .from)
-
+entry record
+[ -n "$ENT_SEQ" ] || { VERDICT=conflict; REASON="the log has no entry into record"; finish; }
+ESEQ=$ENT_SEQ
+SOURCE=$ENT_FROM
 
 case "$SOURCE" in
 dispatch|surface|teardown|destroy|decision_apply|posture_ask)
-    EV=$(evidence "$SOURCE" "$ESEQ")
+    evidence "$SOURCE" "$ESEQ"; EV=$EVJ
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
@@ -212,8 +242,9 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask)
 merge_confirm|merged_facts)
     CAPNAME=MERGE_CONFIRM
     [ "$SOURCE" = merged_facts ] && CAPNAME=MERGED_FACTS
-    CAP=$(jq -c --arg k "$CAPNAME" --argjson q "$ESEQ" 'select(.type == "variable_captured" and .payload.key == $k and .seq < $q)
-        | {timestamp, value: .payload.value}' "$LOG" | tail -1)
+    CAP=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name "$CAPNAME" --before "$ESEQ" 2> /dev/null)
+    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+    CAP=$(printf '%s' "$CAP" | tail -1)
     [ -n "$CAP" ] || { VERDICT=conflict; REASON="no $CAPNAME capture before record"; finish; }
     V=$(printf '%s' "$CAP" | jq -r .value)
     EVT=$(printf '%s' "$CAP" | jq -r .timestamp)
@@ -232,18 +263,38 @@ OKX=1
 case "$SOURCE" in
 dispatch)
     TOPIC=$(printf '%s' "$EV" | jq -r '.fields.topic // ""')
+    # The dispatch records only the topic dispatch_check passed: its sealed
+    # `ok <topic>`. A topic named only in the dispatch evidence is refused.
+    DC=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name DISPATCH_CHECK --state dispatch_check --any-visit 2> /dev/null) || DC=
+    case "$DC" in "ok "*) CHECKED=${DC#ok }; CHECKED=${CHECKED%% *} ;; *) CHECKED= ;; esac
+    if [ -z "$CHECKED" ] || [ "$CHECKED" = - ] || [ "$TOPIC" != "$CHECKED" ]; then
+        VERDICT=conflict; REASON="the dispatch names topic ${TOPIC:-none}, but dispatch_check passed ${CHECKED:-no topic}"; finish
+    fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
     ;;
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }
-    UNIT=$(wait_unit "$EVSEQ")
-    EXPECT="the row for $UNIT has a Verified head"
-    [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\")" || OKX=0
+    arrival_unit "$EVSEQ"
+    # Held by direction: the latest entry into surface came from land_merge,
+    # whose last evidence there says held. Read from the log, never a key.
+    entry surface "$ESEQ"; SFROM=$ENT_FROM
+    HELD=0
+    if [ "$SFROM" = land_merge ]; then
+        evidence land_merge "$ESEQ"; LM=$EVJ
+        [ "$(printf '%s' "$LM" | jq -r '.fields.merge // ""')" = held ] && HELD=1
+    fi
+    if [ "$HELD" = 1 ]; then
+        EXPECT="the row for $UNIT has a Verified head and Phase held"
+        [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\" and .phase == \"held\")" || OKX=0
+    else
+        EXPECT="the row for $UNIT has a Verified head"
+        [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t') and .verified_head != \"\")" || OKX=0
+    fi
     ;;
 teardown)
     UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // .fields.topic // ""')
-    [ -n "$UNIT" ] || UNIT=$(wait_unit "$EVSEQ")
+    [ -n "$UNIT" ] || arrival_unit "$EVSEQ"
     if has_value done; then
         EXPECT="no Holdings row for $UNIT"
         [ -n "$UNIT" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$UNIT" '$t')) | not" || OKX=0
@@ -290,7 +341,7 @@ posture_ask)
         and ((.reversed + \" \" + .now) | ascii_downcase | contains(\"posture\")))" || OKX=0
     ;;
 merge_confirm|merged_facts)
-    UNIT=$(unit_topic "$ESEQ")
+    unit_topic "$ESEQ"
     [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the log names no unit for #$PR"; finish; }
     unit_row "$UNIT"
     if [ "$KIND" = merged ]; then

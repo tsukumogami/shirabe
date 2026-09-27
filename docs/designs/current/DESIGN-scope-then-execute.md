@@ -1527,8 +1527,9 @@ The Overview diagram shows the sequence. What each hand-off carries:
    bookkeeping and a resumed run measures the same deadline.
 5. **Out of `/execute`:** a terminal result on the leg, which `/deliver`
    re-checks against GitHub before reporting.
-6. **Coordinated resume** reads the coordination PR (its PR index and
-   merge-order block) and the node branches' PRs.
+6. **Coordinated resume** reads the coordination PR (its PR index and the
+   `head=` records on it) and the node branches' PRs; the merge-order block is
+   a record for readers, not a resume input.
 
 ### `/deliver` template states
 

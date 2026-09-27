@@ -15,10 +15,10 @@ description: >-
   first hop), to order a set of features (`/roadmap`), or when the question is
   still open-ended (`/explore`).
 argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb> [--upstream <path>]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh brief 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh brief 2>&1 || true`
 
 @.claude/shirabe-extensions/brief.md
 @.claude/shirabe-extensions/brief.local.md

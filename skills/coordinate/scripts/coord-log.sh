@@ -13,7 +13,7 @@
 # not a secret: what makes a seal trustworthy is that readers take it from the
 # log themselves, never from an argument the coordinator passes.
 #
-# `koto next --to` moves a session past any gate (koto#251); `directed-since`
+# `koto next --to` could move a session past a gate before koto 0.14.0 (koto#251); `directed-since`
 # is how every write script detects that and refuses.
 #
 # Usage:
@@ -44,14 +44,44 @@
 #       this script (its compiled hash equals the header's template_hash) and its
 #       PLUGIN_ROOT variable is this script's plugin root; 1 otherwise; 2 read failure.
 #       --template is for tests that run a localized copy.
-#   coord-log.sh live-session --scope-slug SLUG
+#   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
+#       With --all, prints every live one, one per line. Exit 0; 1 none.
+#   coord-log.sh slug --scope SCOPE --name NAME
+#       Prints the scope slug sessions are named by: `<scope>-<name>` lowercased,
+#       every character outside [a-z0-9-] made `-`, runs of `-` squeezed, one
+#       trailing `-` trimmed. Reads no session. Exit 0.
 #   coord-log.sh vars --session S
 #       Prints the workflow_initialized variables object as compact JSON, the
 #       run's scope, roadmap or discipline, and host. Exit 0; 2 read failure.
 #   coord-log.sh entered --session S --state ST
 #       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
 #       failure. Write scripts ask it whether the run has dispatched yet.
+#   coord-log.sh entry --session S --state ST [--before SEQ]
+#       Prints "<seq> <from>" for the latest entry into ST (transitioned,
+#       directed or rewound), before SEQ when given. Exit 0; 1 none; 2 read failure.
+#   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
+#                         [--where FIELD=VALUE]... [--has FIELD]
+#       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
+#       ST in that window. --where keeps evidence whose FIELD, as a string (""
+#       when absent), is VALUE; --has keeps evidence whose FIELD is set (not
+#       null or false). Exit 0; 1 none; 2 read failure.
+#   coord-log.sh captures --session S --name N [--after SEQ] [--before SEQ]
+#       Prints {"seq","timestamp","value"} for every engine-written capture of N
+#       in that window, oldest first, one per line; no seal is checked. Exit 0;
+#       1 none; 2 read failure.
+#   coord-log.sh unit --session S [--before SEQ] [--event E]
+#       The unit the run's latest arrival names, before SEQ when given. An
+#       arrival is a `wait` evidence naming a unit (with --event, any `wait`
+#       evidence whose event is E, naming a unit or not), or the leg path: the
+#       latest entry into take_report, when it came from wait_leg. Prints
+#       `topic <unit>` (the evidence's unit, unchecked, possibly empty) or
+#       `leg <request>:<leg>` (the first words of the latest WAIT_REQ and
+#       WAIT_LEG captures before that entry), whichever arrival is later.
+#       Exit 0; 1 no arrival; 3 a leg whose captures are not a request id and a
+#       leg; 2 read failure.
+#   coord-log.sh count --session S
+#       Prints how many events the log holds. Exit 0; 2 read failure.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -67,11 +97,20 @@ sha256() {
     else shasum -a 256 | cut -d' ' -f1; fi
 }
 
-session_log() { # session_log <session> -> path of the state log
-    local dir
+# session_log <session> -> path of the state log. The one place any script
+# finds a session's log: every other script reads it through the subcommands
+# below. A header whose schema_version isn't 1 is a format this reader doesn't
+# know, so the log is refused rather than misread.
+session_log() {
+    local dir f v
     dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
-    local f="$dir/koto-$1.state.jsonl"
+    f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
+    v=$(head -1 "$f" | jq -c '.schema_version') || v=unreadable
+    if [ "$v" != 1 ]; then
+        echo "coord-log: $1's log header has schema_version ${v:-none}; this reader knows 1" >&2
+        return 1
+    fi
     printf '%s\n' "$f"
 }
 
@@ -88,8 +127,10 @@ is_entry() { # is_entry <log> <state> <seq>
 
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
-SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG=
-ANY=0
+SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
+SCOPE= EVENT= HAS=
+WHERE='[]'
+ANY=0 ALL=0
 CMD=${1-}
 [ -n "$CMD" ] || usage
 shift
@@ -104,9 +145,19 @@ while [ $# -gt 0 ]; do
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --for) [ $# -ge 2 ] || usage; FOR=$2; shift 2 ;;
         --from) [ $# -ge 2 ] || usage; FROM=$2; shift 2 ;;
+        --after) [ $# -ge 2 ] || usage; AFTER=$2; shift 2 ;;
+        --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
+        --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
+        --event) [ $# -ge 2 ] || usage; EVENT=$2; shift 2 ;;
+        --has) [ $# -ge 2 ] || usage; HAS=$2; shift 2 ;;
+        --where) [ $# -ge 2 ] || usage
+            case "$2" in ?*=*) ;; *) usage ;; esac
+            WHERE=$(jq -nc --argjson w "$WHERE" --arg f "${2%%=*}" --arg v "${2#*=}" '$w + [[$f, $v]]') || usage
+            shift 2 ;;
         --any-visit) ANY=1; shift ;;
+        --all) ALL=1; shift ;;
         *) usage ;;
     esac
 done
@@ -229,12 +280,25 @@ live-session)
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
         jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
+        [ "$ALL" = 1 ] && printf '%s\n' "$id"
         LIVE=$id
         n=$((n + 1))
     done
     [ $n -eq 0 ] && exit 1
+    [ "$ALL" = 1 ] && exit 0
     [ $n -gt 1 ] && { echo "coord-log: several live sessions for $SLUG" >&2; exit 3; }
     printf '%s\n' "$LIVE"
+    ;;
+slug)
+    need SCOPE NAME
+    SLUG=$(printf '%s-%s' "$SCOPE" "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-' | tr -s '-')
+    printf '%s\n' "${SLUG%-}"
+    ;;
+count)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    N=$(wc -l < "$LOG") || die "cannot read $LOG"
+    echo $((N - 1))
     ;;
 vars)
     need SESSION
@@ -247,6 +311,54 @@ entered)
     need SESSION STATE
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     [ -n "$(latest_entry "$LOG" "$STATE")" ] || exit 1
+    ;;
+entry|evidence|captures)
+    if [ "$CMD" = captures ]; then need SESSION NAME; else need SESSION STATE; fi
+    for n in "$AFTER" "$BEFORE"; do case "$n" in *[!0-9]*) usage ;; esac; done
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    A=${AFTER:-0} B=${BEFORE:-}
+    case "$CMD" in
+    entry)
+        OUT=$(jq -r --arg s "$STATE" --arg b "$B" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber))) | "\(.seq) \(.payload.from // "")"' "$LOG" | tail -1) || die "cannot read $LOG"
+        ;;
+    evidence)
+        OUT=$(jq -c --arg s "$STATE" --argjson a "$A" --arg b "$B" --argjson w "$WHERE" --arg h "$HAS" '
+            select(.type == "evidence_submitted" and .payload.state == $s
+                and .seq > $a and ($b == "" or .seq < ($b | tonumber)))
+            | (.payload.fields // {}) as $f
+            | select(all($w[]; ($f[.[0]] // "" | tostring) == .[1]) and ($h == "" or ($f[$h] // null) != null))
+            | {seq, timestamp, fields: $f}' "$LOG" | tail -1) || die "cannot read $LOG"
+        ;;
+    captures)
+        OUT=$(jq -c --arg n "$NAME" --argjson a "$A" --arg b "$B" 'select(.type == "variable_captured" and .payload.key == $n
+            and .seq > $a and ($b == "" or .seq < ($b | tonumber))) | {seq, timestamp, value: .payload.value}' "$LOG") || die "cannot read $LOG"
+        ;;
+    esac
+    [ -n "$OUT" ] || exit 1
+    printf '%s\n' "$OUT"
+    ;;
+unit)
+    need SESSION
+    case "$BEFORE" in *[!0-9]*) usage ;; esac
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    OUT=$(jq -rs --arg b "$BEFORE" --arg ev "$EVENT" '
+        [.[] | select(.type != null and ($b == "" or .seq < ($b | tonumber)))] as $e
+        | def cap($k; $q): [$e[] | select(.type == "variable_captured" and .payload.key == $k and .seq < $q)] | last
+            | (.payload.value // "") | tostring | split(" ") | .[0] // "";
+          ([$e[] | select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+            and .payload.to == "take_report")] | last) as $leg
+        | ([$e[] | select(.type == "evidence_submitted" and .payload.state == "wait"
+            and (if $ev == "" then (.payload.fields.unit // null) != null
+                 else (.payload.fields.event // "") == $ev end))] | last) as $w
+        | if $leg != null and ($leg.payload.from // "") == "wait_leg" and ($w == null or $leg.seq > $w.seq) then
+            cap("WAIT_REQ"; $leg.seq) as $r | cap("WAIT_LEG"; $leg.seq) as $l
+            | if ($r | test("^[a-z0-9_][a-z0-9_-]{0,63}$")) and ($l | test("^[a-z0-9_-]+$")) then "leg \($r):\($l)" else "unusable" end
+          elif $w != null then "topic \(($w.payload.fields.unit // "") | tostring)"
+          else empty end' "$LOG") || die "cannot read $LOG"
+    [ -n "$OUT" ] || exit 1
+    [ "$OUT" = unusable ] && { echo "coord-log: the leg captures are not a request id and a leg" >&2; exit 3; }
+    printf '%s\n' "$OUT"
     ;;
 *) usage ;;
 esac

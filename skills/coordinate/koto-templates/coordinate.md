@@ -9,6 +9,44 @@ version: "1.0"
 # The session is a root on every tick (`koto next --no-cleanup`); see
 # references/koto-session-retention.md. Nothing materializes this template as
 # a child.
+#
+# Every check-state arm carries its verdict word as a comment
+# (`exit_code: 14  # foreign`); the word-to-code table is
+# scripts/coord-verdict.sh, and coord-verdict-table_test.sh pins the two
+# together. A word with no arm holds the state: `waiting` and `land-blocked`
+# by design (coord-verdict.sh exit 4), anything else is a bug (exit 3).
+#
+# Context keys. Each check writes one detail key as data, named for what it
+# describes; directives, deciders and the progress table read them, and no gate
+# reads one except as a decider input (pick_input, report_input):
+#   coord/record_find.json      record_find: the verdict, the record's ref and
+#                               URL, the candidates, the rotation's dates
+#   record_url                  record_find on `found`: the record's URL, for
+#                               the terminal results' `record`
+#   coord/posture.json          start_posture: each finishing step's posture
+#                               and why
+#   coord/pick.json             pick_facts: units in order, holdings with
+#                               parked flags, counts, cap and bound (pick's
+#                               decider input; progress-view.sh's input)
+#   coord/dispatch_check.json   dispatch_check: the verdict, the checked
+#                               choice and topic, open deferrals, counts
+#   coord/record_confirm.json   record, verified_confirm: the source state, the
+#                               expectation and why it isn't met yet
+#   coord/report.json           report_facts: the unit's holding and pull
+#                               request facts (classify_report's decider input)
+#   coord/board.json            verify_board: board-verdict.sh's full JSON
+#                               (reasons, skipped jobs, the required set)
+#   coord/quiet.json            quiet_check: the quiet workers and why
+#   coord/closeout.json         roadmap_close, rotation_close,
+#                               predecessor_close: the stage and its facts
+#   dispatch_topic              pick's edges: the topic chosen, for the
+#                               dispatch path's dispatch-worker.sh
+#
+# Scripts already handle states the dispatch path (shirabe#404) adds:
+# leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
+# WAIT_REQ and WAIT_LEG), teardown_inventory and destroy (record-confirm.sh,
+# capture TEARDOWN_SEAL, key teardown_verdict). The reconcile feature
+# (shirabe#406) adds reconcile_pass (verdict `reconciled`, 140).
 description: >
   /coordinate's loop: a coordinator that drives a roadmap or one rotation of a
   discipline by handing units of work to other sessions, verifying what they
@@ -28,9 +66,10 @@ description: >
 
   Every GitHub write (opening, rewriting or closing the record, a merge, a
   close-out commit) is a script the coordinator runs from a directive, and
-  each re-reads GitHub and the session log first. `koto next --to` moves a
-  session past any gate (koto#251); the write scripts and later readers scan
-  the log for a directed transition and refuse on one.
+  each re-reads GitHub and the session log first. koto 0.14.0 and later refuse
+  `koto next --to` past a failing non-overridable gate (koto#251); the write
+  scripts and later readers also scan the log for any directed transition and
+  refuse on one, as defence in depth.
 
   After the start and record phase, `wait` is a hub the coordinator ticks on
   every message or notification, naming the event. Every edge out of it lands
@@ -98,13 +137,13 @@ states:
     transitions:
       - target: start_posture
         when:
-          gates.start_verdict.exit_code: 20
+          gates.start_verdict.exit_code: 20  # active
       - target: start_posture
         when:
-          gates.start_verdict.exit_code: 21
+          gates.start_verdict.exit_code: 21  # discipline
       - target: done_not_active
         when:
-          gates.start_verdict.exit_code: 22
+          gates.start_verdict.exit_code: 22  # not-active
         context_assignments:
           outcome: not-active
           failure_reason: "the roadmap is missing or not Active"
@@ -123,10 +162,10 @@ states:
     transitions:
       - target: record_find
         when:
-          gates.start_posture_verdict.exit_code: 25
+          gates.start_posture_verdict.exit_code: 25  # readable
       - target: record_find
         when:
-          gates.start_posture_verdict.exit_code: 26
+          gates.start_posture_verdict.exit_code: 26  # unread
 
   record_find:
     default_action:
@@ -142,31 +181,31 @@ states:
     transitions:
       - target: reconcile_pass
         when:
-          gates.record_find_verdict.exit_code: 10
+          gates.record_find_verdict.exit_code: 10  # found
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 11
+          gates.record_find_verdict.exit_code: 11  # none
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 12
+          gates.record_find_verdict.exit_code: 12  # stale-branch
       - target: record_open
         when:
-          gates.record_find_verdict.exit_code: 13
+          gates.record_find_verdict.exit_code: 13  # unopened
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 14
+          gates.record_find_verdict.exit_code: 14  # foreign
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 15
+          gates.record_find_verdict.exit_code: 15  # ambiguous
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 16
+          gates.record_find_verdict.exit_code: 16  # malformed
       - target: record_conflict
         when:
-          gates.record_find_verdict.exit_code: 17
+          gates.record_find_verdict.exit_code: 17  # unauthorized
       - target: predecessor_handoff
         when:
-          gates.record_find_verdict.exit_code: 18
+          gates.record_find_verdict.exit_code: 18  # predecessor
 
   record_open:
     accepts:
@@ -213,10 +252,10 @@ states:
     transitions:
       - target: predecessor_close
         when:
-          gates.predecessor_handoff_verdict.exit_code: 110
+          gates.predecessor_handoff_verdict.exit_code: 110  # rendered
       - target: record_conflict
         when:
-          gates.predecessor_handoff_verdict.exit_code: 111
+          gates.predecessor_handoff_verdict.exit_code: 111  # unparseable
 
   predecessor_close:
     default_action:
@@ -232,16 +271,16 @@ states:
     transitions:
       - target: predecessor_step
         when:
-          gates.predecessor_close_verdict.exit_code: 120
+          gates.predecessor_close_verdict.exit_code: 120  # handoff-missing
       - target: predecessor_step
         when:
-          gates.predecessor_close_verdict.exit_code: 122
+          gates.predecessor_close_verdict.exit_code: 122  # land
       - target: predecessor_done
         when:
-          gates.predecessor_close_verdict.exit_code: 90
+          gates.predecessor_close_verdict.exit_code: 90  # merged
       - target: record_conflict
         when:
-          gates.predecessor_close_verdict.exit_code: 125
+          gates.predecessor_close_verdict.exit_code: 125  # closed-unmerged
 
   predecessor_step:
     accepts:
@@ -330,23 +369,23 @@ states:
     accepts:
       merge:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds merges.
+        description: permitted when the human said the coordinator may merge; reserved when a person keeps the merge.
       close:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds closes.
+        description: permitted when the human said the coordinator may close; reserved when a person keeps it.
       teardown:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds teardowns.
+        description: permitted when the human said the coordinator may tear down; reserved when a person keeps it.
     transitions:
       - target: record
         when:
-          merge: held
+          merge: permitted
       - target: record
         when:
           merge: reserved
@@ -369,14 +408,14 @@ states:
     transitions:
       - target: pick
         when:
-          gates.pick_facts_verdict.exit_code: 30
+          gates.pick_facts_verdict.exit_code: 30  # pick
           gates.pick_input.exists: true
       - target: roadmap_close
         when:
-          gates.pick_facts_verdict.exit_code: 31
+          gates.pick_facts_verdict.exit_code: 31  # scope-complete
       - target: rotation_close
         when:
-          gates.pick_facts_verdict.exit_code: 32
+          gates.pick_facts_verdict.exit_code: 32  # rotation-over
 
   pick:
     # choice carries a decider in shadow mode: its answer is recorded beside the
@@ -410,6 +449,10 @@ states:
       rationale:
         type: string
         description: Why this choice, especially when it departs from the facts' order.
+    # dispatch_topic is data for the dispatch path's dispatch-worker.sh (the
+    # topic it compiles a brief for). The check itself never reads it:
+    # dispatch_check takes the topic from this visit's pick evidence in the log,
+    # and record confirms a dispatch only on the topic dispatch_check sealed.
     transitions:
       - target: dispatch_check
         when:
@@ -459,16 +502,19 @@ states:
     transitions:
       - target: dispatch
         when:
-          gates.dispatch_check_verdict.exit_code: 40
+          gates.dispatch_check_verdict.exit_code: 40  # ok
       - target: deferral_dispose
         when:
-          gates.dispatch_check_verdict.exit_code: 41
+          gates.dispatch_check_verdict.exit_code: 41  # deferral-open
       - target: record_find
         when:
-          gates.dispatch_check_verdict.exit_code: 42
+          gates.dispatch_check_verdict.exit_code: 42  # record-changed
       - target: wait
         when:
-          gates.dispatch_check_verdict.exit_code: 43
+          gates.dispatch_check_verdict.exit_code: 43  # at-cap
+      - target: pick_facts
+        when:
+          gates.dispatch_check_verdict.exit_code: 44  # duplicate-topic
 
   deferral_dispose:
     accepts:
@@ -491,7 +537,8 @@ states:
         description: sent once the worker was dispatched and its holding written; failed when the dispatch did not start.
       topic:
         type: string
-        description: The worker's dispatch topic.
+        required: true
+        description: The worker's dispatch topic, the one dispatch_check passed; record refuses any other.
     transitions:
       - target: record
         when:
@@ -514,13 +561,13 @@ states:
     transitions:
       - target: pick_facts
         when:
-          gates.record_verdict.exit_code: 50
+          gates.record_verdict.exit_code: 50  # confirmed
       - target: record_conflict
         when:
-          gates.record_verdict.exit_code: 52
+          gates.record_verdict.exit_code: 52  # conflict
       - target: record_conflict
         when:
-          gates.record_verdict.exit_code: 54
+          gates.record_verdict.exit_code: 54  # directed
 
   wait:
     # The hub. No action, no gate and no details: an idle tick appends nothing,
@@ -584,14 +631,14 @@ states:
     transitions:
       - target: classify_report
         when:
-          gates.report_facts_verdict.exit_code: 60
+          gates.report_facts_verdict.exit_code: 60  # holding
           gates.report_input.exists: true
       - target: wait
         when:
-          gates.report_facts_verdict.exit_code: 61
+          gates.report_facts_verdict.exit_code: 61  # unknown
       - target: wait
         when:
-          gates.report_facts_verdict.exit_code: 62
+          gates.report_facts_verdict.exit_code: 62  # refused
 
   classify_report:
     # classification carries a decider in shadow mode, recorded beside the
@@ -669,13 +716,13 @@ states:
     transitions:
       - target: verified_confirm
         when:
-          gates.verify_board_verdict.exit_code: 70
+          gates.verify_board_verdict.exit_code: 70  # verified
       - target: failure
         when:
-          gates.verify_board_verdict.exit_code: 71
+          gates.verify_board_verdict.exit_code: 71  # unverified
       - target: wait
         when:
-          gates.verify_board_verdict.exit_code: 72
+          gates.verify_board_verdict.exit_code: 72  # pending
 
   verified_confirm:
     default_action:
@@ -691,10 +738,16 @@ states:
     transitions:
       - target: land
         when:
-          gates.verified_confirm_verdict.exit_code: 50
+          gates.verified_confirm_verdict.exit_code: 50  # confirmed
+      - target: record_conflict
+        when:
+          gates.verified_confirm_verdict.exit_code: 52  # conflict
       - target: verify
         when:
-          gates.verified_confirm_verdict.exit_code: 53
+          gates.verified_confirm_verdict.exit_code: 53  # moved
+      - target: record_conflict
+        when:
+          gates.verified_confirm_verdict.exit_code: 54  # directed
 
   land:
     default_action:
@@ -710,27 +763,27 @@ states:
     transitions:
       - target: land_merge
         when:
-          gates.land_verdict.exit_code: 80
+          gates.land_verdict.exit_code: 80  # permit
       - target: surface
         when:
-          gates.land_verdict.exit_code: 81
+          gates.land_verdict.exit_code: 81  # deny
       - target: surface
         when:
-          gates.land_verdict.exit_code: 82
+          gates.land_verdict.exit_code: 82  # confirm
       - target: verify
         when:
-          gates.land_verdict.exit_code: 53
+          gates.land_verdict.exit_code: 53  # moved
       - target: failure
         when:
-          gates.land_verdict.exit_code: 84
+          gates.land_verdict.exit_code: 84  # dirty
 
   land_merge:
     accepts:
       merge:
         type: enum
-        values: [attempted, failed]
+        values: [attempted, failed, held]
         required: true
-        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed.
+        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed; held when the human directed merges held, without running it.
     transitions:
       - target: merge_confirm
         when:
@@ -738,6 +791,9 @@ states:
       - target: failure
         when:
           merge: failed
+      - target: surface
+        when:
+          merge: held
 
   merge_confirm:
     default_action:
@@ -753,10 +809,10 @@ states:
     transitions:
       - target: record
         when:
-          gates.merge_confirm_verdict.exit_code: 90
+          gates.merge_confirm_verdict.exit_code: 90  # merged
       - target: record
         when:
-          gates.merge_confirm_verdict.exit_code: 91
+          gates.merge_confirm_verdict.exit_code: 91  # unconfirmed
 
   merged_facts:
     default_action:
@@ -772,13 +828,13 @@ states:
     transitions:
       - target: record
         when:
-          gates.merged_facts_verdict.exit_code: 90
+          gates.merged_facts_verdict.exit_code: 90  # merged
       - target: record
         when:
-          gates.merged_facts_verdict.exit_code: 91
+          gates.merged_facts_verdict.exit_code: 91  # unconfirmed
       - target: wait
         when:
-          gates.merged_facts_verdict.exit_code: 92
+          gates.merged_facts_verdict.exit_code: 92  # not-merged
 
   surface:
     accepts:
@@ -824,13 +880,13 @@ states:
     transitions:
       - target: wait
         when:
-          gates.quiet_check_verdict.exit_code: 100
+          gates.quiet_check_verdict.exit_code: 100  # quiet-none
       - target: status_message
         when:
-          gates.quiet_check_verdict.exit_code: 101
+          gates.quiet_check_verdict.exit_code: 101  # first-silence
       - target: failure
         when:
-          gates.quiet_check_verdict.exit_code: 102
+          gates.quiet_check_verdict.exit_code: 102  # second-silence
 
   status_message:
     accepts:
@@ -891,22 +947,22 @@ states:
     transitions:
       - target: roadmap_close_step
         when:
-          gates.roadmap_close_verdict.exit_code: 130
+          gates.roadmap_close_verdict.exit_code: 130  # ready
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 131
+          gates.roadmap_close_verdict.exit_code: 131  # features-open
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 132
+          gates.roadmap_close_verdict.exit_code: 132  # holdings
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 133
+          gates.roadmap_close_verdict.exit_code: 133  # side-effects
       - target: roadmap_blocked
         when:
-          gates.roadmap_close_verdict.exit_code: 134
+          gates.roadmap_close_verdict.exit_code: 134  # deferrals
       - target: done
         when:
-          gates.roadmap_close_verdict.exit_code: 135
+          gates.roadmap_close_verdict.exit_code: 135  # closed
         context_assignments:
           outcome: closed
 
@@ -953,19 +1009,19 @@ states:
     transitions:
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 120
+          gates.rotation_close_verdict.exit_code: 120  # handoff-missing
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 121
+          gates.rotation_close_verdict.exit_code: 121  # title-stale
       - target: rotation_step
         when:
-          gates.rotation_close_verdict.exit_code: 122
+          gates.rotation_close_verdict.exit_code: 122  # land
       - target: rotation_done
         when:
-          gates.rotation_close_verdict.exit_code: 90
+          gates.rotation_close_verdict.exit_code: 90  # merged
       - target: record_conflict
         when:
-          gates.rotation_close_verdict.exit_code: 125
+          gates.rotation_close_verdict.exit_code: 125  # closed-unmerged
 
   rotation_step:
     accepts:
@@ -1092,7 +1148,10 @@ is a default, not a permission rule of this skill's own.
 Finding this scope's record on GitHub. koto runs `record-find.sh` itself; it
 lists every open issue (roadmap scope) or reads the rotation's branch and pull
 requests (discipline scope), never through GitHub's search, and routes on what
-it finds.
+it finds. A record is adopted only when it carries the declaration line (`> This
+is a **coordinator record** for ...`), an author and last editor with write
+access, and a canonical body; a title match without the declaration line is
+`foreign`, a stop for the human, never a record to take over.
 
 <!-- details -->
 
@@ -1273,15 +1332,17 @@ already does.
 ## posture_ask
 
 The posture couldn't be read. Ask the human once which of merge, close and
-teardown you hold, record their answer as a Reversals row from `the human`
-naming the posture, rewrite the record, then submit their answer.
+teardown you may do, record their answer as a Reversals row from `the human`
+naming the posture, rewrite the record, then submit it: `permitted` or
+`reserved` for each.
 
 <!-- details -->
 
 Until the answer is on GitHub, every finishing step stays reserved. The answer is
 the one posture fact the workflow takes on your relay, which is why it goes into
-the record where anyone can read who decided it; the land step treats a held
-step as permitted only while that row is on GitHub.
+the record where anyone can read who decided it; the land step treats a
+`permitted` merge as permitted only while that row is on GitHub. This is not
+land_merge's `merge: held`, which is the human directing a merge held.
 
 ## pick_facts
 
@@ -1333,6 +1394,7 @@ to landed work.
 | Unit of work | Entry point |
 |---|---|
 | A roadmap feature that has to be worked out and built | `/shirabe:deliver` |
+| A roadmap feature scoped ahead (`scope_ahead`) | `/shirabe:scope <topic> --intent=continue`, then `/shirabe:execute docs/plans/PLAN-<topic>.md` to the same worker at `send_execution` |
 | An issue that is already specified | `/shirabe:work-on` |
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
@@ -1355,9 +1417,15 @@ loop keeps running while you wait.
 
 Checking the record before a dispatch. koto runs `deferral-check.sh` itself:
 the record must exist once with its four sections, no deferral raised before
-this run started may be undisposed, and the cap and parked bound must allow it.
+this run started may be undisposed, the topic must not already be held, and the
+cap and parked bound must allow it.
 
 <!-- details -->
+
+A topic a Holdings row already names as its worker can't be dispatched again: a
+worker's session name is machine-wide, so a second live worker on the same topic
+collides with the first. The check sends you back to pick; pick another unit, or
+send the holding its next step.
 
 A deferral is disposed of when its Disposition reads `filed #<n>` (an issue that
 exists), `closed: <reason>`, or `carried <time>: <reason>` with a time at or
@@ -1383,7 +1451,11 @@ that finishes files or closes every open deferral, because nobody succeeds it.
 
 Write the worker's brief from `references/brief-template.md` and dispatch it;
 record the dispatch as a holding with `record-holding.sh` before any other
-action; then submit `dispatched: sent` and the `topic`.
+action; then submit `dispatched: sent` and the `topic`. The topic is the one
+`dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
+the record step refuses a dispatch under any other. The brief lists the
+checkpoints the worker reports at, and tells it to report and continue at each
+one: it waits on no approval.
 
 <!-- details -->
 
@@ -1425,8 +1497,19 @@ repository, path or issue: a holding that would need one is a scope question for
 the human. Quoted material such as a CI log line goes in a cell as it is; the
 renderer keeps it from breaking the table.
 
-If this state stays blocked, the rewrite hasn't reached GitHub yet: write it and
-tick again. A `koto next --to` anywhere in this run sends it to the human.
+A write is a compare-and-swap on the `Written:` line: edit the body you just
+read, keeping its `Written:` line, and `record-write.sh` refuses with exit 12
+(`record-changed`) when the live record was written since, by another
+coordinator or a person. Then re-read it and redo your change on the new body;
+when the other change is one you can't reconcile with yours, don't overwrite it:
+report both versions to the human and ask once, as at `record_conflict`.
+`record-holding.sh` does the read and the compare for you.
+
+If this state stays blocked, the record doesn't yet show what this state expects.
+What that is depends on the state you came from: `koto context get <session>
+coord/record_confirm.json` names it (`expectation`) and why it isn't met yet
+(`reason`). Usually the rewrite hasn't reached GitHub: write it and tick again.
+A `koto next --to` anywhere in this run sends it to the human.
 
 ## wait
 
@@ -1446,7 +1529,7 @@ differs from the holding's Branch.
 <!-- details -->
 
 Workers report by message, plus what they pushed. A same-host worker whose entry
-point accepts a koto request leg (today `/scope` and `/execute`, shirabe#401),
+point accepts a koto request leg (`/deliver`, `/work-on`, `/scope` and `/execute`),
 dispatched with one, also has its result on that leg; read it before classifying.
 Every other worker reports by message only, and a worker on another host always
 does, since koto's request legs are local. koto#250 means a resolved leg wakes
@@ -1539,13 +1622,19 @@ permits.
 ## land_merge
 
 The workspace permits the merge. Run `land-merge.sh` exactly once, then submit
-`merge: attempted`, or `failed` when it refused or the call failed.
+`merge: attempted`, or `failed` when it refused or the call failed. When the
+human has directed merges held, don't run it: submit `merge: held`.
 
 <!-- details -->
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/land-merge.sh" --session "{{SESSION_NAME}}"
 ```
+
+A hold the human directed is theirs to lift, and it narrows only what you do, not
+what the workspace permits: the pull request stays verified and goes to the human
+with the merge-order table, and its holding's Phase becomes `held`. A hold is not
+a failure, and it doesn't escalate.
 
 It reads the land check's verdict from the session log, re-reads the posture, and
 merges only at the verified head. After it returns, the next state confirms the
@@ -1581,15 +1670,17 @@ until it merges.
 ## surface
 
 Put it in front of the human, once: for a merge the workspace reserves, the
-merge-order table from `references/verification-checklist.md` with each head you
-verified and the reason for the order (`surfaced: merge_table`); for a blocked
-worker, the decision with one recommendation (`surfaced: blocker`).
+merge-order table from `references/verification-checklist.md` with the reason for
+the order (`surfaced: merge_table`); for a blocked worker, the decision with one
+recommendation (`surfaced: blocker`). Pull requests are links, workers are inline
+code, and no commit hash is shown.
 
 <!-- details -->
 
 A parked worker is one with a verified, ready pull request waiting only on a
 merge. After a merge-order table, record the holding as parked with its verified
-head; if a pull request's head moves after you hand the table over, it drops
+head, and with Phase `held` when you came here because the human directed merges
+held (the record step checks it); if a pull request's head moves after you hand the table over, it drops
 back to unverified until you read it again.
 
 ## teardown
@@ -1623,8 +1714,10 @@ worker's silent checks from this session's log.
 
 A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
-and pull request and its session on the host. The human's decisions may set other
-intervals, which you apply as guidance. One silent check earns a status message;
+and pull request and its session on the host. The 30-minute interval is the
+check's own and is fixed: a human's decision about intervals governs what your
+status message asks and when you follow up by hand, not when this check counts
+a silence. One silent check earns a status message;
 a second sends the unit to the failure branch. Silence alone never makes a worker
 dead: treat it as gone only on a signal that it is gone, such as a message that
 bounces.

@@ -20,9 +20,16 @@ on:
       - '.github/workflows/check-preflight-scripts.yml'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      # The macOS leg runs the `preflight` suite through the floor runner, and
+      # that suite also carries the injection and discard checks' harnesses.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/check-skill-injection.sh'
+      - 'scripts/check-skill-injection_test.sh'
+      - 'scripts/check-tool-diagnostic-discards.sh'
+      - 'scripts/check-tool-diagnostic-discards_test.sh'
 
 env:
-  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
 
@@ -81,12 +88,7 @@ jobs:
           echo "$HOME/.preflight-bin" >> "$GITHUB_PATH"
 
       - name: Install tsuku
-        env:
-          TSUKU_TELEMETRY: "0"
-        run: |
-          curl -fsSL https://get.tsuku.dev/now | bash
-          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.tsuku/tools/current" >> "$GITHUB_PATH"
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
 
       - name: Install koto
         env:
@@ -96,18 +98,26 @@ jobs:
       # /scope's and /execute's declarations name the koto init entry flags
       # only koto 0.13.0 and later have, so the zero-bytes assertions hold only
       # from that release on.
+      # Run by path rather than through `bash`: this step runs on the macOS leg
+      # too, where a bare `bash` reads as a floor leg on Homebrew's bash 5 and
+      # scripts/check-macos-floor-legs.sh refuses it. The check is about koto,
+      # so which bash interprets it does not matter.
       - name: Assert koto meets the floor
-        run: bash scripts/assert-koto-floor.sh
+        run: scripts/assert-koto-floor.sh
 
       # ---------------------------------------------------------------------
       # The suites
       #
       # These scripts must run under the bash each platform actually ships.
-      # macOS ships bash 3.2 as /bin/bash and always will, so the macOS leg
-      # invokes /bin/bash explicitly rather than `bash`: a newer bash on the
-      # runner's PATH would otherwise hide a portability regression, which is
-      # exactly what an earlier `brew install bash` step in the sibling plan
-      # workflow did.
+      # macOS ships bash 3.2 as /bin/bash and always will, but a bare `bash` on
+      # a macOS runner is Homebrew's bash 5 (shirabe#416), which is what an
+      # earlier `brew install bash` step in the sibling plan workflow also did.
+      # So the macOS leg goes through scripts/check-bash-floor.sh --backend
+      # system: it refuses a /bin/bash that is not 3.2, logs the version it ran
+      # on, and puts a shim first on PATH so a nested `bash` is 3.2 too.
+      # Calling /bin/bash on the harness alone would leave its nested runs of
+      # the production line described below -- a bare `bash` on
+      # skill-preflight.sh -- on Homebrew's bash 5.
       #
       # This matrix IS the guard against reintroducing a post-3.2 construct;
       # there is deliberately no grep for `declare -A` and friends. A pattern
@@ -118,9 +128,11 @@ jobs:
       #
       # bash is also the interpreter production uses. The line injected into
       # every skill body is
-      # `bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <name>`, so both
-      # legs test what actually runs at skill load rather than an approximation
-      # of it.
+      # `${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <name>`, run by path
+      # through its `#!/usr/bin/env bash` shebang, so both legs test the
+      # interpreter that runs at skill load. The suites call that interpreter
+      # explicitly; the by-path half (the committed exec bit and the #! line)
+      # is held by check-directive-invocations.yml.
       #
       # The two legs together are the cross-version output check: the same
       # tests, with the same recorded expectations, have to pass under bash 3.2
@@ -143,30 +155,18 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/check-skill-requires_test.sh
 
-      - name: Entry point, reader, and resolver (macOS, system bash 3.2)
+      # The four harnesses above and the scan below, plus the injection and
+      # discard checks' harnesses: the `preflight` suite in
+      # scripts/check-bash-floor.sh.
+      - name: Preflight suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
-        run: /bin/bash scripts/skill-preflight_test.sh
-
-      - name: Probe (macOS, system bash 3.2)
-        if: runner.os == 'macOS'
-        run: /bin/bash scripts/lib/preflight-probe_test.sh
-
-      - name: Reporter and route resolution (macOS, system bash 3.2)
-        if: runner.os == 'macOS'
-        run: /bin/bash scripts/lib/preflight-report_test.sh
-
-      - name: Declaration conformance (macOS, system bash 3.2)
-        if: runner.os == 'macOS'
-        run: /bin/bash scripts/check-skill-requires_test.sh
+        run: scripts/check-bash-floor.sh --backend system preflight
 
       # The scan on its own, against the committed tree. The harness runs it as
       # its first case, but a verdict reported only from inside a test harness
       # reads as a test result. This step is the conformance verdict on the
       # branch, and its failure text is the one the author sees.
+      # On the macOS leg the scan runs inside the floor suite above.
       - name: Scan the committed declarations (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/check-skill-requires.sh
-
-      - name: Scan the committed declarations (macOS, system bash 3.2)
-        if: runner.os == 'macOS'
-        run: /bin/bash scripts/check-skill-requires.sh

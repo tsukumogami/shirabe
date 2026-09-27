@@ -121,7 +121,7 @@ test_list_names_every_suite() {
         fail "$name" "expected exit 0, got $rc"
         return
     fi
-    for suite in plan execute templates template-consistency; do
+    for suite in plan execute templates template-consistency deliver scope; do
         case "$out" in
             *"$suite"*) ;;
             *) fail "$name" "suite $suite missing from --list"; return ;;
@@ -148,6 +148,33 @@ test_registry_scripts_exist() {
     else
         pass "$name"
     fi
+}
+
+# --suites and --scripts are the machine-readable registry that
+# check-macos-floor-legs.sh reads; they have to agree with --list and print
+# nothing but names.
+test_machine_readable_registry() {
+    local name="--suites and --scripts print the registry one name per line"
+    local suites scripts rc=0
+
+    suites=$($RUNNER --suites 2>&1) || rc=$?
+    if [ $rc -ne 0 ] || ! printf '%s\n' "$suites" | grep -qx deliver \
+        || printf '%s\n' "$suites" | grep -q ' '; then
+        fail "$name" "--suites (rc=$rc): $suites"
+        return
+    fi
+    scripts=$($RUNNER --scripts plan 2>&1) || rc=$?
+    if [ $rc -ne 0 ] || ! printf '%s\n' "$scripts" | grep -qx 'skills/plan/scripts/plan-to-tasks_test.sh'; then
+        fail "$name" "--scripts plan (rc=$rc): $scripts"
+        return
+    fi
+    rc=0
+    $RUNNER --scripts no-such-suite >/dev/null 2>&1 || rc=$?
+    if [ $rc -ne 2 ]; then
+        fail "$name" "--scripts on an unknown suite: expected exit 2, got $rc"
+        return
+    fi
+    pass "$name"
 }
 
 test_unknown_suite_is_refused() {
@@ -247,6 +274,7 @@ test_canary_fails_on_the_floor
 test_floor_run_names_the_version
 test_list_names_every_suite
 test_registry_scripts_exist
+test_machine_readable_registry
 test_unknown_suite_is_refused
 test_no_suite_is_refused
 test_unreachable_floor_is_not_reported_as_a_suite_failure

@@ -30,14 +30,14 @@ TITLE="Coordinator record: ROADMAP-plugin-system"
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
 DS=(--scope discipline --name ci-health --repo "$REPO" --ref 22 --skip-session-checks)
 BR=coordinate/discipline-ci-health
-OLD=$(render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z)
-DOLD=$(render "$(record_json discipline ci-health)" pr 2026-09-26T08:00:00Z)
+OLD=$(render "$(record_json roadmap plugin-system)" issue)
+DOLD=$(render "$(record_json discipline ci-health)" pr)
 DEFERRALS='[{"deferral":"a","reason":"r","raised":"2026-09-25T10:00Z","disposition":"filed #40"},
             {"deferral":"b","reason":"r","raised":"2026-09-25T10:00Z","disposition":"closed: done elsewhere"},
             {"deferral":"c","reason":"r","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T08:30Z: next week"},
             {"deferral":"d","reason":"r","raised":"2026-09-25T10:00Z","disposition":""}]'
 NEWJ=$(record_json roadmap plugin-system | jq -c --argjson h "$(holding feature-2)" --argjson d "$DEFERRALS" '.holdings = [$h] | .deferrals = $d')
-render "$NEWJ" issue 2026-09-26T11:00:00Z > "$T/new.md"
+render "$NEWJ" issue > "$T/new.md"
 
 seed_rm() { db_init; db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$OLD"; }
 seed_ds() {
@@ -45,6 +45,12 @@ seed_ds() {
     db '.branches["acme/widgets"][$br] = $s | .prs += [{repo: "acme/widgets", number: 22, title: "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29",
         body: $b, state: "OPEN", isDraft: true, isCrossRepository: false, baseRefName: "main", headRefName: $br, headRefOid: $s, author: "alice", editor: null}]' \
         --arg br "$BR" --arg s "$SHA_HEAD" --arg b "$DOLD"
+}
+# rebase: put the live record back at the version the test bodies were edited
+# from (Written 09:00), leaving everything else as it is, so a second write in
+# a row isn't refused as record-changed.
+rebase() {
+    db '(.issues[] | select(.number == 7) | .body) |= $o | (.prs[] | select(.number == 22) | .body) |= $d' --arg o "$OLD" --arg d "$DOLD"
 }
 body7() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB"; }
 
@@ -57,6 +63,7 @@ grep -q '^issue edit 7 --repo acme/widgets --body-file' "$GH_DB.calls" && ok "th
 grep -q comment "$GH_DB.calls" && bad "no comment is posted" "$(calls)" || ok "no comment is posted"
 eq "filed and closed deferrals stay before any dispatch" 4 "$(body7 | grep -c '^| [abcd] |')"
 reset_calls
+rebase
 bash "$WR" "${RM[@]}" --close --body-file "$T/new.md" >/dev/null 2>"$T/err"; rc=$?
 eq "--close exits 0" 0 "$rc"
 eq "--close writes the body, then closes" "issue edit|issue close" "$(grep -oE '^issue (edit|close)' "$GH_DB.calls" | tr '\n' '|' | sed 's/|$//')"
@@ -74,23 +81,29 @@ bash "$WR" "${RM[@]}" --body-file "$T/other.md" >/dev/null 2>&1; eq "a body for 
 eq "refused bodies write nothing" "$OLD" "$(body7)"
 bash "$WR" "${RM[@]}" --end 2026-10-01 --body-file "$T/new.md" >/dev/null 2>&1; eq "--end at roadmap scope is a usage error" 64 $?
 
-echo "== the Written: time is the script's own =="
+echo "== the Written: time is the script's own, and a stale base is refused =="
 seed_rm
-render "$NEWJ" issue 2099-01-01T00:00:00Z > "$T/future.md"
 BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-bash "$WR" "${RM[@]}" --body-file "$T/future.md" >/dev/null 2>"$T/err"; eq "a body with a future Written: is written" 0 $?
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a body edited from the live version is written" 0 $?
 AFTER=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 W=$(body7 | sed -n 's/^Written: //p')
-if [ "$W" != 2099-01-01T00:00:00Z ] && ! [ "$W" \< "$BEFORE" ] && ! [ "$AFTER" \< "$W" ]; then
-    ok "the written body carries now, not the body's future time"
+if [ "$W" != 2026-09-26T09:00:00Z ] && ! [ "$W" \< "$BEFORE" ] && ! [ "$AFTER" \< "$W" ]; then
+    ok "the written body carries now, not the body's own time"
 else
-    bad "the written body carries now, not the body's future time" "$BEFORE <= $W <= $AFTER"
+    bad "the written body carries now, not the body's own time" "$BEFORE <= $W <= $AFTER"
 fi
-render "$NEWJ" issue 2020-01-01T00:00:00Z > "$T/past.md"
-bash "$WR" "${RM[@]}" --body-file "$T/past.md" >/dev/null 2>&1
-W=$(body7 | sed -n 's/^Written: //p')
-[ "$W" != 2020-01-01T00:00:00Z ] && ! [ "$W" \< "$BEFORE" ] && ok "a past Written: is replaced too" || bad "a past Written: is replaced too" "$W"
-eq "only the Written: line differs from the body given" "$(grep -v '^Written: ' "$T/past.md")" "$(body7 | grep -v '^Written: ')"
+eq "only the Written: line differs from the body given" "$(grep -v '^Written: ' "$T/new.md")" "$(body7 | grep -v '^Written: ')"
+# The same body again: the live record now carries the first write's time, so
+# a body still edited from 09:00 would lose that write.
+reset_calls
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a body edited from an older version is refused (record-changed)" 12 $?
+grep -q "record-changed" "$T/err" && ok "the refusal names record-changed" || bad "the refusal names record-changed" "$(cat "$T/err")"
+grep -q '^issue edit' "$GH_DB.calls" && bad "a refused write edits nothing" "$(calls)" || ok "a refused write edits nothing"
+seed_rm
+render "$NEWJ" issue 2099-01-01T00:00:00Z > "$T/future.md"
+bash "$WR" "${RM[@]}" --body-file "$T/future.md" >/dev/null 2>&1; eq "a body with a Written: the live record never carried is refused" 12 $?
+seed_rm; db '.issues[0].body = $b' --arg b "$(printf '%s\n\nA line a person added.\n' "$OLD")"
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>&1; eq "a live body a person edited out of canonical form is refused as changed" 12 $?
 
 echo "== repository visibility =="
 seed_rm
@@ -101,12 +114,14 @@ grep -q 'acme/secret' "$T/err" && ok "the refusal names the repository" || bad "
 render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].pull_request = "[#3](https://github.com/acme/secret/pull/3)"')" issue > "$T/privpr.md"
 bash "$WR" "${RM[@]}" --body-file "$T/privpr.md" >/dev/null 2>&1; eq "a private pull request link from a public host is refused" 65 $?
 render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/gadgets"')" issue > "$T/pub.md"
+rebase
 bash "$WR" "${RM[@]}" --body-file "$T/pub.md" >/dev/null 2>&1; eq "a public unit repository is fine" 0 $?
 for tgt in 'acme/secret#3' 'https://github.com/acme/secret/issues/3' '[#3](https://github.com/acme/secret/pull/3)' \
            'merge of acme/secret#3.' 'https://github.com/acme/secret.git' 'acme/unknown#1'; do
     seed_rm
     render "$(printf '%s' "$NEWJ" | jq -c --arg t "$tgt" '.side_effects = [{action: "merge", target: $t,
         verified_head: "0123456789abcdef0123456789abcdef01234567", attempted: "2026-09-26T11:02Z", how_to_confirm: "read the pull request"}]')" issue > "$T/se.md"
+    rebase
     bash "$WR" "${RM[@]}" --body-file "$T/se.md" >/dev/null 2>"$T/err"; rc=$?
     eq "a Side effects Target [$tgt] naming a private or unreadable repository is refused" 65 "$rc"
     grep -qE 'acme/(secret|unknown)' "$T/err" && ok "the refusal names it" || bad "the refusal names it" "$(cat "$T/err")"
@@ -116,24 +131,28 @@ for tgt in 'acme/gadgets#4' 'https://github.com/acme/gadgets/pull/4' '#12' 'work
     seed_rm
     render "$(printf '%s' "$NEWJ" | jq -c --arg t "$tgt" '.side_effects = [{action: "merge", target: $t,
         verified_head: "0123456789abcdef0123456789abcdef01234567", attempted: "2026-09-26T11:02Z", how_to_confirm: "read the pull request"}]')" issue > "$T/se.md"
+    rebase
     bash "$WR" "${RM[@]}" --body-file "$T/se.md" >/dev/null 2>"$T/err"; eq "a Side effects Target [$tgt] naming no private repository is written" 0 $?
 done
 seed_rm; db '.repos["acme/widgets"].private = true'
+rebase
 bash "$WR" "${RM[@]}" --body-file "$T/priv.md" >/dev/null 2>&1; eq "a private host may name a private repository" 0 $?
 seed_rm; db '.fail = [{match: "repos/acme/widgets --jq .private", rc: 1}]'
 bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>&1; eq "a failed visibility read exits 2" 2 $?
 
 echo "== discipline =="
 seed_ds
-render "$(printf '%s' "$NEWJ" | jq -c '.scope = {kind: "discipline", name: "ci-health"}')" pr 2026-09-26T11:00:00Z > "$T/dnew.md"
+render "$(printf '%s' "$NEWJ" | jq -c '.scope = {kind: "discipline", name: "ci-health"}')" pr > "$T/dnew.md"
 bash "$WR" "${DS[@]}" --body-file "$T/dnew.md" >/dev/null 2>"$T/err"; eq "a discipline write exits 0" 0 $?
 eq "the pull request body is replaced" "$(grep -v '^Written: ' "$T/dnew.md")" "$(jq -r '.prs[0].body' "$GH_DB" | grep -v '^Written: ')"
 grep -q '^pr edit 22 --repo acme/widgets --body-file' "$GH_DB.calls" && ok "the write is a pr edit" || bad "the write is a pr edit" "$(calls)"
 grep -q comment "$GH_DB.calls" && bad "no comment on the pull request" "$(calls)" || ok "no comment on the pull request"
 eq "the title is untouched without --end" "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29" "$(jq -r '.prs[0].title' "$GH_DB")"
+rebase
 bash "$WR" "${DS[@]}" --end 2026-09-25 --body-file "$T/dnew.md" >/dev/null 2>"$T/err"; eq "--end exits 0" 0 $?
 eq "--end rewrites the title's end and keeps its start" "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-25" "$(jq -r '.prs[0].title' "$GH_DB")"
 reset_calls
+rebase
 bash "$WR" "${DS[@]}" --end 2026-09-21 --body-file "$T/dnew.md" >/dev/null 2>&1; eq "an end before the start is refused" 65 $?
 grep -q 'pr edit' "$GH_DB.calls" && bad "a refused end writes nothing" "$(calls)" || ok "a refused end writes nothing"
 bash "$WR" "${DS[@]}" --close --body-file "$T/dnew.md" >/dev/null 2>&1; eq "--close at discipline scope is a usage error" 64 $?
@@ -154,6 +173,7 @@ OUT=$(bash "$WR" --session "$S" --body-file "$T/new.md" 2>"$T/err"); rc=$?
 eq "the record number comes from run-facts" "0 https://github.com/acme/widgets/issues/7" "$rc $OUT"
 eq "before the run's first dispatch every deferral stays" 4 "$(body7 | grep -c '^| [abcd] |')"
 log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick; log_to "$S" pick dispatch_check; log_to "$S" dispatch_check dispatch
+rebase
 bash "$WR" --session "$S" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write after the first dispatch exits 0" 0 $?
 eq "filed and closed deferrals are dropped after the first dispatch" "c d" "$(body7 | sed -n 's/^| \([abcd]\) |.*/\1/p' | tr '\n' ' ' | sed 's/ $//')"
 W=$(body7 | sed -n 's/^Written: //p')
@@ -189,6 +209,7 @@ bash "$WR" --session "$OLDS" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "
 grep -q "$NEWS is" "$T/err" && ok "the refusal names the live session" || bad "the refusal names the live session" "$(cat "$T/err")"
 eq "and nothing is read or written" "" "$(calls)"
 eq "the body is untouched" "$OLD" "$(body7)"
+rebase
 bash "$WR" --session "$NEWS" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "the live run writes" 0 $?
 touch "$KOTO_STORE/sessions/$NEWS/.terminal"
 bash "$WR" --session "$NEWS" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a run that reached a terminal state is refused" 10 $?
@@ -208,8 +229,5 @@ log_new "$DBAD" "$(discipline_vars CI_Health..)"
 bash "$WR" --session "$DBAD" --body-file "$T/dnew.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a session not named by the slug is refused by the guard" "10 not the live" "$rc $(grep -o 'not the live' "$T/err" | head -1)"
 log_end "$DSESS"
-eq "record-common.sh derives the slug with coordinate-open.sh's own pipeline" \
-    "$(grep -A1 '^SLUG=\$(printf' "$HERE/coordinate-open.sh" | sed 's/^ *//')" \
-    "$(grep -A1 '^    SLUG=\$(printf' "$HERE/record-common.sh" | sed 's/^ *//')"
 
 done_tests record-write

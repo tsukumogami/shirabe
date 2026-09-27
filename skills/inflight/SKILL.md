@@ -11,10 +11,10 @@ description: >-
   session-scoped empty-state when none are tracked, not an arbitrary query.
 argument-hint: ''
 disable-model-invocation: true
-allowed-tools: Bash(shirabe:*), Bash(echo:*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(shirabe:*), Bash(echo:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh inflight 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh inflight 2>&1 || true`
 
 # In Flight
 
@@ -73,7 +73,7 @@ undeclared subcommand deletes the skill silently rather than degrading it.
 
 `/inflight` is the only skill carrying two injected lines, so its `allowed-tools`
 carries four patterns rather than two: the pair above, plus
-`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)` for
+`Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)` for
 the preflight line every skill now has at the top of its body. The list is
 additive for the same reason it is a list: one entry per subcommand across both
 lines, four subcommands, four patterns. Extending it rather than replacing it is

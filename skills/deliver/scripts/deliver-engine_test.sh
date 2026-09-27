@@ -249,6 +249,9 @@ start() {
     k init "deliver-$TOPIC" --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
         --var MODE="${1:-auto}" --var MERGE="${2:-true}" >/dev/null 2>"$T/init.err" \
         || { fail "$TOPIC: koto init deliver" "$(cat "$T/init.err")"; return 1; }
+    # The run identity deliver-open.sh mints at the session's birth; the
+    # probes only read it.
+    printf '00112233445566778899aabbccddeeff' | k context add "deliver-$TOPIC" run_id >/dev/null 2>&1
     tick
     REQ=$(k request list --coordinator-of-record "deliver-$TOPIC" --state open | jq -r '.requests[0].request_id // ""')
 }

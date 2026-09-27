@@ -15,7 +15,8 @@
 # request leg). This script builds the call, keeps user tokens out of any
 # shell, removes the args file, and renders koto's refusal in the caller's
 # wording. The per-skill thin wrappers (scope-open.sh, /execute's entry,
-# deliver-open.sh) sit on top of it.
+# deliver-open.sh, and /work-on's --koto-leg entry work-on-open.sh) sit on top
+# of it.
 #
 # Usage:
 #   koto-open.sh <session> <template> <args-file>
