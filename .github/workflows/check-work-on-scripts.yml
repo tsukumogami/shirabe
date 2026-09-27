@@ -21,6 +21,8 @@ on:
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      # An edit to this workflow changes what runs, so it has to run the suite.
+      - '.github/workflows/check-work-on-scripts.yml'
 
 env:
   # tsuku's installer and `tsuku install` call the GitHub API; the token
