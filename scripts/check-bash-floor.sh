@@ -243,10 +243,14 @@ suite_scripts() {
             echo "scripts/assert-koto-floor_test.sh"
             ;;
         coordinate)
-            # The coordinate skill's dispatch helpers and brief renderer need
-            # only jq, so every case runs on the floor.
+            # The coordinate skill's dispatch scripts need only jq (their
+            # niwa, koto and record stand-ins are test-local), so every case
+            # runs on the floor.
             echo "skills/coordinate/scripts/dispatch-common_test.sh"
             echo "skills/coordinate/scripts/render-brief_test.sh"
+            echo "skills/coordinate/scripts/dispatch-worker_test.sh"
+            echo "skills/coordinate/scripts/wait-target_test.sh"
+            echo "skills/coordinate/scripts/teardown-inventory_test.sh"
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
