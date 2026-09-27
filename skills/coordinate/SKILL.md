@@ -85,7 +85,10 @@ work.
    Every invocation is a new run named `coordinate-<scope>-<UTC stamp>`, printed
    as `session=<name>`. A restart after a crash is a new run too: it starts,
    finds the record the previous run left on GitHub, and reconciles before
-   acting. The opener cancels any earlier live run of the same scope without
+   acting. An adopted record is a snapshot dated by its `Written:` time, so
+   reconciling re-checks every holding in it against GitHub (pull request state
+   and head, branch, issue, CI) and the host before anything acts on it, and
+   GitHub wins where they disagree. The opener cancels any earlier live run of the same scope without
    deleting its log. `ask=host` means the human must name the host first; a
    refusal prints koto's reason and `refused=<code>`.
 
@@ -295,8 +298,13 @@ until then it is a procedure the coordinator runs with a local agent.
 - **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches
   report by message only.
-- **Legs are single-host.** koto's request store is local, so a worker on another
-  host always reports by message.
+- **One machine and one HOME (shirabe#407).** koto's request and session stores
+  are per-user and machine-wide under the koto home, so a coordinator and the
+  workers that answer its legs share one machine and one HOME, and a worker on
+  another host reports by message. Session names are machine-wide too: a second
+  live worker on a topic already held collides with the first (koto refuses the
+  attach as `origin_mismatch` and records nothing on a leg already bound), so the
+  dispatch check refuses a topic a Holdings row already names.
 - **The workspace manager isn't checked at load.** The coordinator runs the
   workspace manager's dispatch and list commands, which the load-time preflight
   can't check. Declaring it is the dispatch path's item.

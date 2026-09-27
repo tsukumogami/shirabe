@@ -447,6 +447,9 @@ states:
       - target: wait
         when:
           gates.dispatch_check_verdict.exit_code: 43
+      - target: pick_facts
+        when:
+          gates.dispatch_check_verdict.exit_code: 44
 
   deferral_dispose:
     accepts:
@@ -1303,9 +1306,15 @@ loop keeps running while you wait.
 
 Checking the record before a dispatch. koto runs `deferral-check.sh` itself:
 the record must exist once with its four sections, no deferral raised before
-this run started may be undisposed, and the cap and parked bound must allow it.
+this run started may be undisposed, the topic must not already be held, and the
+cap and parked bound must allow it.
 
 <!-- details -->
+
+A topic a Holdings row already names as its worker can't be dispatched again: a
+worker's session name is machine-wide, so a second live worker on the same topic
+collides with the first. The check sends you back to pick; pick another unit, or
+send the holding its next step.
 
 A deferral is disposed of when its Disposition reads `filed #<n>` (an issue that
 exists), `closed: <reason>`, or `carried <time>: <reason>` with a time at or

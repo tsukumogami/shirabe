@@ -41,7 +41,7 @@ case "$WORD" in
     # pick_facts
     pick) exit 30 ;; scope-complete) exit 31 ;; rotation-over) exit 32 ;;
     # dispatch_check
-    ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;;
+    ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;; duplicate-topic) exit 44 ;;
     # record, verified_confirm ("waiting" has no code: the state stays blocked)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts

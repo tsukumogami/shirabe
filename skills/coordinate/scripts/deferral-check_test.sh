@@ -116,6 +116,19 @@ log_new "$S" "$(roadmap_vars plugin-system)"; log_to "$S" pick dispatch_check
 seed "$(record_json roadmap plugin-system)"
 eq "a run without a found record is record-changed" "record-changed" "$(check)"
 
+echo "== check mode: a topic already held =="
+pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
+    baseRefName: "main", headRefName: "feat/41", headRefOid: $h, author: "alice", editor: null}]' --arg h "$SHA_HEAD"; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+pr_dup
+session "$(roadmap_vars plugin-system)" 7
+OUT=$(check); eq "dispatching a topic a Holdings row already names is refused" "duplicate-topic beta" "$OUT"
+tok_shape "duplicate-topic is in koto's capture alphabet" "$OUT"
+session "$(roadmap_vars plugin-system)" 7 scope_ahead beta
+eq "scope_ahead on a held topic is refused too" "duplicate-topic beta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+eq "another topic is clear" "ok gamma" "$(check)"
+
 echo "== check mode: the cap and the parked bound =="
 pr() { # pr <n> <state> <draft>
     db '.prs += [{repo: "acme/widgets", number: $n, title: "w", body: "", state: $s, isDraft: ($d == "true"), isCrossRepository: false,

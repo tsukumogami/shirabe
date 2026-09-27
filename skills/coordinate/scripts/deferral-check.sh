@@ -16,6 +16,13 @@
 #                         docs/disciplines/<name>.md on the host's default
 #                         branch (absent: none) that the record doesn't carry,
 #                         by its Deferral text, with a disposition
+#   duplicate-topic <topic>
+#                         the pick dispatches (dispatch or scope_ahead) a
+#                         topic a Holdings row already names as its Worker:
+#                         worker session names are machine-wide, so a second
+#                         live worker on the topic would collide with the
+#                         first (koto refuses the attach as origin_mismatch
+#                         and nothing is recorded on a leg already bound)
 #   at-cap <active>/<cap> <parked>/<bound>
 #                         the pick being checked (the latest `pick` evidence)
 #                         would pass the cap or the parked bound: dispatch and
@@ -243,8 +250,15 @@ if [ "$COUNT" -gt 0 ]; then
     REASON="$COUNT deferral(s) open"; finish "deferral-open $COUNT"
 fi
 
-# The cap and the parked bound.
 jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
+# A topic already held. send_execution is judged below, as it targets a holding.
+if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
+    && jq -e --arg t "$TOPIC" 'any(.[]; .worker == $t)' "$T/holdings.json" > /dev/null; then
+    REASON="a Holdings row already names $TOPIC as its worker"
+    finish "duplicate-topic $TOPIC"
+fi
+
+# The cap and the parked bound.
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
 ACTIVE=$(jq '[.[] | select(.parked | not)] | length' "$T/counted.json")

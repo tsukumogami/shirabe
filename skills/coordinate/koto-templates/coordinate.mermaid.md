@@ -16,6 +16,7 @@ stateDiagram-v2
     dispatch_check --> deferral_dispose : gates.dispatch_check_verdict.exit_code: 41
     dispatch_check --> record_find : gates.dispatch_check_verdict.exit_code: 42
     dispatch_check --> wait : gates.dispatch_check_verdict.exit_code: 43
+    dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 44
     failure --> dispatch_check : move: redispatch
     failure --> wait : move: escalate
     land --> land_merge : gates.land_verdict.exit_code: 80

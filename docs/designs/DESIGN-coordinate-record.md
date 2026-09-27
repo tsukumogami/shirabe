@@ -372,6 +372,13 @@ Three reconciliations were made across the decisions:
   gate: the only workers that could bind a leg today are `/scope` and `/execute` runs
   (shirabe#401), and binding one at dispatch is the dispatch path's work. The `wait` guidance says
   which is which.
+- Leg names stay fixed, one request per worker (from shirabe#407). A skill that answers a leg
+  answers exactly one (`/deliver` answers `deliver`, `/work-on` answers `work-on`), so the
+  coordinator opens one request per dispatched worker and records it in Return path as
+  `leg <request-id>:<leg>`. The other choice was letting the skills accept any leg name and relying
+  on koto's template and input check; a worker never answers two legs, so that widens the input
+  every skill must validate and buys nothing. Fixed names also make a Return path readable
+  without the request in hand.
 - Decision 1 ran the deferral check only before the run's first dispatch; decision 4 ran it before
   every dispatch. Both hold: `dispatch_check` runs before every dispatch and always checks that no
   record row raised before the run started is undisposed, but it compares the predecessor's handoff
@@ -496,7 +503,7 @@ The turn:
 | `pick_facts` | check + data: `pick-facts.sh` prints `pick`, `scope-complete` or `rotation-over`; writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts) | `pick` -> `pick`; `scope-complete` -> `roadmap_close`; `rotation-over` -> `rotation_close` |
 | `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider over `coord/pick.json`, `CAP` and `PARKED_BOUND`; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
 | `ask_up` | evidence `sent` | -> `wait` |
-| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait` |
+| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker; a `dispatch` or `scope_ahead` topic a Holdings row already names is refused, since worker session names are machine-wide); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait`; `duplicate-topic` -> `pick_facts` |
 | `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
 | `dispatch` | evidence `sent` or `failed`, `topic`; the dispatch path fills its procedure | sent -> `record`; failed -> `failure` |
 | `record` | check: `record-confirm.sh`, which reads the source state and its evidence from the log and checks the change it implies (below) | confirmed -> `pick_facts`; a `--to` in the run or an unconfirmable change -> `record_conflict` |
