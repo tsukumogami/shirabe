@@ -168,14 +168,24 @@ bl_posture_merge() {
     set +f
 }
 
-# bl_human_holds_merge <session>: 0 when the live record carries a Reversals
-# row, dated at or after the run's start, whose From is `the human`, which
-# mentions the posture, and whose Now says the coordinator holds the merge
-# (and doesn't negate it). That row is how an unreadable posture's answer
-# reaches the workflow; it must be on GitHub now, not only in the
-# coordinator's word. 1 absent; 2 read failure.
+# bl_human_holds_merge <session>: 0 when the human's answer to posture_ask
+# holds the merge, and that answer is on GitHub now. The answer is the
+# session log's latest evidence_submitted in state posture_ask; only its
+# `merge` field reading `held` counts (never Reversals prose, which fixes no
+# phrasing and can't tell who holds which step). It must also be on the live
+# record: a Reversals row from `the human`, whose Reversed or Now mentions the
+# posture, dated at or after that evidence (to the minute) -- the test
+# record-confirm.sh applies after posture_ask. 1 no held answer, or no such
+# row; 2 read failure.
 bl_human_holds_merge() {
-    local s=$1 facts vars repo ref scope name start since body
+    local s=$1 log ev facts repo ref scope name min body
+    log=$(bl_log "$s") || return 2
+    ev=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "posture_ask")
+        | {timestamp: (.timestamp // ""), merge: (.payload.fields.merge // "")}' "$log" 2>/dev/null | tail -1)
+    [ -n "$ev" ] || return 1
+    [ "$(printf '%s' "$ev" | jq -r '.merge')" = held ] || return 1
+    min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
+    [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2
     repo=$(printf '%s' "$facts" | jq -r '.repo // ""')
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
@@ -183,8 +193,6 @@ bl_human_holds_merge() {
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
     bl_repo_ok "$repo" && bl_pr_ok "$ref" || return 2
     case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
-    start=$(bash "$HERE/coord-log.sh" run-start --session "$s" 2>/dev/null) || return 2
-    since="$(printf '%s' "$start" | cut -c1-16)Z"
     local t
     t=$(mktemp "${TMPDIR:-/tmp}/board-lib.XXXXXX") || return 2
     if ! bl_gh "$t" api --method GET "repos/$repo/issues/$ref"; then rm -f "$t" "$t.err" "$t.fail"; return 2; fi
@@ -193,13 +201,10 @@ bl_human_holds_merge() {
     local cont=issue
     [ "$scope" = discipline ] && cont=pr
     printf '%s' "$body" | bash "$HERE/record-parse.sh" --container "$cont" --expect-scope "$scope:$name" - 2>/dev/null \
-        | jq -e --arg since "$since" '
+        | jq -e --arg min "$min" '
             [.reversals[]? | select(.from == "the human"
-                and (((.reversed // "") + " " + (.now // "")) | test("posture"; "i"))
-                and ((.now // "") | test("merge"; "i"))
-                and ((.now // "") | test("\\b(hold|holds|held)\\b"; "i"))
-                and (((.now // "") | test("\\b(not|never)\\b|n\\x27t\\b"; "i")) | not)
-                and ((.date // "") >= $since))] | length > 0' >/dev/null
+                and (((.reversed // "") + " " + (.now // "")) | ascii_downcase | contains("posture"))
+                and ((.date // "")[0:16] >= $min))] | length > 0' >/dev/null
 }
 
 # bl_merge_posture <session>: the merge step's effective posture, printed as
@@ -207,9 +212,9 @@ bl_human_holds_merge() {
 # start_posture) and a fresh posture-read.sh can only narrow each other: the
 # stricter wins (deny > confirm > unread > permit). An unread result becomes
 # permit only when the start read was unread for merge and the human's answer
-# holding the merge is on GitHub now, and confirm otherwise. A missing or
-# invalid start capture counts as unread with no recorded answer. Returns 0
-# printed; 2 the fresh read failed.
+# at posture_ask held the merge and is on GitHub now (bl_human_holds_merge),
+# and confirm otherwise. A missing or invalid start capture counts as unread
+# with no recorded answer. Returns 0 printed; 2 the fresh read failed.
 bl_merge_posture() {
     local s=$1 start start_v start_known=1 now now_v eff rs rn
     start=$(bl_capture "$s" POSTURE start_posture 2>/dev/null)

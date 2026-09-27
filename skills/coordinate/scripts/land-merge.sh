@@ -26,7 +26,8 @@
 #
 # The repository: a unit's is the one the record's Holdings row for #<pr>
 # links; a close-out's is the host. --repo overrides either, for tests.
-# MERGE_EXEC names a stand-in merge-exec.sh, for tests only.
+# merge-exec.sh is always the sibling skill's, found from this script's own
+# directory; nothing in the environment can name another one.
 #
 # Exit codes: 0 merge-exec.sh reported merge-called (its line on stdout);
 # 10 refused; 11 merge-exec.sh refused or failed (its line, if any, on
@@ -105,8 +106,7 @@ fi
 P=$(bl_merge_posture "$SESSION") || refuse "the posture re-read failed"
 [ "$P" = permit ] || refuse "the merge posture is $P now; hand the merge to the human"
 
-EXEC=${MERGE_EXEC:-$HERE/../../execute/scripts/merge-exec.sh}
-OUT=$(bash "$EXEC" "$REPO" "$PR" "$SHA")
+OUT=$(bash "$HERE/../../execute/scripts/merge-exec.sh" "$REPO" "$PR" "$SHA")
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then

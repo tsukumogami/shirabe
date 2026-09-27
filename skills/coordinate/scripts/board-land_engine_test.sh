@@ -28,7 +28,6 @@ bt_setup
 unset KOTO_BIN KOTO_BOARD_DIR KOTO_BOARD_HASH
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME" "$T/work"
-export MERGE_EXEC="$TD/board/stand-in-merge-exec.sh"
 PR="$T/plugin"
 TPL="$PR/skills/coordinate/koto-templates/coordinate.md"
 

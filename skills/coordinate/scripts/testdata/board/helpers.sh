@@ -3,9 +3,10 @@
 #
 # bt_setup: a localized plugin tree at $T/plugin holding copies of the scripts
 # under test, coord-log.sh and the record codec, with stand-ins for
-# posture-read.sh and record-holding.sh beside them (so no test depends on the
-# real ones, and no script needs an override to find them); gh-board as `gh`
-# on PATH; the koto stand-in as KOTO_BIN.
+# posture-read.sh and record-holding.sh beside them, and a stand-in
+# merge-exec.sh at skills/execute/scripts/ (so no test depends on the real
+# ones, and no script needs an override to find them); gh-board as `gh` on
+# PATH; the koto stand-in as KOTO_BIN.
 # bt_materialize <case.json> <dir>: gh-board response files from one case.
 # bt_session / bt_enter / bt_evidence / bt_capture / bt_sealed: hand-written
 # session logs in the koto stand-in's store.
@@ -16,13 +17,14 @@ HASH=feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface
 
 bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
-    mkdir -p "$S" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
+    mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
              merged-facts.sh coord-log.sh coord-verdict.sh record-parse.sh record-render.sh record-codec.jq; do
         cp "$HERE/$f" "$S/$f"
     done
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
     cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"
+    cp "$TD/board/stand-in-merge-exec.sh" "$T/plugin/skills/execute/scripts/merge-exec.sh"
     : > "$T/plugin/skills/coordinate/koto-templates/coordinate.md"
     ln -sf "$TD/gh-board" "$T/bin/gh"
     PATH="$T/bin:$PATH"
@@ -62,12 +64,12 @@ bt_materialize() {
 bt_board() { bt_case "$1" > "$T/case.json" && bt_materialize "$T/case.json" "$GH_BOARD_DIR"; }
 
 bt_logf() { printf '%s\n' "$KOTO_BOARD_DIR/sessions/$1/koto-$1.state.jsonl"; }
-bt_append() { # bt_append <S> <type> <payload-json>
+bt_append() { # bt_append <S> <type> <payload-json> [timestamp]
     local f seq
     f=$(bt_logf "$1")
     seq=$(wc -l < "$f" | tr -d ' ')
-    jq -nc --argjson s "$seq" --arg t "$2" --argjson p "$3" \
-        '{seq: $s, timestamp: "2026-09-26T12:00:00.000Z", type: $t, payload: $p}' >> "$f"
+    jq -nc --argjson s "$seq" --arg ts "${4:-2026-09-26T12:00:00.000Z}" --arg t "$2" --argjson p "$3" \
+        '{seq: $s, timestamp: $ts, type: $t, payload: $p}' >> "$f"
 }
 # bt_session <S> [plugin-root] [hash] [host] [scope]
 bt_session() {
@@ -78,7 +80,9 @@ bt_session() {
         '{template_path: "x", variables: {PLUGIN_ROOT: $r, SCOPE: $sc, ROADMAP: "docs/roadmaps/ROADMAP-demo.md", DISCIPLINE: "", HOST_REPO: $host}}')"
 }
 bt_enter() { bt_append "$1" "${3:-transitioned}" "$(jq -nc --arg t "$2" '{from: "x", to: $t, condition_type: "auto"}')"; }
-bt_evidence() { bt_append "$1" evidence_submitted "$(jq -nc --arg s "$2" --argjson f "$3" '{state: $s, fields: $f}')"; }
+bt_evidence() { # bt_evidence <S> <state> <fields-json> [timestamp]
+    bt_append "$1" evidence_submitted "$(jq -nc --arg s "$2" --argjson f "$3" '{state: $s, fields: $f}')" "${4-}"
+}
 bt_capture() { bt_append "$1" variable_captured "$(jq -nc --arg k "$2" --arg v "$3" '{key: $k, value: $v}')"; }
 # bt_sealed <S> <state> <NAME> <token>: a capture sealed to the latest entry into <state>.
 bt_sealed() {
