@@ -1,0 +1,17 @@
+# Fails: the suite step has no `if`, so the macOS leg runs it on Homebrew's
+# bash 5. This is the shape shirabe#416 found in four workflows.
+name: plain-bash
+on: pull_request
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests on both legs
+        run: bash skills/demo/scripts/one_test.sh
+      - name: Run tests on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system demo
