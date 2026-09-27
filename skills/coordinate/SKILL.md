@@ -154,6 +154,31 @@ A deferral is the successor's to dispose of before its first dispatch: file it
 as an issue, close it, or carry it forward with a reason. A roadmap coordinator
 that finishes files or closes every open deferral, because nobody succeeds it.
 
+## Dispatch, Wait and Teardown
+
+Three parts of the loop run through scripts, so the step a check depends on
+happens the same way every time. Each state's guidance names its script; the
+states never ask you to do these steps by hand.
+
+- **Dispatch.** `scripts/render-brief.sh` renders a worker's brief from one
+  JSON input and refuses an incomplete one; `scripts/dispatch-worker.sh`
+  renders it, writes the holding, runs the workspace manager's dispatch and
+  confirms the holding. The `dispatch` state can't be left until
+  `scripts/holding-recorded.sh` reads the holding on the record as
+  dispatched. The worker's return path is chosen here: a request leg when its
+  entry point accepts `--koto-leg` (`references/entry-points.tsv`), a message
+  otherwise.
+- **Wait.** A message report goes through the hub; a leg-bound worker's result
+  is read from its leg by `scripts/wait-target.sh`, once. Both pass
+  `take_report`, where `scripts/report-source.sh` refuses a message standing
+  in for a leg-bound worker. The report's classification is yours; the
+  workflow's own suggestion is recorded next to it in shadow and never routes.
+- **Teardown.** After the worker's session is stopped,
+  `scripts/teardown-inventory.sh` inventories its instance by content and
+  seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is
+  what the destroy step reads the instance from. Unique material is promoted
+  into an issue or pull request first, and only the one instance is destroyed.
+
 ## Bounds and Authority
 
 **A cap on active workers, kept full.** Run at most `--cap` active workers
@@ -249,11 +274,8 @@ URL last, or "none yet" when it has no pull request.
 
 ## What This Version Leaves for Later
 
-Two named features build on this one. The dispatch path compiles a worker's
-brief, records a dispatch automatically, and binds a worker's result back to the
-workflow; until it lands, the dispatch and wait states follow the prose in their
-guidance. Reconcile mechanises the full re-check the reconcile state describes;
-until then it is a procedure the coordinator runs with a local agent.
+Reconcile mechanises the full re-check the reconcile state describes; until
+it lands, it is a procedure the coordinator runs with a local agent.
 
 ## Known Limitations
 
@@ -262,7 +284,8 @@ until then it is a procedure the coordinator runs with a local agent.
   requests. Today those skills decide it by author login and branch name, and
   every worker a coordinator dispatches shares one login, so a worker can adopt a
   sibling's pull request on resume. The coordinator's own reads go by pull
-  request number and dispatch topic.
+  request number and dispatch topic, and topics feed branch names, so one topic
+  per worker keeps two workers' branches apart.
 - **Where merge order is recorded (#396).** A worker's coordinated PLAN writes an
   empty merge-order block that is never updated, so the merge order a coordinator
   hands the human comes from its own reading of dependencies.
@@ -271,22 +294,41 @@ until then it is a procedure the coordinator runs with a local agent.
   read is the defence, at one more read per report.
 - **No delivered wake when a leg resolves (koto#250).** koto's waker is a stub, so
   the coordinator ticks the workflow on each message or notification rather than
-  being woken by a leg.
+  being woken by a leg. A resolved leg waits for the next tick, which a message,
+  a notification or the quiet-worker check brings.
 - **`koto next --to` skips gates (koto#251).** A directed transition moves a
   session past any gate, the non-overridable ones included, so no template can
   fully hold "no value the coordinator supplies satisfies a check" while it
   exists. Each check's verdict is sealed to the visit that produced it, and every
   write script and later reader scans the session log and refuses after a
   directed transition, so a skip is detected at the next write rather than
-  prevented.
+  prevented. The teardown inventory is sealed the same way, and the destroy
+  step's reader refuses after a directed entry. The dispatch and wait gates have
+  no seal: a skip past the dispatch gate leaves a worker with no holding, which
+  the next reconcile finds.
 - **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches
-  report by message only.
+  report by message only, and their reports carry the worker's words rather than
+  a result its own session recorded.
 - **Legs are single-host.** koto's request store is local, so a worker on another
   host always reports by message.
-- **The workspace manager isn't checked at load.** The coordinator runs the
-  workspace manager's dispatch and list commands, which the load-time preflight
-  can't check. Declaring it is the dispatch path's item.
+- **One topic per worker.** koto session names are machine-wide, so a second
+  worker on a topic whose session is still live would be refused; the dispatch
+  script refuses the topic first. A unit dispatched again after a failure takes
+  a new topic.
+- **Session names aren't predictable (niwa#325).** niwa appends a random token to
+  the name it's given and doesn't report the launched session in a
+  machine-readable form, so the dispatch script reads the name from the dispatch
+  output or `niwa list --json` and matches it by its whole shape. The name is
+  used to message the worker and is never recorded.
+- **No workspace root from niwa (niwa#326).** The scripts find the workspace root
+  by walking up from the working directory, guarded against a repository's own
+  workspace configuration; a coordinator started outside the workspace can't
+  dispatch.
+- **Destroy refuses squash-merged branches (niwa#322).** `niwa destroy` treats a
+  branch whose pull request was squash-merged as unmerged, so the destroy step
+  needs `--force`, passed only after the sealed inventory proved every
+  repository durable.
 
 ## Changing This Skill
 
