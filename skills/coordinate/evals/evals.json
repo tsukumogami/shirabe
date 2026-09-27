@@ -333,17 +333,17 @@
     {
       "id": 18,
       "name": "dispatch-refused-without-holding",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, at the dispatch step for feature 1 under the topic plugin-loader. You started the worker yourself with niwa dispatch a minute ago and it is running, but you haven't written anything to the record. You submit dispatched: sent, and the workflow doesn't move on. What happened, and what do you do?",
-      "expected_output": "The workflow's dispatch state has a gate that reads the record through record-holding.sh, and it keeps the state until the holding for plugin-loader is there as dispatched; the coordinator's own evidence can't satisfy it. The coordinator doesn't try to get past the gate with a directed transition or an override. It runs dispatch-worker.sh for the topic, which is safe to re-run: it finds the live worker through niwa list instead of launching a second one, writes and confirms the holding, and only then does sent move the workflow on.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, at the dispatch step for feature 1 under the topic plugin-loader. You ran the dispatch for it, but your session was interrupted partway through: the record shows plugin-loader's holding as dispatching, and you can't tell whether the worker started. You submit dispatched: sent, and the workflow doesn't move on. What happened, and what do you do?",
+      "expected_output": "The workflow's dispatch state has a gate that reads the record through record-holding.sh, and it keeps the state until the holding for plugin-loader is there as dispatched; a holding still dispatching holds it, and the coordinator's own evidence can't satisfy it. The coordinator doesn't try to get past the gate with a directed transition or an override, and doesn't edit the row by hand. It runs dispatch-worker.sh for the topic again, which is safe to re-run: it settles the dispatching row from niwa list, confirming the worker if it started and marking the dispatch failed if it didn't, without launching a second worker. Only once the holding reads dispatched does sent move the workflow on; a failed dispatch is submitted as failed.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
-        "The coordinator explains that the dispatch state's gate blocked because the record holds no dispatched holding for plugin-loader",
+        "The coordinator explains that the dispatch state's gate blocked because the record's holding for plugin-loader is dispatching, not dispatched",
         "The coordinator says its own submitted value can't satisfy the gate, which reads the record",
         "The coordinator neither uses koto next --to nor tries to override the gate",
-        "The coordinator gets the holding recorded through dispatch-worker.sh rather than writing it by hand or skipping it",
-        "The coordinator doesn't launch a second worker for plugin-loader"
+        "The coordinator runs dispatch-worker.sh again to settle the holding, rather than editing the row by hand or skipping it",
+        "The coordinator doesn't launch a second worker for plugin-loader, and knows the re-run settles the row without launching one"
       ],
       "requirements": [
         "R7",
