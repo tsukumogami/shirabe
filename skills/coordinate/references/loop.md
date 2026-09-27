@@ -95,6 +95,14 @@ statuses, the record, and GitHub. A premise the roadmap or GitHub contradicts
 is a finding: name the contradiction, with both sources, before you weigh the
 proposal that rests on it.
 
+A claimed dependency the roadmap doesn't list is a contradiction, not a
+detail. If the roadmap says two features are independent (neither lists the
+other under Dependencies) and a worker says one exists only to serve the
+other, the worker is asserting a dependency the roadmap denies: say "the
+worker's claim contradicts the roadmap, which lists features N and M as
+independent", whichever side turns out right. Agreeing that the roadmap says
+they're independent and then calling the claim consistent misses it.
+
 ## Resolving a Claim GitHub Contradicts
 
 When a row says one thing and the read says another, act on the read,
