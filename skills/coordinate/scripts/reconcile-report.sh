@@ -83,6 +83,17 @@
 #                  record or handoff, per row when a holding carries
 #                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
+#   table[]        {kind, unit, session, pr, status, next}: the one table a
+#                  person reads, in four kinds and this order --
+#                  "Ready to merge" (holdings ready to land, and held ones,
+#                  in the record's holding order), "Blocked on you" (what
+#                  waits on a person: a decision, an unconfirmed merge),
+#                  "Ongoing" (every other holding still in flight), and
+#                  "Waiting to be assigned" (none: reconcile reads the
+#                  record, not the scope's unassigned work; the renderer
+#                  prints one N/A row pointing at the scope read). A merged
+#                  or refused holding has no row; its change or refusal is
+#                  reported in its own section.
 #   nowhere_else[] {topic, why, inventory, grade}
 #   side_effects[] {action, target, code, verdict, reason, grade}
 #                  code: confirmed, not_confirmed, not_rechecked, or
@@ -340,6 +351,22 @@ def changes_of($written):
 | .waiting = (
     [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
+| def status_of: .phase
+      + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
+      + "; " + .state + " (" + .grade.state + ")"
+      + (if .merge_state != null then ", merge state " + .merge_state else "" end)
+      + (if .leg != null then "; leg " + .leg + " (" + .grade.leg + ")" else "" end)
+      + (if .board != null then "; board " + .board + " (" + .grade.board + ")" else "" end)
+      + "; read " + (.read_at // "not read")
+      + (if .source == "handoff" then "; row as written by the previous rotation" else "" end);
+  def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: .pull_request, status: status_of, next: .next};
+  .table = (
+    [.holdings[] | select(.next_code == "land" or .next_code == "held") | row("Ready to merge")]
+    + [.holdings[] | select(.next_code == "decide") | row("Blocked on you")]
+    + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
+       | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
+          next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
+    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again") | row("Ongoing")])
 '
 
 if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then
@@ -393,17 +420,16 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)
     + " (written \(.written); \(.grade))."]),
-section("Holding"; [.holdings[] | "- \(.topic | code)"
-    + (if .pull_request != null then " (\(.pull_request))" else "" end)
-    + " (\(.unit)): \(.phase)"
-    + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
-    + "; \(.state) (\(.grade.state))"
-    + (if .merge_state != null then ", merge state \(.merge_state)" else "" end)
-    + (if .leg != null then "; leg \(.leg) (\(.grade.leg))" else "" end)
-    + (if .board != null then "; board \(.board) (\(.grade.board))" else "" end)
-    + ". Next: \(.next) (inferred). Read \(.read_at // "not read")"
-    + (if .source == "handoff" then "; row as written by the previous rotation" else "" end) + "."]),
-section("Waiting on a person"; [.waiting[] | "- \(.topic | who): \(.why) (\(.grade))."]),
+# The one table a person reads: four kinds in a fixed order, N/A where a
+# column does not apply.
+def cell: if . == null or . == "" then "N/A" else gsub("[|]"; "\\|") end;
+def prcell: if . == null or . == "" then "N/A" elif startswith("[") then . else refs("pull") end;
+"## Where things stand",
+"| Kind | Unit | Session | PR | Status | Next or needs |",
+"|---|---|---|---|---|---|",
+(.table[] | "| \(.kind) | \(.unit | cell) | \(if .session == null then "N/A" else (.session | code) end) | \(.pr | prcell) | \(.status | cell) | \(.next | cell) |"),
+"| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |",
+"",
 section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic | code): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | . as $se | "- \(.action) \(.target | refs(if $se.action == "merge" then "pull" else "issues" end)): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
 section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),

@@ -191,7 +191,7 @@ C181	skills/coordinate/SKILL.md	-	A rule whose justification
 C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
-C185	skills/coordinate/koto-templates/coordinate.md	reconcile	Include a "Waiting on the human" section
+C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report with the holdings, one line per holding
 C187	skills/coordinate/SKILL.md	-	Two named features build on this one.	changed: record tooling shipped; the dispatch path and mechanised reconcile remain named later work
 C188	skills/coordinate/SKILL.md	-	**The workspace manager is checked for presence only.**	changed: requires.tsv now declares niwa, verified for presence

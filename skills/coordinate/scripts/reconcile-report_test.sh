@@ -76,10 +76,10 @@ echo "== sections =="
 EMPTY=$(facts '[]' '[]' '[]' '"absent"' '[]' discipline)
 out=$(echo "$EMPTY" | render)
 order=$(printf '%s\n' "$out" | grep '^## ' | tr '\n' '|')
-want='## Changed since then|## Holding|## Waiting on a person|## Exists nowhere else|## Side effects|## Undisposed deferrals|## Predecessor'"'"'s reasoning|## Not verified|'
+want='## Changed since then|## Where things stand|## Exists nowhere else|## Side effects|## Undisposed deferrals|## Predecessor'"'"'s reasoning|## Not verified|'
 [ "$order" = "$want" ] && ok "sections render in R16's order" || bad "sections render in R16's order" "$order"
 nones=$(printf '%s\n' "$out" | grep -c '^None\.$')
-[ "$nones" = 7 ] && ok "every empty section reads None." || bad "every empty section reads None." "count=$nones"
+[ "$nones" = 5 ] && ok "every empty section reads None." || bad "every empty section reads None." "count=$nones"
 printf '%s\n' "$out" | grep -q 'No reasoning was received' && ok "absent reasoning says none was received" || bad "absent reasoning says none was received"
 out=$(facts '[]' | render)
 printf '%s\n' "$out" | grep -q "Predecessor" && bad "roadmap scope has no reasoning section" || ok "roadmap scope has no reasoning section"
@@ -243,7 +243,7 @@ HELD=$(holding th "[$(pr OPEN "$VH"),$(board holds "$VH")]" '{"phase":"held"}')
 out=$(facts "[$HELD]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].phase == "held" and .holdings[0].next_code == "held" and ([.waiting[].topic] == ["th"]) and ([.not_verified[] | select(.what | test("phase"))] | length) == 0' >/dev/null \
   && ok "a held holding is verified and waits on the human, not on its worker" || bad "a held holding is verified and waits on the human" "$out"
-facts "[$HELD]" | render | grep -q "\`th\` (unit th): held; .*Next: verified; merge withheld by the human's direction, waiting on them" \
+facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | N/A | held; .*| verified; merge withheld by the human's direction, waiting on them" \
   && ok "the held line says the merge is withheld by the human's direction" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
 facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "drop" and (.waiting | length) == 0' >/dev/null \
@@ -251,6 +251,26 @@ facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "drop" and (.waitin
 HELDF=$(holding tf "[$(pr OPEN "$VH"),$(board fails "$VH" "job lint")]" '{"phase":"HELD"}')
 facts "[$HELDF]" | report | jq -e '.holdings[0].next_code == "held"' >/dev/null \
   && ok "held is matched ignoring case, and the human's hold stands over the board" || bad "held is matched ignoring case"
+echo "== the one table =="
+# Holdings given out of order: the table puts ready-to-merge first (in the
+# record's order), then what's blocked on the person, then what's ongoing,
+# then the waiting-to-be-assigned row; a merged holding has no row.
+T1=$(holding tw "[$(pr OPEN "$VH")]")
+T2=$(holding tl1 "[$(pr OPEN "$VH"),$(board holds "$VH")]")
+T3=$(holding td "[$(pr CLOSED "$VH")]")
+T4=$(holding th2 "[$(pr OPEN "$VH")]" '{"phase":"held"}')
+T5=$(holding tm2 "[$(pr MERGED "$VH")]")
+T6=$(holding tl2 "[$(pr OPEN "$VH"),$(board holds "$VH")]")
+tbl=$(facts "[$T1,$T2,$T3,$T4,$T5,$T6]" | render | sed -n '/^## Where things stand$/,/^$/p')
+kinds=$(printf '%s\n' "$tbl" | awk -F' [|] ' '/^[|] [A-Z]/ && !/^[|] Kind/ {sub(/^[|] /, "", $1); print $1 ":" $3}' | tr '\n' ',')
+[ "$kinds" = 'Ready to merge:`tl1`,Ready to merge:`th2`,Ready to merge:`tl2`,Blocked on you:`td`,Ongoing:`tw`,Waiting to be assigned:N/A,' ] \
+  && ok "one table: ready to merge in record order, then blocked on you, ongoing, waiting to be assigned" || bad "one table in the four kinds' order" "$kinds"
+printf '%s\n' "$tbl" | grep -q '^| Kind | Unit | Session | PR | Status | Next or needs |$' && ok "the table's columns are Kind, Unit, Session, PR, Status, Next or needs" || bad "the table's columns" "$tbl"
+printf '%s\n' "$tbl" | grep -q 'tm2' && bad "a merged holding has no row" "$tbl" || ok "a merged holding has no row"
+[ "$(printf '%s\n' "$tbl" | grep -c '^[|]')" = 8 ] && ok "every row is a table row, header and separator included" || bad "every row is a table row" "$tbl"
+PIPE=$(holding tp "[$(pr OPEN "$VH")]" '{"unit":"a | b"}')
+facts "[$PIPE]" | render | grep -q '| a \\| b |' && ok "a pipe inside a cell is escaped" || bad "a pipe inside a cell is escaped" "$(facts "[$PIPE]" | render | grep tp)"
+
 echo "== what the human reads =="
 # A pull request is a link, a worker is inline code, and no commit hash
 # appears anywhere in the rendered report.
@@ -263,12 +283,12 @@ uxout=$(facts "[$UX1,$UX2]" "$UXSE" '[]' null "$UXU" | jq -c '.scope.repo = "acm
 printf '%s\n' "$uxout" | grep -Eq '[0-9a-f]{40}' && bad "no commit hash appears in the rendered report" "$(printf '%s\n' "$uxout" | grep -E '[0-9a-f]{40}')" || ok "no commit hash appears in the rendered report"
 bare=$(printf '%s\n' "$uxout" | grep -v '^  ' | grep -E '(^|[^[])#[0-9]+' || true)
 [ -z "$bare" ] && ok "every pull request reference outside a quoted record row is a link" || bad "every pull request reference outside a quoted record row is a link" "$bare"
-printf '%s\n' "$uxout" | grep -q -- '- `ux-open` (\[#7\](https://github.com/acme/widgets/pull/7))' && ok "a holding shows its worker as code and its pull request as a link" || bad "a holding shows its worker as code and its pull request as a link" "$uxout"
+printf '%s\n' "$uxout" | grep -q -- '| Ongoing | unit ux-open | `ux-open` | \[#7\](https://github.com/acme/widgets/pull/7) |' && ok "a holding shows its worker as code and its pull request as a link" || bad "a holding shows its worker as code and its pull request as a link" "$uxout"
 printf '%s\n' "$uxout" | grep -q 'now \[#9\](https://github.com/acme/widgets/pull/9)' && ok "an appeared pull request is a link" || bad "an appeared pull request is a link" "$uxout"
 printf '%s\n' "$uxout" | grep -q -- '- merge \[#7\](https://github.com/acme/widgets/pull/7): not confirmed' && printf '%s\n' "$uxout" | grep -q -- '- close \[#3\](https://github.com/acme/other/issues/3): confirmed' \
   && ok "side-effect targets are links, in their own repository" || bad "side-effect targets are links, in their own repository" "$uxout"
 printf '%s\n' "$uxout" | grep -q '`ux-open`: head moved past the verified head' && ok "a moved head is named without either hash" || bad "a moved head is named without either hash" "$uxout"
-printf '%s\n' "$uxout" | grep -q 'merge not confirmed' && printf '%s\n' "$uxout" | grep -q -- '- \[#7\](https://github.com/acme/widgets/pull/7): merge not confirmed' \
+printf '%s\n' "$uxout" | grep -q 'merge not confirmed' && printf '%s\n' "$uxout" | grep -q -- '| Blocked on you | N/A | N/A | \[#7\](https://github.com/acme/widgets/pull/7) | merge not confirmed | confirm the merge: src/a.go differs |' \
   && ok "a waiting line names its pull request as a link" || bad "a waiting line names its pull request as a link" "$uxout"
 printf '%s\n' "$uxout" | grep -q '<commit>' && ok "a hash inside a quoted record row is replaced" || bad "a hash inside a quoted record row is replaced" "$uxout"
 

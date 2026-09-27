@@ -128,10 +128,25 @@ sections, in this order, each line carrying its grade:
 
 - **Changed since then:** each claim the reads contradict, with what the
   record said and what GitHub or the host says now.
-- **Holding:** each holding with its state as just read, its board, its
-  request leg where it has one, and what happens next.
-- **Waiting on a person:** the decisions and finishing steps only a person
-  can take, derived at each report and never stored.
+- **Where things stand:** one table, `Kind | Unit | Session | PR | Status |
+  Next or needs`, with N/A where a column doesn't apply. Its rows come in four
+  kinds, always in this order:
+  1. **Ready to merge:** pull requests ready to be reviewed and merged (ready to
+     land, or held by the person's direction), each with its session so the
+     person can talk to it, in the order to merge them. Reconcile keeps the
+     record's holding order; it doesn't read dependencies, so reorder by them
+     when you report it up if they say otherwise.
+  2. **Blocked on you:** sessions waiting on the person, and what they need: a
+     decision, or a merge that didn't confirm. It is derived at each report
+     and never stored.
+  3. **Ongoing:** every other session in flight, with its pull request link if
+     it has one, its status as just read, and what happens next.
+  4. **Waiting to be assigned:** reconcile reads the record, not the scope's
+     unassigned work, so its row is N/A. Fill it from the scope read that
+     follows, in the order the work will be assigned as the cap frees.
+
+  A holding whose pull request merged or that the reader refused has no row;
+  its change or refusal is in its own section.
 - **Exists nowhere else:** workers with no pull request, and anything their
   instance holds that no remote does.
 - **Side effects:** each side effect in flight, confirmed, not confirmed with
@@ -142,9 +157,10 @@ sections, in this order, each line carrying its grade:
 - **Not verified:** everything the pass couldn't read, and why, including
   record rows it couldn't parse.
 
-What a person reads follows one rule, and the renderer enforces it: a pull
-request or issue is a clickable link, never a bare number; a worker's name is
-inline code; and no commit hash appears. Heads stay in the record's rows and in
+What a person reads follows two rules, and the renderer enforces both: the
+one table above, in its four kinds and their order; and a pull request or
+issue is a clickable link, never a bare number, a worker's name is inline
+code, and no commit hash appears. Heads stay in the record's rows and in
 `reconcile/report.json`, where the checks read them. Keep the same form when
 you report it up.
 
