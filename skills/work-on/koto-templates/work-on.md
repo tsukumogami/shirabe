@@ -1586,11 +1586,12 @@ if reusing an existing branch (including when `SHARED_BRANCH` is set), or `statu
 
 This state assesses whether the codebase has changed significantly since the issue
 was opened. The gate runs `check-staleness.sh --issue {{ISSUE_NUMBER}}` and pipes
-through jq to check `introspection_recommended == false`. When fresh (gate passes),
-the workflow auto-advances to analysis.
+through jq to check `introspection_recommended == false`. A passing gate does not
+advance the workflow by itself: this state requires evidence, so submit
+`staleness_signal: fresh` when the gate passed.
 
-If the gate fails, you are here because the staleness check found significant
-changes or could not complete.
+If the gate fails, the staleness check found significant changes or could not
+complete.
 
 Submit `staleness_signal: fresh` if you have confirmed the issue context is still
 current, `staleness_signal: stale_requires_introspection` if the codebase has
