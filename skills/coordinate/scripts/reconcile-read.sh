@@ -197,8 +197,12 @@ REASONING=null
 # A reasoning file from an earlier read is not left to be taken as this one.
 [ -n "$REASONING_OUT" ] && [ -f "$REASONING_OUT" ] && rm -f "$REASONING_OUT"
 if [ "$SCOPE" = discipline ]; then
-    DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null) \
-        || refuse 5 failed "the host's default branch could not be read"
+    DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null)
+    case $? in
+        0) ;;
+        124) refuse 5 failed "reading the host's default branch timed out" ;;
+        *) refuse 5 failed "the host's default branch could not be read" ;;
+    esac
     rd_valid_branch "$DEF" || refuse 5 failed "the host's default branch is unreadable"
     out=$(rd_deadline "$DEADLINE" gh api -H "Accept: application/vnd.github.raw" \
             "repos/$REPO/contents/docs/disciplines/$NAME.md?ref=$DEF" 2> "$T/h.err" > "$T/handoff.md"; echo $?)
@@ -244,11 +248,20 @@ jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REAS
     def add_new($mine; $theirs; key):
         ([$mine[] | key]) as $seen
         | labelled($mine; "record") + labelled([$theirs[] | select((key) as $k | ($seen | index([$k])) == null)]; "handoff");
-    ($handoff // {}) as $h
+    # Every string that leaves this script is free of control characters; a
+    # hand-edited body can carry any byte.
+    def clean: if type == "string" then gsub("[\u0000-\u001f\u007f]"; "")
+               elif type == "object" then map_values(clean)
+               elif type == "array" then map(clean) else . end;
+    ($handoff // {} | clean) as $h
+    | clean
     | ($h.rotation.date // null) as $d
+    | ((.written // "") | gsub("^\\s+|\\s+$"; "")) as $wr
+    | ($wr | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) as $wok
+    | .unparseable += (if $wok then [] else [{raw: $wr, reason: "the Written: line is not YYYY-MM-DDTHH:MM:SSZ"}] end)
     | {status: "found",
        scope: {kind: .scope.kind, name: .scope.name, repo: $repo},
-       record: {written: .written,
+       record: {written: (if $wok then $wr else null end),
                 source: (if $handoff == null then "record" else "record and handoff" end),
                 handoff_date: (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $d else null end)},
        holdings: add_new(.holdings; ($h.holdings // []); [.worker, .unit]),

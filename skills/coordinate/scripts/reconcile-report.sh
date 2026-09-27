@@ -352,9 +352,10 @@ printf '%s' "$REPORT" | jq -r '
 def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "None." else $lines[] end), "";
 "# Reconcile report",
 "",
-"Scope: \(.header.scope). Record written \(.header.written); reconciled \(.header.reconciled_at)."
-  + (if .header.source == "handoff" then " Rows as written by the previous rotation on \(.header.handoff_date)."
-     elif .header.source == "record and handoff" then " Rows marked as the previous rotation'"'"'s are as it wrote them on \(.header.handoff_date)."
+(if .header.handoff_date == null then "" else " on \(.header.handoff_date)" end) as $on
+| "Scope: \(.header.scope). Record written \(.header.written // "at a time it does not state"); reconciled \(.header.reconciled_at)."
+  + (if .header.source == "handoff" then " Rows as written by the previous rotation\($on)."
+     elif .header.source == "record and handoff" then " Rows marked as the previous rotation'"'"'s are as it wrote them\($on)."
      else "" end)
   + (if .header.plugin_root == "inside" then " The reconcile scripts ran from inside the repository being worked on."
      elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."

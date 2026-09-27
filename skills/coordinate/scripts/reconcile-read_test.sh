@@ -321,6 +321,20 @@ else
     capture $ROADMAP_ARGS
     expect "the real parser: a body that parses but differs from its rendering lists the differing line" \
         '.status == "found" and (.holdings | length) == 1 and (.unparseable | any(.reason | test("^not canonical")))'
+    expect "the real parser: the Written: time is read without the stray space" '.record.written == "2026-09-26T12:00:00Z"'
+
+    new_case real-control
+    sed "s/^Written: \(.*\)$/Written: \1$(printf '\033')[31m/; s/| not now |/| not$(printf '\r')now |/" "$RB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    case "$OUT" in *'\u001b'*|*'\r'*|*'\u000d'*) bad "the real parser: no control character reaches the output" "$OUT" ;; *) ok "the real parser: no control character reaches the output" ;; esac
+
+    new_case real-bad-written
+    sed 's/^Written: .*$/Written: whenever <b>x<\/b>/' "$RB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a Written: line that isn't a time is not carried, and is listed" \
+        '.status == "found" and .record.written == null and (.unparseable | any(.reason | test("Written")))'
 
     new_case real-other-scope
     serve issue-view 1 "$(body "$RB")"
