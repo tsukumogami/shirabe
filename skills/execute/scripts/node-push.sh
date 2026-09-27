@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # node-push.sh — for /execute: push a coordinated node (or the coordination
-# branch) and record the pushed commit on the coordination PR's index.
+# branch) and record the pushed commit on the coordination PR's index; or,
+# in the order mode, only render the PLAN's merge order into that PR's body.
 #
 # Three modes.
 #
@@ -29,10 +30,9 @@
 #
 #     Run in the coordination checkout just before the finalization cascade
 #     deletes the PLAN. It pushes nothing and records no index line: it only
-#     renders the PLAN's merge order into the coordination PR's body. This is
-#     the render that makes the block match the PLAN the effort finished with,
-#     even when the PLAN changed after the last node push, or no node push
-#     since this script started rendering the block ran at all.
+#     renders the PLAN's merge order into the coordination PR's body, so the
+#     block matches the PLAN the effort finished with even when the PLAN
+#     changed after the last node push.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
 # no other script, template, or directive writes a `head=` field. It is the
@@ -87,7 +87,7 @@
 # `pr=<coordination PR url>`). Diagnostics on stderr.
 #
 # Exit codes:
-#   0   pushed and recorded
+#   0   pushed and recorded (order mode: rendered and posted)
 #   64  usage error
 #   65  HEAD is detached
 #   66  the checked-out branch is not the expected one, or its name is refused
