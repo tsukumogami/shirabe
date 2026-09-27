@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-coordinate-record.md
 problem: |
   `/coordinate` is prose, so the four checks it asks for (the record exists once with its
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -478,7 +478,7 @@ Start and record phase:
 |---|---|---|
 | `start` | check: `start-check.sh` (roadmap scope: the roadmap on the host's default branch reads Active; discipline scope: always `discipline`) | active, discipline -> `start_posture`; `not-active` -> `done_not_active` |
 | `start_posture` | check: `posture-read.sh`, read-only, never runs a hook | any verdict -> `record_find` (the verdict stays in its capture for land and the close-outs) |
-| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed`, `unauthorized` -> `record_conflict`; `predecessor` -> `predecessor_handoff` |
+| `record_find` | check: `record-find.sh` (a title or branch match without the declaration line is `foreign`) | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed`, `unauthorized` -> `record_conflict`; `predecessor` -> `predecessor_handoff` |
 | `record_open` | evidence `opened` after `record-open.sh` | -> `record_find` |
 | `record_conflict` | evidence `recheck` or `stop` | -> `record_find` or `done_stopped` |
 | `predecessor_handoff` | check: `predecessor-handoff.sh` | `rendered` -> `predecessor_close`; `unparseable` -> `record_conflict` |
