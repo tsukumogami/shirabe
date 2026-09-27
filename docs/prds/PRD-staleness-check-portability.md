@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   /work-on's staleness_check gate runs a script shirabe doesn't ship, found by
   bare name with an argument form no script on a shirabe-only host accepts. It
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-staleness-check-portability](docs/briefs/BRIEF-staleness-check-portability.md); carried in Absorbed Brief.
 

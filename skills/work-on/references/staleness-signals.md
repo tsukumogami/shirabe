@@ -3,7 +3,7 @@
 What `/work-on`'s `staleness_check` gate means by "stale", stated in one place.
 The check is `skills/work-on/scripts/check-staleness.sh`; the gate runs it
 against the issue a run is about to implement. The design behind it is
-`docs/designs/DESIGN-staleness-check-portability.md`.
+`docs/designs/current/DESIGN-staleness-check-portability.md`.
 
 ## The four checks
 
