@@ -22,7 +22,12 @@ Current membership:
 | Cadence | Tools | What a record names |
 |---|---|---|
 | Coupled to shirabe | `shirabe`, `koto` | Tool, subcommand path, depended-on flags |
-| Independent | `gh`, `jq`, `git`, `python3` | Tool alone |
+| Independent | `gh`, `jq`, `git`, `python3`, `niwa` | Tool alone |
+
+`niwa`, the workspace manager `/coordinate` dispatches workers through, ships
+on its own schedule, and its help output doesn't use the layout the load-time
+probe reads subcommands and flags from, so a subcommand record for it could
+only ever report that it wasn't checked.
 
 There's no third depth and no per-declaration depth verb. A tool declared with
 no subcommands yields presence verification by construction, because there's

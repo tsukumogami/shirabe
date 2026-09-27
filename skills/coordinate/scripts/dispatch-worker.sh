@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+# dispatch-worker.sh -- launch one worker and get its holding onto the record
+# first.
+#
+# A worker that has launched but hasn't opened a pull request exists nowhere
+# GitHub can show, so the record is the only place a restart or a successor
+# can find it. This script writes the holding BEFORE it launches the worker
+# (dispatch status `dispatching`), launches it, then rewrites the row as
+# `dispatched` or `dispatch-failed`. A coordinator that dies at any point
+# leaves either no worker or a row that names it. The dispatch state's gate,
+# holding-recorded.sh, reads that row from the record, never a claim.
+#
+# The coordinator runs this script itself, in the dispatch state. koto can't:
+# `niwa dispatch` clones an instance before it returns, which runs close to
+# or past a default action's 30 seconds, and its success launches a session
+# no later signal can take back. See references/default-action-conversion.md.
+#
+# Inputs, read from the session's context (never from arguments):
+#
+#   dispatch_topic     the topic pick chose; written fresh on the edge into
+#                      dispatch_check and passed through to dispatch
+#   brief_input.json   the brief input (see render-brief.sh); its topic must
+#                      equal dispatch_topic
+#   report_topic       --rebrief only: the worker whose report needs a fix
+#
+# The run, in order, under a per-topic lock:
+#
+#   1. Read the topic's holding. `dispatched`: print already-dispatched, exit
+#      0. `dispatch-failed`: exit 3 (a failed topic is re-dispatched under a
+#      new topic, by the coordinator's choice). `dispatching`: an earlier run
+#      stopped partway. When `niwa list --json` shows the topic's session, go
+#      to step 7 and confirm; otherwise go to step 6 and launch, reusing the
+#      recorded return path.
+#   2. Refuse a topic a live session already uses (exit 5): koto session names
+#      are machine-wide, so a second worker on one topic would collide.
+#   3. Check the brief input (render-brief.sh). A refusal exits 1 with
+#      nothing written anywhere. The brief itself is written after step 4, so
+#      it shows the same invocation, --koto-leg included, as the prompt.
+#   4. Open the leg, when references/entry-points.tsv gives the entry point
+#      one: a one-leg koto request whose leg is the skill's own leg name,
+#      admitting its templates and pinning the listed inputs. The return path
+#      is `<request-id>:<leg>`, and `--koto-leg=<request-id>:<leg>` joins the
+#      worker's invocation. Otherwise the return path is `message`.
+#   5. Write ahead: the holding row with dispatch status `dispatching`, branch
+#      empty (not yet known) and pull request "none yet".
+#   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
+#      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300).
+#   7. Confirm: on success, rewrite the row `dispatched` and print the session
+#      name niwa reported, which the coordinator uses to message the worker
+#      and never records. On a failure or the deadline, look for the topic's
+#      session in `niwa list --json` before concluding anything: found means
+#      it launched (confirm it); not found means it didn't (rewrite the row
+#      `dispatch-failed`, abandon the request, exit 4); a listing that can't be
+#      read leaves `dispatching` and exits 6 for the next run or reconcile.
+#
+# A topic's session is matched by its whole name, never by prefix (see
+# dc_session_matches). niwa doesn't yet report the launched handle
+# machine-readably (niwa#325), so the name comes from the `session name:` line
+# of its output, or from `niwa list --json`'s session_name.
+#
+# --rebrief re-renders a held worker's brief after a report that needs a fix.
+# It reads report_topic, takes the repository, entry point and flags from that
+# topic's holding row rather than from the brief input or the report, writes
+# the brief over the old one, updates the row's date, and launches nothing.
+# The coordinator then sends the worker a message pointing at the brief.
+#
+# Usage:
+#   dispatch-worker.sh --session <koto-session> [--rebrief]
+#
+# Output: `already-dispatched`, or `session=<name>` for a launched worker, or
+# `brief=<path>` for --rebrief; reasons on stderr.
+#
+# Exit codes:
+#   0  dispatched, confirmed, already dispatched, or re-briefed
+#   1  brief refused; nothing written
+#   2  usage, mismatched topic, no workspace root, a failed read or write
+#   3  the topic already failed; dispatch under a new topic
+#   4  the launch failed; the row says dispatch-failed
+#   5  a live session already uses the topic
+#   6  the launch outcome is unknown; the row stays dispatching
+#   7  another run holds this topic's lock
+#   8  the record refused the write (no open record, or a directed transition
+#      in the run log): the run must restart before it writes again
+#
+# Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
+# script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
+set -uo pipefail
+
+PROG=dispatch-worker
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=dispatch-common.sh
+. "$HERE/dispatch-common.sh"
+
+KOTO="${KOTO:-koto}"
+NIWA="${NIWA:-niwa}"
+DEADLINE="${DISPATCH_DEADLINE_SECS:-300}"
+RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
+
+die() { printf '%s: %s\n' "$PROG" "$2" >&2; exit "$1"; }
+usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief]"; }
+
+SESSION=""
+REBRIEF=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session) [ $# -ge 2 ] || usage; SESSION="$2"; shift 2 ;;
+        --rebrief) REBRIEF=1; shift ;;
+        *) usage ;;
+    esac
+done
+[ -n "$SESSION" ] || usage
+command -v jq >/dev/null || die 2 "jq is not on PATH"
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker.XXXXXX") || die 2 "cannot make a scratch directory"
+LOCK=""
+cleanup() {
+    rm -rf "$WORK"
+    [ -n "$LOCK" ] && rm -rf "$LOCK"
+}
+trap cleanup EXIT
+
+ctx() { "$KOTO" context get "$SESSION" "$1"; }
+
+# --- inputs ------------------------------------------------------------------------
+
+INPUT="$WORK/brief_input.json"
+ctx brief_input.json >"$INPUT" || die 2 "cannot read brief_input.json from the session's context"
+jq -e 'type == "object"' "$INPUT" >/dev/null || die 2 "brief_input.json is not a JSON object"
+IN_TOPIC=$(jq -r '.topic // "" | strings' "$INPUT")
+
+if [ "$REBRIEF" = 1 ]; then
+    TOPIC=$(ctx report_topic) || die 2 "cannot read report_topic from the session's context"
+else
+    TOPIC=$(ctx dispatch_topic) || die 2 "cannot read dispatch_topic from the session's context"
+fi
+dc_valid_topic "$TOPIC" || die 2 "the topic in context isn't a valid topic: $TOPIC"
+[ "$IN_TOPIC" = "$TOPIC" ] || die 2 "brief_input.json names topic [$IN_TOPIC], not [$TOPIC]"
+
+ROOT=$(dc_workspace_root) || die 2 "no workspace root found from $(pwd)"
+BRIEFS="$ROOT/.niwa/dispatch-briefs"
+mkdir -p "$BRIEFS" || die 2 "cannot create $BRIEFS"
+
+# --- the per-topic lock --------------------------------------------------------------
+#
+# mkdir is atomic on every filesystem these run on, and flock isn't on macOS.
+# A lock whose owner is gone (its pid no longer runs) is taken over.
+
+take_lock() {
+    local l="$BRIEFS/.$TOPIC.lock"
+    if mkdir "$l" >/dev/null 2>&1; then
+        printf '%s\n' "$$" >"$l/pid"
+        LOCK="$l"
+        return 0
+    fi
+    local owner
+    owner=$(cat "$l/pid" 2>&1) || owner=""
+    case "$owner" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    if kill -0 "$owner" >/dev/null 2>&1; then
+        return 1
+    fi
+    rm -rf "$l"
+    mkdir "$l" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$$" >"$l/pid"
+    LOCK="$l"
+}
+take_lock || die 7 "another run holds the lock for $TOPIC"
+
+# --- helpers ---------------------------------------------------------------------------
+
+# find_session: print the topic's live session name; 0 found, 1 none, 2 the
+# listing couldn't be read.
+find_session() {
+    local found
+    found=$(NIWA="$NIWA" dc_find_session "$ROOT" "$TOPIC") || return $?
+    printf '%s\n' "${found%%	*}"
+}
+
+# write_row <json>: write the topic's row; maps the writer's refusal to exit 8.
+write_row() {
+    printf '%s\n' "$1" >"$WORK/row.json"
+    dc_record_write "$SESSION" "$TOPIC" "$WORK/row.json"
+    case "$?" in
+        0) return 0 ;;
+        10) die 8 "the record refused the write for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        65) die 2 "the record refused the row for $TOPIC as malformed" ;;
+        *) die 2 "writing the holding for $TOPIC failed" ;;
+    esac
+}
+
+# with_status <row-json> <status>: the row with its dispatch status replaced.
+with_status() { printf '%s' "$1" | jq -c --arg s "$2" '.dispatch_status = $s'; }
+
+TODAY=$(date -u +%Y-%m-%d)
+
+# --- read the holding ---------------------------------------------------------------------
+
+ROW=$(dc_record_read "$SESSION" "$TOPIC")
+case "$?" in
+    0) HAVE_ROW=1 ;;
+    1) HAVE_ROW=0; ROW="" ;;
+    10) die 8 "the record refused the read for $TOPIC (no open record, or a directed transition in the run log)" ;;
+    *) die 2 "reading the holding for $TOPIC failed" ;;
+esac
+STATUS=""
+[ "$HAVE_ROW" = 1 ] && STATUS=$(printf '%s' "$ROW" | jq -r '.dispatch_status // "" | strings')
+
+# --- --rebrief --------------------------------------------------------------------------------
+
+if [ "$REBRIEF" = 1 ]; then
+    [ "$HAVE_ROW" = 1 ] || die 2 "no holding for $TOPIC to re-brief"
+    [ "$STATUS" = dispatched ] || die 2 "the holding for $TOPIC is $STATUS, not dispatched"
+    # Repository and entry point come from the row, never from the report or
+    # the brief input: a report is text the worker wrote.
+    jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point' "$INPUT" >"$WORK/rebrief.json" ||
+        die 2 "cannot build the re-brief input"
+    ROW_MODE=$(printf '%s' "$ROW" | jq -r '.mode // "" | strings')
+    IN_MODE=$(dc_mode "$INPUT")
+    [ "$ROW_MODE" = "$IN_MODE" ] || die 2 "the re-brief's flags [$IN_MODE] differ from the holding's [$ROW_MODE]"
+    ROW_RP=$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')
+    BRIEF=$(bash "$HERE/render-brief.sh" --input "$WORK/rebrief.json" --workspace-root "$ROOT" --return-path "$ROW_RP")
+    case "$?" in
+        0) ;;
+        1) exit 1 ;;
+        *) die 2 "rendering the brief failed" ;;
+    esac
+    write_row "$(printf '%s' "$ROW" | jq -c --arg d "$TODAY" '.dispatched = $d')"
+    printf 'brief=%s\n' "$BRIEF"
+    exit 0
+fi
+
+# --- dispatch ---------------------------------------------------------------------------------
+
+case "$STATUS" in
+    dispatched)
+        printf 'already-dispatched\n'
+        exit 0
+        ;;
+    dispatch-failed)
+        die 3 "the dispatch of $TOPIC already failed; dispatch the unit under a new topic"
+        ;;
+esac
+
+ENTRY=$(jq -r '.entry_point // "" | strings' "$INPUT")
+REPO=$(jq -r '.repo // "" | strings' "$INPUT")
+
+confirm() {
+    write_row "$(with_status "$ROW" dispatched)"
+    printf 'session=%s\n' "$1"
+    exit 0
+}
+
+if [ "$STATUS" = dispatching ]; then
+    NAME=$(find_session)
+    case "$?" in
+        0) confirm "$NAME" ;;
+        1) RETURN_PATH=$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings') ;;
+        *) die 6 "an earlier run left $TOPIC dispatching and niwa list can't be read to settle it" ;;
+    esac
+else
+    NAME=$(find_session)
+    case "$?" in
+        0) die 5 "a live session already uses $TOPIC: $NAME" ;;
+        1) ;;
+        *) die 2 "niwa list can't be read to check $TOPIC is free" ;;
+    esac
+    RETURN_PATH=""
+fi
+
+# Check the brief before anything else happens: a refused input opens no leg
+# and writes nothing. It's rendered for real once the return path is known,
+# so the brief shows the same invocation the prompt carries.
+bash "$HERE/render-brief.sh" --input "$INPUT" --stdout >/dev/null
+case "$?" in
+    0) ;;
+    1) exit 1 ;;
+    *) die 2 "rendering the brief failed" ;;
+esac
+
+# The leg, opened once: a resumed run reuses the recorded return path.
+if [ -z "$RETURN_PATH" ]; then
+    LEG=$(dc_entry_field "$ENTRY" 2) || die 2 "no entry-point row for $ENTRY"
+    if [ "$LEG" = - ]; then
+        RETURN_PATH=message
+    else
+        TEMPLATES=$(dc_entry_field "$ENTRY" 3)
+        PINNED=$(dc_entry_field "$ENTRY" 4)
+        POS=$(jq -r '.entry_args[0]' "$INPUT")
+        INPUTS='{}'
+        if [ "$PINNED" != - ]; then
+            IFS=, read -r -a PAIRS <<EOF
+$PINNED
+EOF
+            for pair in "${PAIRS[@]}"; do
+                var=${pair%%=*}
+                src=${pair#*=}
+                case "$src" in
+                    arg) val="$POS" ;;
+                    plan-slug)
+                        val=$(basename "$POS" .md)
+                        val=${val#PLAN-}
+                        ;;
+                    *) die 2 "entry-points.tsv names an unknown input source: $src" ;;
+                esac
+                INPUTS=$(printf '%s' "$INPUTS" | jq -c --arg k "$var" --arg v "$val" '.[$k] = $v')
+            done
+        fi
+        DATA=$(jq -nc --arg leg "$LEG" --arg t "$TEMPLATES" --argjson in "$INPUTS" \
+            '{legs: [{name: $leg, role: $leg, template: ($t | split(",") | if length == 1 then .[0] else . end), inputs: $in}]}')
+        DISPATCHER=$(jq -r '.dispatcher_session' "$INPUT")
+        OUT=$("$KOTO" request create --with-data "$DATA" \
+            --requested-by "$DISPATCHER" --coordinator-of-record "coordinate-$TOPIC" </dev/null) ||
+            die 2 "koto request create failed for $TOPIC"
+        REQ=$(printf '%s' "$OUT" | jq -r '.request_id // "" | strings')
+        printf '%s' "$REQ" | grep -Eq "$RE_REQ" || die 2 "koto request create printed no usable request id"
+        RETURN_PATH="$REQ:$LEG"
+    fi
+fi
+
+# The brief, the worker's invocation and the prompt, all from the one builder.
+BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH")
+case "$?" in
+    0) ;;
+    1) exit 1 ;;
+    *) die 2 "rendering the brief failed" ;;
+esac
+INVOCATION=$(dc_invocation "$INPUT" "$RETURN_PATH") || die 2 "building the invocation failed"
+PROMPT=$(jq -r --arg inv "$INVOCATION" --arg brief "$BRIEF" '
+    .authority + " Run `" + $inv + "` in " + .repo + ", and stop at: " + (.checkpoints | last)
+    + " Read " + $brief + " for your complete task brief, then do it."' "$INPUT")
+
+# Write ahead, unless a resumed run's row is already there.
+if [ "$STATUS" != dispatching ]; then
+    ROW=$(jq -nc \
+        --arg unit "$(jq -r '.unit // .goal' "$INPUT")" \
+        --arg ep "$ENTRY" \
+        --arg mode "$(dc_mode "$INPUT")" \
+        --arg phase "$(jq -r '.phase' "$INPUT")" \
+        --arg rp "$RETURN_PATH" \
+        --arg topic "$TOPIC" \
+        --arg repo "$REPO" \
+        --arg today "$TODAY" \
+        '{unit: $unit, entry_point: $ep, mode: $mode, phase: $phase, dispatch_status: "dispatching",
+          return_path: $rp, worker: $topic, repo: $repo, branch: "", verified_head: "",
+          dispatched: $today, pull_request: "none yet"}')
+    write_row "$ROW"
+fi
+
+# Launch.
+LOG="$WORK/niwa.out"
+(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach) >"$LOG"
+RC=$?
+if [ "$RC" -eq 0 ]; then
+    NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)
+    if dc_session_matches "$TOPIC" "$NAME"; then
+        confirm "$NAME"
+    fi
+    # Launched, but the name line is missing or unexpected: settle it from
+    # the listing like any other unclear outcome.
+fi
+
+NAME=$(find_session)
+case "$?" in
+    0) confirm "$NAME" ;;
+    1)
+        write_row "$(with_status "$ROW" dispatch-failed)"
+        case "$RETURN_PATH" in
+            message) ;;
+            *)
+                "$KOTO" request abandon-request "${RETURN_PATH%%:*}" \
+                    --rationale "the dispatch of $TOPIC failed" </dev/null >/dev/null ||
+                    printf '%s: could not abandon request %s\n' "$PROG" "${RETURN_PATH%%:*}" >&2
+                ;;
+        esac
+        die 4 "niwa dispatch failed for $TOPIC (exit $RC)"
+        ;;
+    *)
+        die 6 "niwa dispatch exited $RC and niwa list can't be read; $TOPIC stays dispatching"
+        ;;
+esac

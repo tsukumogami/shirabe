@@ -6,3 +6,20 @@
 # are declared tool-only and checked for presence.
 gh	-	-	always
 git	-	-	always
+#
+# The dispatch path's scripts (skills/coordinate/scripts/) launch workers with
+# the workspace manager's `niwa dispatch --name <topic> --detach` and find them
+# again with `niwa list --json`, open a worker's request leg with
+# `koto request create --with-data` and abandon it on a failed launch, read
+# brief_input.json and the topics from the session's context, and read every
+# JSON input and output with jq.
+#
+# niwa is declared for presence only, like gh: the load-time probe reads
+# subcommands and flags from a help layout niwa's CLI doesn't print, so a
+# subcommand record would report "could not be checked" on every load. The
+# calls it makes are `niwa dispatch --name --detach` and `niwa list --json`.
+niwa	-	-	always
+koto	request create	--with-data,--requested-by,--coordinator-of-record	always
+koto	request abandon-request	--rationale	always
+koto	context get	-	always
+jq	-	-	always

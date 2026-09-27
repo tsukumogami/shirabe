@@ -90,6 +90,26 @@
 #   it's absent, these return 2 and say so. DC_RECORD_HOLDING overrides its
 #   path; tests use a stand-in.
 #
+#   dc_seal <session> <state> <verdict-file> <context-key>
+#       Stores a check state's verdict in the context key through the record
+#       feature's seal helper, coord-log.sh, and prints its
+#       `sealed:<seq>:<sha256>` token, where seq is the state's latest entry
+#       in the session log and the hash covers the session, state, seq and the
+#       verdict's bytes. The helper ships with the record feature, like
+#       record-holding.sh. DC_COORD_LOG overrides its path.
+#
+#   dc_seal_check <session> <state> <token> <context-key>
+#       Prints the sealed verdict's bytes when the token still matches them and
+#       the state's latest entry; returns 0 valid, 1 invalid, 2 read failure.
+#
+#   dc_capture <session> <name>
+#       Prints a capture's latest value from the session's own log, so an
+#       agent-run script never takes a sealed token as an argument.
+#
+#   dc_directed_since <session> <seq>
+#       Returns 0 when the session log shows no directed transition (`koto
+#       next --to`) since entry seq, 1 when it shows one, 2 on a read failure.
+#
 #   dc_with_deadline <seconds> <command...>
 #       Runs the command and kills it once the deadline passes. Returns the
 #       command's status, or 124 when the deadline killed it. `timeout` isn't
@@ -98,6 +118,7 @@
 DC_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
+DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
 dc_valid_topic() {
     case "$1" in
@@ -274,6 +295,45 @@ dc_record_write() {
     esac
 }
 
+dc_coord_log_present() {
+    [ -f "$DC_COORD_LOG" ] && return 0
+    printf 'dispatch-common: the record feature'"'"'s coord-log.sh is not installed at %s\n' "$DC_COORD_LOG" >&2
+    return 2
+}
+
+dc_seal() {
+    dc_coord_log_present || return 2
+    local token
+    token=$(bash "$DC_COORD_LOG" seal --session "$1" --state "$2" --file "$3" --key "$4") || return 2
+    printf '%s' "$token" | grep -Eq '^sealed:[0-9]+:[0-9a-f]{64}$' || return 2
+    printf '%s\n' "$token"
+}
+
+dc_seal_check() {
+    dc_coord_log_present || return 2
+    bash "$DC_COORD_LOG" check --session "$1" --state "$2" --sealed "$3" --key "$4"
+    case "$?" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_capture() {
+    dc_coord_log_present || return 2
+    bash "$DC_COORD_LOG" capture --session "$1" --name "$2"
+}
+
+dc_directed_since() {
+    dc_coord_log_present || return 2
+    bash "$DC_COORD_LOG" directed-since --session "$1" --from "$2" >/dev/null
+    case "$?" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
 dc_with_deadline() {
     local secs="$1" pid watcher rc mark
     shift
@@ -281,12 +341,15 @@ dc_with_deadline() {
     rm -f "$mark"
     "$@" &
     pid=$!
-    # The watcher's streams go nowhere: its sleep outlives it when the command
-    # finishes first, and a sleep holding a caller's $(...) pipe would make
-    # that caller wait out the whole deadline.
+    # The watcher runs its sleep in the background and waits on it, so the
+    # TERM that stops the watcher also stops the sleep (a foreground sleep
+    # would outlive it). Its streams go nowhere, so nothing it leaves holds a
+    # caller's $(...) pipe open.
     (
-        sleep "$secs"
-        if kill -TERM "$pid" >/dev/null 2>&1; then
+        sleep "$secs" &
+        sp=$!
+        trap 'kill -TERM "$sp" >/dev/null 2>&1; exit 0' TERM
+        if wait "$sp" && kill -TERM "$pid" >/dev/null 2>&1; then
             : >"$mark"
         fi
     ) </dev/null >/dev/null 2>&1 &
