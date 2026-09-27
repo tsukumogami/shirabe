@@ -492,12 +492,23 @@ same state twice (koto's "cycle detected").
 - `provenance`: exits non-zero unless the header's template hash equals the hash of the template
   the opener compiled for this plugin root, and `PLUGIN_ROOT` resolves to the directory the
   calling script lives in.
-- `live-session <scope-slug>`: the one live coordinate session for the scope, so a write script
-  finds its session itself rather than trusting a `--session` pointed at an older run's log.
-- `vars`, `entered <state>`, `entry <state> [--before <seq>]` and `evidence <state> [--after
-  <seq>] [--before <seq>]`: the run's variables, whether the run ever entered a state, the latest
-  entry into a state with the state it came from, and a state's latest evidence in a window.
-  Scripts read the event stream only through these.
+- `live-session <scope-slug> [--all]`: the one live coordinate session for the scope, so a write
+  script finds its session itself rather than trusting a `--session` pointed at an older run's
+  log; with `--all`, every live one, which is how `coordinate-open.sh` finds the runs it cancels.
+- `slug --scope --name`: the scope slug sessions are named by, the one derivation
+  `coordinate-open.sh` and the write guard share.
+- `vars`, `entered <state>`, `entry <state> [--before <seq>]`, `evidence <state> [--after <seq>]
+  [--before <seq>] [--where <field>=<value>] [--has <field>]`, `captures <name> [--after <seq>]
+  [--before <seq>]` and `count`: the run's variables, whether the run ever entered a state, the
+  latest entry into a state with the state it came from, a state's latest evidence in a window,
+  every capture of a name with its seq and time, and the number of events.
+- `unit [--before <seq>] [--event <e>]`: the unit the run's latest arrival names, as `topic <t>`
+  (a `wait` evidence's unit) or `leg <request>:<leg>` (the leg path, from `WAIT_REQ` and
+  `WAIT_LEG`); `record-common.sh`'s `lib_unit` resolves a leg to the holding whose Return path it
+  is, for `report-facts.sh` and `record-confirm.sh` alike.
+
+  Scripts read the event stream only through these, and only `coord-log.sh` finds the log file;
+  it refuses a log whose header `schema_version` isn't 1.
 
 ### States
 
