@@ -52,7 +52,7 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@49b2d262f54c6c06f3f1936e344c85a9bba4ab57  # installs tsuku 0.14.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
