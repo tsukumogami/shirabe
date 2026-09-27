@@ -155,7 +155,8 @@ workers with no pull request yet), deferrals, side effects in flight such as a
 merge attempted and never confirmed, and the reasoning behind reversals.
 Feature state is never stored; it is read from the roadmap and the pull
 requests every time. At roadmap scope the record is an issue in the roadmap's
-repository, closed when the roadmap is done; at discipline scope it is a draft
+repository titled `Coordinator record: ROADMAP-<name>`, closed when the roadmap
+is done; at discipline scope it is a draft
 pull request per rotation, whose diff is the dated handoff file. The workflow
 finds it, checks it, and confirms every change you make to it on GitHub; you
 write it only through the scripts its states name. Its body, written by

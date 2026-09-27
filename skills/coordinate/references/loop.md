@@ -29,6 +29,11 @@ for the judgment at the end, not for the reads.
    gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus
    ```
 
+   When the row has a Verified head and the pull request is still open,
+   compare its current head with that Verified head: a head that moved is
+   unverified again, and goes back through verify before any merge is
+   considered.
+
    Read its CI and remote ref with `scripts/board-verdict.sh --repo
    <owner/repo> --pr <n>`, not a checks rollup: it is the read that shows each
    job's runner and step count and re-reads the ref last, and the same one the
@@ -154,7 +159,7 @@ What I verified: <reads, with the head sha and time, each marked measured, verif
 What I tried: <re-dispatches so far, with what each learned>.
 Options: <two or three, each with its consequence>.
 Recommendation: <one option and why>.
-Until you answer: <what stays paused; everything else keeps moving>.
+Until you answer: <what stays paused, and the units that keep moving, each by name>.
 Waiting on the human:
 - <this decision> -- <recommendation>
 - <anything else already waiting on them>

@@ -59,7 +59,7 @@
         "The pull request's head sha is read from the remote before anything is relayed or acted on, and every later claim is about that sha",
         "Each CI job's runner and step count are read, not only the overall conclusion",
         "A job with no runner, or whose steps were all skipped, would be reported as not verified even though it shows green",
-        "The pull request's file list and git ls-remote for the branch are read",
+        "The pull request's file list is read, and the branch's remote ref is read and compared with the head",
         "The report separates what was verified from what was not, and marks each claim as measured, verified by reading, or inferred",
         "No merge is attempted, by gh pr merge or any other command or API call",
         "The human is handed a merge-order table with each pull request as a clickable link and the reason for each position; no commit hash appears in the table, and the verified head is kept in the record"
