@@ -323,10 +323,21 @@ if [ -n "$WIP_PATHS" ]; then
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
                 printf '%s\n' "$WIP_PATHS" | grep -qxF -- "$p" || continue
-                if git cat-file -p "$c:$p" \
-                    | grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private'; then
-                    HIT="$p"; break
-                fi
+                # The blob goes to a file first. Piped into `grep -q`, a match
+                # early in a large blob ends grep while git is still writing,
+                # git dies of SIGPIPE, and under pipefail the `if` read that as
+                # "no match" and let the push through. Reading grep's own
+                # status on a file keeps the scan closed: 0 is a hit, 1 is a
+                # clean blob, and anything else, like a failed read, refuses.
+                git cat-file -p "$c:$p" >"$SCRATCH/blob" \
+                    || fail scope:push "cannot read $p at $c for the visibility check; nothing was pushed"
+                SCAN=0
+                grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCRATCH/blob" || SCAN=$?
+                case "$SCAN" in
+                    0) HIT="$p"; break ;;
+                    1) ;;
+                    *) fail scope:push "the visibility check could not scan $p at $c (grep exit $SCAN); nothing was pushed" ;;
+                esac
             done <<EOF
 $TREE_PATHS
 EOF

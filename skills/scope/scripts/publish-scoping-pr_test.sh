@@ -214,6 +214,21 @@ eq "a visibility-check hit in unpushed wip/: scope:push" "scope:push" "$(line st
 eq "a visibility-check hit: nothing pushed" "" "$(remote_sha docs/topic)"
 eq "a visibility-check hit: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
 
+# The same hit on the first line of a blob far larger than a pipe buffer. Piped
+# into `grep -q`, grep exits on that line while git is still writing, git dies of
+# SIGPIPE, and under pipefail the `if` read the 141 as "no match" and pushed.
+setup single-pr
+printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
+{
+    printf 'see private/tools/notes.md for the numbers\n'
+    awk 'BEGIN { for (i = 0; i < 20000; i++) print "filler line to outgrow the pipe buffer" }'
+} >"$R/wip/research/design_topic_notes.md"
+git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: research"
+run --topic topic --exit full-run --intent continue
+eq "a hit on line 1 of a large blob: scope:push" "scope:push" "$(line step)"
+eq "a hit on line 1 of a large blob: nothing pushed" "" "$(remote_sha docs/topic)"
+eq "a hit on line 1 of a large blob: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
+
 setup single-pr
 rm "$R/docs/plans/PLAN-topic.md"; git -C "$R" commit -q -am "drop plan"
 run --topic topic --exit full-run --intent continue
