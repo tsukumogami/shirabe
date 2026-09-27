@@ -13,3 +13,11 @@ skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	docs	neve
 skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	task	never
 skills/execute/koto-templates/execute.md	worktree_discipline_check	impact	informational	never
 skills/execute/koto-templates/execute.md	worktree_discipline_check	impact	intent-changing	never
+skills/coordinate/koto-templates/coordinate.md	pick	choice	dispatch	shadow
+skills/coordinate/koto-templates/coordinate.md	pick	choice	scope_ahead	shadow
+skills/coordinate/koto-templates/coordinate.md	pick	choice	send_execution	shadow
+skills/coordinate/koto-templates/coordinate.md	pick	choice	ask_up	shadow
+skills/coordinate/koto-templates/coordinate.md	pick	choice	hold	shadow
+skills/coordinate/koto-templates/coordinate.md	classify_report	classification	done	shadow
+skills/coordinate/koto-templates/coordinate.md	classify_report	classification	blocked	shadow
+skills/coordinate/koto-templates/coordinate.md	classify_report	classification	needs_fix	shadow
