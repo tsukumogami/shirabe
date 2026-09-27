@@ -10,7 +10,16 @@
 #
 # Usage: coord-verdict.sh --session S --state ST --capture "<token> sealed:<seq>:<hash>"
 # Exit codes: the verdict's code (10 and up); 1 the seal is invalid or stale;
-# 2 the log can't be read; 3 an unknown verdict word; 64 usage.
+# 2 the log can't be read; 3 an unknown verdict word (a bug: the table and the
+# script disagree); 4 a verdict that holds the state by design (`waiting`,
+# `land-blocked`: the coordinator's next action changes it); 64 usage. Both 3
+# and 4 have no arm, so the state stays gate-blocked; stderr says which.
+#
+# The table is pinned by coord-verdict-table_test.sh against every template
+# arm. Two codes have no arm here on purpose: `handed-over` (124) is in the
+# table so the word has a code, but closeout-read.sh doesn't print it today;
+# `reconciled` (140) is routed by the reconcile feature's reconcile_pass state
+# (shirabe#406).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -41,8 +50,8 @@ case "$WORD" in
     # pick_facts
     pick) exit 30 ;; scope-complete) exit 31 ;; rotation-over) exit 32 ;;
     # dispatch_check
-    ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;;
-    # record, verified_confirm ("waiting" has no code: the state stays blocked)
+    ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;; duplicate-topic) exit 44 ;;
+    # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts
     holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;;
@@ -62,5 +71,9 @@ case "$WORD" in
     # roadmap_close
     ready) exit 130 ;; features-open) exit 131 ;; holdings) exit 132 ;;
     side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;;
-    *) exit 3 ;;
+    # reconcile_pass, the reconcile feature's state (shirabe#406)
+    reconciled) exit 140 ;;
+    waiting|land-blocked)
+        echo "coord-verdict: $WORD: $STATE stays here until your next action changes what it reads" >&2; exit 4 ;;
+    *) echo "coord-verdict: unknown verdict word [$WORD] for $STATE" >&2; exit 3 ;;
 esac

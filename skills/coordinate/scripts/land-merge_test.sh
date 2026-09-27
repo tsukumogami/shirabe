@@ -25,7 +25,7 @@ trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 LM="$PS/land-merge.sh"
-PERMIT="readable merge=permit close=permit teardown=permit"
+PERMIT="readable merge:permit close:permit teardown:permit"
 CALLS="$BT_STATE/merge-exec.calls"
 N=0
 
@@ -60,13 +60,13 @@ eq "merge-exec gets the repository, the pull request and the verified sha" "acme
 eq "merge-exec's line is printed" "merge-called:squash:$H" "$OUT"
 
 echo "== never merges =="
-at_land; printf '%s\n' "readable merge=deny close=permit teardown=permit" > "$BT_STATE/posture"
+at_land; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
 never "the posture re-read denies" 10
-at_land; printf '%s\n' "readable merge=confirm close=permit teardown=permit" > "$BT_STATE/posture"
+at_land; printf '%s\n' "readable merge:confirm close:permit teardown:permit" > "$BT_STATE/posture"
 never "the posture re-read asks for a person's confirmation" 10
 at_land; echo 2 > "$BT_STATE/posture.rc"
 never "the posture re-read fails" 10
-at_land "readable merge=deny close=permit teardown=permit"
+at_land "readable merge:deny close:permit teardown:permit"
 never "the start's posture denied, whatever the re-read says" 10
 at_land; bt_enter "$S" land
 never "land's capture is stale (land entered again since)" 10
@@ -115,7 +115,7 @@ closeout PREDECESSOR_CLOSE predecessor_close
 bash "$LM" --session "$S" --closeout >/dev/null 2>&1; eq "a predecessor's record pull request merges: exit 0" 0 $?
 closeout ROTATION_CLOSE rotation_close; bt_enter "$S" rotation_close
 never "a stale close-out capture" 10 --closeout
-closeout ROTATION_CLOSE rotation_close; printf '%s\n' "readable merge=deny close=permit teardown=permit" > "$BT_STATE/posture"
+closeout ROTATION_CLOSE rotation_close; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
 never "a close-out the posture denies" 10 --closeout
 closeout ROTATION_CLOSE rotation_close; bt_append "$S" directed_transition '{"from":"rotation_step","to":"rotation_close"}'
 never "a close-out in a run with a directed transition" 10 --closeout

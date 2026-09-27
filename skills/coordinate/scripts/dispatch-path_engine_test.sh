@@ -197,7 +197,7 @@ eq  "dispatch: the holding dispatched lets sent leave" record "$(at)"
 start
 put dispatch_topic w1
 tick --with-data '{"go":"dispatch"}'
-tick --with-data '{"dispatched":"failed"}'
+tick --with-data '{"dispatched":"failed","topic":"w1"}'
 eq  "dispatch: failed goes to failure" failure "$(at)"
 
 # --- the leg path ----------------------------------------------------------------------------------

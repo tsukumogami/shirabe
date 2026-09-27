@@ -54,6 +54,6 @@ koto	request get	-	always
 koto	context exists	-	always
 #
 # Citations, not calls: SKILL.md and coordinate.md tell the coordinator never
-# to use `koto next --to`, which skips the workflow's checks (koto#251).
+# to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).
 #not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal

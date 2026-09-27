@@ -210,7 +210,7 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
                               or ($s == "closed" and .state == "CLOSED")))
          | {url: ("https://github.com/" + .repo + "/pull/" + (.number | tostring)),
             number, state, isCrossRepository, author: {login: .author},
-            baseRefName, headRefName}]' "$DB")
+            baseRefName, headRefName, body: (.body // "")}]' "$DB")
       ;;
     "pr view")
       repo=$(flag_value --repo "$@") || repo=""

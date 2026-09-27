@@ -15,10 +15,10 @@ description: >-
   than issues inside one (`/roadmap`), or to run the resulting plan
   (`/execute`).
 argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical] [--intent=continue|stop] [--coordinated|--no-coordinated] [--auto]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh plan 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh plan 2>&1 || true`
 
 @.claude/shirabe-extensions/plan.md
 @.claude/shirabe-extensions/plan.local.md

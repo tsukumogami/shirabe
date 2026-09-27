@@ -309,12 +309,18 @@ esac
 if [ -z "$RETURN_PATH" ]; then
     LEG=$(dc_entry_field "$ENTRY" "$DC_F_LEG") || die 2 "no entry-point row for $ENTRY"
     [ "$LEG" = - ] || printf '%s' "$LEG" | grep -Eq "$DC_RE_LEG" || die 2 "entry-points.tsv names a malformed leg for $ENTRY: $LEG"
+    POS=$(jq -r '.entry_args[0]' "$INPUT")
+    # /work-on answers its leg only for an issue or a task. Given a PLAN path
+    # it never reaches the leg, which would then stay open with nothing to
+    # resolve it, so that worker reports by message.
+    if [ "$ENTRY" = work-on ]; then
+        case "$POS" in *PLAN-*.md) LEG=- ;; esac
+    fi
     if [ "$LEG" = - ]; then
         RETURN_PATH=message
     else
         TEMPLATES=$(dc_entry_field "$ENTRY" "$DC_F_TEMPLATES")
         PINNED=$(dc_entry_field "$ENTRY" "$DC_F_PINNED")
-        POS=$(jq -r '.entry_args[0]' "$INPUT")
         INPUTS='{}'
         if [ "$PINNED" != - ]; then
             IFS=, read -r -a PAIRS <<EOF

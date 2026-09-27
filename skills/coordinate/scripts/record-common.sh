@@ -21,7 +21,13 @@
 # Requires: bash 3.2+, jq, and coord-log.sh beside this file.
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+# RE_NAME is a scope's name (a roadmap's or a discipline's), the codec's
+# re_name: unlike a topic it may start with `.`, `_` or `-`.
 RE_NAME='^[A-Za-z0-9._-]+$'
+# RE_TOPIC is a dispatch topic, the Worker cell's shape (the codec's
+# check_worker): a letter or digit, then letters, digits, `.`, `_` or `-`.
+# Every script that holds a topic to its shape uses this one.
+RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_LOGIN='^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$'
 RE_NUM='^[1-9][0-9]*$'
 RE_SHA='^[0-9a-f]{40}$'
@@ -29,13 +35,24 @@ DECL_PREFIX='> This is a **coordinator record** for '
 KOTO=${KOTO_BIN:-koto}
 OVERRIDE=0
 ROADMAP=
+# Only a write script (lib_write_guard) reads SKIP_CHECKS, and each of those
+# sets it from --skip-session-checks; every other script leaves it off.
+: "${SKIP_CHECKS:=0}"
 
 lib_die2() { echo "$PROG: $*" >&2; exit 2; }
 
-# lib_scrub: cap text at 300 bytes and replace anything shaped like a GitHub
-# token, so a gh error quoted in a diagnostic can never carry a credential.
+# lib_redact: replace anything shaped like a GitHub token (a ghp_, gho_,
+# ghu_, ghs_ or ghr_ prefix, or github_pat_, then six or more token
+# characters) and drop control characters. The one token rule; lib_scrub and
+# board-lib.sh's bl_scrub differ only in how much text they keep.
+lib_redact() {
+    sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' | tr -d '\000-\010\013\014\016-\037'
+}
+
+# lib_scrub: a gh error quoted inside one diagnostic, redacted and capped at
+# 300 bytes, so it can never carry a credential.
 lib_scrub() {
-    sed -E 's/(gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,})/[redacted]/g' | tr -d '\000-\010\013\014\016-\037' | head -c 300
+    lib_redact | head -c 300
 }
 
 # lib_facts: the run's scope, name and host. From the session's init variables
@@ -193,13 +210,10 @@ lib_emit() {
     exit 0
 }
 
-# lib_slug: SLUG, the scope slug coordinate-open.sh names sessions by:
-# `<scope>-<name>` lowercased, every character outside [a-z0-9-] made `-`,
-# runs of `-` squeezed, one trailing `-` trimmed. The pipeline is the same
-# text as coordinate-open.sh's (record-write_test.sh checks that it stays so).
+# lib_slug: SLUG, the scope slug coordinate-open.sh names sessions by, from
+# coord-log.sh slug, the one derivation both use.
 lib_slug() {
-    SLUG=$(printf '%s-%s' "$SCOPE" "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-' | tr -s '-')
-    SLUG=${SLUG%-}
+    SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope slug"
 }
 
 # lib_write_guard: every write refuses (exit 10) when the session wasn't
@@ -207,7 +221,7 @@ lib_slug() {
 # one live session for its scope (coord-log.sh live-session; so a --session
 # naming an older run of the same scope, still provenanced and pointing at
 # the same record, is refused), or when the run has any directed transition
-# (`koto next --to` skips gates, koto#251).
+# (`koto next --to` skipped gates before koto 0.14.0, koto#251; kept as defence in depth).
 # --skip-session-checks bypasses it, only with the test override flags.
 lib_write_guard() {
     if [ "$SKIP_CHECKS" = 1 ]; then
@@ -257,15 +271,45 @@ lib_drop_disposed() {
 
 lib_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# lib_log: set LOG to the session's state log, found the way coord-log.sh
-# finds it (koto session dir). record-confirm.sh reads evidence events that
-# coord-log.sh has no subcommand for; every seal it relies on is still
-# checked through coord-log.sh.
-lib_log() {
-    local d
-    d=$("$KOTO" session dir "$SESSION" 2>/dev/null) || return 1
-    LOG="$d/koto-$SESSION.state.jsonl"
-    [ -r "$LOG" ]
+# lib_log_readable: the session's log is there and in a schema coord-log.sh
+# knows. A check calls it before its first GitHub read, so a run whose log
+# can't be read reads nothing; every event it needs comes through coord-log.sh.
+lib_log_readable() {
+    bash "$HERE/coord-log.sh" count --session "$SESSION" > /dev/null
+}
+
+# lib_unit <before-seq> <event> <holdings-fn>: set UNIT to the dispatch topic
+# of the unit the run's latest arrival names (coord-log.sh unit, with
+# --before and --event when given). On the message path that is the wait
+# evidence's unit. On the leg path (wait_leg, then take_report) the hub's
+# evidence carries no unit, so the unit is the one Holdings row whose Return
+# path is the `leg <request>:<leg>` coord-log.sh prints; <holdings-fn> is a
+# function printing the Holdings rows as a JSON array, called only then (it
+# may exit the script on a failed read). On the leg path UNIT_LEG is that
+# leg and LEG_ROWS how many rows carry it (both empty otherwise). Returns 0
+# UNIT set; 1 no arrival, or evidence whose unit is empty; 3 an arrival
+# naming no unit (not a topic, or a leg no single row carries). Exits 2 on a
+# read failure.
+lib_unit() {
+    local before=$1 event=$2 fn=$3 out rc rows n
+    UNIT= UNIT_LEG= LEG_ROWS=
+    set --
+    [ -n "$before" ] && set -- --before "$before"
+    [ -n "$event" ] && set -- "$@" --event "$event"
+    out=$(bash "$HERE/coord-log.sh" unit --session "$SESSION" "$@" 2> /dev/null)
+    rc=$?
+    case $rc in 0) ;; 1|3) return $rc ;; *) lib_die2 "cannot read the session log" ;; esac
+    case "$out" in
+        "topic ") return 1 ;;
+        "topic "*) UNIT=${out#topic } ;;
+        "leg "*)
+            rows=$("$fn") || exit 2
+            n=$(printf '%s' "$rows" | jq --arg l "$out" '[.[] | select(.return_path == $l)] | length') || lib_die2 "the Holdings rows are not JSON"
+            UNIT_LEG=$out LEG_ROWS=$n
+            [ "$n" = 1 ] && UNIT=$(printf '%s' "$rows" | jq -r --arg l "$out" '.[] | select(.return_path == $l) | .worker')
+            ;;
+    esac
+    [[ $UNIT =~ $RE_TOPIC ]] || { UNIT=; return 3; }
 }
 
 # lib_run_ref: REF from --ref (tests) or from coord-log.sh run-facts.
@@ -293,6 +337,13 @@ lib_default_branch() {
     [[ $DEFAULT_BRANCH =~ ^[A-Za-z0-9._/-]+$ ]] || return 2
 }
 
+# lib_b64d <in> <out>: decode base64, ignoring line breaks and spaces (GitHub
+# wraps it in lines). GNU decodes with -d, older macOS with -D.
+lib_b64d() {
+    tr -d '\n\r ' < "$1" > "$1.flat"
+    base64 -d < "$1.flat" > "$2" 2> /dev/null || base64 -D < "$1.flat" > "$2" 2> /dev/null
+}
+
 # lib_file_at <path> <ref> <out>: a file's bytes at a ref, through the contents
 # API. Returns 0 read, 1 absent (404), 2 a read or decode failed.
 lib_file_at() {
@@ -300,9 +351,7 @@ lib_file_at() {
         grep -q 'HTTP 404' "$3.err" && return 1
         return 2
     fi
-    # GitHub wraps the base64 in lines; GNU decodes with -d, older macOS with -D.
-    tr -d '\n\r ' < "$3.b64" > "$3.flat"
-    base64 -d < "$3.flat" > "$3" 2> /dev/null || base64 -D < "$3.flat" > "$3" 2> /dev/null || return 2
+    lib_b64d "$3.b64" "$3" || return 2
 }
 
 # lib_roadmap_path: check ROADMAP's closed shape (docs/roadmaps/.../ROADMAP-*.md,
@@ -350,7 +399,8 @@ lib_roadmap_features() {
 
 # lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
 # into LINK_REPO and LINK_NUM. Returns 1 when the cell isn't that shape or the
-# two numbers differ.
+# two numbers differ. The one bash parser of the cell; record-codec.jq's
+# pr_link is the jq one, with the same grammar.
 lib_pr_link() {
     local re='^\[#([0-9]+)\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)\)$'
     LINK_REPO= LINK_NUM=

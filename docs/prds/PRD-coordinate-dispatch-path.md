@@ -259,6 +259,8 @@ a stub record writer, so it launches nothing and writes to no real record.
 #395, #396, #398 and #401, koto#250, koto#251 and niwa#322 as known
 limitations, each
 with what it costs today, and carries no rule whose only reason is one of them.
+#401 was fixed by #407 before this feature landed, so the skill no longer lists
+it and the dispatch path binds legs for `/deliver` and `/work-on` too.
 
 **R25. Public content only.** No committed artifact names a private
 repository, path or issue, a session or instance name, a job id, or a path under the
@@ -339,8 +341,9 @@ workflow scratch directory the repository's cleanup rule removes.
   each asserts its specific outcome (both channels present; the gate blocked;
   the coordinator's answer routed with the shadow suggestion recorded), and
   each fails against the prose-only skill.
-- [ ] The skill's Known Limitations names shirabe #395, #396, #398, #401,
-  koto#250, koto#251 and niwa#322, each with its cost today.
+- [ ] The skill's Known Limitations names shirabe #395, #396, #398,
+  koto#250, koto#251 and niwa#322, each with its cost today (#401 was fixed
+  by #407 before this feature landed).
 - [ ] No added file names a path under the workflow scratch directory, a
   private repository, path or issue.
 
@@ -356,7 +359,8 @@ workflow scratch directory the repository's cleanup rule removes.
   feature calls the record's writer to add a holding.
 - The loop's template and its other states. This feature fills the dispatch
   and wait states and adds gates to them; it doesn't restructure the template.
-- Accepting `--koto-leg` in `/deliver` and `/work-on` (#401) and waking the
+- Accepting `--koto-leg` in `/deliver` and `/work-on` (#401, since fixed by
+  #407) and waking the
   coordinator when a leg resolves (koto#250).
 - Request legs across hosts, which koto's request store doesn't carry by
   design.
@@ -378,9 +382,10 @@ workflow scratch directory the repository's cleanup rule removes.
 - **Scoping pull request bodies (#398).** A worker's scoping pull request body
   isn't the conformant two-part body, so a coordinator reading it for the
   report gets less structure than it should.
-- **Legs for `/deliver` and `/work-on` (#401).** Until they accept
-  `--koto-leg`, the units a coordinator dispatches most often use the message
-  path, and the leg path serves `/scope` and `/execute` workers only.
+- **Legs for `/deliver` and `/work-on` (#401, fixed by #407).** Both accept
+  `--koto-leg` now, and the dispatch path binds a leg for each; a `/work-on`
+  worker given a PLAN path still reports by message, since `/work-on` answers
+  its leg only for an issue or a task.
 - **The destroy refuses squash-merged branches (niwa#322).** `niwa destroy`
   refuses an instance whose branches were squash-merged, because it judges by
   ancestry. The coordinator passes `--force` only after the inventory has

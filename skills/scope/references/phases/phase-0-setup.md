@@ -46,7 +46,7 @@ one topic value and fail the pattern.
 
 **The args file.** A JSON array of the raw tokens, positional
 included, written outside the work tree: to a private directory from
-`bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir` (mode
+`${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir` (mode
 0700, under `$TMPDIR`), or to the koto session directory. Write it
 with the Write tool or `jq`, never by pasting tokens into a shell
 command: a token is data, and the file is the only route by which it
@@ -78,7 +78,7 @@ and the slug and from nothing else. It is recomputed at every use
 rather than read back from anywhere.
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh \
+${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh \
   --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>
 ```
 

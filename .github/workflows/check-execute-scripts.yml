@@ -31,9 +31,11 @@ on:
       - 'scripts/check-merged-wording.sh'
       - 'scripts/check-merged-wording_test.sh'
       - 'scripts/check-merged-wording.allow'
+      # An edit to this workflow changes what runs, so it has to run the suite.
+      - '.github/workflows/check-execute-scripts.yml'
 
 env:
-  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
 
@@ -89,6 +91,16 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/owned-pr_test.sh
 
+      - name: Run run-id tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/run-id_test.sh
+
+      # Every owned-PR lookup across /execute, /scope, and /deliver carries the
+      # run's identity; this reads the call sites, so it triggers on any skill.
+      - name: Run owned-pr caller tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/owned-pr-callers_test.sh
+
       - name: Run push-and-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh
@@ -133,10 +145,7 @@ jobs:
       # same way validate-templates.yml gets it.
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        run: |
-          curl -fsSL https://get.tsuku.dev/now | bash
-          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
-          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'

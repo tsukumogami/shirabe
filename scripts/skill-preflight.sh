@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # skill-preflight.sh -- the prerequisite check for one shirabe skill.
 #
-# Usage: bash scripts/skill-preflight.sh <skill-name>
-#        bash scripts/skill-preflight.sh <skill-name> --mode <mode-name>
+# Usage: scripts/skill-preflight.sh <skill-name>
+#        scripts/skill-preflight.sh <skill-name> --mode <mode-name>
 #
 # Injected at column 0 in a skill body as:
 #
-#   !`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> 2>&1 || true`
+#   !`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> 2>&1 || true`
+#
+# The line runs this file by path, not through `bash`, because a
+# worktree-isolated session refuses `bash <script>`. So this file must ship
+# with its executable bit and its `#!/usr/bin/env bash` line intact;
+# scripts/check-directive-invocations.sh fails CI when either is lost.
 #
 # It reads skills/<skill-name>/requires.tsv, resolves every tool the skill
 # declares as always-required, and prints one plain-prose block per prerequisite

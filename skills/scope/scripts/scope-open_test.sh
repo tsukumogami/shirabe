@@ -259,6 +259,11 @@ open_scope '["t-empty","--intent="]'
 eq "--intent= alone: koto exits 0" "0" "$RC"
 eq "--intent= alone: opened=new" "opened=new" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
 has "--intent= alone: names the session" "session=scope-t-empty" "$STDOUT"
+if [[ "$(k context get scope-t-empty run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; then
+    ok "the opened session carries a run identity (run_id, minted at the open)"
+else
+    bad "the opened session carries a run identity" "[$(k context get scope-t-empty run_id 2>&1)]"
+fi
 eq "--intent= alone: no INTENT_FLAG pair" "[]" "$(vars '[.[] | select(.[0] == "INTENT_FLAG")]')"
 if [ -e "$ARGS" ] || [ -e "$ARGS_DIR" ]; then bad "--intent= alone: the args file is removed after success"; else ok "--intent= alone: the args file is removed after success"; fi
 NEXT=$(k next scope-t-empty --no-cleanup 2>/dev/null)

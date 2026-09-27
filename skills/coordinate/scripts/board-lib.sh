@@ -10,20 +10,26 @@
 # is no write in this file, so a lint over a check script and this file finds
 # only reads.
 #
+# It sources record-common.sh beside it for what every /coordinate script
+# shares: the topic grammar (RE_TOPIC), the pull request link (lib_pr_link),
+# and the token scrub. The session log is read only through coord-log.sh.
+#
 # The deadline: a check state's default action has 30 seconds. Every read
 # checks bash's SECONDS against BL_DEADLINE (24) before it starts, and a
 # watchdog kills a read still running at the deadline, so a hung gh can't hold
 # the action past its limit. BOARD_DEADLINE_SECS may lower it (1..24) for the
 # deadline test; it can never raise it.
 #
-# Requires: bash 3.2+, jq, gh, and coord-log.sh beside the caller.
+# Requires: bash 3.2+, jq, gh, and coord-log.sh and record-common.sh beside
+# the caller.
+
+. "$HERE/record-common.sh" || { echo "${PROG:-board-lib}: cannot source record-common.sh" >&2; exit 2; }
 
 BL_RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 BL_RE_PR='^[1-9][0-9]*$'
 BL_RE_SHA='^[0-9a-f]{40}$'
 BL_RE_BRANCH='^[A-Za-z0-9._/-]+$'
 BL_RE_SESSION='^[A-Za-z0-9._-]+$'
-BL_RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 KOTO=${KOTO_BIN:-koto}
 
 bl_repo_ok() {
@@ -39,7 +45,7 @@ bl_branch_ok() {
     return 0
 }
 bl_session_ok() { [[ $1 =~ $BL_RE_SESSION ]]; }
-bl_topic_ok() { [[ $1 =~ $BL_RE_TOPIC ]]; }
+bl_topic_ok() { [[ $1 =~ $RE_TOPIC ]]; }
 
 BL_DEADLINE=24
 case "${BOARD_DEADLINE_SECS-}" in
@@ -48,11 +54,12 @@ esac
 BL_START=$SECONDS
 bl_left() { echo $((BL_DEADLINE - (SECONDS - BL_START))); }
 
-# bl_scrub: cap gh's error text and replace anything shaped like a GitHub
-# token, so a relayed diagnostic can never carry a credential.
+# bl_scrub: gh's error text relayed line by line (bl_gh prefixes each line),
+# redacted by record-common.sh's lib_redact, the same token rule lib_scrub
+# uses. It keeps more than lib_scrub because it relays the whole error rather
+# than quoting it inside one line: up to 20 lines of 300 characters each.
 bl_scrub() {
-    sed -e 's/gh[pousr]_[A-Za-z0-9_]\{6,\}/[redacted]/g' -e 's/github_pat_[A-Za-z0-9_]\{6,\}/[redacted]/g' \
-        | tr -d '\000-\010\013\014\016-\037' | head -20 | cut -c1-300
+    lib_redact | head -20 | cut -c1-300
 }
 
 # bl_gh <out> <gh args...>: one read, stdin from /dev/null, stdout to <out>,
@@ -85,15 +92,6 @@ bl_gh() {
         attempt=2
         sleep 1
     done
-}
-
-# bl_log <session>: the session's state log path.
-bl_log() {
-    local dir f
-    dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
-    f="$dir/koto-$1.state.jsonl"
-    [ -r "$f" ] || return 1
-    printf '%s\n' "$f"
 }
 
 # bl_capture <session> <NAME> <state> [--any-visit] [--for KEY]: the latest
@@ -138,9 +136,8 @@ bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    repos=$(printf '%s' "$rows" | jq -r --arg n "$2" '
-        [.[]? | .pull_request // "" | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$")?
-         | select(.a == $n and .b == $n) | .r] | unique | .[]') || {
+    repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "record-codec";
+        [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     n=$(printf '%s' "$repos" | grep -c . )
     if [ "$n" -ne 1 ]; then
@@ -169,21 +166,19 @@ bl_posture_merge() {
 }
 
 # bl_human_holds_merge <session>: 0 when the human's answer to posture_ask
-# holds the merge, and that answer is on GitHub now. The answer is the
+# permits the merge, and that answer is on GitHub now. The answer is the
 # session log's latest evidence_submitted in state posture_ask; only its
-# `merge` field reading `held` counts (never Reversals prose, which fixes no
+# `merge` field reading `permitted` counts (never Reversals prose, which fixes no
 # phrasing and can't tell who holds which step). It must also be on the live
 # record: a Reversals row from `the human`, whose Reversed or Now mentions the
 # posture, dated at or after that evidence (to the minute) -- the test
-# record-confirm.sh applies after posture_ask. 1 no held answer, or no such
+# record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
-    local s=$1 log ev facts repo ref scope name min body
-    log=$(bl_log "$s") || return 2
-    ev=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "posture_ask")
-        | {timestamp: (.timestamp // ""), merge: (.payload.fields.merge // "")}' "$log" 2>/dev/null | tail -1)
-    [ -n "$ev" ] || return 1
-    [ "$(printf '%s' "$ev" | jq -r '.merge')" = held ] || return 1
+    local s=$1 ev facts repo ref scope name min body
+    ev=$(bash "$HERE/coord-log.sh" evidence --session "$s" --state posture_ask 2>/dev/null)
+    case $? in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    [ "$(printf '%s' "$ev" | jq -r '.fields.merge // ""')" = permitted ] || return 1
     min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2
@@ -212,7 +207,7 @@ bl_human_holds_merge() {
 # start_posture) and a fresh posture-read.sh can only narrow each other: the
 # stricter wins (deny > confirm > unread > permit). An unread result becomes
 # permit only when the start read was unread for merge and the human's answer
-# at posture_ask held the merge and is on GitHub now (bl_human_holds_merge),
+# at posture_ask permitted the merge and is on GitHub now (bl_human_holds_merge),
 # and confirm otherwise. A missing or invalid start capture counts as unread
 # with no recorded answer. Returns 0 printed; 2 the fresh read failed.
 bl_merge_posture() {

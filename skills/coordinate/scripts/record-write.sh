@@ -13,10 +13,16 @@
 #   - a fresh read must show the target open and carrying this scope's
 #     declaration line (exit 10), so a record closed or replaced since the
 #     find is never written over;
+#   - the live body's Written: time must equal the body's own, the time of the
+#     version it was edited from (exit 12, record-changed), so a write that
+#     landed since the read, by another coordinator or a person, is never
+#     silently overwritten;
 #   - when the host is public, no Holdings Repo, no repository in a Pull
 #     request link and no repository named in a Side effects Target (owner/repo,
 #     owner/repo#n or a github.com URL) may be private or unreadable (exit 65,
-#     naming it);
+#     naming it): this script reads each named repository's visibility and
+#     passes the private and unreadable ones to record-render.sh
+#     --private-repos, whose codec decides whether a cell names one;
 #   - the body is always re-rendered with this script's own Written: time,
 #     never the one in the body, since record-confirm.sh trusts that time;
 #   - once the run has entered `dispatch`, Deferrals rows disposed as
@@ -36,8 +42,9 @@
 # record); --ref replaces it only with the test override flags.
 #
 # Exit codes: 0 written (prints the record's URL); 10 not an open record of
-# this scope, or provenance, or a directed transition; 11 a write failed; 2 a
-# read failed; 64 usage; 65 the body was refused.
+# this scope, or provenance, or a directed transition; 12 the record changed
+# since the body was read; 11 a write failed; 2 a read failed; 64 usage; 65
+# the body was refused.
 #
 # GitHub calls:
 #   reads:  gh issue view N --repo R --json state,body,url
@@ -50,7 +57,7 @@ set -uo pipefail
 PROG=record-write
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= BODY= END=
-CLOSE=0 SKIP_CHECKS=0 NO_SEAL=0
+CLOSE=0 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -112,6 +119,21 @@ STATE=$(jq -r '.state' "$T/target.json")
 URL=$(jq -r '.url' "$T/target.json")
 [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
 grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
+# Compare and swap on the Written: line. The body carries the Written: time of
+# the version it was edited from; the live body must still carry that time, or
+# someone wrote the record since it was read and this write would lose their
+# change. A live body that no longer parses as a canonical record has changed
+# too.
+BASE=$(jq -r '.written // ""' "$T/parsed.json")
+if lib_parse "$T/live.md" "$T/live.json" 2> /dev/null; then
+    LIVE_W=$(jq -r '.written // ""' "$T/live.json")
+else
+    LIVE_W="(not a canonical record)"
+fi
+if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
+    echo "$PROG: refused: record-changed: #$REF was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
+    exit 12
+fi
 if [ "$SCOPE" = discipline ]; then
     [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
         || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }
@@ -120,12 +142,16 @@ fi
 # A public host never names a private repository: not in a Holdings Repo, not
 # in a Pull request link, not in a Side effects Target (an owner/repo token,
 # owner/repo#n, or a github.com URL). A named repository the host can't read
-# (404) can't be shown public, so it is refused too.
+# (404) can't be shown public, so it is refused too. This finds the
+# repositories the body names and reads each one's visibility; the render
+# below refuses a cell naming any on the list (the codec's names_repo, the one
+# test of whether a cell names a repository).
+PRIVATE=
 HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
 if [ "$HOST_PRIVATE" = false ]; then
-    jq -r '
+    jq -r -L "$HERE" 'include "record-codec";
         def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
-        [ (.holdings[] | .repo, (.pull_request | capture("^\\[#[0-9]+\\]\\(https://github\\.com/(?<r>[^/]+/[^/]+)/pull/").r? // empty)),
+        [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
           (.side_effects[] | (.target // "") | tostring
             | ( (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
                 (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
@@ -135,10 +161,10 @@ if [ "$HOST_PRIVATE" = false ]; then
         [[ $r =~ $RE_REPO ]] || { echo "$PROG: refused: $r is not owner/repo" >&2; exit 65; }
         [ "$r" = "$REPO" ] && continue
         if ! P=$(gh api --method GET "repos/$r" --jq .private 2> "$T/v.err" < /dev/null); then
-            grep -q 'HTTP 404' "$T/v.err" && { echo "$PROG: refused: $r can't be read from the public host $REPO, so it can't be shown public" >&2; exit 65; }
-            lib_die2 "cannot read $r's visibility"
+            grep -q 'HTTP 404' "$T/v.err" || lib_die2 "cannot read $r's visibility"
+            P=unreadable
         fi
-        [ "$P" = false ] || { echo "$PROG: refused: $r is private and the host $REPO is public" >&2; exit 65; }
+        [ "$P" = false ] || PRIVATE="$PRIVATE${PRIVATE:+,}$r"
     done < "$T/named"
 fi
 
@@ -150,8 +176,11 @@ cp "$T/parsed.json" "$T/next.json"
 if lib_dispatched && lib_drop_disposed "$T/parsed.json" "$T/dropped.json"; then
     mv "$T/dropped.json" "$T/next.json"
 fi
-jq 'del(.written)' "$T/next.json" | bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(lib_now)" > "$T/body.md" 2> "$T/render.err" \
-    || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
+jq 'del(.written)' "$T/next.json" | bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(lib_now)" --private-repos "$PRIVATE" \
+    > "$T/body.md" 2> "$T/render.err" || {
+    echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2
+    [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
+    exit 65; }
 OUT="$T/body.md"
 
 if [ "$SCOPE" = roadmap ]; then

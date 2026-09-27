@@ -109,6 +109,8 @@ open_run() {
     k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+    # The run identity execute-open.sh mints at the session's birth.
+    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         >/dev/null 2>"$CASE/setup.err") || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
     k next "$s" --no-cleanup >/dev/null 2>&1
@@ -311,6 +313,13 @@ fi
 # gone, so the verdict's record script exits 64), then walked along the
 # declared edge into coord_merge_confirm, whose confirm read exits 64 for the
 # same reason and stops the tick there.
+#
+# The walk takes the edge through its real input. verdict_merged is
+# overridable: false, and from koto 0.14 (koto#257) a directed hop across it is
+# refused unless the gate's current result satisfies the edge, so the verdict
+# the record script would have written, `merged`, goes into coord_verdict
+# first. A plain tick can't stand in for the hop: it re-runs the record script,
+# which clears the key before failing on the missing home_repo.
 ct_case confirm-overrides
 fixture cov2
 CT_COORD_STATE=MERGED
@@ -318,6 +327,7 @@ ct_write_db
 if open_run cov2 true; then
     k context remove execute-cov2 home_repo >/dev/null 2>&1
     finish cov2 "done:merged"
+    printf 'merged' | k context add execute-cov2 coord_verdict >/dev/null 2>&1
     k next execute-cov2 --to coord_merge_confirm --rationale probe --no-cleanup >"$CASE/next.json" 2>&1
 fi
 if [ "$(state_of cov2)" = coord_merge_confirm ]; then

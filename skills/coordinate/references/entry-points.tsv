@@ -17,13 +17,14 @@
 #               no row: the dispatch script adds it. --upstream is in no row:
 #               it takes a separate value token the allow-list can't vet.
 #
-# /deliver and /work-on gain their legs when they accept --koto-leg (#401), as
-# a data change to this file.
+# /deliver and /work-on answer legs since shirabe#407. /work-on answers its
+# leg only for an issue or a task, never for a PLAN path, so dispatch-worker.sh
+# opens no leg for a /work-on worker whose argument is one.
 #
 scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*
 execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge
-deliver	-	-	-	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*
-work-on	-	-	-	--auto,--interactive
+deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*
+work-on	work-on	work-on.md	-	--auto,--interactive
 explore	-	-	-	--auto,--interactive
 decision	-	-	-	--auto
 coordinate	-	-	-	-

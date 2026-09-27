@@ -236,7 +236,7 @@ The record still gets verified. The skill runs the check itself, at the step
 that selects the mode:
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> --mode <name> 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> --mode <name> 2>&1 || true
 ```
 
 That run evaluates the `mode:<name>` records and only those. The `always`

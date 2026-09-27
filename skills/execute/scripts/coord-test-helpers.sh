@@ -82,7 +82,10 @@ CT_CLI=pr-repo-a-cli
 ct_case() {
     CASE="$CT_WORK/cases/$1"
     rm -rf "$CASE"
-    mkdir -p "$CASE/scenario/gh" "$CASE/ctx"
+    mkdir -p "$CASE/scenario/gh" "$CASE/ctx/execute-t"
+    # The run identity execute-open.sh mints at the session's birth, for the
+    # execute-t session the tests drive; the scripts under test only read it.
+    printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
     export EVAL_SCENARIO_DIR="$CASE/scenario"
@@ -147,13 +150,20 @@ ct_write_db() {
         > "$CASE/scenario/gh/db.json"
 }
 
-# ct_plan <dir> [two-repo] -- write docs/plans/PLAN-t.md into <dir>: an
+# ct_plan <dir> [two-repo|gated] -- write docs/plans/PLAN-t.md into <dir>: an
 # issue-carrying coordinated PLAN (no tracking_level, so plan-to-tasks.sh's
 # table path, which needs no shirabe binary). One repository, groups core
-# (issues 1, 2) and cli (issue 3, blocked by 1); or, with `two-repo`, two
+# (issues 1, 2) and cli (issue 3, blocked by 1); with `gated`, the same plus a
+# gate node publish-core after core and before cli; or, with `two-repo`, two
 # independent roots in acme/repo-a and acme/repo-b, Group default.
 ct_plan() {
     mkdir -p "$1/docs/plans"
+    if [ "${2:-}" = gated ]; then
+        ct_plan "$1"
+        printf '%s\n' '| ^_Gate: publish-core \| After: pr-repo-a-core \| Before: pr-repo-a-cli_ | | |' \
+            >> "$1/docs/plans/PLAN-t.md"
+        return
+    fi
     if [ "${2:-}" = two-repo ]; then
         cat > "$1/docs/plans/PLAN-t.md" <<'PLAN'
 ---

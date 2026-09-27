@@ -87,7 +87,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping-ahead or executing> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 
@@ -111,7 +111,9 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 An empty section reads `None.` in place of its table. No table carries a
 status, CI or merge-state column: those are read from GitHub every time, and
 the renderer refuses one. Phase says whether a worker is scoping a unit whose
-execution waits on another feature landing (`scoping-ahead`) or executing it.
+execution waits on another feature landing (`scoping-ahead`), executing it, or
+holding a verified pull request whose merge the human directed held although the
+workspace permits it (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
 
 A deferral is disposed of when its Disposition reads `filed #<n>`,
@@ -134,8 +136,11 @@ The declaration line is for readers. It is deliberately different from the
 written for coordination pull requests ever parses a record.
 
 **Updating.** Parse the live body, change the JSON, and render the whole body
-again with a new `Written:` time; apply it with the record's write script,
-never by editing the body on GitHub. Every pull request in the record is a
+again keeping the live body's `Written:` time (`record-render.sh --written
+<that time>`); apply it with the record's write script, never by editing the
+body on GitHub. The write script compares that time with the live record's,
+refuses with `record-changed` (exit 12) when someone wrote since, and stamps
+its own time on what it writes. Every pull request in the record is a
 link. Follow the host repository's conventions (its CLAUDE.md) for commit
 messages and bodies.
 

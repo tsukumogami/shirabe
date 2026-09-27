@@ -121,6 +121,13 @@ if [ "$READ" = 1 ]; then
 fi
 echo "record write $TOPIC $(jq -r .dispatch_status "$ROWF")" >>"$ST/calls.log"
 [ "${RECORD_WRITE_MODE:-}" = refuse ] && exit 10
+# changed: the record always changes under the write (exit 12); changed-once:
+# only the first write sees it.
+[ "${RECORD_WRITE_MODE:-}" = changed ] && exit 12
+if [ "${RECORD_WRITE_MODE:-}" = changed-once ] && [ ! -e "$ST/changed-once" ]; then
+    : >"$ST/changed-once"
+    exit 12
+fi
 cp "$ROWF" "$ST/rows/$TOPIC.json"
 # The real writer prints the record's URL on a successful write.
 echo "https://github.com/acme/widgets/issues/1"
@@ -162,7 +169,7 @@ run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
 calls() { cat "$ST/calls.log"; }
 
-# --- a fresh dispatch, message path -----------------------------------------------------
+# --- a fresh dispatch: /deliver, which answers a leg ---------------------------------------
 
 reset "$INPUT_DELIVER"
 OUT=$(run 2>/dev/null); RC=$?
@@ -177,9 +184,9 @@ if [ -n "$LAST_WRITE" ] && [ "$LAST_WRITE" -gt "$LAUNCH" ]; then ok "fresh: rewr
 eq  "fresh: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 has "fresh: --name topic" "$LOG" "[--name] [plugin-api]"
 has "fresh: --detach" "$LOG" "[--detach]"
-lacks "fresh: no request opened" "$LOG" "koto request create"
+has "fresh: a deliver leg opened, pinning the topic" "$LOG" '"name":"deliver","role":"deliver","template":"deliver.md","inputs":{"TOPIC":"plugin-api"}'
 eq  "row: status" dispatched "$(row dispatch_status)"
-eq  "row: return path" message "$(row return_path)"
+eq  "row: return path" "leg req_1:deliver" "$(row return_path)"
 eq  "row: worker is the topic" plugin-api "$(row worker)"
 eq  "row: repo" acme/widgets "$(row repo)"
 eq  "row: entry point" deliver "$(row entry_point)"
@@ -194,7 +201,7 @@ lacks "row: no session name" "$ROWTXT" "plugin_api-1a2b3c4d"
 lacks "row: no instance path" "$ROWTXT" "/p\""
 P=$(cat "$ST/prompt")
 has "prompt: authority" "$P" "You are working for the owner on acme/widgets."
-has "prompt: invocation" "$P" '`/shirabe:deliver plugin-api --auto --no-merge`'
+has "prompt: invocation" "$P" '`/shirabe:deliver plugin-api --auto --no-merge --koto-leg=req_1:deliver`'
 has "prompt: repository" "$P" "in acme/widgets"
 has "prompt: stop checkpoint" "$P" "stop at: The PR is ready with CI green."
 has "prompt: brief path" "$P" "$W/.niwa/dispatch-briefs/plugin-api.md"
@@ -238,6 +245,27 @@ export KOTO_CREATE_FAIL=1
 run >/dev/null 2>&1; RC=$?
 eq  "leg: a failed create is exit 2" 2 "$RC"
 eq  "leg: a failed create writes and launches nothing" "" "$(grep -E '^niwa dispatch|record write' "$ST/calls.log")"
+
+# --- the message path ----------------------------------------------------------------------------
+
+# /work-on answers its leg for an issue, pinning nothing.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["123"]')"
+run >/dev/null 2>&1
+has "work-on: an issue gets a leg that pins nothing" "$(calls)" '"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}'
+eq  "work-on: return path in the record's form" "leg req_1:work-on" "$(row return_path)"
+
+# Given a PLAN path it never reaches its leg, so none is opened.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-plugin-api.md"]')"
+run >/dev/null 2>&1
+lacks "work-on: a PLAN path opens no request" "$(calls)" "koto request create"
+eq  "work-on: a PLAN path reports by message" message "$(row return_path)"
+lacks "work-on: a PLAN path's invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
+
+# An entry point with no leg reports by message.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+run >/dev/null 2>&1
+lacks "explore: no request opened" "$(calls)" "koto request create"
+eq  "explore: return path" message "$(row return_path)"
 
 # --- a resumed dispatching row -------------------------------------------------------------------
 
@@ -327,6 +355,20 @@ export RECORD_WRITE_MODE=refuse
 run >/dev/null 2>&1; RC=$?
 eq  "record refuses the write-ahead: exit 8" 8 "$RC"
 eq  "record refuses: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+
+# The record changing between the writer's read and its write (exit 12) is
+# retried; a record that keeps changing is a failed write, before any launch.
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=changed-once
+run >/dev/null 2>&1; RC=$?
+eq  "record changed once: the write is retried and the dispatch goes on" 0 "$RC"
+eq  "record changed once: dispatched" dispatched "$(row dispatch_status)"
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=changed
+run >/dev/null 2>&1; RC=$?
+eq  "record keeps changing: exit 2" 2 "$RC"
+eq  "record keeps changing: three tries" 3 "$(grep -c 'record write plugin-api dispatching' "$ST/calls.log")"
+eq  "record keeps changing: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.checkpoints = ["Wait for approval."]')"
 run >/dev/null 2>&1; RC=$?

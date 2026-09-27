@@ -36,14 +36,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.matches: true, gates.diagram_referent.matches: true, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.summary_exists.exists: true
+    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.matches: true, gates.diagram_referent.matches: true, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
     implementation --> implementation : implementation_status: partial_tests_failing_retry
@@ -105,9 +105,10 @@ stateDiagram-v2
     setup_plan_backed --> analysis
     staleness_check --> introspection : staleness_signal: stale_requires_introspection
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 0, staleness_signal: fresh
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: 3, staleness_signal: unavailable
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: -1, staleness_signal: unavailable
     staleness_check --> analysis : staleness_signal: override
     staleness_check --> done_blocked : staleness_signal: blocked
-    staleness_check --> analysis
     task_validation --> research : verdict: proceed
     task_validation --> validation_exit : verdict: exit
     verification --> finalization : verification_outcome: passed
@@ -137,10 +138,28 @@ stateDiagram-v2
         gate: context_artifact
     end note
     note left of deferral_approval
+        gate: cleanup_referent
+    end note
+    note left of deferral_approval
+        gate: diagram_referent
+    end note
+    note left of deferral_approval
         gate: summary_exists
+    end note
+    note left of deferral_approval
+        gate: summary_shape
+    end note
+    note left of finalization
+        gate: cleanup_referent
+    end note
+    note left of finalization
+        gate: diagram_referent
     end note
     note left of finalization
         gate: summary_exists
+    end note
+    note left of finalization
+        gate: summary_shape
     end note
     note left of implementation
         gate: on_feature_branch_impl

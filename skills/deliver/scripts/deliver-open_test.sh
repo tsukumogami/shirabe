@@ -21,7 +21,10 @@
 # alone), the mode from the flags and from the `## Execution Mode:` header,
 # MERGE true unless --no-merge, the forwarded flags, koto's refusals of bad or
 # repeated values, a token with shell metacharacters, and the args file's
-# removal on every path.
+# removal on every path. Under --koto-leg: a malformed value refused with no
+# koto call; an accepted run bound to the leg, ticked to a terminal, and its
+# result read back off the leg; koto's refusals (an invalid topic, a collision
+# the probe stops, a leg pinning another topic) recorded on the leg.
 #
 # koto admits a --var value only inside ^[a-zA-Z0-9._/:@ \-]*$, and
 # PLUGIN_ROOT is such a value. When this checkout's path falls outside it,
@@ -147,6 +150,11 @@ open_deliver '["t-new"]'
 eq "exit 0" 0 "$RC"
 has "prints opened=new" "opened=new" "$STDOUT"
 has "prints session=deliver-t-new" "session=deliver-t-new" "$STDOUT"
+if [[ "$(k context get deliver-t-new run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; then
+    ok "the opened session carries a run identity (run_id, minted at the open)"
+else
+    bad "the opened session carries a run identity" "[$(k context get deliver-t-new run_id 2>&1)]"
+fi
 eq "a fresh session at preflight" preflight "$(state_of t-new)"
 eq "MODE interactive with no flag and no header" '["interactive"]' "$(var MODE)"
 eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"
@@ -271,6 +279,75 @@ refused "a second positional word"
 open_deliver '["t-meta","--upstream=docs/roadmaps/ROADMAP-$(touch PWNED).md;touch PWNED2"]'
 refused "a token with shell metacharacters"
 if [ -e "$R/PWNED" ] || [ -e "$R/PWNED2" ]; then bad "the metacharacter token was executed"; else ok "the metacharacter token was not executed"; fi
+
+echo "== --koto-leg =="
+# leg <req> <jq path> -- a field of the request's `deliver` leg.
+leg() { k request get "$1" 2>/dev/null | jq -c ".legs.deliver$2"; }
+new_request() { # new_request <topic> -- a request with one `deliver` leg
+    k request create --with-data "$(jq -nc --arg t "$1" '{legs: [{name: "deliver", role: "deliver", template: "deliver.md", inputs: {TOPIC: $t}}]}')" \
+        --requested-by test --coordinator-of-record test | jq -r '.request_id'
+}
+
+# A malformed --koto-leg is this script's own refusal: exit 64, no koto call.
+for tok in '"--koto-leg=abc"' '"--koto-leg=req1:scope"' '"--koto-leg=:deliver"' '"--koto-leg=BAD:deliver"' \
+           '"--koto-leg"' '"--koto-leg","--auto"' '"--koto-leg=r1:deliver","--koto-leg","r2:deliver"'; do
+    open_deliver "[\"t-bad\",$tok]"
+    eq "--koto-leg [$tok]: usage exit 64" 64 "$RC"
+    has "--koto-leg [$tok]: prints outcome=error" "outcome=error" "$STDOUT"
+    if [ -s "$T/koto.argv" ]; then bad "--koto-leg [$tok]: no koto call" "$(cat "$T/koto.argv")"; else ok "--koto-leg [$tok]: no koto call"; fi
+    args_gone "--koto-leg [$tok]"
+done
+eq "no session was opened by a malformed --koto-leg" none "$(state_of t-bad)"
+
+# Accepted: the fresh session is bound to the leg, and the leg value never
+# reaches TOPIC. Run from a repository with no visibility header, so the first
+# tick ends at done_refused and the terminal result is promoted onto the leg.
+REQ=$(new_request t-leg)
+open_deliver "[\"t-leg\",\"--auto\",\"--koto-leg\",\"$REQ:deliver\"]" "$OTHER"
+eq "under --koto-leg: exit 0" 0 "$RC"
+has "under --koto-leg: prints session=" "session=deliver-t-leg" "$STDOUT"
+eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
+has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
+if grep '^init ' "$T/koto.argv" | head -1 | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
+eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
+(cd "$OTHER" && "$REAL_KOTO" next deliver-t-leg --no-cleanup >/dev/null 2>&1)
+eq "the run ends at done_refused" done_refused "$(KDIR="$OTHER" state_of t-leg)"
+eq "the leg's result was promoted" '"promoted"' "$(leg "$REQ" .result_source)"
+eq "the leg records the terminal state" '"done_refused"' "$(leg "$REQ" .result_final_state)"
+eq "the leg's payload outcome is refused" '"refused"' "$(leg "$REQ" .result.payload.outcome)"
+eq "the leg carries reason=private-repo" '"private-repo"' "$(leg "$REQ" .result.payload.reason)"
+
+# koto's refusal of this invocation is recorded on the leg.
+REQ=$(new_request t-leg2)
+open_deliver "[\"Upper\",\"--koto-leg=$REQ:deliver\"]"
+refused "an invalid topic under --koto-leg"
+eq "the leg records a refusal" '"refused"' "$(leg "$REQ" .result_source)"
+eq "the refusal's reason" '"invalid-var:TOPIC"' "$(leg "$REQ" .result.payload.reason)"
+
+# A collision the probe stops is still recorded on the leg, and the other
+# session is left alone.
+REQ=$(new_request t-tpl)
+open_deliver "[\"t-tpl\",\"--koto-leg=$REQ:deliver\"]"
+refused "another template under --koto-leg"
+has "prints the probe's refused=template_mismatch" "refused=template_mismatch" "$STDOUT"
+eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .result_source)"
+eq "the collision's recorded reason matches the printed code" '"template-mismatch"' "$(leg "$REQ" .result.payload.reason)"
+eq "that session is still left alone" work "$(state_of t-tpl)"
+
+# The same for a session from another worktree: origin_mismatch on both.
+REQ=$(new_request t-away)
+open_deliver "[\"t-away\",\"--koto-leg=$REQ:deliver\"]"
+refused "another worktree's session under --koto-leg"
+has "prints the probe's refused=origin_mismatch" "refused=origin_mismatch" "$STDOUT"
+eq "the leg records the same refusal" '"origin-mismatch"' "$(leg "$REQ" .result.payload.reason)"
+eq "that session is still at preflight" preflight "$(KDIR="$OTHER" state_of t-away)"
+
+# A leg that pins another topic: koto's input check refuses the open.
+REQ=$(new_request some-other-topic)
+open_deliver "[\"t-mis\",\"--koto-leg=$REQ:deliver\"]"
+refused "a leg pinning another TOPIC"
+eq "the input mismatch is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
+eq "no session was left behind" none "$(state_of t-mis)"
 
 echo "== usage =="
 (cd "$R" && bash "$OPEN" >/dev/null 2>&1)

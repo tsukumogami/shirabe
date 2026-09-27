@@ -226,7 +226,7 @@ Claude Code session:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- `bash`. Every skill runs `scripts/skill-preflight.sh` through `bash` when it
+- `bash`. Every skill runs `scripts/skill-preflight.sh`, a bash script, when it
   loads, and the rest of `scripts/` is bash too, so the plugin is not platform
   neutral. macOS and Linux always have it. Windows does not, unless Git Bash or
   WSL is on PATH -- without one of those the preflight line cannot run. The

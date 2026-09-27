@@ -558,11 +558,13 @@ fn parse_merge_order_block(body: &str) -> Option<Vec<String>> {
 
 /// Check that a merge-order node list is a valid acyclic order.
 ///
-/// The authored block lists nodes in their intended merge order; the contract's
-/// two-node DAG carries no inline back-edges, so "acyclic" reduces to "each node
-/// appears at most once." A repeated node id is the signature of a cycle (a node
-/// ordered both before and after itself), so it is rejected. Returns `Ok(())`
-/// for a clean order, or `Err` naming the first duplicate.
+/// The rendered block lists nodes in their merge order, each line naming its
+/// predecessors in an `after:` list. Those lists come from the PLAN's graph,
+/// which `/plan` already validated acyclic, and aren't re-checked here, so
+/// "acyclic" reduces to "each node appears at most once." A repeated node id
+/// is the signature of a cycle (a node ordered both before and after itself),
+/// so it is rejected. Returns `Ok(())` for a clean order, or `Err` naming the
+/// first duplicate.
 pub fn is_acyclic_order(nodes: &[String]) -> Result<(), String> {
     let mut seen: Vec<&str> = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -1036,6 +1038,29 @@ mod tests {
             findings.iter().any(|f| f.message.contains("acyclic")),
             "expected a cyclic-order finding: {:?}",
             findings
+        );
+    }
+
+    /// The `## Merge Order` section `node-push.sh` renders from the PLAN's
+    /// waits_on graph, read from the golden file its shell tests compare the
+    /// posted section against: two comment lines, then one
+    /// `<node-id> | pr|gate | after: <node-ids>` line per node. It must
+    /// validate, and its node ids (the gate's included) must be read from the
+    /// first token of each line, not from the `after:` list. Sharing the file
+    /// is what ties the rendered format's node-id position to this parser.
+    #[test]
+    fn body_check_passes_rendered_merge_order_with_gate() {
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/execute/scripts/testdata/merge-order-gated.txt");
+        let rendered = std::fs::read_to_string(&golden).expect("the golden merge-order section");
+        let start = good_body().find("## Merge Order").unwrap();
+        let body = format!("{}{}", &good_body()[..start], rendered);
+        let findings = check_coordination_body(&body);
+        assert!(findings.is_empty(), "got {:?}", findings);
+        let nodes = parse_merge_order_block(&body).expect("block present");
+        assert_eq!(
+            nodes,
+            vec!["pr-repo-a-core", "gate-publish-core", "pr-repo-a-cli"]
         );
     }
 

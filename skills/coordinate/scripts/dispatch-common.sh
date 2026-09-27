@@ -90,7 +90,9 @@
 #
 #   dc_record_write <session> <topic> <row-file>
 #       Adds or replaces the topic's holding row whole. Returns the writer's
-#       code: 0 written, 10 refused, 65 row refused, 2 otherwise.
+#       code: 0 written, 10 refused, 65 row refused, 2 otherwise. The
+#       writer's 12 (the record changed under it) is retried up to
+#       DC_RECORD_RETRIES times (3), then reads as a failed write.
 #
 #   The record's scripts belong to the record feature: record-holding.sh
 #   ships with it, beside these scripts (it is not holding-recorded.sh, the
@@ -331,8 +333,17 @@ dc_record_write() {
     dc_record_present || return 2
     # A write prints the record's URL; it goes to stderr so a caller's stdout
     # stays its own answer.
-    bash "$DC_RECORD_HOLDING" --topic "$2" --row-file "$3" --session "$1" >&2
-    local rc=$?
+    # Exit 12 is the record changing between the writer's read and its write
+    # (another writer got there first): the write is retried, a bounded number
+    # of times, and a record that keeps changing is a failed write.
+    local rc tries=0
+    while :; do
+        bash "$DC_RECORD_HOLDING" --topic "$2" --row-file "$3" --session "$1" >&2
+        rc=$?
+        [ "$rc" = 12 ] || break
+        tries=$((tries + 1))
+        [ "$tries" -lt "${DC_RECORD_RETRIES:-3}" ] || break
+    done
     case "$rc" in
         0 | 10 | 65) return "$rc" ;;
         *) return 2 ;;

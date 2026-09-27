@@ -65,8 +65,9 @@ Four facts about the tools shape the design:
   reused name isn't refused.
 - **koto request legs are fixed at creation and named per skill.** A request's
   legs are declared when it's created and can't be added later. `/scope`
-  answers only a leg named `scope`, `/execute` only `execute`, and, once #401
-  lands, `/deliver` only `deliver` and `/work-on` only `work-on`. A root
+  answers only a leg named `scope`, `/execute` only `execute`, `/deliver` only
+  `deliver` and `/work-on` only `work-on` (the last two since #407, which fixed
+  #401; `/work-on` answers its leg only for an issue or a task). A root
   session attaches to a leg by template file name and by the leg's declared
   inputs. Attach doesn't check the working directory, so a worker in another
   instance on the same host and home directory can attach.
@@ -275,8 +276,10 @@ declared `PLUGIN_ROOT` variable, never `${CLAUDE_PLUGIN_ROOT}`.
 `skills/coordinate/references/entry-points.tsv` lists, per entry point, the
 leg name and the template file the leg admits (or `-` when the skill doesn't
 accept `--koto-leg`), the input keys to pin on the leg, and the flags the
-entry point may be given. It holds legs for `scope` and `execute` today;
-`deliver` and `work-on` gain theirs when #401 lands, as a data change.
+entry point may be given. It holds legs for `scope`, `execute`, `deliver` and `work-on`;
+the last two came as a data change once #407 fixed #401. Because `/work-on`
+answers its leg only for an issue or a task, `dispatch-worker.sh` opens no leg
+for a `/work-on` worker given a PLAN path, which reports by message.
 
 ### The brief input
 
@@ -801,12 +804,12 @@ no longer reads as unique.
 script; a coordinator that launches a worker by hand and writes the row by
 hand passes the gate. The wait path adds three states to the record feature's
 template. A `dispatching` row whose launch never happened sits on the record
-until the script re-runs or reconcile clears it. Until #401 lands, most
-workers use the message path. Until koto#250 lands, a resolved leg is read
+until the script re-runs or reconcile clears it. A `/work-on` worker given a PLAN
+path, and any worker on another host, use the message path. Until koto#250 lands, a resolved leg is read
 only when a message or notification makes the coordinator tick.
 
 **Mitigations.** Reconcile, the next feature, checks every holding against
-`niwa list`. The leg table grows by data when #401 lands. The wait directive's
+`niwa list`. The leg table grew by data when #407 fixed #401. The wait directive's
 quiet-worker check bounds how long a resolved leg can go unread.
 
 ### Known limitations
@@ -819,8 +822,9 @@ quiet-worker check bounds how long a resolved leg can go unread.
   it empty; the coordinator can't read merge order from it later.
 - **#398, scoping pull request bodies.** Not conformant two-part bodies, so a
   report that points at one gives the coordinator less structure.
-- **#401, `--koto-leg` on `/deliver` and `/work-on`.** Until it lands, only
-  `/scope` and `/execute` workers use the leg path.
+- **#401, fixed by #407.** `/deliver` and `/work-on` accept `--koto-leg`, and
+  the leg table carries both; `/work-on` answers a leg only for an issue or a
+  task, so a PLAN-path `/work-on` worker reports by message.
 - **koto#250, no wake on a resolved leg.** The coordinator reads a resolved
   leg on its next tick, which a message, a notification, or the quiet-worker
   check triggers.

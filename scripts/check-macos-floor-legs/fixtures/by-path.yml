@@ -1,0 +1,23 @@
+# Fails: a suite run by path gets `#!/usr/bin/env bash`, which on a macOS
+# runner is Homebrew's bash 5. The chained form is caught too, after `cd` and
+# an environment prefix, and so is a registered non-test script however it is
+# reached.
+name: by-path
+on: pull_request
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run a suite by path
+        run: skills/demo/scripts/one_test.sh
+      - name: Run a chained suite
+        run: cd skills/demo && EVAL_SCENARIO=x bash scripts/two_test.sh
+      # A registered script that is not a *_test.sh is a floor script too,
+      # whether it is run by path or behind a prefix.
+      - name: Run the scan by path
+        run: scripts/demo-scan.sh
+      - name: Run the scan with sudo
+        run: sudo bash scripts/demo-scan.sh
+      - name: Run tests on the floor
+        run: scripts/check-bash-floor.sh --backend system demo

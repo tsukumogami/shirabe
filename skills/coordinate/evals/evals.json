@@ -13,7 +13,7 @@
         "The extra invocation text is treated as decisions (feature 3 held, at most three workers), not as a description of how to coordinate",
         "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
         "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
-        "The entry point chosen for a roadmap feature is /shirabe:deliver",
+        "The entry point chosen for a roadmap feature dispatched to be built is /shirabe:deliver; a feature scoped ahead may use /shirabe:scope with its execution sent later",
         "Features 1 and 4 are dispatched (or briefed for dispatch) to be built, and feature 2 is not dispatched to be built before feature 1 lands (scoping it ahead is allowed)",
         "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
         "The roadmap's Features section is not edited, and nothing is committed to the default branch",
@@ -59,10 +59,10 @@
         "The pull request's head sha is read from the remote before anything is relayed or acted on, and every later claim is about that sha",
         "Each CI job's runner and step count are read, not only the overall conclusion",
         "A job with no runner, or whose steps were all skipped, would be reported as not verified even though it shows green",
-        "The pull request's file list and git ls-remote for the branch are read",
+        "The pull request's file list is read, and the branch's remote ref is read and compared with the head",
         "The report separates what was verified from what was not, and marks each claim as measured, verified by reading, or inferred",
         "No merge is attempted, by gh pr merge or any other command or API call",
-        "The human is handed a merge-order table with the verified head sha and the reason for each position"
+        "The human is handed a merge-order table with each pull request as a clickable link and the reason for each position; no commit hash appears in the table, and the verified head is kept in the record"
       ],
       "requirements": [
         "R10",
@@ -104,9 +104,12 @@
         "The coordinator identifies dropping feature 3 as a scope change that belongs to the human",
         "The coordinator notices that the worker's claim contradicts the roadmap, which says features 3 and 4 are independent, and says so",
         "It asks once, with a recommendation that names the option it favours and why",
-        "The report up includes a Waiting on the human section naming this decision with its recommendation",
+        "The report up includes a Waiting on the human section that states the pending decision (keep or drop feature 3) and the recommendation under that heading; the heading alone does not pass",
         "It does not drop feature 3 or edit the roadmap's feature list on its own; if the human approves, the roadmap edit is handed to a worker or a local agent from a brief",
-        "Work on features the decision doesn't touch (features 1 and 2) keeps moving while the decision is pending"
+        "Work on features the decision does not touch keeps moving while the decision is pending, and the response names features 1 and 2 when it says so; \"everything else keeps moving\" without naming them does not pass",
+        "Feature 4 keeps its current scope while the decision is pending: the coordinator does not fold a static allow-list into it or brief its worker to widen its scope before the human decides",
+        "The worker on feature 3 is told to hold its current scope (continue or pause the explore as briefed) rather than drop or reshape the feature while the decision is pending",
+        "The response makes no claim of a figure or fact measured, observed or read from the record, the board or a worker, since this plan-only run read none of them; a statement such as \"measured from the record\" fails this expectation"
       ],
       "requirements": [
         "R16"

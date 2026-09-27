@@ -35,7 +35,7 @@ set -uo pipefail
 PROG=report-facts
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF=
-NO_SEAL=0 SKIP_CHECKS=0
+NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -52,7 +52,7 @@ done
 [ -n "$SESSION" ] || usage
 . "$HERE/record-common.sh"
 lib_facts
-lib_log || lib_die2 "no readable log for $SESSION"
+lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX")
 trap 'rm -rf "$T"' EXIT
@@ -65,11 +65,6 @@ finish() {
     lib_emit report_facts "$1" coord/report.json "$T/report.json"
 }
 
-U=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait" and (.payload.fields.event // "") == "report")
-    | .payload.fields.unit // "" | tostring' "$LOG" | tail -1)
-[[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || finish "unknown -"
-TOPIC=$U
-
 hold() { # hold <mode args...>: record-holding.sh with this run's facts
     if [ "$OVERRIDE" = 1 ]; then
         bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" "$@"
@@ -79,6 +74,19 @@ hold() { # hold <mode args...>: record-holding.sh with this run's facts
     fi
 }
 [ "$OVERRIDE" = 0 ] || [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+
+# The unit, from the log alone (record-common.sh lib_unit, which
+# record-confirm.sh uses too). On the message path it is the latest `wait`
+# evidence with event report. On the leg path (the dispatch path's wait_leg,
+# then take_report, then here) the hub's evidence carries no unit, so the
+# unit is the holding whose Return path is the leg the engine captured:
+# `leg <WAIT_REQ>:<WAIT_LEG>`. Which path applies is read from the log (the
+# later of the two arrivals), never from a context key.
+leg_holdings() {
+    hold --list 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+}
+lib_unit "" report leg_holdings || finish "unknown -"
+TOPIC=$UNIT
 ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
 case $? in
     0) ;;

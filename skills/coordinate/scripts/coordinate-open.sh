@@ -96,8 +96,9 @@ else
     EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" '[["ROADMAP", $r], ["HOST_REPO", $h]]')
 fi
 
-SLUG=$(printf '%s-%s' "$SCOPE" "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-' | tr -s '-')
-SLUG=${SLUG%-}
+# The scope slug, derived where every write script's live-session check
+# derives it.
+SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || usage "could not derive the scope slug"
 SESSION="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
 TEMPLATE="$PLUGIN_ROOT/skills/coordinate/koto-templates/coordinate.md"
 
@@ -110,13 +111,13 @@ RC=$?
 [ $RC -eq 0 ] || exit $RC
 
 # Only once the new run is open (so a refused invocation leaves the live run
-# alone): cancel, never clean up, every other live run of this scope, so its
-# log stays readable.
-for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
+# alone): cancel, never clean up, every other live run of this scope
+# (coord-log.sh live-session --all, the scan every write script's check
+# makes), so its log stays readable.
+LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
+case $? in 0|1) ;; *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;; esac
+for id in $LIVE; do
     [ "$id" = "$SESSION" ] && continue
-    [ "$("$KOTO" status "$id" | jq -r '.is_terminal')" = false ] || continue
-    LOG="$("$KOTO" session dir "$id" 2>/dev/null)/koto-$id.state.jsonl"
-    jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
     "$KOTO" cancel "$id" </dev/null >/dev/null 2>&1 || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
     echo "cancelled=$id"
 done

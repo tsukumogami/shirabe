@@ -49,8 +49,9 @@ if [ -n "$PR$REPO" ]; then
     bl_pr_ok "$PR" && bl_repo_ok "$REPO" || usage
 else
     if [ -z "$UNIT" ]; then
-        LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
-        UNIT=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait") | .payload.fields.unit // ""' "$LOG" | tail -1)
+        EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait 2>/dev/null)
+        [ $? -eq 2 ] && { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
+        UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
         bl_topic_ok "$UNIT" || { echo "$PROG: the latest wait evidence names no unit [$UNIT]" >&2; exit 2; }
     fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
@@ -59,16 +60,13 @@ else
         1) echo "$PROG: the record has no holding for $UNIT" >&2; exit 2 ;;
         *) echo "$PROG: the holding read failed" >&2; exit 2 ;;
     esac
-    PARTS=$(printf '%s' "$ROW" | jq -r '.pull_request // ""
-        | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$")?
-        | select(.a == .b) | "\(.a) \(.r)"' 2>/dev/null)
-    set -f; set -- $PARTS; set +f
-    if [ $# -ne 2 ] || ! bl_pr_ok "$1" || ! bl_repo_ok "$2"; then
+    if ! lib_pr_link "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" \
+        || ! bl_pr_ok "$LINK_NUM" || ! bl_repo_ok "$LINK_REPO"; then
         echo "$PROG: the holding for $UNIT has no pull request link" >&2
         exit 2
     fi
-    REPO=$2
-    PR=$1
+    REPO=$LINK_REPO
+    PR=$LINK_NUM
 fi
 
 CAP=$(bl_capture "$SESSION" VERIFIED verify_board --any-visit --for "$PR") || {

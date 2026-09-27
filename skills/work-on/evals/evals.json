@@ -486,6 +486,70 @@
         "Agent still routes on the user's choice; the recommendation does not reclassify the issue on its own",
         "Agent does NOT present the two routes neutrally and ask the user to pick"
       ]
+    },
+    {
+      "name": "koto-leg-result-on-the-callers-leg",
+      "tier": 1,
+      "prompt": "In a git repository on a feature branch, create a koto request with one leg named work-on: `koto request create --with-data '{\"legs\":[{\"name\":\"work-on\",\"role\":\"work-on\",\"template\":\"work-on.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Then run `/work-on \"rename the leg_demo helper\" --koto-leg=<request-id>:work-on`, using `task_leg_demo` as the workflow name. At task_validation the task is not worth doing: submit verdict exit. Afterwards print `koto request get <request-id> | jq '.legs[\"work-on\"]'`.",
+      "expected_output": "The agent takes --koto-leg out of the task description, runs `skill-preflight.sh work-on --mode koto-leg`, writes the invocation's tokens to a private directory, and opens task_leg_demo through work-on-open.sh with --var ARTIFACT_PREFIX=task_leg_demo, not with a plain koto init. The session is bound to the leg. Every tick carries --no-cleanup. The run ends at validation_exit, and the leg records the promoted result: status success, result_final_state validation_exit.",
+      "files": [],
+      "expectations": [
+        "The agent opened the session through `work-on-open.sh`, not with its own `koto init`",
+        "The agent ran `skill-preflight.sh work-on --mode koto-leg` before the open",
+        "The task description submitted at entry does not contain `--koto-leg`",
+        "The printed leg has bound_child `task_leg_demo`",
+        "The printed leg has result_source `promoted`, result_final_state `validation_exit`, and result status `success`",
+        "Every `koto next` the agent ran carried `--no-cleanup`"
+      ],
+      "id": 39
+    },
+    {
+      "name": "koto-leg-malformed-refused-before-koto",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #144 --koto-leg=req1:execute",
+      "expected_output": "The leg is not named work-on. work-on-open.sh refuses it with error=usage and exit 64 before any koto call, or the agent recognises the malformed value from SKILL.md's rule before opening anything. Either way no issue_144 session is created, nothing is written to any leg, and the agent reports the refusal and stops instead of falling back to an unbound run.",
+      "files": [],
+      "expectations": [
+        "The agent does not run `koto init` for issue_144",
+        "The agent reports that the leg must be `<request-id>:work-on`",
+        "The agent stops rather than continuing the issue without the flag or with another leg name"
+      ],
+      "id": 40
+    },
+    {
+      "id": 41,
+      "name": "finalization-writes-shaped-record",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #152 -- verification passed and the workflow is now at `finalization`. The change is a small bug fix touching one Go file and its test, and no design document. Write what this state needs and submit.",
+      "expected_output": "The agent writes two koto context keys before submitting: summary.md with a `## Changes Made` section, and pre_pr.md with a `cleanup_commit: <sha>` line and a `design_diagram: not-applicable: <reason>` line, hyphenated and carrying a reason. It then submits finalization_status: ready_for_pr. It does not defer writing pre_pr.md to pre_pr_evidence, and it does not write the evidence enum `not_applicable` into pre_pr.md. If a submission holds and names a failing gate, it fixes that one artifact in place and submits again rather than escalating or rewinding.",
+      "files": [],
+      "expectations": [
+        "Agent writes summary.md containing a `## Changes Made` heading spelled exactly that way",
+        "Agent writes pre_pr.md at finalization, before submitting ready_for_pr, not later at pre_pr_evidence",
+        "pre_pr.md carries `cleanup_commit:` followed by a commit sha, not a word like `done`",
+        "pre_pr.md carries `design_diagram: not-applicable: <reason>` with a reason, not `design_diagram: not_applicable`",
+        "Agent treats a held submission that names summary_shape, cleanup_referent or diagram_referent as a fix-in-place signal and resubmits after correcting that artifact"
+      ]
+    },
+    {
+      "id": 42,
+      "name": "staleness-unavailable-degrades",
+      "tier": 1,
+      "mode": "plan_only",
+      "scenario": null,
+      "prompt": "/work-on #42 -- an unattended run with no user present. At staleness_check the staleness_fresh gate fails with exit_code 3, and running the check by hand reports {\"verdict\":\"unavailable\",\"reason\":\"gh issue view failed: HTTP 401: Bad credentials\"}.",
+      "expected_output": "Exit 3 is the check reporting that it could not reach a verdict, not staleness. The agent submits staleness_signal: unavailable with the reason in detail, and the run continues to analysis with staleness recorded as not assessed. It does not submit override, which is reserved for an explicit instruction to skip the check, and it does not submit blocked, which would end the run over a check that is advisory.",
+      "files": [],
+      "expectations": [
+        "Agent reads exit code 3 as the check being unavailable, not as the issue being stale",
+        "Agent plans to submit staleness_signal: unavailable",
+        "Agent plans to put the reason (the gh authentication failure) in the detail field",
+        "Agent does NOT plan to submit staleness_signal: override, since no one asked to skip the check",
+        "Agent does NOT plan to submit staleness_signal: blocked or to stop the run at this gate",
+        "Agent expects the run to continue to the analysis state"
+      ]
     }
   ]
 }

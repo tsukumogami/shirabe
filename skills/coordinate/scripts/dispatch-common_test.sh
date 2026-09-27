@@ -88,7 +88,9 @@ no  "root: below a markerless root, no walk-up to a lone workspace.toml" dc_work
 
 eq  "entry: scope's leg"            scope "$(dc_entry_field scope 2)"
 eq  "entry: execute's templates"    execute.md,execute-coordinated.md "$(dc_entry_field execute 3)"
-eq  "entry: deliver has no leg yet" - "$(dc_entry_field deliver 2)"
+eq  "entry: deliver answers its leg" deliver "$(dc_entry_field deliver 2)"
+eq  "entry: work-on pins nothing" - "$(dc_entry_field work-on 4)"
+eq  "entry: explore has no leg" - "$(dc_entry_field explore 2)"
 no  "entry: unknown skill"          dc_entry_row nope
 yes "flag: exact"                   dc_flag_allowed deliver --no-merge
 yes "flag: wildcard value"          dc_flag_allowed scope --max-rounds=3

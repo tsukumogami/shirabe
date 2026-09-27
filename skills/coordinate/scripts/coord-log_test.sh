@@ -7,8 +7,11 @@
 # Covers: seal and check (latest visit, --any-visit, an edited hash, another
 # state's or session's seal, an unsealed token), seal --file and check --key,
 # capture with and without --for and --state, directed-since, run-facts,
-# run-start, vars, entered, provenance by template hash and plugin root, and
-# coord-verdict.sh's exit codes for a valid, a stale and an unknown token.
+# run-start, vars, entered, entry, evidence (--where, --has), captures, unit
+# (the message and leg paths), count, slug, live-session --all, the refusal of
+# a header whose schema_version isn't 1, provenance by template hash and
+# plugin root, and coord-verdict.sh's exit codes for a valid, a stale and an
+# unknown token.
 #
 # Usage: bash skills/coordinate/scripts/coord-log_test.sh
 set -uo pipefail
@@ -66,6 +69,76 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     rm -rf "$KOTO_STORE/sessions/$S3"; found_session "$S3" "$(roadmap_vars alien | jq -c '.PLUGIN_ROOT = "/elsewhere"')" 7
     bash "$CL" provenance --session "$S3" 2>/dev/null; eq "$L: provenance fails for another plugin root" 1 $?
     bash "$CL" frobnicate 2>/dev/null; eq "$L: an unknown subcommand is a usage error" 64 $?
+    event_reads "$L"
+}
+
+event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, slug, live-session --all, the schema check
+    local S=coordinate-events-20260926T080000Z L=$1
+    rm -rf "$KOTO_STORE/sessions/$S" "$KOTO_STORE/context/$S"
+    log_new "$S" "$(roadmap_vars events)"                                      # seq 1-2
+    log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:00:00.000Z   # 3
+    log_to "$S" wait report_facts                                              # 4
+    log_evidence "$S" wait '{"event":"merged","unit":"beta"}'                  # 5
+    log_evidence "$S" wait '{"event":"tick"}'                                  # 6
+    eq "$L: entry prints the seq and the source" "4 wait" "$(bash "$CL" entry --session "$S" --state report_facts)"
+    bash "$CL" entry --session "$S" --state report_facts --before 4; eq "$L: entry before the only entry is none" 1 $?
+    eq "$L: evidence is the latest in the state" 6 "$(bash "$CL" evidence --session "$S" --state wait | jq .seq)"
+    eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
+    eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"
+    eq "$L: evidence --where matches a field" 3 "$(bash "$CL" evidence --session "$S" --state wait --where event=report | jq .seq)"
+    eq "$L: evidence --where twice matches both" 5 "$(bash "$CL" evidence --session "$S" --state wait --where event=merged --where unit=beta | jq .seq)"
+    bash "$CL" evidence --session "$S" --state wait --where unit=gamma; eq "$L: evidence --where with no match is none" 1 $?
+    eq "$L: evidence --has skips evidence without the field" 5 "$(bash "$CL" evidence --session "$S" --state wait --has unit | jq .seq)"
+    bash "$CL" evidence --session "$S" --state wait --where noequals 2>/dev/null; eq "$L: --where without FIELD=VALUE is a usage error" 64 $?
+    # unit: the message path.
+    eq "$L: unit is the latest wait evidence naming a unit" "topic beta" "$(bash "$CL" unit --session "$S")"
+    eq "$L: unit --event takes that event's evidence" "topic alpha" "$(bash "$CL" unit --session "$S" --event report)"
+    eq "$L: unit --event takes the evidence even when it names no unit" "topic " "$(bash "$CL" unit --session "$S" --event tick)"
+    eq "$L: unit --before bounds the window" "topic alpha" "$(bash "$CL" unit --session "$S" --before 5)"
+    bash "$CL" unit --session "$S" --before 3; eq "$L: unit with no arrival is none" 1 $?
+    # unit: the leg path.
+    log_to "$S" wait leg_pick                                                  # 7
+    log_capture "$S" WAIT_REQ "req-1 sealed:7:ab"                              # 8
+    log_to "$S" leg_pick wait_leg                                              # 9
+    log_capture "$S" WAIT_LEG execute                                          # 10
+    log_to "$S" wait_leg take_report 2026-09-26T10:30:00.000Z                  # 11
+    eq "$L: unit on the leg path names the leg" "leg req-1:execute" "$(bash "$CL" unit --session "$S")"
+    eq "$L: unit on the leg path ignores --event" "leg req-1:execute" "$(bash "$CL" unit --session "$S" --event report)"
+    eq "$L: unit before the leg arrival is the message's" "topic beta" "$(bash "$CL" unit --session "$S" --before 11)"
+    log_capture "$S" WAIT_REQ "req-2"                                          # 12
+    eq "$L: unit reads the leg captures before the entry into take_report" "leg req-1:execute" "$(bash "$CL" unit --session "$S")"
+    log_evidence "$S" wait '{"event":"report","unit":"gamma"}'                 # 13
+    eq "$L: a later message arrival wins over the leg" "topic gamma" "$(bash "$CL" unit --session "$S")"
+    log_to "$S" wait leg_pick; log_capture "$S" WAIT_REQ "Bad:Req"             # 14 15
+    log_to "$S" leg_pick wait_leg; log_to "$S" wait_leg take_report            # 16 17
+    bash "$CL" unit --session "$S" >/dev/null 2>&1; eq "$L: a leg whose captures are not a request id is unusable" 3 $?
+    log_to "$S" record take_report                                             # 18
+    eq "$L: an entry into take_report from elsewhere is not the leg path" "topic gamma" "$(bash "$CL" unit --session "$S")"
+    # captures.
+    eq "$L: captures lists every value, oldest first" "req-1 sealed:7:ab|req-2|Bad:Req" \
+        "$(bash "$CL" captures --session "$S" --name WAIT_REQ | jq -r .value | tr '\n' '|' | sed 's/|$//')"
+    eq "$L: captures carries each one's seq" "8 12" "$(bash "$CL" captures --session "$S" --name WAIT_REQ --before 15 | jq -r .seq | tr '\n' ' ' | sed 's/ $//')"
+    eq "$L: captures --after bounds the window" 15 "$(bash "$CL" captures --session "$S" --name WAIT_REQ --after 12 | jq -r .seq)"
+    bash "$CL" captures --session "$S" --name NOPE; eq "$L: no capture of the name is none" 1 $?
+    # count, slug, live-session --all.
+    eq "$L: count is the events after the header" 18 "$(bash "$CL" count --session "$S")"
+    eq "$L: slug lowercases, dashes and squeezes" discipline-ci-health "$(bash "$CL" slug --scope discipline --name CI_Health..)"
+    eq "$L: slug of a roadmap" roadmap-plugin-system "$(bash "$CL" slug --scope roadmap --name plugin-system)"
+    local S2=coordinate-events-20260926T090000Z
+    rm -rf "$KOTO_STORE/sessions/$S2"; log_new "$S2" "$(roadmap_vars events)"
+    bash "$CL" live-session --scope-slug events >/dev/null 2>&1; eq "$L: two live sessions are several" 3 $?
+    eq "$L: live-session --all lists both" "$S $S2" "$(bash "$CL" live-session --scope-slug events --all | sort | tr '\n' ' ' | sed 's/ $//')"
+    log_end "$S2"
+    eq "$L: live-session --all skips an ended one" "$S" "$(bash "$CL" live-session --scope-slug events --all)"
+    log_end "$S"
+    bash "$CL" live-session --scope-slug events --all; eq "$L: live-session --all with none live" 1 $?
+    # A header this reader doesn't know is refused, not misread.
+    sed 's/"schema_version":1/"schema_version":2/' "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl" > "$T/v2"
+    cp "$T/v2" "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"
+    bash "$CL" count --session "$S" 2>"$T/err"; eq "$L: a schema_version 2 log is refused" 2 $?
+    grep -q 'schema_version 2' "$T/err" && ok "$L: the refusal names the schema version" || bad "$L: the refusal names the schema version" "$(cat "$T/err")"
+    sed 's/"schema_version":2,//' "$T/v2" > "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"
+    bash "$CL" entry --session "$S" --state wait 2>/dev/null; eq "$L: a header without schema_version is refused" 2 $?
 }
 
 run_suite default

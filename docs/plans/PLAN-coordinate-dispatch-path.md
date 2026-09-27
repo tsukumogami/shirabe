@@ -283,7 +283,8 @@ known limitations, and add evals for the three scenarios the PRD requires.
 **Acceptance Criteria**:
 - [ ] `skills/coordinate/SKILL.md` names the dispatch, wait and teardown
   states' scripts where the thin contract points at step guidance, and its
-  Known Limitations names shirabe #395, #396, #398 and #401, koto#250 and
+  Known Limitations names shirabe #395, #396 and #398 (#401 was fixed by #407
+  before this landed), koto#250 and
   niwa#322, koto#251 (the directed-transition gate skip, with the seal helper
   as its detection), and the one-topic-per-worker
   and unpredictable-session-name constraints, each with its cost today.
