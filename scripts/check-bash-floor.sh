@@ -138,7 +138,7 @@ suite_scripts() {
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
             echo "skills/execute/scripts/settled-branch-record_test.sh"
-            # Same koto-absent contract: its two static cases still run on the
+            # Same koto-absent contract: its static cases still run on the
             # macOS leg, and the engine-backed ones skip there.
             echo "skills/execute/scripts/terminal-retention_test.sh"
             # Need no engine and no network: both drive the merge scripts

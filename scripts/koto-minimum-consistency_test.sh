@@ -16,8 +16,11 @@
 #   the matcher fires on a planted disagreement and passes a planted agreement
 #     (the control, so a green run is not a matcher that matches nothing)
 #   no statement of the form "koto <version> or later", "requires/needs koto
-#     <version>", "koto minimum <version>", "koto <version>, the floor", or
-#     "the v<version> floor" in the scanned files names a different version
+#     <version>", "koto minimum (is) <version>", "<version>, shirabe's koto
+#     minimum", "exactly <version>", "koto <version>, the floor", or "the
+#     v<version> floor" in the scanned files names a different version. A
+#     sentence saying what a release introduced ("0.14.0 is the release that
+#     keeps ...") is history and deliberately not matched.
 #   no workflow installs a literal koto release; the one that installs the
 #     minimum reads it from assert-koto-floor.sh with the same sed as
 #     check-koto-release.sh
@@ -71,7 +74,7 @@ statements() {
     sed -e 's/^[[:space:]]*\(#\{1,\}\|\/\/\|>\)\{0,1\}[[:space:]]*//' "$1" \
         | tr '\n' ' ' \
         | tr -s ' ' \
-        | grep -oiE "(koto( minimum( is)?)? v?[0-9]+\.[0-9]+\.[0-9]+ or later|(requires?|needs?) koto v?[0-9]+\.[0-9]+\.[0-9]+|koto minimum( is)? v?[0-9]+\.[0-9]+\.[0-9]+|koto v?[0-9]+\.[0-9]+\.[0-9]+, the floor|v[0-9]+\.[0-9]+\.[0-9]+ floor)" \
+        | grep -oiE "(koto( minimum( is)?)? v?[0-9]+\.[0-9]+\.[0-9]+ or later|(requires?|needs?) koto v?[0-9]+\.[0-9]+\.[0-9]+|koto minimum( is)? v?[0-9]+\.[0-9]+\.[0-9]+|koto v?[0-9]+\.[0-9]+\.[0-9]+, the floor|v[0-9]+\.[0-9]+\.[0-9]+ floor|v?[0-9]+\.[0-9]+\.[0-9]+( and later)?, shirabe's koto minimum|exactly (koto )?v?[0-9]+\.[0-9]+\.[0-9]+)" \
         | while IFS= read -r m; do
             v=$(printf '%s' "$m" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
             printf '%s\t%s\n' "$v" "$m"
@@ -87,6 +90,7 @@ mismatches() {
 
 printf '# /work-on requires koto\n# 0.12.2 or later.\n' >"$T/bad.md"
 printf '      koto 0.12.2, the floor for runs\n# keeps the v0.12.2 floor for every run\n' >"$T/bad-floor.md"
+printf 'It describes koto 0.12.2 and later, shirabe%ss koto minimum.\nCI runs the suites on exactly 0.12.2.\n' "'" >"$T/bad-minimum.md"
 printf 'Every skill needs koto v%s, and\nkoto %s or later is tested.\n' "$MINIMUM" "$MINIMUM" >"$T/good.md"
 if [ -n "$(mismatches "$T/bad.md")" ]; then
     pass "the matcher flags a wrapped, commented statement of another version (control)"
@@ -97,6 +101,11 @@ if [ "$(mismatches "$T/bad-floor.md" | wc -l | tr -d ' ')" = 2 ]; then
     pass "the matcher flags both 'the floor' phrasings of another version (control)"
 else
     fail "the matcher missed a 'the floor' phrasing: $(statements "$T/bad-floor.md" | tr '\n' ';')"
+fi
+if [ "$(mismatches "$T/bad-minimum.md" | wc -l | tr -d ' ')" = 2 ]; then
+    pass "the matcher flags 'shirabe's koto minimum' and 'exactly' phrasings of another version (control)"
+else
+    fail "the matcher missed a 'shirabe's koto minimum' or 'exactly' phrasing: $(statements "$T/bad-minimum.md" | tr '\n' ';')"
 fi
 if [ "$(statements "$T/good.md" | wc -l | tr -d ' ')" = 2 ] && [ -z "$(mismatches "$T/good.md")" ]; then
     pass "the matcher reads both planted statements of the minimum and accepts them (control)"
@@ -111,7 +120,7 @@ FILES=$(cd "$REPO" && git ls-files -- \
     'docs/guides/*.md' 'references/*.md' 'references/**/*.md' \
     'skills/*/SKILL.md' 'skills/*/requires.tsv' 'skills/*/koto-templates/*.md' \
     'skills/*/references/*.md' 'skills/*/references/**/*.md' \
-    '.github/workflows/*.yml' 'scripts/*.sh' 2>/dev/null | sort -u)
+    'skills/*/scripts/*.sh' '.github/workflows/*.yml' 'scripts/*.sh' 2>/dev/null | sort -u)
 # A tree git can't read (the bash-floor container mounts a worktree whose .git
 # points outside it) is walked with find over the same set instead.
 if [ -z "$FILES" ]; then
@@ -123,6 +132,7 @@ if [ -z "$FILES" ]; then
         find skills -path '*/references/*.md' 2>/dev/null
         find .github/workflows -name '*.yml' 2>/dev/null
         find scripts -maxdepth 1 -name '*.sh' 2>/dev/null
+        find skills -path '*/scripts/*.sh' 2>/dev/null
     } | sort -u)
 fi
 if [ -z "$FILES" ]; then

@@ -22,7 +22,9 @@
 # flag on every tick (references/koto-session-retention.md); it also has the
 # koto init entry flags /scope, /execute and /deliver enter through, which
 # shipped in 0.13.0. Raise it in the pull request that adopts a feature from a
-# newer koto.
+# newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
+# update each restatement it names, adding to this paragraph what the new
+# release brings.
 #
 # Usage: scripts/assert-koto-floor.sh
 #

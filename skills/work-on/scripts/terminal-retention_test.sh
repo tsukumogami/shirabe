@@ -544,7 +544,7 @@ fi
 # and a parent that waits on the gate never advanced. These cases pin the
 # opposite, which is what lets a child carry the flag like any other run.
 
-gate_blockers() { # $1 parent session: the tick's response, for the gate read
+parent_tick() { # $1 parent session: resubmits the tasks and prints the response, whose blocking_conditions carry the gate
     koto next "$1" --with-data "$TASKS" 2>/dev/null
 }
 
@@ -560,7 +560,7 @@ fi
 # The tick's own response is read rather than a missing field, which an error
 # response would also produce: the tick must be accepted, leave the parent at
 # spawn (parent_hold advances only on `go`), and carry no batch_done blocker.
-RESP=$(gate_blockers flagged)
+RESP=$(parent_tick flagged)
 if printf '%s' "$RESP" | jq -e '.error == null and .state == "spawn"
         and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1; then
     pass "a flagged child's result reaches its parent: the gate passes with nothing blocking"
@@ -573,7 +573,7 @@ koto init unflagged --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
 init_or_die unflagged
 koto next unflagged --with-data "$TASKS" >/dev/null 2>&1
 koto next unflagged.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
-RESP=$(gate_blockers unflagged)
+RESP=$(parent_tick unflagged)
 if printf '%s' "$RESP" | jq -e '.error == null and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1 \
     && ! koto status unflagged.leaf >/dev/null 2>&1; then
     pass "an unflagged child delivers its result and is not kept at a success terminal (control)"

@@ -20,6 +20,9 @@
 #   engine-free, so they also run on the bash 3.2 floor where koto is absent:
 #     SKILL.md and the template frontmatter both state the rule
 #     every koto next command line in the template carries the flag
+#     every fenced koto next in the files the orchestrator can be sent to,
+#       /work-on's phase files included, carries it, and every citation on
+#       the way resolves
 #     escalate still has the shape that chains
 #
 #   engine-backed, against the SHIPPED execute.md (or, in a checkout whose path
@@ -84,7 +87,6 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
 REPO_ROOT=$(cd "$SKILLS_DIR/.." && pwd)
-WORK_ON_TPL="skills/work-on/koto-templates/work-on.md"
 
 # Every `koto next` inside a fenced code block, at any indentation and inside
 # `$(...)`, excluding shell-comment lines. Prints "line: text". This is the one
@@ -116,9 +118,8 @@ else
     fail "SKILL.md must state that the orchestrator's koto next carries --no-cleanup"
 fi
 
-# execute.md's own note. Unlike work-on.md the flag is not forbidden here, but a
-# terminal-reaching `koto next` added to this template must carry it, and the
-# only thing that will tell a future editor so is the note. This is the template
+# execute.md's own note. A `koto next` added to this template must carry the
+# flag, and the only thing that will tell a future editor so is the note. This is the template
 # half of the issue's "say why the flag is there" criterion.
 if grep -q '^# *Terminal-tick retention' "$TEMPLATE"; then
     pass "execute.md's frontmatter records why the flag rides every tick and what a new terminal-reaching tick must do"
@@ -155,23 +156,15 @@ fi
 #              from them by citation, transitively. Citations are resolved as
 #              repo-rooted first, then relative to the citing skill.
 #   bounded to the files /execute's orchestrator can be sent to: /execute's own
-#              tree, repo-root references/, and /work-on's reference files --
-#              but NOT /work-on's phase files that work-on.md itself cites. Those
-#              are the child's instructions, and their ticks are correctly bare.
+#              tree, repo-root references/, and /work-on's reference files,
+#              phase files included. A /work-on child carries the flag on every
+#              tick too, so a file both of them read needs it either way.
 #              Other skills' trees are not entered: shared references cite them
 #              as examples, not as commands the orchestrator runs.
 #
 # A citation that resolves to nothing is not followed, and is reported.
 
-# The child's own phase files: the /work-on phase files work-on.md sends a child to.
-CHILD_PHASES=" "
-for c in $(raw_cites "$REPO_ROOT/$WORK_ON_TPL"); do
-    r=$(resolve "$c" "$WORK_ON_TPL")
-    case "$r" in skills/work-on/references/phases/*) CHILD_PHASES="$CHILD_PHASES$r " ;; esac
-done
-
 orchestrator_reachable() { # $1 candidate -> 0 if the walk may enter it
-    case "$CHILD_PHASES" in *" $1 "*) return 1 ;; esac
     case "$1" in
         references/*.md)                 return 0 ;;
         skills/execute/*)                return 0 ;;
@@ -183,7 +176,6 @@ orchestrator_reachable() { # $1 candidate -> 0 if the walk may enter it
 WALK_QUEUE="skills/execute/koto-templates/execute.md skills/execute/SKILL.md"
 WALK_SEEN=""
 WALK_UNRESOLVED=""
-WALK_SHARED=" "
 while [ -n "$WALK_QUEUE" ]; do
     set -- $WALK_QUEUE; cur="$1"; shift; WALK_QUEUE="$*"
     case " $WALK_SEEN " in *" $cur "*) continue ;; esac
@@ -192,9 +184,6 @@ while [ -n "$WALK_QUEUE" ]; do
         r=$(resolve "$c" "$cur")
         if [ -z "$r" ]; then WALK_UNRESOLVED="$WALK_UNRESOLVED
   $cur -> $c"; continue; fi
-        # A file the orchestrator is sent to that is ALSO one of the child's phase
-        # files has two readers with opposite needs. Record it; it is checked below.
-        case "$CHILD_PHASES" in *" $r "*) WALK_SHARED="$WALK_SHARED$r " ;; esac
         orchestrator_reachable "$r" && WALK_QUEUE="$WALK_QUEUE $r"
     done
 done
@@ -217,7 +206,7 @@ fi
 # this, or a change to how citations are written has quietly shrunk it.
 case " $WALK_SEEN " in
     *" skills/work-on/references/phases/phase-2.5-worktree-discipline.md "*)
-        pass "the walk reaches phase-2.5, the orchestrator-only /work-on file" ;;
+        pass "the walk reaches phase-2.5, the /work-on file the orchestrator is sent to" ;;
     *)  fail "the walk no longer reaches phase-2.5 -- citation resolution changed and the scan has shrunk" ;;
 esac
 # An unresolved citation fails rather than being noted. A file the orchestrator
@@ -230,24 +219,6 @@ if [ -z "$WALK_UNRESOLVED" ]; then
     pass "every citation in the orchestrator's files resolves, so nothing it is sent to escapes the scan"
 else
     fail "a file the orchestrator reads cites a path that resolves to no file, so the scan cannot see it (write it repo-rooted):$WALK_UNRESOLVED"
-fi
-
-# A file read by BOTH the orchestrator and a child cannot carry a tick at all:
-# the orchestrator would need it flagged and a child needs it bare, and no one
-# line can be both. Resolving that by judgement fails the next person to add a
-# tick there, who will not know the file has two readers -- so it is a check.
-SHARED_TICKS=""
-for f in $WALK_SHARED; do
-    t=$(fenced_ticks "$REPO_ROOT/$f")
-    [ -n "$t" ] && SHARED_TICKS="$SHARED_TICKS
-$f:
-$t"
-done
-SHARED_COUNT=$(echo $WALK_SHARED | wc -w | tr -d ' ')
-if [ -z "$SHARED_TICKS" ]; then
-    pass "the $SHARED_COUNT file(s) read by both the orchestrator and a child carry no koto next tick"
-else
-    fail "a file read by both the orchestrator and a child carries a koto next tick, which cannot be right for both (flagged for the orchestrator, bare for a child). Move the command into a file only one of them reads:$SHARED_TICKS"
 fi
 
 # The mechanism behind that rule, pinned so nobody reinstates the carve-out on

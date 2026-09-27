@@ -21,9 +21,6 @@ on:
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
       - 'scripts/check-koto-release.sh'
-      - 'scripts/koto-minimum-consistency_test.sh'
-      - 'README.md'
-      - 'docs/guides/execute-friction.md'
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
       - 'scripts/plan-mode.sh'
@@ -120,10 +117,6 @@ jobs:
       - name: Check the decider declarations on the minimum
         run: bash scripts/check-koto-release.sh
 
-      # Every file that states the minimum states this one value.
-      - name: Check the koto minimum is stated consistently
-        run: bash scripts/koto-minimum-consistency_test.sh
-
       - name: Run the shared entry and preflight suites
         run: |
           bash scripts/koto-open_test.sh
@@ -163,7 +156,10 @@ jobs:
           bash skills/work-on/scripts/terminal-retention_test.sh
           bash skills/work-on/scripts/ci-monitor-role_test.sh
           bash skills/work-on/scripts/retry-clearing_test.sh
+          bash skills/work-on/scripts/cascade-chaining_test.sh
+          bash skills/work-on/scripts/pre-pr-evidence_test.sh
           bash skills/work-on/scripts/finalization-shape_test.sh
           bash skills/work-on/scripts/record-changed-paths_test.sh
+          bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh

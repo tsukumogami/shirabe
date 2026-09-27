@@ -163,9 +163,8 @@ nothing else.
 
 3. **Tick.** Call `koto next deliver-<topic> --no-cleanup`, do what the
    directive says, submit the evidence it asks for, and repeat.
-   **Every `koto next` carries `--no-cleanup`, on every tick.** The session is
-   a root, so the flag withholds nothing from anyone and keeps the run's
-   record readable after its terminal; see
+   **Every `koto next` carries `--no-cleanup`, on every tick.** The flag keeps
+   the run's record readable after its terminal; see
    `${CLAUDE_PLUGIN_ROOT}/references/koto-session-retention.md`. The directives
    tell you when to run `/scope` and `/execute` (as Skill calls, with the exact
    arguments they list) and when to ask the one confirmation. Run each child to

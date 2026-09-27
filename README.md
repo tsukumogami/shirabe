@@ -262,8 +262,8 @@ holds the one copy of it, and every job that installs koto from `.tsuku.toml`
 runs it to assert koto is at least the minimum. `check-koto-entry-floor.yml`
 installs exactly the minimum release and runs every template compile, the
 decider check, and the skills' koto-backed suites on it, so the minimum stays
-tested, and `scripts/koto-minimum-consistency_test.sh` fails when a document or
-workflow states a different one.
+tested. `scripts/koto-minimum-consistency_test.sh` (`check-koto-minimum.yml`)
+fails when a document or workflow states a different one.
 
 ### Upgrading from a koto older than 0.13.0
 

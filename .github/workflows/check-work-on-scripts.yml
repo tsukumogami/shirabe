@@ -164,7 +164,7 @@ jobs:
         run: bash skills/work-on/scripts/work-on-open_test.sh
 
       # The mode:koto-leg floor record, against a stand-in koto older than the
-      # entry flags: a run without the flag stays on the older floor. The macOS
+      # entry flags: a run without the flag is not refused for lacking them. The macOS
       # leg runs it on the floor through the work-on suite.
       - name: Run koto floor declaration tests (Linux)
         if: runner.os == 'Linux'
