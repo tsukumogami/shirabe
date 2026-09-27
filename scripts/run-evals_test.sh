@@ -53,8 +53,9 @@ field() { # field <name> -- read one field of the last verdict JSON in OUT
 
 classify verdict "$FIXTURES/plan-mode.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = not_executed ] \
-  && [ "$(field permission_mode)" = plan ] && [ "$(field exit_plan_mode)" = True ]; then
-  pass "plan-mode transcript: not_executed, mode plan, ExitPlanMode seen"
+  && [ "$(field permission_mode)" = plan ] && [ "$(field exit_plan_mode)" = True ] \
+  && [ "$(field executing_calls_succeeded)" = 2 ]; then
+  pass "plan-mode transcript: not_executed despite a read-only ls and the plan file's Write"
 else
   fail "plan-mode transcript (rc=$RC): $OUT"
 fi
@@ -116,6 +117,13 @@ if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
   pass "report on executed: exit 0, silent"
 else
   fail "report on executed (rc=$RC): $OUT"
+fi
+
+classify report "$FIXTURES/executed.jsonl" dontAsk
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "ran in permission mode acceptEdits, not the dontAsk"; then
+  pass "report on executed in another mode: exit 0, with a note naming both modes"
+else
+  fail "report on a mode mismatch (rc=$RC): $OUT"
 fi
 
 classify report "$T/missing.jsonl" acceptEdits

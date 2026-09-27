@@ -15,7 +15,10 @@ This script tells them apart from the transcript. A session "executed" when at
 least one call to a tool that runs a command or changes a file (Bash, Write,
 Edit, MultiEdit, NotebookEdit) came back without an error and was not a
 permission denial. Calls made by subagents count: they appear in the same
-transcript.
+transcript. Plan mode overrides that: a session whose init message says plan,
+or whose top level called ExitPlanMode, did not execute, whatever else
+succeeded, because plan mode runs read-only commands and writes its own plan
+file.
 
 Usage:
   classify-eval-session.py verdict <transcript>
@@ -25,7 +28,8 @@ Usage:
       Print the session's final message, which is what `claude -p` prints in
       its default text mode. Exit 0.
   classify-eval-session.py report <transcript> [<requested-mode>]
-      Print the named failure when the session did not execute.
+      Print the named failure when the session did not execute, and a note
+      when it executed in a mode other than the one requested.
       Exit 0 when it executed, 4 when it did not, 2 when the transcript holds
       nothing to decide from.
 """
@@ -70,6 +74,7 @@ def content_blocks(event):
 def classify(events):
     mode = None
     tool_uses = {}  # id -> tool name
+    top_level_exit_plan = []  # ExitPlanMode calls made by the session itself
     results = {}  # tool_use_id -> is_error
     denied = set()
     # Subagents can end with result messages of their own, so every result's
@@ -85,6 +90,9 @@ def classify(events):
             for block in content_blocks(event):
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     tool_uses[block.get("id")] = block.get("name", "")
+                    if (block.get("name") == "ExitPlanMode"
+                            and event.get("parent_tool_use_id") is None):
+                        top_level_exit_plan.append(block.get("id"))
         elif kind == "user":
             for block in content_blocks(event):
                 if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -104,28 +112,50 @@ def classify(events):
         i for i in executing
         if i in results and not results[i] and i not in denied
     ]
+    # Plan mode is decisive on its own. It lets read-only shell commands through
+    # (ls, cat, and the Explore agents it spawns), and it writes its own plan
+    # file with Write, so a session that looked around and stopped to present a
+    # plan has successful calls of both kinds and still ran nothing. Nobody can
+    # approve the plan in a -p session, so it never leaves plan mode. A
+    # subagent's ExitPlanMode is not the session stopping, so it is ignored.
+    planned = mode == "plan" or bool(top_level_exit_plan)
 
     if not events or (mode is None and result_event is None and not tool_uses):
         verdict = "unknown"
-    elif succeeded:
-        verdict = "executed"
-    else:
+    elif planned or not succeeded:
         verdict = "not_executed"
+    else:
+        verdict = "executed"
 
     return {
         "verdict": verdict,
         "permission_mode": mode,
-        "exit_plan_mode": any(n == "ExitPlanMode" for n in tool_uses.values()),
+        "exit_plan_mode": bool(top_level_exit_plan),
         "tool_calls": len(tool_uses),
         "executing_calls": len(executing),
         "executing_calls_succeeded": len(succeeded),
         "permission_denials": len(denied),
+        "result_subtype": (result_event or {}).get("subtype"),
+        "result_is_error": bool((result_event or {}).get("is_error")),
         "result_text": (result_event or {}).get("result") or "",
     }
 
 
+def mode_overridden(summary, requested):
+    actual = summary["permission_mode"]
+    return bool(requested and actual and actual != requested)
+
+
 def report(summary, transcript, requested):
     if summary["verdict"] == "executed":
+        # The run graded nothing but the session did execute, so the suite or
+        # the skill is the place to look. A mode other than the one requested
+        # is still worth saying, since it can explain a partial run.
+        if mode_overridden(summary, requested):
+            print("")
+            print(f"  Note: the nested session ran in permission mode"
+                  f" {summary['permission_mode']}, not the {requested} the runner requested.")
+            print(f"    Transcript: {transcript}")
         return EXIT_EXECUTED
     if summary["verdict"] == "unknown":
         print("")
@@ -137,18 +167,22 @@ def report(summary, transcript, requested):
     mode = summary["permission_mode"] or "unknown (no init message in the transcript)"
     print("")
     print("  NESTED SESSION DID NOT EXECUTE")
-    print("  The claude session this runner started ran no command and wrote no file,")
-    print("  so no scenario ran. The runner or the host is at fault, not the skill")
-    print("  under test; its grades are absent, not failing.")
+    print("  The claude session this runner started stopped in plan mode, or ran no")
+    print("  command and wrote no file, so no scenario ran. The runner or the host is")
+    print("  at fault, not the skill under test; its grades are absent, not failing.")
     print(f"    Permission mode in effect: {mode}")
-    if requested and summary["permission_mode"] and summary["permission_mode"] != requested:
+    if mode_overridden(summary, requested):
         print(f"    Permission mode requested: {requested}"
               " (something on this host overrode the runner's flag)")
     if summary["exit_plan_mode"]:
         print("    The session presented a plan for approval (ExitPlanMode) and stopped.")
+    subtype = summary["result_subtype"] or "none (the session left no result message)"
+    if summary["result_is_error"]:
+        subtype += ", reported as an error"
+    print(f"    Session result: {subtype}")
     print(f"    Tool calls: {summary['tool_calls']}"
           f" ({summary['executing_calls']} that run commands or change files,"
-          f" none succeeded)")
+          f" {summary['executing_calls_succeeded']} of them succeeded)")
     print(f"    Permission denials: {summary['permission_denials']}")
     print(f"    Transcript: {transcript}")
     return EXIT_NOT_EXECUTED

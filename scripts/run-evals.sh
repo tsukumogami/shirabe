@@ -36,26 +36,40 @@
 #   root, and gives it one extra directory, a scratch root it creates per run and
 #   removes afterwards:
 #
-#     --permission-mode acceptEdits   file edits are accepted inside the repo and
-#                                     the scratch root only; any other edit, and
-#                                     any tool that would prompt, is denied (a
-#                                     -p session has nobody to answer a prompt)
+#     --permission-mode acceptEdits   the edit tools (Write, Edit) are accepted
+#                                     inside the repo and the scratch root only;
+#                                     any other tool that would prompt (web
+#                                     fetches, MCP tools, edits elsewhere) is
+#                                     denied, since a -p session has nobody to
+#                                     answer a prompt
 #     --allowedTools Bash             the scenarios run shell: /skill-creator
 #                                     grades with python3, and tier-2 scenarios
 #                                     run gh, koto, git and bash with an
 #                                     environment prefix, which acceptEdits
-#                                     alone would deny
+#                                     alone would deny. This allows every shell
+#                                     command, so a command can still write
+#                                     outside the repo; the bound above is on
+#                                     the edit tools, not on the shell
 #     --add-dir <scratch root>        the session's TMPDIR, where a scenario's
 #                                     "empty directory" and the tier-2 clone live
 #
+#   Rejected: plan and manual execute nothing in a -p session; acceptEdits
+#   without the allow rule denies python3; dontAsk denies Write and Edit even
+#   under an allow rule; auto leaves each call to a classifier, so results would
+#   vary with it; bypassPermissions also admits every prompting tool. A pattern
+#   allow list (Bash(koto *) and the like) denies the environment-prefixed,
+#   absolute-path and `bash -c` forms this runner's own instructions produce.
+#
 #   Subagents the session spawns inherit all three. The same mode and allow rule
 #   go on the one nested `claude` the session is told to start itself, for the
-#   preflight liveness eval.
+#   preflight liveness eval. --verbose is there because the CLI requires it for
+#   stream-json in -p.
 #
 #   The session's stream-json transcript is saved as runner_session.jsonl in the
-#   iteration directory. When a run grades nothing and that transcript shows no
-#   command run and no file written, the runner reports NESTED SESSION DID NOT
-#   EXECUTE with the permission mode that was in effect and exits 4, so the
+#   iteration directory. When a run grades nothing and that transcript shows the
+#   session stopped in plan mode, or ran no command and wrote no file, the
+#   runner reports NESTED SESSION DID NOT EXECUTE with the permission mode that
+#   was in effect and exits 4, so the
 #   failure is not mistaken for a suite that graded nothing. The classification
 #   lives in scripts/lib/classify-eval-session.py.
 #
@@ -888,8 +902,9 @@ against that tree, not against what the agent said it did.
 
 PERMISSIONS AND SCRATCH DIRECTORY (applies to every eval):
 This session runs with: $nested_permission_text --add-dir $scratch
-File edits are accepted inside $REPO_ROOT and inside $scratch, and denied
-anywhere else. Shell commands run. Agents you spawn inherit the same rules.
+The Write and Edit tools are accepted inside $REPO_ROOT and inside $scratch,
+and denied anywhere else. Shell commands run. Agents you spawn inherit the same
+rules. Keep every write, by tool or by shell, inside those two directories.
 When a scenario asks for an empty or temporary directory, create it under
 $scratch (it is also TMPDIR, so mktemp -d lands there). Do not change the
 permission mode, and do not ask for approval: nobody can answer in this session.
@@ -1350,6 +1365,9 @@ case "$1" in
     if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
       echo "  All skills passed."
     fi
+    # A failed assertion outranks everything, as before. A session that never
+    # executed outranks a plain infra failure because it has one known cause to
+    # fix, and fixing it may be what clears the other skills' exit 2s.
     [ ${#failed_skills[@]} -gt 0 ] && exit 1
     [ ${#not_executed[@]} -gt 0 ] && exit 4
     [ ${#infra_failed[@]} -gt 0 ] && exit 2
