@@ -19,9 +19,14 @@
 # id `coordination`. A line in the section that starts `- <word> |` is an
 # entry and must parse; any other line (prose, a blank) is ignored.
 #
+# Callers set COORD_SELF_DIR (this directory) before sourcing.
+#
 # Requires: bash 3.2+, jq, gh (through owned-pr.sh and the reads below).
 
 COORD_MARKER='This is a **coordination PR**'
+# The PLAN's node list, from /plan's script: the one cross-skill path the
+# coordinated scripts share.
+COORD_PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
 
 RE_COORD_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_COORD_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'

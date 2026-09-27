@@ -85,9 +85,12 @@ jobs:
       # finalization COMMIT rather than the working tree. Its central case is a
       # tree where every document is terminal on disk and the commit contains
       # none of them, which is what the cascade's staging defect produces and
-      # what a tree-reading check passes. No engine needed, so it runs on both
-      # legs.
-      - name: Run cascade post-state verifier tests
+      # what a tree-reading check passes. No engine needed. Here it runs under
+      # Linux's bash 5; the macOS leg runs it on the floor through the work-on
+      # suite in the last step, not with a bare `bash`, which on a macOS runner
+      # is Homebrew's bash 5 (shirabe#416).
+      - name: Run cascade post-state verifier tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/verify-cascade-commit_test.sh
 
       # Drives the shipped ci_monitor block with each session role and asserts
@@ -99,8 +102,10 @@ jobs:
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
 
       # Runs pr_creation's closing-keyword gate expression, extracted from the
-      # template, against constructed bodies with gh stubbed. No engine needed.
-      - name: Run closing keyword gate tests
+      # template, against constructed bodies with gh stubbed. No engine needed;
+      # the macOS leg runs it on the floor through the work-on suite.
+      - name: Run closing keyword gate tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
 
       # Drives the shipped pre-PR obligation ladder in throwaway repositories.
@@ -120,11 +125,25 @@ jobs:
 
       # record-changed-paths_test.sh runs the script against git fixtures
       # through a koto stand-in, which needs only git, so those cases run on
-      # both legs. Its second half drives the shipped template through
-      # changed_paths_record and issue_type_routing, and skips where koto is
-      # absent -- the macOS leg -- so the Linux leg is where that half runs.
-      - name: Run changed-paths record tests
+      # both legs: here, and on the macOS floor through the work-on suite. Its
+      # second half drives the shipped template through changed_paths_record
+      # and issue_type_routing, and skips where koto is absent -- the macOS
+      # leg -- so this Linux step is where that half runs.
+      - name: Run changed-paths record tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
+
+      # work-on-open_test.sh checks the --koto-leg entry's own refusals against
+      # a koto stub (both legs), then opens real requests, binds runs of the
+      # shipped template to their legs, and reads each result back off the leg.
+      # The engine half skips where koto is absent -- the macOS leg.
+      - name: Run --koto-leg entry tests
+        run: bash skills/work-on/scripts/work-on-open_test.sh
+
+      # The mode:koto-leg floor record, against a stand-in koto older than the
+      # entry flags: a run without the flag stays on the older floor.
+      - name: Run koto floor declaration tests
+        run: bash skills/work-on/scripts/work-on-requires_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

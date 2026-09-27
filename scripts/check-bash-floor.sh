@@ -20,6 +20,8 @@
 # Options:
 #   --backend docker|system|auto   how to reach a bash 3.2 (default: auto)
 #   --list                         list the suites and what each one runs
+#   --suites                       the CI suite names, one per line
+#   --scripts <suite>              that suite's scripts, one per line
 #   -h, --help                     this message
 #
 # Backends:
@@ -89,16 +91,22 @@ mktempdir() {
 #       Drives the `claude` CLI against live models on workflow_dispatch. An
 #       operator tool, never invoked by a skill on a user's machine, and it
 #       cannot run offline or in a container.
+#   scripts/run-evals_test.sh, scripts/run-evals/fixtures/ (check-run-evals.yml)
+#       The runner's own suite, run offline against a stub claude on ubuntu
+#       runners. It tests an operator tool that never reaches a user's macOS
+#       /bin/bash, so it stays off the floor with the runner.
 #   .release/set-version.sh, .release/post-release.sh (release.yml,
 #   finalize-release.yml)
 #       Release automation. Runs only on ubuntu runners, from a workflow,
 #       against a checkout it mutates. Not shipped to adopters.
 #   scripts/check-evals-exist.sh, scripts/check-no-duplicate-rule-list.sh,
-#   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh
+#   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh,
+#   scripts/check-macos-floor-legs.sh, scripts/check-macos-floor-legs_test.sh
+#   (check-macos-floor-legs.yml)
 #       Repository lint over this repository's own tree, on ubuntu runners
 #       only. None of them belongs to a skill, so none reaches a macOS
-#       /bin/bash. Two also shell out to python3, so a floor run would mostly
-#       exercise that rather than bash.
+#       /bin/bash. Three also shell out to python3, so a floor run would
+#       mostly exercise that rather than bash.
 #   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
 #   scripts/check-koto-release.sh, scripts/koto-floor/ (check-koto-floor.yml)
 #       The koto version-floor check and its release leg. They run only on
@@ -110,13 +118,20 @@ mktempdir() {
 #       checks it covers. All three are written for bash 3.2 and were run under
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
+#
+# Backend limit, not an exemption: the `preflight` suite fails on the docker
+# backend for non-bash reasons (busybox lacks `ps -o pgid=` and job control),
+# so `all` on Linux reports it red; its floor run is the macOS leg, on the
+# system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope"
 
 suite_scripts() {
     case "$1" in
         plan)
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
+            # Needs no binary.
+            echo "skills/plan/scripts/resolve-split-mode_test.sh"
             ;;
         execute)
             echo "skills/work-on/scripts/run-cascade_test.sh"
@@ -191,6 +206,12 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/record-changed-paths_test.sh"
+            # The --koto-leg entry: its own refusals run on a koto stub, so they
+            # execute on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/work-on-open_test.sh"
+            # Preflight against a stand-in koto; the at-floor case skips
+            # without a real one.
+            echo "skills/work-on/scripts/work-on-requires_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
@@ -198,10 +219,16 @@ suite_scripts() {
             # cases run without koto and include invoking it.
             ;;
         preflight)
+            # Runs on the system backend only. In the docker container it fails
+            # for reasons unrelated to bash: the probe needs `ps -o pgid=` and
+            # job control, which busybox lacks. Its floor run is the macOS leg.
             echo "scripts/skill-preflight_test.sh"
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
             echo "scripts/check-skill-requires_test.sh"
+            # The scan on its own, against the committed tree: the verdict the
+            # macOS leg reports, not only a case inside the harness above.
+            echo "scripts/check-skill-requires.sh"
             echo "scripts/check-skill-injection_test.sh"
             echo "scripts/check-tool-diagnostic-discards_test.sh"
             ;;
@@ -242,6 +269,37 @@ suite_scripts() {
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             ;;
+        deliver)
+            # The report, the probes, the binding check, the mode map, and the
+            # eval gh shim. They drive test-local gh and koto stand-ins and need
+            # only bash, git and jq, so every case runs on 3.2. The engine
+            # suites stay on the Linux job that installs koto.
+            echo "scripts/plan-mode_test.sh"
+            echo "skills/deliver/scripts/deliver-report_test.sh"
+            echo "skills/deliver/scripts/deliver-probe_test.sh"
+            echo "skills/deliver/scripts/deliver-preflight_test.sh"
+            echo "skills/deliver/scripts/eval-gh-shim_test.sh"
+            echo "skills/deliver/scripts/deliver-requires_test.sh"
+            ;;
+        scope)
+            # Citations, intake, the /plan hop's consistency check, resume
+            # routing, publish, and the exit records. A gh stub and a local bare
+            # origin stand in for GitHub; the koto and shirabe cases skip here
+            # and run on the Linux jobs that install both.
+            echo "skills/scope/scripts/check-citations_test.sh"
+            echo "skills/scope/scripts/resolve-intent_test.sh"
+            echo "skills/scope/scripts/check-recorded-intent_test.sh"
+            echo "skills/scope/scripts/check-upstream_test.sh"
+            echo "skills/scope/scripts/check-plan-mode_test.sh"
+            echo "skills/scope/scripts/run-intake_test.sh"
+            echo "skills/scope/scripts/scope-template_test.sh"
+            echo "skills/scope/scripts/resume-probe_test.sh"
+            echo "skills/scope/scripts/startable-issues_test.sh"
+            echo "skills/scope/scripts/record-executed-report_test.sh"
+            echo "skills/scope/scripts/record-scope-exit_test.sh"
+            echo "skills/scope/scripts/publish-scoping-pr_test.sh"
+            echo "skills/scope/scripts/print-scope-exit_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -264,6 +322,8 @@ suite_workflow() {
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
+        deliver)              echo ".github/workflows/check-deliver-scripts.yml" ;;
+        scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
@@ -468,6 +528,9 @@ run_suite_system() {
     local script status shim
 
     system_bash_is_floor || die "/bin/bash is not 3.2 here ($(/bin/bash -c 'echo $BASH_VERSION' 2>/dev/null || echo absent)); use --backend docker"
+    # The full version, once, so a leg that goes red later shows at a glance
+    # which bash it actually ran on.
+    echo "check-bash-floor: /bin/bash is bash $(/bin/bash -c 'echo "$BASH_VERSION"')"
 
     # /bin/bash alone only puts the harness on the floor. The execute and
     # template harnesses re-enter through a bare `bash`, and every script here
@@ -506,6 +569,18 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --list)
             list_suites
+            exit 0
+            ;;
+        # Machine-readable forms of --list, for tools that need the registry
+        # (scripts/check-macos-floor-legs.sh). --list is for people and may
+        # change shape; these print one name per line and nothing else.
+        --suites)
+            for suite in $SUITES; do echo "$suite"; done
+            exit 0
+            ;;
+        --scripts)
+            [ $# -ge 2 ] || die "--scripts needs a suite name (try --suites)"
+            suite_scripts "$2" || die "unknown suite: $2 (try --suites)"
             exit 0
             ;;
         --backend)

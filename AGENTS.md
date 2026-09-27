@@ -86,7 +86,16 @@ scripts/run-evals.sh --scenario standalone-decision-simple --runs 5 decision
 
 Exit status: 0 all graded and passing, 1 an assertion failed, 2 something graded
 nothing (no results, a missing grading.json, or a scenario with an empty criteria
-list), 3 a missing prerequisite.
+list), 3 a missing prerequisite, 4 the nested claude session stopped in plan
+mode or ran no command and wrote no file, so no scenario ran and the runner or
+the host is at fault rather than the skill.
+
+The runner starts its nested `claude -p` session with
+`--permission-mode acceptEdits --allowedTools Bash`, from the repo root, with a
+scratch directory it creates per run as the session's `TMPDIR` and its one
+`--add-dir`. The host's default permission mode never reaches it. The session's
+transcript is saved as `runner_session.jsonl` in the iteration directory; the
+header of `scripts/run-evals.sh` says why the mode is this one.
 
 ### Interactive (Claude Code with /skill-creator)
 
@@ -139,13 +148,21 @@ scripts/check-bash-floor.sh --list
 # check one
 scripts/check-bash-floor.sh plan
 
-# check all four
+# check every suite
 scripts/check-bash-floor.sh all
 ```
 
 On Linux this runs the suite in a `bash:3.2` container (docker required); on
-macOS it uses `/bin/bash` directly. Same command either way, and the same one
-CI runs.
+macOS it uses `/bin/bash` directly, with a shim first on `PATH` so a nested
+`bash` is 3.2 too. Same command either way, and the same one CI runs.
+
+Every macOS CI leg reaches the floor that way, as
+`scripts/check-bash-floor.sh --backend system <suite>`. On a macOS runner a bare
+`bash`, and a script run by path through `#!/usr/bin/env bash`, are Homebrew's
+bash 5, and `/bin/bash` on a harness leaves its nested `bash` calls there too.
+`scripts/check-macos-floor-legs.sh` fails a workflow whose macOS leg runs a
+suite any of those ways, so a new suite belongs in the runner's registry and
+its workflow's macOS leg calls the runner.
 
 Do not rely on a grep for `declare -A` and friends. A pattern list only catches
 what its author remembered - the sweep that fixed `plan-to-tasks.sh` found
