@@ -99,6 +99,9 @@ mktempdir() {
 #   finalize-release.yml)
 #       Release automation. Runs only on ubuntu runners, from a workflow,
 #       against a checkout it mutates. Not shipped to adopters.
+#   scripts/release-workflow-inputs_test.sh (check-release-workflows.yml)
+#       Runs the step scripts of release.yml and finalize-release.yml, which
+#       only ever run under an ubuntu runner's bash, so it runs them there.
 #   scripts/check-evals-exist.sh, scripts/check-no-duplicate-rule-list.sh,
 #   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh,
 #   scripts/check-macos-floor-legs.sh, scripts/check-macos-floor-legs_test.sh

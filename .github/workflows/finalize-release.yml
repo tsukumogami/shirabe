@@ -28,6 +28,9 @@ jobs:
     # Backstop for the bounded poll below; keeps a stuck wait from running for
     # the 6h GitHub default.
     timeout-minutes: 45
+    # Caller-supplied inputs reach the scripts below only through env and are
+    # referenced as quoted shell variables, never expanded into the script
+    # text. The tag is checked before any step uses it.
     steps:
       - name: Determine effective token
         id: token
@@ -39,9 +42,13 @@ jobs:
           fi
 
       - name: Validate tag format
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          if ! echo "${{ inputs.tag }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Tag '${{ inputs.tag }}' does not match v<major>.<minor>.<patch>"
+          # [[ =~ ]] matches the whole string, so a value with an embedded
+          # newline can't pass on the strength of one valid line.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag $(printf '%q' "$TAG") does not match v<major>.<minor>.<patch>"
             exit 1
           fi
 
@@ -57,11 +64,11 @@ jobs:
         id: wait
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+          EXPECTED: ${{ inputs.expected-assets }}
+          TIMEOUT: ${{ inputs.wait-timeout-seconds }}
         run: |
-          TAG="${{ inputs.tag }}"
-          REPO="${{ github.repository }}"
-          EXPECTED=${{ inputs.expected-assets }}
-          TIMEOUT=${{ inputs.wait-timeout-seconds }}
+          REPO="$GITHUB_REPOSITORY"
           INTERVAL=15
           ELAPSED=0
           while true; do
@@ -102,14 +109,15 @@ jobs:
         if: ${{ steps.wait.outputs.already-published != 'true' }}
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          TAG: ${{ inputs.tag }}
         run: |
-          echo "Promoting ${{ inputs.tag }} from draft to published..."
-          if ! gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false; then
-            echo "::error::Failed to promote release ${{ inputs.tag }}"
-            echo "Manual fix: gh release edit ${{ inputs.tag }} --draft=false"
+          echo "Promoting $TAG from draft to published..."
+          if ! gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false; then
+            echo "::error::Failed to promote release $TAG"
+            echo "Manual fix: gh release edit $TAG --draft=false"
             exit 1
           fi
-          echo "Release ${{ inputs.tag }} is now published"
+          echo "Release $TAG is now published"
 
       - name: Checkout for post-release hook
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -118,17 +126,20 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          VERSION=$(echo "${{ inputs.tag }}" | sed 's/^v//')
+          VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run post-release hook
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ -x .release/post-release.sh ]; then
-            echo "Running .release/post-release.sh ${{ steps.version.outputs.version }}"
-            .release/post-release.sh "${{ steps.version.outputs.version }}"
+            echo "Running .release/post-release.sh $VERSION"
+            .release/post-release.sh "$VERSION"
           else
             echo "No .release/post-release.sh found, skipping"
           fi
