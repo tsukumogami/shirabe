@@ -294,11 +294,12 @@ until then it is a procedure the coordinator runs with a local agent.
 
 ## Known Limitations
 
-- **Which pull requests a worker owns (shirabe#395).** The workflow relies on each
-  worker's `/deliver`, `/execute` or `/work-on` run identifying only its own pull
-  requests. Today those skills decide it by author login and branch name, and
-  every worker a coordinator dispatches shares one login, so a worker can adopt a
-  sibling's pull request on resume. The coordinator's own reads go by pull
+- **Which pull requests a worker owns (shirabe#395, fixed for `/execute` by
+  shirabe#421).** The workflow relies on each worker's run identifying only its
+  own pull requests. `/execute` now marks every pull request it opens with its
+  run and looks up only its own; `/scope`'s pull requests and ones opened before
+  that fix still fall back to author login and branch name, and every worker a
+  coordinator dispatches shares one login. The coordinator's own reads go by pull
   request number and dispatch topic.
 - **The coordinator's record has no merge order (shirabe#396, fixed by shirabe#412).** When a worker runs a
   coordinated PLAN, `/execute` renders that PLAN's merge order into its

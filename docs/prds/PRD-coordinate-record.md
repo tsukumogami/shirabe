@@ -442,9 +442,10 @@ Packaging:
 
 ## Known Limitations
 
-- **Which pull requests a worker owns (shirabe#395).** The workflow relies on each worker's
-  `/deliver`, `/execute` or `/work-on` identifying only its own pull requests. Today every
-  worker shares one login, so a worker can adopt a sibling's pull request on resume. The
+- **Which pull requests a worker owns (shirabe#395, fixed for `/execute` by shirabe#421).** The
+  workflow relies on each worker identifying only its own pull requests. `/execute` now marks
+  and looks up its pull requests by run; `/scope`'s and older ones still fall back to login and
+  branch, and every worker shares one login. The
   coordinator's own reads go by pull request number and dispatch topic.
 - **Where merge order is recorded (shirabe#396, fixed).** `/execute` now renders a
   coordinated PLAN's merge order into its coordination pull request's merge-order block. The
