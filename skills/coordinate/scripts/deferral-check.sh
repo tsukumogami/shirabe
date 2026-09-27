@@ -159,14 +159,24 @@ finish() {
 # previous visit when the failure came from dispatch, else the latest `wait`
 # evidence's unit. record-confirm.sh then holds the dispatch to this topic.
 CL="$HERE/coord-log.sh"
-ENT=$(bash "$CL" entry --session "$SESSION" --state dispatch_check) || true
+# rd <var> <args...>: a coord-log.sh read into <var>, in this shell (not a
+# command substitution, so a failure exits the script). Exit 1 means "none"
+# and leaves <var> empty; any other failure is a read failure (exit 2), never
+# "no path".
+rd() {
+    local var=$1 out rc; shift
+    out=$(bash "$CL" "$@"); rc=$?
+    case $rc in 0) ;; 1) out= ;; *) lib_die2 "cannot read the session log ($1)" ;; esac
+    printf -v "$var" '%s' "$out"
+}
+rd ENT entry --session "$SESSION" --state dispatch_check
 FROMST=${ENT#* }
 U=
 case "$FROMST" in
     pick|deferral_dispose)
-        PE=$(bash "$CL" entry --session "$SESSION" --state pick) || true
+        rd PE entry --session "$SESSION" --state pick
         if [ -n "$PE" ]; then
-            PICK=$(bash "$CL" evidence --session "$SESSION" --state pick --after "${PE%% *}") || PICK=
+            rd PICK evidence --session "$SESSION" --state pick --after "${PE%% *}"
             if [ -n "$PICK" ]; then
                 CHOICE=$(printf '%s' "$PICK" | jq -r '.fields.choice // "" | tostring')
                 U=$(printf '%s' "$PICK" | jq -r '.fields.unit // "" | tostring')
@@ -174,12 +184,12 @@ case "$FROMST" in
         fi ;;
     failure)
         CHOICE=redispatch
-        FE=$(bash "$CL" entry --session "$SESSION" --state failure) || true
+        rd FE entry --session "$SESSION" --state failure
         if [ "${FE#* }" = dispatch ]; then
             PREV=$(bash "$CL" capture --session "$SESSION" --name DISPATCH_CHECK --state dispatch_check --any-visit 2> /dev/null) || PREV=
             case "$PREV" in "ok "*) U=${PREV#ok }; U=${U%% *} ;; esac
         else
-            W=$(bash "$CL" evidence --session "$SESSION" --state wait) || W=
+            rd W evidence --session "$SESSION" --state wait
             [ -n "$W" ] && U=$(printf '%s' "$W" | jq -r '.fields.unit // "" | tostring')
         fi ;;
 esac

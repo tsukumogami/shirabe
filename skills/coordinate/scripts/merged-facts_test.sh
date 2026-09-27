@@ -22,7 +22,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 MF="$PS/merged-facts.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge=permit close=permit teardown=permit"
+PERMIT="readable merge:permit close:permit teardown:permit"
 B1=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 B2=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 N=0

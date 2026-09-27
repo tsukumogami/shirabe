@@ -24,7 +24,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 LC="$PS/land-check.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge=permit close=permit teardown=permit"
+PERMIT="readable merge:permit close:permit teardown:permit"
 N=0
 
 # scenario <start-posture> <posture-now> [prview-state]: a fresh run at land.
@@ -47,12 +47,12 @@ scenario "$PERMIT" "$PERMIT"
 OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err")
 eq "a permitted merge at the verified head is permit" "permit 12 $H" "${OUT% sealed:*}"
 bash "$CL" check --session "$S" --state land --sealed "$OUT" && ok "the token is sealed to the latest entry into land" || bad "the token is sealed to the latest entry into land"
-scenario "$PERMIT" "readable merge=deny close=permit teardown=permit"
+scenario "$PERMIT" "readable merge:deny close:permit teardown:permit"
 eq "a denied merge is deny" "deny 12 $H" "$(token)"
-scenario "$PERMIT" "readable merge=confirm close=permit teardown=permit"
+scenario "$PERMIT" "readable merge:confirm close:permit teardown:permit"
 eq "a merge behind a person's confirmation is confirm" "confirm 12 $H" "$(token)"
-scenario "readable merge:permit close:permit teardown:permit" "readable merge:deny close:permit teardown:permit"
-eq "a posture token with : between step and value reads the same" "deny 12 $H" "$(token)"
+scenario "readable merge=permit close=permit teardown=permit" "readable merge=deny close=permit teardown=permit"
+eq "the older = form between step and value is still read" "deny 12 $H" "$(token)"
 scenario "$PERMIT" "$PERMIT" DIRTY
 eq "a DIRTY merge state is dirty" "dirty 12" "$(token)"
 scenario "$PERMIT" "$PERMIT"
@@ -65,17 +65,17 @@ eq "a push landing during the re-read is moved" "moved 12 $H $MOVED" "$(token)"
 grep -q 'pr view' "$GH_BOARD_DIR/calls" && bad "a moved head reads nothing after the head" || ok "a moved head reads nothing after the head"
 
 echo "== the posture only narrows =="
-scenario "readable merge=deny close=permit teardown=permit" "$PERMIT"
+scenario "readable merge:deny close:permit teardown:permit" "$PERMIT"
 eq "a start deny isn't widened by a permit now" "deny 12 $H" "$(token)"
-scenario "readable merge=confirm close=permit teardown=permit" "unread merge=unread close=permit teardown=permit"
+scenario "readable merge:confirm close:permit teardown:permit" "unread merge:unread close:permit teardown:permit"
 eq "a start confirm stays confirm when the re-read is unread" "confirm 12 $H" "$(token)"
-scenario "$PERMIT" "unread merge=unread close=unread teardown=unread"
+scenario "$PERMIT" "unread merge:unread close:unread teardown:unread"
 eq "a start permit with an unreadable posture now is confirm" "confirm 12 $H" "$(token)"
 
 echo "== an unread posture and the human's answer =="
 # The answer is posture_ask's evidence (merge: permitted), never Reversals prose;
 # the row on GitHub is the proof it was recorded, dated at or after it.
-UNREAD="unread merge=unread close=unread teardown=unread"
+UNREAD="unread merge:unread close:unread teardown:unread"
 ASKED=2026-09-26T12:20:07.000Z
 HUMAN='{"date":"2026-09-26T12:30Z","reversed":"posture unreadable","now":"the coordinator holds merge","reason":"asked once at start","from":"the human"}'
 answer() { # answer <merge> [timestamp]: posture_ask's evidence
@@ -115,7 +115,7 @@ for NOWTEXT in "merge reserved; close held; teardown held" "the human holds the 
     bt_record_body "[$(printf '%s' "$HUMAN" | jq -c --arg n "$NOWTEXT" '.now = $n')]"
     eq "no answer in the log, row [$NOWTEXT]: confirm" "confirm 12 $H" "$(token)"
 done
-scenario "$UNREAD" "unread merge=deny close=unread teardown=unread"; answer permitted
+scenario "$UNREAD" "unread merge:deny close:unread teardown:unread"; answer permitted
 bt_record_body "[$HUMAN]"
 eq "a deny now beats the human's earlier answer" "deny 12 $H" "$(token)"
 scenario "$PERMIT" "$UNREAD"; answer permitted

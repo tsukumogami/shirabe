@@ -24,7 +24,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 BR="$PS/board-record.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge=permit close=permit teardown=permit"
+PERMIT="readable merge:permit close:permit teardown:permit"
 N=0
 fresh() { # a run at verify_board with its prediction
     N=$((N + 1))
