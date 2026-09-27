@@ -63,12 +63,13 @@
 #   lib/preflight-resolve.sh  command -v, the root list, the refusal rule
 #   lib/preflight-probe.sh    surface probing (optional; absent until it lands)
 #   lib/preflight-report.sh   route resolution and block rendering (optional)
-#   lib/preflight-minimum.sh  the koto minimum, read once per run (optional)
+#   lib/preflight-minimum.sh  the koto minimum, once per run (optional)
 #
-# The two optional helpers are picked up when present and hooked through
+# The three optional helpers are picked up when present and hooked through
 # `declare -f`: preflight_check_surface for a resolved tool's advertised
-# surface, and preflight_render_route for the one command an absent-tool block
-# prints. Until they exist the corresponding text says what it does not know
+# surface, preflight_check_minimum for a resolved tool's minimum version (koto
+# only; the helper decides), and preflight_render_route for the one command an
+# absent-tool block prints. Until they exist the corresponding text says what it does not know
 # rather than guessing.
 #
 # Env seams:
@@ -403,6 +404,15 @@ preflight_check_surface() {
 }
 fi
 
+# The same posture for a minimum version: without the helper, nothing here
+# reads one. The helper decides which tools have a minimum, checks it once per
+# run, and skips a `--mode` run that load time already covered.
+if ! declare -f preflight_check_minimum >/dev/null 2>&1; then
+preflight_check_minimum() {
+    return 0
+}
+fi
+
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------
@@ -450,24 +460,6 @@ preflight_split_roots
 
 PREFLIGHT_EMITTED_TOOLS=""
 
-# The koto minimum is a fact about the installed koto, not about a record, so it
-# is checked once per run, at the first in-scope koto record that resolves. A
-# `--mode` run skips it when an `always` record already declares koto: the
-# load-time run checked it then, and a second copy of that block is what the
-# zero-byte rule exists to prevent.
-PREFLIGHT_KOTO_MINIMUM=0
-if declare -f preflight_check_koto_minimum >/dev/null 2>&1; then
-    PREFLIGHT_KOTO_MINIMUM=1
-    if [ "$PREFLIGHT_WHEN" != "always" ]; then
-        while IFS="$PREFLIGHT_TAB" read -r _tool _sub _flags _when; do
-            if [ "$_tool" = "koto" ] && [ "$_when" = "always" ]; then
-                PREFLIGHT_KOTO_MINIMUM=0
-                break
-            fi
-        done <<<"$PREFLIGHT_RECORDS"
-    fi
-fi
-
 preflight_already_emitted() {
     case "$PREFLIGHT_EMITTED_TOOLS" in
         *"$PREFLIGHT_NL$1$PREFLIGHT_NL"*) return 0 ;;
@@ -489,10 +481,7 @@ for _preflight_pass in offpath other; do
         case "$PREFLIGHT_STATUS" in
             present)
                 [ "$_preflight_pass" = "other" ] || continue
-                if [ "$_tool" = "koto" ] && [ "$PREFLIGHT_KOTO_MINIMUM" -eq 1 ]; then
-                    PREFLIGHT_KOTO_MINIMUM=0
-                    preflight_check_koto_minimum "$PREFLIGHT_SKILL" "$PREFLIGHT_PATH" "$PREFLIGHT_ROOT"
-                fi
+                preflight_check_minimum "$PREFLIGHT_SKILL" "$_tool" "$PREFLIGHT_PATH" "$PREFLIGHT_ROOT"
                 preflight_check_surface "$PREFLIGHT_SKILL" "$_tool" "$_sub" "$_flags" "$PREFLIGHT_PATH"
                 ;;
             offpath)

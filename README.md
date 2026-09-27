@@ -250,9 +250,9 @@ host sees nothing. An unmet prerequisite gets one plain-prose block naming the
 tool, what is wrong, and the single command that fixes it on this machine.
 `requires.tsv` carries no version: floors go stale silently, and a floor
 nobody rechecks is worse than no floor at all. The preflight compares one
-version, koto's, against the minimum `scripts/assert-koto-floor.sh` defines, and
-tells you to upgrade koto when it is below it. The koto
-minimums above are stated only because something rechecks them. For `/work-on`,
+version, koto's, against the minimum `scripts/assert-koto-floor.sh` defines,
+and tells you to upgrade koto when it is below it. The koto minimums above are
+stated only because something rechecks them. For `/work-on`,
 `check-koto-floor.yml` installs koto v0.12.2, compiles the templates with it,
 and replays scripted runs to confirm they route the same. For `/scope`,
 `/execute`, and `/deliver`, the floor is declared as surface rather than as a

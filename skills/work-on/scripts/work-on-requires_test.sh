@@ -83,7 +83,7 @@ case "$OUT" in
 esac
 OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION=0.0.1 PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on 2>&1)
 case "$OUT" in
-    *"koto 0.0.1 is installed, and shirabe needs koto $MINIMUM or later"*) ok "load-time preflight on a koto below the minimum names both versions" ;;
+    *"koto 0.0.1 is installed. shirabe's skills are tested on koto $MINIMUM and"*) ok "load-time preflight on a koto below the minimum names both versions" ;;
     *) bad "load-time preflight on a koto below the minimum names both versions" "$OUT" ;;
 esac
 OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION="$MINIMUM" PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on --mode koto-leg 2>&1)
