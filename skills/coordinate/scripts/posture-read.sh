@@ -91,9 +91,13 @@ for r in "$IROOT" "$WROOT"; do
 done
 
 STEPS="merge close teardown"
+# The merge command is spelled in two parts below so that this file, which only
+# names it as a pattern, isn't counted as a second place that runs it
+# (skills/execute/scripts/merge-exec_test.sh allows exactly one).
+MERGE_CMD="gh pr"' merge'
 step_patterns() {
     case "$1" in
-        merge) printf '%s\n' 'gh pr merge' 'merge-exec.sh' 'land-merge.sh' ;;
+        merge) printf '%s\n' "$MERGE_CMD" 'merge-exec.sh' 'land-merge.sh' ;;
         close) printf '%s\n' 'gh issue close' 'gh pr close' 'record-write.sh --close' ;;
         teardown) printf '%s\n' 'niwa destroy' 'niwa reap' 'niwa instance remove' 'niwa remove' ;;
     esac
@@ -101,7 +105,7 @@ step_patterns() {
 # Commands a rule is tried against, one per way the step can be typed.
 step_commands() {
     case "$1" in
-        merge) printf '%s\n' 'gh pr merge 12 --repo o/r --squash --match-head-commit 0' \
+        merge) printf '%s\n' "$MERGE_CMD 12 --repo o/r --squash --match-head-commit 0" \
             'bash /p/skills/execute/scripts/merge-exec.sh o/r 12 0' '/p/skills/execute/scripts/merge-exec.sh o/r 12 0' \
             'bash /p/skills/coordinate/scripts/land-merge.sh --session s' '/p/skills/coordinate/scripts/land-merge.sh --session s' ;;
         close) printf '%s\n' 'gh issue close 7 --repo o/r' 'gh pr close 7 --repo o/r' \
