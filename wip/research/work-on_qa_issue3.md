@@ -180,3 +180,42 @@ logic, and it's worth a look in Issue 1 or 5.
 - The inventory walks a linked worktree inside the instance as a separate
   clone, so every branch, the stash and the outside-worktree item are listed
   twice.
+
+## Re-run after f22102b
+
+I copied `reconcile-check.sh` fresh from the worktree at f22102b, then re-ran
+the same world, now in a later state. `alpha` still lacks GitHub's main commit
+185685d. `beta` (in the worker instance and in `beta_only`) sits at 67a0430,
+while GitHub's main moved on to ed0c8a7.
+
+The gh fake now answers `repos/R/compare/<base>...<head>` from the bare repo.
+It returns 404 when either sha isn't on "GitHub". Otherwise it returns
+`behind_by` = commits in the base that the head doesn't reach, plus `ahead_by`
+and `status`, all through the caller's `--jq`. A commit from a branch deleted
+on the remote stays in the bare repo, as it does on GitHub.
+
+Result: 5 scenarios, 5 passed. All three earlier failures are fixed.
+
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| 39 | Squash-merged `feat/squash` in a clone that hasn't fetched since the merge | pass | No longer listed. Tip 46b4687 compared against main has behind_by 2, so it isn't contained. The squash check then used local main e426553 (GitHub-contained, compare 0) as the merge base, and every changed blob matched GitHub's tree. |
+| 40 | Default branch behind GitHub | pass | `beta_only` gives `items:[]` with one compare (67a0430...ed0c8a7, behind_by 0). `public/beta` in the worker instance, now stale too, lists nothing either. |
+| 41 | Linked worktree inside the instance | pass | `public/alpha-wt` has no items. It gets 7 own reads only (rev-parse ×2, symbolic-ref, ls-files ×2, ls-tree, hash-object), with no second ls-remote or tree read. The instance makes 2 ls-remote calls (alpha, beta). The items are listed once: feat/deleted, feat/in-wt, feat/unpushed, stash, main.go, staged.txt, NOTES.md, and the outside worktree alpha-far. |
+| 49 | Extra: `feat/pushed` advanced on GitHub by someone else, not fetched | pass | Not listed: it isn't contained in main but is contained in the same-named remote branch. The other items are unchanged. |
+| 50 | Extra: the compare API fails with HTTP 502 | pass | `beta` gives `unchecked` "branch main could not be compared with the remote". It is neither silently dropped nor called unique. |
+
+The runs stay read-only:
+
+- Every in-clone git call has all four guard flags (0 without them across 74, 15 and 78 git calls).
+- No fetch, pull, push, checkout, status, add, commit, reset, update-ref, update-index or stash verb appears.
+- No hash-object call uses `-w`.
+- gh calls are only `git/trees/<sha>?recursive=1` and `compare/<sha>...<sha>` with `--jq`, and no write flags appear.
+- Index checksums, `.git` listings, refs and the stash list are identical before and after.
+
+The updated `reconcile-check_test.sh` passes 155/155.
+
+One minor observation, not a failure: in `re-main` the same compare (local
+main e426553 against GitHub's main) ran 4 times, once for each tip that
+reached the squash check. Repeated reads spend the 40-read `INV_COMPARE_CAP`
+in a clone with many stale branches, and past the cap tips turn unchecked.
+Caching that answer per clone would save the reads.

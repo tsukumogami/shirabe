@@ -52,6 +52,12 @@ rd_valid_topic()  { [[ $1 =~ $RE_COORD_SLUG ]]; }
 rd_valid_number() { [[ $1 =~ ^[1-9][0-9]{0,9}$ ]]; }
 rd_valid_secs()   { [[ $1 =~ ^[1-9][0-9]{0,3}$ ]]; }
 
+# rd_sha256 -- the sha256 of stdin, as 64 lowercase hex.
+rd_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+    else shasum -a 256 | cut -d' ' -f1; fi
+}
+
 # rd_now -- the time a read finished, ISO 8601 UTC.
 rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

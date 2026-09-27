@@ -1,0 +1,388 @@
+#!/usr/bin/env bash
+# reconcile-pass_test.sh -- reconcile-pass.sh advances a visit's work file in
+# bounded passes, prints exactly one capturable line, writes only reconcile/
+# context keys, and seals a report only when every re-check is done;
+# reconcile-report-get.sh accepts only the report the seal names; the
+# environment scrub refuses what changes a read and keeps only its
+# allowlist.
+#
+# The scripts run from a copy of the tree. reconcile-read.sh,
+# reconcile-check.sh and the record feature's coord-log.sh are stand-ins
+# beside them; koto (a context store in a directory) and git are stand-ins on
+# PATH. Every call is logged. The pass runs through its test entry with a
+# clock file: a stand-in re-check adds its cost to the clock, and a wait adds
+# to it instead of sleeping, so the 20-second cutoff and the 30-second re-read
+# are tested without waiting. After each pass the test plays the engine: the
+# printed line becomes the latest RECONCILE_SEAL capture.
+#
+# Usage: bash skills/coordinate/scripts/reconcile-pass_test.sh
+# Exit codes: 0 all pass; 1 a failure.
+set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
+
+PASS=0
+FAIL=0
+ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
+bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
+check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1" "${3-}"; fi; }
+
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+
+SC="$T/tree/skills/coordinate/scripts"
+mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
+for f in reconcile-pass.sh reconcile-env.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
+cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
+P="$SC/reconcile-pass.sh"
+G="$SC/reconcile-report-get.sh"
+
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+
+# The record reader: serves <case>/read.out with exit <case>/read.rc, and
+# writes <case>/reasoning.src to --reasoning-out when present.
+cat > "$SC/reconcile-read.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "read $*" >> "$STUB_DIR/log"
+out=""
+while [ $# -gt 0 ]; do [ "$1" = --reasoning-out ] && out=$2; shift; done
+[ -n "$out" ] && [ -f "$STUB_DIR/reasoning.src" ] && cp "$STUB_DIR/reasoning.src" "$out"
+[ -f "$STUB_DIR/read.sleep" ] && sleep "$(cat "$STUB_DIR/read.sleep")"
+cat "$STUB_DIR/read.out" 2>/dev/null
+exit "$(cat "$STUB_DIR/read.rc" 2>/dev/null || echo 0)"
+STUB
+
+# The re-checks: one fact per call, from <case>/check.<sub>.<ident>.<N> (the
+# Nth call for that sub and identifying argument), else check.<sub>.<N>, else
+# check.<sub>, else a default ok fact. Each call adds <case>/cost.<sub>
+# seconds (default 1) to the clock and logs the clock, its deadline and the
+# number of re-checks running at once.
+cat > "$SC/reconcile-check.sh" <<'STUB'
+#!/usr/bin/env bash
+sub=$1; shift
+ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
+mkdir "$STUB_DIR/lock" 2>/dev/null; until mkdir "$STUB_DIR/lock.m" 2>/dev/null; do sleep 0.01; done
+c=$(( $(cat "$STUB_DIR/concurrent" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$STUB_DIR/concurrent"
+m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
+now=$(cat "$CLOCK")
+echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
+key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
+echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
+rmdir "$STUB_DIR/lock.m"
+sleep 0.2
+until mkdir "$STUB_DIR/lock.m" 2>/dev/null; do sleep 0.01; done
+echo $(( $(cat "$STUB_DIR/concurrent") - 1 )) > "$STUB_DIR/concurrent"
+rmdir "$STUB_DIR/lock.m"
+for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
+    [ -f "$f" ] && { cat "$f"; exit 0; }
+done
+case "$sub" in
+    pr) echo '{"kind":"pr","status":"ok","state":"OPEN","draft":false,"head":"1111111111111111111111111111111111111111","merge_state":"CLEAN","base":"main","read_at":"t"}' ;;
+    board) echo '{"kind":"board","status":"ok","verdict":"holds","at":"x","read_at":"t"}' ;;
+    branch) echo '{"kind":"branch","status":"ok","state":"present","tip":"1111111111111111111111111111111111111111","read_at":"t"}' ;;
+    appeared) echo '{"kind":"appeared","status":"ok","prs":[],"read_at":"t"}' ;;
+    host) echo '{"kind":"host","status":"ok","state":"found","reads":1,"path":"/home/someone/ws/tsuku+w_topic-0123abcd","read_at":"t"}' ;;
+    inventory) echo '{"kind":"inventory","status":"ok","taken":true,"items":[],"truncated":false,"read_at":"t"}' ;;
+    leg) echo '{"kind":"leg","status":"ok","disposition":"open","result":"","read_at":"t"}' ;;
+    merge) echo '{"kind":"merge","status":"ok","verdict":"confirmed","reason":"","read_at":"t"}' ;;
+    close) echo '{"kind":"close","status":"ok","verdict":"confirmed","reason":"","read_at":"t"}' ;;
+    teardown) echo '{"kind":"teardown","status":"ok","verdict":"confirmed","reason":"","reads":1,"read_at":"t"}' ;;
+    deferral) echo '{"kind":"deferral","status":"ok","disposed":false,"how":"no disposition","read_at":"t"}' ;;
+    files) echo '{"kind":"files","status":"ok","paths":["docs/a.md"],"truncated":false,"read_at":"t"}' ;;
+esac
+STUB
+
+# The record feature's session-log helper, for the calls the pass and the
+# report reader make. The visit is <case>/visit; the latest capture is
+# <case>/capture.
+cat > "$SC/coord-log.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "coord-log $*" >> "$STUB_DIR/log"
+cmd=$1; shift
+S="" ST="" TOK="" NAME=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session) S=$2; shift 2 ;; --state) ST=$2; shift 2 ;; --token) TOK=$2; shift 2 ;;
+        --name) NAME=$2; shift 2 ;; *) shift ;;
+    esac
+done
+h() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+case "$cmd" in
+    seal)
+        [ -f "$STUB_DIR/visit" ] || exit 2
+        v=$(cat "$STUB_DIR/visit")
+        printf '%s sealed:%s:%s\n' "$TOK" "$v" "$(printf '%s|%s|%s|%s' "$S" "$ST" "$v" "$TOK" | h)" ;;
+    capture)
+        [ -s "$STUB_DIR/capture" ] || exit 1
+        c=$(cat "$STUB_DIR/capture")
+        if [ -n "$ST" ]; then
+            case "$c" in *" sealed:"*) ;; *) exit 1 ;; esac
+            seal=${c##* sealed:}; body=${c% sealed:*}; v=${seal%%:*}
+            [ "$v" = "$(cat "$STUB_DIR/visit")" ] || exit 1
+            [ "${seal#*:}" = "$(printf '%s|%s|%s|%s' "$S" "$ST" "$v" "$body" | h)" ] || exit 1
+        fi
+        printf '%s\n' "$c" ;;
+    run-start) echo 2026-09-27T00:00:00Z ;;
+    directed-since)
+        if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
+    *) exit 64 ;;
+esac
+STUB
+
+# koto: a context store in <case>/ctx; every call logged.
+cat > "$T/bin/koto" <<'STUB'
+#!/usr/bin/env bash
+echo "koto $*" >> "$STUB_DIR/log"
+[ "$1" = context ] || exit 2
+mkdir -p "$STUB_DIR/ctx"
+k=$(printf '%s' "$4" | sed 's#/#%#g')
+case "$2" in
+    add) if [ "${5-}" = --from-file ]; then cp "$6" "$STUB_DIR/ctx/$k"; else cat > "$STUB_DIR/ctx/$k"; fi ;;
+    remove) rm -f "$STUB_DIR/ctx/$k" ;;
+    get) [ -f "$STUB_DIR/ctx/$k" ] || exit 1; cat "$STUB_DIR/ctx/$k" ;;
+    exists) [ -f "$STUB_DIR/ctx/$k" ] ;;
+    *) exit 2 ;;
+esac
+STUB
+# git: only the pass's own repository read.
+cat > "$T/bin/git" <<'STUB'
+#!/usr/bin/env bash
+echo "git $*" >> "$STUB_DIR/log"
+case " $* " in *" rev-parse --show-toplevel "*) [ -f "$STUB_DIR/top" ] && { cat "$STUB_DIR/top"; exit 0; }; exit 128 ;; esac
+exit 99
+STUB
+chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
+
+SESSION=coordinate-plugin-system-20260927T000000Z
+CASES=0
+new_case() {
+    CASES=$((CASES + 1))
+    CASE="$T/case-$CASES-$1"
+    SDIR="$CASE/sessions/$SESSION"
+    mkdir -p "$CASE/ctx" "$SDIR"
+    : > "$CASE/log"; : > "$CASE/checks"
+    echo 7 > "$CASE/visit"
+    echo 1000 > "$CASE/clock"
+}
+# pass -- one pass through the test entry; the line goes to $LINE, and the
+# engine's capture becomes it.
+pass() {
+    LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+        bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
+    RC=$?
+    printf '%s\n' "$LINE" > "$CASE/capture"
+}
+get() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --scrubbed --session "$SESSION" "$@" 2>/dev/null; }
+ctx() { cat "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" 2>/dev/null; }
+has_ctx() { [ -f "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" ]; }
+tick() { echo $(( $(cat "$CASE/clock") + $1 )) > "$CASE/clock"; }
+lines_ok() {  # every line the pass printed is one of the three grammars and capturable
+    printf '%s\n' "$1" | grep -Eq '^(pending:[0-9]+:[0-9]+:[0-9a-f]{64}|blocked:(none|unreadable)|reconciled [0-9a-f]{64} sealed:[0-9]+:[0-9a-f]{64})$' \
+        && printf '%s' "$1" | grep -Eq '^[A-Za-z0-9 :/_.@-]*$' && [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]
+}
+
+SHA1=1111111111111111111111111111111111111111
+SHA2=2222222222222222222222222222222222222222
+hold() {  # hold <worker> <pull_request> [extra jq]
+    local extra=${3-}
+    [ -n "$extra" ] || extra='{}'
+    jq -nc --arg w "$1" --arg pr "$2" --arg sha "$SHA1" "{unit: \"Feature\", entry_point: \"/shirabe:deliver\", mode: \"--auto\", phase: \"executing\", dispatch_status: \"dispatched\", return_path: \"message\", worker: \$w, repo: \"acme/widgets\", branch: (\"feat/\" + \$w), verified_head: \$sha, dispatched: \"2026-09-26\", pull_request: \$pr} + ($extra)"
+}
+record() {  # record <holdings-json-array> [side-effects] [deferrals]
+    jq -nc --argjson h "$1" --argjson s "${2:-[]}" --argjson d "${3:-[]}" \
+        '{status: "found", scope: {kind: "roadmap", name: "plugin-system", repo: "acme/widgets"},
+          record: {written: "2026-09-26T12:00:00Z", source: "record", handoff_date: null},
+          holdings: [$h[] | {row: ., source: "record"}], deferrals: [$d[] | {row: ., source: "record"}],
+          side_effects: [$s[] | {row: ., source: "record"}], unparseable: [], reasoning: null}' > "$CASE/read.out"
+}
+PR12='[#12](https://github.com/acme/widgets/pull/12)'
+
+echo "== a full reconcile =="
+new_case full
+record "[$(hold with-pr "$PR12"),$(hold no-pr "")]" \
+    '[{"action":"merge","target":"#12","verified_head":"'$SHA1'","attempted":"2026-09-26T11:00Z","how_to_confirm":"compare"},{"action":"teardown","target":"old-worker","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"listing"},{"action":"notify","target":"someone","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"ask"}]' \
+    '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
+echo "$CASE" > "$CASE/top"
+pass
+lines_ok "$LINE"; check "the first pass prints one capturable line" $? "$LINE"
+case "$LINE" in pending:7:*) ok "a teardown's second listing read, 30 seconds on, leaves the first pass pending" ;; *) bad "a teardown's second listing read, 30 seconds on, leaves the first pass pending" "$LINE $(cat "$CASE/stderr")" ;; esac
+has_ctx reconcile/progress; check "a pending pass says why in reconcile/progress" $?
+has_ctx reconcile/report.json && bad "no report before every re-check is done" || ok "no report before every re-check is done"
+tick 31
+pass
+lines_ok "$LINE"; check "the second pass prints one capturable line" $? "$LINE"
+case "$LINE" in "reconciled "*" sealed:7:"*) ok "the visit's last re-check done, the report is sealed to the visit" ;; *) bad "the visit's last re-check done, the report is sealed to the visit" "$LINE $(cat "$CASE/stderr")" ;; esac
+has_ctx reconcile/progress && bad "progress is cleared once the report is sealed" || ok "progress is cleared once the report is sealed"
+[ "$(ctx reconcile/report.json | sha)" = "$(printf '%s' "$LINE" | cut -d' ' -f2)" ]; check "the seal names the stored report's sha256" $?
+get --check; check "the report reader accepts the sealed report" $?
+ctx reconcile/report.md | grep -q '^# Reconcile report'; check "the rendered report is stored beside it" $?
+ctx reconcile/report.json | jq -e '[.side_effects[] | .code] == ["confirmed", "confirmed", "not_rechecked"]' >/dev/null; check "a merge and a teardown are confirmed; any other side effect is not re-checked" $? "$(ctx reconcile/report.json | jq -c .side_effects)"
+[ "$(grep -c ' teardown ' "$CASE/checks")" = 2 ]; check "a teardown is confirmed by two listing reads" $? "$(cat "$CASE/checks")"
+ctx reconcile/report.md | grep -q 'ran from outside the repository'; check "the report says where the scripts ran from" $?
+bad_keys=$(grep '^koto context \(add\|remove\)' "$CASE/log" | awk '{print $5}' | grep -v '^reconcile/' || true)
+[ -z "$bad_keys" ]; check "the pass writes and removes only reconcile/ keys" $? "$bad_keys"
+leak=$(cat "$CASE"/ctx/* | grep -c -e "$SESSION" -e '/home/someone' -e 'tsuku+w_topic' -e '0123abcd' || true)
+[ "$leak" = 0 ]; check "no stored key carries the session id, an instance path or a job id" $?
+pass
+case "$LINE" in "reconciled "*" sealed:7:"*) ok "a later tick in the same visit says the same sealed line" ;; *) bad "a later tick in the same visit says the same sealed line" "$LINE" ;; esac
+
+echo "== blocked =="
+for c in "none 3" "unreadable 4" "unreadable 5"; do
+    set -- $c
+    new_case "blocked-$1-$2"
+    echo "{\"status\":\"x\",\"reason\":\"the reader said so\"}" > "$CASE/read.out"; echo "$2" > "$CASE/read.rc"
+    pass
+    [ "$LINE" = "blocked:$1" ]; check "a record read exiting $2 prints blocked:$1" $? "$LINE"
+    ctx reconcile/refusal | grep -q "case: $1"; check "reconcile/refusal names the case ($1, exit $2)" $?
+    has_ctx reconcile/report.json && bad "no report when blocked (exit $2)" || ok "no report when blocked (exit $2)"
+done
+new_case blocked-late
+record "[]"; echo 20 > "$CASE/read.sleep"
+# The reader's deadline is the pass's own; this stand-in outlives it.
+LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" timeout 30 bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2>/dev/null)
+[ "$LINE" = blocked:unreadable ]; check "a record read that runs out its deadline is blocked" $? "$LINE"
+ctx reconcile/refusal | grep -q 'timed out'; check "and the refusal says it timed out" $?
+
+echo "== the budget =="
+new_case budget
+h="["; for i in 1 2 3 4 5 6 7 8 9 10; do h="$h$(hold "w$i" "[#$i](https://github.com/acme/widgets/pull/$i)"),"; done; h="${h%,}]"
+record "$h"
+echo 3 > "$CASE/cost.pr"; echo 3 > "$CASE/cost.board"; echo 3 > "$CASE/cost.branch"
+pass
+case "$LINE" in pending:*) ok "more re-checks than one pass fits leave it pending" ;; *) bad "more re-checks than one pass fits leave it pending" "$LINE" ;; esac
+[ "$(cat "$CASE/max")" -le 4 ]; check "at most four re-checks run at once" $? "max $(cat "$CASE/max")"
+# The pass logs each launch as "launch <id> at +<s>s with <budget>s".
+launches=$(sed -n 's/^reconcile-pass: launch [^ ]* at +\([0-9]*\)s with \([0-9]*\)s$/\1 \2/p' "$CASE/stderr")
+[ -n "$launches" ]; check "the pass logs its launches" $?
+late=$(printf '%s\n' "$launches" | awk '$1 >= 20')
+[ -z "$late" ]; check "no re-check starts at or after 20 seconds" $? "$late"
+over=$(printf '%s\n' "$launches" | awk '$1 + $2 > 26')
+[ -z "$over" ]; check "every re-check's budget is clipped to the time left before 26 seconds" $? "$over"
+over=$(awk '{ split($NF, b, "="); split($(NF-1), d, "="); if (d[2] > 8 || b[2] > 26) print }' "$CASE/checks")
+[ -z "$over" ]; check "no re-check is given more than its own deadline" $? "$over"
+n=0; while [ "$n" -lt 8 ] && case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 1; pass; n=$((n + 1)); done
+case "$LINE" in "reconciled "*) ok "later passes finish the visit" ;; *) bad "later passes finish the visit" "$LINE" ;; esac
+lines=$(ctx reconcile/report.md | wc -l | tr -d ' ')
+[ "$lines" -le 100 ]; check "a 10-holding report stays within the line bound (40 + 6 per holding)" $? "$lines lines"
+ctx reconcile/report.md | grep -q '"kind"' && bad "the report carries no raw read output" || ok "the report carries no raw read output"
+
+echo "== a worker not found =="
+new_case missed-twice
+record "[$(hold quiet-one "")]"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host"
+pass
+case "$LINE" in pending:*) ok "a miss with its re-read 30 seconds away leaves the pass pending" ;; *) bad "a miss with its re-read 30 seconds away leaves the pass pending" "$LINE" ;; esac
+tick 10; pass
+[ "$(grep -c ' host ' "$CASE/checks")" = 1 ]; check "the listing is not read again sooner than 30 seconds" $? "$(cat "$CASE/checks")"
+tick 25; pass
+t1=$(awk '$2 == "host" {print $1}' "$CASE/checks" | sed -n 1p); t2=$(awk '$2 == "host" {print $1}' "$CASE/checks" | sed -n 2p)
+[ -n "$t2" ] && [ $((t2 - t1)) -ge 30 ]; check "the second listing read comes at least 30 seconds after the first" $? "$t1 $t2"
+ctx reconcile/report.md | grep -q 'not found on this read'; check "two misses read as not found on this read" $?
+ctx reconcile/report.md | grep -A2 '^## Exists nowhere else' | grep -q 'quiet-one'; check "and the worker is listed under Exists nowhere else" $?
+ctx reconcile/report.md | grep -q 'inventory could not be taken'; check "with an inventory that couldn't be taken" $?
+ctx reconcile/report.md | grep -Eiq '\b(gone|dead|lost)\b.*worker|worker.*\b(gone|dead)\b' && bad "never gone, dead or lost" "$(ctx reconcile/report.md)" || ok "never gone, dead or lost"
+new_case missed-then-found
+record "[$(hold slow-one "")]"
+echo 1015 > "$CASE/clock"; echo 995 > "$CASE/clock.start"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host.1"
+pass
+tick 31; pass
+ctx reconcile/report.md | grep -q 'worker found'; check "a miss then a match reads found" $? "$(ctx reconcile/report.md)"
+grep -q ' inventory ' "$CASE/checks"; check "and the found instance's inventory is taken" $?
+new_case miss-fits
+record "[$(hold quick-one "")]"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host.1"
+# The first read happened in an earlier pass 15 seconds ago: the re-read is
+# due 15 seconds into this one, before the cutoff, so this pass waits for it.
+pass; tick 15; pass
+[ "$(grep -c ' host ' "$CASE/checks")" = 2 ]; check "a re-read that falls before the cutoff is made within the pass" $? "$(cat "$CASE/checks")"
+
+echo "== the work file =="
+new_case edited
+record "[$(hold with-pr "$PR12")]" '[{"action":"teardown","target":"x","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"l"}]'
+pass
+before=$(grep -c . "$CASE/checks")
+jq -c '.facts["h0.pr"].state = "MERGED"' "$SDIR/coordinate-reconcile/visit.json" > "$CASE/w" && cp "$CASE/w" "$SDIR/coordinate-reconcile/visit.json"
+tick 31; pass
+after=$(grep -c ' pr ' "$CASE/checks")
+[ "$after" = 2 ]; check "a work file edited between passes is discarded and the visit's reads start again" $? "$(cat "$CASE/checks")"
+new_case killed
+record "[$(hold with-pr "$PR12")]" '[{"action":"teardown","target":"x","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"l"}]'
+pass
+echo "pending:7:1:0000000000000000000000000000000000000000000000000000000000000000" > "$CASE/capture"
+tick 31; pass
+[ "$(grep -c ' pr ' "$CASE/checks")" = 2 ]; check "a work file the last logged pass doesn't name (a killed pass) is discarded" $?
+new_case new-visit
+record "[$(hold with-pr "$PR12")]"
+pass
+echo 9 > "$CASE/visit"
+echo stale > "$CASE/ctx/reconcile%reasoning.md"
+record "[]"
+pass
+case "$LINE" in "reconciled "*" sealed:9:"*) ok "a new visit starts its own reads" ;; *) bad "a new visit starts its own reads" "$LINE" ;; esac
+has_ctx reconcile/reasoning.md && bad "a new visit removes the old visit's reconcile/ keys" || ok "a new visit removes the old visit's reconcile/ keys"
+[ "$(grep -c '^read ' "$CASE/log")" = 2 ]; check "and reads the record again" $?
+new_case cleared
+record "[]"
+echo x > "$CASE/ctx/reconcile%refusal"; echo x > "$CASE/ctx/reconcile%progress"
+pass
+has_ctx reconcile/refusal || has_ctx reconcile/progress
+[ $? != 0 ]; check "refusal and progress are cleared at the start of every pass" $?
+
+echo "== the report reader =="
+new_case getter
+record "[$(hold with-pr "$PR12")]"
+pass
+get --check; check "the sealed report reads" $?
+get | jq -e '.report.schema == "coordinate-reconcile-report/v1" and .directed_transitions == []' >/dev/null; check "with no directed transition in the run, none is named" $?
+printf '12 record_find->pick_facts\n' > "$CASE/directed"
+get | jq -e '.directed_transitions == ["12 record_find->pick_facts"]' >/dev/null; check "a directed transition anywhere in the run is named" $?
+: > "$CASE/directed"
+ctx reconcile/report.json | jq -c '.holdings = []' > "$CASE/agent.json"; cp "$CASE/agent.json" "$CASE/ctx/reconcile%report.json"
+get --check; [ $? = 1 ]; check "a report the agent wrote is refused" $?
+pass
+get --check; check "the next tick in the same visit puts the sealed report back" $?
+echo 8 > "$CASE/visit"
+get --check; [ $? = 1 ]; check "a report sealed in an earlier visit is refused" $?
+echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
+get --check; [ $? = 2 ]; check "an absent report can't be read" $?
+echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
+get --check; [ $? = 1 ]; check "a pending capture is no report" $?
+grep -q -- '--sealed\|RECONCILE_SEAL' "$G" && ! grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G" && bad "the reader reads the capture from the log itself" || ok "the reader reads the capture from the log itself"
+
+echo "== the environment =="
+PROBE="$SC/env-probe.sh"
+cat > "$PROBE" <<'EOF'
+#!/usr/bin/env bash
+. "$(dirname "$0")/reconcile-env.sh"
+if [ "${1-}" = --scrubbed ]; then shift; else rd_scrub "$0" "$@"; fi
+[ -n "${GH_TOKEN-}" ] && echo "token-sha=$(printf '%s' "$GH_TOKEN" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
+[ -n "${SOME_AGENT_VAR+x}" ] && echo agent-var-kept
+echo "home=$HOME"
+echo "gh=$(command -v gh || echo none)"
+echo "path=$PATH"
+EOF
+chmod +x "$PROBE"
+mkdir -p "$T/shadow"; printf '#!/bin/sh\necho shadow\n' > "$T/shadow/gh"; chmod +x "$T/shadow/gh"
+for v in BASH_ENV ENV LD_PRELOAD GIT_DIR GH_HOST GH_REPO GIT_CONFIG_COUNT DYLD_INSERT_LIBRARIES; do
+    out=$(env "$v=x" bash "$PROBE" 2>&1); rc=$?
+    [ "$rc" = 70 ] && printf '%s' "$out" | grep -q "$v"; check "refuses to run with $v set" $? "$rc $out"
+done
+SECRET=s3cr3t-token-value-for-the-test
+out=$(env GH_TOKEN="$SECRET" SOME_AGENT_VAR=1 HOME=/tmp/elsewhere PATH="$T/shadow:$PATH" bash "$PROBE" 2>&1)
+printf '%s' "$out" | grep -q "^token-sha=$(printf '%s' "$SECRET" | sha)$"; check "the operator's GH_TOKEN is kept" $? "$out"
+printf '%s' "$out" | grep -q '^agent-var-kept$' && bad "a variable outside the allowlist is dropped" "$out" || ok "a variable outside the allowlist is dropped"
+printf '%s' "$out" | grep -q '^home=/tmp/elsewhere$' && bad "HOME comes from the password database" "$out" || ok "HOME comes from the password database"
+printf '%s' "$out" | grep -q "gh=$T/shadow" && bad "a gh shadowing the fixed PATH is never run" "$out" || ok "a gh shadowing the fixed PATH is never run"
+printf '%s' "$out" | grep -q "$SECRET" && bad "the token's value is never printed" || ok "the token's value is never printed"
+grep -q 'env -i' "$HERE/reconcile-env.sh" | grep -v '^#' && bad "the token is never passed as an argument" || ok "the token is never passed as an argument"
+new_case token
+record "[$(hold with-pr "$PR12")]"
+TOKEN=$SECRET pass
+grep -rq "$SECRET" "$CASE" && bad "nothing the pass prints, logs or stores holds the token" "$(grep -rl "$SECRET" "$CASE")" || ok "nothing the pass prints, logs or stores holds the token"
+grep -q 'CLOCK\|RECONCILE_.*CLOCK\|SLEEP' <(grep -o '\${[A-Z_]*' "$P" | sort -u) && bad "no environment variable sets the clock or the sleep" || ok "no environment variable sets the clock or the sleep"
+
+echo
+echo "passed: $PASS  failed: $FAIL"
+[ "$FAIL" -eq 0 ]
