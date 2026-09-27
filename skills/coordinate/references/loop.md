@@ -64,8 +64,9 @@ for the judgment at the end, not for the reads.
 
    Output means the content is on the default branch; no output means the
    file is unique material. Record a session missing from the roster as "not
-   seen" in the report, never "dead"; When Something Goes Wrong in
-   SKILL.md says why one read can't tell.
+   seen" in the report, never "dead": a roster read just after an outage
+   can't tell "gone" from "not back yet", so only a signal that the worker
+   is gone, such as a message that bounces, makes it dead.
 5. **Re-check side effects in flight.** For each row, run its "How to
    confirm" read. A merge attempted and never confirmed is settled by
    comparing the default branch against the row's verified head, as
@@ -84,6 +85,23 @@ gh api "repos/<owner/repo>/issues/<n>/timeline" --paginate \
 
 An open or merged one that closes the issue means the unit is taken or
 done; read it before dispatching anything.
+
+## Checking a Worker's Premise
+
+A worker's report rests on premises: that a feature depends on another, that a
+unit is independent, that a check is required. Test each one you would act on
+against what you can read yourself, the roadmap's own dependency lines and
+statuses, the record, and GitHub. A premise the roadmap or GitHub contradicts
+is a finding: name the contradiction, with both sources, before you weigh the
+proposal that rests on it.
+
+A claimed dependency the roadmap doesn't list is a contradiction, not a
+detail. If the roadmap says two features are independent (neither lists the
+other under Dependencies) and a worker says one exists only to serve the
+other, the worker is asserting a dependency the roadmap denies: say "the
+worker's claim contradicts the roadmap, which lists features N and M as
+independent", whichever side turns out right. Agreeing that the roadmap says
+they're independent and then calling the claim consistent misses it.
 
 ## Resolving a Claim GitHub Contradicts
 
@@ -136,12 +154,21 @@ What I tried: <re-dispatches so far, with what each learned>.
 Options: <two or three, each with its consequence>.
 Recommendation: <one option and why>.
 Until you answer: <what stays paused; everything else keeps moving>.
+Waiting on the human:
+- <this decision> -- <recommendation>
+- <anything else already waiting on them>
 ```
 
 ## More Worked Examples
 
-SKILL.md gives three examples of the human-decision conditions. Some more
-cases:
+Three examples of the conditions that make a decision the human's:
+
+- Dispatching the next feature on an Active roadmap: not asked.
+- Dropping a feature from the roadmap: asked, because it changes scope.
+- Running a worker past a cap the human set: asked, because it extends a
+  supplied decision.
+
+Some more cases:
 
 - A worker reports that a feature needs a second pull request it didn't
   plan for. Inside the feature's scope, so not asked: re-dispatch or let the

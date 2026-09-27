@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# gh-board -- a gh stand-in for the board, land and merge script tests. Not
+# shipped behaviour: a test links it as `gh` on PATH.
+#
+# It serves canned responses from the per-case directory $GH_BOARD_DIR and
+# appends every call's arguments to $GH_BOARD_DIR/calls, one line each. Each call maps to a
+# key; the response is <key>.out (stdout), <key>.err (stderr), <key>.rc (exit
+# status, default 0) and <key>.sleep (seconds to wait first). For the Nth call
+# of a key, <key>.out.N, <key>.rc.N and so on win when present. Keys:
+#
+#   api graphql ...                               snapshot
+#   api --method GET repos/R/actions/runs?head_sha=...      runs
+#   api --method GET repos/R/actions/runs/<id>/jobs...      jobs-<id>
+#   api --method GET repos/R/branches/<b>                   branch
+#   api --method GET repos/R/rules/branches/<b>             rules
+#   api --method GET repos/R/git/ref/heads/<b>              ref
+#   api --method GET repos/R/pulls/<n>/files...             files
+#   api --method GET repos/R/commits/<sha>/check-runs...    checkruns
+#   api --method GET repos/R/commits/<sha>/status...        statuses
+#   api --method GET repos/R/contents/<path>?ref=<ref>      contents-<ref>-<path, / as __>
+#   api --method GET repos/R/issues/<n>                     issue-<n>
+#   api --method GET repos/R                                repo
+#   pr view <n> --repo R --json ...                         prview-<n>
+#
+# It exits 9, loudly, on anything else: a search form (a `search` command,
+# --search, -S, a search/ path), a REST call without `--method GET`, a
+# GraphQL mutation, any other gh command, and a key with no response file.
+# A jobs-<id> call also appends `+` and `-` around its wait to
+# $GH_BOARD_DIR/conc, so a test can measure how many ran at once.
+set -uo pipefail
+
+D=${GH_BOARD_DIR:-}
+[ -n "$D" ] && [ -d "$D" ] || { echo "gh-board: GH_BOARD_DIR is not set" >&2; exit 9; }
+printf '%s\n' "$*" | tr '\n' ' ' | sed 's/ *$//' >> "$D/calls"
+echo >> "$D/calls"
+
+refuse() { echo "gh-board: $*" >&2; exit 9; }
+for a in "$@"; do
+    case "$a" in
+        search|--search|--search=*|-S) refuse "a search form: $*" ;;
+        search/*|*/search/*) refuse "a search path: $*" ;;
+    esac
+done
+
+key=
+case "${1-} ${2-}" in
+    "api graphql")
+        for a in "$@"; do
+            case "$a" in query=*mutation*|query=*Mutation*) refuse "a GraphQL mutation" ;; esac
+        done
+        key=snapshot
+        ;;
+    "api --method")
+        [ "${3-}" = GET ] || refuse "a REST call that isn't GET: $*"
+        path=${4-}
+        path_noq=${path%%\?*}
+        case "$path_noq" in
+            repos/*/*/actions/runs) key=runs ;;
+            repos/*/*/actions/runs/*/jobs) id=${path_noq%/jobs}; key="jobs-${id##*/}" ;;
+            repos/*/*/rules/branches/*) key=rules ;;
+            repos/*/*/branches/*) key=branch ;;
+            repos/*/*/git/ref/heads/*) key=ref ;;
+            repos/*/*/pulls/*/files) key=files ;;
+            repos/*/*/commits/*/check-runs) key=checkruns ;;
+            repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/contents/*)
+                rest=${path_noq#repos/*/*/contents/}
+                ref=${path#*\?ref=}
+                [ "$ref" != "$path" ] || refuse "a contents read without ?ref=: $*"
+                key="contents-$ref-$(printf '%s' "$rest" | sed 's#/#__#g')"
+                ;;
+            repos/*/*/issues/*) key="issue-${path_noq##*/}" ;;
+            repos/*/*) case "$path_noq" in repos/*/*/*) refuse "unexpected path: $path" ;; esac; key=repo ;;
+            *) refuse "unexpected path: $path" ;;
+        esac
+        ;;
+    "pr view")
+        key="prview-${3-}"
+        ;;
+    *) refuse "unexpected call: $*" ;;
+esac
+
+# The Nth call of this key.
+n=$(grep -cxF "$key" "$D/.keys" 2>/dev/null)
+n=$((n + 1))
+printf '%s\n' "$key" >> "$D/.keys"
+pick() { if [ -f "$D/$key.$1.$n" ]; then printf '%s' "$D/$key.$1.$n"; elif [ -f "$D/$key.$1" ]; then printf '%s' "$D/$key.$1"; fi; }
+
+case "$key" in jobs-*) printf '+\n' >> "$D/conc" ;; esac
+f=$(pick sleep); [ -n "$f" ] && sleep "$(cat "$f")"
+case "$key" in jobs-*) printf -- '-\n' >> "$D/conc" ;; esac
+
+out=$(pick out); err=$(pick err); rcf=$(pick rc)
+[ -n "$out$err$rcf" ] || refuse "no response for key $key ($*)"
+[ -n "$err" ] && cat "$err" >&2
+[ -n "$out" ] && cat "$out"
+rc=0
+[ -n "$rcf" ] && rc=$(cat "$rcf")
+exit "$rc"

@@ -1,0 +1,201 @@
+# rule-coverage.tsv -- where each rule of the prose /coordinate skill lives now.
+#
+# One row per rule of the pre-koto rule inventory (IDs C1..C190). Columns,
+# tab-separated:
+#   <ID>  <carrier, repo-relative>  <state in coordinate.md, or ->  <key phrase>  [changed: <why>]
+# The key phrase is a verbatim substring of the carrier; when a state is named
+# it must sit inside that `## <state>` section of koto-templates/coordinate.md.
+# A fifth column marks a rule the koto design changed on purpose.
+# A `# lost:` line names rules with no carrier yet; the test reports them and
+# counts them toward completeness, and each gets a row once its text lands.
+# Checked by skills/coordinate/scripts/rule-coverage_test.sh.
+C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>` runs one
+C2	skills/coordinate/koto-templates/coordinate.md	start	It is never an instruction for how to coordinate
+C3	skills/coordinate/koto-templates/coordinate.md	start	**A roadmap scope must be Active.**
+C4	skills/coordinate/koto-templates/coordinate.md	-	the human's decision; seven when none was given
+C5	skills/coordinate/koto-templates/coordinate.md	pick_facts	a rotation whose end date has passed goes to the	changed: the end date is checked from the rotation's title at pick_facts; the human ending early arrives as the wait event `end`
+C6	skills/coordinate/SKILL.md	-	one, ask once, with a recommendation, and never fall back
+C7	skills/coordinate/scripts/coordinate-open.sh	-	It never defaults to the repository it runs in there.
+C8	skills/coordinate/koto-templates/coordinate.md	start_posture	permission lists and PreToolUse hook scripts
+C9	skills/coordinate/koto-templates/coordinate.md	start_posture	as permitted, denied, behind a person's confirmation
+C10	skills/coordinate/koto-templates/coordinate.md	start_posture	every finishing step is treated as reserved
+C11	skills/coordinate/SKILL.md	-	**Writing style:** Read `skills/writing-style/SKILL.md`
+C12	skills/coordinate/SKILL.md	-	- **Coordinator** -- the session running this skill.
+C13	skills/coordinate/SKILL.md	-	**The human** -- whoever dispatched you
+C14	skills/coordinate/koto-templates/coordinate.md	dispatch	The worker's dispatch topic is its name everywhere
+C15	skills/coordinate/SKILL.md	-	**Local agent** -- a subagent inside the coordinator's
+C16	skills/coordinate/references/brief-template.md	-	A brief is the worker's only context
+C17	skills/coordinate/SKILL.md	-	**Holding** -- one unit of work this coordinator
+C18	skills/coordinate/SKILL.md	-	**Deferral** -- something the coordinator chose not
+C19	skills/coordinate/SKILL.md	-	- **Reconcile** -- re-checking every claim in the record
+C20	skills/coordinate/SKILL.md	-	**Rotation** -- one time-boxed turn of a discipline
+C21	skills/coordinate/SKILL.md	-	- **Surface** -- an area a discipline coordinator owns
+C22	skills/coordinate/SKILL.md	-	**Teardown** -- ending a worker's session
+C23	skills/coordinate/SKILL.md	-	**Unique material** -- anything a session or instance
+C24	skills/coordinate/koto-templates/coordinate.md	pick	An active worker is one whose unit isn't merged or abandoned
+C25	skills/coordinate/koto-templates/coordinate.md	surface	A parked worker is one with a verified, ready pull request
+C26	skills/coordinate/koto-templates/coordinate.md	quiet_check	A worker is quiet when neither a message nor a push
+C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check earns a status message	changed: stalled is no longer a named state; quiet-check.sh counts silent checks from the session log
+C28	skills/coordinate/koto-templates/coordinate.md	-	returns through `record`, whose check confirms the change on	changed: the seven prose steps became a koto state graph with wait as a hub
+C29	skills/coordinate/koto-templates/coordinate.md	decision_apply	A new decision takes effect at the start of the next turn
+C30	skills/coordinate/koto-templates/coordinate.md	reconcile	This full reconcile runs once per run, on this path.
+C31	skills/coordinate/koto-templates/coordinate.md	reconcile	Treat every claim in the record as a snapshot
+C32	skills/coordinate/koto-templates/coordinate.md	reconcile	Re-check each against GitHub (pull request state
+C33	skills/coordinate/koto-templates/coordinate.md	reconcile	record and GitHub disagree, GitHub wins
+C34	skills/coordinate/koto-templates/coordinate.md	reconcile	Report three things: what changed since the record
+C35	skills/coordinate/koto-templates/coordinate.md	record_find	Finding this scope's record on GitHub.	changed: finding and opening the record are their own states (record_find, record_open) that run before reconcile
+C36	skills/coordinate/koto-templates/coordinate.md	reconcile	hand the reads to a local agent when there are more
+C37	skills/coordinate/references/loop.md	-	## A Full Reconcile, in Order
+C38	skills/coordinate/references/loop.md	-	For a roadmap, read its Features section from the
+C39	skills/coordinate/references/loop.md	-	--json state,isDraft,headRefOid,mergeStateStatus
+C40	skills/coordinate/references/loop.md	-	gh pr list --repo <owner/repo> --head <branch> --state all
+C41	skills/coordinate/references/loop.md	-	Read the state of any issue a holding names
+C42	skills/coordinate/references/loop.md	-	`niwa list` from the workspace root
+C43	skills/coordinate/references/loop.md	-	`git log --branches --not --remotes --oneline`
+C44	skills/coordinate/references/loop.md	-	Prove a file durable
+C45	skills/coordinate/koto-templates/coordinate.md	reconcile	Record a session missing from
+C46	skills/coordinate/references/loop.md	-	**Re-check side effects in flight.**
+C47	skills/coordinate/references/loop.md	-	**Read the deferrals.** List every row for the report
+C48	skills/coordinate/koto-templates/coordinate.md	reconcile	Never average the
+C49	skills/coordinate/references/loop.md	-	A holding whose pull request merged since the record
+C50	skills/coordinate/references/loop.md	-	## The Reconcile Report
+C51	skills/coordinate/koto-templates/coordinate.md	pick	**Fill every free slot.**
+C52	skills/coordinate/koto-templates/coordinate.md	pick	Roadmap features in the roadmap's order
+C53	skills/coordinate/koto-templates/coordinate.md	pick	A roadmap feature is unblocked when every
+C54	skills/coordinate/references/loop.md	-	then list the open issues and failing checks in its
+C55	skills/coordinate/koto-templates/coordinate.md	pick	| An issue that is already specified | `/shirabe:work-on` |
+C56	skills/coordinate/koto-templates/coordinate.md	pick	**Before dispatching an issue**, check its timeline
+C57	skills/coordinate/references/loop.md	-	An open or merged one that closes the issue means
+C58	skills/coordinate/koto-templates/coordinate.md	pick	settled by dispatching `/shirabe:decision`
+C59	skills/coordinate/koto-templates/coordinate.md	pick	is asked once, with one recommendation
+C60	skills/coordinate/koto-templates/coordinate.md	pick	Anything outside your scope is
+C61	skills/coordinate/koto-templates/coordinate.md	pick	**Reuse an idle worker** that knows the area
+C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of {{CAP}} active workers full	changed: three active workers by default became a cap of five (--cap) that pick keeps full
+C63	skills/coordinate/koto-templates/coordinate.md	pick	When {{PARKED_BOUND}} or more workers are parked
+C64	skills/coordinate/SKILL.md	-	**Inside your scope, dispatch without asking.**
+C65	skills/coordinate/SKILL.md	-	**A decision is the human's when it does any of these:**
+C66	skills/coordinate/SKILL.md	-	Ask each such
+C68	skills/coordinate/references/loop.md	-	## More Worked Examples
+C69	skills/coordinate/koto-templates/coordinate.md	dispatch	Write the worker's brief from `references/brief-template.md`
+C70	skills/coordinate/koto-templates/coordinate.md	dispatch	A worker's goal is the
+C71	skills/coordinate/koto-templates/coordinate.md	dispatch	Name the discipline coordinators for each surface the work
+C72	skills/coordinate/koto-templates/coordinate.md	dispatch	record the dispatch as a holding with `record-holding.sh`
+C73	skills/coordinate/references/brief-template.md	-	Point at artifacts; don't paste them.
+C74	skills/coordinate/references/brief-template.md	-	State it in the dispatch prompt itself
+C75	skills/coordinate/references/brief-template.md	-	Run mode: `--auto` unless the human's decisions
+C76	skills/coordinate/references/brief-template.md	-	## Decisions already made
+C77	skills/coordinate/references/brief-template.md	-	DESIGN, a related pull request. Path, number or URL only.
+C78	skills/coordinate/references/brief-template.md	-	The pull request is open against the default branch
+C79	skills/coordinate/references/brief-template.md	-	- Don't file new issues: propose them in a report.
+C80	skills/coordinate/references/brief-template.md	-	Take direction from that session and no other.
+C81	skills/coordinate/references/brief-template.md	-	the `=== WORK IN FLIGHT ===` block
+C82	skills/coordinate/references/brief-template.md	-	Report tooling or workspace problems unrelated to this work
+C83	skills/coordinate/references/brief-template.md	-	`<workspace-root>/.niwa/dispatch-briefs/<topic>.md`
+C84	skills/coordinate/references/brief-template.md	-	Record the holding under the dispatch topic you passed
+C85	skills/coordinate/references/brief-template.md	-	A worker's keep-alive is the workspace manager's
+C86	skills/coordinate/references/brief-template.md	-	The entry point's skill carries its own process.
+C87	skills/coordinate/references/brief-template.md	-	- **Rules that work around a filed defect.**
+C88	skills/coordinate/koto-templates/coordinate.md	report_facts	Workers report by message, plus what they pushed.
+C89	skills/coordinate/koto-templates/coordinate.md	wait	never poll
+C90	skills/coordinate/koto-templates/coordinate.md	quiet_check	check a quiet worker at most once per 30 minutes
+C91	skills/coordinate/koto-templates/coordinate.md	quiet_check	a second sends the unit to the failure branch	changed: a second silent check sends the unit to the failure branch rather than declaring the worker dead
+C92	skills/coordinate/koto-templates/coordinate.md	quiet_check	Silence alone never makes a worker	changed: silence alone never makes a worker dead, resolving the old second-silent-check tension
+C93	skills/coordinate/koto-templates/coordinate.md	failure	or a dead worker's unit with what it pushed
+C94	skills/coordinate/koto-templates/coordinate.md	failure	Re-dispatch a red CI failure inside the unit's scope
+C95	skills/coordinate/koto-templates/coordinate.md	failure	sibling merged
+C96	skills/coordinate/koto-templates/coordinate.md	failure	`redispatch` with the same brief plus what was
+C97	skills/coordinate/koto-templates/coordinate.md	failure	Raise a blocker the moment you notice it.
+C99	skills/coordinate/koto-templates/coordinate.md	classify_report	Judge a reported problem before
+C100	skills/coordinate/references/loop.md	-	## The Shape of an Escalation
+C101	skills/coordinate/koto-templates/coordinate.md	verify_board	the head from the remote and judges every workflow run
+C102	skills/coordinate/koto-templates/coordinate.md	verified_confirm	Re-derive a claim at the moment you repeat it
+C103	skills/coordinate/SKILL.md	-	Name what you verified and what you didn't
+C104	skills/coordinate/koto-templates/coordinate.md	verify	write down which reds you would report
+C105	skills/coordinate/references/verification-checklist.md	-	40-character sha in every later query
+C106	skills/coordinate/koto-templates/coordinate.md	verify_board	each run's latest attempt counts	changed: board-verdict.sh judges each run's latest attempt only, not every attempt via filter=all
+C107	skills/coordinate/koto-templates/coordinate.md	verify_board	on a named runner with at
+C108	skills/coordinate/koto-templates/coordinate.md	verify_board	and the merge state isn't DIRTY
+C109	skills/coordinate/references/verification-checklist.md	-	Check it for paths under a workflow staging
+C110	skills/coordinate/references/verification-checklist.md	-	The branch on the remote matches the head you read.
+C111	skills/coordinate/references/verification-checklist.md	-	Report green only when the pull request's head
+C112	skills/coordinate/references/verification-checklist.md	-	Never put an inferred clause beside a measured
+C113	skills/coordinate/references/verification-checklist.md	-	Reported by the worker, not re-derived (inferred):
+C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't re-derive right now goes under
+C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
+C116	skills/coordinate/koto-templates/coordinate.md	surface	the reason for the order (`surfaced: merge_table`)
+C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
+C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the changed files there, not by trusting
+C119	skills/coordinate/references/verification-checklist.md	-	| Head sha | Verified at | Why this position |
+C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
+C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it
+C122	skills/coordinate/koto-templates/coordinate.md	merge_confirm	whose repository doesn't hold that feature's PLAN
+C123	skills/coordinate/koto-templates/coordinate.md	land	A denial covers the step, not the command
+C124	skills/coordinate/koto-templates/coordinate.md	land	person's confirmation is reserved for a person too
+C125	skills/coordinate/koto-templates/coordinate.md	land	Never ask the human for a
+C126	skills/coordinate/koto-templates/coordinate.md	start_posture	The skill carries no permission rule of its own
+C127	skills/coordinate/koto-templates/coordinate.md	teardown	Don't tear down what you haven't inventoried
+C128	skills/coordinate/koto-templates/coordinate.md	teardown	form that names one instance or session
+C129	skills/coordinate/koto-templates/coordinate.md	teardown	A worker is finished only when its work is merged
+C130	skills/coordinate/koto-templates/coordinate.md	teardown	ask the worker what exists only in its head
+C131	skills/coordinate/koto-templates/coordinate.md	teardown	deferral row is not a home for it
+C132	skills/coordinate/references/loop.md	-	move the material to
+C133	skills/coordinate/koto-templates/coordinate.md	record	Write the record after every dispatch, every verified report
+C134	skills/coordinate/references/record-template.md	-	are the whole record and nothing else may sit between them	changed: the renderer builds the body from JSON, so only the four sections can exist
+C135	skills/coordinate/koto-templates/coordinate.md	record	never write a fact GitHub can recompute
+C136	skills/coordinate/references/record-template.md	-	The renderer refuses a Worker cell holding anything
+C137	skills/coordinate/koto-templates/coordinate.md	record	it never names a private
+C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a cell	changed: quoted text goes in a table cell, encoded by the renderer, instead of a fence
+C139	skills/coordinate/koto-templates/coordinate.md	record_find	`Coordinator record: ROADMAP-<name>` in the roadmap's
+C140	skills/coordinate/koto-templates/coordinate.md	record_find	a draft pull request from `coordinate/discipline-<name>`
+C141	skills/coordinate/scripts/record-find.sh	-	matched on the exact title	changed: the hand-run gh issue list and jq match became record-find.sh
+C142	skills/coordinate/koto-templates/coordinate.md	record_find	a title match without the declaration line, several matches	changed: record-find.sh routes the three outcomes to found, record_open or record_conflict
+C143	skills/coordinate/koto-templates/coordinate.md	record_find	the previous rotation's record still open past its end date	changed: record-find.sh reads the rotation's dates and routes to the predecessor close-out states
+C144	skills/coordinate/koto-templates/coordinate.md	record_conflict	isn't a record is a scope question
+C145	skills/coordinate/koto-templates/coordinate.md	record_open	`--recut` when the find read	changed: deleting and re-cutting a stale branch is record-open.sh --recut
+C146	skills/coordinate/scripts/record-open.sh	-	default branch's head with one empty commit	changed: cutting the branch, the empty commit and the draft pull request are record-open.sh
+C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
+C148	skills/coordinate/references/record-template.md	-	edit the end date to match in the same update
+C149	skills/coordinate/koto-templates/coordinate.md	record_open	--body-file <body.md>
+C150	skills/coordinate/references/record-template.md	-	starts with the fixed Part 1 line and a single `---`	changed: the renderer writes Part 1 itself (--container pr) instead of the author following pr-body-conformance.md
+C151	skills/coordinate/references/record-template.md	-	> This is a **coordinator record** for
+C152	skills/coordinate/references/record-template.md	-	| Unit | Entry point | Mode | Phase | Dispatch status |	changed: Holdings gained Phase, Dispatch status and Return path columns
+C153	skills/coordinate/references/record-template.md	-	| Deferral | Reason | Raised | Disposition |	changed: Deferrals gained a Disposition column that the dispatch check reads
+C154	skills/coordinate/references/record-template.md	-	| Action | Target | Verified head | Attempted |
+C155	skills/coordinate/references/record-template.md	-	Reversals only grow.
+C156	skills/coordinate/references/record-template.md	-	An empty section reads `None.` in place of its table.
+C157	skills/coordinate/references/record-template.md	-	a carried row stays with its new reason
+C158	skills/coordinate/references/record-template.md	-	The verified head is the sha the workflow verified
+C159	skills/coordinate/references/record-template.md	-	It is deliberately different from the
+C160	skills/coordinate/references/record-template.md	-	render the whole body	changed: the rewrite goes through record-write.sh rather than a hand-run gh edit --body-file
+C161	skills/coordinate/koto-templates/coordinate.md	decision_apply	Record a reversal (the earlier decision, the
+C162	skills/coordinate/koto-templates/coordinate.md	decision_apply	new one, the reason and who decided
+C163	skills/coordinate/koto-templates/coordinate.md	dispatch_check	no deferral raised before	changed: deferral-check.sh refuses a dispatch while any inherited deferral lacks a disposition
+C164	skills/coordinate/koto-templates/coordinate.md	deferral_dispose	every open deferral, because nobody succeeds it.
+C165	skills/coordinate/koto-templates/coordinate.md	roadmap_close	feature Done or Dropped, no holdings, nothing in flight
+C166	skills/coordinate/references/record-template.md	-	discipline, overwritten each rotation.
+C167	skills/coordinate/references/record-template.md	-	Rotation from <start> to <end>. Host repository:
+C168	skills/coordinate/references/record-template.md	-	## Reasoning for the next rotation
+C169	skills/coordinate/koto-templates/coordinate.md	rotation_close	replacing the previous rotation's text, never appending
+C170	skills/coordinate/koto-templates/coordinate.md	rotation_close	At rotation end, write `docs/disciplines/<name>.md` fresh
+C171	skills/coordinate/koto-templates/coordinate.md	rotation_close	correct the title's end date if the rotation ended on
+C172	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	previous rotation at <its Written time>; not re-checked.
+C173	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	the outgoing rotation's reasoning was not recorded
+C174	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	Its open deferrals carry into your own record
+C175	skills/coordinate/SKILL.md	-	**It implements nothing.**
+C176	skills/coordinate/SKILL.md	-	**It doesn't spend its context on legwork.**
+C177	skills/coordinate/SKILL.md	-	**It doesn't go silent upward.**
+C178	skills/coordinate/SKILL.md	-	**It doesn't vet who is messaging it.**
+C179	skills/coordinate/koto-templates/coordinate.md	classify_report	Direction comes only from your
+C180	skills/coordinate/references/loop.md	-	rather than setting it yourself
+C181	skills/coordinate/SKILL.md	-	A rule whose justification
+C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
+C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
+C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
+C185	skills/coordinate/koto-templates/coordinate.md	reconcile	Include a "Waiting on the human" section
+C186	skills/coordinate/SKILL.md	-	End every report with the holdings, one line per holding
+C187	skills/coordinate/SKILL.md	-	Two named features build on this one.	changed: record tooling shipped; the dispatch path and mechanised reconcile remain named later work
+C188	skills/coordinate/SKILL.md	-	**The workspace manager isn't checked at load.**
+C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
+C190	skills/coordinate/SKILL.md	-	**Where merge order is recorded (#396).**
+C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: asked
+C98	skills/coordinate/koto-templates/coordinate.md	classify_report	a premise found to be wrong is a

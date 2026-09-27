@@ -111,7 +111,7 @@ mktempdir() {
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open coordinate-reconcile"
+SUITES="plan execute work-on preflight templates template-consistency koto-open coordinate coordinate-reconcile"
 
 suite_scripts() {
     case "$1" in
@@ -242,6 +242,41 @@ suite_scripts() {
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             ;;
+        coordinate)
+            # /coordinate's script tests. They drive test-local gh and koto
+            # stand-ins and need only jq and git, so every case runs on 3.2.
+            # Its engine suites (*_engine_test.sh) need real koto and run on
+            # ubuntu only.
+            echo "skills/coordinate/scripts/record-codec_test.sh"
+            echo "skills/coordinate/scripts/coord-log_test.sh"
+            echo "skills/coordinate/scripts/coordinate-report_test.sh"
+            echo "skills/coordinate/scripts/rule-coverage_test.sh"
+            echo "skills/coordinate/scripts/record-find_test.sh"
+            echo "skills/coordinate/scripts/record-open_test.sh"
+            echo "skills/coordinate/scripts/record-write_test.sh"
+            echo "skills/coordinate/scripts/record-holding_test.sh"
+            echo "skills/coordinate/scripts/record-confirm_test.sh"
+            echo "skills/coordinate/scripts/start-check_test.sh"
+            echo "skills/coordinate/scripts/posture-read_test.sh"
+            # The board, land and merge scripts: a localized plugin tree with
+            # the gh-board and koto stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/board-verdict_test.sh"
+            echo "skills/coordinate/scripts/board-record_test.sh"
+            echo "skills/coordinate/scripts/land-check_test.sh"
+            echo "skills/coordinate/scripts/land-merge_test.sh"
+            echo "skills/coordinate/scripts/merge-confirm_test.sh"
+            echo "skills/coordinate/scripts/merged-facts_test.sh"
+            # The close-outs and the turn's checks: the gh and koto stand-ins
+            # (closeout-read's in a localized tree with a stand-in board), so
+            # every case runs on 3.2.
+            echo "skills/coordinate/scripts/predecessor-handoff_test.sh"
+            echo "skills/coordinate/scripts/closeout-read_test.sh"
+            echo "skills/coordinate/scripts/rotation-close_test.sh"
+            echo "skills/coordinate/scripts/deferral-check_test.sh"
+            echo "skills/coordinate/scripts/pick-facts_test.sh"
+            echo "skills/coordinate/scripts/report-facts_test.sh"
+            echo "skills/coordinate/scripts/quiet-check_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -271,6 +306,7 @@ suite_workflow() {
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
+        coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
         coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
