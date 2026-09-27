@@ -139,13 +139,21 @@ scripts/check-bash-floor.sh --list
 # check one
 scripts/check-bash-floor.sh plan
 
-# check all four
+# check every suite
 scripts/check-bash-floor.sh all
 ```
 
 On Linux this runs the suite in a `bash:3.2` container (docker required); on
-macOS it uses `/bin/bash` directly. Same command either way, and the same one
-CI runs.
+macOS it uses `/bin/bash` directly, with a shim first on `PATH` so a nested
+`bash` is 3.2 too. Same command either way, and the same one CI runs.
+
+Every macOS CI leg reaches the floor that way, as
+`scripts/check-bash-floor.sh --backend system <suite>`. On a macOS runner a bare
+`bash`, and a script run by path through `#!/usr/bin/env bash`, are Homebrew's
+bash 5, and `/bin/bash` on a harness leaves its nested `bash` calls there too.
+`scripts/check-macos-floor-legs.sh` fails a workflow whose macOS leg runs a
+suite any of those ways, so a new suite belongs in the runner's registry and
+its workflow's macOS leg calls the runner.
 
 Do not rely on a grep for `declare -A` and friends. A pattern list only catches
 what its author remembered - the sweep that fixed `plan-to-tasks.sh` found

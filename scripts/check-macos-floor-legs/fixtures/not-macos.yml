@@ -1,0 +1,22 @@
+# Passes: no job can run on macOS, and a macOS job that runs no suite (a
+# release build) has nothing to prove about the floor.
+name: not-macos
+on: pull_request
+jobs:
+  linux-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: bash skills/demo/scripts/one_test.sh
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}

@@ -94,11 +94,13 @@ mktempdir() {
 #       Release automation. Runs only on ubuntu runners, from a workflow,
 #       against a checkout it mutates. Not shipped to adopters.
 #   scripts/check-evals-exist.sh, scripts/check-no-duplicate-rule-list.sh,
-#   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh
+#   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh,
+#   scripts/check-macos-floor-legs.sh, scripts/check-macos-floor-legs_test.sh
+#   (check-macos-floor-legs.yml)
 #       Repository lint over this repository's own tree, on ubuntu runners
 #       only. None of them belongs to a skill, so none reaches a macOS
-#       /bin/bash. Two also shell out to python3, so a floor run would mostly
-#       exercise that rather than bash.
+#       /bin/bash. Three also shell out to python3, so a floor run would
+#       mostly exercise that rather than bash.
 #   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
 #   scripts/check-koto-release.sh, scripts/koto-floor/ (check-koto-floor.yml)
 #       The koto version-floor check and its release leg. They run only on
@@ -111,12 +113,14 @@ mktempdir() {
 #       macOS /bin/bash when they changed; run them there by hand after
 #       changing them.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope"
 
 suite_scripts() {
     case "$1" in
         plan)
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
+            # Needs no binary.
+            echo "skills/plan/scripts/resolve-split-mode_test.sh"
             ;;
         execute)
             echo "skills/work-on/scripts/run-cascade_test.sh"
@@ -202,6 +206,9 @@ suite_scripts() {
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
             echo "scripts/check-skill-requires_test.sh"
+            # The scan on its own, against the committed tree: the verdict the
+            # macOS leg reports, not only a case inside the harness above.
+            echo "scripts/check-skill-requires.sh"
             echo "scripts/check-skill-injection_test.sh"
             echo "scripts/check-tool-diagnostic-discards_test.sh"
             ;;
@@ -242,6 +249,37 @@ suite_scripts() {
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             ;;
+        deliver)
+            # The report, the probes, the binding check, the mode map, and the
+            # eval gh shim. They drive test-local gh and koto stand-ins and need
+            # only bash, git and jq, so every case runs on 3.2. The engine
+            # suites stay on the Linux job that installs koto.
+            echo "scripts/plan-mode_test.sh"
+            echo "skills/deliver/scripts/deliver-report_test.sh"
+            echo "skills/deliver/scripts/deliver-probe_test.sh"
+            echo "skills/deliver/scripts/deliver-preflight_test.sh"
+            echo "skills/deliver/scripts/eval-gh-shim_test.sh"
+            echo "skills/deliver/scripts/deliver-requires_test.sh"
+            ;;
+        scope)
+            # Citations, intake, the /plan hop's consistency check, resume
+            # routing, publish, and the exit records. A gh stub and a local bare
+            # origin stand in for GitHub; the koto and shirabe cases skip here
+            # and run on the Linux jobs that install both.
+            echo "skills/scope/scripts/check-citations_test.sh"
+            echo "skills/scope/scripts/resolve-intent_test.sh"
+            echo "skills/scope/scripts/check-recorded-intent_test.sh"
+            echo "skills/scope/scripts/check-upstream_test.sh"
+            echo "skills/scope/scripts/check-plan-mode_test.sh"
+            echo "skills/scope/scripts/run-intake_test.sh"
+            echo "skills/scope/scripts/scope-template_test.sh"
+            echo "skills/scope/scripts/resume-probe_test.sh"
+            echo "skills/scope/scripts/startable-issues_test.sh"
+            echo "skills/scope/scripts/record-executed-report_test.sh"
+            echo "skills/scope/scripts/record-scope-exit_test.sh"
+            echo "skills/scope/scripts/publish-scoping-pr_test.sh"
+            echo "skills/scope/scripts/print-scope-exit_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -264,6 +302,8 @@ suite_workflow() {
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
+        deliver)              echo ".github/workflows/check-deliver-scripts.yml" ;;
+        scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
@@ -468,6 +508,9 @@ run_suite_system() {
     local script status shim
 
     system_bash_is_floor || die "/bin/bash is not 3.2 here ($(/bin/bash -c 'echo $BASH_VERSION' 2>/dev/null || echo absent)); use --backend docker"
+    # The full version, once, so a leg that goes red later shows at a glance
+    # which bash it actually ran on.
+    echo "check-bash-floor: /bin/bash is bash $(/bin/bash -c 'echo "$BASH_VERSION"')"
 
     # /bin/bash alone only puts the harness on the floor. The execute and
     # template harnesses re-enter through a bare `bash`, and every script here

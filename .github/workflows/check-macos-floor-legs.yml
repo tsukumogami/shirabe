@@ -1,0 +1,49 @@
+name: Check macOS floor legs
+
+# The macOS legs of the script-check workflows exist to prove the bash 3.2
+# floor, and a leg that runs its suites with a bare `bash` runs them on
+# Homebrew's bash 5 and proves nothing (shirabe#416). This lint fails any
+# workflow whose macOS leg runs a shell suite anywhere but through
+# scripts/check-bash-floor.sh --backend system, so that hole can't reopen.
+#
+# yq is pinned here rather than taken from the runner image, as in
+# check-templates.yml, so the image moving to another yq can't change what the
+# lint parses.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/check-macos-floor-legs.sh'
+      - 'scripts/check-macos-floor-legs_test.sh'
+      - 'scripts/check-macos-floor-legs/**'
+
+jobs:
+  check-macos-floor-legs:
+    runs-on: ubuntu-latest
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Run check-macos-floor-legs tests
+        run: bash scripts/check-macos-floor-legs_test.sh
+
+      - name: Check every workflow's macOS legs
+        run: bash scripts/check-macos-floor-legs.sh
