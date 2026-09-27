@@ -60,7 +60,7 @@ else
         1) echo "$PROG: the record has no holding for $UNIT" >&2; exit 2 ;;
         *) echo "$PROG: the holding read failed" >&2; exit 2 ;;
     esac
-    if ! lib_pr_link "$(printf '%s' "$ROW" | jq -r '.pull_request // ""' 2>/dev/null)" \
+    if ! lib_pr_link "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" \
         || ! bl_pr_ok "$LINK_NUM" || ! bl_repo_ok "$LINK_REPO"; then
         echo "$PROG: the holding for $UNIT has no pull request link" >&2
         exit 2

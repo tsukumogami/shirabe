@@ -106,7 +106,7 @@ session_log() {
     dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
-    v=$(head -1 "$f" | jq -c '.schema_version' 2>/dev/null) || v=unreadable
+    v=$(head -1 "$f" | jq -c '.schema_version') || v=unreadable
     if [ "$v" != 1 ]; then
         echo "coord-log: $1's log header has schema_version ${v:-none}; this reader knows 1" >&2
         return 1
