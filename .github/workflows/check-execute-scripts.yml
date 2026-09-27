@@ -33,7 +33,7 @@ on:
       - 'scripts/check-merged-wording.allow'
 
 env:
-  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
 
@@ -133,10 +133,7 @@ jobs:
       # same way validate-templates.yml gets it.
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        run: |
-          curl -fsSL https://get.tsuku.dev/now | bash
-          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
-          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@9ca44882568a29f9208493695b1f7bdb61e30fee  # installs tsuku 0.14.0
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
