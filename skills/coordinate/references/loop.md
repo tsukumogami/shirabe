@@ -142,6 +142,12 @@ sections, in this order, each line carrying its grade:
 - **Not verified:** everything the pass couldn't read, and why, including
   record rows it couldn't parse.
 
+What a person reads follows one rule, and the renderer enforces it: a pull
+request or issue is a clickable link, never a bare number; a worker's name is
+inline code; and no commit hash appears. Heads stay in the record's rows and in
+`reconcile/report.json`, where the checks read them. Keep the same form when
+you report it up.
+
 ## The Shape of an Escalation
 
 An escalation goes to whoever dispatched you, once, and carries everything

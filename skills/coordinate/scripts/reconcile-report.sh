@@ -261,10 +261,13 @@ def changes_of($written):
     header: {scope: (($in.scope.kind // "") + " " + ($in.scope.name // "")), written: $w,
              reconciled_at: $in.reconciled_at, source: ($in.record.source // "record"),
              handoff_date: ($in.record.handoff_date // null),
+             repo: ($in.scope.repo // null),
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
     changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
+        pull_request: ((.row.pull_request // "") as $p
+          | if ($p | test("^\\[#[0-9]+\\]\\(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+\\)$")) then $p else null end),
         phase_flag: ($ph == "scoping ahead" and outside_docs),
         state: state_of,
         merge_state: (fact("pr") as $pr | if ok($pr) then ($pr.merge_state // null) else null end),
@@ -313,26 +316,26 @@ def changes_of($written):
     # the report as a whole says which scope the phase marks are counted in
     not_verified: (
       [$in.unparseable[]? | {what: "unparseable record row", reason: (.reason // ""), raw: (.raw // "")}]
-      + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), reason: ("refused: " + .refused), raw: null}]
+      + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), topic: topic, reason: ("refused: " + .refused), raw: null}]
       + [$in.holdings[]? | topic as $t | (.facts // [])[] | select(.status != "ok")
-          | {what: ($t + ": " + .kind), reason: (.reason // "read failed"), raw: null}]
+          | {what: ($t + ": " + .kind), topic: $t, reason: (.reason // "read failed"), raw: null}]
       + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
           | select(ok($inv) and $inv.taken != true)
-          | {what: ($t + ": inventory"), reason: ($inv.reason // "inventory not taken"), raw: null}]
+          | {what: ($t + ": inventory"), topic: $t, reason: ($inv.reason // "inventory not taken"), raw: null}]
       + [$in.holdings[]? | select(phase_of == "scoping ahead" and docs_unsettled)
-          | {what: ("holding " + topic + ": files"), reason: "file list truncated; whether it changes paths outside docs/ is unsettled", raw: null}]
+          | {what: ("holding " + topic + ": files"), topic: topic, reason: "file list truncated; whether it changes paths outside docs/ is unsettled", raw: null}]
       + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
           | select(ok($inv) and $inv.truncated == true)
-          | {what: ($t + ": inventory"), reason: "truncated: more clones or files than one inventory reads", raw: null}]
+          | {what: ($t + ": inventory"), topic: $t, reason: "truncated: more clones or files than one inventory reads", raw: null}]
       + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
           | select(ok($inv)) | ($inv.items // [])[] | select(.kind == "unchecked")
-          | {what: ($t + ": inventory of " + (.clone // ".")), reason: (.path // "not read"), raw: null}]
+          | {what: ($t + ": inventory of " + (.clone // ".")), topic: $t, reason: (.path // "not read"), raw: null}]
       + [$in.holdings[]? | select(phase_known | not)
-          | {what: ("holding " + topic + ": phase"), reason: ("unrecognised phase value; marked executing"), raw: null}]
+          | {what: ("holding " + topic + ": phase"), topic: topic, reason: ("unrecognised phase value; marked executing"), raw: null}]
       + [$in.deferrals[]? | select((.status // "ok") != "ok")
           | {what: ("deferral " + (.row.deferral // "")), reason: (.reason // "disposal check failed"), raw: null}]
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
-          | {what: ((.row.action // "") + " " + (.row.target // "")), reason: (.fact.reason // "read failed"), raw: null}])
+          | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
     [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
@@ -359,6 +362,19 @@ fi
 # The rendering. Section order is fixed; an empty section reads "None.".
 printf '%s' "$REPORT" | jq -r '
 def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "None." else $lines[] end), "";
+# What the human reads: a worker (session) name is inline code, a pull request
+# or issue reference is a link, and no commit hash appears.
+def code: "`" + . + "`";
+.header.repo as $repo
+| def refs($kind): . as $r
+    | ([$r | capture("^(?:(?<o>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#(?<n>[0-9]+)$")] | first) as $c
+    | if $c == null or (($c.o // $repo) == null) then $r
+      else "[#\($c.n)](https://github.com/\($c.o // $repo)/\($kind)/\($c.n))" end;
+  def urllink: . as $u | ([$u | capture("/(pull|issues)/(?<n>[0-9]+)$")] | first) as $c
+    | if $c == null then $u else "[#\($c.n)](\($u))" end;
+  def who: if test("^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+$") then refs("pull") else code end;
+  def with_topic($t): if $t == null then . else split($t) | join($t | code) end;
+(
 "# Reconcile report",
 "",
 (if .header.handoff_date == null then "" else " on \(.header.handoff_date)" end) as $on
@@ -370,8 +386,16 @@ def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "No
      elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."
      else "" end),
 "",
-section("Changed since then"; [.changes[] | "- \(.topic): \(.what): record said \(.recorded), now \(.live) (written \(.written); \(.grade))."]),
-section("Holding"; [.holdings[] | "- \(.topic) (\(.unit)): \(.phase)"
+section("Changed since then"; [.changes[] | "- \(.topic | code): "
+    + (if .what == "head moved" then "head moved past the verified head"
+       elif .what == "branch tip differs" then "branch tip differs from the pull request head"
+       elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
+       elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
+       else "\(.what): record said \(.recorded), now \(.live)" end)
+    + " (written \(.written); \(.grade))."]),
+section("Holding"; [.holdings[] | "- \(.topic | code)"
+    + (if .pull_request != null then " (\(.pull_request))" else "" end)
+    + " (\(.unit)): \(.phase)"
     + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
     + "; \(.state) (\(.grade.state))"
     + (if .merge_state != null then ", merge state \(.merge_state)" else "" end)
@@ -379,15 +403,18 @@ section("Holding"; [.holdings[] | "- \(.topic) (\(.unit)): \(.phase)"
     + (if .board != null then "; board \(.board) (\(.grade.board))" else "" end)
     + ". Next: \(.next) (inferred). Read \(.read_at // "not read")"
     + (if .source == "handoff" then "; row as written by the previous rotation" else "" end) + "."]),
-section("Waiting on a person"; [.waiting[] | "- \(.topic): \(.why) (\(.grade))."]),
-section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic): \(.why); \(.inventory) (\(.grade))."]),
-section("Side effects"; [.side_effects[] | "- \(.action) \(.target): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
+section("Waiting on a person"; [.waiting[] | "- \(.topic | who): \(.why) (\(.grade))."]),
+section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic | code): \(.why); \(.inventory) (\(.grade))."]),
+section("Side effects"; [.side_effects[] | . as $se | "- \(.action) \(.target | refs(if $se.action == "merge" then "pull" else "issues" end)): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
 section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),
 (if .reasoning != null then
   section("Predecessor'"'"'s reasoning";
     [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in \(.reasoning.key), as its view; nothing here re-checked it."
      else "No reasoning was received from the previous rotation." end])
  else empty end),
-section("Not verified"; [.not_verified[] | "- \(.what): \(.reason)"
-    + (if (.raw // "") != "" then "\n\n  ```\n  \(.raw)\n  ```" else "" end)])
+section("Not verified"; [.not_verified[] | . as $e
+    | "- \(if $e.target != null then "\($e.action) \($e.target | refs(if $e.action == "merge" then "pull" else "issues" end))" else ($e.what | with_topic($e.topic)) end): \($e.reason)"
+    + (if ($e.raw // "") != "" then "\n\n  ```\n  \($e.raw)\n  ```" else "" end)])
+) | gsub("(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])"; "<commit>")
 '
+
