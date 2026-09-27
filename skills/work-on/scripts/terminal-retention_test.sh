@@ -234,6 +234,26 @@ mkdir -p "$HOME"
 
 role_of() { bash "$ROLE_SH" "$1" 2>/dev/null; }
 
+# koto 0.14.0 (koto#259, closing koto#240) changed two things this suite pins:
+# a session that reaches a failure terminal is kept whether or not the tick
+# carried --no-cleanup, and --no-cleanup no longer withholds a child's result
+# from its parent. The cases that depend on either assert the behaviour of the
+# koto on PATH, so the suite holds on both sides of the release until shirabe's
+# koto minimum moves past it (#439), when the older branch can go.
+KOTO_VERSION=$(koto version 2>/dev/null | awk '{print $2}')
+koto_at_least_0_14() {
+    local major minor
+    major=${KOTO_VERSION%%.*}
+    minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
+    case "$major$minor" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
+}
+if koto_at_least_0_14; then
+    echo "koto $KOTO_VERSION: failure terminals are kept and a flagged child still delivers its result"
+else
+    echo "koto ${KOTO_VERSION:-unknown}: a failure terminal is disposed without the flag, and the flag withholds a child's result"
+fi
+
 # A `koto init` that fails leaves every later call reporting the session missing,
 # and assertions written against a session that never existed pass or fail for
 # reasons unrelated to what they claim to test. Every init in this suite is
@@ -387,9 +407,26 @@ fi
 
 # The negative control matters: without it this suite would pass on a koto that
 # had stopped cleaning up at all, and the flag would look load-bearing when it
-# was doing nothing.
+# was doing nothing. From koto 0.14 a failure terminal is kept regardless, so
+# done_blocked keeps its record without the flag, and the control moves to a
+# terminal that isn't a failure: child.md's `done`, reached by a root run.
 drive_work_on_to_blocked retain_no ""
-if koto context get retain_no plan.md >/dev/null 2>&1; then
+if koto_at_least_0_14; then
+    if [ "$(koto context get retain_no plan.md 2>/dev/null)" = "the running record" ]; then
+        pass "a root run reaching done_blocked without the flag keeps plan.md (koto >= 0.14 keeps failure terminals)"
+    else
+        fail "a root run reaching done_blocked without the flag lost plan.md on koto $KOTO_VERSION, which should keep a failure terminal"
+    fi
+    koto init retain_no_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
+    init_or_die retain_no_ok
+    printf 'the running record\n' | koto context add retain_no_ok plan.md >/dev/null 2>&1
+    koto next retain_no_ok --with-data '{"status":"ok"}' >/dev/null 2>&1
+    if koto context get retain_no_ok plan.md >/dev/null 2>&1; then
+        fail "a root run reaching a non-failure terminal without the flag kept plan.md -- the control did not fire"
+    else
+        pass "a root run reaching a non-failure terminal without the flag loses plan.md (control)"
+    fi
+elif koto context get retain_no plan.md >/dev/null 2>&1; then
     fail "a root run reaching done_blocked without the flag kept plan.md -- the control did not fire"
 else
     pass "a root run reaching done_blocked without the flag loses plan.md (control)"
@@ -424,14 +461,25 @@ else
 fi
 
 # The flag is read only on the tick that lands on a terminal, so carrying it
-# earlier retains nothing. This is why the rule cannot be "pass it once".
-koto init retain_early --template "$TEMPLATE" \
-    --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early \
-    --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
-init_or_die retain_early
-printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
-koto next retain_early --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1
-koto next retain_early --with-data '{"status":"blocked"}' >/dev/null 2>&1
+# earlier retains nothing. This is why the rule cannot be "pass it once". On
+# koto 0.14 and later done_blocked is kept anyway, so the case runs against
+# child.md's non-failure `done`: an earlier tick carries the flag, and the tick
+# that lands on the terminal doesn't.
+if koto_at_least_0_14; then
+    koto init retain_early --template "$WORKDIR/child.md" >/dev/null 2>&1
+    init_or_die retain_early
+    printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
+    koto next retain_early --no-cleanup >/dev/null 2>&1
+    koto next retain_early --with-data '{"status":"ok"}' >/dev/null 2>&1
+else
+    koto init retain_early --template "$TEMPLATE" \
+        --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early \
+        --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
+    init_or_die retain_early
+    printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
+    koto next retain_early --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1
+    koto next retain_early --with-data '{"status":"blocked"}' >/dev/null 2>&1
+fi
 if koto context get retain_early plan.md >/dev/null 2>&1; then
     fail "the flag on an earlier tick retained the record -- it is meant to act only on the terminal tick"
 else
@@ -556,7 +604,16 @@ koto init withheld --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
 init_or_die withheld
 koto next withheld --with-data "$TASKS" >/dev/null 2>&1
 koto next withheld.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if [ "$(gate_field withheld all_complete)" = "true" ] && [ "$(gate_field withheld results_in)" = "false" ]; then
+if koto_at_least_0_14; then
+    # koto#240 is fixed: the flag no longer withholds the result, so the gate
+    # passes and isn't reported as a blocking condition, as for the unflagged
+    # control below. Dropping the child exception itself is #439.
+    if [ "$(gate_field withheld results_in)" = "absent" ]; then
+        pass "a child whose terminal tick carries the flag still delivers its result (koto >= 0.14)"
+    else
+        fail "a flagged child's result did not reach its parent on koto $KOTO_VERSION, which should deliver it"
+    fi
+elif [ "$(gate_field withheld all_complete)" = "true" ] && [ "$(gate_field withheld results_in)" = "false" ]; then
     pass "a child whose terminal tick carries the flag withholds its result: all_complete true, results_in false"
 else
     fail "a flagged child's result reached its parent (results_in is not false) -- the child exception may no longer be needed; re-check koto#240 before dropping it"
@@ -581,7 +638,13 @@ koto init waits --template "$WORKDIR/parent.md" >/dev/null 2>&1
 init_or_die waits
 koto next waits --with-data "$TASKS" >/dev/null 2>&1
 koto next waits.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if [ "$(gate_field waits converge_blocked)" = "true" ]; then
+if koto_at_least_0_14; then
+    if [ "$(gate_field waits converge_blocked)" = "absent" ]; then
+        pass "against a parent that waits for the gate to pass, a flagged child no longer blocks it (koto >= 0.14)"
+    else
+        fail "a parent that waits on the gate is still blocked by a flagged child on koto $KOTO_VERSION"
+    fi
+elif [ "$(gate_field waits converge_blocked)" = "true" ]; then
     pass "against a parent that waits for the gate to pass, a flagged child leaves it blocked"
 else
     fail "a parent that waits on the gate advanced despite a flagged child"

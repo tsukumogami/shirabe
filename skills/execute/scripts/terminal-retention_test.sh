@@ -344,6 +344,22 @@ mkdir -p "$FIXREPO"
 ) >/dev/null 2>&1
 k() { (cd "$FIXREPO" && koto "$@"); }
 
+# koto 0.14.0 (koto#259, closing koto#240) keeps a session that reaches a
+# failure terminal whether or not the tick carried --no-cleanup. The controls
+# below that reach done_blocked without the flag assert the behaviour of the
+# koto on PATH, so the suite holds on both sides of the release until shirabe's
+# koto minimum moves past it (#439). Non-failure terminals (paused_for_review,
+# ready_awaiting_merge, merged) are still disposed without the flag on either
+# side, so their controls are unchanged.
+KOTO_VERSION=$(koto version 2>/dev/null | awk '{print $2}')
+koto_at_least_0_14() {
+    local major minor
+    major=${KOTO_VERSION%%.*}
+    minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
+    case "$major$minor" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
+}
+
 # --- the plugin root ------------------------------------------------------------
 #
 # koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
@@ -493,7 +509,14 @@ fi
 # up at all, and the flag would look load-bearing while doing nothing.
 init_orchestrator block-drop
 k next execute-block-drop --with-data '{"status":"blocked","detail":"probe"}' >/dev/null 2>&1
-if k context get execute-block-drop summary.md >/dev/null 2>&1; then
+if koto_at_least_0_14; then
+    # The control for a non-failure terminal is the paused_for_review pair below.
+    if [ "$(k context get execute-block-drop summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+        pass "an orchestrator run reaching done_blocked without the flag keeps its context (koto >= 0.14 keeps failure terminals)"
+    else
+        fail "an orchestrator run reaching done_blocked without the flag lost its context on koto $KOTO_VERSION, which should keep a failure terminal"
+    fi
+elif k context get execute-block-drop summary.md >/dev/null 2>&1; then
     fail "an orchestrator run reaching done_blocked without the flag kept its context -- the control did not fire"
 else
     pass "an orchestrator run reaching done_blocked without the flag loses its context (control)"
@@ -641,11 +664,21 @@ expect_payload() {
     fi
 }
 
-# expect_control <label> <outcome> — without the flag: the response carries the
-# result and the session is gone.
+# expect_control <label> <session> <outcome> [failure] — without the flag: the
+# response carries the result and the session is gone. With `failure` (the
+# terminal is done_blocked) on koto 0.14 or later, the session is kept instead,
+# since a failure terminal is kept whatever the tick carried.
 expect_control() {
     local s="$2" got
     got=$(printf '%s' "$RESP" | jq -r '.result.payload.outcome // "none"' 2>/dev/null)
+    if [ "${4:-}" = failure ] && koto_at_least_0_14; then
+        if [ "$got" = "$3" ] && k status "$s" >/dev/null 2>&1; then
+            pass "$1 without the flag: the tick's response carries outcome=$3 and the failure terminal is kept (koto >= 0.14)"
+        else
+            fail "$1 without the flag on koto $KOTO_VERSION: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no), want outcome=$3 and the session kept"
+        fi
+        return
+    fi
     if [ "$got" = "$3" ] && ! k status "$s" >/dev/null 2>&1; then
         pass "$1 without the flag: the tick's response carries outcome=$3 and the session is gone (control)"
     else
@@ -679,7 +712,7 @@ else
 fi
 at_ci_monitor payload-dirty-ctl
 decide execute-payload-dirty-ctl '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' ""
-expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge
+expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge failure
 
 # A verdict error: a failed check makes the verdict error:execute:ci, and the
 # step reaches the result through the key the record script wrote.
@@ -697,7 +730,7 @@ gh_fixture verdict-error-ctl
 echo '[{"name":"build","bucket":"fail"}]' > "$GH_FIX/checks.out"
 at_ci_monitor payload-error-ctl
 decide execute-payload-error-ctl '{"ci_outcome":"failing_fixed"}' ""
-expect_control "a verdict-error done_blocked" execute-payload-error-ctl error
+expect_control "a verdict-error done_blocked" execute-payload-error-ctl error failure
 
 # ready_awaiting_merge: no --merge, so the verdict is awaiting:merge-not-requested.
 gh_fixture no-merge
@@ -888,7 +921,16 @@ CHAIN_EOF
 koto init chain_bare --template "$WORKDIR/chain.md" >/dev/null 2>&1
 printf 'the orchestrator record\n' | koto context add chain_bare summary.md >/dev/null 2>&1
 koto next chain_bare --with-data '{"outcome":"bad"}' >/dev/null 2>&1
-if koto context get chain_bare summary.md >/dev/null 2>&1; then
+if koto_at_least_0_14; then
+    # dead_end is a failure terminal, which koto 0.14 keeps without the flag, so
+    # the chain shows in where the session stands rather than in a lost record.
+    if [ "$(koto status chain_bare 2>/dev/null | jq -r '.current_state')" = "dead_end" ] \
+        && [ "$(koto context get chain_bare summary.md 2>/dev/null)" = "the orchestrator record" ]; then
+        pass "a bare tick chains through a state that declares required evidence into the failure terminal, which koto >= 0.14 keeps"
+    else
+        fail "a bare tick did not chain to dead_end, or lost the record, on koto $KOTO_VERSION -- re-check whether spawn_and_await's ticks still need the flag"
+    fi
+elif koto context get chain_bare summary.md >/dev/null 2>&1; then
     fail "a bare tick did not chain through the accepts-declaring state -- re-check whether spawn_and_await's ticks still need the flag"
 else
     pass "a bare tick chains through a state that declares required evidence and destroys the record (the defect the flag closes)"
