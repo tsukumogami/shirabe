@@ -111,6 +111,10 @@ has "min: no surfaces"            "$M" "no discipline coordinator is named for a
 lacks "min: no workspace rules"   "$M" "## Workspace rules"
 has "min: scoping ahead"          "$M" "You are scoping ahead"
 
+I=$(bash "$S" --input "$(variant interactive '.run_mode = "--interactive"')" --stdout)
+has "interactive: the caution is there too" "$I" 'Run mode: `--interactive`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.'
+has "checkpoints: never wait for approval" "$B" "don't wait for approval to go past it"
+
 # --- refusals write nothing ---------------------------------------------------------
 
 rm -rf "$BRIEFS"

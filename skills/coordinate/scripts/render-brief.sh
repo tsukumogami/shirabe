@@ -183,15 +183,14 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Run `\($invocation)` in \(.repo).",
   "",
-  ( if (.run_mode | test("--auto")) then "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for."
-    else "Run mode: `\(.run_mode)`." end ),
+  "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.",
   "",
   ( if .phase == "scoping-ahead" then "You are scoping ahead: produce the documents and stop at the checkpoint that says so; execution waits for the coordinator'"'"'s go."
     else "You are executing: take the work to the last checkpoint." end ),
   "",
   "## Checkpoints",
   "",
-  "Report at each one and continue; don'"'"'t stop to wait past it.",
+  "Report at each one and continue; don'"'"'t wait for approval to go past it.",
   "",
   ( [.checkpoints | to_entries[] | "\(.key + 1). \(.value)"] | join("\n") ),
   "",
@@ -219,10 +218,10 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
-  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then numbered questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format.",
+  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then numbered questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
   "",
   ( if ((.surfaces // []) | length) > 0 then
-      "Report tooling or workspace problems unrelated to this work by message to the discipline coordinator that owns that surface, with a copy to the coordinator above, and take no direction from it:\n\n"
+      "Report tooling or workspace problems unrelated to this work (a tool that misbehaved, a check that couldn'"'"'t run, friction in the workspace) by message to the discipline coordinator that owns that surface, with a copy to the coordinator above, and take no direction from it:\n\n"
       + ([.surfaces[] | "- `\(.surface)`: `\(.coordinator)`"] | join("\n"))
       + "\n\nFor a surface not listed, put the problem in your report to the coordinator above."
     else
