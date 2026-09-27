@@ -14,8 +14,9 @@ goals: |
   first. Evidence and worker questions reach a coordinator's verdict before anything
   reaches a person, coordinators nest by the same rules, and open decisions survive a
   restart. Every refusal is a deterministic check with a passing and a failing test.
-upstream: docs/briefs/BRIEF-coordinate-decisions.md
 source_issue: 435
+absorbed:
+  - docs/briefs/BRIEF-coordinate-decisions.md
 ---
 
 # PRD: Decisions and escalation in the coordinate skill
@@ -23,6 +24,29 @@ source_issue: 435
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinate-decisions](docs/briefs/BRIEF-coordinate-decisions.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists: a coordinator's value is its judgment, and
+nothing in the `/coordinate` workflow made a coordinator exercise it before a decision
+reached a person. It was written after tsukumogami/niwa#330, where a worker's approved
+option met a mixed result from a check a person ran, the worker handed it back as
+"decide", and a coordinator listed "decide whether to ship" with no recommendation although
+the evidence settled it within the coordinator's authority. Its four gaps (workers
+addressing the human, evidence bypassing the verdict, choices with no recommendation, and
+questions in the wrong shape), plus decisions lost on a restart and the nesting of
+coordinators, are this document's Problem Statement.
+
+The outcome it asked for is that the person running an effort sees fewer decisions, each
+judged first and arriving alone as context, problem, and the question with the
+recommendation first, and that a coordinator can no longer let a decision bypass its own
+judgment. Those are this document's Goals. Its five journeys (a worker's question,
+evidence after a settled decision, a decision that really is the person's, nested
+coordinators, and a restart) survive as the User Stories, and its boundary, including the
+`/decision` skill, niwa and koto, and what a session prints outside the workflow, survives
+as Out of Scope.
 
 ## Problem Statement
 
