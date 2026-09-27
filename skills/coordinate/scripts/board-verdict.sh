@@ -267,7 +267,7 @@ snapshot() { # snapshot <full 0|1>: read and normalise into $TMPD/snap.json
     if ! bl_gh "$TMPD/snap.raw" api graphql $pag -F "owner=$OWNER" -F "name=$NAME" -F "number=$PR" -f "query=$q"; then
         read_failed "$TMPD/snap.raw" "snapshot"; return 1
     fi
-    if ! jq -sc --argjson full "$([ "$1" = 1 ] && echo true || echo false)" "$NORM_SNAP" "$TMPD/snap.raw" > "$TMPD/snap.n" 2>/dev/null; then
+    if ! jq -sc --argjson full "$([ "$1" = 1 ] && echo true || echo false)" "$NORM_SNAP" "$TMPD/snap.raw" > "$TMPD/snap.n"; then
         reason read-failed "snapshot: not JSON"; return 1
     fi
     if jq -e 'has("problem")' "$TMPD/snap.n" >/dev/null; then
@@ -285,7 +285,7 @@ read_ref() {
     if ! bl_gh "$TMPD/ref.raw" api --method GET "repos/$hr/git/ref/heads/$hb"; then
         read_failed "$TMPD/ref.raw" "ref"; return 1
     fi
-    jq -c '.object.sha // "" | select(test("^[0-9a-f]{40}$"))' "$TMPD/ref.raw" > "$TMPD/ref.json" 2>/dev/null
+    jq -c '.object.sha // "" | select(test("^[0-9a-f]{40}$"))' "$TMPD/ref.raw" > "$TMPD/ref.json"
     [ -s "$TMPD/ref.json" ] || { rm -f "$TMPD/ref.json"; reason read-failed "ref: no sha"; return 1; }
 }
 

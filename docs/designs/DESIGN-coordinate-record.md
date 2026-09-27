@@ -482,8 +482,8 @@ Start and record phase:
 | `record_open` | evidence `opened` after `record-open.sh` | -> `record_find` |
 | `record_conflict` | evidence `recheck` or `stop` | -> `record_find` or `done_stopped` |
 | `predecessor_handoff` | check: `predecessor-handoff.sh` | `rendered` -> `predecessor_close`; `unparseable` -> `record_conflict` |
-| `predecessor_close` | check: `closeout-read.sh --predecessor` | `handoff-missing`, `land` -> `predecessor_step`; `merged` -> `predecessor_done`; `handed-over` -> `predecessor_handed_over`; `closed-unmerged` -> `record_conflict` |
-| `predecessor_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh`, `land-merge.sh --closeout`) or `handed_over` | -> `predecessor_close` |
+| `predecessor_close` | check: `closeout-read.sh --predecessor` | `handoff-missing`, `land` -> `predecessor_step`; `merged` -> `predecessor_done`; `closed-unmerged` -> `record_conflict` |
+| `predecessor_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh`, `land-merge.sh --closeout`) or `handed_over` | done -> `predecessor_close`; handed_over -> `predecessor_handed_over` |
 | `predecessor_done` | evidence `recheck` after `rotation-close.sh --step delete-branch` | -> `record_find` |
 | `predecessor_handed_over` | evidence `recheck` | -> `record_find` |
 | `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile; a non-overridable command gate over the posture capture | readable -> `pick_facts`; unread -> `posture_ask` |
@@ -537,11 +537,11 @@ Close-outs:
 | `roadmap_close` | check: `closeout-read.sh --scope roadmap` | `ready` -> `roadmap_close_step`; `features-open`, `holdings`, `side-effects`, `deferrals` -> `roadmap_blocked`; `closed` -> `done` |
 | `roadmap_blocked` | evidence `noted` (the blocker is named in the directive) | -> `wait` |
 | `roadmap_close_step` | evidence `closed` after `record-write.sh --close`, or `handed_over` | closed -> `roadmap_close`; handed_over -> `done_handed_over` |
-| `rotation_close` | check: `closeout-read.sh --scope discipline` | `handoff-missing`, `title-stale`, `land` -> `rotation_step`; `merged` -> `rotation_done`; `handed-over` -> `done_handed_over`; `closed-unmerged` -> `record_conflict` |
-| `rotation_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh --step handoff`, `record-write.sh --end`, or `rotation-close.sh --step ready` then `land-merge.sh --closeout`), or `handed_over` | -> `rotation_close` |
+| `rotation_close` | check: `closeout-read.sh --scope discipline` | `handoff-missing`, `title-stale`, `land` -> `rotation_step`; `merged` -> `rotation_done`; `closed-unmerged` -> `record_conflict` |
+| `rotation_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh --step handoff`, `record-write.sh --end`, or `rotation-close.sh --step ready` then `land-merge.sh --closeout`), or `handed_over` | done -> `rotation_close`; handed_over -> `done_handed_over` |
 | `rotation_done` | evidence `deleted` after `rotation-close.sh --step delete-branch` | -> `done` |
 
-Terminals: `done`, `done_handed_over`, `done_stopped`, `done_not_active` and `done_error`, each with
+Terminals: `done`, `done_handed_over`, `done_stopped` and `done_not_active`, each with
 a `result:` map `coordinate-report.sh` renders.
 
 `closeout-read.sh` reports `land` for a rotation's record pull request only when `board-verdict.sh`

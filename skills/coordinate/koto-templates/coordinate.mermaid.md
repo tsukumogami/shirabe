@@ -48,14 +48,13 @@ stateDiagram-v2
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 120
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 122
     predecessor_close --> predecessor_done : gates.predecessor_close_verdict.exit_code: 90
-    predecessor_close --> predecessor_handed_over : gates.predecessor_close_verdict.exit_code: 124
     predecessor_close --> record_conflict : gates.predecessor_close_verdict.exit_code: 125
     predecessor_done --> record_find : recheck: recheck
     predecessor_handed_over --> record_find : recheck: recheck
     predecessor_handoff --> predecessor_close : gates.predecessor_handoff_verdict.exit_code: 110
     predecessor_handoff --> record_conflict : gates.predecessor_handoff_verdict.exit_code: 111
     predecessor_step --> predecessor_close : step_result: done
-    predecessor_step --> predecessor_close : step_result: handed_over
+    predecessor_step --> predecessor_handed_over : step_result: handed_over
     promote --> teardown_inventory : promoted: promoted
     promote --> surface : promoted: escalate
     quiet_check --> wait : gates.quiet_check_verdict.exit_code: 100
@@ -96,11 +95,10 @@ stateDiagram-v2
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 122
     rotation_close --> rotation_done : gates.rotation_close_verdict.exit_code: 90
-    rotation_close --> done_handed_over : gates.rotation_close_verdict.exit_code: 124
     rotation_close --> record_conflict : gates.rotation_close_verdict.exit_code: 125
     rotation_done --> done : deleted: deleted
     rotation_step --> rotation_close : step_result: done
-    rotation_step --> rotation_close : step_result: handed_over
+    rotation_step --> done_handed_over : step_result: handed_over
     start --> start_posture : gates.start_verdict.exit_code: 20
     start --> start_posture : gates.start_verdict.exit_code: 21
     start --> done_not_active : gates.start_verdict.exit_code: 22

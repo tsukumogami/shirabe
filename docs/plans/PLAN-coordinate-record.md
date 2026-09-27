@@ -173,7 +173,7 @@ confirm a merge only against the verified head.
 - [ ] `predecessor-handoff.sh` renders a predecessor's handoff from its record body, with its
       tables under "not re-checked" and the fixed reasoning sentence.
 - [ ] `closeout-read.sh --scope discipline` reports `handoff-missing`, `title-stale`, `land`
-      (only when the record pull request's board verifies), `merged`, `handed-over` or
+      (only when the record pull request's board verifies), `merged` or
       `closed-unmerged`; `--predecessor` checks the copied tables; `--scope roadmap` reports
       `ready`, `features-open`, `holdings`, `side-effects`, `deferrals` or `closed`.
 - [ ] `rotation-close.sh --step handoff|ready|delete-branch` refuses when a fresh read disagrees,

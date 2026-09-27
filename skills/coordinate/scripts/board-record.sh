@@ -82,13 +82,13 @@ fi
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
 trap 'rm -f "$T"' EXIT
 bash "$HERE/board-verdict.sh" --repo "$REPO" --pr "$PR" > "$T" || { echo "$PROG: board-verdict.sh failed" >&2; exit 2; }
-V=$(jq -r '.verdict // ""' "$T" 2>/dev/null)
-H=$(jq -r '.head // ""' "$T" 2>/dev/null)
+V=$(jq -r '.verdict // ""' "$T")
+H=$(jq -r '.head // ""' "$T")
 case "$V" in
     verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
               TOKEN="verified $PR $H" ;;
     unverified|pending) TOKEN="$V $PR none" ;;
-    *) echo "$PROG: the board read ended in [$V]: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T" 2>/dev/null)" >&2
+    *) echo "$PROG: the board read ended in [$V]: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T")" >&2
        exit 2 ;;
 esac
 

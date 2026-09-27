@@ -68,7 +68,7 @@ if (type != "array") or (map(type == "string") | all | not) then error("not a JS
     elif ($s[$i] | startswith("--")) then .bad = "unknown option \($s[$i])"
     else .positional += [$s[$i]] end)
 '
-MAPPED=$(jq -c "$MAP" < "$ARGS_FILE" 2>/dev/null) || usage "the args file is not a JSON array of strings"
+MAPPED=$(jq -c "$MAP" < "$ARGS_FILE") || usage "the args file is not a JSON array of strings"
 rm -f -- "$ARGS_FILE"
 BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 [ -z "$BAD" ] || usage "$BAD"
@@ -112,11 +112,11 @@ RC=$?
 # Only once the new run is open (so a refused invocation leaves the live run
 # alone): cancel, never clean up, every other live run of this scope, so its
 # log stays readable.
-for id in $("$KOTO" session list 2>/dev/null | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p))'); do
+for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
     [ "$id" = "$SESSION" ] && continue
-    [ "$("$KOTO" status "$id" 2>/dev/null | jq -r '.is_terminal')" = false ] || continue
+    [ "$("$KOTO" status "$id" | jq -r '.is_terminal')" = false ] || continue
     LOG="$("$KOTO" session dir "$id" 2>/dev/null)/koto-$id.state.jsonl"
-    jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null 2>&1 && continue
+    jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
     "$KOTO" cancel "$id" </dev/null >/dev/null 2>&1 || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
     echo "cancelled=$id"
 done

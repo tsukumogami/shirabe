@@ -52,6 +52,11 @@ to advance it, what it never does, and how it ends.
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
+When the human's decisions state one of these settings in words ("host repo:
+acme/widgets", "rotation length: 3 days", "at most three workers"), that is the
+human's answer: pass it as its flag when you open the run, and don't ask for it
+again. Only a setting nobody stated is asked for.
+
 koto checks every value, not this file: a path outside `docs/roadmaps/`, a
 malformed name, host, cap, bound or length, or a repeated flag is refused at
 `koto init`, and nothing opens.

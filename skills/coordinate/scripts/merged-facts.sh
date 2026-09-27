@@ -50,7 +50,7 @@ if [ -n "$PR$REPO" ]; then
 else
     if [ -z "$UNIT" ]; then
         LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
-        UNIT=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait") | .payload.fields.unit // ""' "$LOG" 2>/dev/null | tail -1)
+        UNIT=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait") | .payload.fields.unit // ""' "$LOG" | tail -1)
         bl_topic_ok "$UNIT" || { echo "$PROG: the latest wait evidence names no unit [$UNIT]" >&2; exit 2; }
     fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)

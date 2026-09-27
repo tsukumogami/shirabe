@@ -80,7 +80,7 @@ fi
 MS=$(mktemp "${TMPDIR:-/tmp}/land-check.XXXXXX") || exit 2
 trap 'rm -f "$MS" "$MS.err" "$MS.fail"' EXIT
 bl_gh "$MS" pr view "$PR" --repo "$REPO" --json mergeStateStatus || { echo "$PROG: the merge state read failed" >&2; exit 2; }
-STATE=$(jq -r '.mergeStateStatus // ""' "$MS" 2>/dev/null)
+STATE=$(jq -r '.mergeStateStatus // ""' "$MS")
 [[ $STATE =~ ^[A-Z_]+$ ]] || { echo "$PROG: merge state [$STATE]" >&2; exit 2; }
 if [ "$STATE" = DIRTY ]; then
     bl_seal "$SESSION" land "dirty $PR" "$NO_SEAL" || exit 2

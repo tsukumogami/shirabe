@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 if [ "$INPUT" = - ]; then DOC=$(cat); else DOC=$(cat "$INPUT") || exit 64; fi
 
-PAYLOAD=$(printf '%s' "$DOC" | jq -c '.result.payload // .result // empty' 2>/dev/null)
+PAYLOAD=$(printf '%s' "$DOC" | jq -c '.result.payload // .result // empty')
 [ -n "$PAYLOAD" ] && [ "$PAYLOAD" != null ] || { echo "coordinate-report: no terminal result in the input" >&2; exit 65; }
 
 emit() { # emit <key> <pattern>
@@ -43,7 +43,7 @@ emit scope '^(roadmap|discipline)$'
 emit host '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 emit record '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+$'
 if [ -n "$SESSION" ]; then
-    DIR=$(koto session dir "$SESSION" 2>/dev/null) && [ -r "$DIR/koto-$SESSION.state.jsonl" ] \
+    DIR=$(koto session dir "$SESSION") && [ -r "$DIR/koto-$SESSION.state.jsonl" ] \
         && printf 'events=%s\n' "$(($(wc -l < "$DIR/koto-$SESSION.state.jsonl") - 1))"
 fi
 exit 0

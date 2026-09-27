@@ -266,6 +266,16 @@ suite_scripts() {
             echo "skills/coordinate/scripts/land-merge_test.sh"
             echo "skills/coordinate/scripts/merge-confirm_test.sh"
             echo "skills/coordinate/scripts/merged-facts_test.sh"
+            # The close-outs and the turn's checks: the gh and koto stand-ins
+            # (closeout-read's in a localized tree with a stand-in board), so
+            # every case runs on 3.2.
+            echo "skills/coordinate/scripts/predecessor-handoff_test.sh"
+            echo "skills/coordinate/scripts/closeout-read_test.sh"
+            echo "skills/coordinate/scripts/rotation-close_test.sh"
+            echo "skills/coordinate/scripts/deferral-check_test.sh"
+            echo "skills/coordinate/scripts/pick-facts_test.sh"
+            echo "skills/coordinate/scripts/report-facts_test.sh"
+            echo "skills/coordinate/scripts/quiet-check_test.sh"
             # The dispatch path's scripts: test-local niwa, koto, gh and record
             # stand-ins, so every case runs on 3.2.
             echo "skills/coordinate/scripts/dispatch-common_test.sh"

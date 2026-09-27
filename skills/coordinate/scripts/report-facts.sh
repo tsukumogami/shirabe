@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# report-facts.sh -- the check action of state report_facts: find the
+# reporting worker's holding and check that its pull request may be verified.
+#
+# The unit is the `unit` of the latest `wait` evidence whose event is
+# `report`. Its holding is read with record-holding.sh --read (the row whose
+# Worker is that topic). When the row links a pull request, it is refused when:
+#   out-of-scope-repo  the link's repository is neither the host nor the Repo
+#                      of any Holdings row
+#   bad-link           the Pull request cell's two numbers differ
+#   fork-head          the pull request's head is in another repository
+#   branch-mismatch    its head branch differs from a non-empty Branch cell
+# With Branch empty there is nothing to compare; with Pull request empty there
+# is no pull request to read.
+#
+# Verdict tokens: holding <pr|none> <topic> | unknown <topic> (no row, or `-`
+# when the evidence names no dispatch topic) | refused <topic> <why> (one of
+# the codes above).
+# The facts go to context key coord/report.json as data (classify_report's
+# decider input): {unit, pull_request: {repo, number, url} or null, state,
+# draft, head, merge_state, holding}. No worker message text: the dispatch
+# path adds worker_report separately.
+#
+# Usage:
+#   report-facts.sh --session S
+#   report-facts.sh --session S --scope roadmap|discipline --name N --repo O/R
+#                   --ref N [--no-seal]                              (tests)
+#
+# Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
+#
+# GitHub reads: record-holding.sh --read and --list (gh issue|pr view);
+# gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
+set -uo pipefail
+
+PROG=report-facts
+HERE=$(cd "$(dirname "$0")" && pwd)
+SESSION= SCOPE= NAME= REPO= REF=
+NO_SEAL=0 SKIP_CHECKS=0
+
+usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
+        --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
+        --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
+        --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
+        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
+        --no-seal) NO_SEAL=1; shift ;;
+        *) usage ;;
+    esac
+done
+[ -n "$SESSION" ] || usage
+. "$HERE/record-common.sh"
+lib_facts
+lib_log || lib_die2 "no readable log for $SESSION"
+
+T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+
+TOPIC=- ROW=null PRJ=null PRVIEW='{}'
+finish() {
+    jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
+        {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
+         head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
+    lib_emit report_facts "$1" coord/report.json "$T/report.json"
+}
+
+U=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait" and (.payload.fields.event // "") == "report")
+    | .payload.fields.unit // "" | tostring' "$LOG" | tail -1)
+[[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || finish "unknown -"
+TOPIC=$U
+
+hold() { # hold <mode args...>: record-holding.sh with this run's facts
+    if [ "$OVERRIDE" = 1 ]; then
+        bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" "$@"
+    else
+        [ -z "$REF" ] || usage
+        bash "$HERE/record-holding.sh" --session "$SESSION" "$@"
+    fi
+}
+[ "$OVERRIDE" = 0 ] || [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
+case $? in
+    0) ;;
+    1) ROW=null; finish "unknown $TOPIC" ;;
+    *) lib_die2 "record-holding.sh --read failed: $(lib_scrub < "$T/read.err")" ;;
+esac
+hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+
+CELL=$(printf '%s' "$ROW" | jq -r '.pull_request // ""')
+BR=$(printf '%s' "$ROW" | jq -r '.branch // ""')
+[ -n "$CELL" ] || finish "holding none $TOPIC"
+lib_pr_link "$CELL" || finish "refused $TOPIC bad-link"
+PRJ=$(jq -nc --arg r "$LINK_REPO" --argjson n "$LINK_NUM" '{repo: $r, number: $n, url: "https://github.com/\($r)/pull/\($n)"}')
+jq -e --arg r "$LINK_REPO" --arg h "$REPO" '($r | ascii_downcase) as $l
+    | ($l == ($h | ascii_downcase)) or any(.[]; (.repo | ascii_downcase) == $l)' "$T/all.json" > /dev/null \
+    || finish "refused $TOPIC out-of-scope-repo"
+gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url \
+    > "$T/pr.json" 2> "$T/pr.err" < /dev/null || lib_die2 "cannot read $LINK_REPO#$LINK_NUM: $(lib_scrub < "$T/pr.err")"
+PRVIEW=$(jq -c '{state, isDraft, headRefOid, mergeStateStatus, isCrossRepository, headRefName}' "$T/pr.json") || lib_die2 "jq failed"
+[ "$(printf '%s' "$PRVIEW" | jq -r '.isCrossRepository')" = false ] || finish "refused $TOPIC fork-head"
+if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != "$BR" ]; then
+    finish "refused $TOPIC branch-mismatch"
+fi
+finish "holding $LINK_NUM $TOPIC"

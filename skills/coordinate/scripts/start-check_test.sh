@@ -22,7 +22,7 @@ RM=(--scope roadmap --name plugin-system --repo "$REPO" --no-seal)
 file() { # file <branch> <text>
     db '.files["acme/widgets"][$k] = $t' --arg k "$1:$P" --arg t "$2"
 }
-check() { bash "$SC" "${RM[@]}" "$@" 2>"$T/err"; }
+check() { local o rc; o=$(bash "$SC" "${RM[@]}" "$@" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 fm() { printf -- '---\nschema: roadmap/v1\n%s\n---\n\n# Roadmap\n\nstatus: Active\n' "$1"; }
 
 db_init
@@ -58,7 +58,9 @@ db '.files["acme/widgets"]["main:docs/roadmaps/v2/ROADMAP-plugin-system.md"] = $
 S=coordinate-plugin-system-20260926T080000Z
 log_new "$S" "$(roadmap_vars plugin-system | jq -c '.ROADMAP = "docs/roadmaps/v2/ROADMAP-plugin-system.md"')"
 OUT=$(bash "$SC" --session "$S" 2>"$T/err")
+seen "$OUT" > /dev/null
 case "$OUT" in "active sealed:"*) ok "the session's ROADMAP path is read and the verdict sealed" ;; *) bad "the session's ROADMAP path is read and the verdict sealed" "$OUT $(cat "$T/err")" ;; esac
 bash "$HERE/coord-log.sh" check --session "$S" --state start --sealed "$OUT" && ok "the seal checks against the start entry" || bad "the seal checks against the start entry"
 
+tokens_ok start-check
 done_tests start-check

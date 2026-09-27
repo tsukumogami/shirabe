@@ -2,7 +2,8 @@
 # land-merge_test.sh -- land-merge.sh calls merge-exec.sh with the verified
 # sha only when every check before it holds, and never otherwise.
 #
-# A stand-in merge-exec.sh (MERGE_EXEC) logs its arguments. It must never be
+# A stand-in merge-exec.sh, at the localized plugin tree's
+# skills/execute/scripts/merge-exec.sh, logs its arguments. It must never be
 # called when the posture re-read denies or asks for confirmation, when
 # land's capture is stale (land entered again since it was sealed), absent,
 # not permit, or unsealed, when provenance fails (another plugin root, an
@@ -10,7 +11,8 @@
 # called with the repository, the pull request and the verified sha
 # otherwise. --closeout does the same for a rotation's or a predecessor's
 # record pull request from its close-out capture. merge-exec's own refusal
-# and failure pass through as exit 11. The script never names `gh pr merge`.
+# and failure pass through as exit 11. The script never names `gh pr merge`,
+# and a MERGE_EXEC in the environment never replaces merge-exec.sh.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-merge_test.sh
@@ -23,7 +25,6 @@ trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 LM="$PS/land-merge.sh"
-export MERGE_EXEC="$TD/board/stand-in-merge-exec.sh"
 PERMIT="readable merge=permit close=permit teardown=permit"
 CALLS="$BT_STATE/merge-exec.calls"
 N=0
@@ -126,6 +127,21 @@ bash "$LM" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$LM" >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 if grep -v '^ *#' "$HERE/land-merge.sh" | grep -q 'gh pr merge'; then bad "land-merge.sh never calls gh pr merge itself"; else ok "land-merge.sh never calls gh pr merge itself"; fi
 grep -q 'skills/execute/scripts/merge-exec.sh\|execute/scripts/merge-exec.sh' "$HERE/land-merge.sh" && ok "it calls the unchanged merge-exec.sh" || bad "it calls the unchanged merge-exec.sh"
+
+echo "== the environment can't name another merge-exec.sh =="
+at_land
+cat > "$T/rogue-merge-exec.sh" <<'ROGUE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$BT_STATE/rogue.calls"
+echo "merge-called:squash:rogue"
+ROGUE
+rm -f "$BT_STATE/rogue.calls"
+OUT=$(MERGE_EXEC="$T/rogue-merge-exec.sh" bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
+eq "with MERGE_EXEC exported, the merge still exits 0" 0 $rc
+[ ! -e "$BT_STATE/rogue.calls" ] && ok "an exported MERGE_EXEC is never called" || bad "an exported MERGE_EXEC is never called" "$(cat "$BT_STATE/rogue.calls")"
+eq "the sibling merge-exec.sh is called instead" "acme/widgets 12 $H" "$(cat "$CALLS" 2>/dev/null)"
+eq "and its line is the one printed" "merge-called:squash:$H" "$OUT"
+if grep -v '^ *#' "$HERE/land-merge.sh" | grep -q 'MERGE_EXEC'; then bad "land-merge.sh reads no MERGE_EXEC"; else ok "land-merge.sh reads no MERGE_EXEC"; fi
 
 echo
 echo "land-merge: $PASS passed, $FAIL failed"

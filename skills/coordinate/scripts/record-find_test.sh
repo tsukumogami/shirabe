@@ -32,7 +32,7 @@ add_issue() { # add_issue <n> <title> <body> [state] [author] [editor]
         editor: (if $e == "" then null else $e end)}]' --argjson n "$1" --arg t "$2" --arg b "$3" \
         --arg s "${4:-open}" --arg a "${5:-alice}" --arg e "${6-}"
 }
-find_rm() { bash "$F" "${RM[@]}" 2>"$T/err"; }
+find_rm() { local o rc; o=$(bash "$F" "${RM[@]}" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 
 drop_section() { # drop_section <body> <title>: the body without that section
     printf '%s\n' "$1" | awk -v t="## $2" '$0 == t { skip = 1; next } skip && /^## / { skip = 0 } !skip'
@@ -61,7 +61,7 @@ db '.prs += [{repo: "acme/widgets", number: 9, title: $t, body: $b, state: "OPEN
 eq "a pull request carrying the title is ignored" none "$(find_rm)"
 add_issue 6 "$TITLE" "$ROADMAP_BODY"
 add_issue 8 "$TITLE" "$ROADMAP_BODY"
-eq "two matches are ambiguous" "ambiguous 8,6" "$(find_rm)"
+eq "two matches are ambiguous" "ambiguous 8 6" "$(find_rm)"
 
 echo "== roadmap: one candidate =="
 db_init; add_issue 7 "$TITLE" "just an issue"
@@ -100,7 +100,7 @@ add_pr() { # add_pr <n> <title> <body> [state] [cross] [base] [author]
         --arg h "$BR" --arg sha "$SHA_HEAD" --arg a "${7:-alice}"
 }
 branch() { db '.branches["acme/widgets"][$b] = $s' --arg b "$BR" --arg s "$SHA_HEAD"; }
-find_ds() { bash "$F" "${DS[@]}" 2>"$T/err"; }
+find_ds() { local o rc; o=$(bash "$F" "${DS[@]}" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 
 db_init
 eq "no branch is none" none "$(find_ds)"
@@ -119,7 +119,7 @@ eq "a record ending today is still this rotation" "found 22" "$(find_ds)"
 db_init; branch; add_pr 22 "$DTITLE" "a draft about something else"
 eq "an open pull request without the declaration is foreign" "foreign 22" "$(find_ds)"
 db_init; branch; add_pr 22 "$DTITLE" "$DBODY"; add_pr 23 "$DTITLE" "$DBODY"
-eq "two open pull requests are ambiguous" "ambiguous 22,23" "$(find_ds)"
+eq "two open pull requests are ambiguous" "ambiguous 22 23" "$(find_ds)"
 db_init; branch; add_pr 22 "docs(coordinate): ci-health rotation 2026-02-30 to 2026-03-06" "$DBODY"
 eq "an impossible title date is ambiguous" "ambiguous 22" "$(find_ds)"
 db_init; branch; add_pr 22 "docs(coordinate): ci-health rotation 2026-09-29 to 2026-09-22" "$DBODY"
@@ -151,6 +151,7 @@ log_new "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" start_posture record_find
 OUT=$(bash "$F" --session "$S" 2>"$T/err"); rc=$?
 eq "a session run exits 0" 0 "$rc"
+seen "$OUT" > /dev/null
 case "$OUT" in "found 7 sealed:"*) ok "the verdict is sealed" ;; *) bad "the verdict is sealed" "$OUT $(cat "$T/err")" ;; esac
 bash "$HERE/coord-log.sh" check --session "$S" --state record_find --sealed "$OUT" && ok "the seal checks against the log" || bad "the seal checks against the log"
 eq "the detail is stored as data" "found|7|https://github.com/acme/widgets/issues/7" \
@@ -159,4 +160,5 @@ bash "$F" --scope roadmap --name plugin-system --repo "$REPO" >/dev/null 2>&1; e
 bash "$F" --scope roadmap --name plugin-system >/dev/null 2>&1; eq "partial override flags are a usage error" 64 $?
 bash "$F" --scope roadmap --name 'a b' --repo "$REPO" --no-seal >/dev/null 2>&1; eq "a bad name is a usage error" 64 $?
 
+tokens_ok record-find
 done_tests record-find

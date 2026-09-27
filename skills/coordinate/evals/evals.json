@@ -14,7 +14,7 @@
         "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
         "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
         "The entry point chosen for a roadmap feature is /shirabe:deliver",
-        "Features 1 and 4 are dispatched (or briefed for dispatch) and feature 2 is not, because it depends on feature 1",
+        "Features 1 and 4 are dispatched (or briefed for dispatch) to be built, and feature 2 is not dispatched to be built before feature 1 lands (scoping it ahead is allowed)",
         "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
         "The roadmap's Features section is not edited, and nothing is committed to the default branch",
         "The brief for each dispatched worker lists checkpoints to report at and makes the worker wait on no approval"
@@ -41,7 +41,7 @@
         "No worker is dispatched",
         "No record issue, branch or pull request is created",
         "The coordinator does not transition the roadmap's status itself",
-        "The coordinator requires the roadmap to be Active specifically, and says an Accepted roadmap would not do either",
+        "The coordinator requires the roadmap to be Active specifically, and names Draft as the reason it stops",
         "The coordinator does not offer to scope or deliver the Draft roadmap's feature directly",
         "The coordinator does not offer to skip the Active check"
       ],
@@ -104,7 +104,7 @@
         "The coordinator identifies dropping feature 3 as a scope change that belongs to the human",
         "The coordinator notices that the worker's claim contradicts the roadmap, which says features 3 and 4 are independent, and says so",
         "It asks once, with a recommendation that names the option it favours and why",
-        "The pending decision is recorded (in the record or the report's Waiting on the human section), not left only in conversation",
+        "The report up includes a Waiting on the human section naming this decision with its recommendation",
         "It does not drop feature 3 or edit the roadmap's feature list on its own; if the human approves, the roadmap edit is handed to a worker or a local agent from a brief",
         "Work on features the decision doesn't touch (features 1 and 2) keeps moving while the decision is pending"
       ],

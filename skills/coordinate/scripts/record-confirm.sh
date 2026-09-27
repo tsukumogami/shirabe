@@ -14,11 +14,19 @@
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the latest `wait` evidence's `unit` before the source
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
-#   merged_facts    no Holdings row links #<pr>; `unconfirmed <pr> <sha>` means
-#                   a Side effects row whose Target names #<pr> with Verified
-#                   head <sha>
+#   merged_facts    the unit's Holdings row no longer links #<pr>;
+#                   `unconfirmed <pr> <sha>` means a Side effects row whose
+#                   Target names <owner/repo>#<pr> (or its github.com URL),
+#                   the repository being the one the unit's row links, with
+#                   Verified head <sha>
 #   teardown        `done`: no Holdings row for the unit; `kept`: only the
 #                   newer Written: time
+#   destroy         (the dispatch path's teardown) `destroyed`: no Holdings row
+#                   for the topic; `handed_over`: no Holdings row for it and a
+#                   Side effects row whose Target names it. The topic comes from
+#                   the sealed teardown inventory (TEARDOWN_SEAL, key
+#                   teardown_verdict, its `topic <t>` line), never from a
+#                   context key.
 #   decision_apply  `reversal`: a Reversals row dated at or after the event;
 #                   `deferral`: a Deferrals row raised at or after it
 #   posture_ask     a Reversals row at or after the event, From `the human`,
@@ -26,8 +34,15 @@
 #
 # With --verified (state verified_confirm): the VERIFIED capture
 # (`verified <pr> <sha>`, sealed at a real visit of verify_board) must equal
-# the Verified head of the Holdings row linking #<pr>; when the pull request's
-# live head is no longer <sha> the verdict is `moved`.
+# the Verified head of the unit's Holdings row, which must link #<pr>; when
+# the pull request's live head, read from the repository that row links, is
+# no longer <sha> the verdict is `moved`.
+#
+# The unit is always found by its Worker (dispatch topic) from the log: the
+# latest `wait` evidence's `unit`, else the latest `dispatch` evidence's
+# `topic`. A pull request is never found by its bare number, since two units
+# in different repositories can both hold #12: its row is the unit's row, and
+# its repository is the one in that row's full Pull request URL.
 #
 # Verdict tokens: confirmed | waiting (no route: the state stays blocked until
 # the coordinator writes the record and ticks) | conflict (the body is missing
@@ -45,7 +60,7 @@
 #
 # GitHub reads: gh issue view N --repo R --json state,body |
 # gh pr view N --repo R --json state,body; with --verified,
-# gh pr view <pr> --repo <the row's repository> --json headRefOid.
+# gh pr view <pr> --repo <the unit's row's repository> --json headRefOid.
 set -uo pipefail
 
 PROG=record-confirm
@@ -107,6 +122,45 @@ WRITTEN=$(jq -r '.written' "$T/rec.json")
 # event's second; a write in the same second can't be ordered, so it waits.
 later() { [ "${1:0:19}" \> "${2:0:19}" ]; }
 
+evidence() { # evidence <state> <before-seq>: the last evidence event there
+    jq -c --arg s "$1" --argjson q "$2" 'select(.type == "evidence_submitted" and .payload.state == $s and .seq < $q)
+        | {seq, timestamp, fields: (.payload.fields // {})}' "$LOG" | tail -1
+}
+has_value() { # has_value <word>: some evidence field's value is exactly <word>
+    printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null
+}
+wait_unit() { # the latest `wait` evidence's unit before <seq>
+    jq -r --argjson q "$1" 'select(.type == "evidence_submitted" and .payload.state == "wait" and .seq < $q)
+        | .payload.fields.unit // empty' "$LOG" | tail -1
+}
+holds() { # holds <jq test over the record> [jq args...]: the expectation
+    local f=$1; shift
+    jq -e "$@" "$f" "$T/rec.json" > /dev/null
+}
+# unit_topic <before-seq>: the unit the step is about, by its Worker: the
+# latest `wait` evidence's unit, else the latest `dispatch` evidence's topic.
+unit_topic() {
+    local u
+    u=$(wait_unit "$1")
+    [ -n "$u" ] || u=$(jq -r --argjson q "$1" 'select(.type == "evidence_submitted" and .payload.state == "dispatch" and .seq < $q)
+        | .payload.fields.topic // empty' "$LOG" | tail -1)
+    printf '%s' "$u"
+}
+# unit_row <topic>: sets ROW (the Holdings row whose Worker is the topic, or
+# empty) and, when its Pull request cell is a full link, ROW_REPO and ROW_PR.
+unit_row() {
+    ROW=$(jq -c --arg t "$1" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/rec.json")
+    ROW_REPO= ROW_PR=
+    [ -n "$ROW" ] || return 0
+    local parts
+    parts=$(printf '%s' "$ROW" | jq -r '.pull_request // ""
+        | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$")?
+        | select(.a == .b) | "\(.a) \(.r)"' 2> /dev/null)
+    set -f; set -- $parts; set +f
+    [ $# -eq 2 ] || return 0
+    ROW_PR=$1 ROW_REPO=$2
+}
+
 if [ "$VERIFIED" = 1 ]; then
     SOURCE=verify_board
     V=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name VERIFIED 2>/dev/null)
@@ -118,16 +172,20 @@ if [ "$VERIFIED" = 1 ]; then
     if [ "${1-}" != verified ] || ! [[ $PR =~ $RE_NUM ]] || ! [[ $SHA =~ $RE_SHA ]]; then
         VERDICT=conflict; REASON="the VERIFIED capture is not verified <pr> <sha>"; finish
     fi
-    EXPECT="the Holdings row linking #$PR has Verified head $SHA"
-    ROW=$(jq -c --arg p "[#$PR](" '[.holdings[] | select(.pull_request | startswith($p))][0] // empty' "$T/rec.json")
-    PRREPO=$REPO
-    if [ -n "$ROW" ]; then
-        PRREPO=$(printf '%s' "$ROW" | jq -r '.pull_request | capture("\\(https://github\\.com/(?<r>[^/]+/[^/]+)/pull/").r')
-        [[ $PRREPO =~ $RE_REPO ]] || PRREPO=$REPO
+    VSEQ=$(jq -r 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound") and .payload.to == "verified_confirm") | .seq' "$LOG" | tail -1)
+    [ -n "$VSEQ" ] || { VERDICT=conflict; REASON="the log has no entry into verified_confirm"; finish; }
+    UNIT=$(unit_topic "$VSEQ")
+    [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the log names no unit for the verified pull request"; finish; }
+    EXPECT="the Holdings row for $UNIT links #$PR and has Verified head $SHA"
+    unit_row "$UNIT"
+    if [ -z "$ROW" ]; then VERDICT=waiting; REASON="no Holdings row for $UNIT yet"; finish; fi
+    if [ "$ROW_PR" != "$PR" ]; then
+        VERDICT=conflict; REASON="the Holdings row for $UNIT links $(printf '%s' "$ROW" | jq -r '.pull_request'), not #$PR"; finish
     fi
-    LIVE=$(gh pr view "$PR" --repo "$PRREPO" --json headRefOid --jq .headRefOid 2> /dev/null < /dev/null) || lib_die2 "cannot read #$PR's head"
-    if [ "$LIVE" != "$SHA" ]; then VERDICT=moved; REASON="#$PR's head is now $LIVE"; finish; fi
-    if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | jq -r .verified_head)" = "$SHA" ]; then
+    EXPECT="the Holdings row for $UNIT links $ROW_REPO#$PR and has Verified head $SHA"
+    LIVE=$(gh pr view "$PR" --repo "$ROW_REPO" --json headRefOid --jq .headRefOid 2> /dev/null < /dev/null) || lib_die2 "cannot read $ROW_REPO#$PR's head"
+    if [ "$LIVE" != "$SHA" ]; then VERDICT=moved; REASON="$ROW_REPO#$PR's head is now $LIVE"; finish; fi
+    if [ "$(printf '%s' "$ROW" | jq -r .verified_head)" = "$SHA" ]; then
         VERDICT=confirmed; REASON="the verified head is recorded"
     else
         VERDICT=waiting; REASON="the verified head is not in the record yet"
@@ -142,23 +200,9 @@ ENTRY=$(jq -c 'select((.type == "transitioned" or .type == "directed_transition"
 ESEQ=$(printf '%s' "$ENTRY" | jq -r .seq)
 SOURCE=$(printf '%s' "$ENTRY" | jq -r .from)
 
-evidence() { # evidence <state> <before-seq>: the last evidence event there
-    jq -c --arg s "$1" --argjson q "$2" 'select(.type == "evidence_submitted" and .payload.state == $s and .seq < $q)
-        | {seq, timestamp, fields: (.payload.fields // {})}' "$LOG" | tail -1
-}
-has_value() { # has_value <word>: some evidence field's value is exactly <word>
-    printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null
-}
-wait_unit() { # the latest `wait` evidence's unit before <seq>
-    jq -r --argjson q "$1" 'select(.type == "evidence_submitted" and .payload.state == "wait" and .seq < $q)
-        | .payload.fields.unit // empty' "$LOG" | tail -1
-}
-holds() { # holds <jq test over the record>: the expectation
-    jq -e "$1" "$T/rec.json" > /dev/null
-}
 
 case "$SOURCE" in
-dispatch|surface|teardown|decision_apply|posture_ask)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask)
     EV=$(evidence "$SOURCE" "$ESEQ")
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
@@ -209,6 +253,26 @@ teardown)
         VERDICT=conflict; REASON="teardown evidence is neither done nor kept"; finish
     fi
     ;;
+destroy)
+    # The topic the inventory sealed: read through the seal check, so a key
+    # the coordinator wrote can't name another worker.
+    TSEAL=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name TEARDOWN_SEAL 2> /dev/null) \
+        || { VERDICT=conflict; REASON="no valid sealed teardown inventory"; finish; }
+    INV=$(bash "$HERE/coord-log.sh" check --session "$SESSION" --state teardown_inventory --sealed "$TSEAL" --key teardown_verdict --any-visit 2> /dev/null) \
+        || { VERDICT=conflict; REASON="the teardown inventory fails its seal"; finish; }
+    UNIT=$(printf '%s\n' "$INV" | sed -n 's/^topic //p' | head -1)
+    [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the sealed inventory names no topic"; finish; }
+    TJ=$(jq -n --arg t "$UNIT" '$t')
+    if has_value destroyed; then
+        EXPECT="no Holdings row for $UNIT"
+        holds "any(.holdings[]; .worker == $TJ) | not" || OKX=0
+    elif has_value handed_over; then
+        EXPECT="no Holdings row for $UNIT and a Side effects row whose Target names it"
+        holds '(any(.holdings[]; .worker == $t) | not) and any(.side_effects[]; .target | test("(^|[^A-Za-z0-9._-])" + ($t | gsub("\\."; "\\.")) + "($|[^A-Za-z0-9._-])"))' --arg t "$UNIT" || OKX=0
+    else
+        VERDICT=conflict; REASON="destroy evidence is neither destroyed nor handed_over"; finish
+    fi
+    ;;
 decision_apply)
     if has_value reversal; then
         EXPECT="a Reversals row dated at or after $MIN"
@@ -226,12 +290,25 @@ posture_ask)
         and ((.reversed + \" \" + .now) | ascii_downcase | contains(\"posture\")))" || OKX=0
     ;;
 merge_confirm|merged_facts)
+    UNIT=$(unit_topic "$ESEQ")
+    [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the log names no unit for #$PR"; finish; }
+    unit_row "$UNIT"
     if [ "$KIND" = merged ]; then
-        EXPECT="no Holdings row links #$PR"
-        holds "any(.holdings[]; .pull_request | startswith(\"[#$PR](\")) | not" || OKX=0
+        # The unit's own row: another unit's #$PR in another repository is
+        # not this one.
+        EXPECT="the Holdings row for $UNIT no longer links #$PR"
+        [ -n "$ROW" ] && [ "$ROW_PR" = "$PR" ] && OKX=0
+    elif [ -z "$ROW" ] || [ "$ROW_PR" != "$PR" ]; then
+        # Without the unit's row linking it, #$PR's repository can't be told,
+        # and a bare #$PR could be another unit's.
+        OKX=0
+        EXPECT="the Holdings row for $UNIT to link #$PR (its repository), beside a Side effects row for it at $SHA"
     else
-        EXPECT="a Side effects row for #$PR at $SHA"
-        holds "any(.side_effects[]; (.target | test(\"#$PR([^0-9]|\$)\")) and .verified_head == \"$SHA\")" || OKX=0
+        EXPECT="a Side effects row for $ROW_REPO#$PR at $SHA"
+        holds "any(.side_effects[]; .verified_head == \$sha and (.target | tostring
+            | test(\"(^|[^A-Za-z0-9_./-])\" + \$re + \"#\" + \$pr + \"([^0-9]|\$)\"; \"i\")
+              or test(\"github\\\\.com/\" + \$re + \"/(pull|issues)/\" + \$pr + \"([^0-9]|\$)\"; \"i\")))" \
+            --arg sha "$SHA" --arg pr "$PR" --arg re "$(printf '%s' "$ROW_REPO" | sed 's/\./\\./g')" || OKX=0
     fi
     ;;
 esac
