@@ -254,9 +254,8 @@ ct_write_db
 fresh_repo merge-order gated
 push_node
 # The expected section is a golden file the Rust validator's tests also read
-# and check with the real parser, so the format node-push.sh renders and the
-# format the validator accepts can't drift apart without a test failing (this
-# suite runs against a shirabe stub).
+# and check with the real parser (this suite runs against a shirabe stub), so a
+# render that stops putting the node id first on each line fails a test.
 WANT=$(cat "$SCRIPT_DIR/testdata/merge-order-gated.txt")
 GOT=$(merge_order_section)
 if [ "$RC" -eq 0 ] && [ "$GOT" = "$WANT" ]; then

@@ -1046,7 +1046,7 @@ mod tests {
     /// `<node-id> | pr|gate | after: <node-ids>` line per node. It must
     /// validate, and its node ids (the gate's included) must be read from the
     /// first token of each line, not from the `after:` list. Sharing the file
-    /// is what ties the rendered format to this parser.
+    /// is what ties the rendered format's node-id position to this parser.
     #[test]
     fn body_check_passes_rendered_merge_order_with_gate() {
         let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
