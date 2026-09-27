@@ -73,7 +73,9 @@
 #   69  the wip/ sweep failed, or the pushed head still carries wip/
 #   72  a GitHub read failed (the caller's execute:status-read)
 #   73  no single owned PR where one must be adopted: the coordination PR, or
-#       an indexed node PR (the caller's execute:pr-adopt)
+#       an indexed node PR; or the node branch's PR is another run's, or one of
+#       several (checked before the push, so nothing is pushed then) (the
+#       caller's execute:pr-adopt)
 #   74  shirabe validate --coordination-body refused the new body; nothing
 #       was edited
 #   75  gh pr create or gh pr edit failed

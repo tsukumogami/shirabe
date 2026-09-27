@@ -66,9 +66,10 @@ usage_error() {
 marker_line() { printf '<!-- shirabe-run: %s -->' "$1"; }
 
 # stored <session> -- print the session's stored id, empty when it has none.
-# Only `exists` answering 1 means "none": any other failure is an error, so a
-# koto that could not read the store never leads to a second id being minted
-# over the first.
+# Only `exists` answering 1 means "none": any other exit is an error rather
+# than a reason to mint. koto answers 1 for some store read errors too, so this
+# narrows the case rather than closing it; a second id minted that way makes
+# the run's own marked PR read as another run's (exit 6), which fails safe.
 stored() {
     local v rc
     koto context exists "$1" run_id </dev/null >/dev/null

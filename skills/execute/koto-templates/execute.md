@@ -634,16 +634,22 @@ states:
       # The PR is resolved through owned-pr.sh on the recorded repository and
       # settled branch, never the first `gh pr list --head` hit, so a fork's or
       # another author's same-named PR is never the one whose checks count --
-      # and, with this run's --run-id, neither is a PR another run opened. That
+      # and, with this run's --run-id, neither is a PR another run opened.
+      # An empty lookup fails the gate before gh runs: `xargs -r` runs nothing
+      # on empty input, and the grep / awk at the end fail on no output.
+      # `gh pr checks ""` would instead fall back to the checked-out branch's
+      # PR, whoever opened it. (A shell variable can't carry the URL here:
+      # koto hands the command to sh -c unresolved, and
+      # scripts/check-template-interpolation.sh refuses $NAME in a gate.) That
       # is why these two gates no longer share work-on.md's names (ci_passing,
       # merge_state_clean): validate-template-mermaid.sh check 4 holds one gate
       # name to one command, and the commands now differ.
       owned_ci_passing:
         type: command
-        command: "gh pr checks \"$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\")\" --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
       owned_merge_state_clean:
         type: command
-        command: "[ \"$(gh pr view \"$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\")\" --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk 'NF && $0 != \"DIRTY\" {ok = 1} END {exit !ok}'"
     accepts:
       ci_outcome:
         type: enum
@@ -1187,7 +1193,7 @@ echo "exit=$?"
 
 **Another run's PR (exit 6).** The one PR on the branch carries a marker naming a different run, so it is neither adopted nor replaced (GitHub allows one open PR per head). Nothing was recorded, created, or pushed. A PR marked by a run that is still going looks exactly the same as one marked by a run that ended and lost its identity, and nothing in this checkout can tell a live session in another checkout or on another machine apart from a finished one. So the default is **not** to take it over, and taking over needs a positive signal:
 
-- **Take it over** only when the invocation that started this run says the earlier run on this PLAN has ended and this is its re-entry (the user or the coordinating session said so, in so many words). A replaced session is not that signal: `execute-open.sh` carries a finished session's identity into its replacement, so a PR still marked by another run after a replacement was marked by a run somewhere else. Then re-run the same `adopt-or-create-pr.sh` command with `--take-over` added. `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Submit as that run's exit code says, and name the PR you took over in `detail`.
+- **Take it over** only when the invocation that started this run says the earlier run on this PLAN has ended and this is its re-entry (the user or the coordinating session said so, in so many words). A replaced session is not that signal: `execute-open.sh` carries a finished session's identity into its replacement, so after a replacement a foreign marker usually means a run somewhere else marked the PR; the exception is a carry that failed (`execute-open.sh` says so on stderr), and the default of not taking over covers both. Then re-run the same `adopt-or-create-pr.sh` command with `--take-over` added. `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Submit as that run's exit code says, and name the PR you took over in `detail`.
 - **Otherwise** -- no such signal, or any doubt -- don't take it over: submit `status: pr_adopt` with `detail` naming the PR and saying it carries another run's marker, so whoever re-invokes can confirm the earlier run is over.
 
 `--take-over` is never passed on the first attempt and never by any other lookup; only this exit-6 decision adds it.
@@ -1392,8 +1398,11 @@ BODY
 # adopted PR with no marker (a /scope PR) stays unmarked.
 # The three steps are chained: a failed read must never reach the edit, or
 # carry would see an empty live body and the edit would drop the marker.
+# An empty PR_NUMBER stops the chain: gh would otherwise fall back to the
+# checked-out branch's PR, whoever opened it.
 LIVE_FILE=$(mktemp)
-gh pr view "$PR_NUMBER" --json body --jq .body > "$LIVE_FILE" \
+[ -n "$PR_NUMBER" ] \
+  && gh pr view "$PR_NUMBER" --json body --jq .body > "$LIVE_FILE" \
   && {{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh carry "$LIVE_FILE" "$BODY_FILE" \
   && gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
 echo "exit=$?"
@@ -1500,7 +1509,9 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --repo "$(koto context get {{SESSION_NAME}} repos)" \
   --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
-gh pr ready "$PR"
+# An empty $PR would make gh fall back to the checked-out branch's PR,
+# whoever opened it, so nothing runs without one.
+[ -n "$PR" ] && gh pr ready "$PR"
 ```
 
 The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and submit the cascade's verdict: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging.

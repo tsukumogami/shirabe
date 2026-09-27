@@ -1362,7 +1362,8 @@ states:
     # cleanup (Decision 5). Agent-run: a push and `gh pr create` are
     # externally visible, so they are never a default action. The agent runs
     # publish-scoping-pr.sh; the `published` gate re-checks the result with the
-    # script's read-only --verify, so a run cannot claim a PR it did not open.
+    # script's --verify (no GitHub or git write; with --session it may mint the
+    # session's run_id), so a run cannot claim a PR it did not open.
     #
     # A failure ends at done_error, before cleanup, so the state file keeps
     # `exit:` and its fields (R12) and the next invocation's resume_route
@@ -2768,7 +2769,7 @@ straight back here to retry. **When it succeeds**, record its `pr=` URL as
 file.
 
 Submit `publish_result: attempted` either way. The `published` gate re-checks
-with the script's read-only `--verify` -- origin's branch equals `HEAD`, exactly
+with the script's `--verify`, which writes nothing to GitHub or git -- origin's branch equals `HEAD`, exactly
 one owned open PR exists, and its body records `intent={{RUN_INTENT}}` -- and
 that decides whether the run goes to cleanup or to the error terminal.
 

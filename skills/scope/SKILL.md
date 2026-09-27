@@ -255,7 +255,11 @@ Every lookup carries the session's run identity (`owned-pr.sh --run-id`, the
 another run marked as its own is never reused, edited, or reported here.
 `/scope` stamps no marker on the PR it opens: its PR is matched on the
 login-and-branch fallback, which is what lets `/execute` adopt it. A rewrite
-of the body keeps whatever marker the live PR carries.
+of the body keeps whatever marker the live PR carries. That is a known
+limitation, not a guarantee: two runs sharing a login and a topic name can
+still reach the same scoping PR, so unique topic names remain the only
+separation on this path until the `/scope` and `/execute` legs of one workflow
+share one identity (see `/execute`'s **Owned-PR lookup**).
 
 ## Request Leg Flag
 

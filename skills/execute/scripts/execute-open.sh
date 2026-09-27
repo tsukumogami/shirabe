@@ -219,7 +219,9 @@ case "$OUT" in
         # own), then make sure the session has one. A failure here is not a
         # refusal: the run mints its identity on first use, and a PR the
         # earlier run opened then surfaces as another run's (exit 6 at
-        # orchestrator_setup), which has its own recovery.
+        # orchestrator_setup). That stops the run short of taking the PR over
+        # unless the invocation states the earlier run ended, which is the
+        # safe side to fail on; the warning below is what tells a reader why.
         if [ -n "$PRIOR_RUN_ID" ]; then
             bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$PRIOR_RUN_ID" </dev/null \
                 || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2

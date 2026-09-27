@@ -150,6 +150,24 @@ else
     fail "pr_finalization's read, carry, and edit are not chained with &&"
 fi
 
+# --- an empty lookup never reaches gh -----------------------------------------
+
+# gh falls back to the checked-out branch's PR when handed an empty selector,
+# so every site that feeds owned-pr.sh's output to gh guards against empty.
+for g in owned_ci_passing owned_merge_state_clean; do
+    cmd=$(awk -v g="$g" '$0 ~ "^      " g ":" {f=1} f && /command:/ {print; exit}' "$E")
+    case "$cmd" in
+        *'| xargs -r -I{} gh pr '*) pass "$g fails before gh runs when the lookup is empty" ;;
+        *) fail "$g has no empty-lookup guard: [${cmd:0:120}]" ;;
+    esac
+done
+grep -qF '[ -n "$PR" ] && gh pr ready "$PR"' "$E" \
+    && pass "plan_completion's gh pr ready is guarded against an empty lookup" \
+    || fail "plan_completion's gh pr ready is not guarded"
+grep -qF '[ -n "$PR_NUMBER" ] \' "$E" \
+    && pass "pr_finalization's chain starts with an empty-lookup guard" \
+    || fail "pr_finalization's chain has no empty-lookup guard"
+
 # --- ownership is checked before the shared branch is pushed ------------------
 
 # Step 2 of orchestrator_setup: the first adopt-or-create-pr.sh call on

@@ -511,6 +511,18 @@ one's, so a re-invocation of the same PLAN in the same place is the same run.
 hand, outside any session, passes no `--run-id` and matches by login and branch
 alone.
 
+**Known limitation: `/scope`'s PRs are still matched by login and branch.**
+`/scope` stamps no marker on the PR it opens, and that PR is the home PR on
+the `/deliver` path (where `/execute` adopts the topic branch's PR) and the
+coordination PR on every coordinated run. Two runs sharing a login and a topic
+name can therefore still reach the same scoping or coordination PR, so on
+those paths unique topic names remain the only separation. Stamping the
+scoping PR with `/scope`'s own identity would make `/execute` and `/deliver`'s
+probes reject it as another run's, so the fix is a follow-up rather than part
+of this rule: one identity per workflow, minted by `/deliver` (or by `/scope`
+and handed on) and shared by the `/scope` and `/execute` legs that work on the
+same topic.
+
 The exit contract names no step; this table is the one place `/execute` maps it:
 
 | `owned-pr.sh` result | Where `/execute` creates the PR (`orchestrator_setup`) | Where it must adopt one (every later lookup) |
@@ -534,9 +546,11 @@ its exit 6), and GitHub refuses a second open PR on the same head. The way out
 is explicit: at `orchestrator_setup`, the agent re-runs the lookup with
 `--take-over` only on a positive signal that the earlier run ended: the
 invocation says, in so many words, that this is its re-entry. A replaced
-session is not that signal, because `execute-open.sh` carries the finished
-session's identity forward, so a foreign marker after a replacement came from
-a run somewhere else. Proving that the earlier session is
+session is not that signal: `execute-open.sh` carries the finished session's
+identity forward, so a foreign marker after a replacement usually came from a
+run somewhere else (the exception is a carry that failed, which
+`execute-open.sh` reports on stderr), and without the statement the run does
+not take the PR over either way. Proving that the earlier session is
 terminal is not attempted: a live run elsewhere is invisible from here, and
 koto disposes a child session at its terminal (koto#240), so "no session
 found" proves nothing. `owned-pr.sh --take-over`
@@ -546,8 +560,11 @@ the base, the branch), and it picks nothing when several foreign-marked PRs
 are there. No other lookup passes `--take-over`, so an ordinary lookup never
 takes a PR over silently. Without the signal the run ends
 `step=execute:pr-adopt` instead, before anything is pushed: the ownership
-check on `impl/<slug>` runs before the branch is pushed, so a run never
-pushes onto another run's PR. Coordinated node PRs have no takeover path:
+check on `impl/<slug>` (and, for a coordinated node, on its node branch in
+`node-push.sh`) runs before the branch is pushed, so a run never pushes onto a
+branch whose PR another run marked. A `/scope` PR carries no marker, so this
+does not cover the scoping or coordination branch (see the known limitation
+above). Coordinated node PRs have no takeover path:
 a coordinated re-entry relies on the carried-forward identity, and a node PR
 marked by a run whose identity is gone ends `step=execute:pr-adopt`.
 

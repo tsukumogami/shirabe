@@ -48,8 +48,8 @@
 #       --create, the lookup still finds none or
 #       several
 #   4   no owned PR and no --create: nothing     -> the caller's create path
-#       recorded (only the current-branch check
-#       uses this)
+#       recorded (the current-branch check, and
+#       the pre-push check on impl/<slug>)
 #   5   gh pr create failed; nothing recorded    -> orchestrator_setup blocked
 #   6   the one PR on the branch was opened by   -> re-entry: --take-over;
 #       another run (owned-pr.sh 5); nothing        otherwise execute:pr-adopt
