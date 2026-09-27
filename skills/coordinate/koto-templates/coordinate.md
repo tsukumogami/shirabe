@@ -257,7 +257,7 @@ states:
       - target: predecessor_close
         when:
           step_result: done
-      - target: predecessor_close
+      - target: predecessor_handed_over
         when:
           step_result: handed_over
 
@@ -964,9 +964,11 @@ states:
       - target: rotation_close
         when:
           step_result: done
-      - target: rotation_close
+      - target: done_handed_over
         when:
           step_result: handed_over
+        context_assignments:
+          outcome: handed-over
 
   rotation_done:
     accepts:

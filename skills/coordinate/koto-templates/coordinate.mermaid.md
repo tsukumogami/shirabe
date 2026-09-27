@@ -50,7 +50,7 @@ stateDiagram-v2
     predecessor_handoff --> predecessor_close : gates.predecessor_handoff_verdict.exit_code: 110
     predecessor_handoff --> record_conflict : gates.predecessor_handoff_verdict.exit_code: 111
     predecessor_step --> predecessor_close : step_result: done
-    predecessor_step --> predecessor_close : step_result: handed_over
+    predecessor_step --> predecessor_handed_over : step_result: handed_over
     quiet_check --> wait : gates.quiet_check_verdict.exit_code: 100
     quiet_check --> status_message : gates.quiet_check_verdict.exit_code: 101
     quiet_check --> failure : gates.quiet_check_verdict.exit_code: 102
@@ -92,7 +92,7 @@ stateDiagram-v2
     rotation_close --> record_conflict : gates.rotation_close_verdict.exit_code: 125
     rotation_done --> done : deleted: deleted
     rotation_step --> rotation_close : step_result: done
-    rotation_step --> rotation_close : step_result: handed_over
+    rotation_step --> done_handed_over : step_result: handed_over
     start --> start_posture : gates.start_verdict.exit_code: 20
     start --> start_posture : gates.start_verdict.exit_code: 21
     start --> done_not_active : gates.start_verdict.exit_code: 22
