@@ -254,6 +254,17 @@ printf '%s' "$out" | jq -e '.holdings[0].state == "pull request not verified" an
 out=$(printf '{"schema":"coordinate-reconcile-report/v1","header":1}' | bash "$S" md 2>/dev/null); rc=$?
 [ "$rc" = 65 ] && ok "md refuses a malformed report with 65" || bad "md refuses a malformed report with 65" "rc=$rc"
 
+echo "== inventory not taken, missing facts =="
+INV='{"kind":"inventory","status":"ok","taken":false,"reason":"instance directory unreadable"}'
+out=$(facts "[$(holding t7 "[$INV]" '{"pull_request":"none yet"}')]")
+printf '%s' "$out" | render | grep -q 'inventory could not be taken (instance directory unreadable)' \
+  && ok "an inventory not taken carries its reason" || bad "an inventory not taken carries its reason" "$(printf '%s' "$out" | render)"
+printf '%s' "$out" | report | jq -e '.not_verified | any(.what == "t7: inventory" and .reason == "instance directory unreadable")' >/dev/null \
+  && ok "an inventory not taken is listed as not verified" || bad "an inventory not taken is listed as not verified"
+facts '[]' '[{"row":{"action":"merge","target":"acme/widgets#3"}}]' | report | jq -e '.side_effects[0].code == "not_rechecked" and .side_effects[0].grade == "inferred"' >/dev/null \
+  && ok "a side effect with no fact is not re-checked" || bad "a side effect with no fact is not re-checked"
+check_next "a lowercase merged state still drops" "$(holding a "[$(pr merged "$VH")]")" "drop from holdings"
+
 echo "== purity =="
 EMPTYBIN=$(mktemp -d)
 ln -s "$(command -v jq)" "$EMPTYBIN/jq"

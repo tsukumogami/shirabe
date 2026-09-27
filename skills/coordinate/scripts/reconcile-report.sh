@@ -16,7 +16,8 @@
 #                                            which is how the pass renders
 #                                            the report it sealed
 #
-# Exit codes: 0 written; 64 usage error; 65 the input is not a facts document.
+# Exit codes: 0 written; 64 usage error; 65 the input is not a facts document
+# (or, for md, not a well-formed report document), or can't be built.
 #
 # Requires: bash 3.2+, jq.
 #
@@ -132,7 +133,8 @@ esac
 
 # The report, computed once. Everything the rendering prints comes from here.
 REPORT_JQ='
-def fact($k): (.facts // []) | map(select(.kind == $k)) | .[0];
+def fact($k): (.facts // []) | map(select(.kind == $k)) | .[0]
+  | if . != null and $k == "pr" then .state = ((.state // "") | ascii_upcase) else . end;
 def ok($f): $f != null and $f.status == "ok";
 def safe_path: if type == "string" and startswith("/") then "(absolute path withheld)" else . end;
 def topic: .row.worker // "(no worker)";
@@ -270,8 +272,9 @@ def changes_of($written):
                        (if (($inv.items // []) | length) == 0 then "nothing unique found"
                         else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
-                     else "inventory could not be taken" end)}],
-    side_effects: [$in.side_effects[]? | ((.fact.status // "ok") == "ok") as $read
+                     else "inventory could not be taken" + (if ($inv.reason // "") != "" then " (" + $inv.reason + ")" else "" end) end)}],
+    side_effects: [$in.side_effects[]? | (.fact // {verdict: "not_rechecked"}) as $fact | . + {fact: $fact}
+      | ((.fact.status // "ok") == "ok") as $read
       | {action: (.row.action // ""), target: (.row.target // ""),
         code: (if $read then (.fact.verdict // "not_rechecked") else "not_verified" end),
         verdict: (if $read then (.fact.verdict // "not_rechecked" | gsub("_"; " ")) else "not verified" end),
@@ -289,6 +292,9 @@ def changes_of($written):
       + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), reason: ("refused: " + .refused), raw: null}]
       + [$in.holdings[]? | topic as $t | (.facts // [])[] | select(.status != "ok")
           | {what: ($t + ": " + .kind), reason: (.reason // "read failed"), raw: null}]
+      + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
+          | select(ok($inv) and $inv.taken != true)
+          | {what: ($t + ": inventory"), reason: ($inv.reason // "inventory not taken"), raw: null}]
       + [$in.holdings[]? | select(phase_known | not)
           | {what: ("holding " + topic + ": phase"), reason: ("unrecognised phase value; marked executing"), raw: null}]
       + [$in.deferrals[]? | select((.status // "ok") != "ok")
