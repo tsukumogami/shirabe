@@ -132,6 +132,12 @@ fi
 
 k() { (cd "$FIXREPO" && koto "$@"); }
 
+# record_write_set <session> — write the `repos` record write_set_record's
+# script would have made, so repos_recorded is satisfied by its real input. The
+# fixture has no origin remote for the script to read, so the value is a fixed
+# owner/repo inside the gate's pattern.
+record_write_set() { printf 'o/r' | k context add "$1" repos >/dev/null 2>&1; }
+
 # session_var <session> <VAR> — the variable's effective value from the log.
 session_var() {
     local dir
@@ -291,6 +297,17 @@ fi
 # A retained paused_for_review session: replaced, and resumed as the finalize
 # invocation.
 run_open '["docs/plans/PLAN-paused.md"]'
+FIRST_RUN_ID=$(k context get execute-paused run_id 2>/dev/null)
+if [[ $FIRST_RUN_ID =~ ^[0-9a-f]{32}$ ]]; then
+    pass "an opened session carries a run identity (run_id)"
+else
+    fail "no run_id after open: [$FIRST_RUN_ID]"
+fi
+# The first hop leaves write_set_record across repos_recorded, which is
+# overridable: false. From koto 0.14 (koto#257) a directed hop across such a
+# gate is refused unless the gate's current result satisfies the edge, so the
+# walk records the write set first, as write_set_record's own script would.
+record_write_set execute-paused
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
     k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
@@ -302,6 +319,11 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
         pass "a retained pause is replaced, and the resume passes PAUSE_BEFORE_FINALIZE=false"
     else
         fail "paused resume: out [$OUT], PAUSE [$(session_var execute-paused PAUSE_BEFORE_FINALIZE)]; $ERR"
+    fi
+    if [ "$(k context get execute-paused run_id 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+        pass "the replacement carries the finished run's identity, so it still owns that run's PR"
+    else
+        fail "run_id after replacement: [$(k context get execute-paused run_id 2>/dev/null)], was [$FIRST_RUN_ID]"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"
@@ -368,6 +390,7 @@ fi
 
 # A retained terminal execute.md session is replaced by the coordinated run.
 run_open '["docs/plans/PLAN-swap.md"]'
+record_write_set execute-swap
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
     k next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1

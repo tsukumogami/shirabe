@@ -867,6 +867,27 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
+      # The shape checks pre_pr_evidence makes, made again here where summary.md
+      # and pre_pr.md are written. They gate the advancing edge only and no edge
+      # routes their failure anywhere, so a malformed artifact holds the run in
+      # this state with the failing gate named, and the agent fixes it in place.
+      # At pre_pr_evidence the same failure ends the run at done_blocked, and for
+      # a child that terminal also disposes of its log (tsukumogami/koto#240) -- the gates
+      # there stay as the backstop, and these keep a run from reaching them with
+      # a shape it could still have fixed. The patterns must stay identical to
+      # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
+      summary_shape:
+        type: context-matches
+        key: summary.md
+        pattern: "## Changes Made"
+      cleanup_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+      diagram_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
     accepts:
       finalization_status:
         type: enum
@@ -886,10 +907,14 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
+      # It also requires both artifacts to have the shape pre_pr_evidence checks.
       - target: pre_pr_evidence
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: true
       # deferral must be a surfaced human decision, never a clean self-report (Decision E).
       - target: deferral_approval
         when:
@@ -906,6 +931,21 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
+      # The same early shape checks as finalization, for the same reason: this
+      # edge also leads to pre_pr_evidence, and a shape failure there is a
+      # terminal. The rejected edge stays ungated.
+      summary_shape:
+        type: context-matches
+        key: summary.md
+        pattern: "## Changes Made"
+      cleanup_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+      diagram_referent:
+        type: context-matches
+        key: pre_pr.md
+        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
     accepts:
       approval_decision:
         type: enum
@@ -921,6 +961,9 @@ states:
         when:
           approval_decision: approved
           gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.matches: true
+          gates.diagram_referent.matches: true
       - target: done_blocked
         when:
           approval_decision: rejected
@@ -942,7 +985,9 @@ states:
     # artifact whose shape a gate checks.
     gates:
       # The summary exists by the time this state is reached -- both edges into
-      # it require it -- so this checks its SHAPE, not its presence.
+      # it require it -- so this checks its SHAPE, not its presence. Both edges
+      # also check this shape and the two referents below, holding in place on a
+      # failure, so here the three are the backstop.
       summary_shape:
         type: context-matches
         key: summary.md
@@ -1806,7 +1851,39 @@ Evidence schema:
 ## finalization
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
-format. Output: koto context key `summary.md`.
+format. Output: koto context keys `summary.md` and `pre_pr.md`, both written here,
+before you submit `ready_for_pr` or `deferral_requested`. The deferral edge
+doesn't check them, but an approved deferral does, so writing them first keeps
+the human's approval from stopping on an edit.
+
+Two shapes are required, and `ready_for_pr` does not advance without them:
+
+- `summary.md` must contain a `## Changes Made` heading, spelled exactly that way.
+- `pre_pr.md` must contain a line `cleanup_commit: <sha>` (7 to 40 hex characters)
+  and a line `design_diagram: docs/<path>.md` or
+  `design_diagram: not-applicable: <reason>`. The form is hyphenated and carries a
+  reason; the evidence enum `not_applicable` at `pre_pr_evidence` is a different
+  thing and does not satisfy it. When the issue body carries a `Design:`
+  reference, update that diagram now (phase-5 says how) and record its path.
+
+```bash
+cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
+cleanup_commit: $(git rev-parse HEAD)
+design_diagram: not-applicable: no design document is touched
+EOF
+```
+
+The same shapes are checked again at `pre_pr_evidence`, where a failure ends the
+run at `done_blocked`. Here a failure only holds: the submission matches no edge,
+the state stays `finalization`, and `blocking_conditions` names the failing gate.
+Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
+
+- `summary_exists` or `summary_shape` failed: write `summary.md` with a
+  `## Changes Made` section.
+- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, a sha
+  and not a word such as `done`.
+- `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
+  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
 
 Reaching this state means verification ran and passed (the `verification` state only
 routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
@@ -1831,6 +1908,13 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   `koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'`,
   then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
+  `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
+  lacks the required shape. Fix that artifact with `koto context add` and submit
+  again: `summary_exists` and `summary_shape` need a `summary.md` with a
+  `## Changes Made` heading;
+  `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`;
+  `diagram_referent` needs `design_diagram: docs/<path>.md` or
+  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
 - If the human **rejects** the deferral: the issue is not done. Submit
   `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
 
@@ -1841,14 +1925,8 @@ Evidence schema:
 ## pre_pr_evidence
 
 The finishing obligations that can be decided before a pull request exists.
-Record them, then submit.
-
-```bash
-cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
-cleanup_commit: $(git rev-parse HEAD)
-design_diagram: docs/designs/DESIGN-<topic>.md
-EOF
-```
+`pre_pr.md` was written and its shape checked at `finalization`; don't rewrite
+it here. Its two lines are the referents:
 
 `cleanup_commit` is the commit whose diff you reviewed for debug statements,
 commented-out code, addressed TODOs and unused imports. `design_diagram` is the
@@ -1857,15 +1935,21 @@ touches no design document. Both are checked for shape, so a word standing in
 for a referent fails the state rather than satisfying it — that is the point of
 asking for them rather than for a claim that the work was done.
 
-Then submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
-`none_found`) and `design_diagram` (`updated` or `not_applicable`).
+Submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
+`none_found`) and `design_diagram` (`updated` or `not_applicable`). The
+evidence value is the underscored enum; the `pre_pr.md` line is the hyphenated
+form with a reason. They are different fields and neither accepts the other's
+spelling.
 
 If an obligation cannot be met, submit `pre_pr_status: blocked` instead of
 recording a referent you cannot stand behind.
 
 The gates check the summary's shape, the tip commit's subject against
 Conventional Commits, and the two referents. A failing one stops the run before
-the pull request is opened, with the reason naming which.
+the pull request is opened, with the reason naming which. The shape and referent
+checks already held at `finalization`, so here they are the backstop. The
+commit convention is checked only here, because the tip can still move after
+finalization (the summary commit lands there).
 
 `references/finishing-obligations.md` is the table of every finishing obligation
 — which are gate-enforced, which are evidence-carried, and which are

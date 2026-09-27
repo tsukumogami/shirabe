@@ -10,9 +10,11 @@ Review with `git diff main...HEAD` — no unintended changes.
 
 ### Design Document Status
 
-If the issue body contains `Design: \`<path>\``, update the design doc's
-dependency diagram per `phase-6-design-diagram-update.md`. Skip if no
-`Design:` reference.
+Don't update the design diagram here. When the issue body contains
+`Design: \`<path>\``, finalization updated it and `pre_pr.md`'s
+`design_diagram` line names its path. Confirm that path appears in
+`git diff main...HEAD`. If it doesn't, the record and the diff disagree: go
+back through `finalization` rather than updating the diagram at this point.
 
 ## Push Branch
 

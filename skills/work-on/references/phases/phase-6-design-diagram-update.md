@@ -10,6 +10,10 @@ status classes.
 Only if the issue body contains `Design: \`<path>\``. If no design
 reference is found, skip silently.
 
+It runs at finalization, before `pre_pr.md` is recorded, so the record's
+`design_diagram` line names an update that has already happened. The PR phase
+only checks that path against the diff.
+
 ## Steps
 
 ### Extract Design Doc Path
@@ -25,7 +29,8 @@ Before reading the file, validate the path:
 - **Expected directory**: File must be within `docs/` directory
 - **File exists**: Verify file exists at the path
 
-If validation fails, log warning, skip diagram update, continue to Push Branch.
+If validation fails, log a warning, skip the diagram update, and record
+`design_diagram: not-applicable: <why the path failed validation>`.
 
 ### Find and Update Diagram
 

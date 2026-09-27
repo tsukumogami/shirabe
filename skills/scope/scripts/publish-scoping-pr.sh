@@ -7,8 +7,8 @@
 # publish_abandonment) and `republish` have the agent run it, because a push and
 # `gh pr create` are externally visible events and never a default action
 # (references/default-action-conversion.md). Each of those states then gates on
-# this script's --verify mode, which makes no write, so a run cannot claim a PR
-# it did not open.
+# this script's --verify mode, which makes no GitHub or git write, so a run
+# cannot claim a PR it did not open.
 #
 # Publish, in order; any failure stops with its step and no later write:
 #
@@ -28,15 +28,25 @@
 #   5. push with `git push origin HEAD:refs/heads/<branch>` -- never a force
 #      option, never a `+` refspec                           -> scope:push
 #   6. look the PR up through skills/execute/scripts/owned-pr.sh, unchanged,
-#      with --state open and --base <default>:
+#      with --state open, --base <default>, and this run's identity:
 #        one survivor   reused; its body is rewritten with
 #                       `gh pr edit --body-file` only when its intent= field
-#                       differs from --intent
+#                       differs from --intent, keeping any run marker line
+#                       the live body carries (`run-id.sh carry`)
 #        zero           one `gh pr create --head <branch> --base <default>
 #                       --title <title> --body-file <file>` (a foreign-only
 #                       branch counts as zero), then looked up again
-#        several (3)    scope:pr-create, no write
+#        several (3), ambiguous (4), or another run's PR (5)
+#                       scope:pr-create, no write
 #        read fails (2) scope:pr-create, no write
+#
+# The run identity. Every lookup carries --run-id when the script has one:
+# given as --run-id (/deliver's probe passes its own), or read from --session
+# through skills/execute/scripts/run-id.sh get (scope-open.sh minted it). /scope
+# stamps no marker on the PR it opens, so its own PR is matched on owned-pr.sh's
+# login-and-branch fallback; the identity is what keeps a PR another run
+# marked from being reused, edited, or verified. With neither flag (a hand
+# run) the lookups match by login and branch alone.
 #
 # Draft or ready (R9): a draft for a single-pr or coordinated full-run and for
 # the re-evaluation and abandonment-forced exits; ready for a multi-pr
@@ -51,7 +61,8 @@
 # --verify exits 0 only when `git ls-remote origin refs/heads/<branch>` equals
 # `git rev-parse HEAD`, exactly one owned open PR exists on the branch, and,
 # with --expect-intent, that PR's body records `intent=<value>`. It makes no
-# write call of any kind.
+# GitHub or git write, and no koto context write: given --session, it only
+# reads the session's run identity (run-id.sh get).
 #
 # The public-content visibility check. In a repository whose CLAUDE.md (or
 # CLAUDE.local.md) declares `## Repo Visibility: Public`, a wip/ file in
@@ -63,12 +74,14 @@
 #   publish-scoping-pr.sh --topic <slug> --exit <full-run|re-evaluation|abandonment-forced>
 #                         --intent <continue|stop> [--session <name>]
 #   publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>]
+#                         [--session <name> | --run-id <id>]
 #
-# With --session (publish mode only), the script clears the context keys
+# With --session in publish mode, the script clears the context keys
 # publish_step and wip_paths when it starts, writes wip_paths when unpushed
 # history holds any, and writes publish_step (scope:push or scope:pr-create)
 # with `koto context add` when it fails. The publish states route on
-# publish_step through non-overridable context-matches gates.
+# publish_step through non-overridable context-matches gates. In either mode,
+# --session is also where the run identity comes from (run_id, above).
 #
 # Output (stdout, key=value lines):
 #   publish:  mode=<mode>, wip_paths=<comma-joined> when any, pr=<url> on
@@ -78,7 +91,8 @@
 # Exit codes:
 #   publish:  0 published; 10 scope:push; 11 scope:pr-create; 64 usage;
 #             66 a koto context call failed
-#   verify:   0 verified; 1 not verified; 2 could not read; 64 usage
+#   verify:   0 verified; 1 not verified; 2 could not read; 64 usage;
+#             66 the run identity could not be read
 #
 # Requires: bash 3.2+, git, gh, jq; shirabe for a coordinated body; koto with
 # --session.
@@ -92,20 +106,22 @@ RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_PR_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
 RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+RE_RUN_ID='^[0-9a-f]{32}$'
+RUNID="$HERE/../../execute/scripts/run-id.sh"
 DECLARATION='> This is a **coordination PR** for a coordinated effort. It is docs-only and'
 
 usage() {
     printf '%s: %s\n' "$PROG" "$1" >&2
     printf 'usage: publish-scoping-pr.sh --topic <slug> --exit <exit> --intent <continue|stop> [--session <name>]\n' >&2
-    printf '       publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>]\n' >&2
+    printf '       publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>] [--session <name> | --run-id <id>]\n' >&2
     exit 64
 }
 
-TOPIC=""; EXIT=""; INTENT=""; SESSION=""; VERIFY=0; EXPECT=""
+TOPIC=""; EXIT=""; INTENT=""; SESSION=""; VERIFY=0; EXPECT=""; RUN_ID=""
 SEEN=" "
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --topic|--exit|--intent|--session|--expect-intent)
+        --topic|--exit|--intent|--session|--expect-intent|--run-id)
             [ "$#" -ge 2 ] || usage "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -115,6 +131,7 @@ while [ "$#" -gt 0 ]; do
                 --intent) INTENT="$2" ;;
                 --session) SESSION="$2" ;;
                 --expect-intent) EXPECT="$2" ;;
+                --run-id) RUN_ID="$2" ;;
             esac
             shift ;;
         --verify)
@@ -127,18 +144,41 @@ done
 
 [[ "$TOPIC" =~ $RE_TOPIC ]] || usage "--topic [$TOPIC] does not match $RE_TOPIC"
 if [ "$VERIFY" -eq 1 ]; then
-    [ -z "$EXIT$INTENT$SESSION" ] || usage "--verify takes only --topic and --expect-intent"
+    [ -z "$EXIT$INTENT" ] || usage "--verify takes only --topic, --expect-intent, and --session or --run-id"
     case "$SEEN" in
         *" --expect-intent "*) case "$EXPECT" in continue|stop) ;; *) usage "--expect-intent must be continue or stop" ;; esac ;;
     esac
+    case "$SEEN" in *" --session "*) case "$SEEN" in *" --run-id "*) usage "--session and --run-id are exclusive" ;; esac ;; esac
+    if [ -n "$SESSION" ] && ! [[ "$SESSION" =~ $RE_SESSION ]]; then
+        usage "--session [$SESSION] is not a koto session name"
+    fi
+    case "$SEEN" in
+        *" --run-id "*) [[ "$RUN_ID" =~ $RE_RUN_ID ]] || usage "--run-id [$RUN_ID] is not a run id" ;;
+    esac
 else
     case "$SEEN" in *" --expect-intent "*) usage "--expect-intent goes with --verify" ;; esac
+    case "$SEEN" in *" --run-id "*) usage "--run-id goes with --verify; publish reads it from --session" ;; esac
     case "$EXIT" in full-run|re-evaluation|abandonment-forced) ;; *) usage "--exit must be full-run, re-evaluation or abandonment-forced" ;; esac
     case "$INTENT" in continue|stop) ;; *) usage "--intent must be continue or stop" ;; esac
     if [ -n "$SESSION" ] && ! [[ "$SESSION" =~ $RE_SESSION ]]; then
         usage "--session [$SESSION] is not a koto session name"
     fi
 fi
+
+# resolve_run_id -- the run identity every lookup carries: --run-id as given,
+# else the session's (run-id.sh get; never minted here), else none. Sets OWNED_RUN to the
+# owned-pr.sh arguments.
+OWNED_RUN=()
+resolve_run_id() {
+    if [ -z "$RUN_ID" ] && [ -n "$SESSION" ]; then
+        RUN_ID=$(bash "$RUNID" get "${KOTO_TICK_SESSION:-$SESSION}" </dev/null) || {
+            printf '%s: could not read this run'"'"'s identity\n' "$PROG" >&2
+            exit 66
+        }
+    fi
+    if [ -n "$RUN_ID" ]; then OWNED_RUN=(--run-id "$RUN_ID"); fi
+    return 0
+}
 
 PLAN="docs/plans/PLAN-${TOPIC}.md"
 SCRATCH=""
@@ -191,6 +231,7 @@ body_intent() {
 if [ "$VERIFY" -eq 1 ]; then
     not_verified() { printf '%s: not verified: %s\n' "$PROG" "$1" >&2; exit 1; }
     unreadable()   { printf '%s: cannot verify: %s\n' "$PROG" "$1" >&2; exit 2; }
+    resolve_run_id
 
     BRANCH=$(git symbolic-ref --quiet --short HEAD) || not_verified "HEAD is detached"
     git remote get-url origin >/dev/null || not_verified "no origin remote"
@@ -202,11 +243,12 @@ if [ "$VERIFY" -eq 1 ]; then
     DEFAULT=$(default_branch)
     [ -n "$DEFAULT" ] || unreadable "the default branch cannot be read"
     REPO=$(repo_name) || unreadable "the repository name cannot be read"
-    URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --base "$DEFAULT" </dev/null)
+    URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --base "$DEFAULT" ${OWNED_RUN[@]+"${OWNED_RUN[@]}"} </dev/null)
     RC=$?
     case "$RC" in
         0) ;;
-        3) not_verified "several owned open PRs on $BRANCH" ;;
+        3|4) not_verified "several owned open PRs on $BRANCH, or an ambiguous lookup (owned-pr.sh exit $RC)" ;;
+        5) not_verified "the PR on $BRANCH was opened by another run" ;;
         *) unreadable "owned-pr.sh exited $RC" ;;
     esac
     [ -n "$URL" ] || not_verified "no owned open PR on $BRANCH"
@@ -245,6 +287,7 @@ fail() { # fail <step> <message>
 
 ctx remove publish_step
 ctx remove wip_paths
+resolve_run_id
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/publish-scoping-pr.XXXXXX") || fail scope:push "could not make a scratch directory"
 
@@ -315,6 +358,15 @@ if [ -n "$WIP_PATHS" ]; then
     ctx add wip_paths "$JOINED"
     if [ "$PUBLIC" -eq 1 ]; then
         HIT=""
+        # The path list and each blob go to files, and grep's own status on
+        # the file decides. Piped into `grep -q`, an early match ends grep
+        # while the writer is still going, the writer dies of SIGPIPE, and
+        # under pipefail the pipeline's 141 read as "no match": a listed path
+        # was skipped unscanned, or a blob with a hit passed, and the push went
+        # through. Here 0 is a match, 1 is none, and anything else refuses.
+        # tsukumogami/shirabe#436 tracks the same shape elsewhere.
+        printf '%s\n' "$WIP_PATHS" >"$SCRATCH/wip_paths" \
+            || fail scope:push "cannot stage the wip/ path list for the visibility check; nothing was pushed"
         # Every version of every listed path that an unpushed commit holds:
         # each commit's own wip/ tree, filtered to the listed paths, so no
         # path is asked of a commit that does not have it.
@@ -322,11 +374,24 @@ if [ -n "$WIP_PATHS" ]; then
             TREE_PATHS=$(git ls-tree -r --name-only "$c" -- wip/) || fail scope:push "cannot read the tree of $c"
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
-                printf '%s\n' "$WIP_PATHS" | grep -qxF -- "$p" || continue
-                if git cat-file -p "$c:$p" \
-                    | grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private'; then
-                    HIT="$p"; break
-                fi
+                LISTED=0
+                grep -qxF -- "$p" "$SCRATCH/wip_paths" || LISTED=$?
+                case "$LISTED" in
+                    0) ;;
+                    1) continue ;;
+                    *) fail scope:push "the visibility check could not match $p against the wip/ list (grep exit $LISTED); nothing was pushed" ;;
+                esac
+                # A path git prints quoted (unusual characters) can't be read
+                # back by that name, and refuses here rather than going unscanned.
+                git cat-file -p "$c:$p" >"$SCRATCH/blob" \
+                    || fail scope:push "cannot read $p at $c for the visibility check (a quoted or unreadable path); nothing was pushed"
+                SCAN=0
+                grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCRATCH/blob" || SCAN=$?
+                case "$SCAN" in
+                    0) HIT="$p"; break ;;
+                    1) ;;
+                    *) fail scope:push "the visibility check could not scan $p at $c (grep exit $SCAN); nothing was pushed" ;;
+                esac
             done <<EOF
 $TREE_PATHS
 EOF
@@ -424,14 +489,15 @@ BODY="$SCRATCH/body.md"
 render_body "$BODY"
 
 lookup() {
-    URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --base "$DEFAULT" </dev/null)
+    URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --base "$DEFAULT" ${OWNED_RUN[@]+"${OWNED_RUN[@]}"} </dev/null)
     LRC=$?
 }
 
 lookup
 case "$LRC" in
     0) ;;
-    3) fail scope:pr-create "several owned open PRs on $BRANCH; refusing to pick one" ;;
+    3|4) fail scope:pr-create "several owned open PRs on $BRANCH, or an ambiguous lookup (owned-pr.sh exit $LRC); refusing to pick one" ;;
+    5) fail scope:pr-create "the PR on $BRANCH was opened by another run; not reusing it" ;;
     *) fail scope:pr-create "the owned-PR lookup failed (owned-pr.sh exit $LRC)" ;;
 esac
 
@@ -439,6 +505,11 @@ if [ -n "$URL" ]; then
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
     GOT=$(body_intent "$URL") || fail scope:pr-create "the owned PR's body cannot be read"
     if [ "$GOT" != "$INTENT" ]; then
+        # A full-body rewrite keeps whatever run marker the live body carries.
+        gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
+            || fail scope:pr-create "the owned PR's body cannot be read"
+        bash "$RUNID" carry "$SCRATCH/live-body.md" "$BODY" </dev/null \
+            || fail scope:pr-create "could not carry the PR's run marker into the new body"
         gh pr edit "$URL" --body-file "$BODY" </dev/null >&2 \
             || fail scope:pr-create "gh pr edit --body-file failed"
     fi

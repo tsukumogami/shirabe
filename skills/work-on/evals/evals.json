@@ -519,6 +519,22 @@
     },
     {
       "id": 41,
+      "name": "finalization-writes-shaped-record",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #152 -- verification passed and the workflow is now at `finalization`. The change is a small bug fix touching one Go file and its test, and no design document. Write what this state needs and submit.",
+      "expected_output": "The agent writes two koto context keys before submitting: summary.md with a `## Changes Made` section, and pre_pr.md with a `cleanup_commit: <sha>` line and a `design_diagram: not-applicable: <reason>` line, hyphenated and carrying a reason. It then submits finalization_status: ready_for_pr. It does not defer writing pre_pr.md to pre_pr_evidence, and it does not write the evidence enum `not_applicable` into pre_pr.md. If a submission holds and names a failing gate, it fixes that one artifact in place and submits again rather than escalating or rewinding.",
+      "files": [],
+      "expectations": [
+        "Agent writes summary.md containing a `## Changes Made` heading spelled exactly that way",
+        "Agent writes pre_pr.md at finalization, before submitting ready_for_pr, not later at pre_pr_evidence",
+        "pre_pr.md carries `cleanup_commit:` followed by a commit sha, not a word like `done`",
+        "pre_pr.md carries `design_diagram: not-applicable: <reason>` with a reason, not `design_diagram: not_applicable`",
+        "Agent treats a held submission that names summary_shape, cleanup_referent or diagram_referent as a fix-in-place signal and resubmits after correcting that artifact"
+      ]
+    },
+    {
+      "id": 42,
       "name": "staleness-unavailable-degrades",
       "tier": 1,
       "mode": "plan_only",

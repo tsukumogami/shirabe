@@ -304,6 +304,10 @@ VARS_FILE=""   # koto-open.sh removed it on its own exit path
 
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
+    # The run identity every owned-PR lookup of this run carries: minted here,
+    # where the session is born, and only read afterwards (run-id.sh get).
+    bash "$HERE/../../execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
+        || printf '%s: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$PROG" "$SESSION" >&2
     printf 'session=%s\n' "$SESSION"
 else
     printf 'outcome=error\n'

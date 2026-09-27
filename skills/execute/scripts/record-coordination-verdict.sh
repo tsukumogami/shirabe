@@ -31,8 +31,9 @@
 #   1. clear coord_verdict, pr, waiting, resume, reason, and step, so an action
 #      that fails or times out part-way leaves nothing from an earlier entry
 #      for the gates or the result map to read as current;
-#   2. read and check the recorded coord_setup values, then run
-#      coordination-verdict.sh;
+#   2. read and check the recorded coord_setup values and this run's identity
+#      (`run-id.sh get <session>`), then run coordination-verdict.sh with
+#      --run-id, so its lookups never adopt a PR another run opened;
 #   3. check every field against its closed pattern: coord_verdict
 #      ^(merged|ready|paused|dirty|error)$; pr a PR URL; waiting comma-joined
 #      <url>:<human|predecessor>; resume `/execute <plan>[ --merge]`; reason
@@ -48,7 +49,8 @@
 #       was written after the clear
 #   64  usage error (nothing read or written), or a recorded coord_setup
 #       value is missing or invalid (the keys were cleared, nothing written)
-#   70  a koto context clear or write failed
+#   70  a koto context clear or write failed, or the run's identity could not
+#       be read
 #
 # Requires: bash 3.2+, jq, gh, koto.
 set -uo pipefail
@@ -142,9 +144,13 @@ LOOP_LINE=$(ctx_get loop_line)
 [[ $CB =~ $RE_BRANCH ]] || usage_error "the recorded coord_branch [$CB] is missing or invalid"
 [ -z "$ATTEMPTS" ] || [[ $ATTEMPTS =~ $RE_ATTEMPTS ]] || ATTEMPTS=""
 [ -z "$LOOP_LINE" ] || [[ $LOOP_LINE =~ $RE_LOOP_LINE ]] || LOOP_LINE=""
+RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
+    echo "$PROG: could not read this run's identity in session $SESSION" >&2
+    exit 70
+}
 
 set -- --plan "$PLAN" --slug "$SLUG" --repos "$REPOS" --home-repo "$HOME_REPO" \
-    --coord-branch "$CB" --merge "$MERGE"
+    --coord-branch "$CB" --merge "$MERGE" --run-id "$RUN_ID"
 [ -n "$ATTEMPTS" ] && set -- "$@" --attempts "$ATTEMPTS"
 [ -n "$LOOP_LINE" ] && set -- "$@" --loop-line "$LOOP_LINE"
 

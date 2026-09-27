@@ -46,6 +46,7 @@ mkdir -p "$d"
 case "$1 $2" in
     "context add") cat > "$d/$4" ;;
     "context get") [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
+    "context exists") [ -f "$d/$4" ] ;;
     *) exit 9 ;;
 esac
 STUB
@@ -60,7 +61,13 @@ case "$1 ${2:-}" in
     "api user") key=user ;;
     "api repos/"*) key=repo ;;
     "pr list") key=list ;;
-    "pr create") key=create ;;
+    "pr create") key=create
+        # Keep what the PR would be opened with: the --body-file's content.
+        while [ $# -gt 0 ]; do
+            [ "$1" = "--body-file" ] && cp "$2" "$fix/created-body"
+            shift
+        done ;;
+    "pr edit") key=edit ;;
     "repo view") key=repoview ;;
 esac
 n=0; [ -f "$fix/$key.count" ] && n=$(cat "$fix/$key.count"); n=$((n + 1)); echo "$n" > "$fix/$key.count"
@@ -87,7 +94,11 @@ new_case() {
     echo '{"default_branch":"main"}' > "$CASE/repo.out"
     echo '[]' > "$CASE/list.out"
     : > "$CASE/create.out"
+    # The run's identity, as execute-open.sh leaves it at the session's birth;
+    # adopt-or-create-pr.sh only reads it.
+    printf '%s' "$SEEDED" > "$CASE/ctx/$S/run_id"
 }
+SEEDED=00112233445566778899aabbccddeeff
 ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 
 run_adopt() {
@@ -137,10 +148,110 @@ if [ "$RC" -eq 0 ] && [ "$(creates)" -eq 1 ] && [ "$(ctx home_pr)" = "$URL" ]; t
 else
     fail "create: exit $RC, creates $(creates), home_pr [$(ctx home_pr)]"
 fi
-if grep -q '^pr create --draft --repo o/r --head impl/topic --title impl: topic --body Implements docs/plans/PLAN-topic.md.$' "$CASE/gh.log"; then
+if grep -q '^pr create --draft --repo o/r --head impl/topic --title impl: topic --body-file ' "$CASE/gh.log"; then
     pass "the create call is the fixed draft form"
 else
     fail "create call: $(grep '^pr create' "$CASE/gh.log")"
+fi
+RID=$(ctx run_id)
+if [[ $RID =~ ^[0-9a-f]{32}$ ]] \
+    && [ "$(head -1 "$CASE/created-body")" = "Implements docs/plans/PLAN-topic.md." ] \
+    && grep -qxF "<!-- shirabe-run: $RID -->" "$CASE/created-body"; then
+    pass "the created PR's body carries this run's marker, and the run's id is recorded"
+else
+    fail "created body [$(cat "$CASE/created-body" 2>/dev/null)], run_id [$RID]"
+fi
+
+# --- the run marker -------------------------------------------------------------
+
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+marked() { owned "$1" ".body = \"Implements x.\\n\\n<!-- shirabe-run: $2 -->\\n\""; }
+
+new_case marker-mine
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(marked 7 "$MINE")]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic
+if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ]; then
+    pass "the PR this run opened (its marker) is adopted"
+else
+    fail "marker-mine: exit $RC, home_pr [$(ctx home_pr)]"
+fi
+
+new_case marker-foreign
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
+if [ "$RC" -eq 6 ] && [ -z "$(ctx home_pr)" ] && [ "$(creates)" -eq 0 ] \
+    && ! grep -q '^pr edit' "$CASE/gh.log"; then
+    pass "another run's PR on the branch: exit 6, not adopted, nothing created or edited"
+else
+    fail "marker-foreign: exit $RC, home_pr [$(ctx home_pr)], creates $(creates)"
+fi
+
+new_case marker-takeover
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out.1"
+echo "[$(marked 7 "$MINE")]" > "$CASE/list.out.2"
+echo 0 > "$CASE/edit.rc"
+run_adopt --session "$S" --repo o/r --head impl/topic --take-over --plan-slug topic
+if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && [ "$(grep -c '^pr edit' "$CASE/gh.log")" -eq 1 ] \
+    && [ "$(creates)" -eq 0 ]; then
+    pass "--take-over restamps the other run's PR on this PLAN's impl/<slug> and adopts it"
+else
+    fail "marker-takeover: exit $RC, home_pr [$(ctx home_pr)], edits $(grep -c '^pr edit' "$CASE/gh.log")"
+fi
+
+# Cross-PLAN: the branch the user is on (another PLAN's impl/<slug>, a
+# scoping branch, a node branch) carries a live run's marked PR. A takeover
+# there must be refused before any gh or koto call.
+for head in impl/other-plan docs/topic impl/topic-node-a; do
+    new_case "takeover-refused-$(printf '%s' "$head" | tr '/' '-')"
+    echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+    run_adopt --session "$S" --repo o/r --head "$head" --take-over --plan-slug topic
+    if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ] && ! grep -q '^pr edit' "$CASE/gh.log"; then
+        pass "--take-over on $head (not this PLAN's impl/topic) is refused, nothing read or edited"
+    else
+        fail "--take-over on $head: exit $RC, gh [$(cat "$CASE/gh.log")]"
+    fi
+done
+new_case takeover-no-slug
+echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic --take-over
+if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ]; then
+    pass "--take-over without --plan-slug is refused"
+else
+    fail "--take-over without --plan-slug: exit $RC"
+fi
+
+new_case no-identity
+rm -f "$CASE/ctx/$S/run_id"
+echo "[$(owned 7)]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic
+if [ "$RC" -eq 70 ] && [ ! -f "$CASE/ctx/$S/run_id" ] && [ ! -s "$CASE/gh.log" ]; then
+    pass "a session with no run_id: exit 70, no id minted, no lookup made"
+else
+    fail "no-identity: exit $RC, run_id [$(ctx run_id)]"
+fi
+
+new_case marker-unmarked
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(owned 7 '.body = "A /scope PR."')]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic
+if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && ! grep -q '^pr edit' "$CASE/gh.log"; then
+    pass "an unmarked PR (a /scope PR) is adopted on the login-and-branch match, unedited"
+else
+    fail "marker-unmarked: exit $RC, home_pr [$(ctx home_pr)]"
+fi
+
+new_case marker-ambiguous
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(marked 7 "$MINE"),$(owned 8)]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
+if [ "$RC" -eq 3 ] && [ -z "$(ctx home_pr)" ] && [ "$(creates)" -eq 0 ]; then
+    pass "an ambiguous lookup (owned-pr.sh 4) ends pr-adopt (3), nothing recorded or created"
+else
+    fail "marker-ambiguous: exit $RC"
 fi
 
 new_case fork-then-create
@@ -190,7 +301,8 @@ for args in \
     "--session $S --repo o/r --head impl/topic --create" \
     "--session $S --repo o/r --head impl/topic --create --plan-slug Topic --plan-doc x.md" \
     "--session $S --repo o/r --head impl/topic --create --plan-slug topic --plan-doc ../x.md" \
-    "--session $S --repo o/r --head impl/topic --plan-slug topic"; do
+    "--session $S --repo o/r --head impl/topic --plan-slug topic" \
+    "--session $S --repo o/r --head impl/topic --take-over --take-over"; do
     new_case usage
     # shellcheck disable=SC2086
     run_adopt $args

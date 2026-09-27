@@ -216,6 +216,8 @@ eq "each cleanup edge has a parallel publish edge on exit code 0" '[]' \
 for s in publish_full_run publish_re_evaluation publish_abandonment republish; do
     eq "$s verifies with --verify --expect-intent RUN_INTENT" 'true' \
         "$(q ".states.$s.gates.published.command | test(\"publish-scoping-pr\\\\.sh\\\" --topic \\\"{{TOPIC}}\\\" --verify --expect-intent \\\"{{RUN_INTENT}}\\\"\")")"
+    eq "$s verifies with this run's identity (--session scope-TOPIC)" 'true' \
+        "$(q ".states.$s.gates.published.command | test(\"--verify --expect-intent \\\"{{RUN_INTENT}}\\\" --session \\\"scope-{{TOPIC}}\\\"\")")"
     eq "$s routes the failed step on publish_step, not overridable" '["context-matches","publish_step","^scope:push$",false]' \
         "$(q ".states.$s.gates.publish_push | [.type, .key, .pattern, .overridable]")"
     eq "$s: only the push arm assigns scope:push" 'true' \
