@@ -245,8 +245,8 @@ what stops a message from standing in for a leg the worker was bound to.
 ### Components
 
 All scripts live in `skills/coordinate/scripts/`, each with a `_test.sh`
-sibling and fixtures under `skills/coordinate/scripts/testdata/`, on the model
-of `skills/execute/scripts/`. They're reached from the template through the
+sibling that builds its fixtures and stand-ins itself, on the model of
+`skills/execute/scripts/`. They're reached from the template through the
 declared `PLUGIN_ROOT` variable, never `${CLAUDE_PLUGIN_ROOT}`.
 
 | Script | Run by | Does |
@@ -256,8 +256,9 @@ declared `PLUGIN_ROOT` variable, never `${CLAUDE_PLUGIN_ROOT}`.
 | `holding-recorded.sh` | the `dispatch` gate | Reads the record's holding for the topic in `dispatch_topic`: 0 `dispatched`, 1 none, 3 `dispatch-failed`, 4 `dispatching`, 2 unreadable |
 | `wait-target.sh` | the `wait` and `wait_leg` actions | Picks the holding to watch; always prints a token and writes `wait_target` |
 | `report-source.sh` | the `take_report` gate | Refuses a message-path report for a topic whose holding is bound to a leg |
-| `teardown-inventory.sh` | the `teardown` gate | Per-repository durability verdict for one instance |
-| `dispatch-common.sh` | the scripts above | Workspace-root lookup, topic slugging, the entry-point table reader |
+| `teardown-inventory.sh` | the `teardown` action (`--seal`) | Per-repository durability verdict for one instance, sealed through the record feature's seal helper |
+| `teardown-verdict.sh` | the `teardown` gate, and `destroy`'s directive | Reads the sealed verdict only through the seal check; its read mode refuses after a directed transition |
+| `dispatch-common.sh` | the scripts above | Workspace-root lookup, topic slugging and the exact session match, the entry-point table reader, the one invocation builder, and the wrappers around the record feature's `record-holding.sh` and `coord-log.sh` |
 
 `skills/coordinate/references/entry-points.tsv` lists, per entry point, the
 leg name and the template file the leg admits (or `-` when the skill doesn't
@@ -277,7 +278,7 @@ Fields:
 | `topic` | yes | the dispatch topic, `^[a-z0-9][a-z0-9-]*$`, equal to `dispatch_topic` |
 | `repo` | yes | `owner/repo` |
 | `entry_point` | yes | a skill named in `entry-points.tsv` |
-| `entry_args` | yes | the entry point's positional argument and flags, each flag in that entry point's allowed set |
+| `entry_args` | yes | a JSON array of tokens: the positional argument first, then flags, each in that entry point's allowed set; none given twice, never `--auto` with `--interactive`, and a positional carrying no quote, backtick, dollar sign or backslash |
 | `run_mode` | yes | the execution flags, `--auto` unless decided otherwise |
 | `phase` | yes | `scoping-ahead` or `executing` |
 | `authority` | yes | the authority sentence, in the human's voice |
@@ -296,21 +297,24 @@ adds the standing lines (the conventions pointer, the keep-alive note, closes
 and issues reported rather than done, the work-in-flight block), and writes
 the file to `<workspace-root>/.niwa/dispatch-briefs/<topic>.md`.
 
-**Finding the workspace root.** A clone can carry a `.niwa/` directory of its
-own, so the lookup never trusts the first marker it meets. It finds the
-nearest ancestor holding `.niwa/instance.json` (the coordinator's instance)
-and takes that directory's parent, which must hold `.niwa/workspace.toml`;
-when no instance marker exists, the working directory itself must hold
-`.niwa/workspace.toml`. Anything else is exit 2. The topic's pattern keeps the
+**Finding the workspace root.** niwa exposes no workspace root to a process
+(niwa#326), and a clone can carry a `.niwa/` directory of its own, so the
+lookup never trusts the first marker it meets. It finds the nearest ancestor
+holding `.niwa/instance.json`. A niwa workspace root carries that file too, so
+when the same directory also holds `.niwa/workspace.toml` it is the root;
+otherwise it's the coordinator's instance and its parent must hold
+`.niwa/workspace.toml`. When no instance marker exists, the working directory
+itself must hold `.niwa/workspace.toml`. Anything else is exit 2. The topic's pattern keeps the
 brief's path inside the briefs directory.
 
 ### The dispatch script
 
-`dispatch-worker.sh --session <koto-session> --plugin-root <dir>` reads
+`dispatch-worker.sh --session <koto-session>` reads
 `dispatch_topic` and `brief_input.json` from the session's context, refuses
 with exit 2 when their topics differ, takes an exclusive lock on
-`<workspace-root>/.niwa/dispatch-briefs/<topic>.lock` held until it exits, and
-runs:
+`<workspace-root>/.niwa/dispatch-briefs/.<topic>.lock` held until it exits (a
+directory created atomically, taken over when its owner's pid is gone, since
+`flock` isn't on macOS), and runs:
 
 1. **Look up the topic on the record** through the record feature's reader.
    `dispatched`: print `already-dispatched`, exit 0. `dispatch-failed`: exit 3,
@@ -327,8 +331,10 @@ runs:
    The format is niwa's today and is pinned by a test; a name outside it
    counts as no match, which fails toward launching and is caught by the
    record's `dispatching` row.
-3. **Render the brief** with `render-brief.sh`. A refusal exits 1 with nothing
-   written anywhere.
+3. **Check the brief input** with `render-brief.sh`. A refusal exits 1 with
+   nothing written anywhere. The brief is written after step 4, so it shows the
+   same invocation, `--koto-leg` included, as the prompt; `dc_invocation` builds
+   that invocation once for the brief, the prompt and the holding's mode.
 4. **Open the leg** when `entry-points.tsv` gives the entry point one:
    `koto request create --role <leg> --template <file> --inputs <json>
    --requested-by <dispatcher_session> --coordinator-of-record
@@ -356,7 +362,12 @@ runs:
 Exit codes: 0 dispatched or already dispatched, 1 brief refused, 2 usage,
 mismatched topic, no workspace root or unreadable record, 3 topic already
 failed, 4 launch failed, 5 topic in use by a live session, 6 launch outcome
-unknown.
+unknown, 7 another run holds the topic's lock, 8 the record refused the write
+(no open record, or a directed transition in the run log).
+
+niwa doesn't yet report the launched session machine-readably (niwa#325), so
+the session name comes from the `session name:` line of its output, or from
+`niwa list --json`'s `session_name`.
 
 ### The interface with the record feature
 
@@ -366,19 +377,22 @@ feature's template carries them:
 
 | Seam | What this feature needs |
 |---|---|
-| `pick -> dispatch` | the edge writes the context key `dispatch_topic` with `context_assignments`, fresh on every pass |
+| `pick -> dispatch_check -> dispatch` | the pick edge writes the context key `dispatch_topic`, fresh on every pass, and the record feature's deferral gate `dispatch_check` passes it through to `dispatch` |
 | `wait`'s exits | `wait` leaves to `wait_leg` and `take_report`, both added here |
 | `classify_report`'s exits | `verify` on `done`, `dispatch` on `needs_fix`, and the record feature's surface step on `blocked` |
 | unrecorded or refused legs | `wait_leg` leaves to the surface step directly |
 | `land -> quiesce` | land's edge for a finished worker (merged, verified on the default branch, issues closed or handed on, final report in, the two questions asked) goes to `quiesce` instead of straight to `record`, and writes `teardown_topic` |
 | `rebrief -> pick` | a unit whose worker is gone returns to `pick` with its holding |
 | `destroy -> record` | `record` is where the holding row is dropped |
-| holding row | add or replace one row whole, keyed by topic; read one row by topic |
-| holding columns | *Phase* (`scoping-ahead` or `executing`), *Return path* (`<request-id>:<leg>` or `message`), and a dispatch status (`dispatching`, `dispatched`, `dispatch-failed`) the pull request column or a column of its own can carry |
+| holding rows | `record-holding.sh --session <s>` with `--topic <t> --row-file <json>` (add or replace one row whole), `--read --topic <t>` (one row), or `--list` (every row, in record order); it derives the record itself from the session's log. Exit 0, 1 no row (`--read` only), 2 read failed, 10 refused (no open record, failed provenance, or a directed transition in the run), 11 write failed, 64 usage, 65 row refused |
+| holding row keys | `unit`, `entry_point`, `mode`, `phase` (`scoping-ahead` or `executing`), `dispatch_status` (`dispatching`, `dispatched`, `dispatch-failed`), `return_path` (`<request-id>:<leg>` or `message`), `worker`, `repo`, `branch` (empty until known: written in the same write that records the pull request), `verified_head`, `dispatched`, `pull_request` |
+| seals | `coord-log.sh seal --session <s> --state <state> --file <f> --key <k>` stores a verdict and prints `sealed:<seq>:<sha256>`; `check --session <s> --state <state> --sealed <t> --key <k>` prints the verified bytes; `capture --session <s> --name <n>` reads a capture from the log; `directed-since --session <s> --from <seq>` reports directed transitions |
+| `classify_report` | the record feature declares it, with the decider on `worker_report`; this feature adds the routes and its gate on the key |
+| `rebrief`, `teardown` | the record feature declares them; this feature fills them |
 
-The coordinator relayed the columns and the state list to the record feature
-while this design was written; the names above are aligned when its
-interface is published.
+The record feature confirmed each interface above; this feature's scripts
+reach it only through the wrappers in `dispatch-common.sh`, so a later change
+is one edit there.
 
 ### Template states
 
@@ -699,6 +713,9 @@ quiet-worker check bounds how long a resolved leg can go unread.
   state seals its inventory and `destroy`'s reader refuses to destroy on a
   directed entry. The dispatch and wait gates have no seal, so a `--to` past
   `holding_recorded` leaves a missing holding for reconcile to find.
-- **Session names aren't predictable.** niwa appends a random token to
-  `--name`, so the coordinator reads the name from the dispatch output or
-  `niwa list --json` and never derives it.
+- **Session names aren't predictable (niwa#325).** niwa appends a random
+  token to `--name` and doesn't report the launched handle machine-readably,
+  so the coordinator reads the name from the dispatch output or `niwa list
+  --json` and matches it by its whole shape.
+- **No workspace root from niwa (niwa#326).** The scripts walk up to the root,
+  guarded against a clone's own `.niwa/workspace.toml`.
