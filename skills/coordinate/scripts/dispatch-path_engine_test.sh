@@ -269,6 +269,54 @@ start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"leg"}'
 eq  "leg: an explicit result goes to surface, never to take_report" surface "$(at)"
+eq  "leg: a consumed leg is marked for the next pick" yes "$(ctx leg_consumed)"
+
+REQ4=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w7"}' \
+    --requested-by coord --coordinator-of-record coordinate-w7 | jq -r .request_id)
+koto request abandon-request "$REQ4" --rationale "the worker is gone" >/dev/null 2>&1
+rows "[{\"worker\":\"w7\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ4:scope\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "leg: an abandoned leg goes to surface" surface "$(at)"
+
+# A leg the request doesn't have (the holding names the wrong leg) is missing.
+rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:execute\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "leg: a missing leg goes to surface" surface "$(at)"
+
+# While a leg is open, an override record can't stand in for its result.
+REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w8"}' \
+    --requested-by coord --coordinator-of-record coordinate-w8 | jq -r .request_id)
+rows "[{\"worker\":\"w8\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+(cd "$W" && koto overrides record "$SESS" --gate leg_result --rationale "claim" >/dev/null 2>&1)
+tick
+eq  "leg: an override record can't stand in for an open leg's result" wait_leg "$(at)"
+
+# The leg resolves between two ticks and the coordinator submits rescan: the
+# gate takes the result on that evidence tick, where wait_leg's action doesn't
+# run, so the mark has to come from the consuming edge.
+(cd "$T" && koto init scope-w8 --template "$T/tpl/scope.md" --var TOPIC=w8 --koto-leg "$REQ5:scope" >/dev/null 2>&1)
+(cd "$T" && koto next scope-w8 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+tick --with-data '{"watch":"rescan"}'
+eq  "leg: a result taken on a rescan tick reaches report_facts" report_facts "$(at)"
+eq  "leg: that edge marks the leg consumed" yes "$(ctx leg_consumed)"
+TARGET8=$(ctx wait_target)
+start
+tick --with-data '{"go":"wait"}'
+put wait_target "$TARGET8"
+put leg_consumed yes
+tick --with-data '{"event":"leg"}'
+eq  "leg: a leg consumed on a rescan tick isn't read again" wait "$(at)"
+case "$(ctx taken_legs)" in
+    *"$REQ5:scope"*) pass "leg: the next pick marks it taken" ;;
+    *) fail "leg: the next pick marks it taken" "$(ctx taken_legs)" ;;
+esac
 
 # --- the message path ---------------------------------------------------------------------------------
 
@@ -294,6 +342,34 @@ tick
 eq  "message: an override record can't stand in for the text" take_report "$(at)"
 tick --with-data '{"withdrawn":"withdrawn"}'
 eq  "message: withdrawn returns to the hub" wait "$(at)"
+eq  "message: the hub clears the report's topic" "" "$(ctx report_topic)"
+
+# A report with no topic can't be checked against the record: it holds, no
+# override record moves it, and withdrawn is its way back.
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","report":"done"}'
+eq  "message: a report naming no worker holds" take_report "$(at)"
+(cd "$W" && koto overrides record "$SESS" --gate report_source_ok --rationale "claim" >/dev/null 2>&1)
+tick
+eq  "message: an override record can't stand in for the source check" take_report "$(at)"
+tick --with-data '{"withdrawn":"withdrawn"}'
+eq  "message: withdrawn returns to the hub when the record can't be read for it" wait "$(at)"
+
+# The context keys a leg report rests on can be rewritten in the session; a
+# report rewritten that way is refused because it isn't what koto holds for
+# the leg.
+rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
+       {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","unit":"w3"}'
+put report_topic w1
+put report_source leg
+put wait_target "{\"path\":\"leg\",\"topic\":\"w1\",\"request\":\"$REQ\",\"leg\":\"scope\",\"disposition\":\"resolved\"}"
+put worker_report "leg result: status success; final state done; outcome scoped; step ; reason ; pull request https://github.com/acme/widgets/pull/666"
+tick
+eq  "message: a leg report rewritten in context is refused" wait "$(at)"
 
 # --- teardown ------------------------------------------------------------------------------------------
 
@@ -342,6 +418,26 @@ tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"retire","unit":"w5"}'
 tick --with-data '{"teardown":"kept"}'
 eq  "teardown: kept goes to record with no inventory" record "$(at)"
+eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
+
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"retire","unit":"w5"}'
+tick --with-data '{"teardown":"stopped"}'
+tick --with-data '{"destroyed":"refused"}'
+eq  "teardown: a refused verdict read goes to surface, destroying nothing" surface "$(at)"
+
+# A worker with no instance can't be inventoried: the verdict is sealed as an
+# error and goes to the human, rather than holding the run at the inventory.
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"retire","unit":"w9"}'
+tick --with-data '{"teardown":"stopped"}'
+eq  "teardown: no instance for the worker goes to surface" surface "$(at)"
+case "$(ctx teardown_verdict)" in
+    error*) pass "teardown: that verdict is sealed as an error" ;;
+    *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;
+esac
 
 echo
 echo "dispatch-path engine: $PASS passed, $FAIL failed"

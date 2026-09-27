@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # teardown-verdict.sh -- read the teardown inventory's sealed verdict.
 #
-# teardown-inventory.sh --seal runs as the teardown state's default action and
+# teardown-inventory.sh --seal runs as the teardown_inventory state's default action and
 # seals its verdict in the context key `teardown_verdict` through the record
 # feature's coord-log.sh, which the state captures as TEARDOWN_SEAL. This
 # script is the only reader of that verdict, and it reads it only through the
@@ -20,7 +20,7 @@
 #       named. Prints the verdict, whose `instance <path>` line is the one
 #       instance the directive may destroy, when the seal checks, the verdict is
 #       durable, and the session log shows no directed transition (`koto next
-#       --to`, which skips gates; koto#251) since the sealed teardown entry.
+#       --to`, which skips gates; koto#251) since the sealed teardown_inventory entry.
 #       Refuses otherwise.
 #
 # Exit codes:
@@ -62,7 +62,7 @@ CAPTURED=$(dc_capture "$SESSION" TEARDOWN_SEAL) || { printf '%s: cannot read the
 TOKEN=$(printf '%s' "$CAPTURED" | grep -Eo 'sealed:[0-9]+:[0-9a-f]{64}' | tail -1)
 [ -n "$TOKEN" ] || { printf '%s: TEARDOWN_SEAL holds no seal\n' "$PROG" >&2; exit 3; }
 
-VERDICT=$(dc_seal_check "$SESSION" teardown "$TOKEN" teardown_verdict)
+VERDICT=$(dc_seal_check "$SESSION" teardown_inventory "$TOKEN" teardown_verdict)
 case "$?" in
     0) ;;
     1) printf '%s: the teardown verdict does not match its seal\n' "$PROG" >&2; exit 3 ;;

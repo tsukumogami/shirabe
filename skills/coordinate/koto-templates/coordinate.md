@@ -596,6 +596,9 @@ states:
       - target: wait
         when:
           gates.leg_target.matches: false
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
 
   wait_leg:
     # One leg, read through a request-leg gate. wait-target.sh leg names it
@@ -604,6 +607,9 @@ states:
     # Only a result the worker's own session promoted reaches take_report; an
     # explicit or refused result, or an abandoned or missing leg, means the
     # worker recorded no result, which goes to the human.
+    # Every edge that consumes the leg sets leg_consumed, and leg_pick marks
+    # the leg taken from it: an evidence tick here doesn't run the action, so
+    # the action alone can't mark a leg that resolved between two ticks.
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/wait-target.sh" leg --session "{{SESSION_NAME}}"'
       capture_stdout_as: WAIT_LEG
@@ -626,22 +632,31 @@ states:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: promoted
         context_assignments:
-          worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.outcome}; step ${gates.leg_result.step}; reason ${gates.leg_result.reason}; pull request ${gates.leg_result.payload.pr}"
+          worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.payload.outcome}; step ${gates.leg_result.payload.step}; reason ${gates.leg_result.payload.reason}; pull request ${gates.leg_result.payload.pr}"
           report_source: leg
+          leg_consumed: "yes"
       - target: surface
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: explicit
+        context_assignments:
+          leg_consumed: "yes"
       - target: surface
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: refused
+        context_assignments:
+          leg_consumed: "yes"
       - target: surface
         when:
           gates.leg_result.disposition: abandoned
+        context_assignments:
+          leg_consumed: "yes"
       - target: surface
         when:
           gates.leg_result.disposition: missing
+        context_assignments:
+          leg_consumed: "yes"
       - target: leg_pick
         when:
           gates.leg_result.disposition: open
@@ -650,6 +665,9 @@ states:
         when:
           gates.leg_result.disposition: open
           watch: back
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
 
   take_report:
     # Both return paths meet here. report_present needs the report's text in
@@ -682,11 +700,22 @@ states:
           gates.report_source_ok.exit_code: 1
         context_assignments:
           worker_report: ""
+          report_topic: ""
       - target: wait
         when:
           gates.report_source_ok.exit_code: 0
           gates.report_present.matches: false
           withdrawn: withdrawn
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      - target: wait
+        when:
+          gates.report_source_ok.exit_code: 2
+          withdrawn: withdrawn
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
 
   report_facts:
     default_action:
@@ -762,6 +791,9 @@ states:
       - target: wait
         when:
           sent: sent
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: pick_facts
         when:
           sent: worker_gone
@@ -923,6 +955,9 @@ states:
           surfaced: blocker
 
   teardown:
+    # teardown_topic is written by wait's retire edge and cleared on every
+    # edge that leaves the teardown states, so a later entry can't inventory
+    # or destroy a worker an earlier retire named.
     # The finish check and the two questions to the worker come first; then
     # the worker's session is stopped, so nothing writes to its instance
     # between the inventory and the destroy. A gate runs when its state is
@@ -940,6 +975,8 @@ states:
       - target: record
         when:
           teardown: kept
+        context_assignments:
+          teardown_topic: ""
 
   teardown_inventory:
     # teardown-inventory.sh --seal reads teardown_topic, inventories every
@@ -969,9 +1006,13 @@ states:
       - target: surface
         when:
           gates.inventory_durable.exit_code: 2
+        context_assignments:
+          teardown_topic: ""
       - target: surface
         when:
           gates.inventory_durable.exit_code: 3
+        context_assignments:
+          teardown_topic: ""
 
   promote:
     accepts:
@@ -987,21 +1028,32 @@ states:
       - target: surface
         when:
           promoted: escalate
+        context_assignments:
+          teardown_topic: ""
 
   destroy:
     accepts:
       destroyed:
         type: enum
-        values: [destroyed, handed_over]
+        values: [destroyed, handed_over, refused]
         required: true
-        description: destroyed after the one inventoried instance was destroyed; handed_over when the posture reserves it for a person.
+        description: destroyed after the one inventoried instance was destroyed; handed_over when the posture reserves it for a person; refused when teardown-verdict.sh read refused, and nothing was destroyed.
     transitions:
       - target: record
         when:
           destroyed: destroyed
+        context_assignments:
+          teardown_topic: ""
       - target: record
         when:
           destroyed: handed_over
+        context_assignments:
+          teardown_topic: ""
+      - target: surface
+        when:
+          destroyed: refused
+        context_assignments:
+          teardown_topic: ""
 
   quiet_check:
     default_action:
@@ -1656,15 +1708,18 @@ doesn't bring the same result back.
 ## take_report
 
 Checking the report before anything reads it. When it stops here with the
-report empty, go back with `withdrawn: withdrawn` and submit the report event
-again with the message as `report`.
+report empty, or because the record couldn't be read, go back with
+`withdrawn: withdrawn` and submit the report event again, with the message as
+`report`.
 
 <!-- details -->
 
 A report is admitted only when it has text and when it may stand for its
 worker: a message for a worker on the message path, or a leg result for the leg
 the record names. A message for a leg-bound worker goes back to the hub; read
-that worker's leg instead.
+that worker's leg instead. A leg report must be exactly the result koto holds
+for that leg, promoted by the worker's own session; the gate reads the leg
+from koto rather than trusting the report's text.
 
 ## report_facts
 
@@ -1888,7 +1943,9 @@ Read the verdict with `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdi
 read --session "{{SESSION_NAME}}"` and destroy only the instance its `instance`
 line names, with `niwa destroy <instance>`, one instance, never `niwa reap` or
 any form that takes no target; then submit `destroyed: destroyed`, or
-`handed_over` when the posture reserves the destroy for a person.
+`handed_over` when the posture reserves the destroy for a person. When the
+reader refuses, destroy nothing and submit `destroyed: refused`, which takes
+it to the human.
 
 <!-- details -->
 
@@ -1896,8 +1953,10 @@ The reader refuses (exit 4) when the run was moved by a directed transition
 since the inventory (koto#251), and refuses a verdict edited after sealing or
 taken for another worker; don't destroy then. `niwa destroy` refuses an
 instance whose branches were squash-merged (niwa#322); pass `--force` only
-because the sealed inventory just proved every repository durable. Record the
-worker's holding as finished after.
+because the sealed inventory just proved every repository durable. Then remove
+the worker's holding from the record. When the destroy is handed to a person,
+also add a Side effects row whose target is `instance of <topic>`: the record
+names a worker by its dispatch topic, never by its instance path.
 ## quiet_check
 
 Sweeping for quiet workers. koto runs `quiet-check.sh` itself; it counts each

@@ -212,8 +212,20 @@ bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 
 
 src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
 reset "$ROWS"
+# req_g's execute leg, resolved with a result gamma's own session promoted, and
+# the report wait_leg's edge builds from it.
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
+LEGREPORT='leg result: status success; final state done; outcome ready; step ; reason ; pull request https://github.com/acme/widgets/pull/9'
+printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report from the recorded leg the wait read is admitted" 0 "$(src gamma leg)"
+printf '%s' "${LEGREPORT%/9}/66" >"$ST/ctx/worker_report"
+eq  "source: a leg report that isn't the leg's promoted result is refused" 1 "$(src gamma leg)"
+printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
+jq -c '.legs.execute.result_source = "explicit"' "$ST/req/req_g.json" >"$ST/req/x" && mv "$ST/req/x" "$ST/req/req_g.json"
+eq  "source: a leg whose result its session didn't promote is refused" 1 "$(src gamma leg)"
+rm -f "$ST/req/req_g.json"
+eq  "source: a request koto can't read is 2" 2 "$(src gamma leg)"
 printf '{"path":"leg","topic":"beta","request":"req_b","leg":"scope"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report for a message-path worker is refused, even when the wait names it" 1 "$(src beta leg)"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"

@@ -12,6 +12,7 @@ stateDiagram-v2
     deferral_dispose --> dispatch_check : rewritten: rewritten
     destroy --> record : destroyed: destroyed
     destroy --> record : destroyed: handed_over
+    destroy --> surface : destroyed: refused
     dispatch --> record : dispatched: sent, gates.holding_recorded.exit_code: 0
     dispatch --> failure : dispatched: failed
     dispatch_check --> dispatch : gates.dispatch_check_verdict.exit_code: 40
@@ -111,6 +112,7 @@ stateDiagram-v2
     take_report --> report_facts : gates.report_present.matches: true, gates.report_source_ok.exit_code: 0
     take_report --> wait : gates.report_source_ok.exit_code: 1
     take_report --> wait : gates.report_present.matches: false, gates.report_source_ok.exit_code: 0, withdrawn: withdrawn
+    take_report --> wait : gates.report_source_ok.exit_code: 2, withdrawn: withdrawn
     teardown --> teardown_inventory : teardown: stopped
     teardown --> record : teardown: kept
     teardown_inventory --> destroy : gates.inventory_durable.exit_code: 0

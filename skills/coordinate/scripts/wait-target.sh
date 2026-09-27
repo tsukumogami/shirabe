@@ -100,6 +100,21 @@ ctx_or_empty() {
     "$KOTO" context get "$SESSION" "$1"
 }
 
+# mark_if_done <wait_target json>: add its leg to taken_legs when koto no
+# longer shows it open. Returns 2 when the target or koto can't be read.
+mark_if_done() {
+    local t="$1" req leg view disp taken
+    req=$(printf '%s' "$t" | jq -r '.request // "" | strings')
+    leg=$(printf '%s' "$t" | jq -r '.leg // "" | strings')
+    printf '%s' "$req" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
+    printf '%s' "$leg" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
+    view=$("$KOTO" request get "$req" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$req" >&2; return 2; }
+    disp=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].disposition // "missing" | strings')
+    [ "$disp" = open ] && return 0
+    taken=$(ctx_or_empty taken_legs) || return 2
+    put taken_legs "$(printf '%s\n%s\n' "$taken" "$req:$leg" | sed '/^$/d' | sort -u)"
+}
+
 # --- leg -----------------------------------------------------------------------------
 
 if [ "$MODE" = leg ]; then
@@ -113,19 +128,25 @@ if [ "$MODE" = leg ]; then
     # The leg's disposition now, not the one select saw: koto re-runs this
     # action on every blocked tick, and a leg that resolves in between is
     # taken by the gate that follows, so it has to be marked on that tick.
-    REQ=$(printf '%s' "$T" | jq -r '.request // "" | strings')
-    printf '%s' "$REQ" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; exit 2; }
-    VIEW=$("$KOTO" request get "$REQ" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2; }
-    DISP=$(printf '%s' "$VIEW" | jq -r --arg l "$LEG" '(.request // .) | .legs[$l].disposition // "missing" | strings')
-    if [ "$DISP" != open ]; then
-        REF=$(printf '%s' "$T" | jq -r '"\(.request):\(.leg)"')
-        TAKEN=$(ctx_or_empty taken_legs) || exit 2
-        put taken_legs "$(printf '%s\n%s\n' "$TAKEN" "$REF" | sed '/^$/d' | sort -u)"
-    fi
+    mark_if_done "$T" || exit 2
     printf '%s\n' "$LEG"
     exit 0
 fi
 [ "$MODE" = select ] || usage
+
+# The leg the last pick named is marked taken here too when wait_leg's gate
+# consumed it: an evidence tick at wait_leg (rescan or back) doesn't run its
+# action, so a leg that resolved between two ticks can be taken by the gate
+# without the mark above. wait_leg's consuming edges set leg_consumed, and
+# every route back to a leg passes this pick first.
+CONSUMED=$(ctx_or_empty leg_consumed) || exit 2
+if [ "$CONSUMED" = yes ]; then
+    PREV=$(ctx_or_empty wait_target) || exit 2
+    if [ "$(printf '%s' "$PREV" | jq -r '.path // "" | strings' 2>/dev/null)" = leg ]; then
+        mark_if_done "$PREV" || exit 2
+    fi
+    put leg_consumed ""
+fi
 
 # --- select --------------------------------------------------------------------------------
 

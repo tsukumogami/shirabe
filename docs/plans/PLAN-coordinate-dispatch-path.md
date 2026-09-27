@@ -203,10 +203,12 @@ content.
 ### Issue 5: feat(coordinate): fill the dispatch and wait states and add the teardown states
 
 **Goal**: In the record feature's `skills/coordinate/koto-templates/coordinate.md`,
-fill `dispatch` and `wait` and add `wait_leg`, `take_report`,
-`classify_report`, `rebrief`, `quiesce`, `teardown`, `promote` and `destroy`, with their
-gates, captures and context assignments as the DESIGN's state table gives
-them, and update the mermaid companion.
+fill `dispatch`, `wait`, `classify_report`, `rebrief` and `teardown`, and add
+`leg_pick`, `wait_leg`, `take_report`, `teardown_inventory`, `promote` and
+`destroy`, with their gates, captures and context assignments as the DESIGN's
+state table gives them, and update the mermaid companion. The record
+feature's template already names the step that stops a worker `teardown`, so
+that state keeps its name and the sealed inventory is `teardown_inventory`.
 
 **Acceptance Criteria**:
 - [ ] The template compiles, and every template check the repository's CI
@@ -219,30 +221,44 @@ them, and update the mermaid companion.
   `dispatch_topic` doesn't advance, even with a context key claiming the
   holding exists.
 - [ ] On a leg-bound holding, a promoted resolved leg moves `wait_leg` to
-  `take_report` with `worker_report` holding the gate's status, final state,
+  `take_report` with `worker_report` holding the leg's status, final state,
   outcome, step, reason and pull request; an explicit or refused result, an
   abandoned leg and a missing leg each go to the surface step; an open leg
-  holds the state until `rescan` or `report_from`.
+  holds the state until `rescan` (back to `leg_pick`) or `back` (to `wait`,
+  where a message report is taken). Every edge that consumes a leg marks it,
+  so a leg is read once even when its result is taken on an evidence tick.
 - [ ] On the message path, `take_report` doesn't advance while
   `worker_report` is absent or whitespace, and advances once it holds the
-  report; a message report for a leg-bound topic returns to `wait`.
-- [ ] `report_class` declares a decider with every answer `shadow`, the escape
-  `unclear`, and the one input `worker_report` gated by `report_present`; the
-  coordinator's submitted answer routes `done` to `verify`, `needs_fix` to
-  `rebrief` and `blocked` to the surface step.
-- [ ] `worker_report` and `report_topic` are cleared on every edge into
-  `wait` and on no edge into `take_report`; `dispatch_topic` is read, never
+  report; a message report for a leg-bound topic returns to `wait`; when the
+  record can't be read for the report, `withdrawn` returns to `wait`.
+- [ ] A leg report is admitted only when koto's own record of the leg holds a
+  result the worker's session promoted and `worker_report` is exactly the
+  text built from it, so rewriting the context keys can't pass a report off
+  as a leg result.
+- [ ] `classify_report`'s decider declares every answer `shadow` and the
+  escape `unclear`, with `worker_report` as an input alongside the record
+  feature's report facts, gated by `report_present`; the coordinator's
+  submitted answer routes `done` to `verify`, `needs_fix` to `rebrief` and
+  `blocked` to the surface step.
+- [ ] Every edge into `take_report` writes `worker_report`, `report_topic` and
+  `report_source` afresh; the dispatch path's edges back into `wait`
+  (from `take_report`, `leg_pick`, `wait_leg` and `rebrief`) clear
+  `worker_report` and `report_topic`; `dispatch_topic` is read, never
   written, by these states.
-- [ ] `rebrief` goes to `wait` on `sent`, clearing `worker_report` and
-  `report_topic`, and to `pick` on `worker_gone`; `quiesce` goes to
-  `teardown` on `stopped` and nowhere else.
-- [ ] `teardown` is reachable only through `quiesce` or `promote`, has no
-  `accepts` block, runs the sealed inventory as a non-polling action, and
-  moves to `destroy` only when the seal checks and the verdict is durable.
+- [ ] `rebrief` goes to `wait` on `sent` and to `pick_facts` on
+  `worker_gone`; `teardown` goes to `teardown_inventory` on `stopped`, and
+  to `record` on `kept`, the worker staying.
+- [ ] `teardown_inventory` is reachable only through `teardown` or
+  `promote`, has no `accepts` block, runs the sealed inventory as a
+  non-polling action, moves to `destroy` only when the seal checks and the
+  verdict is durable, and seals an inventory that can't start as an error
+  that goes to the surface step. `teardown_topic` is cleared on every edge
+  that leaves the teardown states.
 - [ ] `destroy`'s directive has the coordinator read the verdict through the
-  seal-checking reader first, and a session moved into `destroy` with `koto
-  next --to` is refused by that reader and routed to the surface step; the
-  directive names one instance and no form that takes no target.
+  seal-checking reader first; when that reader refuses, as it does for a
+  session moved there with `koto next --to`, `destroyed: refused` routes to
+  the surface step and nothing is destroyed; the directive names one instance
+  and no form that takes no target.
 - [ ] Each directive names the script it has the coordinator run, and the
   wait directive says to tick on each message or notification and never
   poll; any background wait it names carries a deadline.

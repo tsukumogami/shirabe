@@ -47,7 +47,7 @@
 #               step reads its inputs, and --topic is refused
 #   --instance  the instance directory; found by the topic's worker session
 #               in `niwa list --json` when absent
-#   --seal      run as the teardown state's default action: store the verdict
+#   --seal      run as the teardown_inventory state's default action: store the verdict
 #               in the context key `teardown_verdict` through the record
 #               feature's seal helper and print `<durable|unique|error>
 #               sealed:<seq>:<sha256>`, which the state captures. The sealed
@@ -101,28 +101,45 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/teardown-inventory.XXXXXX") || exit 2
+trap 'rm -rf "$WORK"' EXIT
+
+# unfound <reason>: the inventory can't start. Outside --seal that is exit 2.
+# Under --seal it is sealed as an error verdict and the action exits 0, so the
+# gate runs and routes it to the human: a failed default action runs no gates
+# and the state takes no evidence, so an exit 2 here would hold the run at the
+# inventory for good. A read that may succeed on the next tick still exits 2.
+unfound() {
+    printf '%s: %s\n' "$PROG" "$1" >&2
+    [ "$SEAL" = 1 ] || exit 2
+    local t=-
+    dc_valid_topic "$TOPIC" && t=$TOPIC
+    printf 'error\ninstance -\ntopic %s\nerror .: %s\n' "$t" "$1" >"$WORK/sealed"
+    TOKEN=$(dc_seal "$SESSION" teardown_inventory "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
+    printf 'error %s\n' "$TOKEN"
+    exit 0
+}
+
 if [ "$SEAL" = 1 ]; then
     [ -n "$SESSION" ] && [ -z "$TOPIC" ] || usage
     TOPIC=$("${KOTO:-koto}" context get "$SESSION" teardown_topic) || {
         printf '%s: cannot read teardown_topic\n' "$PROG" >&2
         exit 2
     }
+    dc_valid_topic "$TOPIC" || unfound "teardown_topic is not a dispatch topic"
 fi
 dc_valid_topic "$TOPIC" || usage
 
 if [ -z "$INSTANCE" ]; then
-    ROOT=$(dc_workspace_root) || { printf '%s: no workspace root found\n' "$PROG" >&2; exit 2; }
+    ROOT=$(dc_workspace_root) || unfound "no workspace root found"
     FOUND=$(dc_find_session "$ROOT" "$TOPIC")
     case "$?" in
         0) INSTANCE=${FOUND#*	} ;;
-        1) printf '%s: no instance for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
+        1) unfound "no instance for $TOPIC" ;;
         *) printf '%s: niwa list could not be read\n' "$PROG" >&2; exit 2 ;;
     esac
 fi
-INSTANCE=$(cd "$INSTANCE" 2>/dev/null && pwd -P) || { printf '%s: no instance directory for %s\n' "$PROG" "$TOPIC" >&2; exit 2; }
-
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/teardown-inventory.XXXXXX") || exit 2
-trap 'rm -rf "$WORK"' EXIT
+INSTANCE=$(cd "$INSTANCE" 2>/dev/null && pwd -P) || unfound "no instance directory for $TOPIC"
 VERDICT="$WORK/verdict"
 : >"$VERDICT"
 WORST=0
@@ -272,7 +289,7 @@ if [ "$SEAL" = 1 ]; then
         *) WORD=error ;;
     esac
     { printf '%s\ninstance %s\ntopic %s\n' "$WORD" "$INSTANCE" "$TOPIC"; cat "$VERDICT"; } >"$WORK/sealed"
-    TOKEN=$(dc_seal "$SESSION" teardown "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
+    TOKEN=$(dc_seal "$SESSION" teardown_inventory "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
     cat "$VERDICT" >&2
     printf '%s %s\n' "$WORD" "$TOKEN"
     exit 0

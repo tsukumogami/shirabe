@@ -9,7 +9,8 @@
 # the record: a message report is admitted only for a holding whose return
 # path is `message`; a leg report only when the holding's return path is the
 # leg the wait state read (wait_target), which wait_leg's gate admitted on a
-# promoted result.
+# promoted result, and only when koto's own record of the leg holds a
+# promoted result whose text is exactly worker_report.
 #
 # Inputs, from the session's context: report_topic (whose report it is) and
 # report_source (`leg` or `message`), both written by the transitions into
@@ -71,8 +72,31 @@ fi
 # record and against wait_target, which wait-target.sh wrote from the record.
 TARGET=$("$KOTO" context get "$SESSION" wait_target) || { printf '%s: cannot read wait_target\n' "$PROG" >&2; exit 2; }
 READ=$(printf '%s' "$TARGET" | jq -r --arg t "$TOPIC" 'select(.path == "leg" and .topic == $t) | "\(.request):\(.leg)"')
-if [ -n "$READ" ] && [ "$RP" = "$READ" ]; then
-    exit 0
+if [ -z "$READ" ] || [ "$RP" != "$READ" ]; then
+    printf '%s: a leg report for %s must come from its recorded leg [%s], read by the wait state [%s]\n' "$PROG" "$TOPIC" "$RP" "$READ" >&2
+    exit 1
 fi
-printf '%s: a leg report for %s must come from its recorded leg [%s], read by the wait state [%s]\n' "$PROG" "$TOPIC" "$RP" "$READ" >&2
-exit 1
+
+# The context keys above say which leg; they can't say what the leg holds,
+# since anyone in the session can rewrite them. So koto's own record of the leg
+# is read here: it must have resolved with a result the worker's session
+# promoted, and worker_report must be exactly the text wait_leg's edge builds
+# from that result, so a rewritten report can't stand for the leg.
+REQ=${READ%%:*}
+LEG=${READ#*:}
+VIEW=$("$KOTO" request get "$REQ" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2; }
+WANT=$(printf '%s' "$VIEW" | jq -r --arg l "$LEG" '
+    (.request // .) | .legs[$l] // empty
+    | select(.disposition == "resolved" and .result_source == "promoted")
+    | .result as $r | ($r.payload // {}) as $p
+    | "leg result: status \($r.status // ""); final state \(.result_final_state // ""); outcome \($p.outcome // ""); step \($p.step // ""); reason \($p.reason // ""); pull request \($p.pr // "")"')
+if [ -z "$WANT" ]; then
+    printf '%s: leg %s has no result its worker'"'"'s session promoted\n' "$PROG" "$READ" >&2
+    exit 1
+fi
+GOT=$("$KOTO" context get "$SESSION" worker_report) || { printf '%s: cannot read worker_report\n' "$PROG" >&2; exit 2; }
+if [ "$GOT" != "$WANT" ]; then
+    printf '%s: worker_report for %s is not the result leg %s holds\n' "$PROG" "$TOPIC" "$READ" >&2
+    exit 1
+fi
+exit 0
