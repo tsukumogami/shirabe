@@ -85,7 +85,9 @@
 # stdout carries only the word and the token.
 #
 # Exit codes: 0 every repository durable; 1 at least one unique; 2 an error,
-# no instance found, or usage.
+# no instance found, or usage. With --seal it exits 0 whatever the verdict,
+# since a failed default action runs no gates; 2 there means the verdict
+# couldn't be sealed (or a read that may succeed next tick failed).
 #
 # Writes nothing in the instance (with --seal, only the sealed verdict).
 # TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call).

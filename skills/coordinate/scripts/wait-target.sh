@@ -24,23 +24,15 @@
 #
 # Modes:
 #
-#   select --session <s> [--watch-secs <n>]
+#   select --session <s>
 #       Writes wait_target as {"path":"leg","topic","request","leg",
 #       "disposition"} or {"path":"none"} and prints the request id or
 #       `none`, whenever the record can be read. It always prints
 #       a token: an empty capture would fail the action instead of letting the
 #       state stop for evidence, which is the wait.
 #
-#       --watch-secs (default 0, off) first waits up to <n> seconds for a
-#       wake on the coordinator's session through `koto request watch`, with
-#       the cursor kept in the context key `wake_cursor`, when no leg has
-#       resolved yet. That subscriber arrives with koto#250, whose settled
-#       design fixes the interface used here (`koto request watch --session
-#       <id> --timeout-secs <n> [--since <cursor>]`, printing JSON with a
-#       `cursor`); on a koto without it the watch is skipped and the
-#       coordinator ticks the workflow on each message or notification
-#       instead. Keep <n> well under the 30 seconds a
-#       default action gets.
+#       There is no wake on a resolved leg until koto#250 lands; the
+#       coordinator ticks the workflow on each message or notification.
 #
 #   leg --session <s>
 #       Prints the leg name from wait_target and writes its topic to
@@ -54,7 +46,7 @@
 # run log), 64 usage.
 #
 # Reads the record and the request store; writes only this session's
-# wait_target, taken_legs, wake_cursor and report_topic context keys. bash 3.2; needs jq.
+# wait_target, taken_legs, leg_consumed and report_topic context keys. bash 3.2; needs jq.
 set -uo pipefail
 
 PROG=wait-target
@@ -66,21 +58,18 @@ KOTO="${KOTO:-koto}"
 RE_REQ="$DC_RE_REQ"
 RE_LEG="$DC_RE_LEG"
 
-usage() { printf 'usage: %s select|leg --session <s> [--watch-secs <n>]\n' "$PROG" >&2; exit 64; }
+usage() { printf 'usage: %s select|leg --session <s>\n' "$PROG" >&2; exit 64; }
 
 MODE="${1:-}"
 [ $# -gt 0 ] && shift
 SESSION=""
-WATCH=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION="$2"; shift 2 ;;
-        --watch-secs) [ $# -ge 2 ] || usage; WATCH="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
 [ -n "$SESSION" ] || usage
-case "$WATCH" in '' | *[!0-9]*) usage ;; esac
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/wait-target.XXXXXX") || exit 2
 trap 'rm -rf "$WORK"' EXIT
@@ -206,24 +195,6 @@ pick() {
 LINE=$(pick)
 RC=$?
 [ "$RC" -eq 0 ] || { printf '%s: the record could not be read\n' "$PROG" >&2; exit "$RC"; }
-
-# The bounded wake wait, when asked for and when there's an open leg but no
-# result yet (koto#250's subscriber; skipped on a koto without it).
-if [ "$WATCH" -gt 0 ] && [ "${LINE%%	*}" = open ] && "$KOTO" request watch --help >/dev/null 2>&1; then
-    # No cursor yet is the normal first case, so its absence isn't an error.
-    CURSOR=$(ctx_or_empty wake_cursor) || exit 2
-    set -- --session "$SESSION" --timeout-secs "$WATCH"
-    [ -n "$CURSOR" ] && set -- "$@" --since "$CURSOR"
-    if W=$("$KOTO" request watch "$@" </dev/null); then
-        NEW=$(printf '%s' "$W" | jq -r '.cursor // "" | tostring')
-        [ -n "$NEW" ] && put wake_cursor "$NEW"
-        LINE=$(pick)
-        RC=$?
-        [ "$RC" -eq 0 ] || { printf '%s: the record could not be read after the wake\n' "$PROG" >&2; exit "$RC"; }
-    else
-        printf '%s: koto request watch failed; picking from what was read before it\n' "$PROG" >&2
-    fi
-fi
 
 if [ -z "$LINE" ]; then
     put wait_target '{"path":"none"}'

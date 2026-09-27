@@ -567,10 +567,15 @@ from GitHub, one read per commit. For every clone:
    missing log, is wrong.) A gone-from-origin ref whose log exists
    but reads empty (expired or unreadable), or any such ref in a clone with
    ref logging turned off, is an error rather than a guess. What remains
-   open is a log file deleted by hand, or ref logging turned off for the
-   push and back on before the teardown: both read as not pushed. A push to a remote other than origin, or by
-   URL, leaves no origin tracking ref and isn't seen; a worker that pushes
-   anywhere but its origin is outside what the inventory can prove. The paths it changed are the `diff-tree --no-renames`
+   open reads as not pushed: a log file deleted by hand, a log that lost
+   only its push entry to partial expiry, or ref logging turned off for the
+   push and back on before the teardown. The empty-versus-missing
+   distinction was measured on the files ref backend; the reftable backend
+   (git 2.45 and later) hasn't been checked. A push to a remote other than origin, or by
+   URL, leaves no origin tracking ref: a local branch still reads unique
+   against origin, so the gap opens only when a worker pushed elsewhere and
+   then deleted its local branch, which is outside what the inventory can
+   prove. The paths it changed are the `diff-tree --no-renames`
    paths from its merge base with the default branch. The comparison target
    is the squash merge commit of the merged pull request whose head was that
    branch (`gh pr list --head <branch> --state merged --json mergeCommit`),

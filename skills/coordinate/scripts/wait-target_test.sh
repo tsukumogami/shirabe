@@ -6,9 +6,8 @@
 # one; an abandoned or missing leg counted as waiting; the oldest open leg
 # when none has resolved; message-path, undispatched and malformed holdings
 # skipped; a request koto can't read skipped rather than routed; `none` printed
-# and written when nothing is watched (never an empty capture); the bounded
-# wake watch run only when asked for, only with an open leg and no result, and
-# only on a koto that has it, with its cursor kept; a refused record read. For
+# and written when nothing is watched (never an empty capture); a refused
+# record read; an unknown flag refused. For
 # leg: the leg printed and report_topic written; exit 1 with no leg. For
 # report-source.sh: a leg report admitted, a message admitted for a
 # message-path worker and refused for a leg-bound one or an unknown topic, and
@@ -45,12 +44,6 @@ case "$1 $2" in
     "context exists") [ -f "$ST/ctx/$4" ] ;;
     "context add") cat "$6" >"$ST/ctx/$4" ;;
     "request get") [ -f "$ST/req/$3.json" ] || exit 1; cat "$ST/req/$3.json" ;;
-    "request watch")
-        [ "${KOTO_HAS_WATCH:-}" = 1 ] || exit 2
-        [ "$3" = --help ] && exit 0
-        echo "watch $*" >>"$ST/calls.log"
-        printf '{"cli_contract":"1.0","session":"coord","woke":true,"cursor":"c42"}\n'
-        ;;
     *) exit 64 ;;
 esac
 EOF
@@ -81,7 +74,7 @@ reset() {
     mkdir -p "$ST/ctx" "$ST/req"
     : >"$ST/calls.log"
     printf '%s\n' "$1" >"$ST/rows.json"
-    unset KOTO_HAS_WATCH RECORD_MODE
+    unset RECORD_MODE
 }
 req() { printf '{"request_id":"%s","legs":{"%s":{"name":"%s","disposition":"%s"}}}\n' "$1" "$2" "$2" "$3" >"$ST/req/$1.json"; }
 sel() { bash "$S" select --session coord "$@"; }
@@ -168,32 +161,7 @@ reset "$ROWS"
 export RECORD_MODE=refuse
 sel >/dev/null 2>&1; eq "select: a refused record read is exit 10" 10 "$?"
 
-# --- the bounded wake watch ---------------------------------------------------------------------
-
-reset "$ROWS"
-req req_a scope open; req req_g execute open
-sel --watch-secs 5 >/dev/null
-eq  "watch: skipped on a koto without it" "" "$(cat "$ST/calls.log")"
-
-reset "$ROWS"
-req req_a scope open; req req_g execute open
-export KOTO_HAS_WATCH=1
-sel >/dev/null
-eq  "watch: off by default" "" "$(cat "$ST/calls.log")"
-sel --watch-secs 5 >/dev/null
-eq  "watch: runs bounded, with no cursor yet" "watch request watch --session coord --timeout-secs 5" "$(cat "$ST/calls.log")"
-eq  "watch: keeps the cursor" c42 "$(cat "$ST/ctx/wake_cursor")"
-: >"$ST/calls.log"
-sel --watch-secs 5 >/dev/null
-eq  "watch: passes the cursor back" "watch request watch --session coord --timeout-secs 5 --since c42" "$(cat "$ST/calls.log")"
-
-reset "$ROWS"
-req req_a scope resolved
-export KOTO_HAS_WATCH=1
-sel --watch-secs 5 >/dev/null
-eq  "watch: not run when a result is already waiting" "" "$(cat "$ST/calls.log")"
-
-bash "$S" select --session coord --watch-secs x >/dev/null 2>&1; eq "usage: a non-numeric watch is 64" 64 "$?"
+bash "$S" select --session coord --watch-secs 5 >/dev/null 2>&1; eq "usage: an unknown flag is 64" 64 "$?"
 bash "$S" nope --session coord >/dev/null 2>&1; eq "usage: an unknown mode is 64" 64 "$?"
 
 # --- leg ---------------------------------------------------------------------------------------------
@@ -236,12 +204,12 @@ eq  "source: a leg whose result its session didn't promote is refused as a spent
 rm -f "$ST/req/req_g.json"
 eq  "source: a request koto can't read is 2" 2 "$(src gamma leg)"
 printf '{"path":"leg","topic":"beta","request":"req_b","leg":"scope"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report for a message-path worker is refused, even when the wait names it" 1 "$(src beta leg)"
+eq  "source: a leg report for a message-path worker goes to the human, even when the wait names it" 3 "$(src beta leg)"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
 printf '{"path":"leg","topic":"gamma","request":"req_other","leg":"execute"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report whose read leg isn't the recorded one is refused" 1 "$(src gamma leg)"
+eq  "source: a leg report whose read leg isn't the recorded one goes to the human" 3 "$(src gamma leg)"
 printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report with no leg read is refused" 1 "$(src gamma leg)"
+eq  "source: a leg report with no leg read goes to the human" 3 "$(src gamma leg)"
 eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
 eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
 eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"

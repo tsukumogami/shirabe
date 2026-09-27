@@ -129,8 +129,11 @@
 #
 #     record refused (no open record, failed provenance, or a directed
 #     transition in the run log): 8 from dispatch-worker.sh, 10 from
-#     wait-target.sh, 2 from the gates (holding-recorded.sh, report-source.sh,
-#     teardown-verdict.sh), which fold every read failure into 2
+#     wait-target.sh, 2 from the gates that read the record
+#     (holding-recorded.sh, report-source.sh), which fold every read failure
+#     into 2. teardown-verdict.sh reads no record: its gate mode's 2 is an
+#     error verdict and 3 a seal that doesn't hold, and its read mode's 4 a
+#     directed transition since the seal
 #     usage: 2, except wait-target.sh (64), whose 0/1/2 are taken
 
 DC_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

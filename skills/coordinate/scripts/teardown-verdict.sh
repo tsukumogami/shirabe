@@ -12,7 +12,7 @@
 # Modes:
 #
 #   gate --session <s>
-#       The teardown state's gate (overridable: false). Exit 0 only when the
+#       The teardown_inventory state's gate (overridable: false). Exit 0 only when the
 #       seal checks and the verdict is durable.
 #
 #   read --session <s>

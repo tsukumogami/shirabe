@@ -628,6 +628,8 @@ states:
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: promoted
+        # report-source.sh rebuilds this exact text from koto's record of the
+        # leg to check it; change one and the other in the same commit.
         context_assignments:
           worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.payload.outcome}; step ${gates.leg_result.payload.step}; reason ${gates.leg_result.payload.reason}; pull request ${gates.leg_result.payload.pr}"
           report_source: leg
@@ -1713,9 +1715,9 @@ doesn't bring the same result back.
 Checking the report before anything reads it. When it stops here with the
 report empty, go back with `withdrawn: withdrawn` and submit the report
 event again, with the message as `report`. When it stops because the record
-couldn't be read, tick again with no evidence once the record reads; withdraw
-only a message report you still have to resubmit, never a leg's result, which
-nothing would bring back.
+couldn't be read, tick again with no evidence once the record reads. A message
+report that named no worker never reads: withdraw it and submit it again with
+its `unit`. Never withdraw a leg's result, which nothing would bring back.
 
 <!-- details -->
 

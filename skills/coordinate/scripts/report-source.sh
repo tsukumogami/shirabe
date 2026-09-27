@@ -21,11 +21,13 @@
 #
 # Exit codes (overridable: false on the gate):
 #   0  the report may stand for its worker
-#   1  refused: a message for a leg-bound worker, or no holding for the topic
+#   1  refused message: a message for a leg-bound worker, or no holding for
+#      the topic
 #   2  a read failed, the record refused the read, or an input is malformed
-#   3  refused: a leg report that isn't the promoted result koto holds for
-#      the leg. The leg is spent, so it goes to the human rather than back
-#      to the hub, where nothing would bring it back.
+#   3  refused leg report: no holding for the topic, a leg other than the
+#      one the record names, or a report that isn't the promoted result koto
+#      holds for the leg. The leg is spent, so it goes to the human rather
+#      than back to the hub, where nothing would bring it back.
 #
 # Read-only. bash 3.2; needs jq.
 set -uo pipefail
@@ -54,11 +56,16 @@ case "$SOURCE" in
     leg | message) ;;
     *) printf '%s: report_source is [%s], not leg or message\n' "$PROG" "$SOURCE" >&2; exit 2 ;;
 esac
+# A refused message goes back to the hub (1): a leg-bound worker's real result
+# is still coming on its leg. A refused leg report goes to the human (3): the
+# leg was consumed on the way here and won't come back to the hub.
+REFUSED=1
+[ "$SOURCE" = leg ] && REFUSED=3
 
 ROW=$(dc_record_read "$SESSION" "$TOPIC")
 case "$?" in
     0) ;;
-    1) printf '%s: no holding for %s\n' "$PROG" "$TOPIC" >&2; exit 1 ;;
+    1) printf '%s: no holding for %s\n' "$PROG" "$TOPIC" >&2; exit "$REFUSED" ;;
     *) printf '%s: the record could not be read for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
 esac
 RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
@@ -77,7 +84,7 @@ TARGET=$("$KOTO" context get "$SESSION" wait_target) || { printf '%s: cannot rea
 READ=$(printf '%s' "$TARGET" | jq -r --arg t "$TOPIC" 'select(.path == "leg" and .topic == $t) | "\(.request):\(.leg)"')
 if [ -z "$READ" ] || [ "$RP" != "$READ" ]; then
     printf '%s: a leg report for %s must come from its recorded leg [%s], read by the wait state [%s]\n' "$PROG" "$TOPIC" "$RP" "$READ" >&2
-    exit 1
+    exit 3
 fi
 
 # The context keys above say which leg; they can't say what the leg holds,
