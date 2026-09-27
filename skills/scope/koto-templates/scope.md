@@ -1362,7 +1362,8 @@ states:
     # cleanup (Decision 5). Agent-run: a push and `gh pr create` are
     # externally visible, so they are never a default action. The agent runs
     # publish-scoping-pr.sh; the `published` gate re-checks the result with the
-    # script's read-only --verify, so a run cannot claim a PR it did not open.
+    # script's --verify (no GitHub, git or koto context write), so a run cannot
+    # claim a PR it did not open.
     #
     # A failure ends at done_error, before cleanup, so the state file keeps
     # `exit:` and its fields (R12) and the next invocation's resume_route
@@ -1375,7 +1376,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1442,7 +1443,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1509,7 +1510,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1581,7 +1582,7 @@ states:
     gates:
       published:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --verify --expect-intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"'
       publish_push:
         type: context-matches
         key: publish_step
@@ -1690,8 +1691,9 @@ states:
     # default action finds the branch's owned PR through the shared
     # owned-pr.sh --state all and writes executed_verdict, executed_pr and
     # executed_pr_state; the gates below route on them and refuse overrides.
-    # There is nothing to create here, so zero, several, a failed read, a
-    # closed PR, or no verdict at all end at done_error with scope:pr-create.
+    # There is nothing to create here, so zero, several, another run's PR
+    # (foreign), a failed read, a closed PR, or no verdict at all end at
+    # done_error with scope:pr-create.
     # No foreign PR's URL can reach the result: the script writes only the
     # one survivor of the ownership filter.
     default_action:
@@ -2768,7 +2770,7 @@ straight back here to retry. **When it succeeds**, record its `pr=` URL as
 file.
 
 Submit `publish_result: attempted` either way. The `published` gate re-checks
-with the script's read-only `--verify` -- origin's branch equals `HEAD`, exactly
+with the script's `--verify`, which writes nothing to GitHub or git -- origin's branch equals `HEAD`, exactly
 one owned open PR exists, and its body records `intent={{RUN_INTENT}}` -- and
 that decides whether the run goes to cleanup or to the error terminal.
 

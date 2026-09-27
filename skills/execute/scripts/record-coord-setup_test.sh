@@ -85,7 +85,7 @@ run_setup
 setup_case outside
 jq '.default_repo = "acme/elsewhere"' "$CASE/scenario/gh/db.json" > "$CASE/db" && mv "$CASE/db" "$CASE/scenario/gh/db.json"
 run_setup
-if [ "$RC" -eq 66 ] && [ -z "$(ls "$CASE/ctx/$S")" ]; then
+if [ "$RC" -eq 66 ] && [ -z "$(ls "$CASE/ctx/$S" | grep -vx run_id)" ]; then
     pass "a home repository outside the write set exits 66 with nothing written"
 else
     fail "outside: rc=$RC"

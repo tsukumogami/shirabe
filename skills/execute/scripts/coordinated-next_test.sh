@@ -287,6 +287,30 @@ out=$(run_next "$PLANDIR" --merge true)
 expect "an index entry authored by someone else" "error:execute:pr-adopt" "$out"
 wrote_nothing "the foreign-author case"
 
+MINE=0123456789abcdef0123456789abcdef
+OTHER=fedcba9876543210fedcba9876543210
+ct_case foreign-run
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
+expect "--run-id: an index entry whose PR another run opened" "error:execute:pr-adopt" "$out"
+wrote_nothing "the foreign-run case"
+
+ct_case own-run
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $MINE -->\""
+ct_write_db
+out_own=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
+out_hand=$(run_next "$PLANDIR" --merge true)
+expect "--run-id: the run's own marked node PR reads as it does by hand" "$out_hand" "$out_own"
+
+ct_case bad-run-id
+ct_write_db
+(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "acme/repo-a,acme/repo-b" \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false --run-id XYZ >/dev/null 2>&1)
+[ $? -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "a malformed --run-id was accepted"
+
 ct_case wrong-branch
 ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "feature/elsewhere"

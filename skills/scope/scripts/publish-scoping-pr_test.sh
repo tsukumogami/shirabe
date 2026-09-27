@@ -106,7 +106,18 @@ seed_pr() { # seed_pr <url> <cross> <author> <base> <intent>
 }
 
 OUT=""; RC=0
-run() { # run <args...> -- from inside R
+# run <args...> -- from inside R. A --session names a session scope-open.sh
+# opened, so it carries a run_id unless the case already wrote one (or set
+# NO_RUN_ID=1 to test a session without one).
+run() {
+    local prev="" a
+    for a in "$@"; do
+        if [ "$prev" = --session ] && [ -z "${NO_RUN_ID:-}" ] && [ ! -f "$STORE/$a/run_id" ]; then
+            mkdir -p "$STORE/$a"
+            printf '%s' 00112233445566778899aabbccddeeff >"$STORE/$a/run_id"
+        fi
+        prev="$a"
+    done
     OUT=$(cd "$R" && PATH="$SHIM:$PATH" GHF="$GHF" bash "$S" "$@" 2>"$T/err")
     RC=$?
 }
@@ -182,6 +193,52 @@ eq "several: exit 11" "11" "$RC"
 eq "several: no pr create" "0" "$(calls create)"
 eq "several: no pr edit" "0" "$(calls edit)"
 eq "several: publish_step recorded" "scope:pr-create" "$(cat "$STORE/s-several/publish_step" 2>/dev/null)"
+
+echo "== the run marker =="
+MINE=0123456789abcdef0123456789abcdef
+FOREIGN=fedcba9876543210fedcba9876543210
+# mark <url> <id> -- append a run marker line to that seeded PR's body.
+mark() {
+    jq --arg u "$1" --arg m "<!-- shirabe-run: $2 -->" 'map(if .url == $u then .body += ($m + "\n") else . end)' \
+        "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+}
+
+setup single-pr
+seed_pr "https://github.com/acme/widgets/pull/7" false me main continue
+mark "https://github.com/acme/widgets/pull/7" "$FOREIGN"
+mkdir -p "$STORE/s-foreign"; printf '%s' "$MINE" >"$STORE/s-foreign/run_id"
+run --topic topic --exit full-run --intent continue --session s-foreign
+eq "another run's PR: scope:pr-create" "scope:pr-create" "$(line step)"
+eq "another run's PR: no pr create" "0" "$(calls create)"
+eq "another run's PR: no pr edit" "0" "$(calls edit)"
+
+setup single-pr
+seed_pr "https://github.com/acme/widgets/pull/7" false me main stop
+mark "https://github.com/acme/widgets/pull/7" "$MINE"
+mkdir -p "$STORE/s-carry"; printf '%s' "$MINE" >"$STORE/s-carry/run_id"
+run --topic topic --exit full-run --intent continue --session s-carry
+BODY7=$(jq -r '.[] | select(.url == "https://github.com/acme/widgets/pull/7") | .body' "$GHF/prs.json")
+eq "the intent rewrite: one pr edit" "1" "$(calls edit)"
+case "$BODY7" in
+    *"intent=continue"*"<!-- shirabe-run: $MINE -->"*) ok "the intent rewrite keeps the PR's run marker" ;;
+    *) bad "the intent rewrite keeps the PR's run marker" "$BODY7" ;;
+esac
+
+setup single-pr
+seed_pr "https://github.com/acme/widgets/pull/7" false me main continue
+run --topic topic --exit full-run --intent continue --session s-reuse
+eq "an unmarked /scope PR is reused on the fallback" "https://github.com/acme/widgets/pull/7" "$(line pr)"
+case "$(jq -r '.[0].body' "$GHF/prs.json")" in
+    *shirabe-run*) bad "/scope stamps no marker on its PR" "$(jq -r '.[0].body' "$GHF/prs.json")" ;;
+    *) ok "/scope stamps no marker on its PR" ;;
+esac
+
+setup single-pr
+seed_pr "https://github.com/acme/widgets/pull/7" false me main continue
+NO_RUN_ID=1 run --topic topic --exit full-run --intent continue --session s-noid
+eq "a session with no run_id: exit 66, nothing published" "66" "$RC"
+if [ -f "$STORE/s-noid/run_id" ]; then bad "publish mints no run_id" "$(cat "$STORE/s-noid/run_id")"; else ok "publish mints no run_id"; fi
+eq "a session with no run_id: nothing created or edited" "0" "$(( $(calls create) + $(calls edit) ))"
 
 echo "== refusals before any push =="
 setup single-pr
@@ -313,6 +370,14 @@ eq "republish over intent=stop: no pr create" "0" "$(calls create)"
 eq "republish over intent=stop: one pr edit --body-file" "1" "$(grep -c '^pr edit https://github.com/acme/widgets/pull/7 --body-file ' "$GHF/calls" | tr -d ' ')"
 run --topic topic --verify --expect-intent continue
 eq "after the rewrite, verify --expect-intent continue passes" "0" "$RC"
+run --topic topic --verify --expect-intent continue --run-id "$MINE"
+eq "verify --run-id: an unmarked PR verifies on the fallback" "0" "$RC"
+mark "https://github.com/acme/widgets/pull/7" "$FOREIGN"
+run --topic topic --verify --expect-intent continue --run-id "$MINE"
+eq "verify --run-id: another run's PR does not verify (exit 1)" "1" "$RC"
+mkdir -p "$STORE/s-verify"; printf '%s' "$FOREIGN" >"$STORE/s-verify/run_id"
+run --topic topic --verify --expect-intent continue --session s-verify
+eq "verify --session: the session's own run verifies" "0" "$RC"
 
 echo "== usage =="
 setup single-pr
@@ -320,6 +385,12 @@ run --topic Bad --exit full-run --intent continue
 eq "a bad topic is a usage error" "64" "$RC"
 run --topic topic --exit full-run --intent none
 eq "intent none is a usage error: a no-intent run never publishes" "64" "$RC"
+run --topic topic --exit full-run --intent continue --run-id "$MINE"
+eq "--run-id on a publish is a usage error (publish reads it from --session)" "64" "$RC"
+run --topic topic --verify --session s --run-id "$MINE"
+eq "--verify with both --session and --run-id is a usage error" "64" "$RC"
+run --topic topic --verify --run-id ABC
+eq "a malformed --run-id is a usage error" "64" "$RC"
 eq "usage errors make no gh call" "" "$(cat "$GHF/calls")"
 
 echo "== flags a publish never uses, anywhere under skills/scope/ =="

@@ -13,6 +13,7 @@ on:
       - 'scripts/skill-preflight.sh'
       - 'scripts/lib/**'
       - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
       - 'skills/execute/scripts/merge-verdict.sh'
       - 'skills/scope/scripts/publish-scoping-pr.sh'
       # The eval gh shim delegates to /execute's repository model, and the

@@ -61,7 +61,7 @@ case "$cmd" in
             | [.prs[] | select($r == $own and .headRefName == $h
                   and ($s == "all" or ($s == "open" and .state == "OPEN")))
                | {url, number, state, isCrossRepository, author: {login: .author},
-                  baseRefName, headRefName}]' "$GH_DB")"
+                  baseRefName, headRefName, body: (.body // "")}]' "$GH_DB")"
         ;;
     "pr view")
         target="${3:-}"
