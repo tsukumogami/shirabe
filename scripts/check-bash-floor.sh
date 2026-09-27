@@ -127,7 +127,7 @@ mktempdir() {
 # so `all` on Linux reports it red; its floor run is the macOS leg, on the
 # system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate"
 
 suite_scripts() {
     case "$1" in
@@ -282,6 +282,44 @@ suite_scripts() {
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             ;;
+        coordinate)
+            # /coordinate's script tests. They drive test-local gh and koto
+            # stand-ins and need only jq and git, so every case runs on 3.2.
+            # Its engine suites (*_engine_test.sh) need real koto and run on
+            # ubuntu only.
+            echo "skills/coordinate/scripts/record-codec_test.sh"
+            echo "skills/coordinate/scripts/coord-log_test.sh"
+            echo "skills/coordinate/scripts/coordinate-report_test.sh"
+            echo "skills/coordinate/scripts/rule-coverage_test.sh"
+            echo "skills/coordinate/scripts/record-find_test.sh"
+            echo "skills/coordinate/scripts/record-open_test.sh"
+            echo "skills/coordinate/scripts/record-write_test.sh"
+            echo "skills/coordinate/scripts/record-holding_test.sh"
+            echo "skills/coordinate/scripts/record-confirm_test.sh"
+            echo "skills/coordinate/scripts/start-check_test.sh"
+            echo "skills/coordinate/scripts/posture-read_test.sh"
+            # The board, land and merge scripts: a localized plugin tree with
+            # the gh-board and koto stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/board-verdict_test.sh"
+            echo "skills/coordinate/scripts/board-record_test.sh"
+            echo "skills/coordinate/scripts/land-check_test.sh"
+            echo "skills/coordinate/scripts/land-merge_test.sh"
+            echo "skills/coordinate/scripts/merge-confirm_test.sh"
+            echo "skills/coordinate/scripts/merged-facts_test.sh"
+            # The close-outs and the turn's checks: the gh and koto stand-ins
+            # (closeout-read's in a localized tree with a stand-in board), so
+            # every case runs on 3.2.
+            echo "skills/coordinate/scripts/predecessor-handoff_test.sh"
+            echo "skills/coordinate/scripts/closeout-read_test.sh"
+            echo "skills/coordinate/scripts/rotation-close_test.sh"
+            echo "skills/coordinate/scripts/deferral-check_test.sh"
+            echo "skills/coordinate/scripts/pick-facts_test.sh"
+            echo "skills/coordinate/scripts/report-facts_test.sh"
+            echo "skills/coordinate/scripts/quiet-check_test.sh"
+            echo "skills/coordinate/scripts/skill-hygiene_test.sh"
+            echo "skills/coordinate/scripts/progress-view_test.sh"
+            echo "skills/coordinate/scripts/coord-verdict-table_test.sh"
+            ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the
             # eval gh shim. They drive test-local gh and koto stand-ins and need
@@ -337,6 +375,7 @@ suite_workflow() {
         koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
         deliver)              echo ".github/workflows/check-deliver-scripts.yml" ;;
         scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
+        coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

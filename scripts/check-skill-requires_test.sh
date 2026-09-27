@@ -444,6 +444,22 @@ else
 fi
 
 # ===========================================================================
+# A copy of /coordinate with one declaration dropped
+# ===========================================================================
+#
+# The real skill, not a hand-built fixture: its `koto next` record removed,
+# the scan must name the flag its SKILL.md still uses.
+
+FIXTURE="$WORK/coordinate-copy"
+mkdir -p "$FIXTURE/skills"
+cp -R "$REPO_ROOT/skills/coordinate" "$FIXTURE/skills/"
+rm -rf "$FIXTURE/skills/coordinate/evals/workspace"
+awk -F'\t' '!($1 == "koto" && $2 == "next")' "$REPO_ROOT/skills/coordinate/requires.tsv" \
+  > "$FIXTURE/skills/coordinate/requires.tsv"
+scan_fixture
+expect_fail "a copy of /coordinate without its koto next record fails" "'koto --no-cleanup' is used in skills/coordinate/"
+
+# ===========================================================================
 
 echo
 echo "check-skill-requires_test: $PASS_COUNT passed, $FAIL_COUNT failed"

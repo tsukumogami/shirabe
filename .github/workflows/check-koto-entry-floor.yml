@@ -19,6 +19,7 @@ on:
       - 'skills/scope/**'
       - 'skills/execute/**'
       - 'skills/deliver/**'
+      - 'skills/coordinate/**'
       # The scope and execute suites call /plan's and /work-on's scripts.
       - 'skills/plan/scripts/**'
       - 'skills/work-on/scripts/**'
@@ -108,7 +109,8 @@ jobs:
           for t in skills/scope/koto-templates/scope.md \
                    skills/execute/koto-templates/execute.md \
                    skills/execute/koto-templates/execute-coordinated.md \
-                   skills/deliver/koto-templates/deliver.md; do
+                   skills/deliver/koto-templates/deliver.md \
+                   skills/coordinate/koto-templates/coordinate.md; do
             echo "Compiling $t..."
             koto template compile "$t" >/dev/null
           done
@@ -151,3 +153,6 @@ jobs:
         run: |
           bash skills/work-on/scripts/work-on-open_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh
+
+      - name: Run /coordinate's koto-backed suites
+        run: bash skills/coordinate/scripts/run-tests.sh --engine

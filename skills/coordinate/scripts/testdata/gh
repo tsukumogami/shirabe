@@ -1,0 +1,350 @@
+#!/usr/bin/env bash
+# A gh stand-in for /coordinate's script tests. Not shipped behaviour: a test
+# puts this directory first on PATH.
+#
+# It serves repositories from the JSON file $GH_DB, appends every call's
+# arguments to "$GH_DB.calls", and applies writes to the DB so a later read
+# sees them. It exits 9 on any search form (--search, -S, a `search`
+# subcommand, a search/ API path), on a GraphQL mutation, and on any call it
+# doesn't serve, so a script that searched or wrote something unexpected fails.
+#
+#   {"login": "coord",
+#    "repos": {"acme/widgets": {"private": false, "default_branch": "main"}},
+#    "issues": [{"repo", "number", "title", "body", "state": "open|closed",
+#                "author", "editor"}],
+#    "prs": [{"repo", "number", "title", "body", "state": "OPEN|MERGED|CLOSED",
+#             "isDraft", "isCrossRepository", "baseRefName", "headRefName",
+#             "headRefOid", "author", "editor"}],
+#    "branches": {"acme/widgets": {"main": "<sha>"}},
+#    "commits": {"<sha>": {"tree": "<sha>"}},
+#    "permissions": {"acme/widgets": {"alice": "admin"}},
+#    "files": {"acme/widgets": {"main:docs/x.md": "text"}},
+#    "fail": [{"match": "<substring of the call>", "rc": 1, "stderr": "..."}]}
+#
+# Served: api (GET issues listing with --paginate, repos/R, branches, collaborator
+# permission, contents, git/ref, git/commits; POST git/commits, git/refs;
+# DELETE git/refs; graphql author/editor queries), issue create|edit|close|view,
+# pr list|view|create|edit|ready. A trailing --jq is applied the way gh does.
+#
+# Also served, for the close-out and turn scripts: GET repos/R/issues/<n> (an
+# issue or pull request, 404 when absent), GET repos/R/commits/<sha> (the
+# commit's date from "commits": {"<sha>": {"date": ...}}), a contents read's
+# blob "sha", PUT repos/R/contents/<path> (commits the file to the branch,
+# moves the branch and any open pull request on it to the new commit, and
+# checks the blob sha the way GitHub does), and `issue list --label L`
+# (issues carry "labels": [...]). A pull request's "mergeStateStatus" is
+# served when the DB sets it, else UNKNOWN.
+set -uo pipefail
+
+[ -n "${GH_DB:-}" ] && [ -f "$GH_DB" ] || { echo "gh stub: GH_DB is not set" >&2; exit 9; }
+printf '%s\n' "$*" >> "$GH_DB.calls"
+
+for a in "$@"; do
+    case "$a" in
+        --search|--search=*|-S) echo "gh stub: a search form: $*" >&2; exit 9 ;;
+        *search/*) echo "gh stub: a search path: $*" >&2; exit 9 ;;
+    esac
+done
+[ "${1:-}" = search ] && { echo "gh stub: gh search: $*" >&2; exit 9; }
+
+ALL="$*"
+FAILRC=$(jq -r --arg a "$ALL" '[(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")"' "$GH_DB")
+if [ -n "$FAILRC" ]; then
+    printf '%s\n' "${FAILRC#*	}" >&2
+    exit "${FAILRC%%	*}"
+fi
+
+unexpected() { echo "gh stub: unexpected call: $ALL" >&2; exit 9; }
+notfound() { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+dbset() { # dbset <jq program> [jq args...]: apply a write to the DB
+    local prog=$1 tmp
+    shift
+    tmp="$GH_DB.tmp.$$"
+    jq "$@" "$prog" "$GH_DB" > "$tmp" && mv "$tmp" "$GH_DB"
+}
+
+W1=${1:-} W2=${2:-}
+shift 2 2>/dev/null || shift $#
+[ "$W1" = api ] && set -- "$W2" "$@" && W2=
+
+METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL=
+FIELDS=
+POS=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --method|-X) METHOD=$2; shift 2 ;;
+        --jq|-q) JQF=$2; shift 2 ;;
+        --repo|-R) REPO=$2; shift 2 ;;
+        --head|-H) HEAD=$2; shift 2 ;;
+        --base|-B) BASE=$2; shift 2 ;;
+        --state|-s) STATE=$2; shift 2 ;;
+        --limit|-L) LIMIT=$2; shift 2 ;;
+        --label|-l) LABEL=$2; shift 2 ;;
+        --json) JSONF=$2; shift 2 ;;
+        --title|-t) TITLE=$2; shift 2 ;;
+        --body-file|-F) if [ "$W1" = api ]; then FIELDS="$FIELDS$2"$'\n'; else BODYFILE=$2; fi; shift 2 ;;
+        -f|--raw-field|--field) FIELDS="$FIELDS$2"$'\n'; shift 2 ;;
+        --paginate) PAGINATE=1; shift ;;
+        --draft|-d) DRAFT=1; shift ;;
+        -*) unexpected ;;
+        *) POS="$POS$1"$'\n'; shift ;;
+    esac
+done
+pos() { printf '%s' "$POS" | sed -n "${1}p"; }
+field() { printf '%s' "$FIELDS" | sed -n "s/^$1=//p" | head -1; }
+LOGIN=$(jq -r '.login // "coord"' "$GH_DB")
+
+emit() { # emit <json>: print it, through --jq when given
+    if [ -n "$JQF" ]; then printf '%s\n' "$1" | jq -r "$JQF"; else printf '%s\n' "$1"; fi
+}
+project() { # project <json>: keep only the --json fields
+    if [ -n "$JSONF" ]; then printf '%s' "$1" | jq -c --arg f "$JSONF" '($f | split(",")) as $k
+        | if type == "array" then map(with_entries(select(.key as $x | $k | index($x)))) else with_entries(select(.key as $x | $k | index($x))) end'
+    else printf '%s' "$1"; fi
+}
+need_repo() { jq -e --arg r "$1" '.repos[$r] != null' "$GH_DB" >/dev/null || notfound; }
+next_number() {
+    jq -r --arg r "$1" '([.issues[]?, .prs[]? | select(.repo == $r) | .number] | max // 0) + 1' "$GH_DB"
+}
+issue_json() { # issue_json <repo> <n>: gh issue view's shape
+    jq -c --arg r "$1" --argjson n "$2" '[.issues[]? | select(.repo == $r and .number == $n)][0] // empty
+        | {number, title, body, state: (.state | ascii_upcase), url: "https://github.com/\(.repo)/issues/\(.number)",
+           author: {login: .author}}' "$GH_DB"
+}
+pr_json() { # pr_json <repo> <n>|all: gh pr view's shape
+    jq -c --arg r "$1" --arg n "$2" '[.prs[]? | select(.repo == $r and ($n == "all" or (.number | tostring) == $n))
+        | {number, title, body, state, isDraft, isCrossRepository, baseRefName, headRefName, headRefOid,
+           url: "https://github.com/\(.repo)/pull/\(.number)", author: {login: .author},
+           mergeStateStatus: (.mergeStateStatus // "UNKNOWN")}]
+        | if $n == "all" then . else .[0] // empty end' "$GH_DB"
+}
+blob_sha() { # blob_sha <text>: a stand-in blob sha for a file's text
+    if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | cut -c1-40
+    else printf '%s' "$1" | shasum -a 256 | cut -c1-40; fi
+}
+pr_ref() { # the number from a positional that may be a URL
+    local t
+    t=$(pos 1)
+    printf '%s' "${t##*/}"
+}
+
+case "$W1 $W2" in
+"api ")
+    path=$(pos 1)
+    # gh sends GraphQL as a POST whatever --method says.
+    [ "$path" = graphql ] && METHOD=POST
+    case "$METHOD $path" in
+    "POST graphql")
+        q=$(field query)
+        case "$q" in *mutation*) echo "gh stub: a GraphQL mutation" >&2; exit 9 ;; esac
+        kind=issue
+        case "$q" in *"pullRequest("*) kind=pullRequest ;; esac
+        r="$(field owner)/$(field name)"
+        n=$(field number)
+        out=$(jq -c --arg r "$r" --argjson n "$n" --arg k "$kind" '
+            [(if $k == "issue" then .issues else .prs end)[]? | select(.repo == $r and .number == $n)][0]
+            | if . == null then empty else {data: {repository: {($k): {author: (if .author then {login: .author} else null end),
+                editor: (if .editor then {login: .editor} else null end)}}}} end' "$GH_DB")
+        [ -n "$out" ] || { echo "gh: Could not resolve to an issue or pull request" >&2; exit 1; }
+        emit "$out"
+        ;;
+    "GET repos/"*/issues\?*)
+        r=${path#repos/}; r=${r%/issues\?*}
+        need_repo "$r"
+        per=$(printf '%s' "$path" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p'); [ -n "$per" ] || per=30
+        st=$(printf '%s' "$path" | sed -n 's/.*state=\([a-z]*\).*/\1/p'); [ -n "$st" ] || st=open
+        items=$(jq -c --arg r "$r" --arg s "$st" '
+            ([.issues[]? | select(.repo == $r and ($s == "all" or .state == $s))
+              | {number, title, body, state, html_url: "https://github.com/\(.repo)/issues/\(.number)", user: {login: .author}}]
+             + [.prs[]? | select(.repo == $r and ($s == "all" or ($s == "open" and .state == "OPEN")))
+              | {number, title, body, state: "open", html_url: "https://github.com/\(.repo)/pull/\(.number)", user: {login: .author},
+                 pull_request: {url: "x"}}])
+            | sort_by(-.number)' "$GH_DB")
+        total=$(printf '%s' "$items" | jq length)
+        p=0
+        while :; do
+            page=$(printf '%s' "$items" | jq -c --argjson o $((p * per)) --argjson n "$per" '.[$o:$o + $n]')
+            emit "$page"
+            p=$((p + 1))
+            [ "$PAGINATE" = 1 ] && [ $((p * per)) -lt "$total" ] || break
+        done
+        ;;
+    "GET repos/"*/branches/*)
+        r=${path#repos/}; r=${r%%/branches/*}
+        b=$(printf '%s' "${path##*/branches/}" | sed 's/%2F/\//g')
+        need_repo "$r"
+        sha=$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")
+        [ -n "$sha" ] || notfound
+        emit "$(jq -nc --arg b "$b" --arg s "$sha" '{name: $b, commit: {sha: $s}}')"
+        ;;
+    "GET repos/"*/collaborators/*/permission)
+        r=${path#repos/}; r=${r%%/collaborators/*}
+        l=${path#*/collaborators/}; l=${l%/permission}
+        perm=$(jq -r --arg r "$r" --arg l "$l" '.permissions[$r][$l] // empty' "$GH_DB")
+        [ -n "$perm" ] || notfound
+        emit "$(jq -nc --arg p "$perm" '{permission: $p}')"
+        ;;
+    "GET repos/"*/contents/*)
+        r=${path#repos/}; r=${r%%/contents/*}
+        f=${path#*/contents/}; ref=${f#*\?ref=}; f=${f%%\?*}
+        need_repo "$r"
+        text=$(jq -r --arg r "$r" --arg k "$ref:$f" '.files[$r][$k] // empty' "$GH_DB")
+        [ -n "$text" ] || notfound
+        emit "$(jq -nc --arg c "$(printf '%s\n' "$text" | base64)" --arg s "$(blob_sha "$text")" '{content: $c, encoding: "base64", sha: $s}')"
+        ;;
+    "GET repos/"*/git/ref/heads/*)
+        r=${path#repos/}; r=${r%%/git/*}
+        b=${path#*/git/ref/heads/}
+        sha=$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")
+        [ -n "$sha" ] || notfound
+        emit "$(jq -nc --arg b "$b" --arg s "$sha" '{ref: "refs/heads/\($b)", object: {sha: $s}}')"
+        ;;
+    "GET repos/"*/git/commits/*)
+        sha=${path##*/}
+        tree=$(jq -r --arg s "$sha" '.commits[$s].tree // empty' "$GH_DB")
+        [ -n "$tree" ] || notfound
+        emit "$(jq -nc --arg s "$sha" --arg t "$tree" '{sha: $s, tree: {sha: $t}}')"
+        ;;
+    "GET repos/"*/issues/*)
+        r=${path#repos/}; r=${r%%/issues/*}
+        n=${path##*/issues/}
+        case "$n" in ''|*[!0-9]*) unexpected ;; esac
+        need_repo "$r"
+        out=$(jq -c --arg r "$r" --argjson n "$n" '
+            ([.issues[]? | select(.repo == $r and .number == $n) | {number, title, state}]
+             + [.prs[]? | select(.repo == $r and .number == $n) | {number, title, state: (if .state == "OPEN" then "open" else "closed" end),
+                pull_request: {url: "x"}}])[0] // empty' "$GH_DB")
+        [ -n "$out" ] || notfound
+        emit "$out"
+        ;;
+    "GET repos/"*/commits/*)
+        sha=${path##*/}
+        date=$(jq -r --arg s "$sha" '.commits[$s].date // empty' "$GH_DB")
+        [ -n "$date" ] || notfound
+        emit "$(jq -nc --arg s "$sha" --arg d "$date" '{sha: $s, commit: {committer: {date: $d}, author: {date: $d}}}')"
+        ;;
+    "PUT repos/"*/contents/*)
+        r=${path#repos/}; r=${r%%/contents/*}
+        f=${path#*/contents/}
+        need_repo "$r"
+        b=$(field branch)
+        [ -n "$b" ] && [ -n "$(field message)" ] && [ -n "$(field content)" ] || unexpected
+        [ -n "$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")" ] || notfound
+        cur=$(jq -r --arg r "$r" --arg k "$b:$f" '.files[$r][$k] // empty' "$GH_DB")
+        if [ -n "$cur" ]; then
+            [ "$(field sha)" = "$(blob_sha "$cur")" ] || { echo "gh: $f does not match $(field sha) (HTTP 409)" >&2; exit 1; }
+        elif [ -n "$(field sha)" ]; then
+            echo "gh: Invalid request. sha wasn't supplied correctly (HTTP 422)" >&2; exit 1
+        fi
+        text=$(field content | base64 -d 2>/dev/null) || { echo "gh: content is not base64 (HTTP 422)" >&2; exit 1; }
+        n=$(jq '(.commits // {}) | length' "$GH_DB")
+        sha=$(printf 'd%039d' $((n + 1)))
+        dbset '.files[$r][$b + ":" + $f] = $t | .files[$r][$s + ":" + $f] = $t | .branches[$r][$b] = $s
+            | .commits[$s] = {tree: "5555555555555555555555555555555555555555", message: $m}
+            | .prs |= map(if .repo == $r and .headRefName == $b and .state == "OPEN" then .headRefOid = $s else . end)' \
+            --arg r "$r" --arg b "$b" --arg f "$f" --arg t "$text" --arg s "$sha" --arg m "$(field message)"
+        emit "$(jq -nc --arg s "$sha" --arg c "$(blob_sha "$text")" '{content: {sha: $c}, commit: {sha: $s}}')"
+        ;;
+    "GET repos/"*)
+        r=${path#repos/}
+        case "$r" in */*/*) unexpected ;; esac
+        need_repo "$r"
+        emit "$(jq -c --arg r "$r" '.repos[$r] | {full_name: $r, default_branch, private}' "$GH_DB")"
+        ;;
+    "POST repos/"*/git/commits)
+        tree=$(field tree)
+        n=$(jq '(.commits // {}) | length' "$GH_DB")
+        sha=$(printf 'c%039d' $((n + 1)))
+        dbset '.commits[$s] = {tree: $t}' --arg s "$sha" --arg t "$tree"
+        emit "$(jq -nc --arg s "$sha" '{sha: $s}')"
+        ;;
+    "POST repos/"*/git/refs)
+        r=${path#repos/}; r=${r%%/git/*}
+        ref=$(field ref); b=${ref#refs/heads/}
+        [ -z "$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")" ] || { echo "gh: Reference already exists (HTTP 422)" >&2; exit 1; }
+        dbset '.branches[$r][$b] = $s' --arg r "$r" --arg b "$b" --arg s "$(field sha)"
+        emit "$(jq -nc --arg r "$ref" '{ref: $r}')"
+        ;;
+    "DELETE repos/"*/git/refs/heads/*)
+        r=${path#repos/}; r=${r%%/git/*}
+        b=${path#*/git/refs/heads/}
+        [ -n "$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")" ] || { echo "gh: Reference does not exist (HTTP 422)" >&2; exit 1; }
+        dbset 'del(.branches[$r][$b])' --arg r "$r" --arg b "$b"
+        ;;
+    *) unexpected ;;
+    esac
+    ;;
+"issue create")
+    need_repo "$REPO"
+    n=$(next_number "$REPO")
+    dbset '.issues += [{repo: $r, number: $n, title: $t, body: $b, state: "open", author: $l, editor: null}]' \
+        --arg r "$REPO" --argjson n "$n" --arg t "$TITLE" --rawfile b "$BODYFILE" --arg l "$LOGIN"
+    echo "https://github.com/$REPO/issues/$n"
+    ;;
+"issue edit")
+    n=$(pos 1)
+    [ -n "$(issue_json "$REPO" "$n")" ] || { echo "gh: no issue" >&2; exit 1; }
+    [ -n "$BODYFILE" ] && dbset '(.issues[] | select(.repo == $r and .number == $n)) |= (.body = $b | .editor = $l)' \
+        --arg r "$REPO" --argjson n "$n" --rawfile b "$BODYFILE" --arg l "$LOGIN"
+    [ -n "$TITLE" ] && dbset '(.issues[] | select(.repo == $r and .number == $n)) |= (.title = $t | .editor = $l)' \
+        --arg r "$REPO" --argjson n "$n" --arg t "$TITLE" --arg l "$LOGIN"
+    echo "https://github.com/$REPO/issues/$n"
+    ;;
+"issue close")
+    n=$(pos 1)
+    [ -n "$(issue_json "$REPO" "$n")" ] || { echo "gh: no issue" >&2; exit 1; }
+    dbset '(.issues[] | select(.repo == $r and .number == $n)).state = "closed"' --arg r "$REPO" --argjson n "$n"
+    ;;
+"issue view")
+    j=$(issue_json "$REPO" "$(pos 1)")
+    [ -n "$j" ] || { echo "gh: Could not resolve to an issue" >&2; exit 1; }
+    emit "$(project "$j")"
+    ;;
+"issue list")
+    need_repo "$REPO"
+    j=$(jq -c --arg r "$REPO" --arg s "$STATE" --arg l "$LABEL" --argjson n "$LIMIT" '[.issues[]? | select(.repo == $r
+            and ($s == "all" or .state == $s) and ($l == "" or ((.labels // []) | index($l))))
+        | {number, title, state: (.state | ascii_upcase), labels: [(.labels // [])[] | {name: .}],
+           url: "https://github.com/\(.repo)/issues/\(.number)"}] | sort_by(-.number) | .[0:$n]' "$GH_DB")
+    emit "$(project "$j")"
+    ;;
+"pr list")
+    j=$(jq -c --arg r "$REPO" --arg h "$HEAD" --arg s "$STATE" '[.prs[]? | select(.repo == $r and ($h == "" or .headRefName == $h)
+            and ($s == "all" or .state == ($s | ascii_upcase)))
+        | {number, title, body, state, isDraft, isCrossRepository, baseRefName, headRefName, headRefOid,
+           url: "https://github.com/\(.repo)/pull/\(.number)", author: {login: .author}}]' "$GH_DB")
+    emit "$(project "$j")"
+    ;;
+"pr view")
+    j=$(pr_json "$REPO" "$(pr_ref)")
+    [ -n "$j" ] || { echo "gh: no pull requests found" >&2; exit 1; }
+    emit "$(project "$j")"
+    ;;
+"pr create")
+    need_repo "$REPO"
+    sha=$(jq -r --arg r "$REPO" --arg b "$HEAD" '.branches[$r][$b] // empty' "$GH_DB")
+    [ -n "$sha" ] || { echo "gh: head branch does not exist" >&2; exit 1; }
+    n=$(next_number "$REPO")
+    dbset '.prs += [{repo: $r, number: $n, title: $t, body: $b, state: "OPEN", isDraft: ($d == 1), isCrossRepository: false,
+            baseRefName: $base, headRefName: $h, headRefOid: $s, author: $l, editor: null}]' \
+        --arg r "$REPO" --argjson n "$n" --arg t "$TITLE" --rawfile b "$BODYFILE" --argjson d "$DRAFT" \
+        --arg base "$BASE" --arg h "$HEAD" --arg s "$sha" --arg l "$LOGIN"
+    echo "https://github.com/$REPO/pull/$n"
+    ;;
+"pr edit")
+    n=$(pr_ref)
+    [ -n "$(pr_json "$REPO" "$n")" ] || { echo "gh: no pull request" >&2; exit 1; }
+    [ -n "$BODYFILE" ] && dbset '(.prs[] | select(.repo == $r and .number == $n)) |= (.body = $b | .editor = $l)' \
+        --arg r "$REPO" --argjson n "$n" --rawfile b "$BODYFILE" --arg l "$LOGIN"
+    [ -n "$TITLE" ] && dbset '(.prs[] | select(.repo == $r and .number == $n)) |= (.title = $t | .editor = $l)' \
+        --arg r "$REPO" --argjson n "$n" --arg t "$TITLE" --arg l "$LOGIN"
+    echo "https://github.com/$REPO/pull/$n"
+    ;;
+"pr ready")
+    n=$(pr_ref)
+    [ -n "$(pr_json "$REPO" "$n")" ] || { echo "gh: no pull request" >&2; exit 1; }
+    dbset '(.prs[] | select(.repo == $r and .number == $n)).isDraft = false' --arg r "$REPO" --argjson n "$n"
+    ;;
+*) unexpected ;;
+esac
+exit 0
