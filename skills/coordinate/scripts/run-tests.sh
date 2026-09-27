@@ -2,9 +2,12 @@
 # run-tests.sh -- run /coordinate's script tests offline.
 #
 # Every *_test.sh beside this script runs with the GitHub tokens unset and
-# with `gh` and `koto` on PATH resolving first to stubs that refuse to run, so
-# a test that reached the real GitHub or the real koto instead of its own
-# stand-ins fails loudly rather than passing on a network read. Engine suites
+# with a PATH built from nothing but the tools skills/coordinate/requires.tsv
+# declares and the POSIX utilities every script assumes (the COMMON list
+# below). `gh` and `koto` on that PATH are stubs that refuse to run, so a test
+# that reached the real GitHub or the real koto instead of its own stand-ins
+# fails loudly rather than passing on a network read, and a script that calls
+# an undeclared tool fails with "command not found". Engine suites
 # (*_engine_test.sh), which drive real koto on purpose, get the real koto;
 # they are selected with --engine.
 #
@@ -25,6 +28,19 @@ for tool in gh koto; do
 done
 [ "$ENGINE" = 1 ] && rm -f "$T/stubs/koto"
 
+# The restricted PATH: declared tools plus the POSIX utilities.
+COMMON="bash sh env cat sed awk grep head tail tr cut wc sort uniq diff cmp mktemp rm
+mkdir cp mv ln chmod date basename dirname printf test true false dd od xargs tee
+touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath"
+mkdir -p "$T/path"
+DECLARED=$(awk -F'\t' '!/^#/ && NF > 1 { print $1 }' "$HERE/../requires.tsv" | sort -u)
+for tool in $COMMON $DECLARED; do
+    [ -e "$T/stubs/$tool" ] && continue
+    [ "$tool" = koto ] && [ "$ENGINE" = 0 ] && continue
+    p=$(command -v "$tool" 2>/dev/null) || continue
+    case "$p" in /*) ln -sf "$p" "$T/path/$tool" ;; esac
+done
+
 rc=0
 n=0
 for t in "$HERE"/*_test.sh; do
@@ -36,7 +52,7 @@ for t in "$HERE"/*_test.sh; do
     n=$((n + 1))
     echo "== $(basename "$t")"
     if ! env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
-        PATH="$T/stubs:$PATH" bash "$t"; then
+        PATH="$T/stubs:$T/path" "$T/path/bash" "$t"; then
         rc=1
     fi
 done
