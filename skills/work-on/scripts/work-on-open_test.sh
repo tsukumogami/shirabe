@@ -85,8 +85,8 @@ own_refusal() { # own_refusal <label> <json tokens>
     OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
         bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>/dev/null)
     RC=$?
-    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$TOKENS" ]; then
-        pass "own refusal: $1 (exit 64, no koto call, tokens file removed)"
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "own refusal: $1 (exit 64, no koto call, tokens file and its directory removed)"
     else
         fail "own refusal: $1: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
     fi

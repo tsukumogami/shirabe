@@ -72,8 +72,26 @@ RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:work-on$'
 RE_VAR='^[A-Z][A-Z0-9_]*='
 
 TOKENS_FILE=""
+
+# remove_tokens -- remove the tokens file and, when nothing else is left in it,
+# the private directory `koto-open.sh --alloc-dir` made for it. On the open
+# path koto-open.sh removes that directory along with the pairs file; on every
+# path that never reaches koto-open.sh, this does.
+remove_tokens() {
+    local dir
+    [ -n "$TOKENS_FILE" ] || return 0
+    dir=$(dirname -- "$TOKENS_FILE")
+    [ -f "$TOKENS_FILE" ] && rm -f -- "$TOKENS_FILE"
+    if [ -f "$dir/.koto-open-alloc" ] && [ ! -L "$dir/.koto-open-alloc" ] \
+        && [ -z "$(ls -A -- "$dir" | grep -vx '.koto-open-alloc')" ]; then
+        rm -f -- "$dir/.koto-open-alloc"
+        rmdir -- "$dir" 2>/dev/null
+    fi
+    return 0
+}
+
 own_refusal() {
-    [ -n "$TOKENS_FILE" ] && [ -f "$TOKENS_FILE" ] && rm -f -- "$TOKENS_FILE"
+    remove_tokens
     printf 'error=usage\n'
     echo "$PROG: $*" >&2
     exit 64
@@ -106,14 +124,13 @@ if [ ! -f "$TOKENS_FILE" ]; then
     own_refusal "no tokens file at [$MISSING]"
 fi
 [ -n "$WORKFLOW" ] || own_refusal "--workflow is required"
-command -v jq >/dev/null || { rm -f -- "$TOKENS_FILE"; printf 'failed=jq_missing\n'; echo "$PROG: jq is not on PATH" >&2; exit 127; }
+command -v jq >/dev/null || { remove_tokens; printf 'failed=jq_missing\n'; echo "$PROG: jq is not on PATH" >&2; exit 127; }
 jq -e 'type == "array" and all(.[]; type == "string")' "$TOKENS_FILE" >/dev/null \
     || own_refusal "the tokens file is not a JSON array of strings"
 
 TOKENS=$(cat -- "$TOKENS_FILE")
 DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
-TOKENS_FILE=""
 
 # --koto-leg: exactly once, naming the one leg /work-on answers.
 LEGS=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
@@ -135,7 +152,7 @@ PAIRS_FILE="$DIR/work-on-vars.json"
 jq -nc --arg root "$ROOT" '$ARGS.positional
     | map([(split("=")[0]), (.[(index("=") + 1):])])
     + [["PLUGIN_ROOT", $root]]' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
-    || own_refusal "could not write the variables file"
+    || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
 
 OUT=$(bash "$KOTO_OPEN" "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE" --attach-live --koto-leg "$LEG")
 RC=$?
