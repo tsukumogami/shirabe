@@ -464,6 +464,8 @@ Packaging:
   the visit that produced it, and every write script and downstream reader scans the session
   log for a directed transition and refuses on one, so a skip is detected at the next write
   rather than prevented.
+  koto#257 fixes it on koto's main branch; it takes effect once shirabe's koto minimum moves to
+  the release that carries it.
 - **Checks run in the coordinator's environment (koto#261).** The engine runs every action
   and gate with the environment of the `koto next` call, so a `PATH` entry, or an exported
   shell function where `/bin/sh` is bash, can stand in for `gh`, `jq` or `git`, by accident

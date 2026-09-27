@@ -309,7 +309,10 @@ until then it is a procedure the coordinator runs with a local agent.
   exists. Each check's verdict is sealed to the visit that produced it, and every
   write script and later reader scans the session log and refuses after a
   directed transition, so a skip is detected at the next write rather than
-  prevented.
+  prevented. koto#257 fixes it on koto's main branch by refusing `--to` past a
+  failing non-overridable gate; the fix takes effect once shirabe's koto
+  minimum moves to the release that carries it, and until then this limitation
+  stands.
 - **Checks run in the coordinator's own environment (koto#261).** koto runs
   every action and gate with the environment of the `koto next` call that
   triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an
