@@ -1287,6 +1287,7 @@ to landed work.
 | Unit of work | Entry point |
 |---|---|
 | A roadmap feature that has to be worked out and built | `/shirabe:deliver` |
+| A roadmap feature scoped ahead (`scope_ahead`) | `/shirabe:scope <topic> --intent=continue`, then `/shirabe:execute docs/plans/PLAN-<topic>.md` to the same worker at `send_execution` |
 | An issue that is already specified | `/shirabe:work-on` |
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |

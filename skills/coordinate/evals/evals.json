@@ -13,7 +13,7 @@
         "The extra invocation text is treated as decisions (feature 3 held, at most three workers), not as a description of how to coordinate",
         "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
         "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
-        "The entry point chosen for a roadmap feature is /shirabe:deliver",
+        "The entry point chosen for a roadmap feature dispatched to be built is /shirabe:deliver; a feature scoped ahead may use /shirabe:scope with its execution sent later",
         "Features 1 and 4 are dispatched (or briefed for dispatch) to be built, and feature 2 is not dispatched to be built before feature 1 lands (scoping it ahead is allowed)",
         "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
         "The roadmap's Features section is not edited, and nothing is committed to the default branch",
