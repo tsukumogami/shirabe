@@ -193,7 +193,23 @@ check_repo() {
 
 # Every repository and worktree: each has a .git directory or file.
 find "$INSTANCE" -name .git -prune -print >"$WORK/gits"
-if [ ! -s "$WORK/gits" ]; then
+
+# A bare repository has no .git, so the search above can't see it: look for a
+# HEAD file beside objects/ and refs/ outside any .git directory. This
+# inventory doesn't classify one, and an unclassified repository is never
+# durable.
+find "$INSTANCE" -name .git -prune -o -type f -name HEAD -print >"$WORK/heads"
+while IFS= read -r head; do
+    dir=$(dirname "$head")
+    [ -d "$dir/objects" ] && [ -d "$dir/refs" ] || continue
+    if [ "$(git -C "$dir" rev-parse --is-bare-repository)" = true ]; then
+        rel=${dir#"$INSTANCE"}
+        rel=${rel#/}
+        note 2 "error ${rel:-.}: a bare repository, which this inventory doesn't classify"
+    fi
+done <"$WORK/heads"
+
+if [ ! -s "$WORK/gits" ] && [ "$WORST" -eq 0 ]; then
     note 0 "durable . (vs -): no git repositories"
 fi
 while IFS= read -r gitpath; do

@@ -54,7 +54,7 @@ jobs:
       # gh, jq, git, and python3 come with both runner images. shirabe is built
       # from this checkout, following .github/workflows/validate-docs.yml, and
       # koto arrives through tsuku from .tsuku.toml, following
-      # .github/workflows/validate-templates.yml. Nothing here installs jq: the
+      # .github/workflows/validate-templates.yml, and niwa through tsuku too. Nothing here installs jq: the
       # suites parse no JSON. The declarations are tab-separated, the probe
       # reads --help text, and the reports are prose.
       # ---------------------------------------------------------------------
@@ -92,6 +92,14 @@ jobs:
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # /coordinate declares the workspace manager, niwa, for presence; it
+      # comes from tsuku like koto, on the route scripts/lib/tool-routes.tsv
+      # names.
+      - name: Install niwa
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y niwa@latest
 
       # /scope's and /execute's declarations name the koto init entry flags
       # only koto 0.13.0 and later have, so the zero-bytes assertions hold only

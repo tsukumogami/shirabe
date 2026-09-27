@@ -207,6 +207,39 @@ OUT3=$(bash "$S" --topic plugin-api --instance "$I3" 2>&1); RC=$?
 eq  "submodule: exit 2" 2 "$RC"
 has "submodule: named" "$OUT3" "error super/sub: a submodule"
 
+# A bare repository, which has no .git to find, is an error, never durable.
+I4="$T/inst4"
+mkdir -p "$I4"
+git init -q --bare "$I4/cache.git"
+OUT4=$(bash "$S" --topic plugin-api --instance "$I4" 2>&1); RC=$?
+eq  "bare repository: exit 2" 2 "$RC"
+has "bare repository: named" "$OUT4" "error cache.git: a bare repository"
+
+# A repository whose .git points nowhere is an error, never durable.
+I5="$T/inst5"
+mkdir -p "$I5/broken"
+printf 'gitdir: %s/missing\n' "$T" >"$I5/broken/.git"
+OUT5=$(bash "$S" --topic plugin-api --instance "$I5" 2>&1); RC=$?
+eq  "unreadable repository: exit 2" 2 "$RC"
+has "unreadable repository: named" "$OUT5" "error broken: not a readable git repository"
+
+# A fetch that hangs past the deadline makes that repository an error. The
+# origin is a helper that never answers.
+I6="$T/inst6"
+mkdir -p "$I6"
+git clone -q "$O" "$I6/slow"
+cat >"$BIN/git-remote-hang" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$BIN/git-remote-hang"
+git -C "$I6/slow" remote set-url origin hang::nowhere
+START=$(date +%s)
+OUT6=$(TEARDOWN_FETCH_SECS=1 bash "$S" --topic plugin-api --instance "$I6" 2>&1); RC=$?
+eq  "hung fetch: exit 2" 2 "$RC"
+has "hung fetch: named" "$OUT6" "error slow: git fetch origin failed or timed out"
+if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "hung fetch: stops at the deadline"; else bad "hung fetch: stops at the deadline" ""; fi
+
 bash "$S" --topic plugin-api --instance "$T/nowhere" >/dev/null 2>&1; eq "no instance: exit 2" 2 "$?"
 bash "$S" --topic ../x --instance "$I" >/dev/null 2>&1; eq "a bad topic: exit 2" 2 "$?"
 

@@ -325,6 +325,7 @@ eq  "refused brief: nothing written or launched" "" "$(grep -E '^niwa dispatch|r
 
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
+jq -c '.dispatched = "2000-01-01"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
 printf 'plugin-api' >"$ST/ctx/report_topic"
 jq -c '.goal = "The plugin API ships, and the loader tolerates a missing manifest." | .repo = "evil/elsewhere"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 : >"$ST/calls.log"
@@ -337,6 +338,7 @@ has "rebrief: new goal" "$B" "tolerates a missing manifest"
 has "rebrief: repository from the row, not the input" "$B" "in acme/widgets"
 lacks "rebrief: the input's repository ignored" "$B" "evil/elsewhere"
 eq  "rebrief: row still dispatched" dispatched "$(row dispatch_status)"
+eq  "rebrief: row's date updated" "$(date -u +%Y-%m-%d)" "$(row dispatched)"
 
 jq -c '.run_mode = "--interactive"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 run --rebrief >/dev/null 2>&1; RC=$?
