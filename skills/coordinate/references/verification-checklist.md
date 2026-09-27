@@ -83,7 +83,7 @@ one in the same sentence.
 ```
 <unit>: <pull request URL>
 Verified at <time>, head <full sha>:
-- measured: head matches ls-remote on <branch>
+- measured: head matches the remote ref of <branch>
 - measured: CI <n> jobs on <sha>, all success; <job> succeeded <k> steps on <runner> ...
 - verified by reading: files <count>, all inside the brief's scope
 Not verified:

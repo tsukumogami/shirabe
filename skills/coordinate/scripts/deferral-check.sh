@@ -169,6 +169,7 @@ rd() {
     case $rc in 0) ;; 1) out= ;; *) lib_die2 "cannot read the session log ($1)" ;; esac
     printf -v "$var" '%s' "$out"
 }
+UNIT_FROM_LOG=0
 rd ENT entry --session "$SESSION" --state dispatch_check
 FROMST=${ENT#* }
 U=
@@ -189,8 +190,10 @@ case "$FROMST" in
             PREV=$(bash "$CL" capture --session "$SESSION" --name DISPATCH_CHECK --state dispatch_check --any-visit 2> /dev/null) || PREV=
             case "$PREV" in "ok "*) U=${PREV#ok }; U=${U%% *} ;; esac
         else
-            rd W evidence --session "$SESSION" --state wait
-            [ -n "$W" ] && U=$(printf '%s' "$W" | jq -r '.fields.unit // "" | tostring')
+            # The unit the failure is about, resolved like report-facts.sh's
+            # (lib_unit): a leg arrival names no unit in its evidence, so it
+            # needs the record's rows, read below.
+            UNIT_FROM_LOG=1
         fi ;;
 esac
 [[ $U =~ $RE_TOPIC ]] && TOPIC=$U
@@ -294,6 +297,11 @@ if [ "$COUNT" -gt 0 ]; then
 fi
 
 jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
+if [ "$UNIT_FROM_LOG" = 1 ]; then
+    parsed_holdings() { cat "$T/holdings.json"; }
+    lib_unit "" "" parsed_holdings; rc=$?
+    case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
+fi
 # A topic already held. send_execution is judged below, as it targets a holding.
 if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
     && jq -e --arg t "$TOPIC" 'any(.[]; .worker == $t)' "$T/holdings.json" > /dev/null; then

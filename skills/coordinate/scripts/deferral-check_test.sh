@@ -156,6 +156,22 @@ log_evidence "$S" wait '{"event":"failed","unit":"beta"}'; log_to "$S" wait fail
 log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
 eq "a redispatch of a held unit is checked on that unit and isn't a duplicate" "ok beta" "$(check)"
 
+echo "== check mode: a redispatch on the leg path =="
+# The unit that failed arrived on a koto request leg: its wait evidence names
+# no unit, so the unit is the holding whose Return path is the captured leg
+# (lib_unit, as report-facts.sh resolves it), never `-`.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-1:execute", "pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record wait
+log_evidence "$S" wait '{"event":"leg"}'; log_to "$S" wait leg_pick
+log_capture "$S" WAIT_REQ req-1; log_to "$S" leg_pick wait_leg
+log_capture "$S" WAIT_LEG execute; log_to "$S" wait_leg take_report
+log_to "$S" take_report failure
+log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
+eq "a redispatch after a leg arrival checks the holding the leg names" "ok theta" "$(check)"
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-9:execute"}')" '.holdings = [$h]')"
+eq "a leg no holding carries resolves to no unit, not a guess" "ok -" "$(check)"
+
 echo "== check mode: the cap and the parked bound =="
 pr() { # pr <n> <state> <draft>
     db '.prs += [{repo: "acme/widgets", number: $n, title: "w", body: "", state: $s, isDraft: ($d == "true"), isCrossRepository: false,
