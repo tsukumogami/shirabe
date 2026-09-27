@@ -284,13 +284,14 @@ until then it is a procedure the coordinator runs with a local agent.
   write script and later reader scans the session log and refuses after a
   directed transition, so a skip is detected at the next write rather than
   prevented.
-- **Checks run in the coordinator's own environment.** koto runs every action and
-  gate with the environment of the `koto next` call that triggered it, and the
-  coordinator controls that environment. A `PATH` entry or an exported shell
-  function can stand in for `gh`, `jq` or `git` and make a check read what the
-  coordinator wants. The checks hold against a coordinator that submits a wrong
-  value or skips a step, not against one that rewrites its own tools. Closing it
-  needs koto to run checks in an environment the session fixes at init.
+- **Checks run in the coordinator's own environment (koto#261).** koto runs
+  every action and gate with the environment of the `koto next` call that
+  triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an
+  exported shell function where `/bin/sh` is bash (not dash). The same goes for a
+  shim put first on `PATH` by accident, which a check then reads silently. The
+  checks hold against a wrong submitted value or a skipped step. They don't hold
+  against a coordinator that rewrites its own tools, or its files, which no fix
+  to the environment covers.
 - **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches
   report by message only.
