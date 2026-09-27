@@ -38,7 +38,9 @@
 #   3. Each local branch, local tag and a detached HEAD with a commit on none
 #      of origin's live refs, and each origin tracking ref whose branch is
 #      gone from origin and that this clone pushed, checked by content as
-#      above.
+#      above. Whether it pushed is read from the ref's log; a gone ref whose
+#      log exists but reads empty (expired or unreadable), or any gone ref
+#      when the clone keeps no usable ref log, is an error.
 #
 # Submodules, clones nested in the working tree and linked worktrees inside
 # the instance are inventoried as clones of their own. Anything it can't
@@ -330,13 +332,14 @@ check_repo() {
     : >"$WORK/targets"
     : >"$WORK/reflog-failed"
     key=$(printf '%s' "$repo" | tr / _)
-    # A pushed branch that's gone from origin is told apart from someone
-    # else's by its tracking ref's reflog; with ref logging off there is none
-    # to read, and the clone can't be judged.
-    if [ "$(ig "$d" config --bool core.logAllRefUpdates)" = false ]; then
-        note 2 "error $rel: ref logging is off, so a branch it pushed can't be told from someone else's"
-        return
-    fi
+    # No usable ref log: logging turned off, or no log for HEAD, which every
+    # clone has from the clone itself (it's missing when the logs directory
+    # can't be read).
+    local nolog=""
+    case "$(ig "$d" config --get core.logAllRefUpdates | tr 'A-Z' 'a-z')" in
+        false | no | off | 0) nolog=1 ;;
+    esac
+    ig "$d" reflog exists HEAD || nolog=1
     files_changed "$d" || { note 2 "error $rel: its files could not be read"; return; }
     why=$(cat "$WORK/why")
     # A clone and its linked worktrees share one git directory, and with it
@@ -371,11 +374,22 @@ check_repo() {
                     [ -z "$tsym" ] || continue
                     tb=${tref#refs/remotes/origin/}
                     printf '%s\n' "$live" | awk -v r="refs/heads/$tb" '$2 == r { f = 1 } END { exit !f }' && continue
-                    # A reflog that can't be read is an error, never "not
-                    # pushed". An empty one is normal: git clone logs nothing
-                    # for the tracking refs it creates.
+                    # Whether this clone pushed it is read from the ref's log.
+                    # With ref logging off there's no log to read, so the
+                    # clone can't be judged. A ref git clone created has no log
+                    # file at all, which is normal; a log file that exists but
+                    # reads empty (expired, or unreadable: reflog show exits 0
+                    # either way) can't be judged either.
+                    if [ -n "$nolog" ]; then
+                        printf '%s (ref logging is off)\n' "$tref" >>"$WORK/reflog-failed"
+                        continue
+                    fi
                     if ! ig "$d" reflog show --format=%gs "$tref" -- >"$WORK/reflog" 2>"$WORK/err"; then
                         printf '%s\n' "$tref" >>"$WORK/reflog-failed"
+                        continue
+                    fi
+                    if [ ! -s "$WORK/reflog" ] && ig "$d" reflog exists "$tref"; then
+                        printf '%s (its log is empty or unreadable)\n' "$tref" >>"$WORK/reflog-failed"
                         continue
                     fi
                     grep -q '^update by push' "$WORK/reflog" || continue
@@ -387,7 +401,7 @@ check_repo() {
         fi
     } >"$WORK/tips"
     if [ -s "$WORK/reflog-failed" ]; then
-        note 2 "error $rel: the ref log of $(head -1 "$WORK/reflog-failed") could not be read"
+        note 2 "error $rel: whether it pushed $(head -1 "$WORK/reflog-failed") can't be read, so a commit only that ref holds can't be ruled out"
         return
     fi
     local sha name bname n base target label merge paths p want have differ

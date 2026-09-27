@@ -15,9 +15,13 @@
 #   durable  a clean clone; a pushed branch; a squash-merged branch whose
 #            changed file matches the merge commit even though the default
 #            branch changed that file again later; an unpushed branch with no
-#            merged pull request whose changed file matches the default branch
+#            merged pull request whose changed file matches the default branch;
+#            a clone tracking someone else's branch that was deleted or moved
+#            on origin
 #   error    a bare repository; an unreadable one; a clone with no
-#            github.com origin; a tree read that hangs past its deadline
+#            github.com origin; a tree read that hangs past its deadline; a
+#            branch this clone pushed, gone from origin, whose ref log was
+#            expired, or in a clone with ref logging off
 #
 # Submodules and clones nested in an ignored directory are inventoried as
 # clones of their own.
@@ -384,14 +388,32 @@ printf 'theirs again\n' >"$SEED/b.txt"
 git -C "$SEED" commit -q -am "theirs again"
 git -C "$SEED" push -q origin others
 git -C "$SEED" checkout -q main
-git --git-dir="$O" update-ref -d refs/heads/others
-# Ref logging off: a pushed branch can't be told from someone else's.
+# Ref logging off, in a clone holding a tracking ref whose branch is about to
+# go: a pushed branch can't be told from someone else's.
 git clone -q "$GHURL" "$I12/nolog"
 git -C "$I12/nolog" config core.logAllRefUpdates false
+# Ref logging off in a clone with no such ref doesn't matter.
+git clone -q "$GHURL" "$I12/nologclean"
+git -C "$I12/nologclean" config core.logAllRefUpdates false
+git --git-dir="$O" update-ref -d refs/heads/others
+git -C "$I12/nologclean" fetch -q --prune
+# A branch this clone pushed, deleted unmerged, whose ref log was then
+# expired: the log file exists but reads empty.
+git clone -q "$GHURL" "$I12/expired"
+git -C "$I12/expired" checkout -q -b gonelog
+printf 'expired\n' >"$I12/expired/c.txt"
+git -C "$I12/expired" commit -q -am expired
+git -C "$I12/expired" push -q origin gonelog
+git -C "$I12/expired" checkout -q main
+git -C "$I12/expired" branch -q -D gonelog
+git --git-dir="$O" update-ref -d refs/heads/gonelog
+git -C "$I12/expired" reflog expire --expire=now --expire-unreachable=now refs/remotes/origin/gonelog
 OUT12=$(bash "$S" --topic plugin-api --instance "$I12" 2>&1)
+has "an expired ref log on a gone branch is an error" "$OUT12" "error expired: whether it pushed refs/remotes/origin/gonelog"
+has "ref logging off with no gone branch is still judged" "$OUT12" "durable nologclean"
 has "someone else's deleted branch doesn't make a clean clone unique" "$OUT12" "durable bystander"
 has "someone else's branch moving on origin doesn't either" "$OUT12" "durable advanced"
-has "ref logging off is an error, never durable" "$OUT12" "error nolog: ref logging is off"
+has "ref logging off is an error, never durable" "$OUT12" "error nolog: whether it pushed refs/remotes/origin/others (ref logging is off)"
 has "a commit only a stale remote-tracking ref holds: unique" "$OUT12" "unique lost: remote-tracking origin/lostb changed c.txt"
 has "a squash-merged branch's stale remote-tracking ref: durable" "$OUT12" "durable landed (vs "
 has "that ref is judged against its merge commit" "$OUT12" "merge $MERGE12)"

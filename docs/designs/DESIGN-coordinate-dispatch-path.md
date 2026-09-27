@@ -559,13 +559,13 @@ from GitHub, one read per commit. For every clone:
    origin and that this clone pushed (its reflog says so), since that ref can
    be the only thing holding a commit; any other tracking ref is someone
    else's branch as last fetched and isn't the worker's. That rule depends
-   on the clone's ref log, so a clone with ref logging turned off, or a ref
-   log that can't be read, is an error rather than a guess. An empty ref log
-   can't be read as "pushed": `git clone` logs nothing for the tracking refs
-   it creates, so that would count every bystander branch deleted since the
-   clone. What remains open is a ref log expired or removed while logging was
-   on, which reads as not pushed; a worker's session is far shorter than
-   git's expiry. A push to a remote other than origin, or by
+   on the ref's log. A ref `git clone` created has no log file, which is
+   normal and reads as not pushed; counting it would count every bystander
+   branch deleted since the clone. A gone-from-origin ref whose log exists
+   but reads empty (expired or unreadable), or any such ref in a clone with
+   ref logging turned off, is an error rather than a guess. What remains
+   open is a log file deleted by hand, or ref logging turned off for the
+   push and back on before the teardown: both read as not pushed. A push to a remote other than origin, or by
    URL, leaves no origin tracking ref and isn't seen; a worker that pushes
    anywhere but its origin is outside what the inventory can prove. The paths it changed are the `diff-tree --no-renames`
    paths from its merge base with the default branch. The comparison target
