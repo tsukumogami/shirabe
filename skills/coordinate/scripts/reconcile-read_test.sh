@@ -31,9 +31,14 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
-cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$HERE"/reconcile-salvage.jq "$T/tree/skills/coordinate/scripts/"
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-read.sh"
+# A stand-in codec with the one definition the stubbed cases reach: the
+# record feature's fixed not-recorded sentence.
+cat > "$T/tree/skills/coordinate/scripts/record-codec.jq" <<'CODEC'
+def predecessor_sentence: "The outgoing rotation's reasoning was not recorded.";
+CODEC
 
 cat > "$T/bin/stub" <<'STUB'
 #!/usr/bin/env bash
@@ -113,7 +118,7 @@ new_case found-roadmap
 serve facts 1 "$FACTS_RM"; serve issue-view 1 "$OPEN"; serve parse-record 1 "$ROADMAP_JSON"
 capture --session coordinate-plugin-system-20260926T120000Z
 expect "a roadmap record is read from its issue, with each row sourced to the record" \
-    '.status == "found" and .scope == {kind: "roadmap", name: "plugin-system", repo: "acme/widgets"} and .record.written == "2026-09-26T12:00:00Z" and .record.source == "record" and .record.handoff_date == null and (.holdings | length) == 1 and .holdings[0].source == "record" and .holdings[0].row.verified_head == "'$SHA'" and .deferrals[0].deferral == "flaky test" and .side_effects[0].action == "merge" and .unparseable == [] and .reasoning == null'
+    '.status == "found" and .scope == {kind: "roadmap", name: "plugin-system", repo: "acme/widgets"} and .record.written == "2026-09-26T12:00:00Z" and .record.source == "record" and .record.handoff_date == null and (.holdings | length) == 1 and .holdings[0].source == "record" and .holdings[0].row.verified_head == "'$SHA'" and .deferrals[0].row.deferral == "flaky test" and .deferrals[0].source == "record" and .side_effects[0].row.action == "merge" and .unparseable == [] and .reasoning == null'
 grep -q "issue view 40 --repo $R --json state,body" "$CASE/log" && ok "the body is read live from the issue the run found" || bad "the body is read live from the issue the run found" "$(cat "$CASE/log")"
 grep -q -- "--container issue --expect-scope roadmap:plugin-system" "$CASE/log" && ok "the parser is told the container and the scope it must match" || bad "the parser is told the container and the scope it must match" "$(cat "$CASE/log")"
 
@@ -168,19 +173,10 @@ serve issue-view 1 "$OPEN"; fail_with parse-record 1 1
 capture $ROADMAP_ARGS
 expect "an internal parser failure is a failed read, not an unreadable record" '.status == "failed"' 5
 
-new_case not-canonical
-serve issue-view 1 "$OPEN"; fail_with parse-record 1 3 "record-parse: not canonical at line 9
-  body:     | a hand edit |
-  expected: | Feature 2 |"
-serve parse-record-nc 1 "$ROADMAP_JSON"
+new_case too-large
+serve issue-view 1 "$OPEN"; fail_with parse-record 1 65 "record-parse: refused: body is 70000 bytes, over GitHub's 65536"
 capture $ROADMAP_ARGS
-expect "a hand-edited body is still read, and the differing line is listed as unparseable" \
-    '.status == "found" and (.holdings | length) == 1 and (.unparseable | length) == 1 and (.unparseable[0].raw | test("line 9")) and (.unparseable[0].reason | test("not canonical"))'
-
-new_case not-canonical-refused
-serve issue-view 1 "$OPEN"; fail_with parse-record 1 3 "record-parse: not canonical"; fail_with parse-record-nc 1 65 "record-parse: refused: no heading"
-capture $ROADMAP_ARGS
-expect "a body that fails even without the canonical check is unreadable" '.status == "unreadable"' 4
+expect "a body over GitHub's size limit is unreadable, not salvaged" '.status == "unreadable"' 4
 
 echo "== discipline scope and the handoff =="
 new_case disc-handoff
@@ -188,7 +184,7 @@ serve facts 1 "$FACTS_DS"; serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_
 serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "the handoff file"; serve parse-handoff 1 "$HANDOFF_JSON"
 capture --session coordinate-ci-health-20260926T120000Z --reasoning-out "$CASE/reasoning.txt"
 expect "a discipline record is read with the previous rotation's handoff, the record's rows first" \
-    '.status == "found" and .scope.kind == "discipline" and .record.source == "record and handoff" and .record.handoff_date == "2026-09-23" and ([.holdings[].source] == ["record", "handoff"]) and .holdings[1].row.worker == "flaky-fix" and ([.deferrals[].deferral] == ["flaky test", "old gap"]) and (.side_effects | length) == 1 and .reasoning == "present"'
+    '.status == "found" and .scope.kind == "discipline" and .record.source == "record and handoff" and .record.handoff_date == "2026-09-23" and ([.holdings[].source] == ["record", "handoff"]) and .holdings[1].row.worker == "flaky-fix" and ([.deferrals[] | .row.deferral + "/" + .source] == ["flaky test/record", "old gap/handoff"]) and (.side_effects | length) == 1 and .reasoning == "present"'
 [ "$(cat "$CASE/reasoning.txt" 2>/dev/null)" = "The flaky job is timing." ] && ok "the predecessor's reasoning is written verbatim to the file named" || bad "the predecessor's reasoning is written verbatim to the file named" "$(cat "$CASE/reasoning.txt" 2>&1)"
 grep -q "pr view 77 --repo $R --json state,body" "$CASE/log" && ok "the discipline record is read from its pull request" || bad "the discipline record is read from its pull request" "$(cat "$CASE/log")"
 grep -q "contents/docs/disciplines/ci-health.md?ref=main" "$CASE/log" && ok "the handoff is read from the host's default branch" || bad "the handoff is read from the host's default branch" "$(cat "$CASE/log")"
@@ -233,12 +229,34 @@ capture $DISC_ARGS
 expect "an unreadable default branch is a failed read" '.status == "failed"' 5
 grep -q contents "$CASE/log" && bad "no handoff read without a default branch" || ok "no handoff read without a default branch"
 
-new_case disc-handoff-nc
+new_case disc-sentence
 serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_JSON"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
-fail_with parse-handoff 1 3 "record-parse: not canonical at line 4"; serve parse-handoff-nc 1 "$HANDOFF_JSON"
+serve parse-handoff 1 "$(printf '%s' "$HANDOFF_JSON" | jq -c '.reasoning = "The outgoing rotation\u0027s reasoning was not recorded.\n"')"
+echo stale > "$CASE/reasoning.txt"
+capture $DISC_ARGS --reasoning-out "$CASE/reasoning.txt"
+expect "the fixed not-recorded sentence without its copy line is still not recorded" '.status == "found" and .reasoning == "not_recorded"'
+[ -e "$CASE/reasoning.txt" ] && bad "a reasoning file from an earlier read is not left behind" "$(cat "$CASE/reasoning.txt")" || ok "a reasoning file from an earlier read is not left behind"
+
+new_case disc-other-host
+serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_JSON"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
+serve parse-handoff 1 "$(printf '%s' "$HANDOFF_JSON" | jq -c '.rotation.host_repo = "evil/other"')"
 capture $DISC_ARGS
-expect "a hand-edited handoff is read and listed as unparseable" \
-    '.status == "found" and (.unparseable | length) == 1 and (.unparseable[0].reason | test("handoff"))'
+expect "a handoff naming another host repository is unreadable" '.status == "unreadable" and (.reason | test("another host"))' 4
+
+new_case disc-dedupe
+serve pr-view 1 "$OPEN"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
+serve parse-record 1 "$DISC_JSON"
+serve parse-handoff 1 "$(printf '%s' "$DISC_JSON" | jq -c --argjson h "$HANDOFF_JSON" 'del(.written) | .rotation = $h.rotation | .reasoning = "r" | .side_effects += [{action: "close", target: "#3", verified_head: "", attempted: "2026-09-22T10:00Z", how_to_confirm: "read it"}]')"
+capture $DISC_ARGS
+expect "rows the record already carries are not listed again from the handoff" \
+    '([.holdings[].source] == ["record"]) and ([.deferrals[].source] == ["record"]) and ([.side_effects[] | .row.action + "/" + .source] == ["merge/record", "close/handoff"])'
+
+new_case disc-bad-date
+serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_JSON"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
+serve parse-handoff 1 "$(printf '%s' "$HANDOFF_JSON" | jq -c '.rotation.date = "<b>soon</b>"')"
+capture $DISC_ARGS
+expect "a handoff heading date that isn't a date is not carried, and is listed" \
+    '.status == "found" and .record.handoff_date == null and (.unparseable | any(.reason | test("heading date")))'
 
 echo "== usage =="
 new_case usage
@@ -258,7 +276,7 @@ if [ -z "$REAL" ]; then
 else
     C="$T/real/skills/coordinate/scripts"
     mkdir -p "$C" "$T/real/skills/execute/scripts"
-    cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$C/"
+    cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$HERE"/reconcile-salvage.jq "$C/"
     cp "$HERE/../../execute/scripts/coord-common.sh" "$T/real/skills/execute/scripts/"
     for f in "$REAL"/record-*.sh "$REAL"/record-codec.jq; do cp "$f" "$C/"; done
     ln -s "$T/bin/stub" "$C/coord-log.sh"
@@ -269,7 +287,7 @@ else
     printf '%s' "$ROADMAP_JSON" | jq 'del(.written)' | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
     serve issue-view 1 "$(body "$CASE/body.md")"
     capture $ROADMAP_ARGS
-    if [ "$RC" = 0 ] && [ "$(printf '%s' "$OUT" | jq -c '[.holdings[0].row, .deferrals[0], .side_effects[0], .record.written, .unparseable]')" = "$(jq -nc --argjson h "$HOLD" --argjson d "$DEF" --argjson s "$SIDE" '[$h, $d, $s, "2026-09-26T12:00:00Z", []]')" ]; then
+    if [ "$RC" = 0 ] && [ "$(printf '%s' "$OUT" | jq -c '[.holdings[0].row, .deferrals[0].row, .side_effects[0].row, .record.written, .unparseable]')" = "$(jq -nc --argjson h "$HOLD" --argjson d "$DEF" --argjson s "$SIDE" '[$h, $d, $s, "2026-09-26T12:00:00Z", []]')" ]; then
         ok "the real parser: a rendered roadmap record reads back row for row"
     else bad "the real parser: a rendered roadmap record reads back row for row" "exit $RC: $OUT"; fi
 
@@ -277,11 +295,28 @@ else
     sed 's/plugin-registry/plugin-registry (hand edit)/' "$CASE/../case-$((CASES - 1))-real-roadmap/body.md" > "$CASE/body.md"
     serve issue-view 1 "$(body "$CASE/body.md")"
     capture $ROADMAP_ARGS
-    expect "the real parser: a hand-edited record is read and its differing line listed" \
-        '.status == "found" and (.unparseable | length) == 1 and (.unparseable[0].raw | test("not canonical"))'
+    expect "the real parser: a row whose cell breaks the grammar is set aside with its line; the rest is read" \
+        '.status == "found" and (.holdings | length) == 0 and (.deferrals | length) == 1 and (.unparseable | length) == 1 and (.unparseable[0].raw | test("hand edit")) and (.unparseable[0].reason | test("Holdings: worker"))'
+    case "$OUT" in *"$C"*) bad "the real parser: no path of the parser in the output" "$OUT" ;; *) ok "the real parser: no path of the parser in the output" ;; esac
+    RB="$T/real-roadmap-body.md"
+    cp "$CASE/../case-$((CASES - 1))-real-roadmap/body.md" "$RB"
+
+    new_case real-extra-cell
+    sed 's/| flaky test | not now |/| flaky test | extra | not now |/' "$RB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a row with an extra cell is set aside; every other row is still read" \
+        '.status == "found" and (.holdings | length) == 1 and (.deferrals | length) == 0 and (.side_effects | length) == 1 and (.unparseable[0].raw | test("extra")) and (.unparseable[0].reason | test("Deferrals"))'
+
+    new_case real-spacing
+    sed 's/^Written: /Written:  /' "$RB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a body that parses but differs from its rendering lists the differing line" \
+        '.status == "found" and (.holdings | length) == 1 and (.unparseable | any(.reason | test("^not canonical")))'
 
     new_case real-other-scope
-    serve issue-view 1 "$(body "$CASE/../case-$((CASES - 2))-real-roadmap/body.md")"
+    serve issue-view 1 "$(body "$RB")"
     capture --scope roadmap --name plugin --repo $R --ref 40
     expect "the real parser: a record for another roadmap is unreadable" '.status == "unreadable"' 4
 
@@ -293,6 +328,29 @@ else
     expect "the real parser: a discipline record and its handoff read back, rotation date and reasoning included" \
         '.status == "found" and .record.handoff_date == "2026-09-23" and ([.holdings[].row.worker] == ["plugin-registry", "flaky-fix"]) and .reasoning == "present" and .unparseable == []'
     [ "$(cat "$CASE/reasoning.txt" 2>/dev/null)" = "The flaky job is timing." ] && ok "the real parser: the reasoning comes back verbatim" || bad "the real parser: the reasoning comes back verbatim" "$(cat "$CASE/reasoning.txt" 2>&1)"
+    DB="$T/real-disc-body.md"; cp "$CASE/body.md" "$DB"; cp "$CASE/handoff.md" "$DB.handoff"
+
+    # handoff_case SED: the rendered handoff edited by SED, read as the
+    # previous rotation's file.
+    handoff_case() {
+        new_case real-handoff
+        sed "$1" "$DB.handoff" > "$CASE/handoff.out.1"
+        serve pr-view 1 "$(body "$DB")"; serve repo 1 '{"default_branch":"main"}'
+        capture $DISC_ARGS --reasoning-out "$CASE/reasoning.txt"
+    }
+    handoff_case '/^## Reasoning for the next rotation$/,$d'
+    expect "the real parser: a handoff without its reasoning section is read, reasoning not recorded" \
+        '.status == "found" and .reasoning == "not_recorded" and ([.holdings[].source] == ["record", "handoff"])'
+    handoff_case '/^The flaky job is timing\.$/d'
+    expect "the real parser: a handoff with an empty reasoning section is read, reasoning not recorded" \
+        '.status == "found" and .reasoning == "not_recorded"'
+    [ -e "$CASE/reasoning.txt" ] && bad "the real parser: nothing is written for an empty reasoning" || ok "the real parser: nothing is written for an empty reasoning"
+    handoff_case "s/^The flaky job is timing\\.\$/The outgoing rotation's reasoning was not recorded./"
+    expect "the real parser: the fixed sentence without its copy line is not recorded" '.status == "found" and .reasoning == "not_recorded"'
+    [ -e "$CASE/reasoning.txt" ] && bad "the real parser: the fixed sentence is never written as reasoning" "$(cat "$CASE/reasoning.txt")" || ok "the real parser: the fixed sentence is never written as reasoning"
+    handoff_case 's/| old gap | not now |/| old gap | x | not now |/'
+    expect "the real parser: a bad handoff row is set aside, labelled as the handoff's" \
+        '.status == "found" and (.unparseable | length) == 1 and (.unparseable[0].reason | test("^handoff: Deferrals"))'
 fi
 
 echo
