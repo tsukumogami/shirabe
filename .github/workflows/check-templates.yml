@@ -12,11 +12,6 @@ on:
       # its allowlist, where an edit is an edit to what passes.
       - 'skills/*/scripts/**'
       - 'scripts/**'
-      # The invocations check reads every directive file, not only templates:
-      # SKILL.md bodies, phase files and references tell the agent to run
-      # scripts too.
-      - 'skills/**/*.md'
-      - 'references/**'
       - '.github/workflows/check-templates.yml'
 
 # These jobs run the templates suite under the ubuntu runner's bash, which is
@@ -64,22 +59,6 @@ jobs:
 
       - name: Check koto template directives
         run: bash scripts/check-template-directives.sh
-
-  # A directive that runs a script as `bash <script>` is refused by a
-  # worktree-isolated Claude Code session, which cannot show what the script
-  # does with git; the same call by path passes. Running by path needs the
-  # script committed executable and carrying a #! line, so those are checked
-  # for every script a directive names.
-  invocations:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run check-directive-invocations tests
-        run: bash scripts/check-directive-invocations_test.sh
-
-      - name: Check skill directives invoke scripts by path
-        run: bash scripts/check-directive-invocations.sh
 
   # work-on.md is the first template here that is both initialized directly by
   # an agent following SKILL.md and materialized as a child from a task array

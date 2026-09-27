@@ -175,6 +175,29 @@ EOF
     teardown
 }
 
+test_absolute_interpreter_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 755
+    skill_md <<'EOF'
+    /bin/bash "$CLAUDE_PLUGIN_ROOT"/skills/demo/scripts/run.sh
+EOF
+    commit
+    assert_fails "'/bin/bash <script>' fails" "[bash-invocation] \$CLAUDE_PLUGIN_ROOT/skills/demo/scripts/run.sh"
+    teardown
+}
+
+test_subject_is_the_final_sh() {
+    setup
+    mkdir -p "$TEST_DIR/repo/skills/demo/x.shared"
+    add_script skills/demo/x.shared/run.sh 755
+    skill_md <<'EOF'
+Run `bash {{PLUGIN_ROOT}}/skills/demo/x.shared/run.sh --flag`.
+EOF
+    commit
+    assert_fails "the subject runs to the operand's final .sh" "[bash-invocation] {{PLUGIN_ROOT}}/skills/demo/x.shared/run.sh"
+    teardown
+}
+
 test_quoted_root_exec_bit_fails() {
     setup
     add_script skills/demo/scripts/run.sh 644
@@ -349,6 +372,8 @@ test_bash_in_permission_pattern_fails
 test_sh_with_flag_fails
 test_quoted_root_fails
 test_long_flag_fails
+test_absolute_interpreter_fails
+test_subject_is_the_final_sh
 test_quoted_root_exec_bit_fails
 test_single_quoted_root_exec_bit_fails
 test_bash_word_in_prose_passes

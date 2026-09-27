@@ -62,6 +62,13 @@ set -euo pipefail
 #   docs/**             design and requirements history, which records the form
 #                       each decision was made against.
 #
+# Inside a scanned file nothing is exempt: prose, fenced blocks and a sentence
+# like "never write `bash x.sh`" are all read as directives, because in a
+# SKILL.md every line is one. To document the forbidden form, do it in a `.sh`
+# header or a workflow comment (both unscanned), or describe it in words in the
+# directive file rather than quoting it. The allowlist below is for deferred
+# defects with an issue that will close them, not for permanent quotations.
+#
 # Findings are reported once per rule, file and subject, at the first line the
 # subject appears on, so a script named forty times from one file is one
 # finding, not forty. Fixing that line and rerunning reports the next one; grep
@@ -212,7 +219,10 @@ scan_file() {
             # so `/bin/bash x.sh` is caught like `bash x.sh`. Short and long
             # flags (`-e`, `--`, `--norc`) may sit between it and the script,
             # and quotes may sit anywhere in the operand, as in
-            # `bash "$CLAUDE_PLUGIN_ROOT"/x.sh`.
+            # `bash "$CLAUDE_PLUGIN_ROOT"/x.sh`. `bash -n x.sh` (a syntax
+            # check) and `bash -c "... x.sh"` are flagged on purpose: the
+            # isolation check sees the same interpreter-plus-script shape in
+            # them and refuses them just the same.
             BASH_RE = "(^|[^A-Za-z0-9_.-])(bash|sh)[ \t]+(--?[A-Za-z-]*[ \t]+)*[^ \t`()|;&]*[.]sh([^A-Za-z0-9_]|$)"
         }
         # unquote <s> -- s with every quote character removed.
@@ -228,7 +238,11 @@ scan_file() {
                 s = substr(s, RSTART + RLENGTH)
                 # Peel the match down to the script operand one piece at a
                 # time: the leading boundary, the interpreter, its flags, the
-                # quotes, and whatever follows `.sh`.
+                # quotes, and the one boundary character the match takes after
+                # `.sh`. The regex already ends the match on the final `.sh` of
+                # the operand, so the tail is stripped rather than searched
+                # for: a search would stop at an earlier `.sh` inside a path
+                # such as `x.shared/y.sh`.
                 sub(/^[^a-z]*/, "", tok)
                 sub(/^(bash|sh)/, "", tok)
                 sub(/^[ \t]+/, "", tok)
@@ -236,7 +250,7 @@ scan_file() {
                     sub(/^--?[A-Za-z-]*[ \t]+/, "", tok)
                 }
                 tok = unquote(tok)
-                tok = substr(tok, 1, index(tok, ".sh") + 2)
+                sub(/[^A-Za-z0-9_]$/, "", tok)
                 printf "%d\tBASH\t%s\n", NR, tok
             }
             s = unquote($0)
