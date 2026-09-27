@@ -62,6 +62,7 @@ MERGE_FILE_CAP=100
 INV_CLONE_CAP=20
 INV_FILE_CAP=200
 INV_ITEM_CAP=200
+INV_FIND_DEPTH=16
 
 usage() {
     awk '/^# Usage:/{on=1} on&&/^# Exit codes/{exit} on' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -171,7 +172,7 @@ ig() {
 ig_in() { local c=$1 f=$2; shift 2; rd_git -C "$c" "$@" < "$f"; }
 ig_stdin() { rd_deadline "$DEADLINE" ig_in "$@"; }
 
-# inv_item CLONE KIND PATH
+# inv_item CLONE KIND PATH -- for an unchecked item, PATH is the reason.
 inv_item() {
     INV_N=$((INV_N + 1))
     if [ "$INV_N" -gt "$INV_ITEM_CAP" ]; then TRUNC=true; return 0; fi
@@ -254,21 +255,38 @@ inv_files() {
         : > "$ITEMS.head"
     fi
     : > "$ITEMS.present"; : > "$ITEMS.deleted"
-    while IFS=$'\t' read -r meta path; do
-        tag=${meta%% *}; mode=$(printf '%s' "$meta" | awk '{print $2}')
+    : > "$ITEMS.links"
+    # Split each "TAG MODE SHA STAGE<TAB>path" by hand: `read` with IFS set to
+    # a tab strips a path's own leading and trailing tabs.
+    while IFS= read -r line; do
+        meta=${line%%$'\t'*}
+        path=${line#*$'\t'}
+        tag=${meta%% *}; mode=${meta#* }; mode=${mode%% *}
         if [ "$mode" = 160000 ]; then
             # A submodule: walked as a clone of its own, never through the
             # superproject's git.
             [ -e "$C/$path/.git" ] && { inv_queue "$C/$path" || inv_item "$REL" unchecked "$path (submodule outside the instance)"; }
             continue
         fi
-        if [ -L "$C/$path" ]; then inv_item "$REL" file "$path (symlink, not read)"; continue; fi
+        if [ -L "$C/$path" ]; then
+            # A tracked symlink's blob is its link text: compared like a file,
+            # so an unchanged one isn't listed on every run.
+            if [ "$mode" = 120000 ]; then printf '%s\n' "$path" >> "$ITEMS.links"
+            else inv_item "$REL" file "$path (symlink, not read)"; fi
+            continue
+        fi
         if [ -f "$C/$path" ]; then printf '%s\n' "$path" >> "$ITEMS.present"; continue; fi
         # Missing: a skip-worktree entry (sparse checkout) is meant to be
         # absent; anything else was deleted in the working tree.
         [ "$tag" = S ] || printf '%s\n' "$path" >> "$ITEMS.deleted"
     done < "$ITEMS.idx"
     inv_hash "$C" "$ITEMS.present" "$ITEMS.wt" || { inv_item "$REL" unchecked "working-tree files could not be hashed"; return; }
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        printf '%s' "$(readlink "$C/$path")" > "$ITEMS.lt"
+        have=$(ig_stdin "$C" "$ITEMS.lt" hash-object --stdin 2>/dev/null) || { inv_item "$REL" file "$path (symlink)"; continue; }
+        printf '%s\t%s\n' "$path" "$have" >> "$ITEMS.wt"
+    done < "$ITEMS.links"
 
     if ! ig "$C" ls-files -z --others --exclude-standard > "$ITEMS.oth0" 2>/dev/null; then
         inv_item "$REL" unchecked "untracked files could not be listed"; return
@@ -303,9 +321,12 @@ inv_files() {
         | [lines($wt)[] | pathhash] | from_entries as $work
         # unique unless the content is on the default branch; "absent" means
         # the path is gone, which the default branch may agree with.
-        | def verdict($p; $sha): if ($def[$p] // "absent") == $sha then empty
-                                 elif ($def | has($p)) or ($trunc | not) then "unique"
-                                 else "ask" end;
+        # A truncated tree speaks only for the paths it holds; any other path
+        # is asked of the contents API, deletions included.
+        | def verdict($p; $sha): if ($def | has($p)) then (if $def[$p] == $sha then empty else "unique" end)
+                                 elif $trunc then "ask"
+                                 elif $sha == "absent" then empty
+                                 else "unique" end;
           ( ($index | to_entries[] | .key as $p | .value as $i
               | ((if ($headmap[$p] // "") != $i then verdict($p; $i) | "\(.)\tchange\t\($i)\t\($p)" else empty end),
                  (if ($work | has($p)) and $work[$p] != $i then verdict($p; $work[$p]) | "\(.)\tchange\t\($work[$p])\t\($p)" else empty end))),
@@ -316,7 +337,11 @@ inv_files() {
           ) ' > "$ITEMS.cmp" 2>/dev/null || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
     # "ask": GitHub truncated the tree and the path is in the part it left out.
     local verdict kind p want have
-    while IFS=$'\t' read -r verdict kind want p; do
+    while IFS= read -r line; do
+        verdict=${line%%$'\t'*}; line=${line#*$'\t'}
+        kind=${line%%$'\t'*}; line=${line#*$'\t'}
+        want=${line%%$'\t'*}; p=${line#*$'\t'}
+        [ "$TRUNC" = true ] && [ "$INV_N" -ge "$INV_ITEM_CAP" ] && break
         if [ "$verdict" = ask ]; then
             have=$(default_blob "${p% (deleted)}") || { inv_item "$REL" "$kind" "$p"; continue; }
             [ "$have" = "$want" ] && continue
@@ -341,7 +366,8 @@ inv_clone() {
     if ! REPO=$(rd_github_repo "$URL"); then
         inv_item "$REL" unchecked "no github.com origin to compare against"; return
     fi
-    LIVE=$(rd_deadline "$DEADLINE" rd_git -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
+    # From /, so no repository's config (the caller's included) applies.
+    LIVE=$(rd_deadline "$DEADLINE" rd_git -C / -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
         || { inv_item "$REL" unchecked "remote refs could not be read"; return; }
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
@@ -668,13 +694,13 @@ inventory)
     TRUNC=false
     INV_N=0
     QUEUE=()
-    # find -P follows no symlinks and prunes dependency trees; a .git file
-    # marks a linked worktree. Clones deeper than this are reached through
-    # worktree lists, submodule entries and untracked directories.
+    # find -P follows no symlinks; a .git file marks a linked worktree. Every
+    # directory is searched, ignored ones included, to INV_FIND_DEPTH; clones
+    # deeper than that are reached only through worktree lists, submodule
+    # entries and untracked directories.
     while IFS= read -r gitpath; do
         [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
-    done < <(find -P "$IROOT" -maxdepth 8 \( -name node_modules -o -name .venv -o -name target \) -prune \
-                -o -name .git \( -type d -o -type f -o -type l \) -print 2>/dev/null | sort)
+    done < <(rd_deadline "$DEADLINE" find -P "$IROOT" -maxdepth "$INV_FIND_DEPTH" -name .git \( -type d -o -type f -o -type l \) -print 2>/dev/null | sort)
     i=0
     while [ "$i" -lt "${#QUEUE[@]}" ]; do
         if [ "$i" -ge "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi

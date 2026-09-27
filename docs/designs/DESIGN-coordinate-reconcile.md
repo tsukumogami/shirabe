@@ -310,33 +310,46 @@ against those shapes. One match is found; two are ambiguous and land in "not
 verified"; none triggers the re-read. A command that can't run or can't be
 parsed marks every holding's host reads "not verified".
 
-For a matched instance, reconcile walks each git clone under its path, with
-every git command run as `git --no-optional-locks` so nothing takes the
-worker's index lock or rewrites its index:
+For a matched instance, reconcile walks each git clone under its path. It
+never runs `git status`: status refreshes the index, recurses into
+submodules under their own config, and runs the clean and process filters
+the clone's config names, and no set of flags turns all of that off. It reads
+plumbing that runs no filter instead, every call as `git --no-optional-locks
+-c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.allow=never` under
+the read deadline:
 
 - **Commits.** A clone's local remote-tracking refs are as old as its last
   fetch, and reconcile doesn't fetch. So it reads the live refs of the
-  clone's own origin with one `git ls-remote`, when that origin is a
-  github.com repository (an instance can hold several repositories, so the
-  record row's repository isn't the right one for every clone; any other
-  origin marks the clone unchecked). A tip, each local branch's and a
-  detached HEAD's, counts as pushed only when `git rev-list` finds no
-  commit of it outside the live shas the clone has. A commit on a branch
-  that was pushed and later deleted on GitHub therefore counts as unique,
-  which it is. A tip with commits outside them has its changed files
-  compared by content against the default branch, as below; files whose
-  content landed don't count, which covers a squash-merged branch. A stash
-  is always listed.
-- **Files.** `git status --porcelain` lists changed and untracked files,
-  with every filter driver the clone's config names blanked for the call so
-  none runs. A file counts as unique unless its `git hash-object
-  --no-filters` equals the blob the GitHub contents API reports for the same
-  path on the default branch. Ignored files aren't listed.
-- **Worktrees and nested repositories.** `git worktree list` names extra
-  worktrees; one inside the instance is walked like a clone, one outside it
-  is listed, not read. An untracked directory holding its own repository is
-  walked like a clone too. A read that fails or runs late marks the clone
-  unchecked, and a truncated inventory never reads as "nothing unique".
+  clone's own origin with one `git ls-remote`, run from `/` so no
+  repository's config applies, when that origin is a github.com repository
+  (an instance can hold several repositories, so the record row's repository
+  isn't the right one for every clone; any other origin marks the clone
+  unchecked). A tip (each local branch, each local tag, a detached HEAD)
+  counts as pushed only when `git rev-list` finds no commit of it outside
+  the live shas the clone has. A commit on a branch that was pushed and later
+  deleted on GitHub therefore counts as unique, which it is. A tip with
+  commits outside them has its changed files compared by content with the
+  default branch; files whose content landed don't count, which covers a
+  squash-merged branch. A stash is always listed.
+- **Files.** `git ls-files -s -v` gives each tracked path's index blob and
+  its skip-worktree and assume-unchanged tags, `git ls-tree` gives HEAD's,
+  and one `git hash-object --no-filters --stdin-paths` hashes every present
+  tracked file and every untracked one (`git ls-files --others
+  --exclude-standard`). A path is unique when its staged content (index
+  against HEAD) or its working-tree content (file against index) differs
+  from the default branch's blob for it, read from one recursive tree read
+  per clone (the contents API per path only where GitHub truncates the
+  tree). So a staged change whose file was put back, and an edit to a
+  skip-worktree or assume-unchanged file, are found. Ignored files aren't
+  listed.
+- **Worktrees, submodules and nested repositories.** `git worktree list`
+  names extra worktrees; one inside the instance is walked like a clone, one
+  outside it is listed, not read. A submodule (a gitlink in the index) and an
+  untracked directory holding its own repository are walked as clones of
+  their own, never through the superproject's git; `find` reaches clones
+  anywhere in the instance, ignored directories included, to sixteen levels.
+  A read that fails or runs late marks the clone unchecked, and a truncated
+  inventory never reads as "nothing unique".
 
 Caps, containment and path validation are in Security Considerations.
 
@@ -631,13 +644,14 @@ and passed as one argument to `gh api`, never spliced into a shell string.
 
 **Containment inside a worker's instance.** The inventory resolves the
 instance path from the listing and then only descends into it: it doesn't
-follow symlinks, it takes a clone only when that clone's real path lies
-under the instance's real path, and it skips any worktree `git worktree
-list` reports outside the instance, listing it by path without reading it.
-A file is hashed only when it is a regular file whose real path lies inside
-its clone. The walk is capped at 20 clones per instance and 200 files per
-clone; anything past a cap is counted, not listed, and the report says the
-inventory was truncated.
+follow symlinks, and it takes a clone only when its real path, its git
+directory and its working tree (`core.worktree`) all lie under the instance's
+real path; a clone whose `.git` is a symlink is marked unchecked. It skips any
+worktree `git worktree list` reports outside the instance, listing it by name
+without reading it. A symlink in a clone is never followed: a tracked one is
+compared by its link text, an untracked one is listed, not read. The walk is
+capped at 20 clones, 200 untracked files per clone and 200 listed items, and
+past any cap the report says the inventory was truncated.
 
 **Reads only.** The pass reads the request store with `koto request get`
 and the context with `koto context get`, and writes only its own
@@ -646,16 +660,16 @@ reads no permission settings or hooks (R31). It calls `gh` with read
 subcommands and `gh api` with GET only, and `git ls-remote` against a
 github.com repository only: the record row's for a holding's branch, a
 clone's github.com origin for an inventory. Inside a worker's instance it
-runs only reads (`config` reads, `rev-parse`, `cat-file`, `symbolic-ref`,
-`rev-list`, `merge-base`, `diff --name-only`, `for-each-ref`, `status`,
-`worktree list` and `hash-object --no-filters -- <path>`, the last never
-with `-w` or `--stdin-paths`, so it computes a hash without writing an
-object). Every in-clone git command runs as `git --no-optional-locks -c
-core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.allow=never`, with
-every filter driver the clone's config names blanked, so it neither
-refreshes the worker's index nor runs anything the clone's config names; a
-file under a clean filter (LFS, say) hashes unfiltered and reads as unique,
-which is the safe direction. Nothing runs `fetch`, `pull`, `push`,
+runs only plumbing reads that run no filter (`config` reads, `rev-parse`,
+`cat-file`, `symbolic-ref`, `rev-list`, `merge-base`, `diff --name-only`,
+`for-each-ref`, `ls-files`, `ls-tree`, `worktree list`, and `hash-object
+--no-filters` over `--stdin-paths` or `--stdin`, never with `-w`, so it
+computes hashes without writing an object) and never `git status`. Every
+in-clone git command runs as `git --no-optional-locks -c core.fsmonitor= -c
+core.hooksPath=/dev/null -c protocol.allow=never`, so it neither refreshes
+the worker's index nor runs anything the clone's config names; a file under
+a clean filter (LFS, say) hashes unfiltered and reads as unique, which is the
+safe direction. Nothing runs `fetch`, `pull`, `push`,
 `checkout` or anything that writes refs, objects or the index. It calls
 `niwa list` only. The tests assert this over every stub log against an
 allowlist of these read verbs.

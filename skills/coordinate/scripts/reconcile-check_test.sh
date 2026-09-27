@@ -114,7 +114,7 @@ serve() { printf '%s' "$3" > "$CASE/$1.out.$2"; }           # serve <key> <n> <s
 fail_with() { echo "$3" > "$CASE/$1.rc.$2"; [ -n "${4-}" ] && printf '%s' "$4" > "$CASE/$1.err.$2"; return 0; }
 run() {
     STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/bin:$PATH" \
-      RECONCILE_READ_DEADLINE="${DL:-5}" RECONCILE_BOARD_DEADLINE="${BDL:-5}" bash "$S" "$@"
+      RECONCILE_READ_DEADLINE="${DL:-5}" RECONCILE_BOARD_DEADLINE="${BDL:-5}" "$BASH" "$S" "$@"
 }
 expect() {  # expect <label> <jq predicate> <output>
     if printf '%s' "$3" | jq -e "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1" "$3 | log: $(cat "$CASE/log")"; fi
@@ -515,6 +515,64 @@ mktree "$R6" "$M6"
 out=$(run inventory --path "$I8")
 expect "a clone whose working tree is set outside is unchecked" '.items | any(.kind == "unchecked" and (.path | test("core.worktree")))' "$out"
 
+echo "== inventory: round-3 cases =="
+I9="$T/inst9"; R9="$I9/repo"; mkdir -p "$R9"
+g9() { git -C "$R9" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g9 init -q -b main; g9 remote add origin https://github.com/acme/widgets.git
+printf 'a\n' > "$R9/keep.txt"; printf 'a\n' > "$R9/gone.txt"; printf 'a\n' > "$R9/	lead.txt"; printf 'a\n' > "$R9/trail.txt	"
+ln -s keep.txt "$R9/link"
+printf 'ignored/\n' > "$R9/.gitignore"
+g9 add -A; g9 commit -qm base
+M9=$(git -C "$R9" rev-parse HEAD)
+g9 rm -q gone.txt                                   # a staged deletion
+printf 'b\n' > "$R9/	lead.txt"; printf 'b\n' > "$R9/trail.txt	"   # edits to tab-edged paths
+D="$R9/ignored/a/b/c/d/e/f/g/h/deep"; mkdir -p "$D"
+git -C "$D" init -q -b main; git -C "$D" remote add origin https://github.com/acme/deep.git
+echo z > "$D/z.md"; git -C "$D" add -A; git -C "$D" -c user.email=t@e -c user.name=t commit -qm z
+
+new_case inventory-r3
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M9" "$M9" > "$CASE/ls-remote.out.all"
+# GitHub truncated the tree: it holds keep.txt and link only, so gone.txt
+# has to be asked of the contents API, which says it's on main.
+git -C "$R9" ls-tree -r "$M9" | awk -F'\t' '$2 == "keep.txt" || $2 == "link" { split($1, m, " "); print m[3] "\t" $2 }' \
+  | jq -Rsc '{truncated: true, tree: [split("\n")[] | select(length > 0) | split("\t") | {path: .[1], type: "blob", sha: .[0]}]}' > "$CASE/tree.out.all"
+printf '{"sha":"%s"}' "$(git -C "$R9" rev-parse "$M9:gone.txt")" > "$CASE/contents@$M9@gone.txt"
+out=$(run inventory --path "$I9")
+expect "a staged deletion is found when the tree is truncated" '[.items[] | .path] | index("gone.txt (deleted)") != null' "$out"
+expect "an edit to a path with a leading tab is found" '[.items[] | .path] | index("\tlead.txt") != null' "$out"
+expect "an edit to a path with a trailing tab is found" '[.items[] | .path] | index("trail.txt\t") != null' "$out"
+expect "an unchanged tracked symlink is not listed" '[.items[] | .path] | any(startswith("link")) | not' "$out"
+expect "a clone ten levels down inside an ignored directory is walked" '[.items[] | select(.clone | test("ignored/a/b/c/d/e/f/g/h/deep"))] | length > 0' "$out"
+grep -q '^git .* -C / .*ls-remote' "$CASE/log" && ok "ls-remote runs outside any repository" || bad "ls-remote runs outside any repository" "$(grep ls-remote "$CASE/log")"
+
+new_case inventory-hang
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M9" "$M9" > "$CASE/ls-remote.out.all"
+mktree "$R9" "$M9"
+# A git that hangs on ls-files: the clone is unchecked, never empty.
+mkdir -p "$T/hangbin"
+cat > "$T/hangbin/git" <<HANG
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = ls-files ] && sleep 30; done
+exec "$T/bin/git" "\$@"
+HANG
+chmod +x "$T/hangbin/git"
+start=$(date +%s)
+out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/hangbin:$T/bin:$PATH" RECONCILE_READ_DEADLINE=2 "$BASH" "$S" inventory --path "$I9" 2>/dev/null)
+took=$(( $(date +%s) - start ))
+expect "an in-clone git read past its deadline marks the clone unchecked" '.items | any(.kind == "unchecked" and .clone == "repo")' "$out"
+[ "$took" -le 20 ] && ok "a hanging in-clone read is ended by the deadline (${took}s)" || bad "a hanging in-clone read is ended by the deadline" "took ${took}s"
+
+I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
+git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
+echo a > "$R10/a"; git -C "$R10" add -A; git -C "$R10" -c user.email=t@e -c user.name=t commit -qm a
+M10=$(git -C "$R10" rev-parse HEAD)
+for k in $(seq 1 230); do echo "$k" > "$R10/u$k.md"; done
+new_case inventory-items-cap
+printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M10" > "$CASE/ls-remote.out.all"
+mktree "$R10" "$M10"
+out=$(run inventory --path "$I10")
+expect "past the item and file caps the inventory says truncated" '.truncated == true and (.items | length) <= 200' "$out"
+
 echo "== close =="
 new_case close-closed
 serve issue-view 1 '{"state":"CLOSED"}'
@@ -592,7 +650,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"

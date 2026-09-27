@@ -58,8 +58,8 @@ pr()    { jq -nc --arg s "$1" --arg h "$2" --argjson d "${3:-false}" '{kind: "pr
 board() { jq -nc --arg v "$1" --arg at "$2" --arg d "${3:-}" '{kind: "board", status: "ok", at: $at, verdict: $v, detail: $d, read_at: "2026-09-27T09:59:10Z"}'; }
 host()  { jq -nc --arg s "$1" '{kind: "host", status: "ok", state: $s, reads: 2, instance: "cfg+t-deadbeef", session_name: "t-deadbeef", read_at: "2026-09-27T09:58:00Z"}'; }
 
-report() { bash "$S" json; }
-render() { bash "$S" md; }
+report() { "$BASH" "$S" json; }
+render() { "$BASH" "$S" md; }
 
 echo "== schema =="
 grep -q 'coordinate-reconcile-facts/v1' "$S" && grep -q 'coordinate-reconcile-report/v1' "$S" \
