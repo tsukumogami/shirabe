@@ -16,10 +16,11 @@ decision: |
   accepts --koto-leg, writes the holding to the record ahead of launching,
   runs niwa dispatch, and marks the holding dispatched or failed. A
   non-overridable command gate reads the record for that holding. The wait
-  state picks a target by script and splits into a request-leg path and a
-  message path that both land the report in one context key, which a
-  classification state reads through a shadow decider. A teardown state gates
-  destruction on a content-based inventory of the worker's instance.
+  state is a hub that routes to a request-leg path, whose leg a script picks,
+  and a message path, and both land the report in one context key, which a
+  classification state reads through a shadow decider. A sealed inventory
+  state gates destruction on a content-based inventory of the worker's
+  instance.
 rationale: |
   niwa dispatch takes longer than koto's 30-second action cap and its success
   launches a session nobody can un-launch, so it can't be a default_action;
@@ -85,7 +86,8 @@ Four facts about the tools shape the design:
   (R22); every gate that routes on a fact reads it from the record, a leg, or
   the instance itself.
 - The template's other states belong to the record feature. This feature adds
-  states and gates and fills the two it was handed, without restructuring.
+  states and gates and fills the ones it was handed (dispatch, wait,
+  classify_report, rebrief and teardown), without restructuring.
 - koto's authoring rules: a command whose success is the irreversible event
   stays out of `default_action`, a `default_action` finishes in 30 seconds and
   must be safe to re-run, and a decider's inputs are gated context keys or
@@ -148,14 +150,15 @@ reads the record.
 
 ### Decision 4: How the wait state reads a leg chosen at run time
 
-**Chosen: a selection script plus a two-state leg path.** `wait` runs
-`wait-target.sh select`, which reads the holdings, checks each leg-bound one
-with `koto request get`, prefers a resolved leg over an open one, writes the
-choice to the context key `wait_target`, and captures its request id as
+**Chosen: a selection script plus a two-state leg path.** `wait` is a hub
+with no action; a `leg` event takes it to `leg_pick`, which runs
+`wait-target.sh select`. The script reads the holdings, checks each leg-bound
+one with `koto request get`, prefers a resolved leg over an open one, writes
+the choice to the context key `wait_target`, and captures its request id as
 `WAIT_REQ`. `wait_leg` runs `wait-target.sh leg`, which captures the leg name
 as `WAIT_LEG` from the same key, and carries the `request-leg` gate on
 `{{WAIT_REQ}}` and `{{WAIT_LEG}}`. A `rescan` from `wait_leg` goes back
-through `wait`, so a leg that resolves while another is being watched is
+through `leg_pick`, so a leg that resolves while another is being watched is
 picked up on the next notification.
 
 *Alternative: one request for the whole coordinator, one leg per worker.*
@@ -178,9 +181,10 @@ instead of a gate the engine evaluates.
 `take_report`. The leg path's transition writes it from the gate's output
 (`status`, `final_state`, `outcome`, `step`, `reason`, and `payload.pr`),
 which covers both the payload-carrying skills and `/work-on`'s map-less
-terminals. On the message path the coordinator writes the message's text with
-`koto context add`. A non-overridable `context-matches` gate requires the key
-to be non-empty before `take_report` moves on.
+terminals. On the message path the coordinator submits the message on
+`wait`'s `report` event, and that edge writes its text to the key. A
+non-overridable `context-matches` gate requires the key to be non-empty
+before `take_report` moves on.
 
 *Alternative: separate classification states per path.* It would double the
 decider declarations and split the shadow evidence for one question across
@@ -193,8 +197,9 @@ is true is the record feature's verify state's question, which reads GitHub.
 ### Decision 6: Where report classification lives
 
 **Chosen: its own state, `classify_report`, with one declared field.**
-`report_class` takes `done`, `blocked` or `needs_fix`, with a decider whose
-input is the context key `worker_report` and whose answers are all `shadow`.
+`classification` takes `done`, `blocked` or `needs_fix`, with a decider whose
+inputs are the record feature's `coord/report.json` and the context key
+`worker_report`, and whose answers are all `shadow`.
 koto consults every declared field on a state at once and applies an answer
 only when all qualify, so a state asking one question is the shape the decider
 guide asks for.
@@ -206,7 +211,8 @@ consultation.
 ### Decision 7: How teardown proves an instance holds nothing unique
 
 **Chosen: a read-only inventory script, `teardown-inventory.sh`, run by the
-teardown state's non-overridable gate,** which proves durability by content.
+inventory state's action and read by its non-overridable gate,** which proves
+durability by content.
 For each branch whose head is on no remote it diffs the head's tree, over
 the paths the branch changed, against the squash merge commit of the pull
 request that landed it, or against the default branch when none did.
@@ -223,13 +229,16 @@ default branch holds it now, and it costs one history walk per file.
 ## Decision Outcome
 
 The dispatch state stays one state whose work is one script and whose exit is
-one gate that reads the record. The wait state becomes four states, `wait`,
-`wait_leg`, `take_report` and `classify_report`, whose two entry paths meet
-at a single report key, plus `rebrief` for a worker that needs a fix. Three
-states are added at the end of a worker's life: `quiesce`, which stops the
-worker's session, `teardown`, which gates on the inventory, and `destroy`,
-which the sealed inventory opens, with `promote` between them when the
-instance still holds something. Every gate that routes on a fact is non-overridable and reads something
+one gate that reads the record. The wait path is `wait`, a hub that routes
+on the event the coordinator names, plus `leg_pick`, `wait_leg`,
+`take_report` and `classify_report`, whose two entry paths meet at a single
+report key, and `rebrief` for a worker that needs a fix. Four states cover
+the end of a worker's life: `teardown`, which stops the worker's session,
+`teardown_inventory`, which gates on the sealed inventory, and `destroy`,
+which that inventory opens, with `promote` between them when the instance
+still holds something. The record feature's template already names the step
+that stops a worker `teardown`, so that state keeps the name and the sealed
+inventory is `teardown_inventory`. Every gate that routes on a fact is non-overridable and reads something
 other than the coordinator's evidence: the record, a leg, or the instance.
 The classification is recorded in shadow beside the coordinator's answer,
 which routes.
@@ -256,11 +265,11 @@ declared `PLUGIN_ROOT` variable, never `${CLAUDE_PLUGIN_ROOT}`.
 |---|---|---|
 | `render-brief.sh` | `dispatch-worker.sh` | Validates the brief input and renders the brief; refuses and writes nothing on a missing field, an approval-worded checkpoint, a non-pointer pointer, or an argument the entry point doesn't allow |
 | `dispatch-worker.sh` | the coordinator, in `dispatch` and `rebrief` | Idempotent dispatch under a per-topic lock: render, open the leg, write ahead, launch, confirm; `--rebrief` re-renders a held topic's brief and launches nothing |
-| `holding-recorded.sh` | the `dispatch` gate | Reads the record's holding for the topic in `dispatch_topic`: 0 `dispatched`, 1 none, 3 `dispatch-failed`, 4 `dispatching`, 2 unreadable |
-| `wait-target.sh` | the `wait` and `wait_leg` actions | Picks the holding to watch; always prints a token and writes `wait_target` |
-| `report-source.sh` | the `take_report` gate | Refuses a message-path report for a topic whose holding is bound to a leg |
-| `teardown-inventory.sh` | the `teardown` action (`--seal`) | Per-repository durability verdict for one instance, sealed through the record feature's seal helper |
-| `teardown-verdict.sh` | the `teardown` gate, and `destroy`'s directive | Reads the sealed verdict only through the seal check; its read mode refuses after a directed transition |
+| `holding-recorded.sh` | the `dispatch` gate | Reads the record's holding for the topic in `dispatch_topic`: 0 `dispatched`, 1 none, 3 `dispatch-failed`, 4 `dispatching`, 2 the record unreadable or refusing the read |
+| `wait-target.sh` | the `leg_pick` and `wait_leg` actions | Picks the holding to watch; always prints a token and writes `wait_target` |
+| `report-source.sh` | the `take_report` gate | Refuses a message report for a topic whose holding is bound to a leg, and a leg report that isn't exactly the promoted result koto holds for the recorded leg |
+| `teardown-inventory.sh` | the `teardown_inventory` action (`--seal`) | Per-repository durability verdict for one instance, sealed through the record feature's seal helper |
+| `teardown-verdict.sh` | the `teardown_inventory` gate, and `destroy`'s directive | Reads the sealed verdict only through the seal check; its read mode refuses after a directed transition |
 | `dispatch-common.sh` | the scripts above | Workspace-root lookup, topic slugging and the exact session match, the entry-point table reader, the one invocation builder, and the wrappers around the record feature's `record-holding.sh` and `coord-log.sh` |
 
 `skills/coordinate/references/entry-points.tsv` lists, per entry point, the
@@ -379,23 +388,24 @@ the session name comes from the `session name:` line of its output, or from
 
 ### The interface with the record feature
 
-This feature fills two of the record feature's states and adds eight. It needs
+This feature fills five of the record feature's states and adds six. It needs
 the record feature to accept these seams, and its code lands only once that
 feature's template carries them:
 
 | Seam | What this feature needs |
 |---|---|
 | `pick -> dispatch_check -> dispatch` | the pick edge writes the context key `dispatch_topic`, fresh on every pass, and the record feature's deferral gate `dispatch_check` passes it through to `dispatch` |
-| `wait`'s exits | `wait` leaves to `wait_leg` and `take_report`, both added here |
-| `classify_report`'s exits | `verify` on `done`, `dispatch` on `needs_fix`, and the record feature's surface step on `blocked` |
+| `wait`'s exits | `wait`'s `report` event leaves to `take_report` and its `leg` event to `leg_pick`, both added here; its other events go to the record feature's states |
+| `take_report -> report_facts -> classify_report` | an admitted report passes through the record feature's `report_facts`, which reads the reporting holding and writes the gated `coord/report.json`, before it's classified |
+| `classify_report`'s exits | `verify` on `done`, `rebrief` on `needs_fix`, and the record feature's surface step on `blocked` |
 | unrecorded or refused legs | `wait_leg` leaves to the surface step directly |
-| `land -> quiesce` | land's edge for a finished worker (merged, verified on the default branch, issues closed or handed on, final report in, the two questions asked) goes to `quiesce` instead of straight to `record`, and writes `teardown_topic` |
-| `rebrief -> pick` | a unit whose worker is gone returns to `pick` with its holding |
+| `wait -> teardown` | `wait`'s `retire` event goes to `teardown` and writes `teardown_topic` from its `unit`; `teardown`'s directive holds the finish check (merged, verified on the default branch, issues closed or handed on, final report in, the two questions asked). There's no edge from `land` |
+| `rebrief -> pick_facts` | a unit whose worker is gone returns through `pick_facts` with its holding |
 | `destroy -> record` | `record` is where the holding row is dropped |
 | holding rows | `record-holding.sh --session <s>` with `--topic <t> --row-file <json>` (add or replace one row whole), `--read --topic <t>` (one row), or `--list` (every row, in record order); it derives the record itself from the session's log. Exit 0, 1 no row (`--read` only), 2 read failed, 10 refused (no open record, failed provenance, or a directed transition in the run), 11 write failed, 64 usage, 65 row refused |
 | holding row keys | `unit`, `entry_point`, `mode`, `phase` (`scoping-ahead` or `executing`), `dispatch_status` (`dispatching`, `dispatched`, `dispatch-failed`), `return_path` (`<request-id>:<leg>` or `message`), `worker`, `repo`, `branch` (empty until known: written in the same write that records the pull request), `verified_head`, `dispatched`, `pull_request` |
 | seals | `coord-log.sh seal --session <s> --state <state> --file <f> --key <k>` stores a verdict and prints `sealed:<seq>:<sha256>` (0 sealed, 2 no readable log or no entry into the state, 66 the context write failed); `check --session <s> --state <state> --sealed <t> --key <k>` prints the verified bytes (0 valid, 1 invalid, 2 read failure); `capture --session <s> --name <n>` reads a capture from the log (0 found, 1 absent, 2 read failure); `directed-since --session <s> --from <seq>` reports directed transitions (0 none, 1 some, 2 read failure); 64 usage throughout |
-| `classify_report` | the record feature declares it, with the decider on `worker_report`; this feature adds the routes and its gate on the key |
+| `classify_report` | the record feature declares it, with the decider on `coord/report.json` and `worker_report`; this feature adds the routes and the gate on `worker_report` |
 | `rebrief`, `teardown` | the record feature declares them; this feature fills them |
 
 The record feature confirmed each interface above; this feature's scripts
@@ -411,80 +421,98 @@ fields so the arms are mutually exclusive, as koto's compiler requires.
 
 | State | | Action | Gates | Leaves to |
 |---|---|---|---|---|
-| `dispatch` | filled | none (agent runs `dispatch-worker.sh`) | `holding_recorded`: command, `holding-recorded.sh` over `dispatch_topic` | `wait` on exit 0, clearing `worker_report` and `report_topic`; self-loop on exit 1 or 4 with evidence `retry` (re-run the script); `pick` on exit 3 with evidence `redispatch`; the surface step on any non-zero exit with evidence `escalate` |
-| `wait` | filled | `wait-target.sh select`, capture `WAIT_REQ` (a request id, or `none`) | `leg_target`: `context-matches` on `wait_target` for a leg-bound pick | `wait_leg` when it matches; `take_report` on `matches: false` with evidence `report_from`, writing `report_topic` from it and `report_source: message` |
-| `wait_leg` | added | `wait-target.sh leg`, capture `WAIT_LEG`; the script also writes `report_topic` from `wait_target` | `leg_result`: `request-leg` on `{{WAIT_REQ}}`/`{{WAIT_LEG}}` | `take_report` on a promoted resolved leg, writing `worker_report` from the gate's `status`, `final_state`, `outcome`, `step`, `reason` and `payload.pr`, and `report_source: leg`; the surface step on an explicit or refused result, an abandoned leg or a missing one; on an open leg, `wait` with evidence `rescan` (clearing `worker_report`), or `take_report` with evidence `report_from`, writing `report_topic` from it and `report_source: message` |
-| `take_report` | added | none | `report_present`: `context-matches` on `worker_report` for a non-whitespace character; `report_source_ok`: command, `report-source.sh` over `report_topic` and `report_source` | `classify_report` when both pass; `wait` when `report_source_ok` refuses, clearing `worker_report` and `report_topic` |
-| `classify_report` | added | none | none of its own; its decider input is gated by `report_present` | `verify` on `done`; `rebrief` on `needs_fix`; the surface step on `blocked` |
-| `rebrief` | added | none (agent runs `dispatch-worker.sh --rebrief`) | none | `wait` on evidence `sent`, clearing `worker_report` and `report_topic`; `pick` on evidence `worker_gone` |
-| `quiesce` | added | none | none | `teardown` on evidence `stopped` |
-| `teardown` | added | `teardown-inventory.sh --seal`, which reads `teardown_topic` itself; non-polling, capture `TEARDOWN_SEAL` | `inventory_durable`: command, `teardown-verdict.sh gate`, which checks the stored verdict against the seal it reads from the log, and that the verdict covers the current `teardown_topic` | `destroy` when the sealed verdict is durable; `promote` otherwise. No `accepts` block: the state moves on gates alone |
-| `promote` | added | none | none | `teardown` on evidence `promoted` (re-entering runs the inventory again); the surface step on evidence `escalate` |
-| `destroy` | added | none | none | `record` on evidence `destroyed` or `handed_over` |
+| `dispatch` | filled | none (agent runs `dispatch-worker.sh`) | `holding_recorded`: command, `holding-recorded.sh`, which reads `dispatch_topic` itself | `record` on evidence `sent`, only when the gate exits 0; the record feature's `failure` on evidence `failed`, which the directive has the coordinator submit when the script exits 3 or 4 |
+| `wait` | filled | none | none | a hub that stops for evidence: `event` (`report`, `leg`, `quiet`, `decision`, `deferral`, `merged`, `retire`, `end`), with `unit` and, for a report, `report`. `take_report` on `report`, writing `worker_report` from `report`, `report_topic` from `unit`, and `report_source: message`; `leg_pick` on `leg`; `teardown` on `retire`, writing `teardown_topic` from `unit`; the other events go to the record feature's states |
+| `leg_pick` | added | `wait-target.sh select`, capture `WAIT_REQ` (a request id, or `none`) | `leg_target`: `context-matches` on `wait_target` for a leg-bound pick | `wait_leg` when it matches; `wait` when it doesn't, clearing `worker_report` and `report_topic` |
+| `wait_leg` | added | `wait-target.sh leg`, capture `WAIT_LEG`; the script also writes `report_topic` from `wait_target` | `leg_result`: `request-leg` on `{{WAIT_REQ}}`/`{{WAIT_LEG}}` | `take_report` on a promoted resolved leg, writing `worker_report` from `${gates.leg_result.status}`, `final_state`, `payload.outcome`, `payload.step`, `payload.reason` and `payload.pr`, and `report_source: leg`; the surface step on an explicit or refused result, an abandoned leg or a missing one. Every one of those consuming edges sets `leg_consumed: "yes"`. On an open leg, `leg_pick` on evidence `watch: rescan`, or `wait` on `watch: back`, clearing `worker_report` and `report_topic` |
+| `take_report` | added | none | `report_present`: `context-matches` on `worker_report` for `\S`; `report_source_ok`: command, `report-source.sh` over `report_topic` and `report_source` | the record feature's `report_facts`, then `classify_report`, when `report_source_ok` exits 0 and `report_present` matches; `wait` when `report_source_ok` exits 1; `wait` on evidence `withdrawn` when it exits 0 and there's no text, or when it exits 2 (the record can't be read, as for a report that names no worker). Every edge back to `wait` clears `worker_report` and `report_topic` |
+| `classify_report` | filled | none | none of its own; its decider inputs are gated by `report_facts`'s `report_input` and by `report_present` | `verify` on `done`; `rebrief` on `needs_fix`; the surface step on `blocked` |
+| `rebrief` | filled | none (agent runs `dispatch-worker.sh --rebrief`) | none | `wait` on evidence `sent`, clearing `worker_report` and `report_topic`; `pick_facts` on evidence `worker_gone` |
+| `teardown` | filled | none | none | `teardown_inventory` on evidence `stopped`; `record` on evidence `kept`, the worker staying, clearing `teardown_topic` |
+| `teardown_inventory` | added | `teardown-inventory.sh --seal`, which reads `teardown_topic` itself; non-polling, capture `TEARDOWN_SEAL` | `inventory_durable`: command, `teardown-verdict.sh gate`, which checks the stored verdict against the seal it reads from the log, and that the verdict covers the current `teardown_topic` | `destroy` when the sealed verdict is durable (exit 0); `promote` when it's unique (exit 1); the surface step on an error verdict or a seal that doesn't hold (exit 2 or 3), clearing `teardown_topic`. No `accepts` block: the state moves on gates alone |
+| `promote` | added | none | none | `teardown_inventory` on evidence `promoted` (re-entering runs the inventory again); the surface step on evidence `escalate`, clearing `teardown_topic` |
+| `destroy` | added | none | none | `record` on evidence `destroyed` or `handed_over`; the surface step on evidence `refused`. All three clear `teardown_topic` |
 
-**Why a message can't stand in for a leg.** `report_from` evidence on
-`wait_leg` exists so a message from a message-path worker isn't stuck behind
-another worker's open leg. Every route into `take_report` writes
-`report_topic`, from the evidence on the message path and from `wait_target`
-on the leg path, so `take_report`, `classify_report` and the record feature's
-`verify` all know whose report they hold. `report-source.sh` reads that
-topic's holding from the record: when its return path is a leg and the report
-came by message, the gate refuses and the state goes back to `wait`, so the
-leg is the only way that worker's result reaches `verify`. An unrecorded or refused leg goes to the surface step, never
-to classification, so no route reaches `verify` for a leg-bound worker
-without a promoted result.
+**Why a message can't stand in for a leg.** Every route into `take_report`
+writes `report_topic`, from `wait`'s `unit` on the message path and from
+`wait_target` on the leg path, so `take_report`, `classify_report` and the
+record feature's `verify` all know whose report they hold. `report-source.sh`
+reads that topic's holding from the record. A message report is admitted only
+when the holding's return path is `message`; for a leg-bound worker the gate
+refuses and the state goes back to `wait`. A leg report is admitted only when
+the holding's return path is the leg `wait_target` names, and only when
+koto's own record of that leg (`koto request get`) shows it resolved with
+`result_source` `promoted` and `worker_report` equals exactly the text built
+from that result. The context keys say which leg; they can't say what the leg
+holds, since anyone in the session can rewrite them with `koto context add`,
+so rewriting them can't pass a report off as a leg result. An unrecorded or
+refused leg goes to the surface step, never to classification, so no route
+reaches `verify` for a leg-bound worker without a promoted result.
 
 **Why the keys are cleared.** `dispatch_topic` is written fresh on every
 `pick -> dispatch` edge, so the dispatch gate never passes on the previous
-topic's row. `worker_report` and `report_topic` are cleared on every edge
-into `wait` (from `dispatch`, from a `rescan`, from `rebrief`, and from a
-refused report), never on an edge into `take_report`, because on the message
-path the coordinator writes the report before submitting `report_from`. So
+topic's row. Every edge into `take_report` writes `worker_report`,
+`report_topic` and `report_source` fresh, and the dispatch path's edges back
+into `wait` (from `take_report`, from `leg_pick`, from `wait_leg`'s `back`,
+and from `rebrief`'s `sent`) clear `worker_report` and `report_topic`. So
 `report_present` never passes on the previous round's text and never loses
-this round's.
+this round's. `teardown_topic` is written only by `wait`'s `retire` edge and
+cleared on every edge that leaves the teardown states (`teardown`'s `kept`,
+`teardown_inventory` to the surface step, `promote`'s `escalate`, and every
+`destroy` edge), so a later entry can't inventory or destroy a worker an
+earlier retire named.
 
 **A leg is read once.** A leg's result can't change after it resolves, and a
 holding keeps naming its leg until the record drops the row, so the leg whose
 result `wait_leg` takes is kept in the context key `taken_legs` and never
 picked again; otherwise a report routed to `rebrief` or the surface step
-would bring the same result back on the next pass. A re-briefed worker
-reports by message: `--rebrief` moves its holding to the message path and
-abandons the spent request.
+would bring the same result back on the next pass. `wait-target.sh leg` marks
+a leg taken when it's no longer open, but an evidence tick at `wait_leg`
+doesn't run the action, so a leg that resolved between two ticks could be
+consumed unmarked. Every consuming edge therefore sets `leg_consumed`, and the
+next `wait-target.sh select` marks the previously picked leg taken from that
+marker and clears it. A re-briefed worker reports by message: `--rebrief`
+moves its holding to the message path and abandons the spent request.
 
-**The wait itself.** Whenever it can read the record, `wait-target.sh select`
-prints a token and writes `wait_target`: a leg with a result waiting if any
-untaken one has, else the oldest open leg, else `none`. With `none`, `leg_target` fails and the state stops for
+**The wait itself.** `wait` has no action and no gate, so it stops for
 evidence; that stop is the wait. The directive tells the coordinator to tick
-the workflow on each message or harness notification: a message is submitted
-as `report_from: <topic>` after its text is written to `worker_report`, and a
-notification while `wait_leg` is on an open leg is submitted as `rescan`, so
-a leg that resolved elsewhere is picked up. It never polls, and it checks a
-quiet worker no more than once per 30 minutes, as the prose skill already
-says.
+the workflow on each message or harness notification and name the event: a
+worker's message is submitted as `event: report` with its topic as `unit` and
+the message itself as `report`, and a notification that a leg may have
+resolved is submitted as `event: leg`. Whenever it can read the record,
+`wait-target.sh select` in `leg_pick` prints a token and writes
+`wait_target`: a leg with a result waiting if any untaken one has, else the
+oldest open leg, else `none`. With `none`, `leg_target` fails and the
+workflow goes back to `wait`. On an open leg, a later notification is
+submitted as `watch: rescan`, so a leg that resolved elsewhere is picked up,
+and a message that arrives meanwhile goes `watch: back` to `wait`, where it's
+submitted as a report event. It never polls, and it checks a quiet worker no
+more than once per 30 minutes, as the prose skill already says.
 
 The `classify_report` field:
 
 ```yaml
-report_class:
+classification:
   type: enum
   values: [done, blocked, needs_fix]
   required: true
-  description: >-
-    What did the worker report: finished work at its stop checkpoint, a block
-    it can't clear, or work that needs a fix before it can be verified?
+  description: What does this worker's report mean?
   decider:
     answers:
-      done:      {description: "Reports its stop checkpoint reached, with a pull request or artifact named.", mode: shadow}
-      blocked:   {description: "Reports it can't proceed without a decision, access or another unit's work.", mode: shadow}
-      needs_fix: {description: "Reports failing checks, review findings or a defect in its own work it will fix.", mode: shadow}
-    escape: {value: unclear, description: "The report is empty, truncated, or says none of these."}
+      done: {description: "The worker says its unit is finished and its pull request is ready to verify."}
+      blocked: {description: "The worker can't go on without a decision or a step that isn't its to take."}
+      needs_fix: {description: "The work has a problem the worker can fix with what was learned."}
+    escape: {value: unclear, description: "The report is missing, truncated, or ambiguous."}
     inputs:
-      - {context: worker_report, label: report, max_bytes: 8192}
+      - {context: coord/report.json, label: report_facts, max_bytes: 12000}
+      - {context: worker_report, label: worker_report, max_bytes: 8192}
 ```
 
-`report_present` is the `context-matches` gate the decider's `worker_report`
-input needs, per koto's rule that a context input be checked by a context
-gate in the template.
+No answer declares a `mode`, and koto records an answer with no declared mode
+as `shadow`. `report_present` is the `context-matches` gate the decider's
+`worker_report` input needs, per koto's rule that a context input be checked
+by a context gate in the template; the record feature's `report_input` gate
+checks `coord/report.json`.
 
 **Re-briefing after `needs_fix`.** `needs_fix` goes to `rebrief`, not back
 through `dispatch`, because the worker already exists and holds the topic.
@@ -494,93 +522,143 @@ report or the brief input, renders the new brief (the old one plus what was
 learned) over the old file, and updates the row's date; it launches nothing.
 The coordinator then sends the worker a message pointing at the brief and
 submits `sent`. When the worker's session is gone, it submits `worker_gone`
-and the unit goes back through `pick` under a new topic, as the prose skill's
+and the unit goes back through `pick_facts` and `pick` under a new topic, as the prose skill's
 failure branch says.
 
 ### The teardown inventory
 
-Teardown starts at `quiesce`, whose directive has the coordinator stop the
-worker's session by its id, through the harness's stop form that keeps the
-session's job directory, and submit `stopped`. A gate runs when its state is
-entered, so the stop has to happen in a state before the one that
-inventories: nothing then writes to the instance between the inventory and the
-destroy. `teardown`'s gate runs `teardown-inventory.sh --topic <teardown_topic>`, which finds the
+Teardown starts when the coordinator submits `event: retire` on `wait` with
+the worker's topic as `unit`; that edge writes `teardown_topic` and enters
+`teardown`. Its directive has the coordinator check the worker is finished,
+ask it the two questions, stop the worker's session by its id, through the
+harness's stop form that keeps the session's job directory, and submit
+`stopped`, or `kept` when the worker stays, which goes to `record`. A gate
+runs when its state is entered, so the stop has to happen in a state before
+the one that inventories: nothing then writes to the instance between the
+inventory and the destroy. `teardown_inventory`'s action runs
+`teardown-inventory.sh --seal`, which reads `teardown_topic`, finds the
 worker's instance directory by the topic's whole session name in `niwa list
---json`, runs `git fetch --prune origin` once per repository so a remote
-branch deleted without merging doesn't still look pushed, and for every git
-repository and worktree under it:
+--json`, and reads every clone under it without running anything the clone
+could have configured. It never runs `git status` or `git fetch` in a clone:
+status runs clean and process filters, so a worker's filter can make a change
+vanish from it, and recurses into submodules with their own config; a fetch
+runs the clone's URL rewrites, transports and credential helpers. It reads
+plumbing (`ls-files`, `ls-tree`, `rev-list`, `cat-file`, `merge-base`,
+`diff-tree`) with fsmonitor, hooks and every transport off, hashes the
+working tree's files itself with `hash-object --no-filters --stdin-paths`,
+reads origin's live refs with `ls-remote` against the github.com URL under
+the coordinator's own git config, and reads the trees it compares against
+from GitHub, one read per commit. For every clone:
 
-1. `git status --porcelain`, including untracked files: any line is `unique`.
-2. `git stash list`: any entry is `unique`.
-3. Each local branch, and a detached HEAD in any worktree, whose head is on no
-   remote branch. The paths it changed are `git diff --no-renames --name-only
-   <merge-base>..<head>` against the default branch. The comparison target is
-   the squash merge commit of the merged pull request whose head was that
+1. Staged, uncommitted, deleted and untracked changes, from the index, HEAD's
+   tree and the working tree's own bytes, so a skip-worktree or
+   assume-unchanged entry hides nothing: any is `unique`.
+2. A stash: `unique`.
+3. Each local branch, local tag and detached HEAD with a commit on none of
+   origin's live refs. The paths it changed are the `diff-tree --no-renames`
+   paths from its merge base with the default branch. The comparison target
+   is the squash merge commit of the merged pull request whose head was that
    branch (`gh pr list --head <branch> --state merged --json mergeCommit`),
-   fetched by sha; only when no merged pull request exists does it fall back
-   to `origin/<default>`. Comparing against the merge commit keeps a later
-   change to the same paths on the default branch from reading as unique
-   work. An empty `git diff --no-renames <target> <head> -- <paths>` is
-   `durable`, anything else `unique`, with the paths listed.
-4. Anything it can't classify (a submodule, a bare repository, a nested
-   `.git` it didn't enter, a repository it can't read) is an error, never
-   `durable`.
+   and the default branch's head only when no merged pull request exists.
+   Comparing against the merge commit keeps a later change to the same paths
+   on the default branch from reading as unique work. Each path whose blob at
+   the tip matches the target's tree is `durable`; any other is `unique`, with
+   the paths listed.
+4. Submodules, clones nested in the working tree (an ignored directory
+   included) and linked worktrees inside the instance are inventoried as
+   clones of their own. Anything it can't classify (a bare repository, a
+   repository it can't read or whose git directory is outside the instance,
+   a clone with no github.com origin, a lookup that fails or times out) is an
+   error, never `durable`.
+
+A content filter (LFS, a line-ending conversion) makes the working tree's
+bytes differ from the index, so such a clone reads as unique: the safe
+direction, at the cost of a promote step. The read follows the one the
+reconcile feature's host checks use, and the two can share it once both land.
 
 It prints one line per repository, `durable <path> (vs <target>)` or
 `unique <path>: <why> (vs <target>)`, with every path relative to the
 instance and the target named (`merge <sha>` or `default <branch>`), and exits
-0 when all are durable, 1 when any is unique, 2 on an error. Its only writes
-are the remote-tracking refs the fetch updates; it destroys nothing.
+0 when all are durable, 1 when any is unique, 2 on an error. It writes nothing
+in the instance and destroys nothing.
 
 **The seal.** `koto next <session> --to <state>` moves a session without
 evaluating gates, and `overridable: false` doesn't stop it, so a gate alone
 can't guarantee `destroy` is reached only through a durable inventory. The
-teardown state therefore uses the seal pattern the record and reconcile
-features share, through one seal helper the record feature owns: the state's
-`default_action` runs `teardown-inventory.sh --seal`, which stores the verdict
-in context and prints `sealed:<visit-seq>:<sha256>` of it, captured as
-`TEARDOWN_SEAL`; the gate checks that the stored verdict hashes to the seal
-and that the sequence number is the state's latest entry event. The action is
-read-only apart from remote-tracking refs and safe to re-run, which is what
-koto asks of an action. It must finish within koto's 30 seconds, so each
-repository's fetch runs under its own short deadline, and a fetch that misses
-it makes that repository an error, never `durable`.
+`teardown_inventory` state therefore uses the seal pattern the record and
+reconcile features share, through one seal helper the record feature owns:
+the state's `default_action` runs `teardown-inventory.sh --seal`, which
+stores the verdict in context, keyed to the `teardown_inventory` state, and
+prints `<durable|unique|error> sealed:<visit-seq>:<sha256>` of it, captured
+as `TEARDOWN_SEAL`; the gate checks that the stored verdict hashes to the
+seal, that the sequence number is the state's latest entry event, and that
+the verdict's topic is still `teardown_topic`. The action is read-only apart
+from remote-tracking refs and safe to re-run, which is what koto asks of an
+action. It must finish within koto's 30 seconds, so each repository's fetch
+runs under its own short deadline, and a fetch that misses it makes that
+repository an error, never `durable`.
+
+An inventory that can't start doesn't fail the action. When `teardown_topic`
+is empty or isn't a topic, there's no workspace root, `niwa list` has no
+instance for the topic, or the instance directory is gone, the script seals
+an `error` verdict with `instance -` and exits 0, so the gate routes it to
+the surface step. A failed `default_action` runs no gates, and the state
+takes no evidence, so failing there would hold the run at the inventory for
+good. A read that may succeed on the next tick (`niwa list` or
+`teardown_topic` unreadable) still fails the action, so the tick retries it.
 
 Detection covers the skip that the seal can't prevent. `destroy`'s directive
-has the coordinator read the verdict through the helper's seal-checking reader
+has the coordinator read the verdict through `teardown-verdict.sh read`
 before naming any command, and the reader refuses when `destroy` was entered
-by a directed transition or when the latest teardown visit's verdict isn't
-sealed and durable. The directive then stops and routes the coordinator to the
-surface step instead of destroying.
+by a directed transition (exit 4, koto#251) or when the latest
+`teardown_inventory` visit's verdict isn't sealed, durable and for the
+current topic. The coordinator then destroys nothing and submits `refused`,
+which goes to the surface step.
 
-When the verdict isn't durable the workflow moves to `promote`, where the
+When the verdict is unique the workflow moves to `promote`, where the
 coordinator promotes anything load-bearing into an issue comment or a pull
-request and submits `promoted`, which re-enters `teardown` and runs the
-inventory again. When it's durable the workflow moves to `destroy`, whose directive reads the verdict through `teardown-verdict.sh
-read` and names `niwa destroy <instance>` for the one instance the sealed
-verdict's `instance` line names, with `--force` only because of
-niwa#322 and only because the gate just passed, never `niwa reap` or any form
-that takes no target. Each finishing step goes as far as the workspace's
-declared permissions allow and is handed to the human where they don't,
-answered with `handed_over`.
+request and submits `promoted`, which re-enters `teardown_inventory` and runs
+the inventory again, or `escalate` when something can't be moved. When it's
+durable the workflow moves to `destroy`, whose directive reads the verdict
+through `teardown-verdict.sh read` and names `niwa destroy <instance>` for
+the one instance the sealed verdict's `instance` line names, with `--force`
+only because of niwa#322 and only because the gate just passed, never `niwa
+reap` or any form that takes no target. The coordinator submits `destroyed`,
+or `handed_over` when the workspace's declared permissions reserve the
+destroy for a person; both go to `record`. On `handed_over` the record also
+gets a Side effects row whose target is `instance of <topic>`, never the
+instance path.
 
 ### Data flow
 
 ```
-pick --(dispatch_topic)--> dispatch --(dispatch-worker.sh: lock, write-ahead,
-          niwa dispatch, confirm; holding_recorded reads the record)
-          v
-        wait --(wait-target.sh select)--> wait_leg --(request-leg, promoted)--+
-          |   ^--------------(rescan)--------+                                 |
-          +--(report_from + worker_report)-----------------------------------+-> take_report
-                                                     (report_present, report_source_ok)
-                                                                               v
-                                                     classify_report (shadow decider)
-                                                       done -> verify
-                                                       needs_fix -> rebrief -> wait
-                                                       blocked -> surface
-        land --(teardown_topic)--> quiesce --(stopped)--> teardown --(sealed, durable)--> destroy --> record
-                                                              +--(not durable)--> promote --(promoted)--> teardown
+pick --(dispatch_topic)--> dispatch --(sent, holding_recorded exit 0)--> record
+                             |   (dispatch-worker.sh: lock, write-ahead,
+                             |    niwa dispatch, confirm)
+                             +--(failed)--> failure
+
+    +--(refused, or withdrawn)----------------------------------------------------+
+    |  +--(event: report; writes worker_report, report_topic)-------------------+ |
+    v  |                                                                        v |
+    wait --(event: leg)--> leg_pick --(leg_target)--> wait_leg --(promoted)--> take_report
+    ^  ^                    |   ^                      | | |                            |
+    |  +---(no leg)---------+   +--(watch: rescan)-----+ | +--(not promoted)--> surface |
+    +---------------(watch: back)------------------------+                              |
+                                                    (report_present, report_source_ok)  |
+                                            report_facts (the record feature's) <-------+
+                                              v
+                                            classify_report (shadow decider)
+                                              done -> verify
+                                              needs_fix -> rebrief --(sent)--> wait
+                                                                 +--(worker_gone)--> pick_facts
+                                              blocked -> surface
+
+    wait               --(event: retire, writes teardown_topic)--> teardown
+    teardown           --(stopped)--> teardown_inventory      --(kept)--> record
+    teardown_inventory --(sealed, durable)--> destroy         --(unique)--> promote
+                       --(error, or the seal fails)--> surface
+    promote            --(promoted)--> teardown_inventory     --(escalate)--> surface
+    destroy            --(destroyed, handed_over)--> record   --(refused)--> surface
 ```
 
 ### Tool declaration
@@ -613,15 +691,16 @@ record feature", since it fills that template's states.
    worker. The `dispatch` state's directive and gate.
    The `requires.tsv` and `tool-routes.tsv` entries.
 3. **The wait path.** `wait-target.sh` and `report-source.sh` with tests; the
-   `wait`, `wait_leg`, `take_report`, `classify_report` and `rebrief` states,
+   `wait`, `leg_pick`, `wait_leg`, `take_report`, `classify_report` and
+   `rebrief` states,
    and the `--rebrief` mode; template compile and the
    repository's template checks.
 4. **Teardown.** `teardown-inventory.sh` with tests over fixture repositories
    built in the test (a squash-merged branch whose paths the default branch
    later changed, an unpushed change, a stash, a worktree on a detached HEAD, a
    remote branch deleted without merging, a submodule), and its `--seal` mode
-   against the record feature's seal helper; the `quiesce`, `teardown`,
-   `promote` and `destroy` states.
+   against the record feature's seal helper; the `teardown`,
+   `teardown_inventory`, `promote` and `destroy` states.
 5. **Skill text and evals.** The thin SKILL.md's pointers to the new states,
    Known Limitations, and evals for a brief rendered with both channels, a
    dispatch refused to leave the state without a holding, and a report
@@ -645,8 +724,9 @@ brief can't hand a worker a flag its entry point doesn't document.
 
 **Worker reports are untrusted text.** A report can say anything, including
 text written to steer whoever reads it. It reaches the workflow only as the
-`worker_report` context key, drives no gate but the non-empty check, and is
-classified by the coordinator with the decider in shadow. It can't redirect a
+`worker_report` context key, drives no gate but the non-empty check (and,
+for a leg report, the comparison against the result koto holds for the leg,
+which the report can only fail), and is classified by the coordinator with the decider in shadow. It can't redirect a
 re-dispatch: the repository, entry point and flags of a `needs_fix`
 re-dispatch come from the holding row, not from the report. Because it's
 externally authored text, it's a weak candidate for ever promoting the decider
@@ -663,14 +743,16 @@ accepted for opted-in users and stated here.
 **Gates read facts, not claims.** `holding_recorded` reads the record on
 GitHub, `leg_result` reads a leg whose result only the bound session's
 terminal tick can promote, `report_source_ok` reads the reporting topic's
-return path from the record, and `inventory_durable` reads the instance's
+return path from the record and, for a leg report, the leg's result from
+koto, and `inventory_durable` reads the sealed inventory of the instance's
 repositories. A coordinator could still write a holding row by hand; the gate
 would pass, and reconcile's `niwa list` read is what catches a row with no
 worker behind it. That residual is accepted: the gate's job is to stop an
 omission, and a forged row is not an omission.
 
-**Destruction is targeted, quiesced and read-before-write.** The worker's
-session is stopped in `quiesce`, a state before the inventory's, so nothing
+**Destruction is targeted, follows a stop, and reads before it writes.** The
+worker's session is stopped in `teardown`, a state before
+`teardown_inventory`, so nothing
 writes to the instance between the verdict and the destroy. `stopped` is the
 coordinator's evidence, not a fact the gate reads; the ordering is what the
 state split guarantees. The inventory is read-only apart
@@ -729,9 +811,10 @@ quiet-worker check bounds how long a resolved leg can go unread.
   `dispatch-worker.sh` refuses the topic first.
 - **koto#251, a directed transition skips gates.** koto 0.13.0's `koto next
   --to` moves a session past any gate, non-overridable ones included. Until
-  it's fixed, the shared seal helper is the interim detection: the teardown
-  state seals its inventory and `destroy`'s reader refuses to destroy on a
-  directed entry. The dispatch and wait gates have no seal, so a `--to` past
+  it's fixed, the shared seal helper is the interim detection: the
+  `teardown_inventory` state seals its inventory and `destroy`'s reader
+  refuses to destroy on a directed entry, which the coordinator answers with
+  `refused`. The dispatch and wait gates have no seal, so a `--to` past
   `holding_recorded` leaves a missing holding for reconcile to find.
 - **Session names aren't predictable (niwa#325).** niwa appends a random
   token to `--name` and doesn't report the launched handle machine-readably,

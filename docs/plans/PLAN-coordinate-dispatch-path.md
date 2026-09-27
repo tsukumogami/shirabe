@@ -182,11 +182,14 @@ content.
   unpushed branch with no merged pull request whose changed files match the
   default branch.
 - [ ] It exits 0 when all repositories are durable, 1 when any is unique, and
-  2 for a submodule, a bare repository or an unreadable repository, never
-  reporting those durable.
+  2 for a bare repository, an unreadable repository or a clone with no
+  github.com origin, never reporting those durable; submodules and clones
+  nested in the working tree are inventoried as clones of their own.
 - [ ] Every path it prints is relative to the instance.
-- [ ] A test shows it writes nothing to any fixture repository but
-  remote-tracking refs, and it calls no destroy, stop or delete command.
+- [ ] A test shows it writes nothing to any fixture repository and calls no
+  destroy, stop or delete command, and that a change a clean filter hides
+  from `git status`, a skip-worktree or assume-unchanged edit and a local
+  tag's commit each read as unique without the clone's filter running.
 - [ ] `--seal` stores the verdict in the session's context through the record
   feature's seal helper and prints `sealed:<visit-seq>:<sha256>` of it; a
   test shows a verdict edited after sealing fails the helper's check.

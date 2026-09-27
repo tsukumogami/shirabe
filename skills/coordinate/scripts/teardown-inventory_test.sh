@@ -5,18 +5,25 @@
 # a gh stand-in answering the merged-pull-request lookup, and asserts the
 # per-repository verdict:
 #
-#   unique   uncommitted change; untracked file; stash entry; an unpushed
-#            branch whose changed file differs from the default branch; a
+#   unique   uncommitted change; untracked file; stash entry; a change a
+#            clean filter hides from git status (and the filter never runs);
+#            skip-worktree and assume-unchanged edits; a local tag's commit;
+#            an unpushed branch whose changed file differs from the default
+#            branch; a
 #            branch whose remote branch was deleted without merging; a
 #            worktree on a detached HEAD with an unpushed commit
 #   durable  a clean clone; a pushed branch; a squash-merged branch whose
 #            changed file matches the merge commit even though the default
 #            branch changed that file again later; an unpushed branch with no
 #            merged pull request whose changed file matches the default branch
-#   error    a submodule
+#   error    a bare repository; an unreadable one; a clone with no
+#            github.com origin; a tree read that hangs past its deadline
 #
-# plus the exit codes, relative paths, the absence of writes beyond
-# remote-tracking refs, and --seal (sealed through a coord-log.sh stand-in,
+# Submodules and clones nested in an ignored directory are inventoried as
+# clones of their own.
+#
+# plus the exit codes, relative paths, the absence of any write (every ref
+# and each clone's index file unchanged), and --seal (sealed through a coord-log.sh stand-in,
 # exit 0 whatever the verdict) with teardown-verdict.sh reading it back: a
 # durable verdict passes, an edited one fails its seal, a directed transition
 # since the teardown entry refuses the destroy.
@@ -66,9 +73,17 @@ export ST="$T/state"
 mkdir -p "$ST/ctx" "$ST/merged"
 
 # gh: `pr list --repo R --head B --state merged ...` prints the merge sha
-# recorded for branch B, or nothing.
+# recorded for branch B, or nothing; `api repos/R/git/trees/<sha>?recursive=1`
+# answers from the local bare origin, in GitHub's shape.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+if [ "$1" = api ]; then
+    [ "${GH_HANG:-}" = 1 ] && sleep 30
+    sha=${2##*/trees/}; sha=${sha%%\?*}
+    git --git-dir="$O" ls-tree -r "$sha" |
+        jq -R -s '{truncated: false, tree: [split("\n")[] | select(length > 0) | split("\t") as $f | ($f[0] | split(" ")) as $m | {path: $f[1], type: $m[1], sha: $m[2]}]}'
+    exit 0
+fi
 [ "$1 $2" = "pr list" ] || exit 64
 while [ $# -gt 0 ]; do [ "$1" = --head ] && B="$2"; shift; done
 [ "${GH_FAIL:-}" = 1 ] && exit 1
@@ -114,7 +129,7 @@ export DC_COORD_LOG="$T/coord-log.sh"
 
 # --- the origin and the instance ---------------------------------------------------------
 
-O="$T/origin.git"
+export O="$T/origin.git"
 SEED="$T/seed"
 git init -q --bare "$O"
 git init -q "$SEED"
@@ -175,8 +190,9 @@ git -C "$I/public/wt" worktree add -q --detach "$I/public/wt/.claude/worktrees/w
 printf 'x\n' >>"$I/public/wt/.claude/worktrees/w1/a.txt"
 git -C "$I/public/wt/.claude/worktrees/w1" commit -q -am "detached work"
 
-# Refs before, to show the inventory writes nothing but remote-tracking refs.
-refs() { for d in "$I"/public/*; do git -C "$d" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/stash; git -C "$d" status --porcelain; done; }
+# Every ref and each index file's bytes before, to show the inventory writes
+# nothing at all.
+refs() { for d in "$I"/public/*; do git -C "$d" for-each-ref --format='%(refname) %(objectname)'; cksum <"$(git -C "$d" rev-parse --absolute-git-dir)/index"; done; }
 BEFORE=$(refs)
 
 OUT=$(bash "$S" --topic plugin-api --instance "$I" 2>&1); RC=$?
@@ -184,8 +200,8 @@ line() { printf '%s\n' "$OUT" | grep -E "^[a-z]+ $1( |:)"; }
 
 eq  "exit: 1 when anything is unique" 1 "$RC"
 has "clean: durable"                          "$(line public/clean)" "durable public/clean"
-has "dirty: unique"                           "$(line public/dirty)" "unique public/dirty: uncommitted or untracked changes"
-has "untracked: unique"                       "$(line public/untracked)" "unique public/untracked: uncommitted or untracked changes"
+has "dirty: unique"                           "$(line public/dirty)" "unique public/dirty: uncommitted changes"
+has "untracked: unique"                       "$(line public/untracked)" "unique public/untracked: untracked files"
 has "stash: unique"                           "$(line public/stash)" "stash entries"
 has "unpushed branch: unique vs default"      "$(line public/unpushed)" "feat changed a.txt unlike its target (vs default main)"
 has "pushed branch: durable"                  "$(line public/pushed)" "durable public/pushed"
@@ -194,25 +210,35 @@ has "squash-merged, main moved on: durable vs the merge commit" "$(line public/s
 has "no PR, same content on main: durable vs default" "$(line public/matches)" "durable public/matches (vs default main)"
 has "detached worktree commit: unique"        "$(line public/wt/.claude/worktrees/w1)" "HEAD changed a.txt"
 case "$OUT" in *"$T"*) bad "paths: relative to the instance" "$OUT" ;; *) ok "paths: relative to the instance" ;; esac
-eq  "no writes but remote-tracking refs" "$BEFORE" "$(refs)"
+eq  "no writes: every ref and index unchanged" "$BEFORE" "$(refs)"
 
 # Only durable repositories: exit 0.
 I2="$T/inst2"
 mkdir -p "$I2/public"
-git clone -q "$O" "$I2/public/clean"
+git clone -q "$GHURL" "$I2/public/clean"
 bash "$S" --topic plugin-api --instance "$I2" >/dev/null 2>&1; eq "exit: 0 when every repository is durable" 0 "$?"
 
 # A failed pull-request lookup is an error, never durable.
 GH_FAIL=1 bash "$S" --topic plugin-api --instance "$I" >/dev/null 2>&1; eq "a failed gh lookup is exit 2" 2 "$?"
 
-# A submodule is an error, never durable.
+# A submodule is inventoried as a clone of its own; the superproject's
+# staged submodule addition is its own change.
 I3="$T/inst3"
 mkdir -p "$I3"
-git clone -q "$O" "$I3/super"
-git -C "$I3/super" submodule add -q "$O" sub >/dev/null 2>&1
+git clone -q "$GHURL" "$I3/super"
+git -C "$I3/super" submodule add -q "$GHURL" sub >"$T/sub.log" 2>&1
 OUT3=$(bash "$S" --topic plugin-api --instance "$I3" 2>&1); RC=$?
-eq  "submodule: exit 2" 2 "$RC"
-has "submodule: named" "$OUT3" "error super/sub: a submodule"
+eq  "submodule: exit 1 for the staged addition" 1 "$RC"
+has "submodule: inventoried as a clone" "$OUT3" "durable super/sub"
+has "submodule: the superproject's staged change" "$OUT3" "unique super: staged changes"
+
+# A clone with no github.com origin can't be compared: an error.
+I9="$T/inst9"
+mkdir -p "$I9"
+git clone -q "$O" "$I9/local"
+OUT9=$(bash "$S" --topic plugin-api --instance "$I9" 2>&1); RC=$?
+eq  "no github.com origin: exit 2" 2 "$RC"
+has "no github.com origin: named" "$OUT9" "error local: no github.com origin to compare against"
 
 # A bare repository, which has no .git to find, is an error, never durable.
 I4="$T/inst4"
@@ -230,22 +256,48 @@ OUT5=$(bash "$S" --topic plugin-api --instance "$I5" 2>&1); RC=$?
 eq  "unreadable repository: exit 2" 2 "$RC"
 has "unreadable repository: named" "$OUT5" "error broken: not a readable git repository"
 
-# A fetch that hangs past the deadline makes that repository an error. The
-# origin is a helper that never answers.
+# A tree read that hangs past its deadline makes that repository an error.
 I6="$T/inst6"
 mkdir -p "$I6"
-git clone -q "$O" "$I6/slow"
-cat >"$BIN/git-remote-hang" <<'EOF'
-#!/usr/bin/env bash
-sleep 30
-EOF
-chmod +x "$BIN/git-remote-hang"
-git -C "$I6/slow" remote set-url origin hang::nowhere
+git clone -q "$GHURL" "$I6/slow"
 START=$(date +%s)
-OUT6=$(TEARDOWN_FETCH_SECS=1 bash "$S" --topic plugin-api --instance "$I6" 2>&1); RC=$?
-eq  "hung fetch: exit 2" 2 "$RC"
-has "hung fetch: named" "$OUT6" "error slow: git fetch origin failed or timed out"
-if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "hung fetch: stops at the deadline"; else bad "hung fetch: stops at the deadline" ""; fi
+OUT6=$(GH_HANG=1 TEARDOWN_FETCH_SECS=1 bash "$S" --topic plugin-api --instance "$I6" 2>&1); RC=$?
+eq  "hung read: exit 2" 2 "$RC"
+has "hung read: named" "$OUT6" "error slow: the default branch's tree could not be read"
+if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "hung read: stops at the deadline"; else bad "hung read: stops at the deadline" ""; fi
+
+# What git status can't see. A clean filter that maps any content back to the
+# committed bytes hides an edit from status; the inventory hashes the bytes
+# itself and never runs the filter.
+I10="$T/inst10"
+mkdir -p "$I10"
+for r in filt skip assume tagged nest; do git clone -q "$GHURL" "$I10/$r"; done
+printf 'a.txt filter=hide\n' >"$I10/filt/.git/info/attributes"
+git -C "$I10/filt" config filter.hide.clean "touch $T/filter-ran; printf 'a\\n'"
+printf 'hidden edit\n' >>"$I10/filt/a.txt"
+git -C "$I10/filt" update-index --refresh >/dev/null 2>&1
+rm -f "$T/filter-ran"
+git -C "$I10/skip" update-index --skip-worktree a.txt
+printf 'skipped edit\n' >>"$I10/skip/a.txt"
+git -C "$I10/assume" update-index --assume-unchanged a.txt
+printf 'assumed edit\n' >>"$I10/assume/a.txt"
+git -C "$I10/tagged" checkout -q -b tmp
+printf 'tagged\n' >"$I10/tagged/a.txt"
+git -C "$I10/tagged" commit -q -am tagged
+git -C "$I10/tagged" tag t1
+git -C "$I10/tagged" checkout -q main
+git -C "$I10/tagged" branch -q -D tmp
+printf 'vendor/\n' >>"$I10/nest/.git/info/exclude"
+git clone -q "$GHURL" "$I10/nest/vendor/inner"
+printf 'x\n' >>"$I10/nest/vendor/inner/a.txt"
+OUT10=$(bash "$S" --topic plugin-api --instance "$I10" 2>&1)
+has "a clean filter hides nothing" "$OUT10" "unique filt: uncommitted changes"
+if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok "the clone's filter never runs"; fi
+has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
+has "an assume-unchanged edit: unique" "$OUT10" "unique assume: uncommitted changes"
+has "a local tag's commit: unique" "$OUT10" "tag t1 changed a.txt"
+has "a clone in an ignored directory: inventoried" "$OUT10" "unique nest/vendor/inner: uncommitted changes"
+has "that ignored directory isn't the outer clone's change" "$OUT10" "durable nest"
 
 # The scan's overall budget: a repository it doesn't reach is an error.
 OUT7=$(TEARDOWN_TOTAL_SECS=0 bash "$S" --topic plugin-api --instance "$I2" 2>&1); RC=$?

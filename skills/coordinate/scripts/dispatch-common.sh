@@ -388,11 +388,16 @@ dc_with_deadline() {
     # caller's $(...) pipe open.
     # The trap goes in before the sleep starts: a command that finishes at
     # once can stop the watcher before it would otherwise have installed one.
+    # A TERM that lands before `sp` is set (the sleep may already be running)
+    # only records the stop, and the line after the assignment acts on it, so
+    # no sleep is left behind in that window either.
     (
         sp=""
-        trap '[ -n "$sp" ] && kill -TERM "$sp" >/dev/null 2>&1; exit 0' TERM
+        stop=""
+        trap 'stop=1; if [ -n "$sp" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi' TERM
         sleep "$secs" &
         sp=$!
+        if [ -n "$stop" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi
         if wait "$sp" && kill -TERM "$pid" >/dev/null 2>&1; then
             : >"$mark"
         fi

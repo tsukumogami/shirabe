@@ -84,9 +84,14 @@ cat >"$BIN/niwa" <<'EOF'
 [ "$1" = list ] || exit 64
 cat "$ST/sessions.json"
 EOF
-# gh: no merged pull requests.
+# gh: no merged pull requests; a tree read answers from the local origin.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+if [ "$1" = api ]; then
+    sha=${2##*/trees/}; sha=${sha%%\?*}
+    git --git-dir="$O" ls-tree -r "$sha" |
+        jq -R -s '{truncated: false, tree: [split("\n")[] | select(length > 0) | split("\t") as $f | ($f[0] | split(" ")) as $m | {path: $f[1], type: $m[1], sha: $m[2]}]}'
+fi
 exit 0
 EOF
 chmod +x "$BIN/niwa" "$BIN/gh" "$S"/*.sh
@@ -373,15 +378,20 @@ eq  "message: a leg report rewritten in context is refused" wait "$(at)"
 
 # --- teardown ------------------------------------------------------------------------------------------
 
-O="$T/origin.git"
+export O="$T/origin.git"
 git init -q --bare "$O"
+# Clones name a github.com origin, as a worker's do; git rewrites it to the
+# local bare repository.
+GHURL=https://github.com/acme/widgets
+git config --file "$HOME/.gitconfig" "url.$O.insteadOf" "$GHURL"
+git config --file "$HOME/.gitconfig" protocol.file.allow always
 git clone -q "$O" "$T/seed" 2>/dev/null
 printf 'a\n' >"$T/seed/a.txt"
 git -C "$T/seed" add a.txt && git -C "$T/seed" commit -q -m init && git -C "$T/seed" branch -M main && git -C "$T/seed" push -q origin main
 git --git-dir="$O" symbolic-ref HEAD refs/heads/main
 mkdir -p "$T/inst-clean" "$T/inst-dirty"
-git clone -q "$O" "$T/inst-clean/repo"
-git clone -q "$O" "$T/inst-dirty/repo"
+git clone -q "$GHURL" "$T/inst-clean/repo"
+git clone -q "$GHURL" "$T/inst-dirty/repo"
 printf 'x\n' >>"$T/inst-dirty/repo/a.txt"
 printf '[{"name":"a","path":"%s","session_name":"w5-1a2b3c4d"},{"name":"b","path":"%s","session_name":"w6-1a2b3c4d"}]\n' \
     "$T/inst-clean" "$T/inst-dirty" >"$ST/sessions.json"

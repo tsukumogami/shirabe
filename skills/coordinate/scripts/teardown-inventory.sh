@@ -18,19 +18,33 @@
 # later change to the same paths on the default branch from reading as unique
 # work.
 #
-# Per repository (each is `unique` on the first finding):
+# The read runs nothing a worker's clone could have configured: it never
+# runs `git status` or `git fetch` in the clone, since status runs clean and
+# process filters (a worker's filter can make a change vanish from it) and
+# recurses into submodules with their own config, and a fetch runs the
+# clone's URL rewrites, transports and credential helpers. It reads plumbing
+# (ls-files, ls-tree, rev-list, cat-file, merge-base, diff-tree) with
+# fsmonitor, hooks and every transport off, and hashes working-tree files
+# itself with `hash-object --no-filters`. The remote's refs come from
+# `ls-remote` against the github.com URL under the coordinator's own git
+# config, and the trees it compares against from GitHub, one read per commit.
 #
-#   1. `git fetch --prune origin`, under a short deadline, so a remote branch
-#      deleted without merging doesn't still look pushed. A fetch that fails
-#      or misses the deadline makes the repository an error.
-#   2. Uncommitted or untracked changes (`git status --porcelain
-#      --untracked-files=all`).
-#   3. Stash entries.
-#   4. Each local branch, and a detached HEAD, whose head is on no remote
-#      branch, checked by content as above.
+# Per repository (all its findings are listed):
 #
-# Anything it can't classify (a submodule, a repository it can't read, a
-# pull request lookup that fails) is an error, never `durable`.
+#   1. Staged, uncommitted, deleted and untracked changes, from the index,
+#      HEAD's tree and the working tree's own bytes, so skip-worktree and
+#      assume-unchanged entries hide nothing.
+#   2. Stash entries.
+#   3. Each local branch, local tag and a detached HEAD with a commit on none
+#      of origin's live refs, checked by content as above.
+#
+# Submodules, clones nested in the working tree and linked worktrees inside
+# the instance are inventoried as clones of their own. Anything it can't
+# classify (a bare repository, a repository it can't read or whose git
+# directory is outside the instance, a clone with no github.com origin, a
+# lookup that fails) is an error, never `durable`. A content filter (LFS, a
+# line-ending conversion) makes the working tree's bytes differ from the
+# index, so such a clone reads as unique rather than durable.
 #
 # Files a repository's .gitignore excludes are not inventoried: they are
 # build output, caches and dependencies in practice, and counting them would
@@ -68,9 +82,9 @@
 # Exit codes: 0 every repository durable; 1 at least one unique; 2 an error,
 # no instance found, or usage.
 #
-# Writes nothing but the remote-tracking refs its fetches update (and, with
-# --seal, the sealed verdict). bash 3.2; needs git, jq, and gh for the pull
-# request lookup.
+# Writes nothing in the instance (with --seal, only the sealed verdict).
+# TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call).
+# bash 3.2; needs git, jq, and gh for the trees and the pull request lookup.
 set -uo pipefail
 
 PROG=teardown-inventory
@@ -150,90 +164,249 @@ note() {
     [ "$1" -gt "$WORST" ] && WORST="$1"
 }
 
-# owner/repo of a clone's origin as configured (before any insteadOf
-# rewrite), or empty for a non-GitHub origin.
-origin_repo() {
-    git -C "$1" config --get remote.origin.url |
-        sed -n -e 's#^https://github.com/\([^/]*/[^/]*\)$#\1#p' -e 's#^git@github.com:\([^/]*/[^/]*\)$#\1#p' |
-        sed -e 's#\.git$##'
+# ig <dir> <args...>: one git read in a worker's clone that runs nothing the
+# clone's config names and takes no lock: no fsmonitor, no hooks, no
+# transport. `git status` is never used: it refreshes the index, recurses
+# into submodules with their own config and runs clean and process filters
+# (a worker's filter can make a change vanish from it), and no set of flags
+# reliably turns all of that off.
+ig() {
+    local d=$1
+    shift
+    git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
+        -c protocol.allow=never -C "$d" "$@"
 }
 
-check_repo() {
-    local dir="$1" rel="$2" g=(git -C "$1")
-    if [ -n "$("${g[@]}" rev-parse --show-superproject-working-tree)" ]; then
-        note 2 "error $rel: a submodule, which this inventory doesn't classify"
-        return
-    fi
-    if ! dc_with_deadline "$FETCH_SECS" "${g[@]}" fetch --prune --quiet origin >"$WORK/fetch.out" 2>&1; then
-        note 2 "error $rel: git fetch origin failed or timed out ($(tail -1 "$WORK/fetch.out"))"
-        return
-    fi
-    local default
-    default=$("${g[@]}" symbolic-ref --quiet --short refs/remotes/origin/HEAD) || default=""
-    if [ -z "$default" ]; then
-        for b in origin/main origin/master; do
-            "${g[@]}" rev-parse --verify --quiet "$b" >/dev/null && { default="$b"; break; }
-        done
-    fi
-    [ -n "$default" ] || { note 2 "error $rel: no default branch on origin"; return; }
+# github_repo <url>: owner/repo for a github.com remote URL, or nothing.
+github_repo() {
+    local r
+    case "$1" in
+        https://github.com/*) r=${1#https://github.com/} ;;
+        git@github.com:*) r=${1#git@github.com:} ;;
+        ssh://git@github.com/*) r=${1#ssh://git@github.com/} ;;
+        *) return 1 ;;
+    esac
+    r=${r%.git}
+    printf '%s' "$r" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 1
+    printf '%s' "$r"
+}
 
-    local why="" targets=""
-    local porcelain
-    porcelain=$("${g[@]}" status --porcelain --untracked-files=all) || { note 2 "error $rel: git status failed"; return; }
-    [ -n "$porcelain" ] && why="${why}uncommitted or untracked changes; "
-    [ -n "$("${g[@]}" stash list)" ] && why="${why}stash entries; "
+# tree_map <owner/repo> <sha> <out>: the commit's tree as a JSON object
+# {truncated, blobs: {path: blob sha}}, from one API read. The tree is read
+# from GitHub, never from the worker's clone, which may not have the commit.
+tree_map() {
+    dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$1/git/trees/$2?recursive=1" >"$3.raw" 2>"$WORK/gh.err" || return 1
+    jq -c '{truncated: (.truncated // false), blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)}' \
+        "$3.raw" >"$3" 2>"$WORK/gh.err" && jq -e '.blobs | type == "object"' "$3" >/dev/null 2>"$WORK/gh.err"
+}
 
-    local repo
-    repo=$(origin_repo "$dir")
-    # Branches, and a detached HEAD, as "<name><TAB><sha>".
-    {
-        "${g[@]}" for-each-ref --format='%(refname:short)	%(objectname)' refs/heads/
-        if ! "${g[@]}" symbolic-ref --quiet HEAD >/dev/null; then
-            printf 'HEAD\t%s\n' "$("${g[@]}" rev-parse HEAD)"
+# QUEUE: every clone to inventory, by physical path, once.
+QUEUE=()
+queue() {
+    local r q
+    r=$(cd -P "$1" 2>/dev/null && pwd -P) || return 0
+    case "$r/" in "$INSTANCE"/*) ;; *) return 1 ;; esac
+    for q in ${QUEUE[@]+"${QUEUE[@]}"}; do [ "$q" = "$r" ] && return 0; done
+    QUEUE+=("$r")
+}
+
+# files_changed <dir>: write to $WORK/why the clone's files hold something no commit
+# does, or nothing. Staged, working-tree, deleted and untracked changes, read
+# from the index, HEAD's tree and the working tree's own bytes, so
+# skip-worktree and assume-unchanged entries and a clean filter hide nothing.
+# Returns 1 when a read fails. Submodules and nested clones join the queue.
+files_changed() {
+    local d=$1 meta path tag mode rest n
+    ig "$d" ls-files -z -s -v >"$WORK/idx0" || return 1
+    : >"$WORK/why"
+    [ -z "$(tr -cd '\n' <"$WORK/idx0")" ] || { printf 'a tracked path holds a newline; ' >"$WORK/why"; return 0; }
+    tr '\0' '\n' <"$WORK/idx0" >"$WORK/idx"
+    if ig "$d" rev-parse --verify --quiet HEAD >/dev/null; then
+        ig "$d" ls-tree -r -z --full-tree HEAD >"$WORK/head0" || return 1
+        tr '\0' '\n' <"$WORK/head0" >"$WORK/head"
+    else
+        : >"$WORK/head"
+    fi
+    : >"$WORK/present"; : >"$WORK/links"; n=0
+    local why=""
+    while IFS='	' read -r meta path; do
+        [ -n "$path" ] || continue
+        tag=${meta%% *}; rest=${meta#* }; mode=${rest%% *}
+        if [ "$mode" = 160000 ]; then
+            # A submodule: inventoried as a clone of its own, never through
+            # the superproject's git.
+            if [ -e "$d/$path/.git" ]; then
+                queue "$d/$path" || why="${why}submodule $path is outside the instance; "
+            fi
+            continue
         fi
-    } >"$WORK/branches"
-    local name sha paths target merge
-    while IFS='	' read -r name sha; do
+        if [ -L "$d/$path" ]; then printf '%s\t%s\n' "$path" "$(readlink "$d/$path")" >>"$WORK/links"; continue; fi
+        if [ -f "$d/$path" ]; then printf '%s\n' "$path" >>"$WORK/present"; continue; fi
+        # Missing: a skip-worktree entry is meant to be absent; anything else
+        # was deleted in the working tree.
+        [ "$tag" = S ] || n=$((n + 1))
+    done <"$WORK/idx"
+    [ "$n" -gt 0 ] && why="${why}tracked files deleted; "
+    : >"$WORK/wt"
+    if [ -s "$WORK/present" ]; then
+        ig "$d" hash-object --no-filters --stdin-paths <"$WORK/present" >"$WORK/wt.h" || return 1
+        [ "$(wc -l <"$WORK/present")" -eq "$(wc -l <"$WORK/wt.h")" ] || return 1
+        awk 'NR == FNR { p[FNR] = $0; next } { print p[FNR] "\t" $0 }' "$WORK/present" "$WORK/wt.h" >"$WORK/wt"
+    fi
+    # A symlink's content is its target.
+    while IFS='	' read -r path rest; do
+        [ -n "$path" ] || continue
+        printf '%s\t%s\n' "$path" "$(printf '%s' "$rest" | ig "$d" hash-object --stdin)" >>"$WORK/wt"
+    done <"$WORK/links"
+    local cmp
+    cmp=$(jq -rn --rawfile idx "$WORK/idx" --rawfile head "$WORK/head" --rawfile wt "$WORK/wt" '
+        def lines($s): $s | split("\n") | map(select(length > 0));
+        def metapath: split("\t") | {meta: (.[0] | split(" ")), path: (.[1:] | join("\t"))};
+        def pathhash: split("\t") | {key: (.[:-1] | join("\t")), value: .[-1]};
+        [lines($idx)[] | metapath | select(.meta[1] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $index
+        | [lines($head)[] | metapath | select(.meta[1] != "commit") | {key: .path, value: .meta[2]}] | from_entries as $h
+        | [lines($wt)[] | pathhash] | from_entries as $work
+        | [ ($index | to_entries[] | select(($h[.key] // "") != .value) | "staged"),
+            ($h | keys[] as $k | select(($index | has($k)) | not) | "staged"),
+            ($work | to_entries[] | select(($index[.key] // "") != .value) | "modified") ]
+        | unique | join(" ")') || return 1
+    case "$cmp" in *staged*) why="${why}staged changes; " ;; esac
+    case "$cmp" in *modified*) why="${why}uncommitted changes; " ;; esac
+    ig "$d" ls-files -z --others --exclude-standard >"$WORK/oth0" || return 1
+    tr '\0' '\n' <"$WORK/oth0" >"$WORK/oth"
+    n=0
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        case "$path" in
+            */) if [ -e "$d/$path.git" ]; then
+                    queue "$d/$path" || why="${why}nested clone $path is outside the instance; "
+                    continue
+                fi ;;
+        esac
+        n=$((n + 1))
+    done <"$WORK/oth"
+    [ "$n" -gt 0 ] && why="${why}untracked files; "
+    printf '%s' "$why" >"$WORK/why"
+}
+
+# check_repo <dir> <rel>: one verdict line for one clone.
+check_repo() {
+    local d="$1" rel="$2" loc common top url repo live default dsha
+    if [ -L "$d/.git" ]; then note 2 "error $rel: its .git is a symlink, not read"; return; fi
+    loc=$(ig "$d" rev-parse --path-format=absolute --git-common-dir --show-toplevel) || {
+        note 2 "error $rel: not a readable git repository"; return; }
+    common=$(printf '%s\n' "$loc" | sed -n 1p); top=$(printf '%s\n' "$loc" | sed -n 2p)
+    common=$(cd -P "$common" 2>/dev/null && pwd -P) || common=/
+    top=$(cd -P "$top" 2>/dev/null && pwd -P) || top=/
+    case "$common/" in "$INSTANCE"/*) ;; *) note 2 "error $rel: its git directory is outside the instance, not read"; return ;; esac
+    [ "$top" = "$d" ] || { note 2 "error $rel: its working tree is set elsewhere, not read"; return; }
+
+    url=$(ig "$d" config --get remote.origin.url) || url=""
+    repo=$(github_repo "$url") || { note 2 "error $rel: no github.com origin to compare against"; return; }
+    # The remote's refs, read with the coordinator's own git config rather
+    # than the clone's, so nothing the worker configured (a URL rewrite, a
+    # transport, a credential helper) runs. https reads GitHub; file lets a
+    # URL the coordinator's own config rewrites point at a local repository,
+    # and runs nothing.
+    live=$(dc_with_deadline "$FETCH_SECS" git -c protocol.allow=never -c protocol.https.allow=always \
+        -c protocol.file.allow=always ls-remote --symref "https://github.com/$repo" 2>"$WORK/ls.err") || {
+        note 2 "error $rel: origin's refs could not be read or the read timed out ($(tail -1 "$WORK/ls.err"))"; return; }
+    default=$(printf '%s\n' "$live" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
+    dsha=$(printf '%s\n' "$live" | awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }')
+    [ -n "$default" ] && [ -n "$dsha" ] || { note 2 "error $rel: no default branch on origin"; return; }
+
+    local why="" key
+    : >"$WORK/targets"
+    key=$(printf '%s' "$repo" | tr / _)
+    files_changed "$d" || { note 2 "error $rel: its files could not be read"; return; }
+    why=$(cat "$WORK/why")
+    ig "$d" rev-parse --verify --quiet refs/stash >/dev/null && why="${why}stash entries; "
+
+    # Tips: local branches, local tags and a detached HEAD. A tip is on the
+    # remote when it has no commit outside the remote's live refs this clone
+    # holds.
+    printf '%s\n' "$live" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u >"$WORK/live"
+    ig "$d" cat-file --batch-check='%(objectname) %(objecttype)' <"$WORK/live" |
+        awk '$2 == "commit" { print "^" $1 }' >"$WORK/exclude"
+    {
+        ig "$d" for-each-ref refs/heads refs/tags --format='%(objectname)	%(refname)' |
+            awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
+        if ! ig "$d" symbolic-ref -q HEAD >/dev/null; then
+            printf '%s\tHEAD\n' "$(ig "$d" rev-parse HEAD)"
+        fi
+    } >"$WORK/tips"
+    local sha name n base target label merge paths p want have differ
+    [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
+        note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
+    while IFS='	' read -r sha name; do
         [ -n "$sha" ] || continue
-        # On a remote branch: its commits survive this instance.
-        # The budget holds inside a repository too: each branch may cost a
-        # bounded lookup and fetch.
         if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
             note 2 "error $rel: not fully inventoried; the scan ran out of its ${TOTAL_SECS}s budget at $name"
             return
         fi
-        # Only origin was fetched and pruned, so only its refs can vouch.
-        [ -n "$("${g[@]}" branch -r --contains "$sha" --list 'origin/*')" ] && continue
-        paths=$("${g[@]}" diff --no-renames --name-only "$("${g[@]}" merge-base "$default" "$sha")" "$sha") || {
-            note 2 "error $rel: cannot diff $name against $default"
-            return
-        }
-        target="$default"
-        if [ "$name" != HEAD ] && [ -n "$repo" ]; then
-            if ! dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$repo" --head "$name" --state merged \
-                --json mergeCommit --jq '.[0].mergeCommit.oid // ""' >"$WORK/gh.out" 2>"$WORK/gh.err"; then
-                note 2 "error $rel: the merged pull request for $name could not be looked up ($(tail -1 "$WORK/gh.err"))"
-                return
-            fi
-            merge=$(cat "$WORK/gh.out")
-            if [ -n "$merge" ]; then
-                "${g[@]}" cat-file -e "$merge^{commit}" || dc_with_deadline "$FETCH_SECS" "${g[@]}" fetch --quiet origin "$merge" >"$WORK/fetch.out" 2>&1 || {
-                    note 2 "error $rel: merge commit $merge for $name could not be fetched ($(tail -1 "$WORK/fetch.out"))"
+        { printf '%s\n' "$sha"; cat "$WORK/exclude"; } >"$WORK/revs"
+        n=$(ig "$d" rev-list --stdin --count <"$WORK/revs") || { note 2 "error $rel: $name could not be compared with origin"; return; }
+        [ "$n" = 0 ] && continue
+        target="$dsha"
+        label="default $default"
+        case "$name" in
+            HEAD | "tag "*) ;;
+            *)
+                if ! dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$repo" --head "$name" --state merged \
+                    --json mergeCommit --jq '.[0].mergeCommit.oid // ""' >"$WORK/gh.out" 2>"$WORK/gh.err"; then
+                    note 2 "error $rel: the merged pull request for $name could not be looked up ($(tail -1 "$WORK/gh.err"))"
                     return
-                }
-                target="$merge"
-            fi
+                fi
+                merge=$(cat "$WORK/gh.out")
+                if [ -n "$merge" ]; then
+                    target="$merge"
+                    label="merge $merge"
+                    [ -f "$WORK/tree-$key-$merge" ] || tree_map "$repo" "$merge" "$WORK/tree-$key-$merge" || {
+                        note 2 "error $rel: the tree of merge commit $merge for $name could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
+                fi
+                ;;
+        esac
+        printf '%s\n' "$label" >>"$WORK/targets"
+        # The paths the tip changed since it left the default branch, from
+        # the newest default-branch commit this clone holds; an older base
+        # only adds paths, each still judged by content.
+        base=""
+        ig "$d" cat-file -e "$dsha^{commit}" 2>"$WORK/err" && base=$(ig "$d" merge-base "$sha" "$dsha")
+        [ -n "$base" ] || base=$(ig "$d" merge-base "$sha" "refs/remotes/origin/$default" 2>"$WORK/err") || base=""
+        if [ -z "$base" ]; then
+            why="${why}${name} shares no history with $default here; "
+            continue
         fi
-        targets="$targets $([ "$target" = "$default" ] && echo "default ${default#origin/}" || echo "merge $target")"
-        [ -z "$paths" ] && continue
-        local differ
-        differ=$(printf '%s\n' "$paths" | while IFS= read -r p; do
-            "${g[@]}" diff --no-renames --quiet "$target" "$sha" -- "$p" || printf '%s ' "$p"
-        done)
+        paths=$(ig "$d" diff-tree -r --no-renames --name-only -z "$base" "$sha" | tr '\0' '\n') || {
+            note 2 "error $rel: cannot list what $name changed"; return; }
+        differ=""
+        while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            want=$(ig "$d" rev-parse --verify --quiet "$sha:$p") || want=absent
+            have=$(jq -r --arg p "$p" '.blobs[$p] // (if .truncated then "?" else "absent" end)' "$WORK/tree-$key-$target")
+            [ "$want" = "$have" ] || differ="$differ$p "
+        done <<EOF
+$paths
+EOF
         [ -n "$differ" ] && why="${why}${name} changed ${differ% } unlike its target; "
-    done <"$WORK/branches"
+    done <"$WORK/tips"
 
-    local shown="${targets# }"
+    # Worktrees: one inside the instance is inventoried as a clone; one
+    # outside it is named, not read.
+    local line w
+    ig "$d" worktree list --porcelain >"$WORK/wtl" || { note 2 "error $rel: its worktrees could not be listed"; return; }
+    while IFS= read -r line; do
+        case "$line" in "worktree "*) ;; *) continue ;; esac
+        w=${line#worktree }
+        [ "$(cd -P "$w" 2>/dev/null && pwd -P)" = "$d" ] && continue
+        # A submodule lists its git directory, inside the superproject's
+        # .git, as its worktree; that isn't a working tree to read.
+        case "$w/" in */.git/*) continue ;; esac
+        queue "$w" || why="${why}worktree $w is outside the instance, not read; "
+    done <"$WORK/wtl"
+
+    local shown
+    shown=$(sort -u "$WORK/targets" | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }')
     [ -n "$shown" ] || shown=-
     if [ -n "$why" ]; then
         note 1 "unique $rel: ${why%; } (vs $shown)"
@@ -242,14 +415,20 @@ check_repo() {
     fi
 }
 
-# Every repository and worktree: each has a .git directory or file.
-find "$INSTANCE" -name .git -prune -print >"$WORK/gits"
+# Every clone in the instance: a .git directory or file marks one (a linked
+# worktree has a .git file). Clones this search doesn't reach, such as a
+# submodule or a clone inside an ignored directory, join the queue from the
+# clone that holds them.
+find -P "$INSTANCE" -name .git \( -type d -o -type f -o -type l \) -print -prune | sort >"$WORK/gits"
+while IFS= read -r gitpath; do
+    [ -n "$gitpath" ] && queue "$(dirname "$gitpath")"
+done <"$WORK/gits"
 
 # A bare repository has no .git, so the search above can't see it: look for a
 # HEAD file beside objects/ and refs/ outside any .git directory. This
 # inventory doesn't classify one, and an unclassified repository is never
 # durable.
-find "$INSTANCE" -name .git -prune -o -type f -name HEAD -print >"$WORK/heads"
+find -P "$INSTANCE" -name .git -prune -o -type f -name HEAD -print >"$WORK/heads"
 while IFS= read -r head; do
     dir=$(dirname "$head")
     [ -d "$dir/objects" ] && [ -d "$dir/refs" ] || continue
@@ -260,11 +439,13 @@ while IFS= read -r head; do
     fi
 done <"$WORK/heads"
 
-if [ ! -s "$WORK/gits" ] && [ "$WORST" -eq 0 ]; then
+if [ "${#QUEUE[@]}" -eq 0 ] && [ "$WORST" -eq 0 ]; then
     note 0 "durable . (vs -): no git repositories"
 fi
-while IFS= read -r gitpath; do
-    dir=$(dirname "$gitpath")
+i=0
+while [ "$i" -lt "${#QUEUE[@]}" ]; do
+    dir=${QUEUE[$i]}
+    i=$((i + 1))
     rel=${dir#"$INSTANCE"}
     rel=${rel#/}
     [ -n "$rel" ] || rel=.
@@ -272,12 +453,8 @@ while IFS= read -r gitpath; do
         note 2 "error $rel: not inventoried; the scan ran out of its ${TOTAL_SECS}s budget"
         continue
     fi
-    if ! git -C "$dir" rev-parse --git-dir >/dev/null; then
-        note 2 "error $rel: not a readable git repository"
-        continue
-    fi
     check_repo "$dir" "$rel"
-done <"$WORK/gits"
+done
 
 if [ "$SEAL" = 1 ]; then
     # As a default action this exits 0 whatever the verdict: a non-zero exit

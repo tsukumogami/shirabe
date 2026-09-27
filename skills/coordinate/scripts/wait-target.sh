@@ -142,7 +142,7 @@ fi
 CONSUMED=$(ctx_or_empty leg_consumed) || exit 2
 if [ "$CONSUMED" = yes ]; then
     PREV=$(ctx_or_empty wait_target) || exit 2
-    if [ "$(printf '%s' "$PREV" | jq -r '.path // "" | strings' 2>/dev/null)" = leg ]; then
+    if [ "$(printf '%s' "$PREV" | jq -r '.path // "" | strings')" = leg ]; then
         mark_if_done "$PREV" || exit 2
     fi
     put leg_consumed ""
