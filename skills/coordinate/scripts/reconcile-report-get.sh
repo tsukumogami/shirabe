@@ -18,8 +18,8 @@
 #   reconcile-report-get.sh --session S --md      the report rendered as text
 #
 # directed_transitions lists every `koto next --to` in the run, as
-# "<seq> <from>-><to>" (koto#251: a directed transition passes any gate, so a
-# reader is told rather than trusting the route).
+# "<seq> <from>-><to>": a directed transition passes any gate, so a reader is
+# told rather than trusting the route.
 #
 # Exit codes: 0 read and checked; 1 refused (no sealed report, a mismatch);
 # 2 the log or a context key can't be read; 64 usage; 70 environment refused.
