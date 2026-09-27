@@ -21,6 +21,12 @@
 #                   Verified head <sha>
 #   teardown        `done`: no Holdings row for the unit; `kept`: only the
 #                   newer Written: time
+#   destroy         (the dispatch path's teardown) `destroyed`: no Holdings row
+#                   for the topic; `handed_over`: no Holdings row for it and a
+#                   Side effects row whose Target names it. The topic comes from
+#                   the sealed teardown inventory (TEARDOWN_SEAL, key
+#                   teardown_verdict, its `topic <t>` line), never from a
+#                   context key.
 #   decision_apply  `reversal`: a Reversals row dated at or after the event;
 #                   `deferral`: a Deferrals row raised at or after it
 #   posture_ask     a Reversals row at or after the event, From `the human`,
@@ -196,7 +202,7 @@ SOURCE=$(printf '%s' "$ENTRY" | jq -r .from)
 
 
 case "$SOURCE" in
-dispatch|surface|teardown|decision_apply|posture_ask)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask)
     EV=$(evidence "$SOURCE" "$ESEQ")
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
@@ -245,6 +251,26 @@ teardown)
         EXPECT="a newer Written: time"
     else
         VERDICT=conflict; REASON="teardown evidence is neither done nor kept"; finish
+    fi
+    ;;
+destroy)
+    # The topic the inventory sealed: read through the seal check, so a key
+    # the coordinator wrote can't name another worker.
+    TSEAL=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name TEARDOWN_SEAL 2> /dev/null) \
+        || { VERDICT=conflict; REASON="no valid sealed teardown inventory"; finish; }
+    INV=$(bash "$HERE/coord-log.sh" check --session "$SESSION" --state teardown_inventory --sealed "$TSEAL" --key teardown_verdict --any-visit 2> /dev/null) \
+        || { VERDICT=conflict; REASON="the teardown inventory fails its seal"; finish; }
+    UNIT=$(printf '%s\n' "$INV" | sed -n 's/^topic //p' | head -1)
+    [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the sealed inventory names no topic"; finish; }
+    TJ=$(jq -n --arg t "$UNIT" '$t')
+    if has_value destroyed; then
+        EXPECT="no Holdings row for $UNIT"
+        holds "any(.holdings[]; .worker == $TJ) | not" || OKX=0
+    elif has_value handed_over; then
+        EXPECT="no Holdings row for $UNIT and a Side effects row whose Target names it"
+        holds "(any(.holdings[]; .worker == $TJ) | not) and any(.side_effects[]; .target | contains($TJ))" || OKX=0
+    else
+        VERDICT=conflict; REASON="destroy evidence is neither destroyed nor handed_over"; finish
     fi
     ;;
 decision_apply)

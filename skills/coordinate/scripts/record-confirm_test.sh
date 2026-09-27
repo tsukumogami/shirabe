@@ -144,6 +144,34 @@ eq "teardown kept: a newer Written: confirms with the row kept" confirmed "$(con
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
 eq "teardown kept: an older Written: waits" waiting "$(confirm)"
 
+echo "== destroy (the dispatch path's teardown) =="
+destroy_run() { # destroy_run <outcome> <sealed topic>
+    session
+    log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+    log_to "$S" wait teardown
+    log_to "$S" teardown teardown_inventory
+    printf 'topic %s\ninstance /x/instances/alpha\n' "$2" > "$T/inv"
+    log_capture "$S" TEARDOWN_SEAL "$(bash "$HERE/coord-log.sh" seal --session "$S" --state teardown_inventory --file "$T/inv" --key teardown_verdict)"
+    log_to "$S" teardown_inventory destroy
+    log_evidence "$S" destroy "{\"outcome\":\"$1\"}" "$EVT"
+    log_to "$S" destroy record "$EVT"
+}
+destroy_run destroyed alpha
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+eq "destroy destroyed: no row for the sealed topic confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+eq "destroy destroyed: the topic's row still there waits" waiting "$(confirm)"
+destroy_run handed_over alpha
+SEH='[{"action":"destroy","target":"instance of alpha","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"the instance is gone"}]'
+body "$(rec | jq -c --argjson se "$SEH" '.side_effects = $se')"
+eq "destroy handed_over: a Side effects row naming the topic confirms" confirmed "$(confirm)"
+body "$(rec)"
+eq "destroy handed_over: without the Side effects row it waits" waiting "$(confirm)"
+destroy_run destroyed alpha
+printf 'topic beta\ninstance /x\n' > "$KOTO_STORE/context/$S/teardown_verdict"
+body "$(rec)"
+eq "destroy: an inventory edited after sealing is a conflict" conflict "$(confirm)"
+
 echo "== decision_apply =="
 REV='{"date":"2026-09-26T10:00Z","reversed":"merge on green","now":"hold","reason":"freeze","from":"the human"}'
 session
