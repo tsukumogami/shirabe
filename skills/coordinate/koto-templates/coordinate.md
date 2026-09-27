@@ -1717,7 +1717,11 @@ report empty, go back with `withdrawn: withdrawn` and submit the report
 event again, with the message as `report`. When it stops because the record
 couldn't be read, tick again with no evidence once the record reads. A message
 report that named no worker never reads: withdraw it and submit it again with
-its `unit`. Never withdraw a leg's result, which nothing would bring back.
+its `unit`. Don't withdraw a leg's result, which nothing would bring back,
+unless it can never be read: koto can't read the leg's request at all, or the
+record keeps refusing the read (as it does for the rest of a run after a
+directed transition). Then withdraw it and give the human the worker in
+`report_topic` and the request and leg in `wait_target`.
 
 <!-- details -->
 
@@ -1727,8 +1731,9 @@ the record names. A message for a leg-bound worker goes back to the hub; read
 that worker's leg instead. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
-human with the report cleared: name the worker in `report_topic` and the
-request and leg in `wait_target`, and have the result read from koto with `koto request get`,
+human with the report cleared: name the worker in `report_topic`, and the
+request and leg in `wait_target` when it names one (otherwise the worker's
+holding names its leg), and have the result read from koto with `koto request get`,
 since the leg is spent and won't come back to the hub.
 
 ## report_facts

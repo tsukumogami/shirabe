@@ -132,8 +132,8 @@
 #     wait-target.sh, 2 from the gates that read the record
 #     (holding-recorded.sh, report-source.sh), which fold every read failure
 #     into 2. teardown-verdict.sh reads no record: its gate mode's 2 is an
-#     error verdict and 3 a seal that doesn't hold, and its read mode's 4 a
-#     directed transition since the seal
+#     error verdict or a read that failed, 3 a seal that doesn't hold, and
+#     its read mode's 4 a directed transition since the seal
 #     usage: 2, except wait-target.sh (64), whose 0/1/2 are taken
 
 DC_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

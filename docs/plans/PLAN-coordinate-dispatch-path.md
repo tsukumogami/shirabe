@@ -158,7 +158,8 @@ wait path's actions and gate.
   whose topic's holding has return path `message`; it exits non-zero for a
   message report whose topic's holding is bound to a leg, and for a topic with
   no holding.
-- [ ] `wait-target_test.sh` and `report-source_test.sh` pass.
+- [ ] `wait-target_test.sh` passes; it covers both `wait-target.sh` and
+  `report-source.sh`.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
