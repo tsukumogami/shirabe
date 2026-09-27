@@ -1860,7 +1860,7 @@ Submit `session_role` alongside `ci_outcome`, asking the discriminator rather
 than judging it yourself:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
 ```
 
 It prints `root` or `child`, reading koto's own `parent_workflow`. Test

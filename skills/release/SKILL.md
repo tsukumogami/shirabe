@@ -14,10 +14,10 @@ description: >-
   contain and only the commit range is correct. This is releasing a version,
   not merging a change — shipping one piece of work is `/work-on`.
 argument-hint: '[version] [--dry-run]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh release 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh release 2>&1 || true`
 
 # Release
 

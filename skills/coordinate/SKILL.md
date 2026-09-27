@@ -15,10 +15,10 @@ description: >-
   the documents for one feature (`/scope`), or a PLAN that already exists
   (`/execute`).
 argument-hint: '<roadmap-path> | --discipline <name> [decisions...]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh coordinate 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh coordinate 2>&1 || true`
 
 # Coordinate
 

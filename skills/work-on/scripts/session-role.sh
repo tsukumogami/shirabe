@@ -10,7 +10,7 @@
 #
 # Callers ask this script, they do not re-derive the answer:
 #
-#   ROLE=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh" "$WF")
+#   ROLE=$("${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh" "$WF")
 #   [ "$ROLE" = root ] && ...
 #
 # TEST POSITIVELY FOR `root`. The fail-safe below holds only for a caller that
@@ -22,7 +22,7 @@
 #
 # From a work-on.md state directive, call it with koto's own session name:
 #
-#   bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
+#   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
 #
 # The agent's shell expands ${CLAUDE_PLUGIN_ROOT}, since a directive is prose the
 # agent reads; koto substitutes {{SESSION_NAME}} before the agent sees it. A

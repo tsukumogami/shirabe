@@ -15,10 +15,10 @@ description: >-
   that feature's requirements (`/scope`), or to make the case for the bet the
   sequence serves (`/strategy`, or `/charter` for both at once).
 argument-hint: '<initiative topic>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap 2>&1 || true`
 
 @.claude/shirabe-extensions/roadmap.md
 @.claude/shirabe-extensions/roadmap.local.md
@@ -481,7 +481,7 @@ So verify them here, once issue-creating mode is settled and before the R14
 gate presents anything to the author:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap --mode issues 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap --mode issues 2>&1 || true
 ```
 
 Silence means every `mode:issues` record is satisfied; run the gate and

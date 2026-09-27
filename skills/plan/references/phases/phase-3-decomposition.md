@@ -575,7 +575,7 @@ check.
    and copy its output; do not apply the precedence yourself:
 
    ```bash
-   bash ${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh --split yes \
+   ${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh --split yes \
      [--intent <continue|stop|none>] \
      [--coordinated | --no-coordinated] \
      [--claude-md <repo-root>/CLAUDE.md]

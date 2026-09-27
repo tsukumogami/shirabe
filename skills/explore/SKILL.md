@@ -15,10 +15,10 @@ description: >-
   `/execute`, picking between options already named is `/decision`, and
   surveying named competitors is `/comp`.
 argument-hint: '<topic or issue number>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh explore 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh explore 2>&1 || true`
 
 @.claude/shirabe-extensions/explore.md
 @.claude/shirabe-extensions/explore.local.md

@@ -169,7 +169,7 @@ exit line. Once the `koto next` that reaches the terminal returns,
 run
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
+${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
 ```
 
 and print its output verbatim. The script reads the result koto

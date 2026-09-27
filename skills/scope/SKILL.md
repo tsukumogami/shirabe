@@ -16,10 +16,10 @@ description: >-
   (`/work-on`), or to justify a project or sequence a multi-feature
   initiative (`/charter`).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>] [--intent=continue|stop] [--coordinated|--no-coordinated] [--auto|--interactive] [--max-rounds=N] [--koto-leg=<request-id>:<leg>]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
 
 # Scope
 
@@ -223,7 +223,7 @@ intent-scoped prerequisites at `setup`, before any hop, because a
 missing `gh` found at exit would strand a finished chain unpublished:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || true
 ```
 
 Two re-invocations with intent take shortcuts rather than re-scoping.
@@ -303,7 +303,7 @@ before authoring anything, because a missing `gh` here means an authored body
 with nowhere to go:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
 ```
 
 **With `--intent` set, `/scope` never creates a coordination PR up front.** On
@@ -371,7 +371,7 @@ so when it applies.
 `skills/scope/references/phases/phase-0-setup.md` and follow its Tokenizing
 and Workflow Session sections: write the invocation's raw tokens to an args
 file outside the work tree and run
-`bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>`.
+`${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/scope-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} <args-file>`.
 koto checks every argument there, and in the same call opens a new session,
 attaches to this worktree's live one, or -- when an earlier run of the topic
 already reached a terminal -- replaces that finished session with a fresh one
@@ -403,7 +403,7 @@ is a terminal with a `result:` map. When a `koto next` answers
 of your own:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
+${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> --session scope-<topic>
 ```
 
 It prints `/scope finished: exit=<exit>; artifact=<path>`, then `intent=`,

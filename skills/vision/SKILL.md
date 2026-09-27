@@ -15,10 +15,10 @@ description: >-
   someone wants: if the conversation is going to run down into the bet and the
   sequence anyway, `/charter` walks all three in one sitting.
 argument-hint: '<project or org topic>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh vision 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh vision 2>&1 || true`
 
 @.claude/shirabe-extensions/vision.md
 @.claude/shirabe-extensions/vision.local.md

@@ -14,10 +14,10 @@ description: >-
   run through `/work-on` instead. Do NOT use it to work out a feature that has
   no plan yet (`/scope`), to write the plan (`/plan`), or to do a single issue
   (`/work-on`).
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
 
 # Execute
 
@@ -69,7 +69,7 @@ Field four of the declaration is where the deferral is visible. Run, right
 after the enum re-validation passes and before the loop drives anything:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
+${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
 ```
 
 Silence means the coordinated surface is present. Output means the merge-last
@@ -200,7 +200,7 @@ Before any child is spawned, assert the cross-skill `/work-on` child template
 resolves:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run with a clear message. This is the load-bearing
@@ -218,11 +218,11 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 
 ```bash
 # A private directory outside the work tree for the args file.
-ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
 # of --auto, --interactive, --merge, --koto-leg=<request-id>:execute.
 jq -n '$ARGS.positional' --args -- <token> <token> ... > "$ARGS_DIR/tokens.json"
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
 ```
 
 The call it makes is
@@ -532,7 +532,7 @@ Assert the same cross-skill `work-on.md` child template resolves (each node's
 work items dispatch to it):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
+${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run.
@@ -809,9 +809,9 @@ and forks' PRs as readily as this run's own.
 
 ```bash
 # The same owner/repo write_set_record will fix, derived the same way.
-REPO=$(bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/record-write-set.sh --print)
+REPO=$(${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/record-write-set.sh --print)
 for BRANCH in "$(git rev-parse --abbrev-ref HEAD)" "impl/<slug>" "docs/<slug>"; do
-  bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh \
+  ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/owned-pr.sh \
     --repo "$REPO" --head "$BRANCH" --state open
 done
 ```
@@ -918,7 +918,7 @@ renders them from the terminal result (the final `koto next` response, or
 pattern and dropping anything that fails:
 
 ```bash
-koto status execute-<plan-slug> | bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/print-exit.sh
+koto status execute-<plan-slug> | ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/print-exit.sh
 ```
 
 It prints `outcome=` always, `step=` on `error`, `exit=` (the state file's value

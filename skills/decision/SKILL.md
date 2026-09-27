@@ -15,10 +15,10 @@ description: >-
   choices (`/design`), for options nobody has named yet (`/explore`), or for
   surveying a field of vendors before choosing among them (`/comp`).
 argument-hint: '<decision question or topic>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh decision 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh decision 2>&1 || true`
 
 @.claude/shirabe-extensions/decision.md
 @.claude/shirabe-extensions/decision.local.md
