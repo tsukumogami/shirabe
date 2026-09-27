@@ -139,13 +139,17 @@ jobs:
       # work-on-open_test.sh checks the --koto-leg entry's own refusals against
       # a koto stub (both legs), then opens real requests, binds runs of the
       # shipped template to their legs, and reads each result back off the leg.
-      # The engine half skips where koto is absent -- the macOS leg.
-      - name: Run --koto-leg entry tests
+      # The engine half skips where koto is absent -- the macOS leg, which runs
+      # this harness on the floor through the work-on suite.
+      - name: Run --koto-leg entry tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-open_test.sh
 
       # The mode:koto-leg floor record, against a stand-in koto older than the
-      # entry flags: a run without the flag stays on the older floor.
-      - name: Run koto floor declaration tests
+      # entry flags: a run without the flag stays on the older floor. The macOS
+      # leg runs it on the floor through the work-on suite.
+      - name: Run koto floor declaration tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-requires_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
