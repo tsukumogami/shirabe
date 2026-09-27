@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   The coordinate skill's reconcile step is prose, so nothing makes a
   restarted or rotated coordinator re-check its inherited record before it
@@ -43,7 +43,7 @@ upstream: docs/prds/PRD-coordinate-reconcile.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

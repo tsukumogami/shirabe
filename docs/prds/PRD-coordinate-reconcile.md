@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A coordinator that starts, restarts or takes a rotation inherits a record
   of dated claims about what it dispatched, deferred, attempted and
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-coordinate-reconcile](docs/briefs/BRIEF-coordinate-reconcile.md); carried in Absorbed Brief.
 
