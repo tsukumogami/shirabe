@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-coordinate-record.md
 problem: |
   `/coordinate` is prose, so the four checks it asks for (the record exists once with its
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
