@@ -49,7 +49,6 @@ PROG=record-coord-setup
 COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 # shellcheck source=coord-common.sh
 . "$COORD_SELF_DIR/coord-common.sh"
-PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
 
 RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 
@@ -80,7 +79,7 @@ done
 [ -f "$PLAN" ] || usage_error "no PLAN at [$PLAN]"
 
 # repos, from the nodes.
-TASKS=$("$BASH" "$PLAN_TO_TASKS" "$PLAN" </dev/null) || {
+TASKS=$("$BASH" "$COORD_PLAN_TO_TASKS" "$PLAN" </dev/null) || {
     echo "$PROG: plan-to-tasks.sh could not read $PLAN into nodes" >&2
     exit 69
 }

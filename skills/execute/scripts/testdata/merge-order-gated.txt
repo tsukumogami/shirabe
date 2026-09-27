@@ -1,0 +1,9 @@
+## Merge Order
+
+```merge-order
+# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
+pr-repo-a-core | pr | after: -
+gate-publish-core | gate | after: pr-repo-a-core
+pr-repo-a-cli | pr | after: pr-repo-a-core, gate-publish-core
+```
