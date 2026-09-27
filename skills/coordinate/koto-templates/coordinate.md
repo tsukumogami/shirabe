@@ -708,12 +708,13 @@ states:
           report_topic: ""
       # A leg report that isn't the result koto holds for the leg: the leg is
       # spent, so the hub would never see it again; the human does.
+      # worker_report is cleared, since it isn't what the leg holds;
+      # report_topic stays, so the surface step can name the worker.
       - target: surface
         when:
           gates.report_source_ok.exit_code: 3
         context_assignments:
           worker_report: ""
-          report_topic: ""
       - target: wait
         when:
           gates.report_source_ok.exit_code: 2
@@ -1723,7 +1724,10 @@ worker: a message for a worker on the message path, or a leg result for the leg
 the record names. A message for a leg-bound worker goes back to the hub; read
 that worker's leg instead. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
-from koto rather than trusting the report's text.
+from koto rather than trusting the report's text. One that isn't goes to the
+human with the report cleared: name the worker in `report_topic` and the
+request and leg in `wait_target`, and have the result read from koto with `koto request get`,
+since the leg is spent and won't come back to the hub.
 
 ## report_facts
 

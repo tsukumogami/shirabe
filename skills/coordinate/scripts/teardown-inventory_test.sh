@@ -369,7 +369,17 @@ git -C "$I12/landed" branch -q -D landb
 MERGE12=$(main_commit c.txt "landed" "squash: landb")
 printf '%s\n' "$MERGE12" >"$ST/merged/landb"
 git --git-dir="$O" update-ref -d refs/heads/landb
+# Someone else's branch, fetched by this clone and later deleted from origin
+# unmerged: its tracking ref isn't the worker's, so the clone stays durable.
+git -C "$SEED" checkout -q -b others
+printf 'theirs\n' >"$SEED/b.txt"
+git -C "$SEED" commit -q -am theirs
+git -C "$SEED" push -q origin others
+git -C "$SEED" checkout -q main
+git clone -q "$GHURL" "$I12/bystander"
+git --git-dir="$O" update-ref -d refs/heads/others
 OUT12=$(bash "$S" --topic plugin-api --instance "$I12" 2>&1)
+has "someone else's deleted branch doesn't make a clean clone unique" "$OUT12" "durable bystander"
 has "a commit only a stale remote-tracking ref holds: unique" "$OUT12" "unique lost: remote-tracking origin/lostb changed c.txt"
 has "a squash-merged branch's stale remote-tracking ref: durable" "$OUT12" "durable landed (vs "
 has "that ref is judged against its merge commit" "$OUT12" "merge $MERGE12)"

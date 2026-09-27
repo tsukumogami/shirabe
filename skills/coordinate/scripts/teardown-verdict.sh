@@ -56,9 +56,9 @@ done
 case "$MODE" in gate | read) ;; *) usage ;; esac
 
 CAPTURED=$(dc_capture "$SESSION" TEARDOWN_SEAL) || { printf '%s: cannot read the TEARDOWN_SEAL capture\n' "$PROG" >&2; exit 2; }
-# The capture is `<word> sealed:<seq>:<sha256>`: the word is for a reader of
-# the session log, and only the token is checked. The word is never trusted;
-# the verdict is read from the sealed bytes.
+# The capture is the bare token `sealed:<seq>:<sha256>`; any text around it
+# is ignored, and only the token is checked. The verdict is read from the
+# sealed bytes, never from the capture.
 TOKEN=$(printf '%s' "$CAPTURED" | grep -Eo 'sealed:[0-9]+:[0-9a-f]{64}' | tail -1)
 [ -n "$TOKEN" ] || { printf '%s: TEARDOWN_SEAL holds no seal\n' "$PROG" >&2; exit 3; }
 

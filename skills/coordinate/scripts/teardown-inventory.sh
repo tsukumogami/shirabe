@@ -36,7 +36,9 @@
 #      assume-unchanged entries hide nothing.
 #   2. Stash entries.
 #   3. Each local branch, local tag and a detached HEAD with a commit on none
-#      of origin's live refs, checked by content as above.
+#      of origin's live refs, and each origin tracking ref whose branch is
+#      gone from origin and that this clone pushed, checked by content as
+#      above.
 #
 # Submodules, clones nested in the working tree and linked worktrees inside
 # the instance are inventoried as clones of their own. Anything it can't
@@ -340,7 +342,8 @@ check_repo() {
         ig "$d" rev-parse --verify --quiet refs/stash >/dev/null && why="${why}stash entries; "
     fi
 
-    # Tips: local branches, local tags and a detached HEAD. A tip is on the
+    # Tips: local branches, local tags, a detached HEAD, and origin tracking
+    # refs this clone pushed for branches gone from origin. A tip is on the
     # remote when it has no commit outside the remote's live refs this clone
     # holds.
     printf '%s\n' "$live" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u >"$WORK/live"
@@ -348,10 +351,22 @@ check_repo() {
         awk '$2 == "commit" { print "^" $1 }' >"$WORK/exclude"
     {
         if [ "$first" = 1 ]; then
-            # Remote-tracking refs count too: one for a branch origin no
-            # longer has can be the only thing holding a commit.
-            ig "$d" for-each-ref refs/heads refs/tags refs/remotes --format='%(objectname)	%(refname)	%(symref)' |
-                awk -F'\t' '$3 == "" { r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); sub(/^refs\/remotes\//, "remote-tracking ", r); print $1 "\t" r }'
+            ig "$d" for-each-ref refs/heads refs/tags --format='%(objectname)	%(refname)' |
+                awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
+            # An origin tracking ref counts only when it can be the one thing
+            # holding the worker's commit: its branch is gone from origin and
+            # this clone pushed it (its reflog says so). Any other tracking
+            # ref is someone else's branch as last fetched; counting it would
+            # read every clean clone in an active repository as unique.
+            ig "$d" for-each-ref refs/remotes/origin --format='%(objectname)	%(refname)	%(symref)' |
+                while IFS='	' read -r tsha tref tsym; do
+                    [ -z "$tsym" ] || continue
+                    tb=${tref#refs/remotes/origin/}
+                    printf '%s\n' "$live" | awk -v r="refs/heads/$tb" '$2 == r { f = 1 } END { exit !f }' && continue
+                    ig "$d" reflog show --format=%gs "$tref" -- >"$WORK/reflog" 2>"$WORK/err"
+                    grep -q '^update by push' "$WORK/reflog" || continue
+                    printf '%s\tremote-tracking origin/%s\n' "$tsha" "$tb"
+                done
         fi
         if ! ig "$d" symbolic-ref -q HEAD >/dev/null; then
             printf '%s\tHEAD\n' "$(ig "$d" rev-parse HEAD)"

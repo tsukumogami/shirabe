@@ -425,7 +425,7 @@ fields so the arms are mutually exclusive, as koto's compiler requires.
 | `wait` | filled | none | none | a hub that stops for evidence: `event` (`report`, `leg`, `quiet`, `decision`, `deferral`, `merged`, `retire`, `end`), with `unit` and, for a report, `report`. `take_report` on `report`, writing `worker_report` from `report`, `report_topic` from `unit`, and `report_source: message`; `leg_pick` on `leg`; `teardown` on `retire`, writing `teardown_topic` from `unit`; the other events go to the record feature's states |
 | `leg_pick` | added | `wait-target.sh select`, capture `WAIT_REQ` (a request id, or `none`) | `leg_target`: `context-matches` on `wait_target` for a leg-bound pick | `wait_leg` when it matches; `wait` when it doesn't, clearing `worker_report` and `report_topic` |
 | `wait_leg` | added | `wait-target.sh leg`, capture `WAIT_LEG`; the script also writes `report_topic` from `wait_target` | `leg_result`: `request-leg` on `{{WAIT_REQ}}`/`{{WAIT_LEG}}` | `take_report` on a promoted resolved leg, writing `worker_report` from `${gates.leg_result.status}`, `final_state`, `payload.outcome`, `payload.step`, `payload.reason` and `payload.pr`, and `report_source: leg`; the surface step on an explicit or refused result, an abandoned leg or a missing one. Every one of those consuming edges sets `leg_consumed: "yes"`. On an open leg, `leg_pick` on evidence `watch: rescan`, or `wait` on `watch: back`, clearing `worker_report` and `report_topic` |
-| `take_report` | added | none | `report_present`: `context-matches` on `worker_report` for `\S`; `report_source_ok`: command, `report-source.sh` over `report_topic` and `report_source` | the record feature's `report_facts`, then `classify_report`, when `report_source_ok` exits 0 and `report_present` matches; `wait` when `report_source_ok` exits 1; `wait` on evidence `withdrawn` when it exits 0 and there's no text, or when it exits 2 (the record can't be read, as for a report that names no worker). Every edge back to `wait` clears `worker_report` and `report_topic` |
+| `take_report` | added | none | `report_present`: `context-matches` on `worker_report` for `\S`; `report_source_ok`: command, `report-source.sh` over `report_topic` and `report_source` | the record feature's `report_facts`, then `classify_report`, when `report_source_ok` exits 0 and `report_present` matches; `wait` when `report_source_ok` exits 1; `wait` on evidence `withdrawn` when it exits 0 and there's no text, or when it exits 2 (the record can't be read, as for a report that names no worker); the surface step when it exits 3 (a leg report that isn't the promoted result koto holds for the leg, which is spent and would never come back to the hub). Every edge back to `wait` clears `worker_report` and `report_topic`; the edge to the surface step clears `worker_report` and keeps `report_topic`, so the human is told which worker's leg it was |
 | `classify_report` | filled | none | none of its own; its decider inputs are gated by `report_facts`'s `report_input` and by `report_present` | `verify` on `done`; `rebrief` on `needs_fix`; the surface step on `blocked` |
 | `rebrief` | filled | none (agent runs `dispatch-worker.sh --rebrief`) | none | `wait` on evidence `sent`, clearing `worker_report` and `report_topic`; `pick_facts` on evidence `worker_gone` |
 | `teardown` | filled | none | none | `teardown_inventory` on evidence `stopped`; `record` on evidence `kept`, the worker staying, clearing `teardown_topic` |
@@ -555,7 +555,10 @@ from GitHub, one read per commit. For every clone:
    assume-unchanged entry hides nothing: any is `unique`.
 2. A stash: `unique`.
 3. Each local branch, local tag and detached HEAD with a commit on none of
-   origin's live refs. The paths it changed are the `diff-tree --no-renames`
+   origin's live refs, and each origin tracking ref whose branch is gone from
+   origin and that this clone pushed (its reflog says so), since that ref can
+   be the only thing holding a commit; any other tracking ref is someone
+   else's branch as last fetched and isn't the worker's. The paths it changed are the `diff-tree --no-renames`
    paths from its merge base with the default branch. The comparison target
    is the squash merge commit of the merged pull request whose head was that
    branch (`gh pr list --head <branch> --state merged --json mergeCommit`),
@@ -592,11 +595,11 @@ stores the verdict in context, keyed to the `teardown_inventory` state, and
 prints the bare token `sealed:<visit-seq>:<sha256>` of it, captured
 as `TEARDOWN_SEAL`; the gate checks that the stored verdict hashes to the
 seal, that the sequence number is the state's latest entry event, and that
-the verdict's topic is still `teardown_topic`. The action is read-only apart
-from remote-tracking refs and safe to re-run, which is what koto asks of an
-action. It must finish within koto's 30 seconds, so each repository's fetch
-runs under its own short deadline, and a fetch that misses it makes that
-repository an error, never `durable`.
+the verdict's topic is still `teardown_topic`. The action writes nothing in the
+instance and is safe to re-run, which is what koto asks of an action. It must
+finish within koto's 30 seconds, so each network read runs under its own
+short deadline, and a read that misses it makes that repository an error,
+never `durable`.
 
 An inventory that can't start doesn't fail the action. When `teardown_topic`
 is empty or isn't a topic, there's no workspace root, `niwa list` has no
@@ -755,8 +758,8 @@ worker's session is stopped in `teardown`, a state before
 `teardown_inventory`, so nothing
 writes to the instance between the verdict and the destroy. `stopped` is the
 coordinator's evidence, not a fact the gate reads; the ordering is what the
-state split guarantees. The inventory is read-only apart
-from remote-tracking refs, treats anything it can't classify as an error, and
+state split guarantees. The inventory writes nothing in the
+instance, treats anything it can't classify as an error, and
 never reports it durable. The destroy names one instance found by the topic's
 whole session name, never a sweep, and `--force` is tied to a passing
 inventory. Stopping a session uses the harness's stop form by id, never a form
