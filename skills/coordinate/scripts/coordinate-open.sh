@@ -112,7 +112,7 @@ RC=$?
 # Only once the new run is open (so a refused invocation leaves the live run
 # alone): cancel, never clean up, every other live run of this scope, so its
 # log stays readable.
-for id in $("$KOTO" session list 2>/dev/null | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p))'); do
+for id in $("$KOTO" session list 2>/dev/null | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
     [ "$id" = "$SESSION" ] && continue
     [ "$("$KOTO" status "$id" 2>/dev/null | jq -r '.is_terminal')" = false ] || continue
     LOG="$("$KOTO" session dir "$id" 2>/dev/null)/koto-$id.state.jsonl"

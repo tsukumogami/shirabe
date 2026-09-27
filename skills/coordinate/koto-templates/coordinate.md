@@ -1507,8 +1507,9 @@ changed file on the default branch with the verified head's version.
 
 <!-- details -->
 
-A merge confirmed drops the holding; a merge not confirmed becomes a Side effects
-row with the verified head, which a later reconcile settles. When a feature lands
+A merge confirmed drops the holding. A merge not confirmed keeps the holding and
+adds a Side effects row naming the pull request as `owner/repo#<n>` with the
+verified head, which a later reconcile settles. When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker
 for a small pull request that sets the feature's status line, as a holding;
 features that depend on it stay blocked until it merges.
