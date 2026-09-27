@@ -67,14 +67,11 @@ that runs for days, is driven by cross-session messages rather than engine wakes
 leg waker is a stub, koto#250), and hands most workers no koto leg at all (only `/scope` and
 `/execute` accept `--koto-leg`, shirabe#401).
 
-The record's shape is the second problem. The PRD fixes four sections and their columns
-(Holdings: Unit, Entry point, Mode, Phase, Worker, Repo, Branch, Verified head, Dispatched,
-Pull request; Deferrals: Deferral, Reason, Raised, Disposition; Side effects in flight:
-Action, Target, Verified head, Attempted, How to confirm; Reversals: Date, Reversed, Now,
-Reason, From), requires a body that parses back to the input it was rendered from, and cells
-that can't break a table whatever the coordinator quotes into them. It also requires the
-same renderer to write the discipline handoff file, and a find that tells apart four
-discipline-branch situations and a predecessor's still-open rotation.
+The record's shape is the second problem. The PRD fixes four sections with fixed columns (R14),
+requires a body that parses back to the input it was rendered from, and cells that can't break a
+table whatever the coordinator quotes into them. It also requires the same renderer to write the
+discipline handoff file, and a find that tells apart the discipline branch's situations and a
+predecessor's still-open rotation (R19).
 
 The third is the loop itself. The PRD's pick rules (a cap of five active workers kept full,
 scoping ahead, asking up when the scope runs dry, a parked bound of three) and its two shadow
@@ -160,11 +157,12 @@ runs the same check, so a capture left over from an earlier visit can't be carri
 `--to` jump. `coord-log.sh directed-since <seq>` lists `directed_transition` events after a
 sequence number. Every check script and every agent-run write script scans the whole run (from
 sequence 0) and refuses when one is found, naming the event, so any directed transition blocks
-every write until the coordinator restarts, which opens a new run. That's detection, not prevention: koto#251 is the defect and the
+every write until the coordinator restarts, which opens a new run. This is the skill's own integrity rule
+for its record and merges while koto#251 lets `--to` skip gates. That's detection, not prevention: koto#251 is the defect and the
 seal is the interim.
 
-Run facts come from the engine too. `start` captures `RUN_START` from the session header's
-`created_at`, and the deferral check reads it as `{{RUN_START}}`. Each `/coordinate` invocation
+Run facts come from the engine too. The run's start is the session header's `created_at`,
+which koto sets once at init; the deferral check reads it through `coord-log.sh run-start`. Each `/coordinate` invocation
 opens a fresh session under a per-run name, `coordinate-<scope-slug>-<UTC stamp>`, after
 cancelling (never cleaning) any live coordinate session for the same scope, so a restart is a
 new run with its own start, a full start and reconcile, and the old run's log stays readable.
@@ -176,7 +174,10 @@ wrapper: it reads land's capture from the session log, checks it against the lat
 `land`, scans the run for directed transitions, re-reads the posture for the merge step, and only
 then calls `skills/execute/scripts/merge-exec.sh` (unchanged) with the verified sha, which merges
 with `gh pr merge --match-head-commit`, so GitHub refuses a head that moved in the seconds after the
-check. No directive names `merge-exec.sh` directly.
+check. No directive names `merge-exec.sh` directly. The wrapper isn't a permission rule of the skill's own: it's the skill
+reading the workspace's denial at the level of the step. A hook that matches the typed command
+never sees a script that calls `gh pr merge` inside itself, so the wrapper asks the posture the
+same question the hook would have answered.
 
 #### Alternatives Considered
 
@@ -335,7 +336,10 @@ unchanged, behind the `land-merge.sh` wrapper, so shirabe keeps one `gh pr merge
 declaration line alone isn't authority, because anyone can open an issue or pull request in a
 public repository: the find accepts a candidate only when its author and its last editor have
 write access to the host repository, and reports any other declared candidate without adopting
-it. That still lets a successor under another login adopt the record. The predecessor's close-out
+it. That still lets a successor under another login adopt the record. This is an authorization read on
+GitHub data, made before adopting a record as the run's truth. It's distinct from the rule that the
+skill never scrutinises who sent it a message: who may message a session stays the harness's and the
+workspace's to decide. The predecessor's close-out
 is split the same way as everything else: `predecessor-handoff.sh` is the read, and every commit,
 ready and merge in the ladder is an agent-run step.
 
@@ -370,7 +374,7 @@ Three reconciliations were made across the decisions:
   which is which.
 - Decision 1 ran the deferral check only before the run's first dispatch; decision 4 ran it before
   every dispatch. Both hold: `dispatch_check` runs before every dispatch and always checks that no
-  record row raised before `RUN_START` is undisposed, but it compares the predecessor's handoff
+  record row raised before the run started is undisposed, but it compares the predecessor's handoff
   only until the session log shows the check passed once in this run, because disposed rows drop
   out of the record at the first rewrite after the first dispatch.
 
@@ -381,7 +385,7 @@ Three reconciliations were made across the decisions:
 ```
 skills/coordinate/
   SKILL.md                         thin contract: flags, open, tick, report, final states
-  requires.tsv                     koto floor, gh, git, jq, date, sha256sum|shasum
+  requires.tsv                     koto floor, gh, git, jq, date, awk, sha256sum or shasum
   koto-templates/
     coordinate.md                  the workflow
     coordinate.mermaid.md          generated companion
@@ -390,38 +394,81 @@ skills/coordinate/
   references/                      loop.md, brief-template.md, verification-checklist.md,
                                    record-template.md (updated, not removed)
   scripts/
-    coordinate-open.sh             args to variables, cancel earlier live run, fresh session
+    coordinate-open.sh             args to variables; host at roadmap scope; cancel earlier
+                                   live run of the scope; fresh per-run session
     coordinate-report.sh           report from the terminal result, closed patterns
-    coord-log.sh                   shared seal helper and log scans
-    coord-verdict.sh               gate helper: token -> exit code, seal checked
-    record-codec.jq                cell encoding, render and parse
-    record-render.sh, record-parse.sh
-    record-find.sh                 check action: find the record, four sections
+    coord-log.sh                   shared seal helper, log scans, run facts, provenance
+    coord-verdict.sh               gate helper: capture -> exit code, seal checked
+    record-codec.jq, record-render.sh, record-parse.sh
+    record-find.sh                 check: find the record, author authority, four sections
     record-open.sh                 agent-run: open exactly one record
     record-write.sh                agent-run: whole-body rewrite, --end, --close
-    record-holding.sh              agent-run: add or update one holding row, by topic
-    record-confirm.sh              check action: the expected change is on GitHub
-    deferral-check.sh              check action: pre-run deferrals disposed
-    pick-facts.sh, report-facts.sh data actions for the deciders, context-gated
+    record-holding.sh              agent-run: add, update or read one holding row by topic
+    record-confirm.sh              check: the change the source step implies is on GitHub
+    start-check.sh                 check: roadmap exists and reads Active
+    posture-read.sh                check: merge, close, teardown -> permit|deny|confirm|unread
+    pick-facts.sh                  check + data: route token, coord/pick.json
+    deferral-check.sh              check: record once, pre-run deferrals disposed, cap
+    report-facts.sh                check + data: holding by topic, scope and branch, report.json
     board-verdict.sh               board read (JSON)
-    board-record.sh                check action: board-verdict.sh -> sealed token
-    land-merge.sh                  agent-run: log capture + posture re-read, then merge-exec.sh
-    land-check.sh                  check action: head re-read against the sealed verify token
-    merge-confirm.sh               check action: merged, default-branch blobs vs verified head
-    quiet-check.sh                 check action: quiet and silent workers from the log
-    predecessor-handoff.sh, closeout-read.sh, rotation-close.sh
-    posture-read.sh                check action: merge/close/teardown -> permit|deny|confirm|unread
-    <each>_test.sh, testdata/      stand-in gh and koto, fixtures
+    board-record.sh                check: board-verdict.sh -> sealed token, board.json
+    land-check.sh                  check: head re-read against the unit's verify capture
+    land-merge.sh                  agent-run: capture from the log, posture, merge-exec.sh
+    merge-confirm.sh               check: merged, default-branch blobs vs the verified head
+    merged-facts.sh                check: a person's merge of a parked pull request
+    quiet-check.sh                 check: quiet and silent workers from the log
+    predecessor-handoff.sh         check: render a predecessor's handoff
+    closeout-read.sh               check: the next close-out stage
+    rotation-close.sh              agent-run: --step handoff|ready|delete-branch
+    <each>_test.sh, testdata/      stand-in gh and koto, fixtures, rule-coverage.tsv
 ```
 
 ### Variables
 
 `SCOPE` (`roadmap` or `discipline`), `ROADMAP` (a `docs/roadmaps/.../ROADMAP-*.md` path, empty at
 discipline scope), `DISCIPLINE` (`^[a-z0-9][a-z0-9-]*$`, empty at roadmap scope), `HOST_REPO`
-(`owner/repo`, rebindable so the human's answer arrives through the opener and the pattern checks
-it), `ROTATION_DAYS` (default 7), `CAP` (default 5), `PARKED_BOUND` (default 3), `PLUGIN_ROOT`.
-Free text after the scope isn't a variable: it reaches the coordinator as its decisions and
-changes no setting the workflow enforces.
+(`owner/repo`), `ROTATION_DAYS` (default 7), `CAP` (default 5), `PARKED_BOUND` (default 3),
+`PLUGIN_ROOT`. None is rebindable, because every invocation opens a fresh session.
+
+The opener sets `HOST_REPO` at roadmap scope from the repository it runs in (the roadmap's own
+repository, per the record's container rule). At discipline scope it takes `--host owner/repo`;
+without one it opens no session and prints one question for the human with a recommendation,
+never defaulting to the repository it runs in. So "ask once" happens before any session exists,
+and the answer comes back as the next invocation's argument, which koto's pattern checks. Free
+text after the scope isn't a variable: it reaches the coordinator as its decisions and changes no
+setting the workflow enforces.
+
+### The check-state contract
+
+Every check state has a default action and no `accepts` block. Its script exits 0 only when it
+reached a definite verdict, printing one line, `<verdict> <args> sealed:<seq>:<sha256>`, which the
+engine captures; it exits non-zero when a read failed, which takes koto's action-failure path (no
+gates evaluated; the fallback says to tick again, and the state re-runs the read). Its gate is one
+`type: command`, `overridable: false` gate running `coord-verdict.sh <state> "{{CAPTURE}}"`, which
+checks the seal and exits with the verdict's code; each code has its own `when` arm, and a verdict
+with no arm (such as "not yet") leaves the state gate-blocked for the coordinator to act and tick
+again. Data a later evidence state or a decider needs goes to a context key as data; a
+`context-exists` gate on that key sits beside the command gate and every arm repeats it, which is
+what the decider-input rule asks for.
+
+Every return to a check state passes through an evidence stop first, so no advance can enter the
+same state twice (koto's "cycle detected").
+
+`coord-log.sh` is the one helper every script uses to read the session:
+
+- `seal <state> <token>` and `check <state> <sealed-token>`: the seal described under Decision 1.
+- `capture <name> [--for <key>]`: the latest engine-written capture of that name, or the latest
+  whose token names `<key>` (a pull request number, for per-unit reads), with the seq it was
+  sealed against checked against that state's entry events.
+- `directed-since <seq>`: `directed_transition` events; write scripts pass 0.
+- `run-facts`: `{scope, name, repo, ref}` from the session's init variables and its latest
+  `RECORD_FIND` capture; exits non-zero when the run has no found record.
+- `run-start`: the header's engine-written `created_at`.
+- `provenance`: exits non-zero unless the header's template hash equals the hash of the template
+  the opener compiled for this plugin root, and `PLUGIN_ROOT` resolves to the directory the
+  calling script lives in.
+- `live-session <scope-slug>`: the one live coordinate session for the scope, so a write script
+  finds its session itself rather than trusting a `--session` pointed at an older run's log.
 
 ### States
 
@@ -429,129 +476,167 @@ Start and record phase:
 
 | State | Kind | Routes |
 |---|---|---|
-| `start` | check: roadmap exists and reads Active on the host's default branch; captures `RUN_START` | ok -> `start_host`; missing or not Active -> `done_not_active` |
-| `start_host` | non-overridable command gate on `{{HOST_REPO}}` | set -> `start_posture`; unset: the directive asks once with a recommendation, never the repository it runs in, and the answer is rebound through the opener |
-| `start_posture` | check: `posture-read.sh` | readable -> `record_find`; unread -> `posture_ask` |
-| `posture_ask` | evidence per finishing step (`held` or `reserved`, default reserved) | -> `record_find` |
-| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed` -> `record_conflict`; `predecessor` -> `predecessor_handoff` |
-| `record_open` | evidence after running `record-open.sh` | -> `record_find` only |
+| `start` | check: `start-check.sh` (roadmap scope: the roadmap on the host's default branch reads Active; discipline scope: always `discipline`) | active, discipline -> `start_posture`; `not-active` -> `done_not_active` |
+| `start_posture` | check: `posture-read.sh`, read-only, never runs a hook | any verdict -> `record_find` (the verdict stays in its capture for land and the close-outs) |
+| `record_find` | check: `record-find.sh` | `found` -> `reconcile`; `none`, `stale-branch`, `unopened` -> `record_open`; `foreign`, `ambiguous`, `malformed`, `unauthorized` -> `record_conflict`; `predecessor` -> `predecessor_handoff` |
+| `record_open` | evidence `opened` after `record-open.sh` | -> `record_find` |
 | `record_conflict` | evidence `recheck` or `stop` | -> `record_find` or `done_stopped` |
-| `predecessor_handoff` | check: `predecessor-handoff.sh` renders the predecessor's handoff | rendered -> `predecessor_close`; unparseable -> `record_conflict` |
-| `predecessor_close` | check: `closeout-read.sh --predecessor` names the next stage; evidence after each agent-run step (`rotation-close.sh`, `land-merge.sh`) | merged and branch deleted -> `record_find`; handed over -> `predecessor_handed_over`; closed unmerged -> `record_conflict` |
+| `predecessor_handoff` | check: `predecessor-handoff.sh` | `rendered` -> `predecessor_close`; `unparseable` -> `record_conflict` |
+| `predecessor_close` | check: `closeout-read.sh --predecessor` | `handoff-missing`, `land` -> `predecessor_step`; `merged` -> `predecessor_done`; `handed-over` -> `predecessor_handed_over`; `closed-unmerged` -> `record_conflict` |
+| `predecessor_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh`, `land-merge.sh --closeout`) or `handed_over` | -> `predecessor_close` |
+| `predecessor_done` | evidence `recheck` after `rotation-close.sh --step delete-branch` | -> `record_find` |
 | `predecessor_handed_over` | evidence `recheck` | -> `record_find` |
-| `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile | -> `pick_facts` |
+| `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile; a command gate over the posture capture | readable -> `pick_facts`; unread -> `posture_ask` |
+| `posture_ask` | evidence per finishing step, `held` or `reserved` (default reserved) | -> `record`, which confirms the Reversals row recording the human's answer |
 
 The turn:
 
 | State | Kind | Routes |
 |---|---|---|
-| `pick_facts` | data: `pick-facts.sh` writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts, scope-complete and rotation-over flags); context-exists gate | pick -> `pick`; scope complete -> `roadmap_close`; rotation over -> `rotation_close` |
-| `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
+| `pick_facts` | check + data: `pick-facts.sh` prints `pick`, `scope-complete` or `rotation-over`; writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts) | `pick` -> `pick`; `scope-complete` -> `roadmap_close`; `rotation-over` -> `rotation_close` |
+| `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider over `coord/pick.json`, `CAP` and `PARKED_BOUND`; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
 | `ask_up` | evidence `sent` | -> `wait` |
-| `dispatch_check` | check: `deferral-check.sh`, which passes `dispatch_topic` through to `dispatch` (record once, four sections, no pre-run deferral undisposed, predecessor handoff until the first pass, cap and parked bound) | ok -> `dispatch`; deferral open -> `deferral_dispose`; record gone or doubled -> `record_find`; at the cap -> `wait` |
+| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait` |
 | `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
-| `dispatch` | entry action repeats `deferral-check.sh` (the far side of a `--to`); evidence `sent` or `failed`, `topic` | sent -> `record` expecting the holding row; failed -> `failure` |
-| `record` | check: `record-confirm.sh` over the sealed expectation | confirmed -> `pick_facts`; `--to` found or unconfirmable -> `record_conflict` |
+| `dispatch` | evidence `sent` or `failed`, `topic`; the dispatch path fills its procedure | sent -> `record`; failed -> `failure` |
+| `record` | check: `record-confirm.sh`, which reads the source state and its evidence from the log and checks the change it implies (below) | confirmed -> `pick_facts`; a `--to` in the run or an unconfirmable change -> `record_conflict` |
 
 The hub and its spokes:
 
 | State | Kind | Routes |
 |---|---|---|
-| `wait` | evidence `event: report, quiet, decision, deferral, merged, retire, end`; optional `unit`; no action, gate or details | each event to its spoke; `end` -> `rotation_close` or `done_stopped` |
-| `report_facts` | data: `report-facts.sh` finds the holding by topic in the record, and refuses a holding whose pull request is outside the scope's repositories or whose head branch differs from the Branch cell and writes `coord/report.json` (plus the `worker_report` key the dispatch path fills); context-exists gate | found -> `classify_report`; unknown topic -> `wait` |
-| `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider | done -> `verify`; blocked -> `surface`; needs_fix -> `rebrief` |
-| `rebrief` | evidence `sent` (the worker gets what was learned, by message); the dispatch path fills it | -> `wait` |
+| `wait` | evidence `event: report, quiet, decision, deferral, merged, retire, end`, optional `unit`; no action, gate or details | report -> `report_facts`; quiet -> `quiet_check`; decision, deferral -> `decision_apply`; merged -> `merged_facts`; retire -> `teardown`; end -> `rotation_close` when `DISCIPLINE` is set, else `done_stopped` |
+| `report_facts` | check + data: `report-facts.sh` finds the holding by topic; refuses a pull request outside the scope's repositories, a cross-repository head, or a head branch that differs from the Branch cell (skipped only while Branch and Pull request are both empty); writes `coord/report.json` | found -> `classify_report`; unknown or refused -> `wait` |
+| `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider over `coord/report.json` | done -> `verify`; blocked -> `surface`; needs_fix -> `rebrief` |
+| `rebrief` | evidence `sent`; the dispatch path fills it | -> `wait` |
 | `verify` | evidence: the prediction (R12) | -> `verify_board` |
-| `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`) | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait`; error -> `record_conflict` |
-| `verified_confirm` | check: `record-confirm.sh`, the holding's Verified head cell equals the sealed verified sha | -> `land` |
-| `land` | check: `land-check.sh` (head re-read, seal, posture) | permitted -> `land_merge`; denied, confirm or unread -> `surface`; moved -> `verify`; `DIRTY` or `--to` -> `record_conflict` |
-| `land_merge` | evidence `attempted` or `failed` after `land-merge.sh` | -> `merge_confirm` or `failure` |
-| `surface` | evidence `surfaced: merge_table` (the merge-order table from `verification-checklist.md`) or `surfaced: blocker` (a blocked worker's report, put to the human once with a recommendation) | merge_table -> `record` expecting the parked row; blocker -> `wait` |
-| `merge_confirm` | check: `merge-confirm.sh` | merged -> `record` expecting the merged change; unconfirmed -> `record` expecting a side-effect row |
-| `teardown` | evidence `done` or `kept`, from the hub's `retire` event; guidance is the prose inventory rules; the dispatch path adds its inventory gate here | -> `record` |
+| `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`); writes `coord/board.json` | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait` |
+| `verified_confirm` | check: `record-confirm.sh --verified`, the holding's Verified head equals the unit's verify capture; blocks until the coordinator writes it, so it is where the verify report is written | confirmed -> `land` |
+| `land` | check: `land-check.sh` (the unit's verify capture, head re-read, posture) | `permit` -> `land_merge`; `deny`, `confirm` -> `surface`; `moved` -> `verify`; `dirty` -> `failure` |
+| `land_merge` | evidence `attempted` or `failed` after `land-merge.sh` | attempted -> `merge_confirm`; failed -> `failure` |
+| `merge_confirm` | check: `merge-confirm.sh` | merged, unconfirmed -> `record` |
+| `merged_facts` | check: `merged-facts.sh`, for a pull request a person merged after a hand-over: the unit's own verify capture from the log, the pull request's state and the default branch's blobs | merged, unconfirmed -> `record`; not merged -> `wait` |
+| `surface` | evidence `surfaced: merge_table` or `surfaced: blocker` | merge_table -> `record`; blocker -> `wait` |
+| `teardown` | evidence `done` or `kept`; prose inventory rules; the dispatch path extends it | -> `record` |
 | `quiet_check` | check: `quiet-check.sh` sweeps every holding; silent counts come from the log | nothing -> `wait`; first silence -> `status_message`; second -> `failure` |
 | `status_message` | evidence `sent` | -> `wait` |
-| `failure` | evidence `redispatch` or `escalate`; never tears down | -> `dispatch_check` or `wait` |
+| `failure` | evidence `redispatch` or `escalate`; never tears down | redispatch -> `dispatch_check`; escalate -> `wait` |
 | `decision_apply` | evidence `reversal`, `deferral` or `none` | reversal, deferral -> `record`; none -> `pick_facts` |
 
-Close-outs and terminals: `roadmap_close` and `rotation_close` route on `closeout-read.sh`'s stage
-(handoff missing, title stale, land, merged, closed unmerged; or ready, features open, holdings,
-side effects, deferrals, closed) and end in `done`, `done_handed_over`, `done_stopped`,
-`done_not_active` or `done_error`, each with a `result:` map `coordinate-report.sh` renders.
+What `record-confirm.sh` checks, by the state the run came from: after `dispatch`, a Holdings row for
+the dispatched topic; after `surface: merge_table`, the unit's row with its verified head; after
+`merge_confirm` or `merged_facts` reading merged, no Holdings row for the unit, and reading
+unconfirmed, a Side effects row for its pull request with the verified head; after `teardown`, no
+Holdings row for the topic when `done`; after `decision_apply` or `posture_ask`, a Reversals or
+Deferrals row added since the event. Every case also needs a `Written:` time later than the event.
 
-Posture is named only in `start*`, `land*`, `surface`, `teardown` and the close-outs. Reference
-pointers: `references/loop.md` from `reconcile`, `pick`, `quiet_check`, `failure`,
-`decision_apply`; `references/brief-template.md` from `dispatch` and `failure`;
-`references/verification-checklist.md` from `verify` through `merge_confirm`;
+Close-outs:
+
+| State | Kind | Routes |
+|---|---|---|
+| `roadmap_close` | check: `closeout-read.sh --scope roadmap` | `ready` -> `roadmap_close_step`; `features-open`, `holdings`, `side-effects`, `deferrals` -> `roadmap_blocked`; `closed` -> `done` |
+| `roadmap_blocked` | evidence `noted` (the blocker is named in the directive) | -> `wait` |
+| `roadmap_close_step` | evidence `closed` after `record-write.sh --close`, or `handed_over` | closed -> `roadmap_close`; handed_over -> `done_handed_over` |
+| `rotation_close` | check: `closeout-read.sh --scope discipline` | `handoff-missing`, `title-stale`, `land` -> `rotation_step`; `merged` -> `rotation_done`; `handed-over` -> `done_handed_over`; `closed-unmerged` -> `record_conflict` |
+| `rotation_step` | evidence `done` after the stage's agent-run step, or `handed_over` | -> `rotation_close` |
+| `rotation_done` | evidence `deleted` after `rotation-close.sh --step delete-branch` | -> `done` |
+
+Terminals: `done`, `done_handed_over`, `done_stopped`, `done_not_active` and `done_error`, each with
+a `result:` map `coordinate-report.sh` renders.
+
+Posture is named only in `start_posture`, `reconcile`, `posture_ask`, `land*`, `surface`,
+`teardown` and the close-outs. When the posture was unreadable, `land-check.sh` treats a step the
+human said the coordinator holds as `permit` only when the Reversals row recording that answer is
+on GitHub, and as `confirm` otherwise.
+
+Reference pointers: `references/loop.md` from `reconcile`, `pick`, `quiet_check`, `failure` and
+`decision_apply`; `references/brief-template.md` from `dispatch`, `rebrief` and `failure`;
+`references/verification-checklist.md` from `verify` through `merged_facts`;
 `references/record-template.md` from every record and close-out state.
 
 ### Seams for the dispatch path and reconcile
 
 The dispatch path fills `dispatch`, `wait` and `rebrief`, adds its leg-reading and report-taking
-states beside `report_facts`, writes the `worker_report` key `classify_report`'s decider reads, and
-extends `teardown` with its sealed inventory (through `coord-log.sh`) and the states after it.
-This feature owns `classify_report` and the prose `teardown`; the dispatch path extends both and
-duplicates neither. `pick` writes `dispatch_topic` on its edge to `dispatch_check`, which passes
-it through to `dispatch`. It routes back into `pick`, `verify`, `record` and `surface`, which
-keep these names. Reconcile hardens `reconcile` and reuses `coord-log.sh`. Every holding row
-changes only through `record-holding.sh`:
+states beside `report_facts`, writes the `worker_report` key (which it adds as a second input to
+`classify_report`'s decider, gated where it's written), and extends `teardown` with its sealed
+inventory (through `coord-log.sh`) and the states after it. This feature owns `classify_report` and
+the prose `teardown`; the dispatch path extends both and duplicates neither. `pick` writes
+`dispatch_topic` on its edge to `dispatch_check`, which passes it through to `dispatch`. Reconcile
+hardens `reconcile` and reuses `coord-log.sh`. Every holding row changes only through
+`record-holding.sh`:
 
 ```
-record-holding.sh --scope roadmap|discipline --name <name> --repo <owner/repo> --ref <n>
-                  --topic <dispatch-topic> --row-file <json> [--session <name>]
+record-holding.sh --session <s> --topic <dispatch-topic> --row-file <json>
+record-holding.sh --session <s> --topic <dispatch-topic> --read
 ```
 
-It reads the live body, parses it, replaces the row whose Worker equals `--topic` or appends one,
-renders, self-checks and writes the whole body. The row file holds the Holdings keys
-(`unit, entry_point, mode, phase, dispatch_status, return_path, worker, repo, branch, verified_head, dispatched,
-pull_request`); its `worker` must equal `--topic`. Exit codes: 0 written (prints the record URL),
-10 refused because the target isn't an open record or a `--to` is in the log, 11 the write
-failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer (the reason on stderr).
+The session gives it the scope, name, repository and record number (`coord-log.sh run-facts`); the
+explicit `--scope --name --repo --ref` flags exist for tests only. The write reads the live body,
+parses it, replaces the row whose Worker equals `--topic` or appends one, drops deferrals already
+filed or closed when the log shows a dispatch in this run, renders, self-checks and writes the
+whole body. The row file holds the Holdings keys (`unit, entry_point, mode, phase,
+dispatch_status, return_path, worker, repo, branch, verified_head, dispatched, pull_request`); its
+`worker` must equal `--topic`. `--read` prints the row as one compact JSON object. Exit codes: 0
+written or printed, 1 no row for the topic (`--read` only), 10 refused because the target isn't an
+open record, the session fails `coord-log.sh provenance`, or the run log shows a directed
+transition, 11 the write failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer
+(the reason on stderr).
 
 ### Record format
 
 Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, Repo, Branch,
-Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side effects in
-flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date, Reversed, Now,
-Reason, From. Phase is `scoping-ahead` or `executing`; Dispatch status is `dispatching`,
-`dispatched` or `dispatch-failed`; Return path is `message` or
-`leg <request-id>:<leg>`; Raised, Attempted and a carry-forward's time are `YYYY-MM-DDTHH:MMZ`;
-Disposition is empty, `filed #<n>`, `closed: <text>` or `carried <time>: <text>`.
+Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side
+effects in flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date,
+Reversed, Now, Reason, From. Phase is `scoping-ahead` or `executing`; Dispatch status is
+`dispatching`, `dispatched` or `dispatch-failed`; Return path is `message` or
+`leg <request-id>:<leg>`; Branch is empty until known; Raised, Attempted and a carry-forward's
+time are `YYYY-MM-DDTHH:MMZ`; Disposition is empty, `filed #<n>`, `closed: <text>` or
+`carried <time>: <text>`. A discipline rotation's handoff is committed to
+`docs/disciplines/<name>.md` on the host's default branch, which is where the next rotation's
+deferral check reads it.
 
 ### Data flow of one report
 
 A worker messages that its pull request is ready. The coordinator ticks `wait` with
-`event: report, unit: <topic>`. `report_facts` finds the topic's holding in the record and writes
-`coord/report.json`; `classify_report` takes the coordinator's classification (the shadow decider
-records its own; `blocked` goes to `surface`, `needs_fix` to `rebrief`); `verify` takes the prediction; `verify_board` reads the board and captures
+`event: report, unit: <topic>`. `report_facts` finds the topic's holding in the record, checks its
+repository and branch, and writes `coord/report.json`; `classify_report` takes the coordinator's
+classification (the shadow decider records its own; `blocked` goes to `surface`, `needs_fix` to
+`rebrief`); `verify` takes the prediction; `verify_board` reads the board and captures
 `verified <pr> <sha> sealed:...`; the coordinator writes that sha into the holding with
 `record-holding.sh`; `verified_confirm` sees it on GitHub; `land` re-reads the head and routes by
-the posture; `land_merge` or `surface` runs; `merge_confirm` or `record` confirms the outcome on
+the posture; `land_merge` runs `land-merge.sh`, or `surface` hands the merge-order table over;
+`merge_confirm` (or, after a person merges, `merged_facts`) and `record` confirm the outcome on
 GitHub; `pick_facts` and `pick` refill the freed slot.
 
 ## Implementation Approach
 
-1. **Record codec.** `record-codec.jq`, `record-render.sh`, `record-parse.sh` and their tests: the
-   round trip, the refusals, the handoff format. Update `references/record-template.md` to the
-   new columns.
-2. **Log and verdict helpers.** `coord-log.sh` (seal, check, directed-since, latest entry,
-   silent counts) and `coord-verdict.sh`, tested against real koto sessions built in a temporary
-   directory.
-3. **Record find, open, write, holding, confirm.** `record-find.sh` (both scopes, every discipline
-   outcome), `record-open.sh`, `record-write.sh`, `record-holding.sh`, `record-confirm.sh`, with a
-   stand-in `gh` that serves 150 open issues and fails any search path.
-4. **Board, land, merge confirm.** `board-verdict.sh`, `board-record.sh`, `land-check.sh`,
-   `merge-confirm.sh`, one fixture per PRD board criterion.
-5. **Deferrals, posture, quiet, facts.** `deferral-check.sh`, `posture-read.sh`, `quiet-check.sh`,
-   `pick-facts.sh`, `report-facts.sh`.
-6. **Close-outs.** `predecessor-handoff.sh`, `closeout-read.sh`, `rotation-close.sh`.
+The order follows dependency: the codec and the log helper are read by everything else, the
+template skeleton proves the koto behaviour the rest relies on before any check is built on it,
+and the template's full states come last because they name every script.
+
+1. **Codec and CI.** `record-codec.jq`, `record-render.sh`, `record-parse.sh` and tests (the round
+   trip, the refusals, the handoff format); `references/record-template.md` updated to the new
+   columns; a `check-coordinate-scripts.yml` workflow that runs every `_test.sh` from the start.
+2. **Log helper and a skeleton template.** `coord-log.sh` and `coord-verdict.sh`, tested against a
+   three-state skeleton template driven by real koto: a capture delivered to the same state's gate
+   in one advance, seal sequence numbers, a blocked stop on an unrouted verdict, the
+   `directed_transition` event a `--to` writes, and the provenance check.
+3. **Record find, open, write, holding, confirm; start and posture.** `record-find.sh` (both scopes,
+   every discipline outcome, the author-authority read failing closed), `record-open.sh`,
+   `record-write.sh`, `record-holding.sh`, `record-confirm.sh`, `start-check.sh`, `posture-read.sh`,
+   with a stand-in `gh` that serves 150 open issues and fails any search path.
+4. **Board, land and merges.** `board-verdict.sh`, `board-record.sh`, `land-check.sh`,
+   `land-merge.sh`, `merge-confirm.sh`, `merged-facts.sh`, one fixture per PRD board criterion.
+5. **Close-outs.** `predecessor-handoff.sh`, `closeout-read.sh`, `rotation-close.sh`.
+6. **Turn and spokes.** `deferral-check.sh` (after the handoff reader it compares against),
+   `pick-facts.sh`, `report-facts.sh`, `quiet-check.sh`.
 7. **Template and skill.** `coordinate.md` and its mermaid companion, decider fixtures and
    declaration rows, `coordinate-open.sh`, `coordinate-report.sh`, the thin `SKILL.md`, the
-   reference updates (the cap in the bounds, the start-where-you-work invariant in
-   `brief-template.md`), the rule-coverage fixture, and structure and engine tests.
-8. **Packaging.** `requires.tsv`, a `check-coordinate-scripts.yml` workflow, the entry-floor
-   workflow's lists, the retention adopters row, evals (the nine kept and tightened per
-   shirabe#403, plus the new scenarios).
+   reference updates (the cap in the bounds; the invariant that a koto session binds to the
+   directory it starts in, so a worker starts it where it will work, in `brief-template.md`), the
+   rule-coverage fixture, a hygiene test over added files, and structure and engine tests.
+8. **Packaging.** `requires.tsv`, the entry-floor workflow's lists, the retention adopters row, and
+   the evals (the nine kept and tightened per shirabe#403, plus the new scenarios).
 
 ## Security Considerations
 
@@ -600,11 +685,31 @@ No script prints a credential: scripts don't trace or echo the environment, and 
 capped and scrubbed of token patterns. koto context holds private repository names and worker text, so whoever can read
 the session's context store can read those.
 
+**Where the session came from.** Every write script trusts the session log it reads, so it first
+checks the session's provenance through `coord-log.sh provenance`: the header's template hash must
+equal the template the opener compiled for this plugin root, and `PLUGIN_ROOT` must resolve to the
+scripts' own directory. It finds the live session for the scope itself rather than trusting a
+`--session` pointing at an older run's log. A session started from an edited copy of the template,
+or pointed at stand-in scripts, is refused by every write. Scripts call their siblings from their
+own directory, never from `PATH`.
+
+**Fork heads and failed reads fail closed.** `report-facts.sh` refuses a pull request whose head
+is in another repository, and `record-find.sh` does the same for a discipline record. When the
+write-access read for a record candidate fails, the candidate isn't adopted. A `filed #<n>`
+disposition must name an issue that exists in the host repository, and a record body over
+GitHub's size limit is refused before parsing. A change under `.github/workflows/` or
+`.github/actions/` is a fixed reason code, `workflows-changed`, in the verify report and again at
+`land`.
+
 **Residual.** The board check proves a board ran at the head, not that it tested the right thing: a pull request's own
 workflow files decide its jobs. Required checks are matched on their integration when protection names one, and a pull
 request that changes workflow files is named in the verify report, but a required check matched by name alone can be
 satisfied by any job with that name. Holding a pull request that changes workflows for a person would be a permission
-rule of the skill's own, which it doesn't carry; the workspace's posture and branch protection decide it. The coordinator's `gh` credentials are usually broader than the run needs; a
+rule of the skill's own, which it doesn't carry; the workspace's posture and branch protection decide it. `--match-head-commit` pins the pull request's head, not the merged tree: when the base moved and
+branch protection doesn't require branches to be up to date, the tree that merges is one CI never
+saw. With an unreadable posture, an unattended merge rests on the coordinator's relay of the
+human's answer, recorded in Reversals. The coordinator's `gh` credentials are usually broader than
+the run needs; a
 fine-grained token limited to the host and unit repositories narrows what a mistaken or misled merge can reach.
 
 ## Consequences
