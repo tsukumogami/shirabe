@@ -99,6 +99,9 @@ mktempdir() {
 #   finalize-release.yml)
 #       Release automation. Runs only on ubuntu runners, from a workflow,
 #       against a checkout it mutates. Not shipped to adopters.
+#   scripts/release-workflow-inputs_test.sh (check-release-workflows.yml)
+#       Runs the step scripts of release.yml and finalize-release.yml, which
+#       only ever run under an ubuntu runner's bash, so it runs them there.
 #   scripts/check-evals-exist.sh, scripts/check-no-duplicate-rule-list.sh,
 #   scripts/check-no-fixture-design-leak.sh, scripts/check-sentinel.sh,
 #   scripts/check-macos-floor-legs.sh, scripts/check-macos-floor-legs_test.sh
@@ -211,6 +214,9 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/record-changed-paths_test.sh"
+            # Its script cases need only jq, git and a stubbed gh, so they run
+            # on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/check-staleness_test.sh"
             # The --koto-leg entry: its own refusals run on a koto stub, so they
             # execute on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/work-on-open_test.sh"
@@ -242,6 +248,8 @@ suite_scripts() {
             echo "scripts/check-template-interpolation.sh"
             echo "scripts/check-template-directives_test.sh"
             echo "scripts/check-template-directives.sh"
+            echo "scripts/check-directive-invocations_test.sh"
+            echo "scripts/check-directive-invocations.sh"
             echo "scripts/check-init-site-vars_test.sh"
             echo "scripts/check-init-site-vars.sh"
             # Read the templates' front matter with yq, which the floor image

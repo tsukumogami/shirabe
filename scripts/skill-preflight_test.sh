@@ -940,12 +940,12 @@ else
     # The shape is asserted before the behaviour. A fixture whose line had
     # drifted from the twenty-one shipped ones would still be a live injection, and
     # it would stop being evidence about them.
-    if [ "$UNSAT_CMD" = 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-unsat 2>&1 || true' ]; then
+    if [ "$UNSAT_CMD" = '${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-unsat 2>&1 || true' ]; then
         pass "the unsatisfiable fixture carries the canonical injected line"
     else
         fail "the unsatisfiable fixture's injected line has drifted: $UNSAT_CMD"
     fi
-    if [ "$SAT_CMD" = 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-sat 2>&1 || true' ]; then
+    if [ "$SAT_CMD" = '${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-sat 2>&1 || true' ]; then
         pass "the satisfied fixture carries the canonical injected line"
     else
         fail "the satisfied fixture's injected line has drifted: $SAT_CMD"

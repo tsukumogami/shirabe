@@ -16,10 +16,10 @@ description: >-
   for one named either-or choice (`/decision`), for requirements (`/prd`), or
   for a question with no options on the table yet (`/explore`).
 argument-hint: '<PRD path or topic>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh design 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh design 2>&1 || true`
 
 @.claude/shirabe-extensions/design.md
 @.claude/shirabe-extensions/design.local.md

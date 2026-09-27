@@ -15,10 +15,10 @@ description: >-
   boundary in the first place (`/brief`), to choose the technical approach
   (`/design`), or to investigate an open question (`/explore`).
 argument-hint: '<topic or feature name>'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh prd 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh prd 2>&1 || true`
 
 @.claude/shirabe-extensions/prd.md
 @.claude/shirabe-extensions/prd.local.md

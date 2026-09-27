@@ -28,7 +28,7 @@ standard.
    read-only and needs no session:
 
    ```bash
-   bash skills/coordinate/scripts/board-verdict.sh --repo <owner/repo> --pr <n>
+   ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/board-verdict.sh --repo <owner/repo> --pr <n>
    ```
 
    It judges the head the pull request is at, and prints one JSON verdict

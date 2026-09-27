@@ -15,10 +15,10 @@ description: >-
   the documents for one feature (`/scope`), or a PLAN that already exists
   (`/execute`).
 argument-hint: '<roadmap-path> | --discipline <name> --host <owner/repo> [--cap N] [--parked-bound N] [--rotation-days N] [-- decisions...]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh coordinate 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh coordinate 2>&1 || true`
 
 # Coordinate
 
@@ -73,7 +73,7 @@ work.
    of strings, into a private directory outside the work tree:
 
    ```bash
-   ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+   ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
    ```
 
    Write `$ARGS_DIR/args.json` with the Write tool or `jq`, never by pasting
@@ -82,7 +82,7 @@ work.
 2. **Open the session.**
 
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} "$ARGS_DIR/args.json"
+   ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} "$ARGS_DIR/args.json"
    ```
 
    Every invocation is a new run named `coordinate-<scope>-<UTC stamp>`, printed
@@ -106,7 +106,7 @@ work.
    lines, verbatim:
 
    ```bash
-   koto status <session> | bash ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-report.sh --session <session>
+   koto status <session> | ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-report.sh --session <session>
    ```
 
 If you lose a directive, `koto status <session>` returns it without ticking.

@@ -52,7 +52,7 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@49b2d262f54c6c06f3f1936e344c85a9bba4ab57  # installs tsuku 0.14.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
@@ -142,6 +142,16 @@ jobs:
       - name: Run changed-paths record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
+
+      # check-staleness_test.sh runs the ported staleness check against a
+      # stubbed gh and a throwaway repository, which needs only jq and git. Its
+      # gate cases run the staleness_check gate command extracted from the
+      # template; its engine cases drive the state through koto, which this leg
+      # installs. The macOS leg runs it through the floor runner below, where
+      # it is in the work-on suite and the engine cases skip.
+      - name: Run staleness check tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/check-staleness_test.sh
 
       # work-on-open_test.sh checks the --koto-leg entry's own refusals against
       # a koto stub (both legs), then opens real requests, binds runs of the

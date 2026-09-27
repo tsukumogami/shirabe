@@ -110,8 +110,8 @@ assert_accepts "guarded '|| echo' with both halves declared is accepted"
 # The shape twenty skills are about to carry. It must be accepted, including
 # its `2>&1`, or the check blocks the rollout it was written to protect.
 make_fixture rollout-canonical \
-  'Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)' \
-  '!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh rollout-canonical 2>&1 || true`'
+  'Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)' \
+  '!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh rollout-canonical 2>&1 || true`'
 assert_accepts "canonical rollout line with '2>&1 || true' is accepted"
 
 # --- Case 4 (NEGATIVE FIXTURE 1): the guardless render line ----------------

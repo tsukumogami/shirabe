@@ -13,10 +13,10 @@ description: >-
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
 argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--koto-leg=<request-id>:work-on]'
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
-!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on 2>&1 || true`
+!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on 2>&1 || true`
 
 @.claude/shirabe-extensions/work-on.md
 @.claude/shirabe-extensions/work-on.local.md
@@ -233,7 +233,7 @@ below applies and the run is unchanged.
 1. **Check the floor.** The flag needs koto's entry flags, which a koto older than
    the one `requires.tsv` names lacks:
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on --mode koto-leg 2>&1 || true
+   ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on --mode koto-leg 2>&1 || true
    ```
    Anything it prints is a missing prerequisite: report it and stop.
 2. **Apply the Resume guard first.** A finished `<WF>` must be cleaned up or the run
@@ -242,11 +242,11 @@ below applies and the run is unchanged.
    tokens as typed and write them as a JSON array of strings, with the Write tool
    or `jq`, into a private directory outside the work tree:
    ```bash
-   ARGS_DIR=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+   ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
    ```
 4. **Open.**
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
+   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
      --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
    Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. The script adds
@@ -324,7 +324,7 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   koto's `parent_workflow`. The discriminator for any `/work-on` behaviour that
   must differ between a directly-invoked run and one materialized as a child of
   `/execute`; its one caller today is the retention rule below. Call it as
-  `bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
+  `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
   **treat any answer that is not exactly `root` as `child`** — that is what
   makes its fail-safe hold. The script's header covers calling it from a
   `work-on.md` state directive, where `{{SESSION_NAME}}` supplies the name.
@@ -350,7 +350,7 @@ Before the first tick, resolve this session's role once and keep it for the
 whole run:
 
 ```bash
-ROLE=$(bash ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>)
+ROLE=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>)
 ```
 
 Repeat:
