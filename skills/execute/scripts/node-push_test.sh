@@ -81,6 +81,9 @@ fresh_repo() {
     ct_plan "$REPO" "${2:-}"
     (cd "$REPO" && git add docs && git commit -q -m "docs: plan")
     WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" 2>/dev/null | sed -n 's/^worktree=//p')
+    # An empty WT would leave every `cd "$WT"` below in the checkout running
+    # the test, and commit fixture files there.
+    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no worktree for case $1" >&2; exit 1; }
     (cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
 }
 

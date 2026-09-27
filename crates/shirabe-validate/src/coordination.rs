@@ -558,9 +558,10 @@ fn parse_merge_order_block(body: &str) -> Option<Vec<String>> {
 
 /// Check that a merge-order node list is a valid acyclic order.
 ///
-/// The authored block lists nodes in their intended merge order; the contract's
-/// two-node DAG carries no inline back-edges, so "acyclic" reduces to "each node
-/// appears at most once." A repeated node id is the signature of a cycle (a node
+/// The rendered block lists nodes in their merge order, each line naming its
+/// predecessors in an `after:` list. Those lists come from the PLAN's graph,
+/// which `/plan` already validated acyclic, and aren't re-checked here, so
+/// "acyclic" reduces to "each node appears at most once." A repeated node id is the signature of a cycle (a node
 /// ordered both before and after itself), so it is rejected. Returns `Ok(())`
 /// for a clean order, or `Err` naming the first duplicate.
 pub fn is_acyclic_order(nodes: &[String]) -> Result<(), String> {
