@@ -467,7 +467,8 @@ a child-state gate, while `/scope` stays a plain call gated on durable files.
 Rejected: the asymmetry costs more than it looks. `/scope`'s stop outcomes
 would still arrive as agent evidence, and there'd be two observation
 mechanisms to document. `/execute` would lose "always a
-root" and need role-routed retention until tsukumogami/koto#240 lands. A parent linking
+root" and need role-routed retention until tsukumogami/koto#240 lands (since
+shipped in koto 0.14.0). A parent linking
 by name still leaks stale children. And an interrupted direct `/execute` run
 couldn't be adopted, so it would end as a new `deliver:child-detached` error.
 Its durable re-checks (`scoped_check` with the recorded-intent check,

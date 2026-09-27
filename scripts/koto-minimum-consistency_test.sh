@@ -16,8 +16,8 @@
 #   the matcher fires on a planted disagreement and passes a planted agreement
 #     (the control, so a green run is not a matcher that matches nothing)
 #   no statement of the form "koto <version> or later", "requires/needs koto
-#     <version>", or "koto minimum <version>" in the scanned files names a
-#     different version
+#     <version>", "koto minimum <version>", "koto <version>, the floor", or
+#     "the v<version> floor" in the scanned files names a different version
 #   no workflow installs a literal koto release; the one that installs the
 #     minimum reads it from assert-koto-floor.sh with the same sed as
 #     check-koto-release.sh
@@ -71,7 +71,7 @@ statements() {
     sed -e 's/^[[:space:]]*\(#\{1,\}\|\/\/\|>\)\{0,1\}[[:space:]]*//' "$1" \
         | tr '\n' ' ' \
         | tr -s ' ' \
-        | grep -oiE "(koto( minimum( is)?)? v?[0-9]+\.[0-9]+\.[0-9]+ or later|(requires?|needs?) koto v?[0-9]+\.[0-9]+\.[0-9]+|koto minimum( is)? v?[0-9]+\.[0-9]+\.[0-9]+)" \
+        | grep -oiE "(koto( minimum( is)?)? v?[0-9]+\.[0-9]+\.[0-9]+ or later|(requires?|needs?) koto v?[0-9]+\.[0-9]+\.[0-9]+|koto minimum( is)? v?[0-9]+\.[0-9]+\.[0-9]+|koto v?[0-9]+\.[0-9]+\.[0-9]+, the floor|v[0-9]+\.[0-9]+\.[0-9]+ floor)" \
         | while IFS= read -r m; do
             v=$(printf '%s' "$m" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
             printf '%s\t%s\n' "$v" "$m"
@@ -86,11 +86,17 @@ mismatches() {
 # --- the control ----------------------------------------------------------------
 
 printf '# /work-on requires koto\n# 0.12.2 or later.\n' >"$T/bad.md"
+printf '      koto 0.12.2, the floor for runs\n# keeps the v0.12.2 floor for every run\n' >"$T/bad-floor.md"
 printf 'Every skill needs koto v%s, and\nkoto %s or later is tested.\n' "$MINIMUM" "$MINIMUM" >"$T/good.md"
 if [ -n "$(mismatches "$T/bad.md")" ]; then
     pass "the matcher flags a wrapped, commented statement of another version (control)"
 else
     fail "the matcher missed a planted disagreement -- a green run below would prove nothing"
+fi
+if [ "$(mismatches "$T/bad-floor.md" | wc -l | tr -d ' ')" = 2 ]; then
+    pass "the matcher flags both 'the floor' phrasings of another version (control)"
+else
+    fail "the matcher missed a 'the floor' phrasing: $(statements "$T/bad-floor.md" | tr '\n' ';')"
 fi
 if [ "$(statements "$T/good.md" | wc -l | tr -d ' ')" = 2 ] && [ -z "$(mismatches "$T/good.md")" ]; then
     pass "the matcher reads both planted statements of the minimum and accepts them (control)"
@@ -127,6 +133,8 @@ SCANNED=0
 BAD=""
 for f in $FILES; do
     [ -f "$REPO/$f" ] || continue
+    # This file plants other versions as its controls.
+    [ "$f" = scripts/koto-minimum-consistency_test.sh ] && continue
     SCANNED=$((SCANNED + 1))
     m=$(mismatches "$REPO/$f")
     [ -n "$m" ] && BAD="$BAD

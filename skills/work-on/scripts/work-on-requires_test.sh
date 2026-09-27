@@ -3,8 +3,8 @@
 # --koto-leg, as preflight reports it.
 # Part of the work-on skill
 #
-# skills/work-on/requires.tsv keeps the v0.12.2 floor for every run without
-# --koto-leg, and declares the koto init entry flags the flag needs
+# skills/work-on/requires.tsv declares no koto init entry flag for a run
+# without --koto-leg, and declares the entry flags the flag needs
 # (--vars-file, --attach-live, --koto-leg) in a `mode:koto-leg` record. Against
 # a stand-in koto whose `init --help` predates those flags, this asserts:
 #

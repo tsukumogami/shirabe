@@ -27,7 +27,7 @@
 #                   session_role ci_monitor routes the cascade on
 #   status          the Resume step reads is_terminal from it BEFORE ticking, so
 #                   a retained finished session is recognised without the tick
-#                   that would both report it done and destroy its context
+#                   that would report it done
 #   session cleanup the Resume step's recovery once that record has been read
 #   rewind          step back after a failed gate, no flag
 #   context add     --from-file for the file-backed keys (context.md,

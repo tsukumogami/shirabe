@@ -1,6 +1,6 @@
 ---
 # Terminal-tick retention (#360). Every `koto next` a /work-on run makes
-# carries --no-cleanup, whether the run is a root or a child /execute
+# carries --no-cleanup, whether the run is a root or a child that /execute
 # materialized from this template: on a child the flag only keeps the session,
 # and its result still reaches the parent. The rule lives in ../SKILL.md's
 # Execution Loop, and the command lines in the phase files carry the flag.
@@ -83,8 +83,7 @@ variables:
 
       Rebindable, as in execute.md: a plugin update moves the path, and a
       resume under --koto-leg attaches through `koto init --attach-live`, which
-      refuses a changed non-rebind variable. koto 0.12.2, the floor for runs
-      without that flag, ignores the key; the template behaves the same there.
+      refuses a changed non-rebind variable.
     required: true
     rebind: true
 
@@ -312,8 +311,8 @@ states:
 
   plan_validation:
     # verdict is decider-eligible. The decider block lives inside the field,
-    # where koto v0.12.2 drops it unread, so a user without a decider sees this
-    # state exactly as before. `proceed` is shadow and `exit` is never: exit
+    # and a user without a decider sees this state exactly as before. `proceed`
+    # is shadow and `exit` is never: exit
     # routes to the validation_exit terminal, which no answer may take on a
     # model's word. Golden fixtures sit beside this template as
     # work-on.plan_validation.verdict.decider.jsonl, and
@@ -480,7 +479,7 @@ states:
     #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
-    # variable carries the session's name. koto 0.12.2 substitutes it inside a
+    # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}"'

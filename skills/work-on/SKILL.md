@@ -358,7 +358,7 @@ Repeat:
 
 **Retention: every `koto next` in this workflow carries `--no-cleanup` — every
 tick of the loop above, the entry-evidence tick, and the Resume tick below —
-whether this run is a root or a child `/execute` materialized from
+whether this run is a root or a child that `/execute` materialized from
 `work-on.md`.** Without it, the tick that reaches a success terminal disposes of
 the session and takes `plan.md` and the run's other context keys with it. koto
 keeps a session that reaches a failure terminal either way, and on a child the flag only keeps the session: the child's result still
