@@ -74,7 +74,10 @@
 #
 # The probe only ever appends `--help`, and it never runs a declared
 # subcommand: the path to `koto context add` is verified by reading what
-# `koto context --help` advertises, not by running `add`.
+# `koto context --help` advertises, not by running `add`. The one other call
+# made through the same bounds is `koto version`, which
+# scripts/lib/preflight-minimum.sh reads to compare against shirabe's koto
+# minimum; it goes through preflight_probe_run below, never a bare invocation.
 #
 # bash 3.2 floor throughout: no `declare -A` (hence PROBE_KEYS/PROBE_DATA
 # below), no namerefs, no mapfile, no `${var^^}`, no `[[ -v ]]`.
@@ -285,6 +288,16 @@ preflight_probe_once() {
 # outcome, not an error, because the caller's job is to say nothing about a
 # surface it could not read.
 preflight_probe_capture() {
+    preflight_probe_run "$@" --help
+}
+
+# preflight_probe_run <path> [<arg>...]
+#
+# The bounded call itself: `<path> [<arg>...]` exactly as given, with stdin
+# closed, stderr discarded, the wall-clock budget and the output cap. Sets the
+# same two outputs as preflight_probe_capture, which is this with `--help`
+# appended. Its only other caller is the koto minimum check's `koto version`.
+preflight_probe_run() {
     local path="$1"
     shift
     local cap=$(( PREFLIGHT_PROBE_CAP + 1 ))
@@ -310,7 +323,7 @@ preflight_probe_capture() {
             # capture pipe open. It is turned back off immediately: nothing
             # else in this group wants it.
             set -m
-            "$path" "$@" --help </dev/null 2>/dev/null &
+            "$path" "$@" </dev/null 2>/dev/null &
             _preflight_probe_pid=$!
             set +m
 

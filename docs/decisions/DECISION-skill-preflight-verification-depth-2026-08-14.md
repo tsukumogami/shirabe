@@ -34,7 +34,10 @@ rationale: |
 
 ## Status
 
-Accepted
+Accepted. The clause that the check never parses or compares a version is
+superseded for koto only by
+`DECISION-preflight-koto-minimum-2026-09-27.md`, which checks koto against
+shirabe's koto minimum at load. Everything else here stands.
 
 ## Context
 

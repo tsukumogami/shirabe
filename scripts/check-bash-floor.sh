@@ -236,6 +236,7 @@ suite_scripts() {
             echo "scripts/skill-preflight_test.sh"
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
+            echo "scripts/lib/preflight-minimum_test.sh"
             echo "scripts/check-skill-requires_test.sh"
             # The scan on its own, against the committed tree: the verdict the
             # macOS leg reports, not only a case inside the harness above.

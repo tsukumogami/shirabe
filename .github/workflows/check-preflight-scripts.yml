@@ -151,11 +151,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/lib/preflight-report_test.sh
 
+      - name: The koto minimum at load (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/preflight-minimum_test.sh
+
       - name: Declaration conformance (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/check-skill-requires_test.sh
 
-      # The four harnesses above and the scan below, plus the injection and
+      # The five harnesses above and the scan below, plus the injection and
       # discard checks' harnesses: the `preflight` suite in
       # scripts/check-bash-floor.sh.
       - name: Preflight suite on the bash 3.2 floor (macOS, system bash)
