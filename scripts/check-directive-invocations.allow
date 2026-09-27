@@ -1,0 +1,18 @@
+# Known findings for scripts/check-directive-invocations.sh, deferred rather
+# than suppressed. Each record names the issue that will close it.
+#
+# Format, tab-separated, five fields:
+#
+#   <rule>  <file>  <subject>  <issue>  <reason>
+#
+#   rule      bash-invocation | exec-bit | shebang | unresolved
+#   file      repository-relative path of the directive file
+#   subject   the script path exactly as the directive writes it
+#   issue     owner/repo#N -- required; a record without one is an error
+#   reason    why it is deferred rather than fixed
+#
+# Blank lines and #-comments are ignored. The check reads this file, so a
+# record landing here is a deliberate, dated decision rather than a silence.
+#
+# Empty: the change that introduced the check converted every directive it
+# found, so there is nothing to defer.
