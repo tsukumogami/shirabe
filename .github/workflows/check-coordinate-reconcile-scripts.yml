@@ -31,6 +31,7 @@ jobs:
           [ "$RUNNER_OS" = macOS ] && BASH_BIN=/bin/bash
           "$BASH_BIN" skills/coordinate/scripts/reconcile-report_test.sh
           "$BASH_BIN" skills/coordinate/scripts/reconcile-check_test.sh
+          "$BASH_BIN" skills/coordinate/scripts/reconcile-read_test.sh
 
   # Every bash in the floor container is 3.2, including the ones the suites
   # start themselves.

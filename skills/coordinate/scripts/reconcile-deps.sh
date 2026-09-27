@@ -40,6 +40,10 @@ RD_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 RD_BOARD_CHECK=$RD_HERE/board-verdict.sh
 RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh
+# The record's reader: record-parse.sh (the one codec, also for the discipline
+# handoff) and coord-log.sh (the run's facts: scope, name, host, record).
+RD_RECORD_PARSE=$RD_HERE/record-parse.sh
+RD_COORD_LOG=$RD_HERE/coord-log.sh
 
 rd_valid_repo()   { coord_valid_repo "$1" && [[ $1 != -* ]]; }
 rd_valid_branch() { coord_valid_branch "$1"; }

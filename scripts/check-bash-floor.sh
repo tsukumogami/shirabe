@@ -254,6 +254,7 @@ suite_scripts() {
             # stand-ins for gh, niwa and koto, so every case runs on 3.2.
             echo "skills/coordinate/scripts/reconcile-report_test.sh"
             echo "skills/coordinate/scripts/reconcile-check_test.sh"
+            echo "skills/coordinate/scripts/reconcile-read_test.sh"
             ;;
         *)
             return 1
