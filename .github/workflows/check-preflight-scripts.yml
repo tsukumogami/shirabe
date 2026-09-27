@@ -29,7 +29,7 @@ on:
       - 'scripts/check-tool-diagnostic-discards_test.sh'
 
 env:
-  # tsuku's installer and `tsuku install` call the GitHub API; the token
+  # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
 
@@ -88,12 +88,7 @@ jobs:
           echo "$HOME/.preflight-bin" >> "$GITHUB_PATH"
 
       - name: Install tsuku
-        env:
-          TSUKU_TELEMETRY: "0"
-        run: |
-          curl -fsSL https://get.tsuku.dev/now | bash
-          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.tsuku/tools/current" >> "$GITHUB_PATH"
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@49b2d262f54c6c06f3f1936e344c85a9bba4ab57  # installs tsuku 0.14.0
 
       - name: Install koto
         env:
