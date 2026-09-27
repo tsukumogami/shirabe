@@ -38,7 +38,8 @@ HOLDINGS=$(jq -nc \
     --argjson f "$(h zeta acme/widgets '' '')" \
     --argjson g "$(h eta acme/widgets '' '[#16](https://github.com/acme/widgets/pull/16)')" \
     --argjson i "$(h iota acme/widgets feat/iota '[#12](https://github.com/acme/widgets/pull/17)')" \
-    '[$a, $b, $c, $d, $e, $f, $g, $i]')
+    --argjson j "$(h theta acme/widgets feat/theta '[#18](https://github.com/acme/widgets/pull/18)' | jq -c '.return_path = "leg req-1:execute"')" \
+    '[$a, $b, $c, $d, $e, $f, $g, $i, $j]')
 pr() { # pr <repo> <n> <headRefName> [cross]
     db '.prs += [{repo: $r, number: $n, title: "w", body: "", state: "OPEN", isDraft: false, isCrossRepository: ($x == "true"),
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
@@ -49,7 +50,7 @@ seed() {
     db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
         --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdings = $h')" issue)"
     pr acme/widgets 12 feat/alpha; pr acme/gadgets 5 feat/beta; pr acme/widgets 14 feat/delta true
-    pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota
+    pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota; pr acme/widgets 18 feat/theta
     db '.repos["acme/other"] = {private: false, default_branch: "main"}'; pr acme/other 3 feat/gamma
 }
 S=coordinate-roadmap-plugin-system-20260926T080000Z
@@ -95,6 +96,27 @@ report '{"event":"report","unit":"eps"}'
 eq "a head branch other than the Branch cell is refused" "refused eps branch-mismatch" "${OUT% sealed:*}"
 report '{"event":"report","unit":"iota"}'
 eq "a link whose numbers differ is refused" "refused iota bad-link" "${OUT% sealed:*}"
+
+echo "== the leg path =="
+leg_report() { # leg_report <request-id> <leg>: a report arriving on a koto request leg
+    log_evidence "$S" wait '{"event":"leg"}'
+    log_to "$S" wait leg_pick
+    log_capture "$S" WAIT_REQ "$1"
+    log_to "$S" leg_pick wait_leg
+    log_capture "$S" WAIT_LEG "$2"
+    log_to "$S" wait_leg take_report
+    log_to "$S" take_report report_facts
+    OUT=$(bash "$RF" --session "$S" 2>"$T/err")
+    RC=$?
+    log_to "$S" report_facts wait
+}
+report '{"event":"report","unit":"alpha"}'
+leg_report req-1 execute
+eq "a leg report finds the holding whose Return path is that leg, not the last message's unit" "holding 18 theta" "${OUT% sealed:*}"
+leg_report req-9 execute
+eq "a leg no holding carries is unknown" "unknown -" "${OUT% sealed:*}"
+report '{"event":"report","unit":"alpha"}'
+eq "after a leg report, a message report reads the hub's unit again" "holding 12 alpha" "${OUT% sealed:*}"
 
 echo "== unknown =="
 report '{"event":"report","unit":"nobody"}'

@@ -19,8 +19,8 @@
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
 #                   Verified head <sha>
-#   teardown        `done`: no Holdings row for the unit; `kept`: only the
-#                   newer Written: time
+#   teardown        `kept`: only the newer Written: time (`done`, from before
+#                   the dispatch path's destroy, still means no Holdings row)
 #   destroy         (the dispatch path's teardown) `destroyed`: no Holdings row
 #                   for the topic; `handed_over`: no Holdings row for it and a
 #                   Side effects row whose Target names it. The topic comes from

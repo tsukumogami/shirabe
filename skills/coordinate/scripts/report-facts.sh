@@ -65,10 +65,30 @@ finish() {
     lib_emit report_facts "$1" coord/report.json "$T/report.json"
 }
 
-U=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait" and (.payload.fields.event // "") == "report")
-    | .payload.fields.unit // "" | tostring' "$LOG" | tail -1)
-[[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || finish "unknown -"
-TOPIC=$U
+# The unit, from the log alone. On the message path it is the latest `wait`
+# evidence with event report. On the leg path (the dispatch path's wait_leg,
+# then take_report, then here) the hub's evidence carries no unit, so the
+# unit is the holding whose Return path is the leg the engine captured:
+# `leg <WAIT_REQ>:<WAIT_LEG>`. Which path applies is read from where the
+# latest entry into take_report came from, never from a context key.
+entry_from() { # entry_from <state>: the state the latest entry into <state> came from
+    jq -r --arg s "$1" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound") and .payload.to == $s)
+        | .payload.from // ""' "$LOG" | tail -1
+}
+LEGREF=
+if [ "$(entry_from take_report)" = wait_leg ] && [ "$(entry_from report_facts)" = take_report ]; then
+    WREQ=$(jq -r 'select(.type == "variable_captured" and .payload.key == "WAIT_REQ") | .payload.value' "$LOG" | tail -1)
+    WLEG=$(jq -r 'select(.type == "variable_captured" and .payload.key == "WAIT_LEG") | .payload.value' "$LOG" | tail -1)
+    # A capture may carry a seal; the request id and leg are its first word.
+    WREQ=${WREQ%% *}; WLEG=${WLEG%% *}
+    [[ $WREQ =~ ^[a-z0-9_][a-z0-9_-]{0,63}$ ]] && [[ $WLEG =~ ^[a-z0-9_-]+$ ]] || finish "unknown -"
+    LEGREF="leg $WREQ:$WLEG"
+else
+    U=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait" and (.payload.fields.event // "") == "report")
+        | .payload.fields.unit // "" | tostring' "$LOG" | tail -1)
+    [[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || finish "unknown -"
+    TOPIC=$U
+fi
 
 hold() { # hold <mode args...>: record-holding.sh with this run's facts
     if [ "$OVERRIDE" = 1 ]; then
@@ -79,6 +99,12 @@ hold() { # hold <mode args...>: record-holding.sh with this run's facts
     fi
 }
 [ "$OVERRIDE" = 0 ] || [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+if [ -n "$LEGREF" ]; then
+    hold --list > "$T/legs.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+    N=$(jq --arg l "$LEGREF" '[.[] | select(.return_path == $l)] | length' "$T/legs.json")
+    [ "$N" = 1 ] || finish "unknown -"
+    TOPIC=$(jq -r --arg l "$LEGREF" '.[] | select(.return_path == $l) | .worker' "$T/legs.json")
+fi
 ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
 case $? in
     0) ;;
