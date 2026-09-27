@@ -13,6 +13,10 @@
 #   - a fresh read must show the target open and carrying this scope's
 #     declaration line (exit 10), so a record closed or replaced since the
 #     find is never written over;
+#   - the live body's Written: time must equal the body's own, the time of the
+#     version it was edited from (exit 12, record-changed), so a write that
+#     landed since the read, by another coordinator or a person, is never
+#     silently overwritten;
 #   - when the host is public, no Holdings Repo, no repository in a Pull
 #     request link and no repository named in a Side effects Target (owner/repo,
 #     owner/repo#n or a github.com URL) may be private or unreadable (exit 65,
@@ -36,8 +40,9 @@
 # record); --ref replaces it only with the test override flags.
 #
 # Exit codes: 0 written (prints the record's URL); 10 not an open record of
-# this scope, or provenance, or a directed transition; 11 a write failed; 2 a
-# read failed; 64 usage; 65 the body was refused.
+# this scope, or provenance, or a directed transition; 12 the record changed
+# since the body was read; 11 a write failed; 2 a read failed; 64 usage; 65
+# the body was refused.
 #
 # GitHub calls:
 #   reads:  gh issue view N --repo R --json state,body,url
@@ -112,6 +117,21 @@ STATE=$(jq -r '.state' "$T/target.json")
 URL=$(jq -r '.url' "$T/target.json")
 [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
 grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
+# Compare and swap on the Written: line. The body carries the Written: time of
+# the version it was edited from; the live body must still carry that time, or
+# someone wrote the record since it was read and this write would lose their
+# change. A live body that no longer parses as a canonical record has changed
+# too.
+BASE=$(jq -r '.written // ""' "$T/parsed.json")
+if lib_parse "$T/live.md" "$T/live.json" 2> /dev/null; then
+    LIVE_W=$(jq -r '.written // ""' "$T/live.json")
+else
+    LIVE_W="(not a canonical record)"
+fi
+if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
+    echo "$PROG: refused: record-changed: #$REF was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
+    exit 12
+fi
 if [ "$SCOPE" = discipline ]; then
     [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
         || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }

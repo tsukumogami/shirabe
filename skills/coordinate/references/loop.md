@@ -28,13 +28,12 @@ for the judgment at the end, not for the reads.
 
    ```bash
    gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus
-   git ls-remote https://github.com/<owner/repo>.git refs/heads/<branch>
    ```
 
-   Read its CI with the runs-then-jobs reads in
-   `references/verification-checklist.md`, not a checks rollup: it is the
-   read that shows each job's runner and step count, and the same one the
-   verify step uses.
+   Read its CI and remote ref with `scripts/board-verdict.sh --repo
+   <owner/repo> --pr <n>`, not a checks rollup: it is the read that shows each
+   job's runner and step count and re-reads the ref last, and the same one the
+   verify step uses (`references/verification-checklist.md`, "The Reads").
 
    For a row whose pull request is "none yet", check whether one has
    appeared since:

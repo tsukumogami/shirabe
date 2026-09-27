@@ -116,7 +116,7 @@ C106	skills/coordinate/koto-templates/coordinate.md	verify_board	each run's late
 C107	skills/coordinate/koto-templates/coordinate.md	verify_board	on a named runner with at
 C108	skills/coordinate/koto-templates/coordinate.md	verify_board	and the merge state isn't DIRTY
 C109	skills/coordinate/references/verification-checklist.md	-	Check it for paths under a workflow staging
-C110	skills/coordinate/references/verification-checklist.md	-	The branch on the remote matches the head you read.
+C110	skills/coordinate/references/verification-checklist.md	-	The branch on the remote still points at the head you
 C111	skills/coordinate/references/verification-checklist.md	-	Report green only when the pull request's head
 C112	skills/coordinate/references/verification-checklist.md	-	Never put an inferred clause beside a measured
 C113	skills/coordinate/references/verification-checklist.md	-	Reported by the worker, not re-derived (inferred):

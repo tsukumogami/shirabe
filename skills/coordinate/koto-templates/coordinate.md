@@ -1403,8 +1403,19 @@ repository, path or issue: a holding that would need one is a scope question for
 the human. Quoted material such as a CI log line goes in a cell as it is; the
 renderer keeps it from breaking the table.
 
-If this state stays blocked, the rewrite hasn't reached GitHub yet: write it and
-tick again. A `koto next --to` anywhere in this run sends it to the human.
+A write is a compare-and-swap on the `Written:` line: edit the body you just
+read, keeping its `Written:` line, and `record-write.sh` refuses with exit 12
+(`record-changed`) when the live record was written since, by another
+coordinator or a person. Then re-read it and redo your change on the new body;
+when the other change is one you can't reconcile with yours, don't overwrite it:
+report both versions to the human and ask once, as at `record_conflict`.
+`record-holding.sh` does the read and the compare for you.
+
+If this state stays blocked, the record doesn't yet show what this state expects.
+What that is depends on the state you came from: `koto context get <session>
+coord/record_confirm.json` names it (`expectation`) and why it isn't met yet
+(`reason`). Usually the rewrite hasn't reached GitHub: write it and tick again.
+A `koto next --to` anywhere in this run sends it to the human.
 
 ## wait
 

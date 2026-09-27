@@ -27,8 +27,9 @@
 #
 # Exit codes: 0 written (prints the URL) or printed; 1 no row for the topic
 # (--read only); 2 a read failed; 10 refused (the target isn't an open record
-# of this scope, provenance, or a directed transition); 11 the write failed;
-# 64 usage; 65 the row was refused (the reason on stderr).
+# of this scope, provenance, or a directed transition); 12 the record changed
+# between this script's read and its write (record-changed: run it again); 11
+# the write failed; 64 usage; 65 the row was refused (the reason on stderr).
 #
 # GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
 # --json body; writes happen only in record-write.sh.
@@ -118,7 +119,10 @@ if lib_dispatched; then
     lib_drop_disposed "$T/next.json" "$T/dropped.json"
     mv "$T/dropped.json" "$T/next.json"
 fi
-bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(lib_now)" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
+# The render keeps the Written: time of the version just read: record-write.sh
+# compares it with the live body's and refuses when someone wrote in between,
+# then stamps its own time.
+bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$T/parsed.json")" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
     || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
 
 set -- --body-file "$T/body.md"

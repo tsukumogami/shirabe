@@ -22,28 +22,36 @@ standard.
    gh pr view <n> --repo <owner/repo> --json headRefOid,state,isDraft,mergeStateStatus
    ```
 
-2. **Each CI job, its runner, and the steps it ran.** Read every run on
-   the head sha, and every job in each run, across every attempt. Each job
-   needs a runner name and a non-zero count of steps that succeeded; a job
-   whose steps were all skipped, or that ran on no runner, can show green
-   while testing nothing.
+2. **The board: every required check, and every job with a runner and real
+   steps.** `scripts/board-verdict.sh` is the read; the verify step runs it
+   for you, and for a reconcile or any read by hand run it directly. It is
+   read-only and needs no session:
 
    ```bash
-   gh run list --repo <owner/repo> --commit <full-head-sha> --json databaseId,name,attempt,conclusion,status,createdAt
-   gh api "repos/<owner/repo>/actions/runs/<run-id>/jobs?filter=all" \
-     --jq '.jobs[] | {name, attempt: .run_attempt, conclusion, runner: .runner_name, succeeded: ([.steps[] | select(.conclusion == "success")] | length), not_ok: [.steps[] | select(.conclusion != "success" and .conclusion != "skipped") | .name]}'
+   bash skills/coordinate/scripts/board-verdict.sh --repo <owner/repo> --pr <n>
    ```
 
-   `filter=all` returns a job once per attempt; without it you see only
-   the latest attempt. Read these as red even when nothing says "failure":
+   It judges the head the pull request is at, and prints one JSON verdict
+   with its reasons. What it holds, so you know what `verified` means:
 
-   - a merge state of `DIRTY` with no runs on the head: CI never started;
-   - a run that failed at startup, which can leave the board with no
-     failing job to see;
-   - a board read too early: any required summary job the repository
-     defines registers last;
-   - a stacked pull request whose runs were all created before its blocker
-     merged: they tested the old base. It needs a run created after.
+   - every workflow run on the head sha, from any event or branch, counted
+     against the total GitHub reports;
+   - for each run, its latest attempt. A re-run that supersedes a failed
+     attempt is what GitHub's own checks judge, so an earlier failed attempt
+     isn't red on its own; it is listed as `superseded`;
+   - every job in that attempt ran on a named runner and has at least one
+     step that succeeded; a job whose steps were all skipped, or that ran on
+     no runner, is red even when it shows green;
+   - the required set is the union of branch protection, the branch rules and
+     every check the rollup marks required, and each one must have passed; a
+     required check that never registered is missing, and an unreadable
+     source is an error, never "requires nothing";
+   - a merge state of `DIRTY` is red.
+
+   Read these as red too, which the verdict's reasons name: a run that failed
+   at startup; a board read before a required summary job registered; and a
+   stacked pull request whose runs were all created before its blocker
+   merged, which tested the old base and needs a run created after.
 
 3. **The file list.** What the pull request actually changes, against what
    the brief asked for. Check it for paths under a workflow staging
@@ -53,10 +61,13 @@ standard.
    gh pr view <n> --repo <owner/repo> --json files --jq '.files[].path'
    ```
 
-4. **The remote ref.** The branch on the remote matches the head you read.
+4. **The remote ref.** The branch on the remote still points at the head you
+   read. `board-verdict.sh` reads it last, through the API
+   (`repos/<head repo>/git/ref/heads/<branch>`), so a push during the read
+   shows as a moved head. By hand:
 
    ```bash
-   git ls-remote https://github.com/<owner/repo>.git refs/heads/<branch>
+   gh api repos/<owner/repo>/git/ref/heads/<branch> --jq .object.sha
    ```
 
 Report green only when the pull request's head, the remote ref and the CI
