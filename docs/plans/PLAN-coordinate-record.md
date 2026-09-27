@@ -99,7 +99,7 @@ prints one sealed token or an agent-run write that re-reads GitHub and the log f
       `stale-branch`, `unopened` or `none`, ignores a pull request from another branch or a fork,
       and parses the rotation title's dates.
 - [ ] `record-open.sh`, `record-write.sh` (whole body, `--end`, `--close`) and `record-holding.sh`
-      (`--session`, `--topic`, `--row-file` or `--read`) behave as the design's interface says,
+      (`--session` with `--topic` and `--row-file` or `--read`, or `--list`) behave as the design's interface says,
       with its exit codes; each refuses on failed provenance or a directed transition in the run;
       `record-holding.sh` replaces a topic's row rather than adding a second.
 - [ ] `record-confirm.sh` derives the expected change from the source state in the log and

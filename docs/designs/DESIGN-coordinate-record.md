@@ -580,6 +580,7 @@ hardens `reconcile` and reuses `coord-log.sh`. Every holding row changes only th
 ```
 record-holding.sh --session <s> --topic <dispatch-topic> --row-file <json>
 record-holding.sh --session <s> --topic <dispatch-topic> --read
+record-holding.sh --session <s> --list
 ```
 
 The session gives it the scope, name, repository and record number (`coord-log.sh run-facts`); the
@@ -588,7 +589,8 @@ parses it, replaces the row whose Worker equals `--topic` or appends one, drops 
 filed or closed when the log shows a dispatch in this run, renders, self-checks and writes the
 whole body. The row file holds the Holdings keys (`unit, entry_point, mode, phase,
 dispatch_status, return_path, worker, repo, branch, verified_head, dispatched, pull_request`); its
-`worker` must equal `--topic`. `--read` prints the row as one compact JSON object. Exit codes: 0
+`worker` must equal `--topic`. `--read` prints the row as one compact JSON object; `--list` prints every Holdings
+row, in record order, as a JSON array (empty when there are none). Exit codes: 0
 written or printed, 1 no row for the topic (`--read` only), 10 refused because the target isn't an
 open record, the session fails `coord-log.sh provenance`, or the run log shows a directed
 transition, 11 the write failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer
