@@ -19,6 +19,9 @@ on:
       - 'crates/shirabe-validate/src/frontmatter.rs'
       - 'crates/shirabe/src/main.rs'
       - '.github/workflows/check-scope-scripts.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it has
+      # to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
       # scope-open.sh enters koto through the shared koto-open.sh, and
       # check-plan-mode.sh re-runs /plan's split-mode resolver.
       - 'scripts/koto-open.sh'
@@ -47,17 +50,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The next three steps run under Linux's own bash 5; the macOS leg runs
+      # the same scripts on the bash 3.2 floor in the step after them, through
+      # the `scope` suite. A harness added to one of these steps belongs in
+      # that suite too; scripts/check-macos-floor-legs.sh fails the job if not.
+      #
       # check-citations.sh uses only POSIX-ish bash plus git grep pathspecs, so
       # it runs on macOS's bash 3.2 without the newer-bash install the plan
-      # scripts need. Both platforms run to keep that true.
-      - name: Run check-citations tests
+      # scripts need; the macOS floor step keeps that true.
+      - name: Run check-citations tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/scope/scripts/check-citations_test.sh
 
       # intake's scripts and the /plan hop's consistency check need bash, git
-      # and jq only, and run on both platforms so the bash 3.2 floor holds.
+      # and jq only, so they run here and on the macOS floor.
       # run-intake_test.sh and scope-template_test.sh skip their koto cases
       # here; the substrate job below runs them with koto installed.
-      - name: Run intake and plan-mode script tests
+      - name: Run intake and plan-mode script tests (Linux)
+        if: runner.os == 'Linux'
         run: |
           bash skills/scope/scripts/resolve-intent_test.sh
           bash skills/scope/scripts/check-recorded-intent_test.sh
@@ -70,7 +80,8 @@ jobs:
       # exit block. A gh stub and a local bare origin stand in for GitHub;
       # the coordinated-body case skips without shirabe, which the substrate
       # job below has.
-      - name: Run resume, publish, and exit script tests
+      - name: Run resume, publish, and exit script tests (Linux)
+        if: runner.os == 'Linux'
         run: |
           bash skills/scope/scripts/resume-probe_test.sh
           bash skills/scope/scripts/startable-issues_test.sh
@@ -78,6 +89,16 @@ jobs:
           bash skills/scope/scripts/record-scope-exit_test.sh
           bash skills/scope/scripts/publish-scoping-pr_test.sh
           bash skills/scope/scripts/print-scope-exit_test.sh
+
+      # The macOS leg is the floor check, so it goes through the runner: a bare
+      # `bash` on a macOS runner is Homebrew's bash 5, and only /bin/bash is
+      # 3.2 (shirabe#416). The runner refuses a /bin/bash that is not 3.2, logs
+      # the version it ran on, and keeps a nested `bash` on 3.2 as well. The
+      # scripts it runs are the `scope` suite in scripts/check-bash-floor.sh,
+      # the same ones the three steps above run on Linux.
+      - name: Run scope script tests on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system scope
 
       # The document-path shape has one owner and two readers: this script
       # (the gate, the only site that can stop a deletion) and the validator's

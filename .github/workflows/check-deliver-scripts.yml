@@ -21,6 +21,9 @@ on:
       - 'skills/execute/evals/fixtures/bin/gh'
       - 'skills/scope/koto-templates/scope.md'
       - '.github/workflows/check-deliver-scripts.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it has
+      # to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
@@ -45,9 +48,12 @@ jobs:
 
       # The report, the probes, the binding check, the mode map, and the eval
       # gh shim need bash, git and jq only (the probes and the shim drive
-      # test-local gh and koto stand-ins), so they run on both platforms and
-      # keep the bash 3.2 floor honest on macOS.
-      - name: Run script tests without koto
+      # test-local gh and koto stand-ins). This step runs them under Linux's own
+      # bash 5; the macOS leg runs the same scripts on the floor in the next
+      # step, through the `deliver` suite. A harness added here belongs in that
+      # suite too; scripts/check-macos-floor-legs.sh fails the job if not.
+      - name: Run script tests without koto (Linux)
+        if: runner.os == 'Linux'
         run: |
           bash scripts/plan-mode_test.sh
           bash skills/deliver/scripts/deliver-report_test.sh
@@ -55,6 +61,15 @@ jobs:
           bash skills/deliver/scripts/deliver-preflight_test.sh
           bash skills/deliver/scripts/eval-gh-shim_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
+
+      # The macOS leg is the floor check, so it goes through the runner: a bare
+      # `bash` on a macOS runner is Homebrew's bash 5, and only /bin/bash is
+      # 3.2 (shirabe#416). The runner refuses a /bin/bash that is not 3.2, logs
+      # the version it ran on, and keeps a nested `bash` on 3.2 as well. The
+      # scripts it runs are the `deliver` suite in scripts/check-bash-floor.sh.
+      - name: Run script tests on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system deliver
 
   # Drives real koto: the request store (open_request, the absent resolver),
   # the entry (deliver-open.sh's probe and fresh session), the compiled graph,

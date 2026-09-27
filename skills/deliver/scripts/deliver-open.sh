@@ -21,6 +21,21 @@
 #      args file, so the session is always new. koto checks every argument
 #      here and its refusal is printed.
 #
+# Under --koto-leg only the open carries the leg: koto binds the new session
+# to it, or records its refusal there. The probe never does, because its thin
+# args file would be compared against inputs the leg pins (COORDINATION,
+# UPSTREAM) and refused where the real open is not. When the probe stops the
+# run under a leg, the probe is made once more with the full args file and the
+# leg, so koto records the refusal on the leg. It carries the probe's own
+# flags (--attach-live --replace-terminal), so koto refuses it for the same
+# reason: a bad variable with the same code, a collision as template_mismatch
+# or origin_mismatch. stdout's refused= line and the leg's reason then name the
+# same refusal (the leg spells it in kebab-case). Should that call be accepted
+# after all (the colliding session went away, or the probe's refusal was
+# transient), the run goes on exactly as after an accepted probe: the session
+# it opened is removed and the open below makes a fresh one, which re-binds
+# the leg by name.
+#
 # It never reads a session's origin record or state file.
 #
 # Usage:
@@ -48,6 +63,14 @@
 #   --max-rounds=<n>    MAX_ROUNDS=<n>   (bare --max-rounds: the literal token)
 #   --upstream <path>   UPSTREAM=<path>, also --upstream=<path>; with no value
 #                       the literal token --upstream, which the pattern rejects
+#   --koto-leg <id>:deliver
+#                       not a variable: also --koto-leg=<id>:deliver. The leg of
+#                       a caller's request this run answers. Checked here, the
+#                       one flag koto cannot refuse on the leg, because without
+#                       a well-formed value there is no leg to record a refusal
+#                       on: given twice, a leg other than `deliver`, or a
+#                       request id outside ^[a-z0-9_][a-z0-9_-]{0,63}$ is this
+#                       script's own refusal, exit 64, and no koto call is made.
 #   anything else       the positional residue; joined with single spaces it
 #                       is TOPIC, so a second word or an unknown flag fails the
 #                       topic pattern at koto
@@ -181,21 +204,28 @@ def step($t):
   elif ($t | startswith("--max-rounds=")) then .pairs += [["MAX_ROUNDS", $t[13:]]]
   elif $t == "--upstream" then .pending = "upstream"
   elif ($t | startswith("--upstream=")) then .pairs += [["UPSTREAM", $t[11:]]]
+  elif $t == "--koto-leg" then .pending = "koto-leg"
+  elif ($t | startswith("--koto-leg=")) then .legs += [$t[11:]]
   else .residue += [$t]
   end;
 def flush:
-  if .pending == "upstream" then .pairs += [["UPSTREAM", "--upstream"]] | .pending = null else . end;
+  if .pending == "upstream" then .pairs += [["UPSTREAM", "--upstream"]] | .pending = null
+  elif .pending == "koto-leg" then .legs += [""] | .pending = null
+  else . end;
 if (type != "array") or (map(type == "string") | all | not) then
   error("the args file must be a JSON array of strings")
 else
-  reduce .[] as $t ({pairs: [], modes: [], merges: [], residue: [], pending: null};
-    if .pending != null and ($t | startswith("--") | not) then
+  reduce .[] as $t ({pairs: [], modes: [], merges: [], residue: [], legs: [], pending: null};
+    if .pending == "upstream" and ($t | startswith("--") | not) then
       .pairs += [["UPSTREAM", $t]] | .pending = null
+    elif .pending == "koto-leg" and ($t | startswith("--") | not) then
+      .legs += [$t] | .pending = null
     else flush | step($t) end)
   | flush
   | (.residue | join(" ")) as $topic
   | {
       topic: $topic,
+      legs: .legs,
       vars: ([["TOPIC", $topic]] + .pairs
              + (if .modes == [] then [["MODE", $header]] else .modes end)
              + (if .merges == [] then [["MERGE", "true"]] else .merges end))
@@ -205,6 +235,20 @@ end
 MAPPED=$(jq -c --arg header "$HEADER_MODE" "$MAP" <"$ARGS_FILE") \
     || stop "error=usage" "the args file is not a JSON array of strings: $ARGS_FILE" 64
 remove_if_untracked "$ARGS_FILE"
+
+# --koto-leg: checked before any koto call. The leg name is fixed: /deliver
+# answers only a leg named `deliver`.
+RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:deliver$'
+LEG=""
+case "$(printf '%s' "$MAPPED" | jq '.legs | length')" in
+    0) ;;
+    1)
+        LEG=$(printf '%s' "$MAPPED" | jq -j '.legs[0]')
+        [[ "$LEG" =~ $RE_LEG ]] \
+            || stop "error=usage" "--koto-leg must be <request-id>:deliver, with a request id matching ^[a-z0-9_][a-z0-9_-]{0,63}\$" 64
+        ;;
+    *) stop "error=usage" "--koto-leg may be given at most once" 64 ;;
+esac
 
 TOPIC=$(printf '%s' "$MAPPED" | jq -j '.topic')
 if [[ "$TOPIC" =~ $RE_TOPIC ]]; then
@@ -232,29 +276,57 @@ PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
     || stop "error=usage" "could not write the probe's vars file" 64
 PROBE=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$PROBE_VARS" --attach-live --replace-terminal --wording "$WORDING")
 RC=$?
+
+# open_session [flag...] -- the full vars file, the leg when one was given,
+# and any extra koto-open.sh flags. Without flags it is the open: no attach
+# flags, so the session is always new. Sets OUT and RC.
+open_session() {
+    local vars
+    vars=$(write_vars '.vars + [["PLUGIN_ROOT", $root]]') \
+        || stop "error=usage" "could not write the vars file" 64
+    set -- "$SESSION" "$TEMPLATE" "$vars" --wording "$WORDING" "$@"
+    [ -n "$LEG" ] && set -- "$@" --koto-leg "$LEG"
+    OUT=$(bash "$KOTO_OPEN" "$@")
+    RC=$?
+}
+
+# fresh_start -- remove this worktree's deliver-<topic>, found by an accepted
+# probe, so the open makes a new one.
+fresh_start() {
+    if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
+        stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
+    fi
+}
+
 case "$PROBE" in
-    opened=*)
-        if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
-            stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
-        fi
-        ;;
+    opened=*) fresh_start ;;
     *)
         # A collision (origin_mismatch, template_mismatch) or any other
         # refusal: koto's own wording is already on stderr, and the session,
-        # if any, is untouched.
-        [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
-        bash "$REPORT" --refused
-        [ "$RC" -ne 0 ] || RC=1
-        exit "$RC"
+        # if any, is untouched. Under a leg, the probe is repeated with the
+        # full vars and the leg so koto records the same refusal on the leg;
+        # its wording would repeat the probe's, so it is dropped.
+        PROBE_RC=$RC
+        RECORDED=""
+        if [ -n "$LEG" ]; then
+            open_session --attach-live --replace-terminal 2>/dev/null
+            RECORDED=$OUT
+        fi
+        case "$RECORDED" in
+            opened=*) fresh_start ;;
+            *)
+                [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
+                bash "$REPORT" --refused
+                [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
+                exit "$PROBE_RC"
+                ;;
+        esac
         ;;
 esac
 
 # --- 2. the open -----------------------------------------------------------------------
 
-VARS=$(write_vars '.vars + [["PLUGIN_ROOT", $root]]') \
-    || stop "error=usage" "could not write the vars file" 64
-OUT=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$VARS" --wording "$WORDING")
-RC=$?
+open_session
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
     # The run identity deliver-probe.sh's lookups carry: minted here, where the

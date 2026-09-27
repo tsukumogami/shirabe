@@ -686,7 +686,11 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   the default branch (titled `feat(<slug>): <node-id>`, body from a fixed template
   of the node id, its work-item IDs, and the coordination PR's link, passed with
   `--body-file`), or adopts the one owned PR on the branch, and writes the node's
-  index line with `head=<sha>`.
+  index line with `head=<sha>`. It takes `--plan` set to the recorded `plan_abs`,
+  reads the PLAN's nodes through `plan-to-tasks.sh`, and replaces the coordination
+  PR's `## Merge Order` section with a fenced `merge-order` block: every PR and
+  gate node, each after its predecessors, as opaque node ids with their `waits_on`.
+  It renders the block on every node push.
 - `evaluate:<node>` — the node's PR is a draft, or its checks are pending. Mark it
   ready with `gh pr ready` only once every check passed and
   `git ls-tree -r --name-only <pushed head> -- wip/` prints nothing (the same `wip/`
@@ -702,10 +706,17 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   A merge that returned `merge-called` but whose confirm read never saw `MERGED`
   is recorded (`merge_attempts`), so the loop doesn't call it again and the node's
   successors stay blocked.
-- `cascade` — every node PR reports `MERGED` on a live read. Run the
-  chain-finalization cascade exactly once, on the coordination branch
-  (`run-cascade.sh --push <PLAN>`), then `node-push.sh coordination ...`, which
-  pushes the coordination branch and records the coordination PR's own `head=`.
+- `cascade` — every node PR reports `MERGED` on a live read. First,
+  `node-push.sh order ... --plan <plan_abs>` renders the PLAN's final merge order
+  into the coordination PR's body; it pushes nothing, and it catches a PLAN whose
+  `waits_on` changed after the last node push. It is skipped when no file exists
+  at `plan_abs` (a resumed run whose cascade already ran), and a failed render
+  stops the loop before the cascade. Then run the chain-finalization
+  cascade exactly once, on the coordination branch (`run-cascade.sh --push <PLAN>`),
+  then `node-push.sh coordination ...`, which pushes the coordination branch and
+  records the coordination PR's own `head=`. The cascade has deleted the PLAN by
+  then, so this push leaves the merge-order block as it was; from here the block
+  is the only record of the order.
 - `evaluate-coordination` — run `shirabe validate --merge-gate --mode=ready` over
   the index's refs, after dropping any entry that points at the coordination PR
   itself (`scripts/coordination-gate-refs.sh` does both halves); only when it
@@ -770,7 +781,9 @@ The state file is a **reconstructable per-session projection**, not the source o
 truth. The durable source of truth is the **home pull request** — the single PR for
 single-pr (the committed koto context and in-flight PLAN on the `impl/<slug>`
 branch, reachable from any branch through that one PR), and the coordination PR for
-coordinated (its PR-Index plus the fenced merge-order block). Because the durable
+coordinated (its PR-Index, which resume reads, plus the fenced merge-order block
+`node-push.sh` renders, the human-readable order that outlives the PLAN; no script
+schedules or gates from the block). Because the durable
 state rides the home PR rather than on-disk scratch, a session that lost its
 `wip/` state — or runs on a different branch — rebuilds the projection from the home
 PR (see **Resume**). This is Decision 3 of `DESIGN-execute-skill.md`: on-home-PR
@@ -1316,7 +1329,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/koto-templates/execute-coordinated.md` | the coordinated envelope: `coord_setup`, `coord_loop`, `coord_verdict`, `coord_merge_confirm`, and its terminals |
 | `skills/execute/scripts/record-coord-setup.sh` | `coord_setup`'s record: `repos`, `home_repo`, `coord_branch`, `plan_abs` |
 | `skills/execute/scripts/coordinated-next.sh` | the coordinated loop's one next action, stateless and read-only |
-| `skills/execute/scripts/node-cut.sh`, `node-push.sh` | a node's branch in its own worktree; its push, draft PR, and `head=` record (and the coordination PR's after the cascade) |
+| `skills/execute/scripts/node-cut.sh`, `node-push.sh` | a node's branch in its own worktree; its push, draft PR, and `head=` record (and the coordination PR's after the cascade); the coordination PR's merge-order block |
 | `skills/execute/scripts/coord-merge.sh` | `merge:<node>` and `merge-coordination`: the merge through `merge-exec.sh` at the recorded `head=`, then the confirm read |
 | `skills/execute/scripts/coordination-verdict.sh`, `record-coordination-verdict.sh` | where a coordinated run ended, and `coord_verdict`'s action that records it |
 | `skills/execute/scripts/coord-common.sh` | the shared computation and PR-index parser the coordinated scripts source |

@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# check-macos-floor-legs.sh -- fail a workflow whose macOS leg runs a shell
+# suite anywhere but on the bash 3.2 floor.
+#
+# The macOS legs of the script-check workflows exist to prove the bash 3.2
+# floor, and on GitHub's macOS runners only /bin/bash is 3.2: plain `bash`, and
+# a script run by path through `#!/usr/bin/env bash`, both resolve to Homebrew's
+# bash 5. Legs written that way passed while a suite was broken on 3.2
+# (shirabe#416). Calling /bin/bash on a harness is not enough either: a nested
+# `bash` inside it still finds bash 5.
+#
+# The one way onto the floor is scripts/check-bash-floor.sh --backend system
+# <suite>. It refuses a /bin/bash that is not 3.2, logs the version it ran on,
+# and puts a shim first on PATH so every nested `bash` is 3.2 too. So, for every
+# job that can run on macOS (its runs-on or its matrix names macOS):
+#
+# A floor script is any script in one of the runner's suites (read with its
+# --suites and --scripts queries) or any `*_test.sh`. Then:
+#
+#   - a step that can run on macOS -- any step whose `if` does not limit it to
+#     Linux -- fails the check when a line that is not a floor call names a
+#     floor script, however it is invoked (by path, `bash`, `/bin/bash`, or
+#     behind `sudo`, `timeout`, `bash -x` or `if`), and when it runs any other
+#     script with `bash` or `/bin/bash`;
+#   - a job that runs a floor script must run check-bash-floor.sh --backend
+#     system in a step that can run on macOS. A floor step limited to Linux by
+#     mistake leaves the macOS leg proving nothing while it reports green, and
+#     this is what catches it;
+#   - every floor script a job's Linux-only steps run must be in a suite its
+#     floor step names. The Linux steps and the registry each list the
+#     scripts, and without this a script added to a Linux step would silently
+#     never reach the macOS floor. A script in no suite that is not a
+#     `*_test.sh` (assert-koto-floor.sh, say) is not a floor script and is
+#     outside this rule.
+#
+# Not suite runs, so not checked: `bash -c`, and an installer piped into
+# `| bash`.
+#
+# Usage: scripts/check-macos-floor-legs.sh [<workflow.yml>...]
+#        (default: every workflow under .github/workflows/)
+#
+# Environment:
+#   CHECK_MACOS_FLOOR_RUNNER   a stand-in for scripts/check-bash-floor.sh that
+#                              answers --suites and --scripts (the tests)
+#
+# Requires mikefarah yq v4 (to read the YAML) and python3.
+#
+# Exit codes:
+#   0 -- no violations
+#   1 -- one or more violations, each printed as file, job, step and command
+#   2 -- a workflow could not be read, or a prerequisite is missing
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+command -v yq >/dev/null 2>&1 || { echo "check-macos-floor-legs: yq (mikefarah v4) is required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "check-macos-floor-legs: python3 is required" >&2; exit 2; }
+
+if [ $# -eq 0 ]; then
+    set -- "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.yaml
+fi
+
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-macos-floor-legs.XXXXXX") || exit 2
+trap 'rm -rf "$T"' EXIT
+
+# The registry, one "<suite><TAB><script>" line per script, from the runner's
+# machine-readable queries rather than its human-facing --list.
+RUNNER="${CHECK_MACOS_FLOOR_RUNNER:-$SCRIPT_DIR/check-bash-floor.sh}"
+if ! suites=$("$RUNNER" --suites 2>&1); then
+    echo "check-macos-floor-legs: could not read the floor suites: $suites" >&2
+    exit 2
+fi
+: >"$T/registry.tsv"
+for suite in $suites; do
+    if ! scripts=$("$RUNNER" --scripts "$suite" 2>&1); then
+        echo "check-macos-floor-legs: could not read suite $suite: $scripts" >&2
+        exit 2
+    fi
+    for script in $scripts; do
+        printf '%s\t%s\n' "$suite" "$script" >>"$T/registry.tsv"
+    done
+    # A suite with no scripts still exists, so a floor call naming it is known.
+    [ -n "$scripts" ] || printf '%s\t\n' "$suite" >>"$T/registry.tsv"
+done
+
+status=0
+for wf in "$@"; do
+    # The default glob leaves a literal pattern when nothing matches it; a
+    # file named on the command line that is not there is an error.
+    case "$wf" in
+        *'/*.yml'|*'/*.yaml') continue ;;
+    esac
+    if [ ! -f "$wf" ]; then
+        echo "check-macos-floor-legs: no such workflow: $wf" >&2
+        status=2
+        continue
+    fi
+    if ! yq -o=json '.' "$wf" >"$T/wf.json" 2>"$T/yq.err"; then
+        echo "check-macos-floor-legs: could not read $wf: $(cat "$T/yq.err")" >&2
+        status=2
+        continue
+    fi
+    rc=0
+    python3 - "${wf#"$REPO_ROOT"/}" "$T/wf.json" "$T/registry.tsv" <<'PY' || rc=$?
+import json, re, sys
+
+label, path, registry_path = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as fh:
+    wf = json.load(fh) or {}
+
+registry = {}
+with open(registry_path) as fh:
+    for line in fh:
+        suite, _, script = line.rstrip("\n").partition("\t")
+        registry.setdefault(suite, set())
+        if script:
+            registry[suite].add(script)
+REGISTERED = set().union(*registry.values()) if registry else set()
+
+SCRIPT_TOKEN = re.compile(r"(?<![\w/.-])(?:\./)?([\w/.-]+\.sh)\b")
+
+
+def floor_scripts_in(line):
+    """The floor scripts a line names: registered in a suite, or a *_test.sh."""
+    found = []
+    for m in SCRIPT_TOKEN.finditer(line):
+        script = m.group(1)
+        if script in REGISTERED or script.endswith("_test.sh"):
+            found.append(script)
+    return found
+
+# A command position: the start of a line, or after &&, ||, ;, a subshell or
+# group opener, or a then/do/else. A single | is deliberately absent, so an
+# installer piped into `| bash` is not read as a suite run. Leading variable
+# assignments (and `env` with them) are allowed before the command.
+POS = r"(?:^|&&|\|\||;|\(|\{|\bthen\b|\bdo\b|\belse\b)\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+# `bash -c '...'` is not a script run; any other flag still runs one (bash -e
+# x.sh), so only -c is exempt.
+PLAIN_BASH = re.compile(POS + r"bash\s+(?!-c\b)((?:-\S+\s+)*[^-\s]\S*)")
+SYSTEM_BASH = re.compile(POS + r"/bin/bash\s+(?!-c\b)((?:-\S+\s+)*[^-\s]\S*)")
+FLOOR = re.compile(POS + r"(?:\./)?scripts/check-bash-floor\.sh\b(.*)")
+FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
+SEPARATOR = re.compile(r"(&&|\|\||;|\||#)")
+
+# A condition limits a step to Linux only in these simple forms. Anything
+# compound or negated is read as able to run on macOS: a false alarm on an odd
+# condition is cheap, a missed macOS step is the defect this check exists for.
+LINUX_ONLY = re.compile(
+    r"^\s*(?:\$\{\{\s*)?(?:"
+    r"runner\.os\s*==\s*['\"]Linux['\"]"
+    r"|runner\.os\s*!=\s*['\"]macOS['\"]"
+    r"|matrix\.os\s*==\s*['\"]ubuntu[\w.-]*['\"]"
+    r"|startsWith\(\s*matrix\.os\s*,\s*['\"]ubuntu['\"]\s*\)"
+    r")(?:\s*\}\})?\s*$")
+
+BASH5 = ("on a macOS runner that is Homebrew's bash 5; reach the floor with "
+         "scripts/check-bash-floor.sh --backend system <suite>")
+
+
+def can_run_on_macos(step):
+    cond = str(step.get("if") or "")
+    return not (cond and LINUX_ONLY.match(cond))
+
+
+def logical_lines(script):
+    joined = re.sub(r"\\\n", " ", script)
+    for line in joined.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            yield line
+
+
+violations = []
+for job_name, job in (wf.get("jobs") or {}).items():
+    if not isinstance(job, dict):
+        continue
+    where = json.dumps([job.get("runs-on"), (job.get("strategy") or {}).get("matrix")]).lower()
+    if "macos" not in where:
+        continue
+    runs_suites = False
+    floor_suites = set()
+    linux_suites = []  # (step name, floor script) run by Linux-only steps
+    for index, step in enumerate(job.get("steps") or []):
+        if not isinstance(step, dict) or not step.get("run"):
+            continue
+        run = str(step["run"])
+        name = step.get("name") or f"step {index + 1}"
+        lines = list(logical_lines(run))
+        if any(floor_scripts_in(line) for line in lines):
+            runs_suites = True
+        if not can_run_on_macos(step):
+            for line in lines:
+                for script in floor_scripts_in(line):
+                    linux_suites.append((name, script))
+            continue
+        for line in lines:
+            floor = FLOOR.search(line)
+            if floor:
+                # The floor call's own arguments end at the first separator;
+                # whatever follows on the line is checked like any other command.
+                # A comment ends the command; any other separator starts one.
+                parts = SEPARATOR.split(floor.group(1), maxsplit=1)
+                args = parts[0]
+                rest = parts[2].strip() if len(parts) > 2 and parts[1] != "#" else ""
+                # A floor step allowed to fail proves nothing when it does.
+                if FLOOR_SYSTEM.search(args) and not step.get("continue-on-error"):
+                    for a in args.split():
+                        if a.startswith("-") or a == "system":
+                            continue
+                        if a == "all":
+                            floor_suites.update(s for s in registry if s != "all")
+                        else:
+                            floor_suites.add(a)
+                if not rest:
+                    continue
+                line = rest
+            reported = set()
+            for m in PLAIN_BASH.finditer(line):
+                reported.add(m.group(1).split()[-1].removeprefix("./"))
+                violations.append((job_name, name, f"bash {m.group(1)}",
+                    "plain bash " + BASH5))
+            for m in SYSTEM_BASH.finditer(line):
+                reported.add(m.group(1).split()[-1].removeprefix("./"))
+                violations.append((job_name, name, f"/bin/bash {m.group(1)}",
+                    "/bin/bash puts only this script on 3.2; a nested bash inside it is "
+                    "still Homebrew's bash 5 on a macOS runner; reach the floor with "
+                    "scripts/check-bash-floor.sh --backend system <suite>"))
+            # Keyed on what the script is, not how it was invoked: a floor
+            # script run by path, or behind sudo, timeout or `if`, is caught.
+            for script in floor_scripts_in(line):
+                if script not in reported:
+                    violations.append((job_name, name, script,
+                        "a floor script run outside the floor runner gets whatever bash "
+                        "runs it, and " + BASH5))
+    if runs_suites and not floor_suites:
+        violations.append((job_name, "(whole job)", "no floor step",
+            "the job runs shell suites and has a macOS leg, but no step that can run "
+            "on macOS runs scripts/check-bash-floor.sh --backend system <suite> "
+            "(a floor step with continue-on-error does not count)"))
+        continue
+    for suite in sorted(floor_suites):
+        if suite not in registry:
+            violations.append((job_name, "(whole job)", f"floor suite {suite}",
+                "check-bash-floor.sh --suites has no such suite"))
+    covered = set()
+    for suite in floor_suites:
+        covered |= registry.get(suite, set())
+    for name, script in linux_suites:
+        if script not in covered:
+            violations.append((job_name, name, script,
+                "runs on Linux in this job but is in none of its floor suites ("
+                + ", ".join(sorted(floor_suites)) + "), so the macOS leg never runs it "
+                "on 3.2; add it to the suite in scripts/check-bash-floor.sh"))
+
+for job_name, name, command, why in violations:
+    print(f"{label}: job {job_name}: step \"{name}\": {command}")
+    print(f"    {why}")
+sys.exit(1 if violations else 0)
+PY
+    if [ "$rc" -eq 1 ] && [ "$status" -eq 0 ]; then
+        status=1
+    elif [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+        status=2
+    fi
+done
+
+if [ "$status" -eq 0 ]; then
+    echo "check-macos-floor-legs: every macOS leg runs its suites on the bash 3.2 floor"
+fi
+exit "$status"

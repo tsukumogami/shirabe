@@ -150,13 +150,20 @@ ct_write_db() {
         > "$CASE/scenario/gh/db.json"
 }
 
-# ct_plan <dir> [two-repo] -- write docs/plans/PLAN-t.md into <dir>: an
+# ct_plan <dir> [two-repo|gated] -- write docs/plans/PLAN-t.md into <dir>: an
 # issue-carrying coordinated PLAN (no tracking_level, so plan-to-tasks.sh's
 # table path, which needs no shirabe binary). One repository, groups core
-# (issues 1, 2) and cli (issue 3, blocked by 1); or, with `two-repo`, two
+# (issues 1, 2) and cli (issue 3, blocked by 1); with `gated`, the same plus a
+# gate node publish-core after core and before cli; or, with `two-repo`, two
 # independent roots in acme/repo-a and acme/repo-b, Group default.
 ct_plan() {
     mkdir -p "$1/docs/plans"
+    if [ "${2:-}" = gated ]; then
+        ct_plan "$1"
+        printf '%s\n' '| ^_Gate: publish-core \| After: pr-repo-a-core \| Before: pr-repo-a-cli_ | | |' \
+            >> "$1/docs/plans/PLAN-t.md"
+        return
+    fi
     if [ "${2:-}" = two-repo ]; then
         cat > "$1/docs/plans/PLAN-t.md" <<'PLAN'
 ---

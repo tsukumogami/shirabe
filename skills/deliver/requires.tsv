@@ -13,7 +13,10 @@
 # number here, and preflight on an older koto names these missing flags and
 # the install route before any work starts. The one-directional requires check
 # does not look for them in this skill's own files, because the call site is
-# the shared script.
+# the shared script. `--koto-leg` is also /deliver's own flag: under
+# `--koto-leg=<request-id>:deliver` deliver-open.sh passes it to that same
+# `koto init` so the deliver-<topic> session answers a caller's leg, which is
+# why the record is `always` rather than tied to a mode.
 #
 # The request verbs are /deliver's one write of its own, the per-run koto
 # request, and the reads of it. deliver-open-request.sh (open_request's

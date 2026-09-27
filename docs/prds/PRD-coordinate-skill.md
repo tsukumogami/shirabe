@@ -321,7 +321,9 @@ job.
   leaves to later work: tooling for the record, a mechanised reconcile
   step, and tooling for the dispatch path.
 - **R33.** The skill names issues #395 and #396 as known limitations
-  and describes the fixed behaviour it depends on.
+  and describes the fixed behaviour it depends on. Once an issue is
+  fixed, its entry states that behaviour as it now holds, never the
+  defect.
 
 ### Admission rule
 
@@ -523,11 +525,12 @@ Each criterion names the requirement it verifies.
   runs under one account on one branch name see each other's pull
   request as their own. The skill depends on ownership being decided per
   run and names this as a limitation until it is fixed.
-- **Merge order (#396).** The coordination pull request's merge-order
-  block is written empty and never updated; scheduling comes from the
-  PLAN. The skill depends on merge order being recorded where a reader
-  after the PLAN is gone can find it, and names this as a limitation
-  until it is fixed.
+- **Merge order (#396, fixed).** `/execute` renders the coordination
+  pull request's merge-order block from the PLAN's `waits_on` graph on
+  every node push and at the cascade step; scheduling still comes from
+  the PLAN, and the merge gate never reads the block. The skill depends
+  on merge order being recorded where a reader after the PLAN is gone
+  can find it, and states that behaviour.
 - **Reconcile is prose.** A coordinator can skip or shorten a prose
   procedure. The skill makes reconcile the first step and says what its
   report contains, but nothing enforces it in this version.

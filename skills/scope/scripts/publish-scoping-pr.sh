@@ -451,7 +451,7 @@ render_body() {
         if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
             printf '\n## PR Index\n\nNo node PR is open yet; /execute opens one per PR node.\n\n'
             printf '## Merge Order\n\n```merge-order\n'
-            printf '# Two-node merge-order DAG (PR nodes + non-PR gate nodes), one node per line.\n'
+            printf "# /execute renders the PLAN's merge order here (PR and gate nodes, one per line).\n"
             printf '```\n'
         fi
     } >"$f"
