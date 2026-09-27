@@ -27,65 +27,38 @@ scope question for the human.
 
 ## Finding or Opening the Record
 
-Run on every start, as part of the full reconcile, before the first
-dispatch.
+The workflow finds the record itself, on every start, before the first
+dispatch: `scripts/record-find.sh` runs as the `record_find` state's check,
+and you open a record only when it reports none, with `scripts/record-open.sh`.
 
-**Roadmap scope.** List open issues and match the record's title exactly.
-Don't use `--search`: the search index can lag a newly created issue, so
-a coordinator restarted just after opening its record would find none and
-open a second, and a phrase search also matches longer titles such as a
-`-v2` roadmap.
+**Roadmap scope.** The find lists every open issue and matches the record's
+title exactly. It never uses GitHub's search: the search index can lag a newly
+created issue, so a coordinator restarted just after opening its record would
+find none and open a second, and a phrase search also matches longer titles
+such as a `-v2` roadmap. One open issue with the title, the declaration line,
+an author and last editor with write access, and a canonical body is adopted;
+never open a second one. A title match without the declaration line, more than
+one match, a body that isn't canonical, or an author without write access is a
+stop for the human: don't pick, report what you found and ask.
 
-```bash
-gh issue list --repo <owner/repo> --state open --limit 1000 --json number,url,title,body \
-  --jq '.[] | select(.title == "Coordinator record: ROADMAP-<name>")'
-```
+**Discipline scope.** The find reads the branch `coordinate/discipline-<name>`
+and its pull requests, and reports one of these:
 
-1. **One issue whose body carries the declaration line:** adopt it. Never
-   open a second one.
-2. **An issue with the title but without the declaration line, or more
-   than one match:** don't pick. Report what you found and ask the human.
-3. **None:** open one with the body below, written to a file:
+1. **An open pull request carrying the declaration line, whose title's end date
+   hasn't passed:** a restart of that rotation; it is adopted, never replaced.
+2. **The same, past its end date:** the previous rotation's record; close it out
+   as "Closing a Predecessor's Rotation" says, and once it has merged, the find
+   runs again.
+3. **An open pull request without the declaration line:** not adopted; a scope
+   question for the human.
+4. **A branch whose last pull request merged or closed, or that never had one:**
+   `record-open.sh --recut` deletes it and cuts it again from the default
+   branch, so a squash-merged history never comes back.
+5. **No branch:** `record-open.sh` cuts it from the default branch, makes an
+   empty commit, and opens the draft pull request.
 
-   ```bash
-   gh issue create --repo <owner/repo> --title "Coordinator record: ROADMAP-<name>" --body-file <body-file>
-   ```
-
-**Discipline scope.** Check the branch; exactly one of four outcomes:
-
-1. **The branch has an open pull request whose body carries the
-   declaration line.** Read the rotation's end date from the pull
-   request's title, which carries it from the day the pull request opened.
-   If that date hasn't passed, this is a restart of that rotation: adopt
-   it, and never replace it or open a second one. If it has passed, the
-   pull request belongs to the previous rotation: close it out as "Closing
-   a Predecessor's Rotation" says, and once it has merged, run this check
-   again from the top.
-2. **The branch has an open pull request without the declaration line.**
-   Don't adopt it. Report the conflict and ask the human, because a pull
-   request on the record's branch that isn't a record is a scope question.
-3. **The branch exists and its last pull request was merged or closed.**
-   Delete the branch and cut it again from the default branch, so a
-   squash-merged history never comes back:
-
-   ```bash
-   git push origin --delete coordinate/discipline-<name>
-   git switch -c coordinate/discipline-<name> origin/<default-branch>
-   ```
-
-4. **No branch exists.** Cut it from the default branch, push an empty
-   commit, and open a draft pull request:
-
-   ```bash
-   git switch -c coordinate/discipline-<name> origin/<default-branch>
-   git commit --allow-empty -m "docs(coordinate): open <name> rotation record"
-   git push origin HEAD:refs/heads/coordinate/discipline-<name>
-   gh pr create --draft --repo <owner/repo> --head coordinate/discipline-<name> \
-     --base <default-branch> --title "<title>" --body-file <body-file>
-   ```
-
-Report the record's issue number or pull request URL up with every
-report, so a successor is handed it as a decision and reads it directly.
+Report the record's issue number or pull request URL up with every report,
+so a successor is handed it as a decision and reads it directly.
 
 ## The Rotation's Pull Request Title
 

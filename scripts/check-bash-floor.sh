@@ -250,6 +250,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/record-codec_test.sh"
             echo "skills/coordinate/scripts/coord-log_test.sh"
             echo "skills/coordinate/scripts/coordinate-report_test.sh"
+            echo "skills/coordinate/scripts/rule-coverage_test.sh"
             echo "skills/coordinate/scripts/record-find_test.sh"
             echo "skills/coordinate/scripts/record-open_test.sh"
             echo "skills/coordinate/scripts/record-write_test.sh"
@@ -257,6 +258,14 @@ suite_scripts() {
             echo "skills/coordinate/scripts/record-confirm_test.sh"
             echo "skills/coordinate/scripts/start-check_test.sh"
             echo "skills/coordinate/scripts/posture-read_test.sh"
+            # The board, land and merge scripts: a localized plugin tree with
+            # the gh-board and koto stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/board-verdict_test.sh"
+            echo "skills/coordinate/scripts/board-record_test.sh"
+            echo "skills/coordinate/scripts/land-check_test.sh"
+            echo "skills/coordinate/scripts/land-merge_test.sh"
+            echo "skills/coordinate/scripts/merge-confirm_test.sh"
+            echo "skills/coordinate/scripts/merged-facts_test.sh"
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
