@@ -200,7 +200,7 @@ PRD adds:
     `dispatched` or `dispatch-failed`. Return path is `leg <request-id>:<leg>` when the worker
     reports through a koto request leg, or `message`.
   - Deferrals: Deferral, Reason, Raised, Disposition. Raised and a carry-forward's date are
-    UTC times to the minute (`YYYY-MM-DDTHH:MMZ`).
+    UTC times to the minute (`YYYY-MM-DDTHH:MMZ`), as is a reversal's Date.
   - Side effects in flight: Action, Target, Verified head, Attempted, How to confirm.
   - Reversals: Date, Reversed, Now, Reason, From.
   A rendered body parses back to the same input.

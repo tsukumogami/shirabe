@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-coordinate-record.md
 problem: |
   `/coordinate` is prose, so the four checks it asks for (the record exists once with its
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -486,7 +486,7 @@ Start and record phase:
 | `predecessor_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh`, `land-merge.sh --closeout`) or `handed_over` | -> `predecessor_close` |
 | `predecessor_done` | evidence `recheck` after `rotation-close.sh --step delete-branch` | -> `record_find` |
 | `predecessor_handed_over` | evidence `recheck` | -> `record_find` |
-| `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile; a command gate over the posture capture | readable -> `pick_facts`; unread -> `posture_ask` |
+| `reconcile` | evidence `reported`; guidance is `references/loop.md`'s full reconcile; a non-overridable command gate over the posture capture | readable -> `pick_facts`; unread -> `posture_ask` |
 | `posture_ask` | evidence per finishing step, `held` or `reserved` (default reserved) | -> `record`, which confirms the Reversals row recording the human's answer |
 
 The turn:
@@ -511,7 +511,7 @@ The hub and its spokes:
 | `rebrief` | evidence `sent`; the dispatch path fills it | -> `wait` |
 | `verify` | evidence: the prediction (R12) | -> `verify_board` |
 | `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`); writes `coord/board.json` | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait` |
-| `verified_confirm` | check: `record-confirm.sh --verified`, the holding's Verified head equals the unit's verify capture; blocks until the coordinator writes it, so it is where the verify report is written | confirmed -> `land` |
+| `verified_confirm` | check: `record-confirm.sh --verified`, the holding's Verified head equals the unit's verify capture; blocks until the coordinator writes it, so it is where the verify report is written | confirmed -> `land`; `moved` (the remote head changed meanwhile) -> `verify` |
 | `land` | check: `land-check.sh` (the unit's verify capture, head re-read, posture) | `permit` -> `land_merge`; `deny`, `confirm` -> `surface`; `moved` -> `verify`; `dirty` -> `failure` |
 | `land_merge` | evidence `attempted` or `failed` after `land-merge.sh` | attempted -> `merge_confirm`; failed -> `failure` |
 | `merge_confirm` | check: `merge-confirm.sh` | merged, unconfirmed -> `record` |
@@ -527,7 +527,7 @@ What `record-confirm.sh` checks, by the state the run came from: after `dispatch
 the dispatched topic; after `surface: merge_table`, the unit's row with its verified head; after
 `merge_confirm` or `merged_facts` reading merged, no Holdings row for the unit, and reading
 unconfirmed, a Side effects row for its pull request with the verified head; after `teardown`, no
-Holdings row for the topic when `done`; after `decision_apply` or `posture_ask`, a Reversals or
+Holdings row for the topic when `done`, and only the newer `Written:` time when `kept`; after `decision_apply` or `posture_ask`, a Reversals or
 Deferrals row added since the event. Every case also needs a `Written:` time later than the event.
 
 Close-outs:
@@ -538,16 +538,28 @@ Close-outs:
 | `roadmap_blocked` | evidence `noted` (the blocker is named in the directive) | -> `wait` |
 | `roadmap_close_step` | evidence `closed` after `record-write.sh --close`, or `handed_over` | closed -> `roadmap_close`; handed_over -> `done_handed_over` |
 | `rotation_close` | check: `closeout-read.sh --scope discipline` | `handoff-missing`, `title-stale`, `land` -> `rotation_step`; `merged` -> `rotation_done`; `handed-over` -> `done_handed_over`; `closed-unmerged` -> `record_conflict` |
-| `rotation_step` | evidence `done` after the stage's agent-run step, or `handed_over` | -> `rotation_close` |
+| `rotation_step` | evidence `done` after the stage's agent-run step (`rotation-close.sh --step handoff`, `record-write.sh --end`, or `rotation-close.sh --step ready` then `land-merge.sh --closeout`), or `handed_over` | -> `rotation_close` |
 | `rotation_done` | evidence `deleted` after `rotation-close.sh --step delete-branch` | -> `done` |
 
 Terminals: `done`, `done_handed_over`, `done_stopped`, `done_not_active` and `done_error`, each with
 a `result:` map `coordinate-report.sh` renders.
 
+`closeout-read.sh` reports `land` for a rotation's record pull request only when `board-verdict.sh`
+verifies the board at its head after the handoff commit, and `land-merge.sh --closeout` merges that
+head, so the record's own merge meets the same bar as any unit's.
+
 Posture is named only in `start_posture`, `reconcile`, `posture_ask`, `land*`, `surface`,
 `teardown` and the close-outs. When the posture was unreadable, `land-check.sh` treats a step the
 human said the coordinator holds as `permit` only when the Reversals row recording that answer is
-on GitHub, and as `confirm` otherwise.
+on GitHub, and as `confirm` otherwise. `land-check.sh` and `land-merge.sh` re-read the posture
+rather than trusting the start's read: R6 bounds each finishing step by the workspace's declared
+posture, and a posture tightened during a run should apply at once. The re-read can only narrow
+what the start read allowed, never widen it.
+
+A restart is a new run, so its deferral check compares the predecessor's handoff again; deferrals
+the previous run filed or closed have already dropped out of the record, and the coordinator
+re-adds each with its disposition before the run's first dispatch. The `dispatch_check` directive
+says so.
 
 Reference pointers: `references/loop.md` from `reconcile`, `pick`, `quiet_check`, `failure` and
 `decision_apply`; `references/brief-template.md` from `dispatch`, `rebrief` and `failure`;
@@ -587,7 +599,8 @@ transition, 11 the write failed, 2 a read failed, 64 usage, 65 the row was refus
 Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, Repo, Branch,
 Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side
 effects in flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date,
-Reversed, Now, Reason, From. Phase is `scoping-ahead` or `executing`; Dispatch status is
+Reversed, Now, Reason, From, where Date is `YYYY-MM-DDTHH:MMZ` so "added since the event" can't be
+met by an earlier reversal the same day. Phase is `scoping-ahead` or `executing`; Dispatch status is
 `dispatching`, `dispatched` or `dispatch-failed`; Return path is `message` or
 `leg <request-id>:<leg>`; Branch is empty until known; Raised, Attempted and a carry-forward's
 time are `YYYY-MM-DDTHH:MMZ`; Disposition is empty, `filed #<n>`, `closed: <text>` or
@@ -616,7 +629,8 @@ and the template's full states come last because they name every script.
 
 1. **Codec and CI.** `record-codec.jq`, `record-render.sh`, `record-parse.sh` and tests (the round
    trip, the refusals, the handoff format); `references/record-template.md` updated to the new
-   columns; a `check-coordinate-scripts.yml` workflow that runs every `_test.sh` from the start.
+   columns; a `check-coordinate-scripts.yml` workflow that runs every `_test.sh` from the start;
+   `requires.tsv` grows with each phase's scripts, so preflight passes at every step.
 2. **Log helper and a skeleton template.** `coord-log.sh` and `coord-verdict.sh`, tested against a
    three-state skeleton template driven by real koto: a capture delivered to the same state's gate
    in one advance, seal sequence numbers, a blocked stop on an unrouted verdict, the
@@ -635,7 +649,7 @@ and the template's full states come last because they name every script.
    reference updates (the cap in the bounds; the invariant that a koto session binds to the
    directory it starts in, so a worker starts it where it will work, in `brief-template.md`), the
    rule-coverage fixture, a hygiene test over added files, and structure and engine tests.
-8. **Packaging.** `requires.tsv`, the entry-floor workflow's lists, the retention adopters row, and
+8. **Packaging.** The koto records in `requires.tsv`, the entry-floor workflow's lists, the retention adopters row, and
    the evals (the nine kept and tightened per shirabe#403, plus the new scenarios).
 
 ## Security Considerations
