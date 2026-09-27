@@ -23,9 +23,8 @@ value you submit later at `pre_pr_evidence`: that one is an enum, this one is a
 line of text, and neither accepts the other's spelling.
 
 Why here: at `pre_pr_evidence` the same check failing ends the run at
-`done_blocked`, and for a child of `/execute` that terminal also disposes of its
-log (tsukumogami/koto#240), so the parent can't retry it. Here a failure only holds. A
-`ready_for_pr` submission with either artifact malformed matches no edge, the
+`done_blocked`, and the run has to be re-entered to fix one artifact. Here a
+failure only holds. A `ready_for_pr` submission with either artifact malformed matches no edge, the
 state stays `finalization`, and the response's `blocking_conditions` names the
 failing gate. Fix that artifact and submit again:
 
@@ -149,7 +148,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md 
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}" --no-cleanup
 ```
 
 Two states gate on `summary.md`, and both are covered by clearing it here. This phase is the obvious one. `deferral_approval` is the one worth naming, because it looks safe and is not: exactly one transition targets it and nothing routes back into it, so the state is entered once — but `finalization` upstream of it sits on a cycle, so that single entry can happen carrying a summary written before the fixes. What makes presence gating sound is that the key cannot survive from one evaluation of the gate into another, by any path; counting entries into the state is the wrong test.

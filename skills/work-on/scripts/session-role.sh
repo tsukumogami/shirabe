@@ -16,7 +16,7 @@
 # TEST POSITIVELY FOR `root`. The fail-safe below holds only for a caller that
 # does. On a usage error this exits 2 having printed NOTHING to stdout, so a
 # caller written as `[ "$ROLE" = child ] || treat-as-root` reads an empty string
-# as "not child" and takes the root branch -- passing the flag on a session whose
+# as "not child" and takes the root branch -- cascading from a session whose
 # role was never determined, which is the one outcome the fail-safe exists to
 # prevent. Anything that is not exactly `root` is `child`.
 #
@@ -57,12 +57,10 @@
 #
 #   false negative -- koto supports non-composed children created through
 #                     `koto init --parent`. Such a child has no dot, would read
-#                     as a root, and would then pass `--no-cleanup` and
-#                     withhold its result from its parent.
+#                     as a root, and would then run the cascade.
 #   false positive -- nothing validates a session name against dots. A root
 #                     whose caller chose a name containing one would read as a
-#                     child and silently lose the retention this discriminator
-#                     exists to grant.
+#                     child and silently skip the cascade it owns.
 #
 # `koto session list` is used rather than `koto workflows` because it is the
 # surface whose documented contract is "all sessions": `koto workflows`
@@ -79,27 +77,26 @@
 #
 # When the lookup cannot produce an answer -- koto absent, no jq, the session
 # not listed -- this reports `child` and says why on stderr. That direction is
-# chosen from the measured cost of each mistake, not from caution:
+# chosen from the cost of each mistake at ci_monitor, where the answer routes
+# the completion cascade:
 #
-#   a root misread as a child loses one run's context record. Bad, and
-#   recoverable -- the run's artifacts are still on the branch and in the PR.
+#   a root misread as a child stops at done without cascading. Its pull request
+#   has landed and the chain is left unfinalized, which the lifecycle-chain
+#   check reports and a later run can finish.
 #
-#   a child misread as a root passes `--no-cleanup` on its terminal tick, which
-#   suppresses the `request_store.result` and `ChildCompleted` events that carry
-#   its result to the parent's `children-complete` gate. The parent never
-#   receives that child's result. Against a parent that keys on the gate's
-#   `all_complete`, as /execute does, the batch advances without it; against one
-#   that waits for the gate to pass, the batch never advances and nothing can
-#   clear it. Neither is recoverable by the child.
+#   a child misread as a root cascades a PLAN its siblings are still working
+#   from, and may delete it under them.
 #
 # So an unknown answer takes the recoverable failure, loudly.
 #
 # ---------------------------------------------------------------------------
 #
-# The first caller is the terminal-tick retention rule (#360). Later callers
-# should route through here rather than re-deriving the test: if koto changes
-# how it records parentage, this file is the one place that changes, and
-# skills/work-on/scripts/terminal-retention_test.sh describes the behaviour
+# The one caller is ci_monitor's `session_role` evidence in work-on.md. It
+# once also decided terminal-tick retention (#360); koto 0.14.0 made the flag
+# safe on a child, and every tick now carries it (#439). Later callers should
+# route through here rather than re-deriving the test: if koto changes how it
+# records parentage, this file is the one place that changes, and
+# skills/work-on/scripts/ci-monitor-role_test.sh describes the behaviour
 # ("a child classifies as child") rather than the mechanism, so the tests
 # survive that swap.
 #
@@ -116,8 +113,8 @@ SESSION="$1"
 
 unknown() {
     echo "session-role.sh: cannot determine the role of '$SESSION' ($1);" \
-         "reporting child, which withholds terminal-tick retention rather" \
-         "than risk withholding this session's result from a parent" >&2
+         "reporting child, which skips the cascade rather than risk" \
+         "cascading a PLAN other children are still using" >&2
     echo child
     exit 0
 }

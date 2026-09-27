@@ -32,9 +32,8 @@ three shape gates run twice. At `finalization` (and on `deferral_approval`'s
 approved edge) a failure matches no edge: the run holds in that state with the
 gate named, and the agent fixes the artifact in place. At `pre_pr_evidence` the
 same failure routes to `done_blocked`. The second check is the backstop and is
-not weakened by the first; the first exists because that terminal is expensive
-for a child of `/execute`, whose log koto disposes of at a terminal
-(tsukumogami/koto#240), so the parent cannot retry it. The patterns must be
+not weakened by the first; the first exists because that terminal is expensive:
+the run has to be re-entered to fix what was one edit away. The patterns must be
 identical in all three states, which `scripts/finalization-shape_test.sh` checks.
 
 ## Evidence-carried
