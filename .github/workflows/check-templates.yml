@@ -22,7 +22,7 @@ on:
 
 jobs:
   freshness:
-    uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@main
+    uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@61e166fae790fb45561de4fccd33c83f2b44aa1e
     with:
       template-paths: 'skills/*/koto-templates/*.md'
 
