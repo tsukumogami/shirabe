@@ -991,7 +991,7 @@ PROMPT
   graded_count=$(python3 -c "
 import json, sys
 print(json.load(open(sys.argv[1]))['graded'])
-" "$iter_dir/validation_summary.json" 2>&1) || graded_count=""
+" "$iter_dir/validation_summary.json") || graded_count=""
   if [ "$validate_rc" -eq 2 ] && [ "$graded_count" = "0" ]; then
     local classify_rc=0
     python3 "$CLASSIFY_SESSION" report "$transcript" "$EVAL_CLAUDE_PERMISSION_MODE" || classify_rc=$?
@@ -1028,7 +1028,9 @@ print(json.load(open(sys.argv[1]))['graded'])
 # re-parsing this output.
 #
 # Exit codes: 0 all graded and passing; 1 at least one assertion failed;
-# 2 nothing was graded, or some scenario graded zero of its criteria.
+# 2 nothing was graded, or some scenario graded zero of its criteria, has no
+# grading.json, or is missing from the iteration -- so a 2 can come from a run
+# that graded other scenarios fine (step 4b in run_skill_evals relies on this).
 validate_results() {
   local iter_dir="$1"
   local expected_count="$2"
