@@ -44,6 +44,9 @@ rd_home() {
     if [ -z "$h" ] && command -v dscl >/dev/null 2>&1; then
         h=$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
     fi
+    if [ -z "$h" ] && [ -r /etc/passwd ]; then
+        h=$(awk -F: -v u="$u" '$1 == u { print $6; exit }' /etc/passwd)
+    fi
     [ -n "$h" ] && [ -d "$h" ] || return 1
     printf '%s' "$h"
 }

@@ -54,14 +54,15 @@ stateDiagram-v2
     quiet_check --> status_message : gates.quiet_check_verdict.exit_code: 101
     quiet_check --> failure : gates.quiet_check_verdict.exit_code: 102
     rebrief --> wait : sent: sent
-    reconcile --> pick_facts : gates.reconcile_posture.exit_code: 25, reconciled: reported
-    reconcile --> posture_ask : gates.reconcile_posture.exit_code: 26, reconciled: reported
+    reconcile --> pick_facts : gates.reconcile_posture.exit_code: 25, gates.reconcile_report.exit_code: 0, reconciled: reported
+    reconcile --> posture_ask : gates.reconcile_posture.exit_code: 26, gates.reconcile_report.exit_code: 0, reconciled: reported
+    reconcile_pass --> reconcile : gates.reconcile_pass_verdict.exit_code: 140
     record --> pick_facts : gates.record_verdict.exit_code: 50
     record --> record_conflict : gates.record_verdict.exit_code: 52
     record --> record_conflict : gates.record_verdict.exit_code: 54
     record_conflict --> record_find : resolution: recheck
     record_conflict --> done_stopped : resolution: stop
-    record_find --> reconcile : gates.record_find_verdict.exit_code: 10
+    record_find --> reconcile_pass : gates.record_find_verdict.exit_code: 10
     record_find --> record_open : gates.record_find_verdict.exit_code: 11
     record_find --> record_open : gates.record_find_verdict.exit_code: 12
     record_find --> record_open : gates.record_find_verdict.exit_code: 13
@@ -148,6 +149,12 @@ stateDiagram-v2
     end note
     note left of reconcile
         gate: reconcile_posture
+    end note
+    note left of reconcile
+        gate: reconcile_report
+    end note
+    note left of reconcile_pass
+        gate: reconcile_pass_verdict
     end note
     note left of record
         gate: record_verdict

@@ -240,7 +240,7 @@ done
 new_case blocked-late
 record "[]"; echo 20 > "$CASE/read.sleep"
 # The reader's deadline is the pass's own; this stand-in outlives it.
-LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" timeout 30 bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2>/dev/null)
+LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2>/dev/null)
 [ "$LINE" = blocked:unreadable ]; check "a record read that runs out its deadline is blocked" $? "$LINE"
 ctx reconcile/refusal | grep -q 'timed out'; check "and the refusal says it timed out" $?
 

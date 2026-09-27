@@ -27,7 +27,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX"); trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_apply deferral_dispose dispatch dispatch_check done done_handed_over done_not_active done_stopped failure land land_merge merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step quiet_check rebrief reconcile record record_conflict record_find record_open report_facts roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface teardown verified_confirm verify verify_board wait"
+WANT="ask_up classify_report decision_apply deferral_dispose dispatch dispatch_check done done_handed_over done_not_active done_stopped failure land land_merge merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface teardown verified_confirm verify verify_board wait"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
