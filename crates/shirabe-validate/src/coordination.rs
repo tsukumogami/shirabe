@@ -1040,25 +1040,27 @@ mod tests {
         );
     }
 
-    /// The block `node-push.sh` renders from the PLAN's waits_on graph: two
-    /// comment lines, then one `<node-id> | pr|gate | after: <node-ids>` line
-    /// per node. It must validate, and its node ids (the gate's included) must
-    /// be read from the first token of each line, not from the `after:` list.
+    /// The `## Merge Order` section `node-push.sh` renders from the PLAN's
+    /// waits_on graph, read from the golden file its shell tests compare the
+    /// posted section against: two comment lines, then one
+    /// `<node-id> | pr|gate | after: <node-ids>` line per node. It must
+    /// validate, and its node ids (the gate's included) must be read from the
+    /// first token of each line, not from the `after:` list. Sharing the file
+    /// is what ties the rendered format to this parser.
     #[test]
     fn body_check_passes_rendered_merge_order_with_gate() {
-        let rendered = "```merge-order\n\
-             # Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.\n\
-             # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>\n\
-             pr-1 | pr | after: -\n\
-             gate-publish | gate | after: pr-1\n\
-             pr-2 | pr | after: pr-1, gate-publish\n\
-             ```\n";
-        let start = good_body().find("```merge-order").unwrap();
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/execute/scripts/testdata/merge-order-gated.txt");
+        let rendered = std::fs::read_to_string(&golden).expect("the golden merge-order section");
+        let start = good_body().find("## Merge Order").unwrap();
         let body = format!("{}{}", &good_body()[..start], rendered);
         let findings = check_coordination_body(&body);
         assert!(findings.is_empty(), "got {:?}", findings);
         let nodes = parse_merge_order_block(&body).expect("block present");
-        assert_eq!(nodes, vec!["pr-1", "gate-publish", "pr-2"]);
+        assert_eq!(
+            nodes,
+            vec!["pr-repo-a-core", "gate-publish-core", "pr-repo-a-cli"]
+        );
     }
 
     #[test]

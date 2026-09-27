@@ -294,7 +294,8 @@ post_body() {
     fi
 }
 
-# The order mode records no index line: steps 6 and 7 don't apply.
+# The order mode records no index line: it skips step 6 and the index half of
+# step 7, and post_body does the rest.
 if [ "$MODE" = order ]; then
     printf '%s\n' "$BODY" > "$WORK/body.md"
     post_body

@@ -253,18 +253,11 @@ ct_case merge-order
 ct_write_db
 fresh_repo merge-order gated
 push_node
-WANT=$(cat <<'EOF'
-## Merge Order
-
-```merge-order
-# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
-# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
-pr-repo-a-core | pr | after: -
-gate-publish-core | gate | after: pr-repo-a-core
-pr-repo-a-cli | pr | after: pr-repo-a-core, gate-publish-core
-```
-EOF
-)
+# The expected section is a golden file the Rust validator's tests also read
+# and check with the real parser, so the format node-push.sh renders and the
+# format the validator accepts can't drift apart without a test failing (this
+# suite runs against a shirabe stub).
+WANT=$(cat "$SCRIPT_DIR/testdata/merge-order-gated.txt")
 GOT=$(merge_order_section)
 if [ "$RC" -eq 0 ] && [ "$GOT" = "$WANT" ]; then
     pass "the merge-order section is the rendered block: both PR nodes and the gate, each after its predecessors"
