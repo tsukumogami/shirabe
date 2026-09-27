@@ -21,9 +21,9 @@
 #   2  No results produced, or a scenario graded zero assertions
 #      (infrastructure failure -- see "Grading nothing is a failure" below)
 #   3  Missing prerequisites
-#   4  The nested claude session ended without executing anything, so no
-#      scenario ran (runner or host failure -- see "Nested session permission
-#      mode" below)
+#   4  The nested claude session stopped in plan mode or ran no command and
+#      wrote no file, so no scenario ran (runner or host failure -- see "Nested
+#      session permission mode" below)
 #
 # Prerequisites: claude CLI, python3, skill-creator plugin installed
 #
@@ -54,9 +54,12 @@
 #                                     "empty directory" and the tier-2 clone live
 #
 #   Rejected: plan and manual execute nothing in a -p session; acceptEdits
-#   without the allow rule denies python3; dontAsk denies Write and Edit even
-#   under an allow rule; auto leaves each call to a classifier, so results would
-#   vary with it; bypassPermissions also admits every prompting tool. A pattern
+#   without the allow rule denies python3; dontAsk runs only what allow rules
+#   name, and with plain Write and Edit rules it let a write outside the repo and
+#   the scratch root through, so matching the bound acceptEdits gives would take
+#   hand-written path rules for both directories; auto leaves each call to a
+#   classifier, so results would vary with it; bypassPermissions also admits
+#   every prompting tool. A pattern
 #   allow list (Bash(koto *) and the like) denies the environment-prefixed,
 #   absolute-path and `bash -c` forms this runner's own instructions produce.
 #

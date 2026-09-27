@@ -117,7 +117,10 @@ def classify(events):
     # file with Write, so a session that looked around and stopped to present a
     # plan has successful calls of both kinds and still ran nothing. Nobody can
     # approve the plan in a -p session, so it never leaves plan mode. A
-    # subagent's ExitPlanMode is not the session stopping, so it is ignored.
+    # top-level ExitPlanMode counts even when the init mode was something else:
+    # it means the session stopped to ask, and this only runs on a run that
+    # already graded nothing. A subagent's ExitPlanMode is not the session
+    # stopping, so it is ignored.
     planned = mode == "plan" or bool(top_level_exit_plan)
 
     if not events or (mode is None and result_event is None and not tool_uses):

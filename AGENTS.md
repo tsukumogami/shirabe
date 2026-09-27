@@ -86,9 +86,9 @@ scripts/run-evals.sh --scenario standalone-decision-simple --runs 5 decision
 
 Exit status: 0 all graded and passing, 1 an assertion failed, 2 something graded
 nothing (no results, a missing grading.json, or a scenario with an empty criteria
-list), 3 a missing prerequisite, 4 the nested claude session ended without
-executing anything, so no scenario ran and the runner or the host is at fault
-rather than the skill.
+list), 3 a missing prerequisite, 4 the nested claude session stopped in plan
+mode or ran no command and wrote no file, so no scenario ran and the runner or
+the host is at fault rather than the skill.
 
 The runner starts its nested `claude -p` session with
 `--permission-mode acceptEdits --allowedTools Bash`, from the repo root, with a
