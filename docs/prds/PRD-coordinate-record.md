@@ -455,9 +455,9 @@ Packaging:
   defence, at one more read per report.
 - **No delivered wake when a leg resolves (koto#250).** The engine's waker is a stub, so the
   coordinator advances the workflow on each message or notification.
-- **No leg flag on `/deliver` and `/work-on` (shirabe#401).** Only `/scope` and `/execute`
-  accept `--koto-leg` today, so the workers a coordinator most often dispatches report by
-  message only.
+- **Leg flags on `/deliver` and `/work-on` (shirabe#401, fixed by shirabe#407).** All four
+  entry points accept `--koto-leg`; binding a leg at dispatch is the dispatch path's work, so
+  until it lands a dispatched worker reports by message.
 - **`koto next --to` skips gates (koto#251).** A directed transition moves a session past
   any gate, non-overridable ones included, so no template can fully hold "no value the
   coordinator supplies satisfies a check" while it exists. Each check's result is sealed to

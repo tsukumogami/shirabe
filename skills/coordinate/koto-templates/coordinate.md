@@ -1409,7 +1409,7 @@ differs from the holding's Branch.
 <!-- details -->
 
 Workers report by message, plus what they pushed. A same-host worker whose entry
-point accepts a koto request leg (today `/scope` and `/execute`, shirabe#401),
+point accepts a koto request leg (`/deliver`, `/work-on`, `/scope` and `/execute`),
 dispatched with one, also has its result on that leg; read it before classifying.
 Every other worker reports by message only, and a worker on another host always
 does, since koto's request legs are local. koto#250 means a resolved leg wakes

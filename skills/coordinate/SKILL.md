@@ -318,9 +318,9 @@ until then it is a procedure the coordinator runs with a local agent.
   checks hold against a wrong submitted value or a skipped step. They don't hold
   against a coordinator that rewrites its own tools, or its files, which no fix
   to the environment covers.
-- **No leg flag on `/deliver` and `/work-on` (#401).** Only `/scope` and `/execute`
-  accept `--koto-leg` today, so the workers a coordinator most often dispatches
-  report by message only.
+- **Leg flags on `/deliver` and `/work-on` (#401, fixed by #407).** All four
+  entry points now accept `--koto-leg`, but binding a leg at dispatch is the
+  dispatch path's work, so until it lands a dispatched worker reports by message.
 - **One machine and one HOME (shirabe#407).** koto's request and session stores
   are per-user and machine-wide under the koto home, so a coordinator and the
   workers that answer its legs share one machine and one HOME, and a worker on

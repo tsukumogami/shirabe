@@ -64,8 +64,9 @@ some of them resist a coordinator that wants to skip a step:
 So the design has to put each check where the agent can't pre-empt it, keep every GitHub
 write agent-run (opening, rewriting and closing the record; merges), and still carry a loop
 that runs for days, is driven by cross-session messages rather than engine wakes (koto's
-leg waker is a stub, koto#250), and hands most workers no koto leg at all (only `/scope` and
-`/execute` accept `--koto-leg`, shirabe#401).
+leg waker is a stub, koto#250), and hands most workers no koto leg at all (when this was written only `/scope`
+and `/execute` accepted `--koto-leg`, shirabe#401; shirabe#407 has since added it to `/deliver`
+and `/work-on`).
 
 The record's shape is the second problem. The PRD fixes four sections with fixed columns (R14),
 requires a body that parses back to the input it was rendered from, and cells that can't break a
@@ -369,8 +370,8 @@ Three reconciliations were made across the decisions:
   captures. The context keys they named stay as data for directives, reports and deciders.
 - Decision 4 had no Return path column; the PRD now carries one (`leg <request-id>:<leg>` or
   `message`), which the dispatch path fills and reconcile reads. This feature adds no request-leg
-  gate: the only workers that could bind a leg today are `/scope` and `/execute` runs
-  (shirabe#401), and binding one at dispatch is the dispatch path's work. The `wait` guidance says
+  gate: binding one at dispatch is the dispatch path's work, whichever entry point
+  accepts it (all four do since shirabe#407 closed shirabe#401). The `wait` guidance says
   which is which.
 - Leg names stay fixed, one request per worker (from shirabe#407). A skill that answers a leg
   answers exactly one (`/deliver` answers `deliver`, `/work-on` answers `work-on`), so the
