@@ -230,6 +230,11 @@ if open_run restart && [ "$(at)" = record_open ]; then
         grep -q '^issue create' "$GH_DB.calls" && bad "2: nothing opens a second record" "$(grep '^issue create' "$GH_DB.calls")" \
             || ok "2: nothing opens a second record"
         eq "2: one record still" 1 "$(record_number restart | wc -w | tr -d ' ')"
+        N7=$(record_number restart)
+        case "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" in
+            https://github.com/*/issues/"$N7") ok "2: the found record's URL is in context for the terminal results" ;;
+            *) bad "2: the found record's URL is in context for the terminal results" "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" ;;
+        esac
     else
         bad "2: reopen the run" "$(cat "$T/open.err")"
     fi
@@ -342,7 +347,7 @@ fi
 seed_roadmap contra2
 seed_record contra2 80
 if open_run contra2 "$T/bare" && [ "$(at)" = reconcile ]; then
-    R=$(tick --with-data '{"reconciled":"reported","merge":"held"}')
+    R=$(tick --with-data '{"reconciled":"reported","merge":"permitted"}')
     [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: reconcile refuses a field it doesn't accept" || bad "8: reconcile refuses a field it doesn't accept" "$R"
     eq "8: an unread posture routes to posture_ask whatever the evidence says" posture_ask "$(at --with-data '{"reconciled":"reported"}')"
 else

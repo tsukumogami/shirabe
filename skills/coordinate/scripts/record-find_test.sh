@@ -156,6 +156,8 @@ case "$OUT" in "found 7 sealed:"*) ok "the verdict is sealed" ;; *) bad "the ver
 bash "$HERE/coord-log.sh" check --session "$S" --state record_find --sealed "$OUT" && ok "the seal checks against the log" || bad "the seal checks against the log"
 eq "the detail is stored as data" "found|7|https://github.com/acme/widgets/issues/7" \
     "$(jq -r '"\(.verdict)|\(.ref)|\(.url)"' "$KOTO_STORE/context/$S/coord/record_find.json" 2>&1)"
+eq "the found record's URL goes to context key record_url, for the terminal results" "https://github.com/acme/widgets/issues/7" \
+    "$(cat "$KOTO_STORE/context/$S/record_url" 2>&1)"
 bash "$F" --scope roadmap --name plugin-system --repo "$REPO" >/dev/null 2>&1; eq "sealing without a session is a usage error" 64 $?
 bash "$F" --scope roadmap --name plugin-system >/dev/null 2>&1; eq "partial override flags are a usage error" 64 $?
 bash "$F" --scope roadmap --name 'a b' --repo "$REPO" --no-seal >/dev/null 2>&1; eq "a bad name is a usage error" 64 $?

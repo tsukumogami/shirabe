@@ -308,23 +308,23 @@ states:
     accepts:
       merge:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds merges.
+        description: permitted when the human said the coordinator may merge; reserved when a person keeps the merge.
       close:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds closes.
+        description: permitted when the human said the coordinator may close; reserved when a person keeps it.
       teardown:
         type: enum
-        values: [held, reserved]
+        values: [permitted, reserved]
         required: true
-        description: Whether the human said the coordinator holds teardowns.
+        description: permitted when the human said the coordinator may tear down; reserved when a person keeps it.
     transitions:
       - target: record
         when:
-          merge: held
+          merge: permitted
       - target: record
         when:
           merge: reserved
@@ -678,9 +678,15 @@ states:
       - target: land
         when:
           gates.verified_confirm_verdict.exit_code: 50
+      - target: record_conflict
+        when:
+          gates.verified_confirm_verdict.exit_code: 52
       - target: verify
         when:
           gates.verified_confirm_verdict.exit_code: 53
+      - target: record_conflict
+        when:
+          gates.verified_confirm_verdict.exit_code: 54
 
   land:
     default_action:
@@ -1232,15 +1238,17 @@ the holdings they are about to act on, which each spoke's read already does.
 ## posture_ask
 
 The posture couldn't be read. Ask the human once which of merge, close and
-teardown you hold, record their answer as a Reversals row from `the human`
-naming the posture, rewrite the record, then submit their answer.
+teardown you may do, record their answer as a Reversals row from `the human`
+naming the posture, rewrite the record, then submit it: `permitted` or
+`reserved` for each.
 
 <!-- details -->
 
 Until the answer is on GitHub, every finishing step stays reserved. The answer is
 the one posture fact the workflow takes on your relay, which is why it goes into
-the record where anyone can read who decided it; the land step treats a held
-step as permitted only while that row is on GitHub.
+the record where anyone can read who decided it; the land step treats a
+`permitted` merge as permitted only while that row is on GitHub. This is not
+land_merge's `merge: held`, which is the human directing a merge held.
 
 ## pick_facts
 

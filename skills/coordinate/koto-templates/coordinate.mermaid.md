@@ -40,7 +40,7 @@ stateDiagram-v2
     pick_facts --> pick : gates.pick_facts_verdict.exit_code: 30, gates.pick_input.exists: true
     pick_facts --> roadmap_close : gates.pick_facts_verdict.exit_code: 31
     pick_facts --> rotation_close : gates.pick_facts_verdict.exit_code: 32
-    posture_ask --> record : merge: held
+    posture_ask --> record : merge: permitted
     posture_ask --> record : merge: reserved
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 120
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 122
@@ -104,7 +104,9 @@ stateDiagram-v2
     teardown --> record : teardown: done
     teardown --> record : teardown: kept
     verified_confirm --> land : gates.verified_confirm_verdict.exit_code: 50
+    verified_confirm --> record_conflict : gates.verified_confirm_verdict.exit_code: 52
     verified_confirm --> verify : gates.verified_confirm_verdict.exit_code: 53
+    verified_confirm --> record_conflict : gates.verified_confirm_verdict.exit_code: 54
     verify --> verify_board : predicted: recorded
     verify_board --> verified_confirm : gates.verify_board_verdict.exit_code: 70
     verify_board --> failure : gates.verify_board_verdict.exit_code: 71

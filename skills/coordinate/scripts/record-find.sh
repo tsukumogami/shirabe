@@ -17,6 +17,9 @@
 # title's dates (unparseable: `ambiguous`; ended before today UTC:
 # `predecessor`).
 #
+# On `found`, the record's URL also goes to context key record_url, which the
+# terminal results name as `record`.
+#
 # Verdict tokens (the first word is what coord-verdict.sh routes on):
 #   roadmap:    found <n> | none | ambiguous <n> <m> [...] | foreign <n>
 #               | malformed <n> | unauthorized <n>
@@ -78,6 +81,14 @@ finish() {
         --argjson c "$CANDS" --arg db "$DEFAULT_BRANCH" --arg s "$ROT_START" --arg e "$ROT_END" \
         '{verdict: $v, ref: $ref, url: $url, reason: $reason, candidates: $c, default_branch: $db,
           rotation: {start: $s, end: $e}}' > "$T/detail.json"
+    # The found record's URL, for the terminal results' `record` field
+    # (${context.record_url}): written here, by the engine's own read, so the
+    # closing report names the record the run actually found.
+    if [ "$NO_SEAL" != 1 ] && [ "$VERDICT" = found ] \
+        && [[ $URL =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+$ ]]; then
+        printf '%s' "$URL" > "$T/record_url"
+        "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed"
+    fi
     lib_emit record_find "$token" coord/record_find.json "$T/detail.json"
 }
 

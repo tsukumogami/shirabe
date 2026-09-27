@@ -231,7 +231,7 @@ eq "decision_apply deferral: only an older deferral waits" waiting "$(confirm)"
 
 echo "== posture_ask =="
 session
-log_evidence "$S" posture_ask '{"merge":"held","close":"reserved","teardown":"reserved"}' "$EVT"
+log_evidence "$S" posture_ask '{"merge":"permitted","close":"reserved","teardown":"reserved"}' "$EVT"
 log_to "$S" posture_ask record "$EVT"
 PREV='{"date":"2026-09-26T10:02Z","reversed":"posture unread","now":"coordinator holds merge","reason":"asked once","from":"the human"}'
 body "$(rec | jq -c --argjson r "$PREV" '.reversals = [$r]')"
@@ -269,6 +269,9 @@ body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12" | jq -c --arg h "$
 eq "--verified: only another unit's #12 row waits" waiting "$(confirm --verified)"
 body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$a]')"
 eq "--verified: the unit's row linking another pull request is a conflict" conflict "$(confirm --verified)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" '.holdings = [$h]')"
+log_ev "$S" directed_transition '{"from":"verify","to":"verified_confirm"}'
+eq "--verified: a directed transition in the run is directed" directed "$(confirm --verified)"
 
 echo "== conflicts and refusals =="
 session

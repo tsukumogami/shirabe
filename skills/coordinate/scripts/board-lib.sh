@@ -169,13 +169,13 @@ bl_posture_merge() {
 }
 
 # bl_human_holds_merge <session>: 0 when the human's answer to posture_ask
-# holds the merge, and that answer is on GitHub now. The answer is the
+# permits the merge, and that answer is on GitHub now. The answer is the
 # session log's latest evidence_submitted in state posture_ask; only its
-# `merge` field reading `held` counts (never Reversals prose, which fixes no
+# `merge` field reading `permitted` counts (never Reversals prose, which fixes no
 # phrasing and can't tell who holds which step). It must also be on the live
 # record: a Reversals row from `the human`, whose Reversed or Now mentions the
 # posture, dated at or after that evidence (to the minute) -- the test
-# record-confirm.sh applies after posture_ask. 1 no held answer, or no such
+# record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
     local s=$1 log ev facts repo ref scope name min body
@@ -183,7 +183,7 @@ bl_human_holds_merge() {
     ev=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "posture_ask")
         | {timestamp: (.timestamp // ""), merge: (.payload.fields.merge // "")}' "$log" 2>/dev/null | tail -1)
     [ -n "$ev" ] || return 1
-    [ "$(printf '%s' "$ev" | jq -r '.merge')" = held ] || return 1
+    [ "$(printf '%s' "$ev" | jq -r '.merge')" = permitted ] || return 1
     min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2
@@ -212,7 +212,7 @@ bl_human_holds_merge() {
 # start_posture) and a fresh posture-read.sh can only narrow each other: the
 # stricter wins (deny > confirm > unread > permit). An unread result becomes
 # permit only when the start read was unread for merge and the human's answer
-# at posture_ask held the merge and is on GitHub now (bl_human_holds_merge),
+# at posture_ask permitted the merge and is on GitHub now (bl_human_holds_merge),
 # and confirm otherwise. A missing or invalid start capture counts as unread
 # with no recorded answer. Returns 0 printed; 2 the fresh read failed.
 bl_merge_posture() {
