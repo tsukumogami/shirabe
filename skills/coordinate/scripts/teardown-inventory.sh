@@ -32,6 +32,12 @@
 # Anything it can't classify (a submodule, a repository it can't read, a
 # pull request lookup that fails) is an error, never `durable`.
 #
+# Files a repository's .gitignore excludes are not inventoried: they are
+# build output, caches and dependencies in practice, and counting them would
+# make every instance unique. Anything load-bearing a worker keeps belongs in a
+# commit, a pull request or an issue, which is where the teardown's two
+# questions to the worker send it before this runs.
+#
 # Usage:
 #   teardown-inventory.sh --topic <topic> [--instance <dir>]
 #   teardown-inventory.sh --seal --session <s> [--instance <dir>]

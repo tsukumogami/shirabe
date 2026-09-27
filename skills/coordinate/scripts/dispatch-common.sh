@@ -306,7 +306,9 @@ dc_record_list() {
 
 dc_record_write() {
     dc_record_present || return 2
-    bash "$DC_RECORD_HOLDING" --topic "$2" --row-file "$3" --session "$1"
+    # A write prints the record's URL; it goes to stderr so a caller's stdout
+    # stays its own answer.
+    bash "$DC_RECORD_HOLDING" --topic "$2" --row-file "$3" --session "$1" >&2
     local rc=$?
     case "$rc" in
         0 | 10 | 65) return "$rc" ;;

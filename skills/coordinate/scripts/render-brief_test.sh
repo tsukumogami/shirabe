@@ -91,6 +91,8 @@ has "out of scope: given"        "$B" "- The CLI's help text."
 has "out of scope: closes"       "$B" "report to the coordinator with its number, the reason and the evidence"
 has "out of scope: no filing"    "$B" "Don't file new issues: propose them in a report."
 has "conventions pointer"        "$B" "Follow the target repository's conventions (its CLAUDE.md)"
+has "credentials line"           "$B" "never by printing the file or its environment block"
+has "credentials: report unquoted" "$B" "report it to the coordinator at once without quoting its value"
 has "channel: dispatcher named"  "$B" 'addressed to its session name `coord-alpha`'
 has "channel: only direction"    "$B" "That session is your only source of direction"
 has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'

@@ -239,7 +239,8 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   bullets((.out_of_scope // []) + [
     "Anything you find that should be closed, report to the coordinator with its number, the reason and the evidence; whether you may close it yourself is the workspace'"'"'s call.",
     "Don'"'"'t file new issues: propose them in a report.",
-    "Follow the target repository'"'"'s conventions (its CLAUDE.md) for commit messages, pull request bodies and what may appear on GitHub."
+    "Follow the target repository'"'"'s conventions (its CLAUDE.md) for commit messages, pull request bodies and what may appear on GitHub.",
+    "Read settings files, `.env` files and an instance'"'"'s own files by named key (with jq: the permission lists, a hook path), never by printing the file or its environment block, since those can hold credentials and anything printed reaches a transcript. Never change settings or touch a token. If a credential is exposed anyway, report it to the coordinator at once without quoting its value."
   ]; ""),
   "",
   "## Reporting",

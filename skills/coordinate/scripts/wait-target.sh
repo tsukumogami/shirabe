@@ -110,7 +110,13 @@ if [ "$MODE" = leg ]; then
     printf '%s' "$LEG" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
     dc_valid_topic "$TOPIC" || { printf '%s: wait_target holds a malformed topic\n' "$PROG" >&2; exit 2; }
     put report_topic "$TOPIC"
-    DISP=$(printf '%s' "$T" | jq -r '.disposition // "open" | strings')
+    # The leg's disposition now, not the one select saw: koto re-runs this
+    # action on every blocked tick, and a leg that resolves in between is
+    # taken by the gate that follows, so it has to be marked on that tick.
+    REQ=$(printf '%s' "$T" | jq -r '.request // "" | strings')
+    printf '%s' "$REQ" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; exit 2; }
+    VIEW=$("$KOTO" request get "$REQ" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2; }
+    DISP=$(printf '%s' "$VIEW" | jq -r --arg l "$LEG" '(.request // .) | .legs[$l].disposition // "missing" | strings')
     if [ "$DISP" != open ]; then
         REF=$(printf '%s' "$T" | jq -r '"\(.request):\(.leg)"')
         TAKEN=$(ctx_or_empty taken_legs) || exit 2

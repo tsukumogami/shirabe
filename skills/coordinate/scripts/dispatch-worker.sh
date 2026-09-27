@@ -230,11 +230,11 @@ if [ "$REBRIEF" = 1 ]; then
     [ "$STATUS" = dispatched ] || die 2 "the holding for $TOPIC is $STATUS, not dispatched"
     # Repository and entry point come from the row, never from the report or
     # the brief input: a report is text the worker wrote.
-    jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point' "$INPUT" >"$WORK/rebrief.json" ||
+    # Flags too: the holding's mode is the flags the worker was launched with,
+    # and they become the re-brief's run mode, whatever the brief input says.
+    jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point
+        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]' "$INPUT" >"$WORK/rebrief.json" ||
         die 2 "cannot build the re-brief input"
-    ROW_MODE=$(printf '%s' "$ROW" | jq -r '.mode // "" | strings')
-    IN_MODE=$(dc_mode "$INPUT")
-    [ "$ROW_MODE" = "$IN_MODE" ] || die 2 "the re-brief's flags [$IN_MODE] differ from the holding's [$ROW_MODE]"
     # A worker's leg carries one result, and the fix comes after it, so a
     # re-briefed worker reports by message: the holding moves to the message
     # path and the spent request is abandoned. The brief says so by showing

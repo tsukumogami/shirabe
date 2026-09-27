@@ -136,6 +136,13 @@ eq  "taken: reading a resolved leg marks it taken" "req_g:execute" "$(cat "$ST/c
 eq  "taken: the next pick skips it" req_a "$(sel)"
 bash "$S" leg --session coord >/dev/null
 eq  "taken: reading an open leg doesn't mark it" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+# The leg resolves after select picked it open: the next tick's leg run sees
+# it resolved and marks it, so it's never read twice.
+req req_a scope resolved
+bash "$S" leg --session coord >/dev/null
+eq  "taken: a leg that resolved after select is marked on the tick that takes it" "req_a:scope
+req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+eq  "taken: and isn't picked again" none "$(sel)"
 
 reset "$ROWS"
 req req_g execute open

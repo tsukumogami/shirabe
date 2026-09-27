@@ -122,6 +122,8 @@ fi
 echo "record write $TOPIC $(jq -r .dispatch_status "$ROWF")" >>"$ST/calls.log"
 [ "${RECORD_WRITE_MODE:-}" = refuse ] && exit 10
 cp "$ROWF" "$ST/rows/$TOPIC.json"
+# The real writer prints the record's URL on a successful write.
+echo "https://github.com/acme/widgets/issues/1"
 EOF
 chmod +x "$BIN/koto" "$BIN/niwa" "$T/record-holding.sh"
 export PATH="$BIN:$PATH"
@@ -163,7 +165,7 @@ calls() { cat "$ST/calls.log"; }
 # --- a fresh dispatch, message path -----------------------------------------------------
 
 reset "$INPUT_DELIVER"
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "fresh: exit 0" 0 "$RC"
 eq  "fresh: prints the session name" "session=plugin_api-1a2b3c4d" "$OUT"
 LOG=$(calls)
@@ -201,7 +203,7 @@ has "prompt: brief path" "$P" "$W/.niwa/dispatch-briefs/plugin-api.md"
 # --- a re-run on a dispatched topic ---------------------------------------------------------
 
 : >"$ST/calls.log"
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "re-run: exit 0" 0 "$RC"
 eq  "re-run: already-dispatched" already-dispatched "$OUT"
 eq  "re-run: no launch, no write" "" "$(grep -E '^niwa dispatch|record write' "$ST/calls.log")"
@@ -209,7 +211,7 @@ eq  "re-run: no launch, no write" "" "$(grep -E '^niwa dispatch|record write' "$
 # --- the leg path ------------------------------------------------------------------------------
 
 reset "$INPUT_SCOPE"
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "leg: exit 0" 0 "$RC"
 LOG=$(calls)
 has "leg: one-leg request named scope" "$LOG" '"name":"scope","role":"scope","template":"scope.md","inputs":{"TOPIC":"plugin-api"}'
@@ -242,7 +244,7 @@ eq  "leg: a failed create writes and launches nothing" "" "$(grep -E '^niwa disp
 reset "$INPUT_DELIVER"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"message","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --no-merge"}' >"$ST/rows/plugin-api.json"
 printf '[{"name":"x","path":"/p","session_name":"plugin_api-1a2b3c4d"}]\n' >"$ST/sessions.json"
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "resume, launched: exit 0" 0 "$RC"
 eq  "resume, launched: confirmed from the listing" "session=plugin_api-1a2b3c4d" "$OUT"
 eq  "resume, launched: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
@@ -250,7 +252,7 @@ eq  "resume, launched: row dispatched" dispatched "$(row dispatch_status)"
 
 reset "$INPUT_SCOPE"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue"}' >"$ST/rows/plugin-api.json"
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "resume, not launched: exit 0" 0 "$RC"
 eq  "resume, not launched: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 lacks "resume, not launched: reuses the recorded request" "$(calls)" "koto request create"
@@ -267,7 +269,7 @@ has "failed launch: request abandoned" "$(calls)" "koto request abandon-request 
 
 reset "$INPUT_DELIVER"
 export NIWA_MODE=fail-but-launched
-OUT=$(run 2>&1); RC=$?
+OUT=$(run 2>/dev/null); RC=$?
 eq  "failed exit, session appeared: exit 0" 0 "$RC"
 eq  "failed exit, session appeared: confirmed" dispatched "$(row dispatch_status)"
 
@@ -339,7 +341,7 @@ jq -c '.dispatched = "2000-01-01"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$S
 printf 'plugin-api' >"$ST/ctx/report_topic"
 jq -c '.goal = "The plugin API ships, and the loader tolerates a missing manifest." | .repo = "evil/elsewhere"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 : >"$ST/calls.log"
-OUT=$(run --rebrief 2>&1); RC=$?
+OUT=$(run --rebrief 2>/dev/null); RC=$?
 eq  "rebrief: exit 0" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
@@ -352,7 +354,8 @@ eq  "rebrief: row's date updated" "$(date -u +%Y-%m-%d)" "$(row dispatched)"
 
 jq -c '.run_mode = "--interactive"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 run --rebrief >/dev/null 2>&1; RC=$?
-eq  "rebrief: flags differing from the holding refused" 2 "$RC"
+eq  "rebrief: flags differing in the input: exit 0" 0 "$RC"
+has "rebrief: the flags come from the holding, not the input" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:deliver plugin-api --auto --no-merge`'
 
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
