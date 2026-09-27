@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   /work-on's staleness_check gate calls a script shirabe doesn't ship, by a
   bare name and an argument form nothing on a shirabe-only host provides. The
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framing for the staleness_check gate in `/work-on`. The downstream PRD owns
 what the gate must do; the DESIGN owns which of the four approaches the issue
