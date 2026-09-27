@@ -42,7 +42,7 @@
 #
 # The run identity. Every lookup carries --run-id when the script has one:
 # given as --run-id (/deliver's probe passes its own), or read from --session
-# through skills/execute/scripts/run-id.sh, which mints it on first use. /scope
+# through skills/execute/scripts/run-id.sh get (scope-open.sh minted it). /scope
 # stamps no marker on the PR it opens, so its own PR is matched on owned-pr.sh's
 # login-and-branch fallback; the identity is what keeps a PR another run
 # marked from being reused, edited, or verified. With neither flag (a hand
@@ -61,10 +61,8 @@
 # --verify exits 0 only when `git ls-remote origin refs/heads/<branch>` equals
 # `git rev-parse HEAD`, exactly one owned open PR exists on the branch, and,
 # with --expect-intent, that PR's body records `intent=<value>`. It makes no
-# GitHub or git write. Its one possible write is to koto context: given
-# --session, it reads the session's run identity through run-id.sh, which
-# mints `run_id` on the session's first use (publish mode, run earlier with
-# the same --session, has normally minted it already).
+# GitHub or git write, and no koto context write: given --session, it only
+# reads the session's run identity (run-id.sh get).
 #
 # The public-content visibility check. In a repository whose CLAUDE.md (or
 # CLAUDE.local.md) declares `## Repo Visibility: Public`, a wip/ file in
@@ -94,7 +92,7 @@
 #   publish:  0 published; 10 scope:push; 11 scope:pr-create; 64 usage;
 #             66 a koto context call failed
 #   verify:   0 verified; 1 not verified; 2 could not read; 64 usage;
-#             66 the run identity could not be read or minted
+#             66 the run identity could not be read
 #
 # Requires: bash 3.2+, git, gh, jq; shirabe for a coordinated body; koto with
 # --session.
@@ -168,13 +166,13 @@ else
 fi
 
 # resolve_run_id -- the run identity every lookup carries: --run-id as given,
-# else the session's (minted on first use), else none. Sets OWNED_RUN to the
+# else the session's (run-id.sh get; never minted here), else none. Sets OWNED_RUN to the
 # owned-pr.sh arguments.
 OWNED_RUN=()
 resolve_run_id() {
     if [ -z "$RUN_ID" ] && [ -n "$SESSION" ]; then
         RUN_ID=$(bash "$RUNID" get "${KOTO_TICK_SESSION:-$SESSION}" </dev/null) || {
-            printf '%s: could not read or mint this run'"'"'s identity\n' "$PROG" >&2
+            printf '%s: could not read this run'"'"'s identity\n' "$PROG" >&2
             exit 66
         }
     fi

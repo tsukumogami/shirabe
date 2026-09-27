@@ -38,7 +38,7 @@
 #   0   a line was printed (a refusal included)
 #   64  usage error
 #   70  the merge_attempts write failed, or the run's identity could not be
-#       read or minted (run-id.sh)
+#       read (run-id.sh get)
 #   72  a GitHub read failed (execute:status-read)
 #   73  the indexed PR is not the one owned PR on its branch, or the index has
 #       no line for the node (execute:pr-adopt)
@@ -88,7 +88,7 @@ command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 
 # This run's identity, from its session: every lookup below carries it.
 COORD_RUN_ID=$("$BASH" "$COORD_SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
-    echo "$PROG: could not read or mint this run's identity in session $SESSION" >&2
+    echo "$PROG: could not read this run's identity in session $SESSION" >&2
     exit 70
 }
 

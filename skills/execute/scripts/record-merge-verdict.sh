@@ -65,7 +65,7 @@
 # write confirm_verdict only when the line matches
 # ^(merged|not-merged:merge-not-observed)$. Nothing else is read or written,
 # except that both modes read the session's run identity through run-id.sh,
-# which mints `run_id` if the session has none yet.
+# which only reads it: a session with no `run_id` exits 70.
 #
 # Exit codes:
 #   0   recorded (in verdict mode this includes the lookup failures of step 3,
@@ -192,7 +192,7 @@ fi
 # Resolve the owned PR. Run by this interpreter from this directory, never from
 # PATH.
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
-    echo "$PROG: could not read or mint this run's identity in session $SESSION" >&2
+    echo "$PROG: could not read this run's identity in session $SESSION" >&2
     exit 70
 }
 URL=$("$BASH" "$OWNED" --repo "$REPO" --head "$BRANCH" --state all --run-id "$RUN_ID" </dev/null)

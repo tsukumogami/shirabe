@@ -502,8 +502,9 @@ passes the run's own id as `owned-pr.sh --run-id`:
   PR beside an unmarked one) are ambiguous, and nothing is picked.
 
 The id is 32 random hex characters kept in the session's `run_id` context key.
-`skills/execute/scripts/run-id.sh` is the only thing that mints it (on first
-use), writes the marker, or carries it through a body rewrite; the marker
+`skills/execute/scripts/run-id.sh` is the only thing that mints it (`mint`,
+called only where a session is born: `execute-open.sh`, `scope-open.sh`,
+`deliver-open.sh`; every later caller uses `get`, which never mints), writes the marker, or carries it through a body rewrite; the marker
 carries nothing but the id. `execute-open.sh` gives every session an id and,
 when koto replaces a finished session, seeds the replacement with the finished
 one's, so a re-invocation of the same PLAN in the same place is the same run.
@@ -544,17 +545,21 @@ re-invocation after the earlier run's session is gone, so `execute-open.sh`
 had nothing to carry forward -- finds the PLAN's own PR marked by that earlier
 run. The lookup refuses it (exit 5, which `adopt-or-create-pr.sh` reports as
 its exit 6), and GitHub refuses a second open PR on the same head. The way out
-is explicit: at `orchestrator_setup`, the agent re-runs the lookup with
-`--take-over` only on a positive signal that the earlier run ended: the
-invocation says, in so many words, that this is its re-entry. A replaced
+is explicit, and bound to this PLAN's own shared branch: at
+`orchestrator_setup` step 2, the agent re-runs the `impl/<slug>` lookup with
+`--take-over --plan-slug <slug>` only on a positive signal that the earlier
+run ended: the invocation says, in so many words, that this is its re-entry.
+`adopt-or-create-pr.sh` refuses `--take-over` on any other head, and step 1's
+lookup on the current branch never takes over (another PLAN's branch, or a
+coordinated node branch, can carry a live run's PR); its exit 6 ends
+`step=execute:pr-adopt`. A replaced
 session is not that signal: `execute-open.sh` carries the finished session's
 identity forward, so a foreign marker after a replacement usually came from a
 run somewhere else (the exception is a carry that failed, which
 `execute-open.sh` reports on stderr), and without the statement the run does
-not take the PR over either way. Proving that the earlier session is
-terminal is not attempted: a live run elsewhere is invisible from here, and
-koto disposes a child session at its terminal (koto#240), so "no session
-found" proves nothing. `owned-pr.sh --take-over`
+not take the PR over either way. The rule does not try to prove that the
+earlier session is terminal: a live run in another checkout or on another
+machine is invisible from here, so "no session found" proves nothing. `owned-pr.sh --take-over`
 rewrites that one PR's marker to name this run and adopts it; it only ever
 touches a PR that passed the other checks above (this repository, this login,
 the base, the branch), and it picks nothing when several foreign-marked PRs

@@ -56,7 +56,7 @@
 # nothing but where the result goes.
 #
 # The run identity. A session this script opens always has a `run_id`
-# (run-id.sh), the identity every owned-PR lookup of the run carries. When
+# (`run-id.sh mint`), the identity every owned-PR lookup of the run carries. When
 # koto replaces a finished session, the finished one's `run_id` is read first
 # and seeded into the replacement, so a re-invocation of the same PLAN in the
 # same place still owns the PR the earlier run opened.
@@ -218,18 +218,16 @@ case "$OUT" in
     opened=*)
         # Carry the prior run's identity into a replacement (seed writes only
         # when the session has none, so an attached live session keeps its
-        # own), then make sure the session has one. A failure here is not a
-        # refusal: the run mints its identity on first use, and a PR the
-        # earlier run opened then surfaces as another run's (exit 6 at
-        # orchestrator_setup). That stops the run short of taking the PR over
-        # unless the invocation states the earlier run ended, which is the
-        # safe side to fail on; the warning below is what tells a reader why.
+        # own), then mint one if the session still has none. This is one of
+        # the three places a run identity is minted; every later caller only
+        # reads it. A failure here is not a refusal, but the run's later
+        # lookups then fail on the missing run_id rather than adopt anything.
         if [ -n "$PRIOR_RUN_ID" ]; then
             bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$PRIOR_RUN_ID" </dev/null \
                 || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2
         fi
-        bash "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null >/dev/null \
-            || echo "$PROG: could not record a run identity in $SESSION; it is minted on first use" >&2
+        bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
+            || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
         printf 'session=%s\n' "$SESSION"
         ;;
     refused=*) bash "$PRINT_EXIT" --refused ;;

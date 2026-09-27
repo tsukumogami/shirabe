@@ -12,7 +12,7 @@
 # Context keys this script owns, cleared first on every run so a re-entry never
 # routes on a value an earlier entry wrote:
 #
-#   executed_verdict   one | none | several | read-failed   (written last)
+#   executed_verdict   one | none | several | foreign | read-failed   (written last)
 #   executed_pr        on one: the PR's URL, checked against
 #                      ^https://github\.com/<owner>/<repo>/pull/<n>$
 #   executed_pr_state  on one: merged | open | closed
@@ -23,17 +23,20 @@
 #
 #   one URL, exit 0     -> one, then `gh pr view <url> --json state`
 #   empty, exit 0       -> none         (a foreign-only branch included)
-#   exit 5              -> none         (the one PR is another run's)
+#   exit 5              -> foreign      (the one PR on the branch carries
+#                                        another run's marker: there is a PR,
+#                                        and it is not this topic's run's)
 #   exit 3 or 4         -> several      (4: an ambiguous, marked lookup)
 #   exit 2, or anything else, or a URL outside the pattern -> read-failed
 #
 # The lookup carries this run's identity (`run-id.sh get <session>`, the
-# session's `run_id`, minted on first use), so a PR another run marked is never
+# session's `run_id`, minted by scope-open.sh), so a PR another run marked is never
 # reported as this topic's. /scope's own PR carries no marker and is matched on
 # the login-and-branch fallback.
 #
 # `executed_report` sends one with merged or open to done_executed, and every
-# other verdict, an absent one included, to done_error with scope:pr-create.
+# other verdict (foreign included), an absent one too, to done_error with
+# scope:pr-create.
 # A foreign PR's URL is never written: owned-pr.sh prints only a survivor.
 #
 # Usage:
@@ -45,7 +48,7 @@
 # Exit codes:
 #   0   a verdict was written (any of the four)
 #   64  usage error; nothing written
-#   66  a `koto context` call failed (including reading or minting run_id)
+#   66  a `koto context` call failed (including reading run_id)
 #
 # Read-only on GitHub and on the working tree: its only gh calls are
 # `gh repo view`, owned-pr.sh's reads, and `gh pr view`. bash 3.2.
@@ -116,7 +119,7 @@ if ! [[ "$REPO" =~ $RE_REPO ]]; then
 fi
 
 RUN_ID=$(bash "$RUNID" get "$SESSION" </dev/null) || {
-    printf '%s: could not read or mint this run'"'"'s identity\n' "$PROG" >&2
+    printf '%s: could not read this run'"'"'s identity\n' "$PROG" >&2
     exit 66
 }
 URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state all --run-id "$RUN_ID" </dev/null)
@@ -124,7 +127,7 @@ RC=$?
 case "$RC" in
     0) ;;
     3|4) verdict several ;;
-    5) verdict none ;;
+    5) verdict foreign ;;
     *) printf '%s: owned-pr.sh exited %s\n' "$PROG" "$RC" >&2; verdict read-failed ;;
 esac
 [ -n "$URL" ] || verdict none

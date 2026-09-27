@@ -456,6 +456,9 @@ init_orchestrator() {
         exit 1
     fi
     printf 'the orchestrator record\n' | k context add "$s" summary.md >/dev/null 2>&1
+    # The run identity execute-open.sh mints at the session's birth; the
+    # scripts the template runs only read it.
+    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     k next "$s" --no-cleanup >/dev/null 2>&1
     st=$(k status "$s" 2>/dev/null | jq -r '.current_state // "gone"')
     if [ "$st" != "orchestrator_setup" ]; then

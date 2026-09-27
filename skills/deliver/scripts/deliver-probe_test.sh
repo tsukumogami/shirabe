@@ -97,7 +97,13 @@ SESS=deliver-t1
 key() { cat "$KOTO_STORE/$SESS/$1" 2>/dev/null; }
 has() { [ -f "$KOTO_STORE/$SESS/$1" ]; }
 seed() { mkdir -p "$KOTO_STORE/$SESS"; printf '%s' "$2" >"$KOTO_STORE/$SESS/$1"; }
-reset_store() { rm -rf "${KOTO_STORE:?}/$SESS"; }
+# reset_store -- an empty session store holding only the run identity
+# deliver-open.sh mints at the session's birth; the probe only reads it.
+reset_store() {
+    rm -rf "${KOTO_STORE:?}/$SESS"
+    mkdir -p "$KOTO_STORE/$SESS"
+    printf '%s' 00112233445566778899aabbccddeeff >"$KOTO_STORE/$SESS/run_id"
+}
 
 RC=0; OUT=""
 run() { # run <mode> -- the probe from inside the repository
@@ -154,8 +160,13 @@ FOREIGN=fedcba9876543210fedcba9876543210
 reset_store
 db "[$(pr "$URL" OPEN)]"
 run scoped
-if [[ "$(key run_id)" =~ ^[0-9a-f]{32}$ ]]; then ok "the session's run_id is minted on first use"; else bad "run_id minted" "[$(key run_id)]"; fi
 eq "an unmarked /scope PR, looked up with a run identity, still passes on the fallback" pass "$(key scoped_verdict)"
+
+reset_store; rm -f "$KOTO_STORE/$SESS/run_id"
+db "[$(pr "$URL" OPEN)]"
+run scoped
+eq "a session with no run_id: exit 66" 66 "$RC"
+if has run_id; then bad "the probe mints no run_id" "[$(key run_id)]"; else ok "the probe mints no run_id"; fi
 
 reset_store; seed run_id "$MINE"
 db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue

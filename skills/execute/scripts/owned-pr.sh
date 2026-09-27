@@ -44,7 +44,9 @@
 # and has lost that run's identity, finds its own branch's PR carrying a
 # foreign marker: the ordinary lookup refuses it (exit 5) and GitHub refuses a
 # second PR on the same head. `--take-over` is the one way out, and only an
-# explicit caller passes it (/execute's re-entry, on the directive's say-so);
+# explicit caller passes it (/execute's re-entry, on the directive's say-so,
+# through adopt-or-create-pr.sh, which refuses --take-over on any head but
+# the PLAN's own impl/<slug>);
 # no lookup takes a PR over on its own. With it, when the lookup would exit 5
 # -- no survivor, and exactly one PR that passed the five checks carries a
 # foreign marker -- the script rewrites that PR's marker to name --run-id
@@ -78,10 +80,11 @@
 #      run marked is never a survivor either, but it is reported: exit 5
 #      for one, exit 4 for several.
 #   3  several survivors, none of them carrying a run marker: stdout is empty
-#   4  several survivors, at least one of them carrying a run marker (two
-#      runs' PRs, or a marked PR beside an unmarked one): the lookup is
-#      ambiguous and picks none. Also: no survivor, and several PRs that
-#      passed the five checks carry other runs' markers. stdout is empty
+#   4  ambiguous, picks none: several candidates (PRs that passed the five
+#      checks) of which at least one carries a run marker -- two runs' PRs, a
+#      marked PR beside an unmarked one, this run's or an unmarked PR beside
+#      one another run marked, or several PRs other runs marked. stdout is
+#      empty
 #   5  no survivor, and exactly one PR that passed the five checks carries
 #      another run's marker (or a malformed one): the PR on this login and
 #      branch belongs to a different run. Never adopted without --take-over.
@@ -304,6 +307,15 @@ if [ "$N_SURV" -eq 0 ]; then
         exit 4
     fi
     exit 0
+fi
+
+# A survivor beside another run's candidate is ambiguous too: under
+# --state all, an unmarked (or this run's) merged PR can sit beside an open
+# PR another run marked on the same head, and picking the survivor would
+# compute a verdict while that other run works on the branch.
+if [ "$N_SURV" -ge 1 ] && [ "$N_FOREIGN" -gt 0 ]; then
+    echo "$PROG: $REPO head $HEAD has $N_SURV candidate(s) for this run beside $N_FOREIGN another run marked; ambiguous, refusing to pick one" >&2
+    exit 4
 fi
 
 if [ "$N_SURV" -gt 1 ]; then

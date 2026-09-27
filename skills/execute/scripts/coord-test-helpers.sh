@@ -82,7 +82,10 @@ CT_CLI=pr-repo-a-cli
 ct_case() {
     CASE="$CT_WORK/cases/$1"
     rm -rf "$CASE"
-    mkdir -p "$CASE/scenario/gh" "$CASE/ctx"
+    mkdir -p "$CASE/scenario/gh" "$CASE/ctx/execute-t"
+    # The run identity execute-open.sh mints at the session's birth, for the
+    # execute-t session the tests drive; the scripts under test only read it.
+    printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
     export EVAL_SCENARIO_DIR="$CASE/scenario"

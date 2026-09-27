@@ -1362,8 +1362,8 @@ states:
     # cleanup (Decision 5). Agent-run: a push and `gh pr create` are
     # externally visible, so they are never a default action. The agent runs
     # publish-scoping-pr.sh; the `published` gate re-checks the result with the
-    # script's --verify (no GitHub or git write; with --session it may mint the
-    # session's run_id), so a run cannot claim a PR it did not open.
+    # script's --verify (no GitHub, git or koto context write), so a run cannot
+    # claim a PR it did not open.
     #
     # A failure ends at done_error, before cleanup, so the state file keeps
     # `exit:` and its fields (R12) and the next invocation's resume_route
@@ -1691,8 +1691,9 @@ states:
     # default action finds the branch's owned PR through the shared
     # owned-pr.sh --state all and writes executed_verdict, executed_pr and
     # executed_pr_state; the gates below route on them and refuse overrides.
-    # There is nothing to create here, so zero, several, a failed read, a
-    # closed PR, or no verdict at all end at done_error with scope:pr-create.
+    # There is nothing to create here, so zero, several, another run's PR
+    # (foreign), a failed read, a closed PR, or no verdict at all end at
+    # done_error with scope:pr-create.
     # No foreign PR's URL can reach the result: the script writes only the
     # one survivor of the ownership filter.
     default_action:

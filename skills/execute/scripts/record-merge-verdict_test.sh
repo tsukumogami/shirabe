@@ -120,6 +120,8 @@ new_case() {
     CASE="$WORK/cases/$1"
     rm -rf "$CASE"; mkdir -p "$CASE/ctx/$S"
     : > "$CASE/calls.log"; : > "$CASE/gh.log"; : > "$CASE/verdict-args.log"
+    # The run's identity, as execute-open.sh leaves it; the script only reads it.
+    printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/$S/run_id"
     echo '{"login":"octo"}' > "$CASE/user.out"
     echo '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true}' > "$CASE/repo.out"
     jq -nc --arg url "$URL" '[{url: $url, state: "OPEN", isCrossRepository: false,

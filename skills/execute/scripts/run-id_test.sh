@@ -56,12 +56,20 @@ rid() { KOTO_CTX="$WORK/ctx" PATH="$BIN:$PATH" bash "$RUNID" "$@"; }
 
 # --- get ---------------------------------------------------------------------------
 
-A1=$(rid get execute-demo); RC1=$?
+rid get execute-demo >/dev/null 2>&1; RC0=$?
+if [ "$RC0" -eq 67 ] && [ ! -f "$WORK/ctx/execute-demo.run_id" ]; then
+    pass "get on a session with no id exits 67 and mints nothing"
+else
+    fail "get on a session with no id: exit $RC0, stored [$(cat "$WORK/ctx/execute-demo.run_id" 2>/dev/null)]"
+fi
+A1=$(rid mint execute-demo); RC1=$?
 A2=$(rid get execute-demo); RC2=$?
-B1=$(rid get execute-other)
-if [ "$RC1" -eq 0 ] && [[ $A1 =~ ^[0-9a-f]{32}$ ]]; then pass "get mints a 32-hex id"; else fail "get: [$A1] exit $RC1"; fi
-if [ "$RC2" -eq 0 ] && [ "$A1" = "$A2" ]; then pass "get returns the stored id on a later call"; else fail "get is not stable: [$A1] then [$A2]"; fi
-if [ "$(cat "$WORK/ctx/execute-demo.run_id")" = "$A1" ]; then pass "get stores the id as run_id"; else fail "run_id not stored"; fi
+B1=$(rid mint execute-other)
+A3=$(rid mint execute-demo)
+if [ "$A3" = "$A1" ]; then pass "mint on a session that has an id returns it and mints no second one"; else fail "mint replaced an existing id: [$A1] then [$A3]"; fi
+if [ "$RC1" -eq 0 ] && [[ $A1 =~ ^[0-9a-f]{32}$ ]]; then pass "mint mints a 32-hex id"; else fail "mint: [$A1] exit $RC1"; fi
+if [ "$RC2" -eq 0 ] && [ "$A1" = "$A2" ]; then pass "get returns the minted id"; else fail "get after mint: [$A1] then [$A2]"; fi
+if [ "$(cat "$WORK/ctx/execute-demo.run_id")" = "$A1" ]; then pass "mint stores the id as run_id"; else fail "run_id not stored"; fi
 if [ "$A1" != "$B1" ]; then pass "two sessions get different ids"; else fail "two sessions share [$A1]"; fi
 
 # --- seed --------------------------------------------------------------------------
@@ -170,7 +178,8 @@ expect_rc() { # expect_rc <label> <rc> <args...>
     if [ "$rc" -eq "$want" ]; then pass "$label (exit $want)"; else fail "$label: want exit $want, got $rc"; fi
 }
 expect_rc "no mode" 64
-expect_rc "unknown mode" 64 mint execute-demo
+expect_rc "unknown mode" 64 forge execute-demo
+expect_rc "mint without a session" 64 mint
 expect_rc "get without a session" 64 get
 expect_rc "get with a bad session name" 64 get '-x'
 expect_rc "seed with a bad id" 64 seed execute-demo ABC
@@ -178,10 +187,11 @@ expect_rc "stamp with a bad id" 64 stamp xyz "$WORK/body.md"
 expect_rc "stamp on a missing file" 74 stamp "$S" "$WORK/nope.md"
 expect_rc "carry on a missing live file" 74 carry "$WORK/nope.md" "$WORK/body.md"
 touch "$WORK/ctx/fail"
-expect_rc "get when every koto call fails (the add of a fresh id fails)" 66 get execute-brand-new
+expect_rc "mint when every koto call fails (the add of a fresh id fails)" 66 mint execute-brand-new
 rm -f "$WORK/ctx/fail"
 echo 2 > "$WORK/ctx/exists-rc"
-expect_rc "get when koto context exists errors (not 'absent'): no id is minted" 66 get execute-demo
+expect_rc "get when koto context exists errors (not 'absent'): an error, not a new id" 66 get execute-demo
+expect_rc "mint when koto context exists errors: an error, not a second id" 66 mint execute-demo
 rm -f "$WORK/ctx/exists-rc"
 if [ "$(cat "$WORK/ctx/execute-demo.run_id")" = "$A1" ]; then
     pass "an exists error left the stored id untouched"

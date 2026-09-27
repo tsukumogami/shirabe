@@ -56,7 +56,7 @@ koto	request close	-	always
 # skills/execute/scripts/merge-verdict.sh --confirm the PR's state.
 # Every lookup carries the session's run identity, which
 # skills/execute/scripts/run-id.sh reads with `koto context exists` and
-# `koto context get` and mints on first use with `koto context add`.
+# `koto context get`; deliver-open.sh mints it once with `koto context add`.
 # deliver-preflight.sh reads the work-tree root with git. jq maps the
 # invocation's tokens and reads koto's and gh's JSON. Every repository write
 # happens inside /scope and /execute, under their own declarations.

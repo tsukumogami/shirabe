@@ -63,7 +63,8 @@
 # Exit codes:
 #   0   a verdict was written (any verdict)
 #   64  usage error; nothing read or written
-#   66  a `koto context` call failed (including reading or minting run_id)
+#   66  a `koto context` call failed (including reading run_id, which
+#       deliver-open.sh minted)
 #
 # Environment:
 #   MERGE_CONFIRM_WAIT_SECS  the confirm window merge-verdict.sh waits for a
@@ -142,7 +143,7 @@ esac
 for k in $KEYS; do ctx_remove "$k"; done
 
 RUN_ID=$(bash "$PLUGIN/skills/execute/scripts/run-id.sh" get "$SESSION" </dev/null) || {
-    printf '%s: could not read or mint this run'"'"'s identity (run_id)\n' "$PROG" >&2
+    printf '%s: could not read this run'"'"'s identity (run_id)\n' "$PROG" >&2
     exit 66
 }
 

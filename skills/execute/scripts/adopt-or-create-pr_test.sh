@@ -94,7 +94,11 @@ new_case() {
     echo '{"default_branch":"main"}' > "$CASE/repo.out"
     echo '[]' > "$CASE/list.out"
     : > "$CASE/create.out"
+    # The run's identity, as execute-open.sh leaves it at the session's birth;
+    # adopt-or-create-pr.sh only reads it.
+    printf '%s' "$SEEDED" > "$CASE/ctx/$S/run_id"
 }
+SEEDED=00112233445566778899aabbccddeeff
 ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 
 run_adopt() {
@@ -190,12 +194,44 @@ printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
 echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out.1"
 echo "[$(marked 7 "$MINE")]" > "$CASE/list.out.2"
 echo 0 > "$CASE/edit.rc"
-run_adopt --session "$S" --repo o/r --head impl/topic --take-over
+run_adopt --session "$S" --repo o/r --head impl/topic --take-over --plan-slug topic
 if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && [ "$(grep -c '^pr edit' "$CASE/gh.log")" -eq 1 ] \
     && [ "$(creates)" -eq 0 ]; then
-    pass "--take-over restamps the other run's PR and adopts it"
+    pass "--take-over restamps the other run's PR on this PLAN's impl/<slug> and adopts it"
 else
     fail "marker-takeover: exit $RC, home_pr [$(ctx home_pr)], edits $(grep -c '^pr edit' "$CASE/gh.log")"
+fi
+
+# Cross-PLAN: the branch the user is on (another PLAN's impl/<slug>, a
+# scoping branch, a node branch) carries a live run's marked PR. A takeover
+# there must be refused before any gh or koto call.
+for head in impl/other-plan docs/topic impl/topic-node-a; do
+    new_case "takeover-refused-$(printf '%s' "$head" | tr '/' '-')"
+    echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+    run_adopt --session "$S" --repo o/r --head "$head" --take-over --plan-slug topic
+    if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ] && ! grep -q '^pr edit' "$CASE/gh.log"; then
+        pass "--take-over on $head (not this PLAN's impl/topic) is refused, nothing read or edited"
+    else
+        fail "--take-over on $head: exit $RC, gh [$(cat "$CASE/gh.log")]"
+    fi
+done
+new_case takeover-no-slug
+echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic --take-over
+if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ]; then
+    pass "--take-over without --plan-slug is refused"
+else
+    fail "--take-over without --plan-slug: exit $RC"
+fi
+
+new_case no-identity
+rm -f "$CASE/ctx/$S/run_id"
+echo "[$(owned 7)]" > "$CASE/list.out"
+run_adopt --session "$S" --repo o/r --head impl/topic
+if [ "$RC" -eq 70 ] && [ ! -f "$CASE/ctx/$S/run_id" ] && [ ! -s "$CASE/gh.log" ]; then
+    pass "a session with no run_id: exit 70, no id minted, no lookup made"
+else
+    fail "no-identity: exit $RC, run_id [$(ctx run_id)]"
 fi
 
 new_case marker-unmarked

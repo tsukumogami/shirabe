@@ -188,6 +188,17 @@ else
     fail "node-push.sh: ownership check at [$OWN], push at [$GP]"
 fi
 
+# --- the run identity is minted only where a session is born ------------------
+
+MINTERS=$(grep -rln --include='*.sh' --include='*.md' --exclude-dir=workspace -e 'run-id.sh" mint\|run-id.sh mint' skills \
+    | grep -v '_test.sh$' | grep -vx skills/execute/scripts/run-id.sh | sort | tr '\n' ' ')
+WANT_MINTERS="skills/deliver/scripts/deliver-open.sh skills/execute/scripts/execute-open.sh skills/scope/scripts/scope-open.sh "
+if [ "$MINTERS" = "$WANT_MINTERS" ]; then
+    pass "run-id.sh mint is called only by the three session-opening scripts"
+else
+    fail "run-id.sh mint callers: [$MINTERS], want [$WANT_MINTERS]"
+fi
+
 # --- --take-over is never passed silently -------------------------------------
 
 TAKE=$(grep -rn --include='*.sh' --include='*.md' --exclude-dir=workspace -e '--take-over' skills \

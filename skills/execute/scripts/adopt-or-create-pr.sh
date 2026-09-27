@@ -20,7 +20,7 @@
 #   adopt-or-create-pr.sh --session <koto-session> --repo <owner/repo>
 #                         --head <branch>
 #                         [--create --plan-slug <slug> --plan-doc <path>]
-#                         [--take-over]
+#                         [--take-over --plan-slug <slug>]
 #
 #   --session    ^[A-Za-z0-9][A-Za-z0-9._-]*$
 #   --repo       a single owner/repo, the run's recorded write set
@@ -33,6 +33,10 @@
 #                finds.
 #   --take-over  passed to owned-pr.sh: when the one PR on the branch carries
 #                another run's marker, restamp it as this run's and adopt it.
+#                Needs --plan-slug, and --head must be exactly
+#                impl/<plan-slug>: any other branch is a usage error, so a
+#                takeover can never reach another PLAN's (or another node's)
+#                PR.
 #                Only /execute's re-entry passes it, after exit 6 said so;
 #                see SKILL.md, "Owned-PR lookup".
 #   --plan-slug  ^[a-z0-9-]+$            (required with --create)
@@ -71,7 +75,7 @@ RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: adopt-or-create-pr.sh --session <s> --repo <owner/repo> --head <branch> [--create --plan-slug <slug> --plan-doc <path>] [--take-over]" >&2
+    echo "usage: adopt-or-create-pr.sh --session <s> --repo <owner/repo> --head <branch> [--create --plan-slug <slug> --plan-doc <path>] [--take-over --plan-slug <slug>]" >&2
     exit 64
 }
 
@@ -117,15 +121,26 @@ if [ "$CREATE" -eq 1 ]; then
     [[ $SLUG =~ $RE_SLUG ]] || usage_error "--plan-slug [$SLUG] must match ^[a-z0-9-]+\$"
     [[ $DOC =~ $RE_DOC ]] || usage_error "--plan-doc [$DOC] must be a plain .md path"
     case "/$DOC/" in */../*) usage_error "--plan-doc [$DOC] names a .. segment" ;; esac
+elif [ "$TAKE_OVER" -eq 1 ]; then
+    [ -z "$DOC" ] || usage_error "--plan-doc goes with --create"
 else
-    [ -z "$SLUG$DOC" ] || usage_error "--plan-slug and --plan-doc go with --create"
+    [ -z "$SLUG$DOC" ] || usage_error "--plan-slug and --plan-doc go with --create or --take-over"
+fi
+# A takeover is bound to this PLAN's own shared branch. Any other head -- the
+# branch the user happens to be on, another PLAN's impl/<slug>, a coordinated
+# node branch -- may carry a live run's PR, and restamping it would hand that
+# run's PR to this one.
+if [ "$TAKE_OVER" -eq 1 ]; then
+    [[ $SLUG =~ $RE_SLUG ]] || usage_error "--take-over needs --plan-slug: it only takes over impl/<plan-slug>"
+    [ "$HEAD" = "impl/$SLUG" ] \
+        || usage_error "--take-over only takes over this PLAN's own branch impl/$SLUG, not [$HEAD]"
 fi
 
 SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 OWNED="$SELF_DIR/owned-pr.sh"
 
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) \
-    || { echo "$PROG: could not read or mint this run's identity" >&2; exit 70; }
+    || { echo "$PROG: could not read this run's identity (run-id.sh get $SESSION)" >&2; exit 70; }
 
 lookup() {
     local take=""

@@ -109,6 +109,8 @@ open_run() {
     k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+    # The run identity execute-open.sh mints at the session's birth.
+    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         >/dev/null 2>"$CASE/setup.err") || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
     k next "$s" --no-cleanup >/dev/null 2>&1

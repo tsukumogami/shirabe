@@ -50,7 +50,7 @@
 #   64  usage error (nothing read or written), or a recorded coord_setup
 #       value is missing or invalid (the keys were cleared, nothing written)
 #   70  a koto context clear or write failed, or the run's identity could not
-#       be read or minted
+#       be read
 #
 # Requires: bash 3.2+, jq, gh, koto.
 set -uo pipefail
@@ -145,7 +145,7 @@ LOOP_LINE=$(ctx_get loop_line)
 [ -z "$ATTEMPTS" ] || [[ $ATTEMPTS =~ $RE_ATTEMPTS ]] || ATTEMPTS=""
 [ -z "$LOOP_LINE" ] || [[ $LOOP_LINE =~ $RE_LOOP_LINE ]] || LOOP_LINE=""
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
-    echo "$PROG: could not read or mint this run's identity in session $SESSION" >&2
+    echo "$PROG: could not read this run's identity in session $SESSION" >&2
     exit 70
 }
 

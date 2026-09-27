@@ -101,7 +101,9 @@ execution_mode: $1
 | [#22: feat: c](#issue-22) | None | simple |
 EOF
 }
-run() { # run <session> <intent> <stage>
+run() { # run <session> <intent> <stage> -- the session carries the run_id scope-open.sh mints
+    mkdir -p "$STORE/$1"
+    [ -f "$STORE/$1/run_id" ] || printf '%s' 00112233445566778899aabbccddeeff >"$STORE/$1/run_id"
     (cd "$R" && PATH="$SHIM:$PATH" GHF="$GHF" bash "$S" --session "$1" --topic topic --intent "$2" --stage "$3" >/dev/null 2>"$T/err")
     RC=$?
 }

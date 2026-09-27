@@ -251,7 +251,7 @@ its own. Its results map to `/scope`'s steps in one place:
 | read failure (exit 2) | `scope:pr-create` | `scope:pr-create` |
 
 Every lookup carries the session's run identity (`owned-pr.sh --run-id`, the
-`run_id` that `skills/execute/scripts/run-id.sh` mints on first use), so a PR
+`run_id` that `scope-open.sh` mints through `skills/execute/scripts/run-id.sh`), so a PR
 another run marked as its own is never reused, edited, or reported here.
 `/scope` stamps no marker on the PR it opens: its PR is matched on the
 login-and-branch fallback, which is what lets `/execute` adopt it. A rewrite

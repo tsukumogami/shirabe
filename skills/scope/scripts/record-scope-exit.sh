@@ -40,8 +40,8 @@
 # only a value that genuinely failed to resolve. `wip_paths` belongs to
 # publish-scoping-pr.sh; this script writes it empty only when no publish ran.
 #
-# The lookup carries this run's identity (`run-id.sh get <session>`, minted on
-# first use), so a PR another run marked is never recorded as this topic's;
+# The lookup carries this run's identity (`run-id.sh get <session>`, minted by
+# scope-open.sh), so a PR another run marked is never recorded as this topic's;
 # /scope's own PR carries no marker and matches on the login-and-branch
 # fallback.
 #
@@ -177,7 +177,7 @@ REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner </dev/null) || REPO
 [[ "$REPO" =~ $RE_REPO ]] || record_error "could not read the repository name"
 
 RUN_ID=$(bash "$RUNID" get "$SESSION" </dev/null) || {
-    printf '%s: could not read or mint this run'"'"'s identity\n' "$PROG" >&2
+    printf '%s: could not read this run'"'"'s identity\n' "$PROG" >&2
     exit 66
 }
 URL=$(bash "$OWNED" --repo "$REPO" --head "$BRANCH" --state open --run-id "$RUN_ID" </dev/null)

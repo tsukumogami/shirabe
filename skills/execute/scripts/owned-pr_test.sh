@@ -16,6 +16,7 @@
 #   --run-id: unmarked PR                          its URL, exit 0 (fallback)
 #   --run-id: one PR, another run's marker         empty stdout, exit 5
 #   several candidates, at least one marked        empty stdout, exit 4
+#     (including a lone survivor beside a PR another run marked)
 #   --take-over: the exit-5 PR is restamped        its URL, exit 0; never a
 #                                                  fork's, another author's,
 #                                                  or another branch's PR
@@ -300,12 +301,12 @@ expect "--run-id: two other runs' PRs and none of mine are ambiguous (exit 4)" "
 
 new_case marker-mine-beside-foreign
 list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN "$(mark "$MINE")")"
-expect "--run-id --state all: another run's merged PR is dropped, mine stands" "$URL2" 0 \
+expect "--run-id --state all: my PR beside one another run marked is ambiguous (exit 4)" "" 4 \
     --repo o/r --head feat/x --state all --base main --run-id "$MINE"
 
 new_case marker-foreign-beside-unmarked
-list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN)"
-expect "--run-id --state all: another run's PR is dropped, the unmarked one falls back" "$URL2" 0 \
+list "$(pr 8 MERGED)" "$(pr 7 OPEN "$(mark "$OTHER")")"
+expect "--run-id --state all: an unmarked merged PR beside another run's open PR is ambiguous (exit 4)" "" 4 \
     --repo o/r --head feat/x --state all --base main --run-id "$MINE"
 
 new_case marker-two-unmarked

@@ -16,11 +16,18 @@
 #
 # The id lives in the run's koto session context under `run_id`. This script
 # is the one place it is minted and the one place the marker line is written;
-# owned-pr.sh is the one place it is read off a PR.
+# owned-pr.sh is the one place it is read off a PR. It is minted only where a
+# session is born -- execute-open.sh, scope-open.sh and deliver-open.sh, right
+# after the open -- and every later caller reads it with `get`, which never
+# mints: a read that fails is an error, never a new identity for the run.
 #
 # Usage:
+#   run-id.sh mint <session>
+#       Print the session's id, minting and storing one when it has none.
+#       Only the session-opening scripts call this.
 #   run-id.sh get <session>
-#       Print the session's id, minting and storing it when it has none.
+#       Print the session's id. A session with no id exits 67; a failed read
+#       exits 66. Never mints.
 #   run-id.sh seed <session> <id>
 #       Store <id> as the session's id when it has none; a session that
 #       already has one keeps it. execute-open.sh uses this to carry a
@@ -43,13 +50,15 @@
 #   <id>       ^[0-9a-f]{32}$
 #
 # Exit codes:
-#   0   done (get: the id is the only line on stdout)
+#   0   done (get, mint: the id is the only line on stdout)
 #   64  usage error
 #   65  stamp: the body names another run
 #   66  a koto context call failed, or no id could be minted
+#   67  get: the session has no run_id (it was not opened through a
+#       session-opening script, or the id was lost)
 #   74  a body file could not be read or written
 #
-# Requires: bash 3.2+, koto (get, seed), od.
+# Requires: bash 3.2+, koto (get, mint, seed), od.
 set -uo pipefail
 
 PROG=run-id
@@ -62,18 +71,14 @@ RE_MARKER_LINE='^[[:space:]]*<!--[[:space:]]*shirabe-run:'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: run-id.sh get <session> | seed <session> <id> | stamp <id> <body-file> | restamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
+    echo "usage: run-id.sh mint <session> | get <session> | seed <session> <id> | stamp <id> <body-file> | restamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
     exit 64
 }
 
 marker_line() { printf '<!-- shirabe-run: %s -->' "$1"; }
 
 # stored <session> -- print the session's stored id, empty when it has none.
-# Only `exists` answering 1 means "none": any other exit is an error rather
-# than a reason to mint. koto answers 1 for some store read errors too, so this
-# narrows the case rather than closing it; a second id minted that way makes
-# the run's own marked PR read as another run's (owned-pr.sh exit 5,
-# adopt-or-create-pr.sh exit 6), which fails safe.
+# Only `exists` answering 1 means "none"; any other exit is an error.
 stored() {
     local v rc
     koto context exists "$1" run_id </dev/null >/dev/null
@@ -92,7 +97,7 @@ store() {
         || { echo "$PROG: could not record run_id in session $1" >&2; exit 66; }
 }
 
-mint() {
+new_id() {
     local id
     id=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [[ $id =~ $RE_ID ]] || { echo "$PROG: could not mint a run id" >&2; exit 66; }
@@ -132,13 +137,24 @@ replace_markers() {
 MODE="$1"; shift
 
 case "$MODE" in
+    mint)
+        [ $# -eq 1 ] || usage_error "mint takes one session"
+        [[ $1 =~ $RE_SESSION ]] || usage_error "[$1] is not a koto session name"
+        ID=$(stored "$1") || exit $?
+        if [ -z "$ID" ]; then
+            ID=$(new_id) || exit $?
+            store "$1" "$ID"
+        fi
+        [[ $ID =~ $RE_ID ]] || { echo "$PROG: session $1 holds an unusable run_id" >&2; exit 66; }
+        printf '%s\n' "$ID"
+        ;;
     get)
         [ $# -eq 1 ] || usage_error "get takes one session"
         [[ $1 =~ $RE_SESSION ]] || usage_error "[$1] is not a koto session name"
         ID=$(stored "$1") || exit $?
         if [ -z "$ID" ]; then
-            ID=$(mint) || exit $?
-            store "$1" "$ID"
+            echo "$PROG: session $1 has no run_id; it is minted when the session is opened (execute-open.sh, scope-open.sh, deliver-open.sh)" >&2
+            exit 67
         fi
         [[ $ID =~ $RE_ID ]] || { echo "$PROG: session $1 holds an unusable run_id" >&2; exit 66; }
         printf '%s\n' "$ID"

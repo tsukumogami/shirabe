@@ -257,6 +257,10 @@ OUT=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$VARS" --wording "$WORDING")
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
+    # The run identity deliver-probe.sh's lookups carry: minted here, where the
+    # session is born, and only read afterwards (run-id.sh get).
+    bash "$PLUGIN_ROOT/skills/execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
+        || printf 'deliver-open: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$SESSION" >&2
     printf 'session=%s\n' "$SESSION"
 else
     bash "$REPORT" --refused
