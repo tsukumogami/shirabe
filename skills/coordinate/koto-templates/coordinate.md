@@ -1550,9 +1550,10 @@ until it merges.
 ## surface
 
 Put it in front of the human, once: for a merge the workspace reserves, the
-merge-order table from `references/verification-checklist.md` with each head you
-verified and the reason for the order (`surfaced: merge_table`); for a blocked
-worker, the decision with one recommendation (`surfaced: blocker`).
+merge-order table from `references/verification-checklist.md` with the reason for
+the order (`surfaced: merge_table`); for a blocked worker, the decision with one
+recommendation (`surfaced: blocker`). Pull requests are links, workers are inline
+code, and no commit hash is shown.
 
 <!-- details -->
 

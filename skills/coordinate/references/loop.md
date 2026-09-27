@@ -124,7 +124,7 @@ Changed since then:
 - <holding or side effect>: record said <old>, GitHub or the host says <new> (measured | verified by reading | inferred).
 
 Holding (<n> of <bound> active; parked at ready: <m>):
-- <unit> -- <entry point> -- <dispatch topic> -- <state as just read> -- next: <what happens next> -- <pull request URL, or "none yet">
+- <unit> -- `<dispatch topic>` -- <state as just read> -- next: <what happens next> -- [#<n>](<URL>), or "none yet"
 
 Waiting on the human:
 - <decision or finishing step> -- <recommendation>
@@ -137,6 +137,9 @@ Open deferrals:
 
 Not verified: <anything you could not read, and why>.
 ```
+
+Every later report ends with the progress table `scripts/progress-view.sh`
+prints (SKILL.md, "Reporting").
 
 ## The Shape of an Escalation
 

@@ -91,18 +91,20 @@ The table the land step hands over, one row per verified pull request:
 ```
 Ready to merge, in this order:
 
-| # | Head sha | Verified at | Why this position | Pull request |
-|---|----------|-------------|-------------------|--------------|
-| 1 | <sha> | <time> | <e.g. no dependencies; others rebase onto it> | <URL> |
-| 2 | <sha> | <time> | <e.g. depends on #1's schema change> | <URL> |
+| # | Pull request | Worker | Verified at | Why this position |
+|---|--------------|--------|-------------|-------------------|
+| 1 | [#<n>](<URL>) | `<dispatch topic>` | <time> | <e.g. no dependencies; others rebase onto it> |
+| 2 | [#<n>](<URL>) | `<dispatch topic>` | <time> | <e.g. depends on the first one's schema change> |
 
 After each merge I'll confirm it on the default branch before the next one
 is safe.
 ```
 
-The head sha is the one you verified. If a pull request's head moves after
-you hand the table over, it drops back to unverified until you read it
-again.
+The table shows no commit hash: the head you verified stays in the record's
+Verified head and in the evidence. A pull request is a link, never a bare
+number, and a worker is inline code, as in every table the human sees. If a
+pull request's head moves after you hand the table over, it drops back to
+unverified until you read it again.
 
 ## Confirming a Merge
 

@@ -240,8 +240,28 @@ Name the record in every report (a roadmap record's issue number, a rotation's
 pull request URL and host repository), so whoever starts the next coordinator
 passes it on as a decision. Include a "Waiting on the human" section and, per
 holding, what happens next; both are derived at each report and never stored.
-End every report with the holdings, one line per holding, its pull request's bare
-URL last, or "none yet" when it has no pull request.
+End every report with the progress table.
+
+**The progress table.** One table, `Kind | Unit | Session | PR | Status | Next
+or needs`, with four kinds of row in this order: `Ready to merge`, pull requests
+ready to review and merge, with their sessions, in the merge order you want;
+`Blocked on you`, sessions blocked on the human and what each needs; `Ongoing`,
+sessions with their pull request when one exists, their status and what's next;
+and `Waiting to be assigned`, in the order the work will be assigned as the cap
+frees. A cell that doesn't apply reads N/A.
+`scripts/progress-view.sh` renders it from the pick facts
+(`koto context get <session> coord/pick.json | progress-view.sh
+--merge-order <sessions> --blocked <session>=<need> --next <session>=<step>`),
+checks your merge order and blockers against the facts, and refuses a table
+that breaks the display rule. A run's first report, at reconcile, comes before
+the first pick; it lists the holdings the reconcile read, and the table starts
+with the next report.
+
+**What the human sees.** Every table you put on screen follows one rule: a pull
+request is a clickable link, `[#<n>](<URL>)`, never a bare number; a session is
+inline code; and no commit hash appears. The verified head stays in the record
+and the evidence. Write any other table, such as the merge-order table, the same
+way.
 
 ## Final States
 

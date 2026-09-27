@@ -122,10 +122,10 @@ C112	skills/coordinate/references/verification-checklist.md	-	Never put an infer
 C113	skills/coordinate/references/verification-checklist.md	-	Reported by the worker, not re-derived (inferred):
 C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't re-derive right now goes under
 C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
-C116	skills/coordinate/koto-templates/coordinate.md	surface	the reason for the order (`surfaced: merge_table`)
+C116	skills/coordinate/koto-templates/coordinate.md	surface	the order (`surfaced: merge_table`)
 C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
 C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the changed files there, not by trusting
-C119	skills/coordinate/references/verification-checklist.md	-	| Head sha | Verified at | Why this position |
+C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
 C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
 C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it
 C122	skills/coordinate/koto-templates/coordinate.md	merge_confirm	whose repository doesn't hold that feature's PLAN
@@ -192,7 +192,7 @@ C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	Include a "Waiting on the human" section
-C186	skills/coordinate/SKILL.md	-	End every report with the holdings, one line per holding
+C186	skills/coordinate/SKILL.md	-	End every report with the progress table.
 C187	skills/coordinate/SKILL.md	-	Two named features build on this one.	changed: record tooling shipped; the dispatch path and mechanised reconcile remain named later work
 C188	skills/coordinate/SKILL.md	-	**The workspace manager isn't checked at load.**
 C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
