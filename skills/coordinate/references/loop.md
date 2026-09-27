@@ -163,7 +163,11 @@ one table above, in its four kinds and their order; and a pull request or
 issue is a clickable link, never a bare number, a worker's name is inline
 code, and no commit hash appears. Heads stay in the record's rows and in
 `reconcile/report.json`, where the checks read them. Keep the same form when
-you report it up.
+you report it up, and keep the report's own words for its header and section
+names: its opening lines as written (they say when the record was written,
+when it was reconciled, and whether the reconcile scripts ran from inside or
+outside the repository being worked on), and each section under its own name,
+such as "Changed since then".
 
 Every later report ends with the progress table `scripts/progress-view.sh`
 prints (SKILL.md, "Reporting").

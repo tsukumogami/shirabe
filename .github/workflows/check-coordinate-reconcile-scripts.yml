@@ -28,16 +28,22 @@ jobs:
         run: sudo apt-get install -y jq
 
       # The reconcile scripts need bash, jq and git only; gh, niwa and koto
-      # are stand-ins. On macOS the suites run under /bin/bash, which is 3.2,
-      # rather than whatever bash is first on PATH.
-      - name: Run reconcile script tests
+      # are stand-ins. Linux's own bash 5 runs the suites directly. The macOS
+      # leg is the floor check, so it goes through the runner: a bare `bash`
+      # on a macOS runner is Homebrew's bash 5, and only /bin/bash is 3.2.
+      - name: Run reconcile script tests (Linux)
+        if: runner.os == 'Linux'
         run: |
-          BASH_BIN=bash
-          [ "$RUNNER_OS" = macOS ] && BASH_BIN=/bin/bash
-          "$BASH_BIN" skills/coordinate/scripts/reconcile-report_test.sh
-          "$BASH_BIN" skills/coordinate/scripts/reconcile-check_test.sh
-          "$BASH_BIN" skills/coordinate/scripts/reconcile-read_test.sh
-          "$BASH_BIN" skills/coordinate/scripts/reconcile-pass_test.sh
+          bash skills/coordinate/scripts/reconcile-report_test.sh
+          bash skills/coordinate/scripts/reconcile-check_test.sh
+          bash skills/coordinate/scripts/reconcile-read_test.sh
+          bash skills/coordinate/scripts/reconcile-pass_test.sh
+
+      # The runner refuses a /bin/bash that is not 3.2 and keeps a nested
+      # `bash` on 3.2 as well.
+      - name: Run the reconcile suites on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system coordinate-reconcile
 
   # Every bash in the floor container is 3.2, including the ones the suites
   # start themselves.

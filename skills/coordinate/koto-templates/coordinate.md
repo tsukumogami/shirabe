@@ -1315,7 +1315,10 @@ blocked on you, ongoing, then waiting to be assigned, which you fill from the
 scope read that follows. Keep that one table, its order and its form (pull
 requests as links, sessions as code, no commit hash) when you report it up;
 its "Blocked on you" rows are what waits on the human, derived at this
-report and never stored. The report is the reads: don't re-run them. Never average the
+report and never stored. Pass the report's own words on for its header and
+its section names: its opening lines as written, including where the reconcile
+scripts ran, and each section under the name the report gives it, such as
+"Changed since then". The report is the reads: don't re-run them. Never average the
 report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
 At discipline scope, `reconcile/reasoning.md` is the previous rotation's
