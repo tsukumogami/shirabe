@@ -248,14 +248,19 @@ jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REAS
     def add_new($mine; $theirs; key):
         ([$mine[] | key]) as $seen
         | labelled($mine; "record") + labelled([$theirs[] | select((key) as $k | ($seen | index([$k])) == null)]; "handoff");
-    # Every string that leaves this script is free of control characters; a
-    # hand-edited body can carry any byte.
-    def clean: if type == "string" then gsub("[\u0000-\u001f\u007f]"; "")
+    # Every string that leaves this script is free of control characters
+    # other than the newline and tab a cell may hold (the codec writes a
+    # newline as <br>); a hand-edited body can carry any byte.
+    def clean: if type == "string" then gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")
                elif type == "object" then map_values(clean)
                elif type == "array" then map(clean) else . end;
-    ($handoff // {} | clean) as $h
+    # The heading date is judged as written, before any stripping.
+    (($handoff // {}).rotation.date // null) as $rawdate
+    | ($handoff // {} | clean) as $h
     | clean
-    | ($h.rotation.date // null) as $d
+    | (if $rawdate == null then null
+       elif ($rawdate | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $rawdate
+       else ($rawdate | gsub("[\u0000-\u001f\u007f]"; "") | if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + " (edited)" else . end) end) as $d
     | ((.written // "") | gsub("^\\s+|\\s+$"; "")) as $wr
     | ($wr | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) as $wok
     | .unparseable += (if $wok then [] else [{raw: $wr, reason: "the Written: line is not YYYY-MM-DDTHH:MM:SSZ"}] end)

@@ -251,6 +251,13 @@ capture $DISC_ARGS
 expect "rows the record already carries are not listed again from the handoff" \
     '([.holdings[].source] == ["record"]) and ([.deferrals[].source] == ["record"]) and ([.side_effects[] | .row.action + "/" + .source] == ["merge/record", "close/handoff"])'
 
+new_case disc-del-date
+serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_JSON"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
+serve parse-handoff 1 "$(printf '%s' "$HANDOFF_JSON" | jq -c '.rotation.date = "2026-09-23\u007f"')"
+capture $DISC_ARGS
+expect "a heading date carrying a control character is not carried as a date" \
+    '.status == "found" and .record.handoff_date == null and (.unparseable | any(.reason | test("heading date")))'
+
 new_case disc-bad-date
 serve pr-view 1 "$OPEN"; serve parse-record 1 "$DISC_JSON"; serve repo 1 '{"default_branch":"main"}'; serve handoff 1 "x"
 serve parse-handoff 1 "$(printf '%s' "$HANDOFF_JSON" | jq -c '.rotation.date = "<b>soon</b>"')"
@@ -328,6 +335,14 @@ else
     serve issue-view 1 "$(body "$CASE/body.md")"
     capture $ROADMAP_ARGS
     case "$OUT" in *'\u001b'*|*'\r'*|*'\u000d'*) bad "the real parser: no control character reaches the output" "$OUT" ;; *) ok "the real parser: no control character reaches the output" ;; esac
+
+    new_case real-multiline
+    printf '%s' "$ROADMAP_JSON" | jq 'del(.written) | .deferrals[0].reason = "line one\nline two\tafter tab"' \
+        | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a newline and a tab inside a cell survive the read" \
+        '.deferrals[0].row.reason == "line one\nline two\tafter tab" and .unparseable == []'
 
     new_case real-bad-written
     sed 's/^Written: .*$/Written: whenever <b>x<\/b>/' "$RB" > "$CASE/body.md"

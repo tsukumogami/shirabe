@@ -233,3 +233,64 @@ The core of the issue holds up. Roadmap scope reads exactly the issue it was giv
 | 14 | PASS | no output (stdout, stderr, report) contains the tree, scratch or TMPDIR path, across all cases | 812-usage-out | `path hits 2, all 2 from the case that typed that path into a cell` |
 | 15 | PASS | no output contains the home directory outside the deliberate cell | 812-usage-out | `ok` |
 | 16 | FAIL | control characters reach the reader's JSON output | 812-usage-out | `raw=0 decoded=3: decoded:214-bare-cr decoded:801-esc-in-written decoded:808-handoff-esc-heading` |
+
+## Re-run at 74dbea4
+
+This re-run was against `74dbea4` ("keep control characters and a malformed Written: time out of the record read"). `reconcile-read.sh`, `reconcile-report.sh`, `reconcile-deps.sh` and `reconcile-salvage.jq` were copied fresh from that commit into the scratch tree. The record feature's scripts are unchanged. It covers the four failed checks (cases 801, 808, 214 and 215, and 321 through `reconcile-report.sh`), the default-branch timeout observation, and regression checks around the fix.
+
+29 checks ran: 27 re-run checks and 2 unit suites. 28 passed (one of them INFO) and 1 failed.
+
+All four original failures are fixed.
+- **801:** ESC after the Written time now gives `written: null` and the unparseable entry "the Written: line is not YYYY-MM-DDTHH:MM:SSZ". The report says "Record written at a time it does not state".
+- **808:** the heading date is listed stripped, as `2026[31m-09-23`.
+- **214:** the CR is removed from the salvaged cell.
+- **215:** a doubled or trailing space after `Written:` is trimmed. A non-time or minute-precision value becomes null and is listed as unparseable.
+- **321:** the report header now ends "as it wrote them." with no "on null". A good date still renders "on 2026-09-23", and source `handoff` with a null date and a null written time also reads cleanly.
+- **Default-branch timeout:** the reason is now "reading the host's default branch timed out" (1.1 s at a 1 s deadline), and a plain failure still says "could not be read".
+
+### New failure: the strip also removes newlines and tabs from valid cells
+
+The fix's `clean` removes `[\u0000-\u001f\u007f]` from every output string, and that range includes `\n` and `\t`. The record codec encodes a newline in a cell as `<br>` and allows a tab. So a canonical, renderer-produced cell whose value is `line one\nline two\tafter tab` now reads back as `line oneline twoafter tab`, with no unparseable entry to say anything changed. The pre-fix reader (1bc8e29) returned the value intact on the same body. Keeping `\n` and `\t` (as the salvage raw-line and body-echo paths effectively do), or replacing them with a space rather than deleting them, would avoid the silent merge. Scenario 8 asked for no control characters in output, so the question is whether a decoded newline in a row value counts. Either way, words shouldn't be run together without a note.
+
+### Observation
+
+A heading date that is a valid date plus one DEL byte (`2026-09-23` followed by 0x7f) is stripped before the date check. It becomes `handoff_date: "2026-09-23"`, with only the handoff's not-canonical note listed. That's reasonable, but it does mean the stripped value is the one trusted.
+
+### Unit suites at 74dbea4
+
+| Run | Result | Evidence |
+|---|---|---|
+| `reconcile-read_test.sh` with `RECORD_FEATURE_SCRIPTS` | PASS | `passed: 56  failed: 0` |
+| `reconcile-report_test.sh` | PASS | `passed=66 failed=0` |
+
+### Re-run checks
+
+| # | Area | Result | Check | Case | Evidence |
+|---|---|---|---|---|---|
+| 1 | 801 ESC in Written | PASS | ESC after the Written time: rows read, written null, the line listed unparseable, no control character anywhere | 901-esc-in-written | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":null,"source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2","entry_point":"/...` |
+| 2 | 801 ESC in Written | PASS | no control character in the output (raw or decoded) | 901-esc-in-written | `{"w":null,"u":[{"raw":"","reason":"not canonical: written: not YYYY-MM-DDTHH:MM:SSZ; the rest was read row by row"},{"raw":"2026-09-26T12:00:00Z[31m","reason":"the Written: line is not YYYY-MM-DDTHH:MM:SSZ"}]}` |
+| 3 | 801 ESC in Written | PASS | report: a null written time reads 'at a time it does not state' | 901-esc-in-written | `Scope: roadmap plugin-system. Record written at a time it does not state; reconciled 2026-09-27T09:00:00Z.` |
+| 4 | 808 ESC/DEL in heading date | PASS | ESC/DEL in the handoff heading date: handoff_date null, the stripped date listed, rows read | 902-handoff-esc-heading | `exit 0: {"status":"found","scope":{"kind":"discipline","name":"ci-health","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record and handoff","handoff_date":null},"holdings":[{"row":{"unit"...` |
+| 5 | 808 ESC/DEL in heading date | PASS | no control character in the output | 902-handoff-esc-heading | `[{"raw":"","reason":"handoff: not canonical: rotation: dates are not YYYY-MM-DD; the rest was read row by row"},{"raw":"2026[31m-09-23","reason":"handoff: its heading date is not YYYY-MM-DD"}]` |
+| 6 | 808 ESC/DEL in heading date | PASS | a heading date that is a valid date plus one DEL byte: accepted as 2026-09-23 once stripped (noted: stripping happens before the date check) | 903-handoff-del-only-date | `exit 0: {"status":"found","scope":{"kind":"discipline","name":"ci-health","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record and handoff","handoff_date":"2026-09-23"},"holdings":[{"row"...` |
+| 7 | 808 ESC/DEL in heading date | INFO | valid date + DEL: what the reader does | 903-handoff-del-only-date | `{"hd":"2026-09-23","u":[{"raw":"","reason":"handoff: not canonical: rotation: dates are not YYYY-MM-DD; the rest was read row by row"}]}` |
+| 8 | 214 bare CR in a cell | PASS | a bare CR inside a cell: the row is read with the CR removed, the line listed as not canonical | 904-bare-cr | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2...` |
+| 9 | 214 bare CR in a cell | PASS | no CR or other control character in the output | 904-bare-cr | `{"r":"notnow","u":[{"raw":"\| flaky test \| notnow \| 2026-09-25T10:00Z \|  \|","reason":"not canonical at line 16; the rest was read row by row"}]}` |
+| 10 | 215 Written spacing | PASS | Written: with two spaces: written trimmed to the time, rows read, not-canonical note listed | 905-written-spacing | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2...` |
+| 11 | 215 Written spacing | PASS | report header has a single space before the time | 905-written-spacing | `Scope: roadmap plugin-system. Record written 2026-09-26T12:00:00Z; reconciled 2026-09-27T09:00:00Z.` |
+| 12 | 215 Written spacing | PASS | Written: with a trailing space: trimmed | 906-written-trailing | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2...` |
+| 13 | 215 Written spacing | PASS | Written: with a non-time value: written null, value listed as unparseable | 907-written-garbage | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":null,"source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2","entry_point":"/...` |
+| 14 | 215 Written spacing | PASS | Written: at minute precision (not the seconds form): written null, listed | 908-written-minute | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":null,"source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2","entry_point":"/...` |
+| 15 | 321 report on a bad handoff date | PASS | reader: bad heading date gives handoff_date null, listed | 909-bad-date | `exit 0: {"status":"found","scope":{"kind":"discipline","name":"ci-health","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record and handoff","handoff_date":null},"holdings":[{"row":{"unit"...` |
+| 16 | 321 report on a bad handoff date | PASS | report: no 'on null', the clause ends 'as it wrote them.' | 909-bad-date | `Scope: discipline ci-health. Record written 2026-09-26T12:00:00Z; reconciled 2026-09-27T09:00:00Z. Rows marked as the previous rotation's are as it wrote them.` |
+| 17 | 321 report on a bad handoff date | PASS | regression: a good date still renders 'on 2026-09-23' | 910-good-date | `Scope: discipline ci-health. Record written 2026-09-26T12:00:00Z; reconciled 2026-09-27T09:00:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-23.` |
+| 18 | 321 report on a bad handoff date | PASS | report: source 'handoff' with null date and null written | 910-good-date | `Scope: discipline ci-health. Record written at a time it does not state; reconciled 2026-09-27T09:00:00Z. Rows as written by the previous rotation.` |
+| 19 | default-branch timeout | PASS | default-branch read past the deadline: exit 5, reason says it timed out | 911-default-branch-late | `exit 5: {"status":"failed","reason":"reading the host's default branch timed out"}` |
+| 20 | default-branch timeout | PASS | no handoff read after the timeout; elapsed 1.098558041s | 911-default-branch-late | `gh pr view 77 --repo acme/widgets --json state,body;gh api repos/acme/widgets --jq .default_branch;` |
+| 21 | default-branch timeout | PASS | regression: a failed (not late) default-branch read still says could not be read | 912-default-branch-fail | `exit 5: {"status":"failed","reason":"the host's default branch could not be read"}` |
+| 22 | regression around the fix | PASS | a cell the renderer encoded with <br> (a newline in the value) on a canonical body | 913-newline-in-cell | `exit 0: {"status":"found","scope":{"kind":"roadmap","name":"plugin-system","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record","handoff_date":null},"holdings":[{"row":{"unit":"Feature 2...` |
+| 23 | regression around the fix | FAIL | the control-character strip also removes the newline and tab that a canonical <br>/tab cell decodes to, so 'line one\nline two\tafter tab' comes back as "line oneline twoafter tab" | 913-newline-in-cell | `"line oneline twoafter tab"` |
+| 24 | regression around the fix | PASS | regression: the plain discipline read is unchanged | 914-present | `exit 0: {"status":"found","scope":{"kind":"discipline","name":"ci-health","repo":"acme/widgets"},"record":{"written":"2026-09-26T12:00:00Z","source":"record and handoff","handoff_date":"2026-09-23"},"holdings":[{"row"...` |
+| 25 | regression around the fix | PASS | regression: reasoning file still verbatim | 914-present | `ok` |
+| 26 | regression around the fix | PASS | regression: multi-paragraph reasoning file still byte for byte (newlines kept in the file) | 915-multi | `cmp equal` |
+| 27 | regression around the fix | PASS | no tree or TMPDIR path in any output, including the re-run | 915-multi | `hits 0` |
