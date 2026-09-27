@@ -486,6 +486,24 @@
         "Agent still routes on the user's choice; the recommendation does not reclassify the issue on its own",
         "Agent does NOT present the two routes neutrally and ask the user to pick"
       ]
+    },
+    {
+      "id": 39,
+      "name": "staleness-unavailable-degrades",
+      "tier": 1,
+      "mode": "plan_only",
+      "scenario": null,
+      "prompt": "/work-on #42 -- an unattended run with no user present. At staleness_check the staleness_fresh gate fails with exit_code 3, and running the check by hand reports {\"verdict\":\"unavailable\",\"reason\":\"gh issue view failed: HTTP 401: Bad credentials\"}.",
+      "expected_output": "Exit 3 is the check reporting that it could not reach a verdict, not staleness. The agent submits staleness_signal: unavailable with the reason in detail, and the run continues to analysis with staleness recorded as not assessed. It does not submit override, which is reserved for an explicit instruction to skip the check, and it does not submit blocked, which would end the run over a check that is advisory.",
+      "files": [],
+      "expectations": [
+        "Agent reads exit code 3 as the check being unavailable, not as the issue being stale",
+        "Agent plans to submit staleness_signal: unavailable",
+        "Agent plans to put the reason (the gh authentication failure) in the detail field",
+        "Agent does NOT plan to submit staleness_signal: override, since no one asked to skip the check",
+        "Agent does NOT plan to submit staleness_signal: blocked or to stop the run at this gate",
+        "Agent expects the run to continue to the analysis state"
+      ]
     }
   ]
 }

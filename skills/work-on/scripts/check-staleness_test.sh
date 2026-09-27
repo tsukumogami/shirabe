@@ -240,6 +240,141 @@ for args in "7" "" "--issue" "--issue abc" "--issue 0" "--issue 7 extra" "--numb
     fi
 done
 
+echo "== the gate =="
+
+# The gate command, read out of the shipped template rather than copied here:
+# the `command:` line under staleness_fresh, unquoted from its YAML
+# single-quoted scalar. {{PLUGIN_ROOT}} and {{ISSUE_NUMBER}} are substituted the
+# way koto substitutes them, and the result runs under `sh -c` from the working
+# repository, as koto runs a gate.
+TEMPLATE="$SCRIPT_DIR/../koto-templates/work-on.md"
+PLUGIN_ROOT_DIR=$(cd "$SCRIPT_DIR/../../.." && pwd)
+GATE=$(awk '
+    /^      staleness_fresh:$/ { found=1 }
+    found && /^        command:/ {
+        sub(/^        command:[[:space:]]*/, "")
+        sub(/^'"'"'/, ""); sub(/'"'"'$/, "")
+        print
+        exit
+    }
+' "$TEMPLATE")
+[ -n "$GATE" ] || { echo "could not read the staleness_fresh gate command from $TEMPLATE" >&2; exit 2; }
+
+# run_gate <plugin-root> <extra-path-dir> [env assignments...] -- sets RC.
+run_gate() {
+    local root="$1" extra="$2"; shift 2
+    local cmd="${GATE//\{\{PLUGIN_ROOT\}\}/$root}"
+    cmd="${cmd//\{\{ISSUE_NUMBER\}\}/7}"
+    (cd "$REPO" && env PATH="$extra:$STUB_DIR:$PATH" "$@" sh -c "$cmd" >/dev/null 2>&1)
+    RC=$?
+}
+
+gate_expect() {
+    if [ "$RC" = "$2" ]; then pass "$1 (exit $RC)"; else fail "$1: want exit $2, got $RC"; fi
+}
+
+run_gate "$PLUGIN_ROOT_DIR" "" STUB_ISSUE="$(issue_json 2 '' '')"
+gate_expect "gate passes on a fresh issue" 0
+run_gate "$PLUGIN_ROOT_DIR" "" STUB_ISSUE="$(issue_json 30 '' '')"
+gate_expect "gate fails with the stale status on a stale issue" 1
+run_gate "" "" STUB_ISSUE="$(issue_json 2 '' '')"
+gate_expect "gate with an empty PLUGIN_ROOT is unavailable, not stale" 3
+run_gate "$PLUGIN_ROOT_DIR" "" STUB_ISSUE="$(issue_json 2 '' '')" GH_FAIL_VIEW=1
+gate_expect "gate with gh failing is unavailable" 3
+
+# A same-named script first on PATH that rejects --issue, as a separately
+# installed one did. The gate must not reach it.
+DECOY="$WORK/decoy"
+mkdir -p "$DECOY"
+cat > "$DECOY/check-staleness.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "unknown option: $1" >&2
+exit 1
+STUB
+chmod +x "$DECOY/check-staleness.sh"
+run_gate "$PLUGIN_ROOT_DIR" "$DECOY" STUB_ISSUE="$(issue_json 2 '' '')"
+gate_expect "a same-named script on PATH that rejects --issue doesn't change a fresh result" 0
+
+echo "== the state, driven through koto =="
+
+if ! command -v koto >/dev/null 2>&1; then
+    echo "SKIP: koto not on PATH; the staleness_check routing cannot be driven without the engine"
+else
+    # The shipped staleness_check block, with its gate command replaced by a
+    # fixed exit so each case controls the gate's result. `start` stands in for
+    # the setup state that routes here; the targets are stub terminals, since
+    # these cases are about which one the run lands on.
+    BLOCK=$(awk '
+        $0 == "  staleness_check:" { found=1; print; next }
+        found && /^  [a-zA-Z_][a-zA-Z0-9_]*:$/ { exit }
+        found { print }
+    ' "$TEMPLATE")
+    [ -n "$BLOCK" ] || { echo "staleness_check not found in $TEMPLATE" >&2; exit 2; }
+
+    SESSIONS=()
+    # drive <exit-or-timeout> <evidence-json> -- prints the state the run is in
+    # after one submission. `timeout` makes the gate outlive a 1-second limit so
+    # koto reports exit_code -1.
+    drive() {
+        local how="$1" data="$2" dir session cmd timeout_line=""
+        dir=$(mktemp -d); TMPS+=("$dir")
+        session="staleness-state-$$-$RANDOM"
+        if [ "$how" = timeout ]; then
+            cmd='sleep 5'; timeout_line='        timeout: 1'
+        else
+            cmd="exit $how"
+        fi
+        {
+            printf '%s\n' '---' 'name: staleness-check-fixture' 'version: "1.0"' \
+                'description: Fixture driving the shipped staleness_check state.' \
+                'initial_state: start' 'variables:' '  ISSUE_NUMBER:' \
+                '    description: Issue under test' '    required: false' \
+                '  PLUGIN_ROOT:' '    description: Plugin root' '    required: false' \
+                'states:' '  start:' '    transitions:' '      - target: staleness_check'
+            printf '%s\n' "$BLOCK" | awk -v cmd="$cmd" -v tl="$timeout_line" '
+                /^        command:/ { print "        command: \"" cmd "\""; if (tl != "") print tl; next }
+                { print }'
+            printf '%s\n' '  analysis:' '    terminal: true' '  introspection:' '    terminal: true' \
+                '  done_blocked:' '    terminal: true' '    failure: true' '    accepts:' \
+                '      failure_reason:' '        type: string' '---' '' \
+                '## start' 'Start.' '## staleness_check' 'Submit staleness_signal.' \
+                '## analysis' 'Analysis.' '## introspection' 'Introspection.' '## done_blocked' 'Blocked.'
+        } > "$dir/fixture.md"
+        koto init "$session" --template "$dir/fixture.md" --var ISSUE_NUMBER=7 >/dev/null 2>&1 || { echo "init-failed"; return; }
+        SESSIONS+=("$session")
+        koto next "$session" >/dev/null 2>&1
+        koto next "$session" --with-data "$data" 2>/dev/null | jq -r '.state // "none"'
+    }
+
+    route_expect() {
+        local label="$1" want="$2" got
+        got=$(drive "$3" "$4")
+        if [ "$got" = "$want" ]; then pass "$label -> $got"; else fail "$label: want $want, got $got"; fi
+    }
+
+    U='{"staleness_signal":"unavailable","detail":"gh unauthenticated"}'
+    F='{"staleness_signal":"fresh"}'
+    S='{"staleness_signal":"stale_requires_introspection"}'
+    O='{"staleness_signal":"override","detail":"the user asked to skip it"}'
+    B='{"staleness_signal":"blocked","detail":"stopping"}'
+
+    route_expect "unavailable on exit 3" analysis 3 "$U"
+    route_expect "unavailable on a gate timeout (-1)" analysis timeout "$U"
+    route_expect "unavailable on a passing gate stays" staleness_check 0 "$U"
+    route_expect "unavailable on a stale result stays" staleness_check 1 "$U"
+    route_expect "unavailable on a usage error stays" staleness_check 2 "$U"
+    route_expect "fresh on a passing gate" analysis 0 "$F"
+    route_expect "fresh on a stale result stays" staleness_check 1 "$F"
+    route_expect "fresh on an unavailable result stays" staleness_check 3 "$F"
+    route_expect "stale_requires_introspection on a stale result" introspection 1 "$S"
+    route_expect "override on a stale result" analysis 1 "$O"
+    route_expect "override on a usage error" analysis 2 "$O"
+    route_expect "blocked on a usage error" done_blocked 2 "$B"
+    route_expect "blocked on a passing gate" done_blocked 0 "$B"
+
+    for s in "${SESSIONS[@]:-}"; do [ -n "$s" ] && koto session cleanup "$s" >/dev/null 2>&1; done
+fi
+
 echo
 echo "check-staleness: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

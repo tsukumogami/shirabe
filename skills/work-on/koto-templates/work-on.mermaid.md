@@ -105,9 +105,10 @@ stateDiagram-v2
     setup_plan_backed --> analysis
     staleness_check --> introspection : staleness_signal: stale_requires_introspection
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 0, staleness_signal: fresh
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: 3, staleness_signal: unavailable
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: -1, staleness_signal: unavailable
     staleness_check --> analysis : staleness_signal: override
     staleness_check --> done_blocked : staleness_signal: blocked
-    staleness_check --> analysis
     task_validation --> research : verdict: proceed
     task_validation --> validation_exit : verdict: exit
     verification --> finalization : verification_outcome: passed
