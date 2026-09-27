@@ -153,6 +153,29 @@ EOF
     teardown
 }
 
+test_quoted_root_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 755
+    skill_md <<'EOF'
+    bash "$CLAUDE_PLUGIN_ROOT"/skills/demo/scripts/run.sh
+    bash -- "${CLAUDE_PLUGIN_ROOT}"/skills/demo/scripts/run.sh
+EOF
+    commit
+    assert_fails "a root quoted apart from its path, after a long flag, fails" "[bash-invocation] \$CLAUDE_PLUGIN_ROOT/skills/demo/scripts/run.sh"
+    teardown
+}
+
+test_quoted_root_exec_bit_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 644
+    skill_md <<'EOF'
+    "$CLAUDE_PLUGIN_ROOT"/skills/demo/scripts/run.sh
+EOF
+    commit
+    assert_fails "a quoted root is followed for the exec bit" "committed as 100644"
+    teardown
+}
+
 test_bash_word_in_prose_passes() {
     setup
     add_script skills/demo/scripts/run.sh 755
@@ -303,6 +326,8 @@ test_by_path_passes
 test_bash_invocation_fails
 test_bash_in_permission_pattern_fails
 test_sh_with_flag_fails
+test_quoted_root_fails
+test_quoted_root_exec_bit_fails
 test_bash_word_in_prose_passes
 test_evals_are_not_scanned
 

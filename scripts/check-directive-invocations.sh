@@ -192,8 +192,18 @@ scan_file() {
         BEGIN {
             # The interpreter must stand alone, not be the tail of a longer
             # word (`mybash`, `x.sh`, `foo-sh`). A leading slash is allowed,
-            # so `/bin/bash x.sh` is caught like `bash x.sh`.
-            BASH_RE = "(^|[^A-Za-z0-9_.-])(bash|sh)[ \t]+(-[A-Za-z]+[ \t]+)*[\"" Q "]?[^ \t\"" Q "`()|;&]*[.]sh([^A-Za-z0-9_]|$)"
+            # so `/bin/bash x.sh` is caught like `bash x.sh`. Short and long
+            # flags (`-e`, `--`, `--norc`) may sit between it and the script,
+            # and quotes may sit anywhere in the operand, as in
+            # `bash "$CLAUDE_PLUGIN_ROOT"/x.sh`.
+            BASH_RE = "(^|[^A-Za-z0-9_.-])(bash|sh)[ \t]+(--?[A-Za-z-]*[ \t]+)*[^ \t`()|;&]*[.]sh([^A-Za-z0-9_]|$)"
+        }
+        # unquote <s> -- the token with every quote character removed, so a
+        # quoted root reads the same as a bare one.
+        function unquote(s) {
+            gsub(/"/, "", s)
+            gsub(Q, "", s)
+            return s
         }
         {
             s = $0
@@ -201,22 +211,21 @@ scan_file() {
                 tok = substr(s, RSTART, RLENGTH)
                 s = substr(s, RSTART + RLENGTH)
                 # Peel the match down to the script operand one piece at a
-                # time: the leading boundary, the interpreter, its flags, an
-                # opening quote, and whatever follows `.sh`.
+                # time: the leading boundary, the interpreter, its flags, the
+                # quotes, and whatever follows `.sh`.
                 sub(/^[^a-z]*/, "", tok)
                 sub(/^(bash|sh)/, "", tok)
                 sub(/^[ \t]+/, "", tok)
-                while (tok ~ /^-[A-Za-z]+[ \t]/) {
-                    sub(/^-[A-Za-z]+[ \t]+/, "", tok)
+                while (tok ~ /^--?[A-Za-z-]*[ \t]/) {
+                    sub(/^--?[A-Za-z-]*[ \t]+/, "", tok)
                 }
-                c = substr(tok, 1, 1)
-                if (c == "\"" || c == Q) tok = substr(tok, 2)
+                tok = unquote(tok)
                 tok = substr(tok, 1, index(tok, ".sh") + 2)
                 printf "%d\tBASH\t%s\n", NR, tok
             }
             s = $0
-            while (match(s, /(\{\{PLUGIN_ROOT\}\}|\$\{CLAUDE_PLUGIN_ROOT\}|\$CLAUDE_PLUGIN_ROOT|\$\{CLAUDE_SKILL_DIR\}|\$CLAUDE_SKILL_DIR)\/[A-Za-z0-9_.\/-]*\.sh/)) {
-                printf "%d\tREF\t%s\n", NR, substr(s, RSTART, RLENGTH)
+            while (match(s, /(\{\{PLUGIN_ROOT\}\}|\$\{CLAUDE_PLUGIN_ROOT\}|\$CLAUDE_PLUGIN_ROOT|\$\{CLAUDE_SKILL_DIR\}|\$CLAUDE_SKILL_DIR)"?\/[A-Za-z0-9_.\/-]*\.sh/)) {
+                printf "%d\tREF\t%s\n", NR, unquote(substr(s, RSTART, RLENGTH))
                 s = substr(s, RSTART + RLENGTH)
             }
         }
