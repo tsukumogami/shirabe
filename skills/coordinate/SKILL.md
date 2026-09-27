@@ -38,7 +38,10 @@ to advance it, what it never does, and how it ends.
 ## Starting a Coordinator
 
 - `/shirabe:coordinate <roadmap-path>` coordinates the features of one Active
-  roadmap. The record lives in the roadmap's own repository.
+  roadmap. The record lives in the roadmap's own repository. A roadmap that
+  isn't Active (Draft, Accepted, anything else) stops the run with nothing
+  dispatched: say which status it has, and don't offer to scope or deliver its
+  features directly or to skip the check.
 - `/shirabe:coordinate --discipline <name> --host <owner/repo>` runs one
   rotation of a discipline, such as `ci-health`, `releases` or `support`. The
   host repository is the human's decision: when the invocation doesn't name
@@ -155,8 +158,11 @@ requests every time. At roadmap scope the record is an issue in the roadmap's
 repository, closed when the roadmap is done; at discipline scope it is a draft
 pull request per rotation, whose diff is the dated handoff file. The workflow
 finds it, checks it, and confirms every change you make to it on GitHub; you
-write it only through the scripts its states name. `references/record-template.md`
-has the shape.
+write it only through the scripts its states name. Its body, written by
+`record-render.sh`, starts with the declaration line (`> This is a
+**coordinator record** for ...`) and the `Written:` line, then the four
+sections; a candidate without the declaration line is never adopted.
+`references/record-template.md` has the shape.
 
 A deferral is the successor's to dispose of before its first dispatch: file it
 as an issue, close it, or carry it forward with a reason. A roadmap coordinator
@@ -176,7 +182,9 @@ dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
 **Inside your scope, dispatch without asking.** Anything outside it, propose to
-whoever dispatched you and don't act until they answer.
+whoever dispatched you and don't act until they answer. Every worker's brief,
+from `references/brief-template.md`, lists the checkpoints it reports at and
+tells it to report and continue at each one: a worker waits on no approval.
 
 **A decision is the human's when it does any of these:** changes the effort's
 scope; reverses or extends a decision the human supplied; or needs a step the
