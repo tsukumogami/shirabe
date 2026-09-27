@@ -87,6 +87,24 @@ log_evidence() { # log_evidence <session> <state> <fields-json> [timestamp]
 log_capture() { # log_capture <session> <key> <value> [timestamp]
     log_ev "$1" variable_captured "$(jq -nc --arg k "$2" --arg v "$3" '{key: $k, value: $v}')" "${4:-2026-09-26T10:00:00.000Z}"
 }
+# Verdict tokens. koto refuses to capture a value holding = , + # ( [ | or ;
+# so a token may use only letters, digits, spaces and : / _ . - @. A test
+# records every token it sees with `seen`; tokens_ok checks them all.
+RE_TOKEN='^[A-Za-z0-9 :/_.@-]*$'
+seen() { printf '%s\n' "$1" >> "$T/tokens"; printf '%s\n' "$1"; }
+tokens_ok() { # tokens_ok <script>: every token seen fits a koto capture
+    local n=0 badt=
+    while IFS= read -r t; do
+        n=$((n + 1))
+        [[ $t =~ $RE_TOKEN ]] || { badt=$t; break; }
+    done < "$T/tokens"
+    if [ -n "$badt" ]; then bad "every $1 token fits a koto capture" "[$badt]"
+    elif [ "$n" -eq 0 ]; then bad "every $1 token fits a koto capture" "no token was seen"
+    else ok "every $1 token fits a koto capture ($n seen)"; fi
+}
+log_end() { # log_end <session>: cancel the run, so coord-log.sh live-session skips it
+    log_ev "$1" workflow_cancelled '{}'
+}
 roadmap_vars() { jq -nc --arg p "$PLUGIN_ROOT_REAL" --arg n "$1" '{SCOPE: "roadmap", ROADMAP: "docs/roadmaps/ROADMAP-\($n).md", DISCIPLINE: "", HOST_REPO: "acme/widgets", PLUGIN_ROOT: $p}'; }
 discipline_vars() { jq -nc --arg p "$PLUGIN_ROOT_REAL" --arg n "$1" '{SCOPE: "discipline", ROADMAP: "", DISCIPLINE: $n, HOST_REPO: "acme/widgets", PLUGIN_ROOT: $p}'; }
 

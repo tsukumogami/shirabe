@@ -71,7 +71,7 @@ DEFERRALS='[{"deferral":"a","reason":"r","raised":"2026-09-25T10:00Z","dispositi
             {"deferral":"b","reason":"r","raised":"2026-09-25T10:00Z","disposition":"closed: moot"},
             {"deferral":"c","reason":"r","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T08:30Z: later"}]'
 seed "$(record_json roadmap plugin-system | jq -c --argjson d "$DEFERRALS" '.deferrals = $d')"
-S=coordinate-plugin-system-20260926T080000Z
+S=coordinate-roadmap-plugin-system-20260926T080000Z
 found_session "$S" "$(roadmap_vars plugin-system)" 7
 bash "$H" --session "$S" --topic beta --row-file "$T/beta.json" >/dev/null 2>"$T/err"; eq "a session write exits 0" 0 $?
 eq "before the first dispatch every deferral stays" "a b c" "$(live | jq -r '.deferrals | map(.deferral) | join(" ")')"
@@ -80,6 +80,12 @@ bash "$H" --session "$S" --topic beta --row-file "$T/beta2.json" >/dev/null 2>"$
 eq "after it, filed and closed deferrals drop and carried stay" "c" "$(live | jq -r '.deferrals | map(.deferral) | join(" ")')"
 eq "the row still upserts" "beta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
 eq "--read through the session" "feat/beta" "$(bash "$H" --session "$S" --topic beta --read | jq -r .branch)"
+S2=coordinate-roadmap-plugin-system-20260926T090000Z
+found_session "$S2" "$(roadmap_vars plugin-system)" 7
+log_end "$S"
+bash "$H" --session "$S" --topic beta --row-file "$T/beta.json" >/dev/null 2>"$T/err"; eq "an ended run's session refuses the write" 10 $?
+bash "$H" --session "$S2" --topic beta --row-file "$T/beta.json" >/dev/null 2>"$T/err"; eq "the live run's session writes" 0 $?
+S=$S2
 log_ev "$S" directed_transition '{"from":"dispatch","to":"wait"}'
 bash "$H" --session "$S" --topic beta --row-file "$T/beta.json" >/dev/null 2>&1; eq "a directed transition in the run refuses the write" 10 $?
 

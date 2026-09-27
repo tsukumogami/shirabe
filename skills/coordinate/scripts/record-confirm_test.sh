@@ -4,9 +4,13 @@
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
 # row), surface (the unit's Verified head), merge_confirm and merged_facts
-# (merged: no row linking the pull request; unconfirmed: a Side effects row at
-# the sha), teardown (done and kept), decision_apply (reversal and deferral),
-# posture_ask, and --verified (confirmed, waiting, moved). Also: an older
+# (merged: the unit's row no longer links the pull request; unconfirmed: a
+# Side effects row naming owner/repo#n at the sha), teardown (done and kept),
+# decision_apply (reversal and deferral), posture_ask, and --verified
+# (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
+# and acme/gadgets#12 are both held: the unit is found by its Worker from the
+# log, links are matched by their full URL, and the live head is read from
+# the unit's own repository; a bare #12 never confirms. Also: an older
 # Written: time waits even when the rows match; a missing or non-canonical
 # body is a conflict; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail.
@@ -31,8 +35,10 @@ body() {
     db_init
     db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]
         | .prs += [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
-                    baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$1" issue "${2:-$AFTER}")" --arg h "$SHA_HEAD"
+                    baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null},
+                   {repo: "acme/gadgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+                    baseRefName: "main", headRefName: "feat/y", headRefOid: $o, author: "alice", editor: null}]' \
+        --arg t "$TITLE" --arg b "$(render "$1" issue "${2:-$AFTER}")" --arg h "$SHA_HEAD" --arg o "$SHA_OTHER"
 }
 rec() { record_json roadmap plugin-system; }
 # session: a fresh run with a found record #7; prints its name.
@@ -41,7 +47,7 @@ session() {
     S=coordinate-plugin-system-20260926T0800$(printf '%02d' "$N")Z
     found_session "$S" "$(roadmap_vars plugin-system)" 7
 }
-confirm() { bash "$C" --session "$S" --no-seal "$@" 2>"$T/err"; }
+confirm() { local o rc; o=$(bash "$C" --session "$S" --no-seal "$@" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 sealed_capture() { # sealed_capture <state> <KEY> <token> [timestamp]
     log_to "$S" wait "$1"
     log_capture "$S" "$2" "$(bash "$CL" seal --session "$S" --state "$1" --token "$3")" "${4:-$EVT}"
@@ -72,26 +78,44 @@ eq "surface: the unit's row with a Verified head confirms" confirmed "$(confirm)
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "surface: the unit's row without a Verified head waits" waiting "$(confirm)"
 
+GADGETS12='{"repo":"acme/gadgets","branch":"feat/y","pull_request":"[#12](https://github.com/acme/gadgets/pull/12)"}'
+
 echo "== merge_confirm and merged_facts =="
 for src in merge_confirm merged_facts; do
     KEY=MERGE_CONFIRM; [ "$src" = merged_facts ] && KEY=MERGED_FACTS
     session
+    log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "merged 12 $SHA_HEAD"
     log_to "$S" "$src" record "$EVT"
     body "$(rec | jq -c --argjson h "$(holding beta '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$h]')"
     eq "$src merged: no row linking the pull request confirms" confirmed "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
     eq "$src merged: a row still linking #12 waits" waiting "$(confirm)"
+    # Two units hold #12, in two repositories.
+    body "$(rec | jq -c --argjson a "$(holding alpha)" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
+    eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g]')"
+    eq "$src merged: widgets#12's row gone confirms though gadgets#12's row stays" confirmed "$(confirm)"
     session
+    log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "unconfirmed 12 $SHA_HEAD"
     log_to "$S" "$src" record "$EVT"
     SE=$(jq -nc --arg s "$SHA_HEAD" '[{action: "merge", target: "acme/widgets#12", verified_head: $s, attempted: "2026-09-26T09:58Z", how_to_confirm: "compare blobs"}]')
-    body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')"
+    HA=$(holding alpha)
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" '.side_effects = $se | .holdings = [$a]')"
     eq "$src unconfirmed: a Side effects row at the sha confirms" confirmed "$(confirm)"
-    body "$(rec | jq -c --argjson se "$SE" --arg o "$SHA_OTHER" '.side_effects = $se | .side_effects[0].verified_head = $o')"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" '.side_effects = $se | .holdings = [$a] | .side_effects[0].target = "merge of https://github.com/acme/widgets/pull/12"')"
+    eq "$src unconfirmed: the pull request's URL in Target confirms" confirmed "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" --arg o "$SHA_OTHER" '.side_effects = $se | .holdings = [$a] | .side_effects[0].verified_head = $o')"
     eq "$src unconfirmed: a Side effects row at another sha waits" waiting "$(confirm)"
-    body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se | .side_effects[0].target = "#123"')"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" '.side_effects = $se | .holdings = [$a] | .side_effects[0].target = "acme/widgets#123"')"
     eq "$src unconfirmed: #123 does not name #12" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" '.side_effects = $se | .holdings = [$a] | .side_effects[0].target = "#12"')"
+    eq "$src unconfirmed: a bare #12 never confirms" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" --argjson g "$(holding gamma "$GADGETS12")" '.side_effects = $se | .holdings = [$g, $a] | .side_effects[0].target = "acme/gadgets#12"')"
+    eq "$src unconfirmed: gadgets#12 in Target does not confirm widgets#12" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')"
+    eq "$src unconfirmed: without the unit's row the repository can't be told, so it waits" waiting "$(confirm)"
 done
 session
 log_to "$S" wait merge_confirm
@@ -152,6 +176,8 @@ eq "posture_ask: a row not about the posture waits" waiting "$(confirm)"
 
 echo "== --verified =="
 session
+log_evidence "$S" wait '{"event":"done","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait verify
 log_to "$S" verify verify_board
 log_capture "$S" VERIFIED "$(bash "$CL" seal --session "$S" --state verify_board --token "verified 12 $SHA_HEAD")" "$EVT"
 log_to "$S" verify_board verified_confirm "$EVT"
@@ -167,6 +193,15 @@ db '.prs[0].headRefOid = $o' --arg o "$SHA_OTHER"
 eq "--verified: a moved live head is moved" moved "$(confirm --verified)"
 db '.fail = [{match: "headRefOid", rc: 1}]'
 confirm --verified >/dev/null; eq "--verified: a failed head read exits 2" 2 $?
+# Two units hold #12: gamma's gadgets#12 (head SHA_OTHER) is listed first.
+body "$(rec | jq -c --argjson a "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
+eq "--verified: the unit's widgets#12 row confirms beside gadgets#12" confirmed "$(confirm --verified)"
+grep -q "pr view 12 --repo acme/widgets --json headRefOid" "$GH_DB.calls" && ok "--verified reads the head from the unit's repository" || bad "--verified reads the head from the unit's repository" "$(calls)"
+grep -q "pr view 12 --repo acme/gadgets" "$GH_DB.calls" && bad "--verified never reads the other unit's #12" "$(calls)" || ok "--verified never reads the other unit's #12"
+body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12" | jq -c --arg h "$SHA_HEAD" '.verified_head = $h')" '.holdings = [$g]')"
+eq "--verified: only another unit's #12 row waits" waiting "$(confirm --verified)"
+body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$a]')"
+eq "--verified: the unit's row linking another pull request is a conflict" conflict "$(confirm --verified)"
 
 echo "== conflicts and refusals =="
 session
@@ -192,9 +227,11 @@ log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 OUT=$(bash "$C" --session "$S" 2>"$T/err")
+seen "$OUT" > /dev/null
 case "$OUT" in "confirmed sealed:"*) ok "the verdict is sealed to the record visit" ;; *) bad "the verdict is sealed to the record visit" "$OUT $(cat "$T/err")" ;; esac
 bash "$CL" check --session "$S" --state record --sealed "$OUT" && ok "the seal checks" || bad "the seal checks"
 eq "the detail names the source" dispatch "$(jq -r .source "$KOTO_STORE/context/$S/coord/record_confirm.json")"
 bash "$C" --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 
+tokens_ok record-confirm
 done_tests record-confirm

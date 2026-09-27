@@ -193,9 +193,21 @@ lib_emit() {
     exit 0
 }
 
+# lib_slug: SLUG, the scope slug coordinate-open.sh names sessions by:
+# `<scope>-<name>` lowercased, every character outside [a-z0-9-] made `-`,
+# runs of `-` squeezed, one trailing `-` trimmed. The pipeline is the same
+# text as coordinate-open.sh's (record-write_test.sh checks that it stays so).
+lib_slug() {
+    SLUG=$(printf '%s-%s' "$SCOPE" "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-' | tr -s '-')
+    SLUG=${SLUG%-}
+}
+
 # lib_write_guard: every write refuses (exit 10) when the session wasn't
-# created from the shipped template for this plugin root, or when the run has
-# any directed transition (`koto next --to` skips gates, koto#251).
+# created from the shipped template for this plugin root, when it isn't the
+# one live session for its scope (coord-log.sh live-session; so a --session
+# naming an older run of the same scope, still provenanced and pointing at
+# the same record, is refused), or when the run has any directed transition
+# (`koto next --to` skips gates, koto#251).
 # --skip-session-checks bypasses it, only with the test override flags.
 lib_write_guard() {
     if [ "$SKIP_CHECKS" = 1 ]; then
@@ -207,7 +219,16 @@ lib_write_guard() {
         echo "$PROG: refused: the session fails provenance (not created from the shipped template for this plugin)" >&2
         exit 10
     fi
-    local out rc
+    local out rc live
+    lib_slug
+    live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" 2>/dev/null)
+    rc=$?
+    case $rc in
+        0) [ "$live" = "$SESSION" ] || { echo "$PROG: refused: $SESSION is not the live $SLUG session ($live is)" >&2; exit 10; } ;;
+        1) echo "$PROG: refused: no live $SLUG session; $SESSION has ended" >&2; exit 10 ;;
+        3) echo "$PROG: refused: several live $SLUG sessions; restart the run" >&2; exit 10 ;;
+        *) lib_die2 "cannot find the live $SLUG session" ;;
+    esac
     out=$(bash "$HERE/coord-log.sh" directed-since --session "$SESSION" --from 0 2>/dev/null)
     rc=$?
     case $rc in
@@ -262,4 +283,135 @@ lib_run_ref() {
         REF=$(printf '%s' "$facts" | jq -r '.ref')
     fi
     [[ $REF =~ $RE_NUM ]] || { echo "$PROG: the record number is not a number" >&2; exit 64; }
+}
+
+# ---- the turn's and the close-outs' reads -----------------------------------
+
+# lib_default_branch: set DEFAULT_BRANCH from the host. Returns 2 on a failed read.
+lib_default_branch() {
+    DEFAULT_BRANCH=$(gh api --method GET "repos/$REPO" --jq .default_branch 2> /dev/null < /dev/null) || return 2
+    [[ $DEFAULT_BRANCH =~ ^[A-Za-z0-9._/-]+$ ]] || return 2
+}
+
+# lib_file_at <path> <ref> <out>: a file's bytes at a ref, through the contents
+# API. Returns 0 read, 1 absent (404), 2 a read or decode failed.
+lib_file_at() {
+    if ! gh api --method GET "repos/$REPO/contents/$1?ref=$2" --jq .content > "$3.b64" 2> "$3.err" < /dev/null; then
+        grep -q 'HTTP 404' "$3.err" && return 1
+        return 2
+    fi
+    # GitHub wraps the base64 in lines; GNU decodes with -d, older macOS with -D.
+    tr -d '\n\r ' < "$3.b64" > "$3.flat"
+    base64 -d < "$3.flat" > "$3" 2> /dev/null || base64 -D < "$3.flat" > "$3" 2> /dev/null || return 2
+}
+
+# lib_roadmap_path: check ROADMAP's closed shape (docs/roadmaps/.../ROADMAP-*.md,
+# no `..`). Exits 64 otherwise.
+lib_roadmap_path() {
+    local re='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
+    [[ $ROADMAP =~ $re ]] || { echo "$PROG: the roadmap path is not docs/roadmaps/.../ROADMAP-<name>.md" >&2; exit 64; }
+    case "$ROADMAP" in *..*) echo "$PROG: the roadmap path holds .." >&2; exit 64 ;; esac
+}
+
+# lib_roadmap_features <roadmap.md>: the features under `## Features`, as a JSON
+# array in source order: {number, id, title, status, done, dependencies}.
+# A feature heading is `### Feature <N>: <title>` or `### <PREFIX><N>: <title>`;
+# features are numbered by position, as shirabe-validate numbers them. Status
+# is the `**Status:**` line's value; `done` is true when it reads Done or
+# Dropped (one trailing period tolerated), compared case-sensitively.
+# Dependencies are the positions named by `Feature N`, `Features N and M`,
+# `Features N, M` or `F<N>` on the `**Dependencies:**` line; a line opening
+# with `None` names none, whatever prose follows.
+lib_roadmap_features() {
+    tr -d '\r' < "$1" | awk '
+        function flush() { if (have) { gsub(/\t/, " ", title); gsub(/\t/, " ", status); gsub(/\t/, " ", deps)
+            printf "%d\t%s\t%s\t%s\t%s\n", n, id, title, status, deps }; have = 0 }
+        /^## / { if (infeat) { flush(); infeat = 0 } if ($0 ~ /^## Features[ \t]*$/) infeat = 1; next }
+        !infeat { next }
+        /^### / {
+            flush()
+            line = substr($0, 5)
+            if (match(line, /^(Feature [0-9]+|[A-Za-z]+[0-9]+): /)) {
+                n++; have = 1
+                id = substr(line, 1, RLENGTH - 2); title = substr(line, RLENGTH + 1)
+                status = ""; deps = ""
+            }
+            next
+        }
+        have && /^\*\*Status:\*\*/ { s = $0; sub(/^\*\*Status:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); status = s; next }
+        have && /^\*\*Dependencies:\*\*/ { s = $0; sub(/^\*\*Dependencies:\*\*[ \t]*/, "", s); deps = s; next }
+        END { if (infeat) flush() }' \
+    | jq -R -s -c 'split("\n") | map(select(. != "") | split("\t")) | map({
+            number: (.[0] | tonumber), id: .[1], title: (.[2] | .[0:120]), status: (.[3] | .[0:60]),
+            done: (.[3] | test("^(Done|Dropped)\\.?$")),
+            dependencies: (if (.[4] | test("^None\\b")) then [] else [(.[4] | scan("[Ff]eatures? ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber),
+                            (.[4] | scan("\\bF([0-9]+)\\b") | .[0] | tonumber)] | unique end)})'
+}
+
+# lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
+# into LINK_REPO and LINK_NUM. Returns 1 when the cell isn't that shape or the
+# two numbers differ.
+lib_pr_link() {
+    local re='^\[#([0-9]+)\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)\)$'
+    LINK_REPO= LINK_NUM=
+    [[ $1 =~ $re ]] || return 1
+    [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[3]}" ] || return 1
+    LINK_REPO=${BASH_REMATCH[2]}
+    LINK_NUM=${BASH_REMATCH[1]}
+    [[ $LINK_NUM =~ $RE_NUM ]]
+}
+
+# lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
+# each with `parked` set. A row is parked when it has a Verified head and its
+# pull request is open and not a draft (gh pr view in the linked repository);
+# every other row is active. Local agents never have a row, so they are never
+# counted. Returns 2 on a failed read.
+lib_parked() {
+    local n i row vh pr st
+    n=$(jq length "$1") || return 2
+    : > "$2.rows"
+    i=0
+    while [ "$i" -lt "$n" ]; do
+        row=$(jq -c --argjson i "$i" '.[$i]' "$1")
+        vh=$(printf '%s' "$row" | jq -r '.verified_head // ""')
+        pr=$(printf '%s' "$row" | jq -r '.pull_request // ""')
+        st=false
+        if [ -n "$vh" ] && lib_pr_link "$pr"; then
+            gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
+            st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr" 2>/dev/null) || return 2
+        fi
+        printf '%s' "$row" | jq -c --argjson p "$st" '. + {parked: $p}' >> "$2.rows"
+        i=$((i + 1))
+    done
+    jq -s -c '.' "$2.rows" > "$2" || return 2
+}
+
+# lib_bounds: CAP and PARKED_BOUND from the session's variables (defaults 5
+# and 3 without a session, or when a variable is unset).
+lib_bounds() {
+    CAP=5 PARKED_BOUND=3
+    [ -n "$SESSION" ] || return 0
+    local vars
+    vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
+    CAP=$(printf '%s' "$vars" | jq -r '.CAP // "5"')
+    PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
+    [[ $CAP =~ $RE_NUM ]] && [[ $PARKED_BOUND =~ $RE_NUM ]] || lib_die2 "CAP or PARKED_BOUND is not a number"
+}
+
+# lib_epoch <time>: seconds since the epoch for YYYY-MM-DDTHH:MM[:SS[.fff]]Z,
+# in bash arithmetic so GNU and BSD systems agree. Returns 1 on another shape.
+lib_epoch() {
+    local re='^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(:([0-9]{2})(\.[0-9]+)?)?Z$'
+    [[ $1 =~ $re ]] || return 1
+    local y=$((10#${BASH_REMATCH[1]})) m=$((10#${BASH_REMATCH[2]})) d=$((10#${BASH_REMATCH[3]}))
+    local H=$((10#${BASH_REMATCH[4]})) M=$((10#${BASH_REMATCH[5]})) S=0
+    [ -n "${BASH_REMATCH[7]}" ] && S=$((10#${BASH_REMATCH[7]}))
+    lib_valid_date "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}" || return 1
+    [ "$y" -ge 1970 ] || return 1
+    y=$(( m <= 2 ? y - 1 : y ))
+    local era=$(( y / 400 ))
+    local yoe=$(( y - era * 400 ))
+    local doy=$(( (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1 ))
+    local doe=$(( yoe * 365 + yoe / 4 - yoe / 100 + doy ))
+    echo $(( (era * 146097 + doe - 719468) * 86400 + H * 3600 + M * 60 + S ))
 }

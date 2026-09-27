@@ -18,9 +18,9 @@
 # `predecessor`).
 #
 # Verdict tokens (the first word is what coord-verdict.sh routes on):
-#   roadmap:    found <n> | none | ambiguous <n>,<m>[,...] | foreign <n>
+#   roadmap:    found <n> | none | ambiguous <n> <m> [...] | foreign <n>
 #               | malformed <n> | unauthorized <n>
-#   discipline: found <n> | predecessor <n> | foreign <n> | ambiguous <n>[,...]
+#   discipline: found <n> | predecessor <n> | foreign <n> | ambiguous <n> [...]
 #               | malformed <n> | unauthorized <n> | stale-branch | unopened | none
 #
 # Usage:
@@ -110,7 +110,7 @@ if [ "$SCOPE" = roadmap ]; then
         VERDICT=none; REASON="no open issue titled $ISSUE_TITLE"; finish
     fi
     if [ "$COUNT" -gt 1 ]; then
-        VERDICT=ambiguous; NUM=$(jq -r 'map(.number | tostring) | join(",")' "$T/issues.json")
+        VERDICT=ambiguous; NUM=$(jq -r 'map(.number | tostring) | join(" ")' "$T/issues.json")
         REASON="$COUNT open issues carry the record's title"; finish
     fi
     NUM=$(jq -r '.[0].number' "$T/issues.json")
@@ -138,7 +138,7 @@ if [ "$OPEN" -eq 0 ]; then
     finish
 fi
 if [ "$OPEN" -gt 1 ]; then
-    VERDICT=ambiguous; NUM=$(jq -r 'map(.number | tostring) | join(",")' "$T/open.json")
+    VERDICT=ambiguous; NUM=$(jq -r 'map(.number | tostring) | join(" ")' "$T/open.json")
     REASON="$OPEN open pull requests on $BRANCH"; finish
 fi
 NUM=$(jq -r '.[0].number' "$T/open.json")

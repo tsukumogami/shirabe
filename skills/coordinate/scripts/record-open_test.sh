@@ -87,25 +87,35 @@ bash "$O" "${DS[@]}" --body-file "$T/ds.md" >/dev/null 2>&1; eq "a failed read e
 
 echo "== session checks =="
 db_init
-S=coordinate-plugin-system-20260926T080000Z
+S=coordinate-roadmap-plugin-system-20260926T080000Z
 log_new "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" record_find record_open
 OUT=$(bash "$O" --session "$S" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
 eq "a session that passes provenance opens" "0 record=https://github.com/acme/widgets/issues/1" "$rc $OUT"
 db_init
-S2=coordinate-plugin-system-20260926T090000Z
+S2=coordinate-roadmap-plugin-system-20260926T090000Z
 log_new "$S2" "$(roadmap_vars plugin-system)" 0badbeef
 bash "$O" --session "$S2" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a session from another template is refused" 10 $?
 eq "and writes nothing" "" "$(calls)"
-S3=coordinate-plugin-system-20260926T100000Z
+log_end "$S"; log_end "$S2"
+S3=coordinate-roadmap-plugin-system-20260926T100000Z
 log_new "$S3" "$(roadmap_vars plugin-system)"
 log_ev "$S3" directed_transition '{"from":"record_find","to":"record_open"}'
 bash "$O" --session "$S3" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a directed transition in the run is refused" 10 $?
 grep -q 'record_find->record_open' "$T/err" && ok "the refusal names the directed edge" || bad "the refusal names the directed edge" "$(cat "$T/err")"
-S4=coordinate-plugin-system-20260926T110000Z
+log_end "$S3"
+S4=coordinate-roadmap-plugin-system-20260926T110000Z
 log_new "$S4" "$(jq -nc '{SCOPE: "roadmap", ROADMAP: "docs/roadmaps/ROADMAP-plugin-system.md", HOST_REPO: "acme/widgets", PLUGIN_ROOT: "/elsewhere"}')"
 bash "$O" --session "$S4" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a PLUGIN_ROOT that isn't this plugin is refused" 10 $?
 bash "$O" --scope roadmap --name plugin-system --repo "$REPO" --body-file "$T/rm.md" >/dev/null 2>&1; eq "override flags without a session need --skip-session-checks" 64 $?
 bash "$O" --session "$S" --skip-session-checks --body-file "$T/rm.md" >/dev/null 2>&1; eq "--skip-session-checks without the override flags is a usage error" 64 $?
+S5=coordinate-roadmap-plugin-system-20260926T120000Z
+log_new "$S5" "$(roadmap_vars plugin-system)"
+log_to "$S5" record_find record_open
+S6=coordinate-roadmap-plugin-system-20260926T130000Z
+log_new "$S6" "$(roadmap_vars plugin-system)"
+db_init
+bash "$O" --session "$S5" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a session that isn't its scope's one live session is refused" 10 $?
+eq "and writes nothing" "" "$(calls)"
 
 done_tests record-open

@@ -27,12 +27,16 @@
 # PreToolUse hooks whose matcher covers Bash: a hook whose command or script
 # text mentions a step's command makes that step `confirm` unless it is
 # `deny` (the reader can't tell what the hook decides, so it reserves the
-# step); a hook script that can't be read makes every step not already
-# `deny` `unread`. With no root found, every step is `unread`.
+# step); a hook the reader can't locate and read (an interpreter's script
+# with no path, a bare PATH command other than a text tool like jq or grep,
+# an absolute path outside the two roots, a missing file, a command
+# substitution) makes every step not already `deny` `unread`. With no root
+# found, every step is `unread`.
 #
-# Verdict token: `readable merge=<v> close=<v> teardown=<v>` when no step is
-# unread, else `unread merge=<v> close=<v> teardown=<v>`, with each <v> one of
-# permit, deny, confirm, unread.
+# Verdict token: `readable merge:<v> close:<v> teardown:<v>` when no step is
+# unread, else `unread merge:<v> close:<v> teardown:<v>`, with each <v> one of
+# permit, deny, confirm, unread. The separator is `:` because koto refuses to
+# capture a value holding `=`.
 #
 # Usage:
 #   posture-read.sh --session S
@@ -166,28 +170,122 @@ for pair in "$IROOT|settings.local.json" "$IROOT|settings.json" "$WROOT|settings
     FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c --arg p "$f" --arg s "$status" '. + [{path: $p, status: $s}]')
 done
 
-# Hook texts: the command, plus every script it names, read as text.
+# Hook texts: the command, plus the script each of its simple commands runs,
+# read as text. A hook the reader can't classify never passes as harmless:
+# every simple command must be either a text tool whose whole behaviour is in
+# the command line (jq, grep, sed, ...), an interpreter given inline code
+# (bash -c, python3 -c, ...), or a script located as a readable file under
+# the instance or workspace root. Anything else (`python3 guard.py`, a bare
+# PATH command, an absolute path outside the roots, a missing file, a command
+# substitution) is recorded as unreadable, which makes every step not already
+# `deny` unread.
 HOOK_UNREAD=0
 : > "$T/hooktext"
+: > "$T/unreadable"
+canon_root() { [ -n "$1" ] && (cd "$1" 2> /dev/null && pwd -P); }
+ROOTS_P="$(canon_root "$IROOT")
+$(canon_root "$WROOT")"
+unreadable() { HOOK_UNREAD=1; printf '%s\n' "$1" >> "$T/unreadable"; }
+# expand_path <root> <token>: the token with $CLAUDE_PROJECT_DIR and ~/ expanded.
+expand_path() {
+    printf '%s' "$2" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$1|g" -e "s|\$CLAUDE_PROJECT_DIR|$1|g" -e "s|^~/|$HOME/|"
+}
+# read_script <root> <token>: append the script's text, or record it unreadable.
+# It must name a path (hold a `/`), resolve under a root, and be a readable file.
+read_script() {
+    local p dir real r inside=0
+    p=$(expand_path "$1" "$2")
+    case "$p" in */*) ;; *) unreadable "$2 (not a path the reader can locate)"; return ;; esac
+    case "$p" in /*) ;; *) p="$1/$p" ;; esac
+    if ! [ -f "$p" ] || ! [ -r "$p" ]; then unreadable "$p (missing or unreadable)"; return; fi
+    dir=$(cd "$(dirname "$p")" 2> /dev/null && pwd -P) || { unreadable "$p"; return; }
+    real="$dir/$(basename "$p")"
+    while IFS= read -r r; do
+        [ -n "$r" ] || continue
+        case "$real" in "$r"/*) inside=1 ;; esac
+    done <<ROOTS
+$ROOTS_P
+ROOTS
+    [ "$inside" = 1 ] || { unreadable "$p (outside the instance and workspace roots)"; return; }
+    if cat "$real" >> "$T/hooktext" 2> /dev/null; then printf '\n' >> "$T/hooktext"; else unreadable "$p"; fi
+}
+# classify_segment <root> <words...>: one simple command, quotes stripped.
+classify_segment() {
+    local root=$1 w base script= inline=0 rest icode
+    shift
+    # Leading assignments, then `env` with its options and assignments.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            [A-Za-z_]*=*) shift ;;
+            env|/usr/bin/env) shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
+            # Shell keywords that lead into a command: the command follows them.
+            # Quoted: bash 3.2 can't parse a bare keyword as a case pattern.
+            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time') shift ;;
+            # `case WORD in PATTERN) command`: the command follows the pattern.
+            'case') shift; while [ $# -gt 0 ]; do w=$1; shift; case "$w" in *')') break ;; esac; done ;;
+            *')') shift ;;
+            'fi'|'done'|'esac'|'for'|'in'|';;') return 0 ;;
+            *) break ;;
+        esac
+    done
+    [ $# -gt 0 ] || return 0
+    w=$1; shift
+    base=${w##*/}
+    case "$base" in
+        jq|grep|egrep|fgrep|sed|awk|tr|cut|head|tail|cat|echo|printf|test|'['|'[['|']]'|exit|true|false|read|:|cd)
+            # A text tool: its behaviour is the command line, already read. Any
+            # path it names is read too when it can be.
+            for rest in "$@"; do
+                case "$rest" in -*|*'>'*|*'<'*) continue ;; esac
+                case "$rest" in */*) ;; *) continue ;; esac
+                rest=$(expand_path "$root" "$rest")
+                case "$rest" in /*) ;; *) rest="$root/$rest" ;; esac
+                [ -f "$rest" ] && [ -r "$rest" ] && { cat "$rest" >> "$T/hooktext" 2> /dev/null; printf '\n' >> "$T/hooktext"; }
+            done
+            return 0 ;;
+        bash|sh|zsh|dash|ksh|python|python2|python3|node|ruby|perl)
+            # The flag that takes inline code: -c for shells and python
+            # (alone or ending a cluster like -ec), -e/-E/--eval for the rest.
+            case "$base" in
+                node|ruby|perl) icode='^(-e|-E|--eval|-p|--print)$' ;;
+                *) icode='^-[A-Za-z]*c$' ;;
+            esac
+            while [ $# -gt 0 ]; do
+                if [[ $1 =~ $icode ]]; then inline=1; break; fi
+                case "$1" in
+                    # A shell's -o takes an option name, alone or at the end of a cluster.
+                    -o|-O|-[A-Za-z]*o) shift; [ $# -gt 0 ] && shift ;;
+                    -*) shift ;;
+                    *) script=$1; break ;;
+                esac
+            done
+            [ "$inline" = 1 ] && return 0
+            [ -n "$script" ] || { unreadable "$w with no script"; return 0; }
+            read_script "$root" "$script" ;;
+        *)
+            read_script "$root" "$w" ;;
+    esac
+}
 while IFS='	' read -r root cmd; do
     [ -n "$cmd" ] || continue
     printf '%s\n' "$cmd" >> "$T/hooktext"
+    case "$cmd" in *'$('*|*'`'*|*'<('*) unreadable "$cmd (a command substitution)"; continue ;; esac
+    # One simple command per line, split on the shell's list and pipe operators.
+    printf '%s\n' "$cmd" | awk '{ gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
     # Split on whitespace without globbing: a hook's `*` must stay text.
     set -f
-    for tok in $(printf '%s' "$cmd" | tr -d "\"'"); do
-        case "$tok" in -*|*=*|*'>'*|*'<'*|*'|'*|*';'*|*'&'*) continue ;; esac
-        case "$tok" in */*) ;; *) continue ;; esac
-        p=$(printf '%s' "$tok" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$root|g" -e "s|\$CLAUDE_PROJECT_DIR|$root|g" -e "s|^~/|$HOME/|")
-        case "$p" in /dev/*|/bin/*|/sbin/*|/usr/*|/opt/homebrew/*) continue ;; esac
-        case "$p" in /*) ;; *) p="$root/$p" ;; esac
-        if [ -f "$p" ] && [ -r "$p" ]; then
-            cat "$p" >> "$T/hooktext" 2> /dev/null || HOOK_UNREAD=1
-            printf '\n' >> "$T/hooktext"
-        else
-            HOOK_UNREAD=1
-            printf '%s\n' "$p" >> "$T/unreadable"
-        fi
-    done
+    while IFS= read -r seg; do
+        # shellcheck disable=SC2086
+        set -- $seg
+        # Redirections are not words the command runs.
+        n=$#; i=0
+        while [ $i -lt $n ]; do
+            w=$1; shift
+            case "$w" in *'>'*|*'<'*) ;; *) set -- "$@" "$w" ;; esac
+            i=$((i + 1))
+        done
+        classify_segment "$root" "$@"
+    done < "$T/segments"
     set +f
 done < "$T/hooks"
 # A second copy with shell and regex spellings of a space made plain, so
@@ -236,7 +334,7 @@ PATS
         fi
     fi
     [ "$v" = unread ] && TOKEN_WORD=unread
-    TOKEN="$TOKEN $step=$v"
+    TOKEN="$TOKEN $step:$v"
     STEPS_JSON=$(printf '%s' "$STEPS_JSON" | jq -c --arg s "$step" --arg v "$v" --arg w "$why" '.[$s] = {verdict: $v, why: $w}')
 done
 TOKEN="$TOKEN_WORD$TOKEN"
