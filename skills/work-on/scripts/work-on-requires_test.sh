@@ -8,8 +8,11 @@
 # (--vars-file, --attach-live, --koto-leg) in a `mode:koto-leg` record. Against
 # a stand-in koto whose `init --help` predates those flags, this asserts:
 #
-#   - the load-time preflight (`skill-preflight.sh work-on`) prints nothing:
-#     a run without the flag is not refused on an older koto
+#   - the load-time preflight (`skill-preflight.sh work-on`) prints nothing
+#     when that koto reports shirabe's koto minimum: a run without the flag is
+#     not refused for lacking the entry flags
+#   - the same koto reporting a version below the minimum gets the upgrade
+#     block at load, from scripts/lib/preflight-minimum.sh
 #   - `skill-preflight.sh work-on --mode koto-leg`, which SKILL.md runs before
 #     the --koto-leg open, names the missing flags
 #   - the mode record's flags are the ones /scope, /execute and /deliver
@@ -58,24 +61,32 @@ done
 
 # A koto from before the entry flags: `init --help` knows only --template and
 # --var; every other subcommand answers with the flags /work-on always needs.
+# Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
+# cases at the minimum and the minimum case below it.
+MINIMUM=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$REPO/scripts/assert-koto-floor.sh" | head -1)
 mkdir -p "$T/bin" "$T/cwd"
 cat >"$T/bin/koto" <<'OLD'
 #!/usr/bin/env bash
 case "$*" in
     "init --help") printf 'Usage: koto init <NAME> --template <T>\n\nOptions:\n      --template <T>\n      --var <K=V>\n  -h, --help\n' ;;
     *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n  -h, --help\n' "$1" ;;
-    "version"|"--version") printf 'koto 0.12.2\n' ;;
+    "version"|"--version") printf 'koto %s\n' "$KOTO_STUB_VERSION" ;;
     *) printf "error: unrecognized subcommand '%s'\n" "$1" >&2; exit 2 ;;
 esac
 OLD
 chmod +x "$T/bin/koto"
 
-OUT=$(cd "$T/cwd" && PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on 2>&1)
+OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION="$MINIMUM" PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on 2>&1)
 case "$OUT" in
-    *koto*) bad "load-time preflight on an older koto is silent about koto" "$OUT" ;;
-    *) ok "load-time preflight on an older koto is silent about koto" ;;
+    *koto*) bad "load-time preflight on a koto without the entry flags is silent about koto" "$OUT" ;;
+    *) ok "load-time preflight on a koto without the entry flags is silent about koto" ;;
 esac
-OUT=$(cd "$T/cwd" && PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on --mode koto-leg 2>&1)
+OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION=0.0.1 PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on 2>&1)
+case "$OUT" in
+    *"koto 0.0.1 is installed, and shirabe needs koto $MINIMUM or later"*) ok "load-time preflight on a koto below the minimum names both versions" ;;
+    *) bad "load-time preflight on a koto below the minimum names both versions" "$OUT" ;;
+esac
+OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION="$MINIMUM" PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on --mode koto-leg 2>&1)
 case "$OUT" in
     *--koto-leg*) ok "--mode koto-leg on an older koto names --koto-leg" ;;
     *) bad "--mode koto-leg on an older koto names --koto-leg" "$OUT" ;;
