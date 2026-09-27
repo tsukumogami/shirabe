@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-staleness-check-portability.md
 problem: |
   /work-on's staleness_check gate runs `check-staleness.sh --issue N` by bare
@@ -35,7 +35,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
