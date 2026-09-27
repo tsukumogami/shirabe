@@ -10,6 +10,7 @@
 # Then behaves as $STUB_CLAUDE_MODE says:
 #   plan     prints the plan-mode fixture transcript and writes nothing
 #   denied   prints the all-denied fixture transcript and writes nothing
+#   failed   prints the all-failed fixture transcript and writes nothing
 #   grade    writes outputs and a passing grading.json for every scenario in the
 #            workspace named in the prompt, then prints the executed transcript
 #   nograde  writes outputs but no grading.json, then prints the executed
@@ -61,6 +62,7 @@ write_outputs() {
 case "${STUB_CLAUDE_MODE:-plan}" in
   plan)    cat "$here/plan-mode.jsonl" ;;
   denied)  cat "$here/all-denied.jsonl" ;;
+  failed)  cat "$here/all-failed.jsonl" ;;
   grade)   write_outputs yes; cat "$here/executed.jsonl" ;;
   nograde) write_outputs no; cat "$here/executed.jsonl" ;;
   partial) write_outputs first; cat "$here/plan-mode.jsonl" ;;

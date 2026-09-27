@@ -9,7 +9,7 @@
 #   0 -- all cases pass
 #   1 -- one or more cases failed
 #
-# No model is called. A stub claude (scripts/fixtures/run-evals/bin/claude) is
+# No model is called. A stub claude (scripts/run-evals/fixtures/bin/claude) is
 # put first on PATH; it records the arguments, prompt, working directory and
 # TMPDIR it was started with, and replays a fixture transcript. The runner is
 # pointed at a throwaway suite through RUN_EVALS_SKILLS_DIR, so no iteration is
@@ -26,7 +26,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 RUNNER="$SCRIPT_DIR/run-evals.sh"
 CLASSIFY="$SCRIPT_DIR/lib/classify-eval-session.py"
-FIXTURES="$SCRIPT_DIR/fixtures/run-evals"
+FIXTURES="$SCRIPT_DIR/run-evals/fixtures"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -51,29 +51,93 @@ field() { # field <name> -- read one field of the last verdict JSON in OUT
   printf '%s' "$OUT" | python3 -c "import json,sys; print(json.load(sys.stdin)[sys.argv[1]])" "$1"
 }
 
+# The four fixtures are real captures (see each file's header). The inline
+# transcripts further down are hand-written, and only for shapes no real run
+# has produced here: an ExitPlanMode, a denial with no denial record.
+
 classify verdict "$FIXTURES/plan-mode.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = not_executed ] \
-  && [ "$(field permission_mode)" = plan ] && [ "$(field exit_plan_mode)" = True ] \
-  && [ "$(field executing_calls_succeeded)" = 2 ]; then
-  pass "plan-mode transcript: not_executed despite a read-only ls and the plan file's Write"
+  && [ "$(field permission_mode)" = plan ] \
+  && [ "$(field executing_calls_ran)" = 2 ]; then
+  pass "real plan-mode session: not_executed although its read-only command and plan-file Write ran"
 else
   fail "plan-mode transcript (rc=$RC): $OUT"
 fi
 
 classify verdict "$FIXTURES/all-denied.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = not_executed ] \
-  && [ "$(field executing_calls)" = 2 ] && [ "$(field permission_denials)" = 2 ]; then
-  pass "all-denied transcript: two executing calls, both denied, not_executed"
+  && [ "$(field executing_calls)" = 3 ] && [ "$(field permission_denials)" = 3 ] \
+  && [ "$(field executing_calls_ran)" = 0 ]; then
+  pass "real all-denied session: three calls, three denials, not_executed"
 else
   fail "all-denied transcript (rc=$RC): $OUT"
 fi
 
+classify verdict "$FIXTURES/all-failed.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] \
+  && [ "$(field executing_calls_ran)" = 2 ] && [ "$(field permission_denials)" = 0 ]; then
+  pass "real session whose every command exited nonzero: executed (exit 2 territory, not 4)"
+else
+  fail "all-failed transcript (rc=$RC): $OUT"
+fi
+
 classify verdict "$FIXTURES/executed.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] \
-  && [ "$(field executing_calls_succeeded)" = 2 ]; then
-  pass "executed transcript: a subagent's Write and the parent's Bash both count"
+  && [ "$(field permission_mode)" = acceptEdits ] \
+  && [ "$(field executing_calls_ran)" = 2 ]; then
+  pass "real graded run: a subagent's Write and the parent's Bash both count; later inits ignored"
 else
   fail "executed transcript (rc=$RC): $OUT"
+fi
+
+classify verdict "$FIXTURES/executed.jsonl"
+if printf '%s' "$(field result_text)" | grep -q "^I ran iteration 2"; then
+  pass "real graded run: the final message is the last of its three result messages"
+else
+  fail "executed transcript final message: $(field result_text)"
+fi
+
+cat > "$T/exit-plan-then-stop.jsonl" <<'EOF'
+{"type":"system","subtype":"init","permissionMode":"acceptEdits"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_e1","name":"Bash","input":{"command":"ls"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_e1","type":"tool_result","content":"a","is_error":false}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_e2","name":"ExitPlanMode","input":{"plan":"p"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_e2","type":"tool_result","content":"not approved","is_error":true}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","result":"stopped","permission_denials":[]}
+EOF
+classify verdict "$T/exit-plan-then-stop.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = not_executed ] && [ "$(field exit_plan_mode)" = True ]; then
+  pass "ExitPlanMode outside plan mode with nothing run after it: not_executed"
+else
+  fail "exit-plan-then-stop (rc=$RC): $OUT"
+fi
+
+cat > "$T/exit-plan-then-run.jsonl" <<'EOF'
+{"type":"system","subtype":"init","permissionMode":"acceptEdits"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_r1","name":"ExitPlanMode","input":{"plan":"p"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_r1","type":"tool_result","content":"ok","is_error":false}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_r2","name":"Bash","input":{"command":"python3 grade.py"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_r2","type":"tool_result","content":"Exit code 1","is_error":true}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","result":"ran","permission_denials":[]}
+EOF
+classify verdict "$T/exit-plan-then-run.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ]; then
+  pass "ExitPlanMode outside plan mode followed by a command that ran: executed"
+else
+  fail "exit-plan-then-run (rc=$RC): $OUT"
+fi
+
+# Cut short before any denial record: the tool-result text is the fallback.
+cat > "$T/denied-text-only.jsonl" <<'EOF'
+{"type":"system","subtype":"init","permissionMode":"acceptEdits"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_t1","name":"Bash","input":{"command":"gh pr list"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_t1","type":"tool_result","content":"This command requires approval","is_error":true}]},"parent_tool_use_id":null}
+EOF
+classify verdict "$T/denied-text-only.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = not_executed ] && [ "$(field permission_denials)" = 1 ]; then
+  pass "a denial with no denial record is recognised by its text"
+else
+  fail "denied-text-only (rc=$RC): $OUT"
 fi
 
 # A session with background agents ends each turn with its own result message.
@@ -134,7 +198,7 @@ else
 fi
 
 classify result-text "$FIXTURES/plan-mode.jsonl"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Plan mode is on"; then
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "started in plan mode"; then
   pass "result-text prints the session's final message"
 else
   fail "result-text (rc=$RC): $OUT"
@@ -240,8 +304,15 @@ else
   fail "runner transcript not saved where expected: '$transcript'"
 fi
 
+run_runner failed demo
+if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+  pass "runner: a session whose commands all ran and failed stays exit 2, not 4"
+else
+  fail "runner, all-failed session (rc=$RC): $OUT"
+fi
+
 run_runner denied demo
-if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "Permission denials: 2"; then
+if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "Permission denials: 3"; then
   pass "runner: a session whose every call was denied exits 4"
 else
   fail "runner, all-denied session (rc=$RC): $OUT"
@@ -268,7 +339,7 @@ fi
 
 run_runner grade demo
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
-  && printf '%s' "$OUT" | grep -q "Ran one scenario and graded it."; then
+  && printf '%s' "$OUT" | grep -q "I ran iteration 2 of the writing-style evals"; then
   pass "runner: a graded run exits 0 and prints the session's final message"
 else
   fail "runner, graded session (rc=$RC): $OUT"

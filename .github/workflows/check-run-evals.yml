@@ -5,8 +5,8 @@ name: Check run-evals
 # suite drives the runner end to end against a stub claude and a throwaway
 # suite, so it needs no model, no network and no API key. Ubuntu only: the
 # runner is an operator tool that no skill invokes on a user's machine, and
-# scripts/check-bash-floor.sh lists it among the exemptions from the bash 3.2
-# floor; this suite stays off the floor with it.
+# scripts/check-bash-floor.sh lists it and this suite among the exemptions from
+# the bash 3.2 floor.
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ on:
       - 'scripts/run-evals.sh'
       - 'scripts/run-evals_test.sh'
       - 'scripts/lib/classify-eval-session.py'
-      - 'scripts/fixtures/run-evals/**'
+      - 'scripts/run-evals/fixtures/**'
       - '.github/workflows/check-run-evals.yml'
 
 jobs:

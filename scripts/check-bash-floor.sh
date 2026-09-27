@@ -89,6 +89,10 @@ mktempdir() {
 #       Drives the `claude` CLI against live models on workflow_dispatch. An
 #       operator tool, never invoked by a skill on a user's machine, and it
 #       cannot run offline or in a container.
+#   scripts/run-evals_test.sh, scripts/run-evals/fixtures/ (check-run-evals.yml)
+#       The runner's own suite, run offline against a stub claude on ubuntu
+#       runners. It tests an operator tool that never reaches a user's macOS
+#       /bin/bash, so it stays off the floor with the runner.
 #   .release/set-version.sh, .release/post-release.sh (release.yml,
 #   finalize-release.yml)
 #       Release automation. Runs only on ubuntu runners, from a workflow,

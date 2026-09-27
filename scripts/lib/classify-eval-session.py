@@ -13,12 +13,12 @@ that run grades nothing, there are two very different causes:
 
 This script tells them apart from the transcript. A session "executed" when at
 least one call to a tool that runs a command or changes a file (Bash, Write,
-Edit, MultiEdit, NotebookEdit) came back without an error and was not a
-permission denial. Calls made by subagents count: they appear in the same
-transcript. Plan mode overrides that: a session whose init message says plan,
-or whose top level called ExitPlanMode, did not execute, whatever else
-succeeded, because plan mode runs read-only commands and writes its own plan
-file.
+Edit, MultiEdit, NotebookEdit) came back and was not a permission denial. A
+command that ran and exited nonzero still ran. Calls made by subagents count:
+they appear in the same transcript. Plan mode overrides that: a session whose
+init message says plan did not execute, whatever else ran, because plan mode
+runs read-only commands and writes its own plan file; nor did a session whose
+top level called ExitPlanMode and ran nothing after it.
 
 Usage:
   classify-eval-session.py verdict <transcript>
@@ -38,6 +38,10 @@ import json
 import sys
 
 EXECUTING_TOOLS = ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit")
+
+# Tool-result texts the CLI (2.1.283) writes for a denied call; see
+# scripts/run-evals/fixtures/all-denied.jsonl for the captured forms.
+DENIAL_TEXTS = ("requires approval", "haven't granted", "requested permissions to")
 
 # run-evals.sh step 4b turns EXIT_NOT_EXECUTED into its own exit 4, and only
 # asks when validation found no grading.json at all; keep the two in step.
@@ -73,61 +77,85 @@ def content_blocks(event):
     return content if isinstance(content, list) else []
 
 
+def result_text_of(block):
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content if isinstance(part, dict)
+        )
+    return ""
+
+
 def classify(events):
     mode = None
-    tool_uses = {}  # id -> tool name
-    top_level_exit_plan = []  # ExitPlanMode calls made by the session itself
-    results = {}  # tool_use_id -> is_error
+    tool_uses = {}  # id -> (tool name, event index)
+    first_exit_plan = None  # event index of the session's own first ExitPlanMode
+    results = {}  # tool_use_id -> (is_error, text)
     denied = set()
     # Subagents can end with result messages of their own, so every result's
     # denials count, and the final message is the top-level session's.
-    result_events = []
     result_event = None
 
-    for event in events:
+    for index, event in enumerate(events):
         kind = event.get("type")
-        if kind == "system" and event.get("subtype") == "init" and mode is None:
+        subtype = event.get("subtype")
+        if kind == "system" and subtype == "init" and mode is None:
+            # A background agent's turn emits an init of its own, with its own
+            # cwd; the first init is the session the runner started.
             mode = event.get("permissionMode")
+        elif kind == "system" and subtype == "permission_denied":
+            if event.get("tool_use_id"):
+                denied.add(event["tool_use_id"])
         elif kind == "assistant":
             for block in content_blocks(event):
                 if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tool_uses[block.get("id")] = block.get("name", "")
+                    tool_uses[block.get("id")] = (block.get("name", ""), index)
                     if (block.get("name") == "ExitPlanMode"
-                            and event.get("parent_tool_use_id") is None):
-                        top_level_exit_plan.append(block.get("id"))
+                            and event.get("parent_tool_use_id") is None
+                            and first_exit_plan is None):
+                        first_exit_plan = index
         elif kind == "user":
             for block in content_blocks(event):
                 if isinstance(block, dict) and block.get("type") == "tool_result":
-                    results[block.get("tool_use_id")] = bool(block.get("is_error"))
+                    results[block.get("tool_use_id")] = (
+                        bool(block.get("is_error")), result_text_of(block))
         elif kind == "result":
-            result_events.append(event)
+            for denial in event.get("permission_denials") or []:
+                if isinstance(denial, dict) and denial.get("tool_use_id"):
+                    denied.add(denial["tool_use_id"])
             if event.get("parent_tool_use_id") is None or result_event is None:
                 result_event = event
 
-    for event in result_events:
-        for denial in event.get("permission_denials") or []:
-            if isinstance(denial, dict) and denial.get("tool_use_id"):
-                denied.add(denial["tool_use_id"])
+    # The CLI records a denial twice, as a permission_denied event and in the
+    # result's permission_denials. The texts are the fallback for a transcript
+    # cut short before either.
+    for tool_id, (is_error, text) in results.items():
+        if is_error and any(marker in text for marker in DENIAL_TEXTS):
+            denied.add(tool_id)
 
-    executing = [i for i, name in tool_uses.items() if name in EXECUTING_TOOLS]
-    succeeded = [
-        i for i in executing
-        if i in results and not results[i] and i not in denied
-    ]
+    executing = [i for i, (name, _) in tool_uses.items() if name in EXECUTING_TOOLS]
+    # A call ran when it came back and was not denied. Its exit status does not
+    # matter: a command that ran and failed is the skill's or the suite's
+    # problem, reported as exit 2, not the runner's.
+    ran = [i for i in executing if i in results and i not in denied]
+
     # Plan mode is decisive on its own. It lets read-only shell commands through
     # (ls, cat, and the Explore agents it spawns), and it writes its own plan
-    # file with Write, so a session that looked around and stopped to present a
-    # plan has successful calls of both kinds and still ran nothing. Nobody can
-    # approve the plan in a -p session, so it never leaves plan mode. A
-    # top-level ExitPlanMode counts even when the init mode was something else:
-    # it means the session stopped to ask, and this only runs on a run that
-    # already graded nothing. A subagent's ExitPlanMode is not the session
-    # stopping, so it is ignored.
-    planned = mode == "plan" or bool(top_level_exit_plan)
+    # file with Write, so a session that looked around and stopped has calls of
+    # both kinds that ran, and still ran nothing the runner asked for. Nobody
+    # can approve a plan in a -p session, so it never leaves plan mode. Outside
+    # plan mode, the session's own ExitPlanMode decides only when nothing ran
+    # after it: a session that presented a plan and then carried on did execute.
+    # A subagent's ExitPlanMode is not the session stopping, so it is ignored.
+    stopped_at_plan = first_exit_plan is not None and not any(
+        tool_uses[i][1] > first_exit_plan for i in ran)
+    planned = mode == "plan" or stopped_at_plan
 
     if not events or (mode is None and result_event is None and not tool_uses):
         verdict = "unknown"
-    elif planned or not succeeded:
+    elif planned or not ran:
         verdict = "not_executed"
     else:
         verdict = "executed"
@@ -135,10 +163,10 @@ def classify(events):
     return {
         "verdict": verdict,
         "permission_mode": mode,
-        "exit_plan_mode": bool(top_level_exit_plan),
+        "exit_plan_mode": first_exit_plan is not None,
         "tool_calls": len(tool_uses),
         "executing_calls": len(executing),
-        "executing_calls_succeeded": len(succeeded),
+        "executing_calls_ran": len(ran),
         "permission_denials": len(denied),
         "result_subtype": (result_event or {}).get("subtype"),
         "result_is_error": bool((result_event or {}).get("is_error")),
@@ -187,7 +215,7 @@ def report(summary, transcript, requested):
     print(f"    Session result: {subtype}")
     print(f"    Tool calls: {summary['tool_calls']}"
           f" ({summary['executing_calls']} that run commands or change files,"
-          f" {summary['executing_calls_succeeded']} of them succeeded)")
+          f" {summary['executing_calls_ran']} of them ran)")
     print(f"    Permission denials: {summary['permission_denials']}")
     print(f"    Transcript: {transcript}")
     return EXIT_NOT_EXECUTED
