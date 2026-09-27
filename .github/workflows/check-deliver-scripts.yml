@@ -47,8 +47,10 @@ jobs:
 
       # The report, the probes, the binding check, the mode map, and the eval
       # gh shim need bash, git and jq only (the probes and the shim drive
-      # test-local gh and koto stand-ins), so they run on both platforms. Linux
-      # runs them under its own bash 5.
+      # test-local gh and koto stand-ins). This step runs them under Linux's own
+      # bash 5; the macOS leg runs the same scripts on the floor in the next
+      # step, through the `deliver` suite. A harness added here belongs in that
+      # suite too; scripts/check-macos-floor-legs.sh fails the job if not.
       - name: Run script tests without koto (Linux)
         if: runner.os == 'Linux'
         run: |

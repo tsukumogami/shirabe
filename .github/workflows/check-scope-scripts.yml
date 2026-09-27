@@ -49,18 +49,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The steps below run under Linux's own bash 5; the macOS leg runs the
-      # same scripts on the bash 3.2 floor in the last step of this job.
+      # The next three steps run under Linux's own bash 5; the macOS leg runs
+      # the same scripts on the bash 3.2 floor in the step after them, through
+      # the `scope` suite. A harness added to one of these steps belongs in
+      # that suite too; scripts/check-macos-floor-legs.sh fails the job if not.
       #
       # check-citations.sh uses only POSIX-ish bash plus git grep pathspecs, so
       # it runs on macOS's bash 3.2 without the newer-bash install the plan
-      # scripts need. Both platforms run to keep that true.
+      # scripts need; the macOS floor step keeps that true.
       - name: Run check-citations tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/scope/scripts/check-citations_test.sh
 
       # intake's scripts and the /plan hop's consistency check need bash, git
-      # and jq only, and run on both platforms so the bash 3.2 floor holds.
+      # and jq only, so they run here and on the macOS floor.
       # run-intake_test.sh and scope-template_test.sh skip their koto cases
       # here; the substrate job below runs them with koto installed.
       - name: Run intake and plan-mode script tests (Linux)

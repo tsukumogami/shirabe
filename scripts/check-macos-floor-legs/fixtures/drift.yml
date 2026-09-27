@@ -1,0 +1,20 @@
+# Fails: a harness was added to the Linux step but not to the `demo` suite,
+# so the macOS leg never runs it on 3.2 while every step stays green.
+name: drift
+on: pull_request
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash skills/demo/scripts/one_test.sh
+          bash skills/demo/scripts/three_test.sh
+      - name: Run tests on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system demo

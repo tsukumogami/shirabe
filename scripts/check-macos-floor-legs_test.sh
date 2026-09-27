@@ -30,9 +30,11 @@ trap cleanup EXIT
 
 RC=0
 OUT=""
+# The fixtures call a `demo` suite, which the fixture registry defines in the
+# format `check-bash-floor.sh --list` prints.
 lint() { # lint <workflow>...
     RC=0
-    OUT=$("$LINT" "$@" 2>&1) || RC=$?
+    OUT=$(CHECK_MACOS_FLOOR_REGISTRY="$FIXTURES/registry.txt" "$LINT" "$@" 2>&1) || RC=$?
 }
 
 has() { printf '%s' "$OUT" | grep -qF -- "$1"; }
@@ -76,6 +78,25 @@ else
     fail "linux-limited-floor fixture (rc=$RC): $OUT"
 fi
 
+lint "$FIXTURES/drift.yml"
+if [ "$RC" -eq 1 ] && has "skills/demo/scripts/three_test.sh" \
+    && has "in none of its floor suites (demo)" && [ "$(count 'step "')" -eq 1 ]; then
+    pass "a harness run on Linux but missing from the floor suite fails; the listed one passes"
+else
+    fail "drift fixture (rc=$RC): $OUT"
+fi
+
+lint "$FIXTURES/weak-floor.yml"
+if [ "$RC" -eq 1 ] \
+    && has 'job allowed-to-fail: step "(whole job)": no floor step' \
+    && has 'job compound-if: step "Run tests with a flag": bash -e skills/demo/scripts/one_test.sh' \
+    && has 'job compound-if: step "(whole job)": floor suite nosuch' \
+    && [ "$(count 'step "')" -eq 3 ]; then
+    pass "a floor step allowed to fail, a compound if, bash -e, and an unknown suite all fail"
+else
+    fail "weak-floor fixture (rc=$RC): $OUT"
+fi
+
 lint "$FIXTURES/not-macos.yml"
 if [ "$RC" -eq 0 ]; then
     pass "a Linux-only job, and a macOS job that runs no suite, pass"
@@ -96,6 +117,13 @@ if [ "$RC" -eq 2 ] && has "could not read"; then
     pass "a workflow that is not YAML exits 2, not 0 or 1"
 else
     fail "broken workflow (rc=$RC): $OUT"
+fi
+
+lint "$T/absent.yml"
+if [ "$RC" -eq 2 ] && has "no such workflow"; then
+    pass "a named workflow that does not exist exits 2, not a silent pass"
+else
+    fail "absent workflow (rc=$RC): $OUT"
 fi
 
 echo ""

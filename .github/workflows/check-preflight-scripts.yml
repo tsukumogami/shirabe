@@ -103,8 +103,10 @@ jobs:
       # /scope's and /execute's declarations name the koto init entry flags
       # only koto 0.13.0 and later have, so the zero-bytes assertions hold only
       # from that release on.
-      # Run by path: it checks koto, not bash, and a bare `bash` on the macOS
-      # leg would be Homebrew's bash 5 in any case.
+      # Run by path rather than through `bash`: this step runs on the macOS leg
+      # too, where a bare `bash` reads as a floor leg on Homebrew's bash 5 and
+      # scripts/check-macos-floor-legs.sh refuses it. The check is about koto,
+      # so which bash interprets it does not matter.
       - name: Assert koto meets the floor
         run: scripts/assert-koto-floor.sh
 
@@ -118,8 +120,9 @@ jobs:
       # So the macOS leg goes through scripts/check-bash-floor.sh --backend
       # system: it refuses a /bin/bash that is not 3.2, logs the version it ran
       # on, and puts a shim first on PATH so a nested `bash` is 3.2 too.
-      # Calling /bin/bash on the harness alone would leave the production line
-      # below -- a bare `bash .../skill-preflight.sh` -- on Homebrew's bash 5.
+      # Calling /bin/bash on the harness alone would leave its nested runs of
+      # the production line described below -- a bare `bash` on
+      # skill-preflight.sh -- on Homebrew's bash 5.
       #
       # This matrix IS the guard against reintroducing a post-3.2 construct;
       # there is deliberately no grep for `declare -A` and friends. A pattern
