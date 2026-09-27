@@ -34,10 +34,31 @@ cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$T/tree/skills/coordina
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-check.sh"
 
+REAL_GIT=$(command -v git)
+export REAL_GIT
 cat > "$T/bin/stub" <<'STUB'
 #!/usr/bin/env bash
 name=$(basename "$0")
 printf '%s %s\n' "$name" "$*" >> "$STUB_LOG"
+# git calls other than ls-remote go to the real git: the inventory reads a
+# real clone. rd_git puts its -c flags before the subcommand, so find it.
+if [ "$name" = git ]; then
+    sub=""; skip=0
+    for a in "$@"; do
+        if [ "$skip" = 1 ]; then skip=0; continue; fi
+        case "$a" in -c|-C) skip=1 ;; --*) ;; *) sub=$a; break ;; esac
+    done
+    [ "$sub" = ls-remote ] || exec "$REAL_GIT" "$@"
+fi
+# Contents reads keyed by ref and path, when the case serves them that way.
+if [ "$name" = gh ] && [ "$1" = api ]; then
+    case "$2" in */contents/*"?ref="*)
+        p=${2#*/contents/}; ref=${p##*\?ref=}; p=${p%%\?ref=*}
+        f="$STUB_DIR/contents@$ref@$(printf '%s' "$p" | tr '/' '_')"
+        if [ -f "$f" ]; then jq -r .sha < "$f"; exit 0; fi
+        if ls "$STUB_DIR"/contents@* >/dev/null 2>&1; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+    ;; esac
+fi
 case "$name:$1:$2" in
     gh:pr:view) key=pr-view ;;
     gh:pr:list) key=pr-list ;;
@@ -47,7 +68,9 @@ case "$name:$1:$2" in
     gh:api:*/contents/*) ref=${2##*ref=}; key=contents-$ref ;;
     gh:api:*/git/ref/*) key=git-ref ;;
     gh:api:*/pulls/*) key=api-pull ;;
-    git:ls-remote:*) key=ls-remote ;;
+    git:*) key=ls-remote ;;
+    niwa:list:*) key=niwa-list ;;
+    koto:request:get) key=koto-request ;;
     board-verdict.sh:*) key=board ;;
     deferral-check.sh:*) key=deferral ;;
     *) echo "stub: unexpected call: $name $*" >&2; exit 99 ;;
@@ -73,7 +96,8 @@ fi
 exit "$rc"
 STUB
 chmod +x "$T/bin/stub"
-for n in gh git; do ln -s stub "$T/bin/$n"; done
+for n in gh git niwa koto; do ln -s stub "$T/bin/$n"; done
+mkdir -p "$T/nobin"
 for n in board-verdict.sh deferral-check.sh; do ln -s "$T/bin/stub" "$T/tree/skills/coordinate/scripts/$n"; done
 
 CASE=""
@@ -244,6 +268,126 @@ merge_setup merge-late '[{"status":"modified","filename":"src/a.go"}]'
 echo 4 > "$CASE/contents-$VH.sleep.1"
 expect "a late contents read says it timed out" '.status == "not_verified" and (.reason | test("timed out"))' "$(DL=1 run merge --repo $R --number 7 --verified-head $VH)"
 
+echo "== host =="
+LIST='[{"name":"tsuku+codex_test","path":"/w/tsuku+codex_test"},{"name":"tsuku+coordinate_reconcile-730e6b0e","path":"/w/tsuku+coordinate_reconcile-730e6b0e","session_name":"coordinate_reconcile-730e6b0e"},{"name":"tsuku+recon-11112222","path":"/w/tsuku+recon-11112222"}]'
+new_case host-found
+serve niwa-list 1 "$LIST"
+expect "a worker is found by its topic's slug" '.state == "found" and .path == "/w/tsuku+coordinate_reconcile-730e6b0e"' "$(run host --topic coordinate-reconcile)"
+new_case host-missed
+serve niwa-list 1 "$LIST"
+expect "a topic with no instance reads missed after one read" '.state == "missed" and .reads == 1' "$(run host --topic coordinate-dispatch)"
+[ "$(grep -c '^niwa list' "$CASE/log")" = 1 ] && ok "host makes exactly one listing read and never sleeps" || bad "host makes one listing read" "$(cat "$CASE/log")"
+new_case host-prefix
+serve niwa-list 1 "$LIST"
+expect "a topic that is a prefix of another's slug doesn't match it" '.state == "missed"' "$(run host --topic reco)"
+new_case host-ambiguous
+serve niwa-list 1 '[{"name":"a+x_y-11111111","path":"/w/a"},{"name":"b+x_y-22222222","path":"/w/b"}]'
+expect "two instances for one topic are ambiguous" '.state == "ambiguous"' "$(run host --topic x-y)"
+new_case host-fails
+fail_with niwa-list 1 1 "boom"
+expect "a failing workspace manager is not verified" '.status == "not_verified"' "$(run host --topic coordinate-reconcile)"
+new_case host-garbage
+serve niwa-list 1 'No instances found.'
+expect "unparseable listing output is not verified" '.status == "not_verified"' "$(run host --topic coordinate-reconcile)"
+new_case host-late
+echo 4 > "$CASE/niwa-list.sleep.1"; serve niwa-list 1 "$LIST"
+expect "a late listing read is not verified" '.status == "not_verified" and (.reason | test("timed out"))' "$(DL=1 run host --topic coordinate-reconcile)"
+new_case host-absent
+out=$(STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/nobin:/usr/bin:/bin" bash "$S" host --topic coordinate-reconcile 2>/dev/null)
+expect "with no workspace manager on the host, host reads are not verified" '.status == "not_verified"' "$out"
+
+echo "== teardown =="
+W="$T/ws"; mkdir -p "$W/tsuku+keep-aaaaaaaa"
+TLIST="[{\"name\":\"tsuku+keep-aaaaaaaa\",\"path\":\"$W/tsuku+keep-aaaaaaaa\"}]"
+new_case teardown-done
+serve niwa-list 1 "$TLIST"
+expect "a topic absent from the listing and the disk is torn down" '.verdict == "confirmed"' "$(run teardown --topic gone-topic)"
+new_case teardown-dir-left
+mkdir -p "$W/tsuku+left_topic-bbbbbbbb"
+serve niwa-list 1 "$TLIST"
+expect "an instance directory still on disk is not confirmed" '.verdict == "not_confirmed" and (.reason | test("directory"))' "$(run teardown --topic left-topic)"
+new_case teardown-listed
+serve niwa-list 1 "$TLIST"
+expect "a topic still listed is not confirmed" '.verdict == "not_confirmed" and (.reason | test("listed"))' "$(run teardown --topic keep)"
+
+echo "== leg =="
+REQ_JSON='{"request_id":"req1","request_state":"open","legs":{"deliver":{"name":"deliver","disposition":"resolved","bound_child":"deliver-x","result":{"status":"success","summary":"done","payload":{"outcome":"merged","step":null}},"result_source":"promoted"},"work-on":{"name":"work-on","disposition":"resolved","bound_child":"w","result":{"status":"success","summary":"completed at done"},"result_source":"promoted","result_final_state":"done"},"refused":{"name":"refused","disposition":"resolved","bound_child":null,"result":{"status":"failure","summary":"refused","payload":{"outcome":"error","reason":"var-mismatch:TOPIC"}},"result_source":"refused"},"waiting":{"name":"waiting","disposition":"open","bound_child":"w2","result":null,"result_source":null}}}'
+new_case leg-deliver
+serve koto-request 1 "$REQ_JSON"
+expect "a deliver leg carries its outcome" '.disposition == "resolved" and .result == "merged"' "$(run leg --return-path 'leg req1:deliver')"
+grep -q '^koto request get req1$' "$CASE/log" && ok "the leg is read with koto request get" || bad "the leg is read with koto request get" "$(cat "$CASE/log")"
+new_case leg-workon
+serve koto-request 1 "$REQ_JSON"
+expect "a work-on leg carries the engine's status and final state" '.result == "success at done"' "$(run leg --return-path 'leg req1:work-on')"
+new_case leg-refused
+serve koto-request 1 "$REQ_JSON"
+expect "a refused leg carries its reason" '.result == "refused:var-mismatch:TOPIC"' "$(run leg --return-path 'leg req1:refused')"
+new_case leg-bound
+serve koto-request 1 "$REQ_JSON"
+expect "an open leg with a bound child reads bound" '.disposition == "bound" and .result == ""' "$(run leg --return-path 'leg req1:waiting')"
+new_case leg-missing
+serve koto-request 1 '{"error":{"code":"request_not_found","message":"x"}}'
+fail_with koto-request 1 2
+expect "a request not on this host is not verified" '.status == "not_verified" and (.reason | test("not found on this host"))' "$(run leg --return-path 'leg req9:deliver')"
+new_case leg-message
+expect "a message return path makes no request-store read" '.status == "not_verified"' "$(run leg --return-path message)"
+[ -s "$CASE/log" ] && bad "a message return path makes no call" "$(cat "$CASE/log")" || ok "a message return path makes no call"
+new_case leg-bad
+expect "an invalid request id reaches no command" '.status == "not_verified"' "$(run leg --return-path 'leg ../x:deliver')"
+[ -s "$CASE/log" ] && bad "an invalid request id makes no call" || ok "an invalid request id makes no call"
+
+echo "== inventory =="
+# A real clone in a temp instance. ls-remote is served; every other git call
+# runs the real git. Contents reads are keyed by path.
+I="$T/inst"; RP="$I/repo"; mkdir -p "$RP"
+g() { git -C "$RP" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1; }
+g init -q -b main; g remote add origin https://github.com/acme/widgets.git
+echo base > "$RP/x.txt"; echo keep > "$RP/k.txt"; g add -A; g commit -qm base
+MAIN=$(git -C "$RP" rev-parse HEAD)
+g checkout -qb pushed; echo p > "$RP/p.txt"; g add -A; g commit -qm p; PUSHED=$(git -C "$RP" rev-parse HEAD)
+g checkout -q main; g checkout -qb deleted; echo d > "$RP/d.txt"; g add -A; g commit -qm d
+g checkout -q main; g checkout -qb squashed; echo S > "$RP/x.txt"; g add -A; g commit -qm s
+SBLOB=$(git -C "$RP" rev-parse squashed:x.txt)
+g checkout -q main
+echo changed > "$RP/k.txt"                       # a modified tracked file: unique
+echo same > "$RP/landed.txt"                      # untracked, content on main: not unique
+echo mine > "$RP/mine.txt"                        # untracked, unique
+ln -s /etc/hostname "$RP/link-out"                # a symlink: listed, not read
+g worktree add -q "$T/outside-wt" -b wt           # a worktree outside the instance
+LANDED=$(git -C "$RP" hash-object --no-filters landed.txt)
+inv_case() {
+    new_case "$1"
+    printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/heads/pushed\n' "$MAIN" "$MAIN" "$PUSHED" > "$CASE/ls-remote.out.1"
+    pathblob "x.txt" "$SBLOB"; pathblob "landed.txt" "$LANDED"
+}
+pathblob() { printf '{"sha":"%s"}' "$2" > "$CASE/contents@$MAIN@$(printf '%s' "$1" | tr '/' '_')"; }
+inv_case inventory
+out=$(run inventory --path "$I")
+expect "the inventory is taken" '.kind == "inventory" and .status == "ok" and .taken == true' "$out"
+expect "a branch deleted on the remote is unique" '[.items[] | select(.kind == "commit") | .path] | index("branch deleted") != null' "$out"
+expect "a pushed branch is not unique" '[.items[] | select(.kind == "commit") | .path] | index("branch pushed") == null' "$out"
+expect "a squash-landed branch is not unique" '[.items[] | select(.kind == "commit") | .path] | index("branch squashed") == null' "$out"
+expect "a modified tracked file is unique" '[.items[] | .path] | index("k.txt") != null' "$out"
+expect "an untracked file whose content is on main is not unique" '[.items[] | .path] | index("landed.txt") == null' "$out"
+expect "an untracked unique file is listed" '[.items[] | .path] | index("mine.txt") != null' "$out"
+expect "a symlink is listed, not read" '[.items[] | .path] | any(startswith("link-out (symlink"))' "$out"
+expect "a worktree outside the instance is listed, not read" '[.items[] | select(.kind == "worktree")] | length == 1' "$out"
+expect "paths are clone-relative" '[.items[] | .clone, .path] | all(startswith("/") | not)' "$out"
+ALOG="$CASE/log"
+grep -qE '^git (fetch|pull|push|checkout|commit|reset|add)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E '^git (fetch|pull|push)' "$ALOG")" || ok "the inventory never writes in the clone"
+grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
+grep -q 'hash-object --no-filters' "$ALOG" && ! grep -q 'hash-object -w' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
+[ -z "$(git -C "$RP" status --porcelain -- .git 2>/dev/null)" ] && ok "the clone is unchanged" || bad "the clone is unchanged"
+
+new_case inventory-missing
+expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
+mkdir -p "$T/linkdir-target"; ln -s "$T/linkdir-target" "$T/linked-instance"
+new_case inventory-symlinked
+expect "a symlinked instance path is not followed" '.status == "not_verified"' "$(run inventory --path "$T/linked-instance")"
+new_case inventory-no-remote
+I2="$T/inst2"; mkdir -p "$I2/r"; git -C "$I2/r" init -q; git -C "$I2/r" remote add origin https://gitlab.example/x/y.git
+expect "a clone with no github.com origin is marked unchecked" '.items | any(.kind == "unchecked")' "$(run inventory --path "$I2")"
+
 echo "== close =="
 new_case close-closed
 serve issue-view 1 '{"state":"CLOSED"}'
@@ -321,7 +465,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+)$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|cat-file -e [0-9a-f]{40}\^\{commit\}|merge-base (--is-ancestor )?[^ ]+ [0-9a-f]{40}|rev-parse --verify --quiet .*|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads --format=.*|status --porcelain=v1 -z --untracked-files=all|hash-object --no-filters -- .*|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"

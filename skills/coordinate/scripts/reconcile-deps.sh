@@ -83,6 +83,40 @@ rd_deadline() {
     return "$rc"
 }
 
+# rd_slug TOPIC -- the workspace manager's slug for a dispatch topic, by its
+# own rule: lowercase, every run of characters outside [a-z0-9] collapsed to
+# one "_", leading and trailing "_" trimmed, capped at 40 characters (and
+# re-trimmed). Instance names end "+<slug>-<8 hex>" and session names are
+# "<slug>-<8 hex>", so a worker is found by its topic without ever using a
+# session id or an instance path from the record.
+rd_slug() {
+    printf '%s' "$1" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//' \
+        | cut -c1-40 | sed -E 's/_+$//'
+}
+
+# rd_git ARGS... -- git that reads a worker's clone without running anything
+# the clone's config names and without taking its index lock: no fsmonitor,
+# no hooks, no transport. A caller that needs https (ls-remote) re-allows it.
+rd_git() {
+    git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
+        -c protocol.allow=never "$@"
+}
+
+# rd_github_repo URL -- owner/repo for a github.com remote URL, https or ssh,
+# or nothing for any other remote.
+rd_github_repo() {
+    local r
+    case "$1" in
+        https://github.com/*) r=${1#https://github.com/} ;;
+        git@github.com:*) r=${1#git@github.com:} ;;
+        ssh://git@github.com/*) r=${1#ssh://git@github.com/} ;;
+        *) return 1 ;;
+    esac
+    r=${r%.git}
+    rd_valid_repo "$r" || return 1
+    printf '%s' "$r"
+}
+
 # rd_not_verified KIND REASON -- print a not_verified fact.
 rd_not_verified() {
     jq -nc --arg k "$1" --arg r "$2" --arg t "$(rd_now)" \

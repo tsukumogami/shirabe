@@ -12,7 +12,10 @@
 # command, and one that fails is a not_verified fact that reaches no command.
 #
 # Reads only. `gh` is called with read subcommands and `gh api` with GET;
-# `git` only with ls-remote, against the repository the row names.
+# `git` only with ls-remote against a github.com repository, and, inside a
+# worker's instance, with reads that neither take the index lock nor run
+# anything the clone's config names (rd_git); `niwa` only with `list`; `koto`
+# only with `request get`.
 #
 # Usage:
 #   reconcile-check.sh pr       --repo R --number N
@@ -23,6 +26,10 @@
 #   reconcile-check.sh merge    --repo R --number N --verified-head S
 #   reconcile-check.sh close    --repo R --kind issue|pr --number N
 #   reconcile-check.sh deferral --repo R --row-file F --run-start T
+#   reconcile-check.sh host      --topic T
+#   reconcile-check.sh teardown  --topic T
+#   reconcile-check.sh leg       --return-path "leg <request>:<leg>"
+#   reconcile-check.sh inventory --path <instance directory>
 #
 # Exit codes: 0 a fact printed; 64 usage error.
 #
@@ -32,7 +39,7 @@
 # when a read gives up, never what it concludes: a read that gives up is not
 # verified.
 #
-# Requires: bash 3.2+, jq, gh, git.
+# Requires: bash 3.2+, jq, gh, git, niwa (host, teardown), koto (leg).
 set -uo pipefail
 
 PROG=reconcile-check
@@ -50,6 +57,10 @@ FILES_CAP=300
 # A merge reads the contents API twice per file. Past this many files it
 # reports not confirmed rather than spending that many reads, and says why.
 MERGE_FILE_CAP=100
+# An inventory walks at most this many clones in one instance, and this many
+# files or branch-changed files per clone; past either it says truncated.
+INV_CLONE_CAP=20
+INV_FILE_CAP=200
 
 usage() {
     awk '/^# Usage:/{on=1} on&&/^# Exit codes/{exit} on' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -60,6 +71,7 @@ usage() {
 SUB=$1
 shift
 REPO="" NUMBER="" SHA="" BASE="" BRANCH="" KIND="" VHEAD="" ROWFILE="" RUNSTART=""
+TOPIC="" RETURN_PATH="" IPATH=""
 while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
     case "$1" in
@@ -72,6 +84,9 @@ while [ $# -gt 0 ]; do
         --verified-head) VHEAD=$2 ;;
         --row-file) ROWFILE=$2 ;;
         --run-start) RUNSTART=$2 ;;
+        --topic) TOPIC=$2 ;;
+        --return-path) RETURN_PATH=$2 ;;
+        --path) IPATH=$2 ;;
         *) usage ;;
     esac
     shift 2
@@ -304,6 +319,194 @@ deferral)
         *)
             refuse deferral "disposal check failed (exit $rc)" ;;
     esac
+    ;;
+
+host)
+    # One listing read. A miss is reported as missed, never as gone: the
+    # pass re-reads after 30 seconds before it says "not found on this read".
+    [[ $TOPIC =~ ^[A-Za-z0-9][A-Za-z0-9\ _.-]{0,79}$ ]] || refuse host "invalid dispatch topic in the record row"
+    SLUG=$(rd_slug "$TOPIC")
+    [ -n "$SLUG" ] || refuse host "the dispatch topic has no usable slug"
+    read_or_fail host "$DEADLINE" niwa list --json
+    printf '%s' "$OUT" | jq -ce --arg s "$SLUG" --arg t "$(rd_now)" '
+        select(type == "array")
+        | [.[] | select(((.name // "") | test("\\+" + $s + "-[0-9a-f]{8}$"))
+                        or ((.session_name // "") | test("^" + $s + "-[0-9a-f]{8}$")))] as $m
+        | if ($m | length) == 1 then {kind: "host", status: "ok", state: "found", reads: 1, path: $m[0].path, read_at: $t}
+          elif ($m | length) > 1 then {kind: "host", status: "ok", state: "ambiguous", reads: 1, read_at: $t}
+          else {kind: "host", status: "ok", state: "missed", reads: 1, read_at: $t} end' 2>/dev/null \
+        || refuse host "unreadable workspace listing"
+    ;;
+
+teardown)
+    # Settled when the listing has no instance for the topic and no instance
+    # directory for it is left in the workspace root. One read; the pass
+    # re-reads a miss before it relies on it, as it does for host.
+    [[ $TOPIC =~ ^[A-Za-z0-9][A-Za-z0-9\ _.-]{0,79}$ ]] || refuse teardown "invalid dispatch topic in the side-effect row"
+    SLUG=$(rd_slug "$TOPIC")
+    [ -n "$SLUG" ] || refuse teardown "the dispatch topic has no usable slug"
+    read_or_fail teardown "$DEADLINE" niwa list --json
+    LISTED=$(printf '%s' "$OUT" | jq -r --arg s "$SLUG" '
+        [.[] | select(((.name // "") | test("\\+" + $s + "-[0-9a-f]{8}$"))
+                      or ((.session_name // "") | test("^" + $s + "-[0-9a-f]{8}$")))] | length' 2>/dev/null) \
+        || refuse teardown "unreadable workspace listing"
+    [[ $LISTED =~ ^[0-9]+$ ]] || refuse teardown "unreadable workspace listing"
+    # The workspace root is the directory every listed instance sits in.
+    WROOT=$(printf '%s' "$OUT" | jq -r '[.[].path | select(type == "string") | sub("/[^/]+$"; "")] | unique | if length == 1 then .[0] else empty end' 2>/dev/null)
+    [ -n "$WROOT" ] && [ -d "$WROOT" ] || refuse teardown "the workspace root could not be found from the listing"
+    LEFT=0
+    for d in "$WROOT"/*+"$SLUG"-????????; do
+        [ -d "$d" ] && case "${d##*-}" in *[!0-9a-f]*) ;; *) LEFT=1 ;; esac
+    done
+    if [ "$LISTED" -eq 0 ] && [ "$LEFT" -eq 0 ]; then
+        jq -nc --arg t "$(rd_now)" '{kind: "teardown", status: "ok", verdict: "confirmed", reason: "", reads: 1, read_at: $t}'
+    else
+        jq -nc --arg t "$(rd_now)" --argjson l "$LISTED" --argjson d "$LEFT" \
+            '{kind: "teardown", status: "ok", verdict: "not_confirmed",
+              reason: (if $l > 0 then "the instance is still listed" else "its instance directory is still on disk" end), read_at: $t}'
+    fi
+    ;;
+
+leg)
+    # Only a holding whose return path names a leg has one to read.
+    case "$RETURN_PATH" in
+        message) refuse leg "the holding reports by message; no leg to read" ;;
+        "leg "*) ;;
+        *) refuse leg "unreadable return path in the record row" ;;
+    esac
+    SPEC=${RETURN_PATH#leg }
+    REQ=${SPEC%%:*}
+    LEG=${SPEC#*:}
+    [[ $REQ =~ ^[a-z0-9_][a-z0-9_-]{0,63}$ ]] || refuse leg "invalid request id in the record row"
+    [[ $LEG =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || refuse leg "invalid leg name in the record row"
+    # koto prints its errors as JSON on stdout too, and a missing store reads
+    # exactly like an unknown request: both are "not on this host".
+    OUT=$(rd_deadline "$DEADLINE" koto request get "$REQ" </dev/null 2>/dev/null)
+    rc=$?
+    [ "$rc" -eq 124 ] && refuse leg "read timed out after ${DEADLINE}s"
+    [ "$rc" -eq 2 ] && refuse leg "request not found on this host"
+    [ "$rc" -ne 0 ] && refuse leg "read failed (exit $rc)"
+    printf '%s' "$OUT" | jq -ce --arg l "$LEG" --arg t "$(rd_now)" '
+        (.legs[$l] // null) as $leg
+        | select($leg != null and ($leg.disposition | IN("open", "resolved", "abandoned")))
+        | {kind: "leg", status: "ok",
+           disposition: (if $leg.disposition == "open" and $leg.bound_child != null then "bound" else $leg.disposition end),
+           result: (
+             if $leg.result_source == "refused" then
+               "refused:" + (($leg.result.payload.reason // $leg.result.summary // "unknown") | tostring)
+             elif $leg.result == null then ""
+             elif ($leg.result.payload.outcome | type) == "string" then $leg.result.payload.outcome
+             else $leg.result.status + (if $leg.result_final_state then " at " + $leg.result_final_state else "" end)
+             end),
+           read_at: $t}' 2>/dev/null \
+        || refuse leg "the request has no readable leg by that name"
+    ;;
+
+inventory)
+    # What a worker's instance holds that exists nowhere else, read without
+    # writing: no fetch, no index refresh, nothing the clone's config names.
+    [ -n "$IPATH" ] || usage
+    case "$IPATH" in /*) ;; *) refuse inventory "instance path is not absolute" ;; esac
+    [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
+    IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
+    ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
+    trap 'rm -f "$ITEMS"' EXIT
+    TRUNC=false
+    item() {  # item CLONE KIND PATH
+        jq -nc --arg c "$1" --arg k "$2" --arg p "$3" '{clone: $c, kind: $k, path: $p}' >> "$ITEMS"
+    }
+    # find -P follows no symlinks; a .git file marks a linked worktree.
+    CLONES=$(find -P "$IROOT" -maxdepth 4 -name .git \( -type d -o -type f \) 2>/dev/null | sort)
+    NCLONE=0
+    while IFS= read -r gitpath; do
+        [ -n "$gitpath" ] || continue
+        NCLONE=$((NCLONE + 1))
+        if [ "$NCLONE" -gt "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi
+        C=$(cd -P "$(dirname "$gitpath")" 2>/dev/null && pwd -P) || continue
+        case "$C/" in "$IROOT"/*) ;; *) continue ;; esac
+        REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
+        URL=$(rd_git -C "$C" config --get remote.origin.url 2>/dev/null)
+        if ! REPO=$(rd_github_repo "$URL"); then
+            item "$REL" unchecked "no github.com origin to compare against"
+            continue
+        fi
+        LIVE=$(rd_deadline "$DEADLINE" rd_git -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
+            || { item "$REL" unchecked "remote refs could not be read"; continue; }
+        DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
+        DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
+        rd_valid_sha "$DEFAULT_SHA" || { item "$REL" unchecked "the default branch could not be resolved"; continue; }
+        SHAS=$(printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u | head -n 500)
+
+        # Commits: a branch tip reachable from a live remote sha counts as
+        # pushed. A tip that isn't: its changed files are compared by content
+        # with the default branch, so a squash-landed branch isn't unique.
+        while IFS=$'\t' read -r bname tip; do
+            [ -n "$tip" ] || continue
+            pushed=false
+            while IFS= read -r s; do
+                [ -n "$s" ] || continue
+                if [ "$s" = "$tip" ]; then pushed=true; break; fi
+                rd_git -C "$C" cat-file -e "$s^{commit}" 2>/dev/null || continue
+                if rd_git -C "$C" merge-base --is-ancestor "$tip" "$s" 2>/dev/null; then pushed=true; break; fi
+            done <<EOF
+$SHAS
+EOF
+            [ "$pushed" = true ] && continue
+            landed=false
+            if rd_git -C "$C" cat-file -e "$DEFAULT_SHA^{commit}" 2>/dev/null; then
+                BASE=$(rd_git -C "$C" merge-base "$tip" "$DEFAULT_SHA" 2>/dev/null)
+                if rd_valid_sha "$BASE"; then
+                    landed=true
+                    NF=0
+                    while IFS= read -r -d '' f; do
+                        NF=$((NF + 1))
+                        [ "$NF" -gt "$INV_FILE_CAP" ] && { landed=false; break; }
+                        want=$(rd_git -C "$C" rev-parse --verify --quiet "$tip:$f" 2>/dev/null) || want=absent
+                        BLOB=""
+                        blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null || { landed=false; break; }
+                        BLOB=$(cat "$ITEMS.blob")
+                        [ "$want" = "$BLOB" ] || { landed=false; break; }
+                    done < <(rd_git -C "$C" diff --name-only -z "$BASE" "$tip" 2>/dev/null)
+                    [ "$NF" -eq 0 ] && landed=true
+                fi
+            fi
+            [ "$landed" = true ] || item "$REL" commit "branch $bname"
+        done < <(rd_git -C "$C" for-each-ref refs/heads --format='%(refname:short)%09%(objectname)' 2>/dev/null)
+
+        # Files: a changed or untracked file is unique unless its content is
+        # the default branch's for that path.
+        NF=0
+        while IFS= read -r -d '' entry; do
+            st=${entry:0:2}
+            f=${entry:3}
+            # A rename's second NUL field is its old path; skip it.
+            case "$st" in R*|C*) IFS= read -r -d '' _ ;; esac
+            NF=$((NF + 1))
+            if [ "$NF" -gt "$INV_FILE_CAP" ]; then TRUNC=true; break; fi
+            full="$C/$f"
+            if [ -L "$full" ]; then item "$REL" file "$f (symlink, not read)"; continue; fi
+            if [ ! -e "$full" ]; then item "$REL" change "$f (deleted)"; continue; fi
+            [ -f "$full" ] || continue
+            fdir=$(cd -P "$(dirname "$full")" 2>/dev/null && pwd -P) || continue
+            case "$fdir/" in "$C"/*) ;; *) item "$REL" file "$f (outside the clone, not read)"; continue ;; esac
+            have=$(rd_git -C "$C" hash-object --no-filters -- "$f" 2>/dev/null)
+            blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null || { item "$REL" file "$f"; continue; }
+            [ "$have" = "$(cat "$ITEMS.blob")" ] || item "$REL" file "$f"
+        done < <(rd_git -C "$C" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
+
+        # Worktrees outside the instance: listed, not read.
+        while IFS= read -r line; do
+            case "$line" in "worktree "*) ;; *) continue ;; esac
+            w=${line#worktree }
+            wr=$(cd -P "$w" 2>/dev/null && pwd -P) || wr=$w
+            case "$wr/" in "$IROOT"/*) ;; *) item "$REL" worktree "$(basename "$w") (outside the instance, not read)" ;; esac
+        done < <(rd_git -C "$C" worktree list --porcelain 2>/dev/null)
+    done <<EOF
+$CLONES
+EOF
+    rm -f "$ITEMS.blob"
+    jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
+        '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS"
     ;;
 
 *) usage ;;
