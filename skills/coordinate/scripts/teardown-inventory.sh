@@ -63,8 +63,9 @@
 #               in `niwa list --json` when absent
 #   --seal      run as the teardown_inventory state's default action: store the verdict
 #               in the context key `teardown_verdict` through the record
-#               feature's seal helper and print `<durable|unique|error>
-#               sealed:<seq>:<sha256>`, which the state captures. The sealed
+#               feature's seal helper and print the bare token
+#               `sealed:<seq>:<sha256>`, which the state captures (the
+#               verdict's word goes to stderr, for a reader). The sealed
 #               verdict opens with three lines, the word, `instance <path>`
 #               and `topic <topic>`, so the destroy acts on the instance that
 #               was inventoried and nothing else. The state's gate checks the
@@ -130,7 +131,8 @@ unfound() {
     dc_valid_topic "$TOPIC" && t=$TOPIC
     printf 'error\ninstance -\ntopic %s\nerror .: %s\n' "$t" "$1" >"$WORK/sealed"
     TOKEN=$(dc_seal "$SESSION" teardown_inventory "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
-    printf 'error %s\n' "$TOKEN"
+    printf 'error\n' >&2
+    printf '%s\n' "$TOKEN"
     exit 0
 }
 
@@ -173,7 +175,11 @@ note() {
 ig() {
     local d=$1
     shift
-    git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
+    # GIT_ALLOW_PROTOCOL and GIT_NO_LAZY_FETCH, unlike -c protocol.allow,
+    # can't be widened by a protocol.<name>.allow in the clone's own config:
+    # a partial clone's lazy fetch of a missing object is a transport too.
+    GIT_ALLOW_PROTOCOL=none GIT_NO_LAZY_FETCH=1 \
+        git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
         -c protocol.allow=never -C "$d" "$@"
 }
 
@@ -188,6 +194,7 @@ github_repo() {
     esac
     r=${r%.git}
     printf '%s' "$r" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 1
+    case "/$r/" in */./* | */../*) return 1 ;; esac
     printf '%s' "$r"
 }
 
@@ -310,8 +317,8 @@ check_repo() {
     # transport, a credential helper) runs. https reads GitHub; file lets a
     # URL the coordinator's own config rewrites point at a local repository,
     # and runs nothing.
-    live=$(dc_with_deadline "$FETCH_SECS" git -c protocol.allow=never -c protocol.https.allow=always \
-        -c protocol.file.allow=always ls-remote --symref "https://github.com/$repo" 2>"$WORK/ls.err") || {
+    live=$(GIT_ALLOW_PROTOCOL=https:file dc_with_deadline "$FETCH_SECS" git -C / -c protocol.allow=never \
+        -c protocol.https.allow=always -c protocol.file.allow=always ls-remote --symref "https://github.com/$repo" 2>"$WORK/ls.err") || {
         note 2 "error $rel: origin's refs could not be read or the read timed out ($(tail -1 "$WORK/ls.err"))"; return; }
     default=$(printf '%s\n' "$live" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     dsha=$(printf '%s\n' "$live" | awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }')
@@ -341,14 +348,16 @@ check_repo() {
         awk '$2 == "commit" { print "^" $1 }' >"$WORK/exclude"
     {
         if [ "$first" = 1 ]; then
-            ig "$d" for-each-ref refs/heads refs/tags --format='%(objectname)	%(refname)' |
-                awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
+            # Remote-tracking refs count too: one for a branch origin no
+            # longer has can be the only thing holding a commit.
+            ig "$d" for-each-ref refs/heads refs/tags refs/remotes --format='%(objectname)	%(refname)	%(symref)' |
+                awk -F'\t' '$3 == "" { r = $2; sub(/^refs\/heads\//, "", r); sub(/^refs\/tags\//, "tag ", r); sub(/^refs\/remotes\//, "remote-tracking ", r); print $1 "\t" r }'
         fi
         if ! ig "$d" symbolic-ref -q HEAD >/dev/null; then
             printf '%s\tHEAD\n' "$(ig "$d" rev-parse HEAD)"
         fi
     } >"$WORK/tips"
-    local sha name n base target label merge paths p want have differ
+    local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
         note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
     while IFS='	' read -r sha name; do
@@ -365,7 +374,11 @@ check_repo() {
         case "$name" in
             HEAD | "tag "*) ;;
             *)
-                if ! dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$repo" --head "$name" --state merged \
+                # A remote-tracking ref's pull request is its branch's:
+                # origin/<branch> after a merge deleted the branch there.
+                bname=$name
+                case "$name" in "remote-tracking "*) bname=${name#remote-tracking }; bname=${bname#*/} ;; esac
+                if ! dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$repo" --head "$bname" --state merged \
                     --json mergeCommit --jq '.[0].mergeCommit.oid // ""' >"$WORK/gh.out" 2>"$WORK/gh.err"; then
                     note 2 "error $rel: the merged pull request for $name could not be looked up ($(tail -1 "$WORK/gh.err"))"
                     return
@@ -432,7 +445,11 @@ EOF
 # worktree has a .git file). Clones this search doesn't reach, such as a
 # submodule or a clone inside an ignored directory, join the queue from the
 # clone that holds them.
-find -P "$INSTANCE" -name .git \( -type d -o -type f -o -type l \) -print -prune | sort >"$WORK/gits"
+# A directory the search can't read could hide a clone, so a failed search
+# is an error, never "no repositories".
+find -P "$INSTANCE" -name .git \( -type d -o -type f -o -type l \) -print -prune >"$WORK/gits0" 2>"$WORK/find.err" ||
+    note 2 "error .: the instance could not be searched in full ($(tail -1 "$WORK/find.err"))"
+sort "$WORK/gits0" >"$WORK/gits"
 while IFS= read -r gitpath; do
     [ -n "$gitpath" ] && queue "$(dirname "$gitpath")"
 done <"$WORK/gits"
@@ -445,7 +462,7 @@ find -P "$INSTANCE" -name .git -prune -o -type f -name HEAD -print >"$WORK/heads
 while IFS= read -r head; do
     dir=$(dirname "$head")
     [ -d "$dir/objects" ] && [ -d "$dir/refs" ] || continue
-    if [ "$(git -C "$dir" rev-parse --is-bare-repository)" = true ]; then
+    if [ "$(ig "$dir" rev-parse --is-bare-repository)" = true ]; then
         rel=${dir#"$INSTANCE"}
         rel=${rel#/}
         note 2 "error ${rel:-.}: a bare repository, which this inventory doesn't classify"
@@ -481,7 +498,8 @@ if [ "$SEAL" = 1 ]; then
     { printf '%s\ninstance %s\ntopic %s\n' "$WORD" "$INSTANCE" "$TOPIC"; cat "$VERDICT"; } >"$WORK/sealed"
     TOKEN=$(dc_seal "$SESSION" teardown_inventory "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
     cat "$VERDICT" >&2
-    printf '%s %s\n' "$WORD" "$TOKEN"
+    printf '%s\n' "$WORD" >&2
+    printf '%s\n' "$TOKEN"
     exit 0
 fi
 cat "$VERDICT"

@@ -100,6 +100,14 @@ ctx_or_empty() {
     "$KOTO" context get "$SESSION" "$1"
 }
 
+# LEG_DISP: a leg's disposition as koto's request-leg gate sees it. A leg still
+# open on a request that is no longer open can't resolve, and the gate calls
+# it abandoned; reading it as open would offer it again on every pass.
+LEG_DISP='(.request // .) as $r
+    | ($r.legs[$l].disposition // "missing") as $d
+    | if $d == "open" and (($r.request_state // "open") != "open") then "abandoned" else $d end
+    | strings'
+
 # mark_if_done <wait_target json>: add its leg to taken_legs when koto no
 # longer shows it open. Returns 2 when the target or koto can't be read.
 mark_if_done() {
@@ -109,7 +117,7 @@ mark_if_done() {
     printf '%s' "$req" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
     printf '%s' "$leg" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
     view=$("$KOTO" request get "$req" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$req" >&2; return 2; }
-    disp=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].disposition // "missing" | strings')
+    disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
     [ "$disp" = open ] && return 0
     taken=$(ctx_or_empty taken_legs) || return 2
     put taken_legs "$(printf '%s\n%s\n' "$taken" "$req:$leg" | sed '/^$/d' | sort -u)"
@@ -168,7 +176,7 @@ candidates() {
         dc_valid_topic "$topic" || continue
         printf '%s\n' "$taken" | grep -Fqx -- "$rp" && continue
         if view=$("$KOTO" request get "$req" </dev/null); then
-            disp=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].disposition // "missing" | strings')
+            disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
         else
             # A request koto can't read is left for the next tick rather than
             # routed as missing: one failed read says nothing about the leg.

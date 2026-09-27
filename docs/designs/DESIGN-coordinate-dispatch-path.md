@@ -589,7 +589,7 @@ can't guarantee `destroy` is reached only through a durable inventory. The
 reconcile features share, through one seal helper the record feature owns:
 the state's `default_action` runs `teardown-inventory.sh --seal`, which
 stores the verdict in context, keyed to the `teardown_inventory` state, and
-prints `<durable|unique|error> sealed:<visit-seq>:<sha256>` of it, captured
+prints the bare token `sealed:<visit-seq>:<sha256>` of it, captured
 as `TEARDOWN_SEAL`; the gate checks that the stored verdict hashes to the
 seal, that the sequence number is the state's latest entry event, and that
 the verdict's topic is still `teardown_topic`. The action is read-only apart

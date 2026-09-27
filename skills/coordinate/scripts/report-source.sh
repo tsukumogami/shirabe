@@ -23,6 +23,9 @@
 #   0  the report may stand for its worker
 #   1  refused: a message for a leg-bound worker, or no holding for the topic
 #   2  a read failed, the record refused the read, or an input is malformed
+#   3  refused: a leg report that isn't the promoted result koto holds for
+#      the leg. The leg is spent, so it goes to the human rather than back
+#      to the hub, where nothing would bring it back.
 #
 # Read-only. bash 3.2; needs jq.
 set -uo pipefail
@@ -86,17 +89,21 @@ REQ=${READ%%:*}
 LEG=${READ#*:}
 VIEW=$("$KOTO" request get "$REQ" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2; }
 WANT=$(printf '%s' "$VIEW" | jq -r --arg l "$LEG" '
+    # As koto renders a gate value into an edge: null as empty, a string as
+    # itself, anything else as compact JSON; a payload that is not an object
+    # reads as empty.
+    def r: if . == null then "" elif type == "string" then . else tojson end;
     (.request // .) | .legs[$l] // empty
     | select(.disposition == "resolved" and .result_source == "promoted")
-    | .result as $r | ($r.payload // {}) as $p
-    | "leg result: status \($r.status // ""); final state \(.result_final_state // ""); outcome \($p.outcome // ""); step \($p.step // ""); reason \($p.reason // ""); pull request \($p.pr // "")"')
+    | .result as $res | ($res.payload | if type == "object" then . else {} end) as $p
+    | "leg result: status \($res.status | r); final state \(.result_final_state | r); outcome \($p.outcome | r); step \($p.step | r); reason \($p.reason | r); pull request \($p.pr | r)"')
 if [ -z "$WANT" ]; then
     printf '%s: leg %s has no result its worker'"'"'s session promoted\n' "$PROG" "$READ" >&2
-    exit 1
+    exit 3
 fi
 GOT=$("$KOTO" context get "$SESSION" worker_report) || { printf '%s: cannot read worker_report\n' "$PROG" >&2; exit 2; }
 if [ "$GOT" != "$WANT" ]; then
     printf '%s: worker_report for %s is not the result leg %s holds\n' "$PROG" "$TOPIC" "$READ" >&2
-    exit 1
+    exit 3
 fi
 exit 0

@@ -193,9 +193,10 @@ content.
 - [ ] `--seal` stores the verdict in the session's context through the record
   feature's seal helper and prints `sealed:<visit-seq>:<sha256>` of it; a
   test shows a verdict edited after sealing fails the helper's check.
-- [ ] Each repository's fetch runs under its own deadline, and a fetch that
-  misses it makes that repository an error, so a whole run stays within
-  koto's 30-second action limit on the test fixtures.
+- [ ] Each network read (origin's refs, a tree, a pull request lookup) runs
+  under its own deadline, and a read that misses it makes that repository an
+  error, so a whole run stays within koto's 30-second action limit on the
+  test fixtures.
 - [ ] `teardown-inventory_test.sh` passes.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
@@ -243,8 +244,10 @@ that state keeps its name and the sealed inventory is `teardown_inventory`.
   feature's report facts, gated by `report_present`; the coordinator's
   submitted answer routes `done` to `verify`, `needs_fix` to `rebrief` and
   `blocked` to the surface step.
-- [ ] Every edge into `take_report` writes `worker_report`, `report_topic` and
-  `report_source` afresh; the dispatch path's edges back into `wait`
+- [ ] Every edge into `take_report` writes `worker_report` and
+  `report_source` afresh, and `report_topic` is written fresh for each
+  report (by `wait`'s report edge, or by `wait_leg`'s action on the leg
+  path); the dispatch path's edges back into `wait`
   (from `take_report`, `leg_pick`, `wait_leg` and `rebrief`) clear
   `worker_report` and `report_topic`; `dispatch_topic` is read, never
   written, by these states.

@@ -285,6 +285,24 @@ tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"leg"}'
 eq  "leg: an abandoned leg goes to surface" surface "$(at)"
 
+# A leg still open on a closed request can't resolve: it goes to surface once,
+# and the next pick doesn't offer it again.
+REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w10"}' \
+    --requested-by coord --coordinator-of-record coordinate-w10 | jq -r .request_id)
+koto request close "$REQ6" >/dev/null 2>&1
+rows "[{\"worker\":\"w10\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ6:scope\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "leg: an open leg on a closed request goes to surface" surface "$(at)"
+TARGET10=$(ctx wait_target)
+start
+tick --with-data '{"go":"wait"}'
+put wait_target "$TARGET10"
+put leg_consumed yes
+tick --with-data '{"event":"leg"}'
+eq  "leg: that leg isn't offered again" wait "$(at)"
+
 # A leg the request doesn't have (the holding names the wrong leg) is missing.
 rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:execute\"}]"
 start
@@ -349,6 +367,11 @@ tick --with-data '{"withdrawn":"withdrawn"}'
 eq  "message: withdrawn returns to the hub" wait "$(at)"
 eq  "message: the hub clears the report's topic" "" "$(ctx report_topic)"
 
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","unit":"w3","report":"   "}'
+eq  "message: a report of only whitespace holds" take_report "$(at)"
+
 # A report with no topic can't be checked against the record: it holds, no
 # override record moves it, and withdrawn is its way back.
 start
@@ -374,7 +397,7 @@ put report_source leg
 put wait_target "{\"path\":\"leg\",\"topic\":\"w1\",\"request\":\"$REQ\",\"leg\":\"scope\",\"disposition\":\"resolved\"}"
 put worker_report "leg result: status success; final state done; outcome scoped; step ; reason ; pull request https://github.com/acme/widgets/pull/666"
 tick
-eq  "message: a leg report rewritten in context is refused" wait "$(at)"
+eq  "message: a leg report rewritten in context is refused, and goes to the human" surface "$(at)"
 
 # --- teardown ------------------------------------------------------------------------------------------
 

@@ -706,6 +706,14 @@ states:
         context_assignments:
           worker_report: ""
           report_topic: ""
+      # A leg report that isn't the result koto holds for the leg: the leg is
+      # spent, so the hub would never see it again; the human does.
+      - target: surface
+        when:
+          gates.report_source_ok.exit_code: 3
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: wait
         when:
           gates.report_source_ok.exit_code: 2
@@ -978,8 +986,8 @@ states:
   teardown_inventory:
     # teardown-inventory.sh --seal reads teardown_topic, inventories every
     # repository in that worker's instance by content, and seals the verdict,
-    # with its topic and instance, through coord-log.sh; it prints
-    # `<durable|unique|error> sealed:<seq>:<sha256>`. The gate reads the seal
+    # with its topic and instance, through coord-log.sh; it prints the bare
+    # token `sealed:<seq>:<sha256>`. The gate reads the seal
     # from the log and the verdict through the seal check, and refuses a
     # verdict whose topic is no longer teardown_topic: 0 durable, 1 unique,
     # 2 error, 3 the seal doesn't hold.
@@ -1702,9 +1710,11 @@ doesn't bring the same result back.
 ## take_report
 
 Checking the report before anything reads it. When it stops here with the
-report empty, or because the record couldn't be read, go back with
-`withdrawn: withdrawn` and submit the report event again, with the message as
-`report`.
+report empty, go back with `withdrawn: withdrawn` and submit the report
+event again, with the message as `report`. When it stops because the record
+couldn't be read, tick again with no evidence once the record reads; withdraw
+only a message report you still have to resubmit, never a leg's result, which
+nothing would bring back.
 
 <!-- details -->
 

@@ -63,7 +63,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
-has() { if printf '%s' "$2" | grep -Fq -- "$3"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
+has() { case "$2" in *"$3"*) ok "$1" ;; *) bad "$1" "missing [$3] in [$2]" ;; esac; }
 
 # --- stand-ins -------------------------------------------------------------------------
 
@@ -330,14 +330,90 @@ has "another remote's ref: named" "$OUT8" "unique other: mine changed a.txt"
 bash "$S" --topic plugin-api --instance "$T/nowhere" >/dev/null 2>&1; eq "no instance: exit 2" 2 "$?"
 bash "$S" --topic ../x --instance "$I" >/dev/null 2>&1; eq "a bad topic: exit 2" 2 "$?"
 
+# A clone configured as a partial clone whose promisor remote is a command,
+# with the command's protocol allowed in its own config: a read of a missing
+# object would lazily fetch through it. origin then moves on, so its live head
+# is a commit the clone doesn't have.
+I11="$T/inst11"
+mkdir -p "$I11"
+git clone -q "$GHURL" "$I11/lazy"
+git -C "$I11/lazy" config core.repositoryformatversion 1
+git -C "$I11/lazy" config extensions.partialClone evil
+git -C "$I11/lazy" config remote.evil.promisor true
+git -C "$I11/lazy" config remote.evil.url "ext::sh -c touch% $T/lazy-ran"
+git -C "$I11/lazy" config protocol.ext.allow always
+main_commit a.txt "moved on" "origin moves on" >/dev/null
+rm -f "$T/lazy-ran"
+bash "$S" --topic plugin-api --instance "$I11" >/dev/null 2>&1
+if [ -e "$T/lazy-ran" ]; then bad "a partial clone's promisor command never runs" ""; else ok "a partial clone's promisor command never runs"; fi
+
+# A commit held only by a remote-tracking ref for a branch origin no longer
+# has: unique when it never landed, durable against its merge commit when it
+# was squash-merged.
+I12="$T/inst12"
+mkdir -p "$I12"
+for r in lost landed; do git clone -q "$GHURL" "$I12/$r"; done
+git -C "$I12/lost" checkout -q -b lostb
+printf 'lost\n' >"$I12/lost/c.txt"
+git -C "$I12/lost" commit -q -am lost
+git -C "$I12/lost" push -q origin lostb
+git -C "$I12/lost" checkout -q main
+git -C "$I12/lost" branch -q -D lostb
+git --git-dir="$O" update-ref -d refs/heads/lostb
+git -C "$I12/landed" checkout -q -b landb
+printf 'landed\n' >"$I12/landed/c.txt"
+git -C "$I12/landed" commit -q -am landed
+git -C "$I12/landed" push -q origin landb
+git -C "$I12/landed" checkout -q main
+git -C "$I12/landed" branch -q -D landb
+MERGE12=$(main_commit c.txt "landed" "squash: landb")
+printf '%s\n' "$MERGE12" >"$ST/merged/landb"
+git --git-dir="$O" update-ref -d refs/heads/landb
+OUT12=$(bash "$S" --topic plugin-api --instance "$I12" 2>&1)
+has "a commit only a stale remote-tracking ref holds: unique" "$OUT12" "unique lost: remote-tracking origin/lostb changed c.txt"
+has "a squash-merged branch's stale remote-tracking ref: durable" "$OUT12" "durable landed (vs "
+has "that ref is judged against its merge commit" "$OUT12" "merge $MERGE12)"
+
+# --- what it calls ------------------------------------------------------------------------------
+#
+# Every niwa, gh, koto and git call is logged by a stand-in in front of the
+# real tool, over a run that finds the instance through niwa (no --instance)
+# and one over the instance with every kind of finding. None may destroy,
+# stop or delete anything, or change a repository.
+LOGBIN="$T/logbin"
+mkdir -p "$LOGBIN"
+export CALLS="$T/calls.log"
+: >"$CALLS"
+REALGIT=$(command -v git)
+for tool in niwa gh koto git; do
+    real="$BIN/$tool"
+    [ "$tool" = git ] && real="$REALGIT"
+    [ "$tool" = niwa ] && real="$T/niwa-real"
+    printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" %s "$*" >>"$CALLS"\nexec "%s" "$@"\n' "$tool" "$real" >"$LOGBIN/$tool"
+    chmod +x "$LOGBIN/$tool"
+done
+# niwa list --json names the worker's session and instance.
+printf '#!/usr/bin/env bash\n[ "$1" = list ] || exit 64\nprintf '"'"'[{"name":"w","path":"%s","session_name":"plugin_api-1a2b3c4d"}]\\n'"'"'\n' "$I" >"$T/niwa-real"
+chmod +x "$T/niwa-real"
+WS="$T/ws"
+mkdir -p "$WS/.niwa"
+: >"$WS/.niwa/workspace.toml"
+: >"$WS/.niwa/instance.json"
+(cd "$WS" && PATH="$LOGBIN:$PATH" bash "$S" --topic plugin-api >/dev/null 2>&1)
+has "calls: the instance is found through niwa" "$(cat "$CALLS")" "niwa list"
+PATH="$LOGBIN:$PATH" bash "$S" --topic plugin-api --instance "$I10" >/dev/null 2>&1
+BAD=$(grep -Ei '^niwa (destroy|reap|stop|remove|rm)|^gh (pr (close|merge)|issue close|api .*-X (DELETE|PATCH|POST|PUT)|repo delete)|^koto (next|cancel|session|context (add|remove))|^git .* (fetch|push|pull|reset|clean|checkout|switch|worktree (add|remove|prune)|branch -[dDmM]|stash (drop|clear|pop|push)|gc|prune|update-ref|update-index|commit|merge|rebase|tag -d|config --(add|unset|replace))( |$)' "$CALLS")
+if [ -z "$BAD" ]; then ok "calls: nothing destroyed, stopped, deleted or changed"; else bad "calls: nothing destroyed, stopped, deleted or changed" "$BAD"; fi
+
 # --- --seal and teardown-verdict.sh ----------------------------------------------------------
 
 printf 'plugin-api' >"$ST/ctx/teardown_topic"
 bash "$S" --topic plugin-api --seal --session coord --instance "$I2" >/dev/null 2>&1
 eq  "seal: --topic with --seal is refused (the topic comes from context)" 2 "$?"
-TOK=$(bash "$S" --seal --session coord --instance "$I2" 2>/dev/null); RC=$?
+TOK=$(bash "$S" --seal --session coord --instance "$I2" 2>"$T/seal.err"); RC=$?
 eq  "seal: exit 0" 0 "$RC"
-has "seal: prints the verdict word and the token" "$TOK" "durable sealed:7:"
+case "$TOK" in sealed:7:*) ok "seal: prints the bare token, as every sealed capture is" ;; *) bad "seal: prints the bare token, as every sealed capture is" "$TOK" ;; esac
+has "seal: the verdict's word goes to stderr" "$(cat "$T/seal.err")" "durable"
 # The state captures this line, and koto admits only these characters in a
 # capture.
 if printf '%s' "$TOK" | grep -Eq '^[A-Za-z0-9 :/_.@-]*$'; then ok "seal: the captured line is capture-safe"; else bad "seal: the captured line is capture-safe" "$TOK"; fi
