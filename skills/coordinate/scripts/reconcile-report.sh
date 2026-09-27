@@ -268,7 +268,7 @@ def changes_of($written):
     nowhere_else: [$in.holdings[]? | select(.refused == null)
       | fact("pr") as $pr | fact("host") as $h | fact("inventory") as $inv
       | (has_pr | not) as $nopr
-      | (ok($inv) and (($inv.items // []) | length) > 0) as $unique
+      | (ok($inv) and ([($inv.items // [])[] | select(.kind != "unchecked")] | length) > 0) as $unique
       | select($nopr or $unique)
       | {topic: topic,
          why: (if $nopr and ok($h) and $h.state == "missed" then "no pull request; worker not found on this read"
@@ -276,7 +276,8 @@ def changes_of($written):
                elif $nopr then "no pull request" else "unpushed work" end),
          grade: (if ok($inv) then "measured" else "not verified" end),
          inventory: (if ok($inv) and $inv.taken == true then
-                       (if (($inv.items // []) | length) == 0 then "nothing unique found"
+                       (if (($inv.items // []) | length) == 0 then
+                          (if $inv.truncated == true then "nothing unique found in what was read, but not everything was read" else "nothing unique found" end)
                         else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
                      else "inventory could not be taken" + (if ($inv.reason // "") != "" then " (" + $inv.reason + ")" else "" end) end)}],
@@ -304,6 +305,12 @@ def changes_of($written):
           | {what: ($t + ": inventory"), reason: ($inv.reason // "inventory not taken"), raw: null}]
       + [$in.holdings[]? | select(phase_of == "scoping ahead" and docs_unsettled)
           | {what: ("holding " + topic + ": files"), reason: "file list truncated; whether it changes paths outside docs/ is unsettled", raw: null}]
+      + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
+          | select(ok($inv) and $inv.truncated == true)
+          | {what: ($t + ": inventory"), reason: "truncated: more clones or files than one inventory reads", raw: null}]
+      + [$in.holdings[]? | topic as $t | fact("inventory") as $inv
+          | select(ok($inv)) | ($inv.items // [])[] | select(.kind == "unchecked")
+          | {what: ($t + ": inventory of " + (.clone // ".")), reason: (.path // "not read"), raw: null}]
       + [$in.holdings[]? | select(phase_known | not)
           | {what: ("holding " + topic + ": phase"), reason: ("unrecognised phase value; marked executing"), raw: null}]
       + [$in.deferrals[]? | select((.status // "ok") != "ok")

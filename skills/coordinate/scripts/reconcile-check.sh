@@ -138,6 +138,167 @@ blob_or_refuse() {
     esac
 }
 
+# ---------------------------------------------------------------------------
+# The inventory: what a worker's instance holds that exists nowhere else,
+# read without writing. Every git call is `ig`: rd_git (no fsmonitor, no
+# hooks, no transport, no index lock) plus every filter the clone's config
+# names blanked, so `status` never runs a clean filter, and under the read
+# deadline. A read that fails or runs late marks the clone unchecked rather
+# than letting it read as holding nothing.
+
+# ig CLONE ARGS... -- one git read in CLONE.
+ig() {
+    local c=$1
+    shift
+    rd_deadline "$DEADLINE" rd_git "${FILTERS_OFF[@]}" -C "$c" "$@"
+}
+
+# ig_stdin CLONE FILE ARGS... -- as ig, with FILE on stdin. A background job's
+# stdin is /dev/null, so the redirect lives inside the function it runs.
+ig_in() { local c=$1 f=$2; shift 2; rd_git "${FILTERS_OFF[@]}" -C "$c" "$@" < "$f"; }
+ig_stdin() { rd_deadline "$DEADLINE" ig_in "$@"; }
+
+# filters_off CLONE -- set FILTERS_OFF to -c flags that blank every filter
+# driver any config level names for CLONE. Reading config runs nothing.
+filters_off() {
+    local name
+    FILTERS_OFF=()
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        FILTERS_OFF+=(-c "filter.$name.clean=" -c "filter.$name.smudge=" -c "filter.$name.process=" -c "filter.$name.required=false")
+    done < <(rd_git -C "$1" config --name-only --get-regexp '^filter\..*\.(clean|smudge|process|required)$' 2>/dev/null \
+             | sed -E 's/^filter\.//; s/\.(clean|smudge|process|required)$//' | sort -u)
+}
+
+# inv_item CLONE KIND PATH
+inv_item() {
+    jq -nc --arg c "$1" --arg k "$2" --arg p "$3" '{clone: $c, kind: $k, path: $p}' >> "$ITEMS"
+}
+
+# inv_queue DIR -- add a clone's directory to the walk, once, if it is inside
+# the instance.
+inv_queue() {
+    local r q
+    r=$(cd -P "$1" 2>/dev/null && pwd -P) || return 0
+    case "$r/" in "$IROOT"/*) ;; *) return 1 ;; esac
+    for q in "${QUEUE[@]}"; do [ "$q" = "$r" ] && return 0; done
+    QUEUE+=("$r")
+}
+
+# inv_landed CLONE TIP -- 0 when every file TIP changes against its merge base
+# with the default branch has, on the default branch, the content it has at
+# TIP (a squash-landed branch); 1 otherwise or when that can't be read.
+inv_landed() {
+    local c=$1 tip=$2 base want nf=0 f
+    ig "$c" cat-file -e "$DEFAULT_SHA^{commit}" >/dev/null 2>&1 || return 1
+    base=$(ig "$c" merge-base "$tip" "$DEFAULT_SHA" 2>/dev/null) || return 1
+    rd_valid_sha "$base" || return 1
+    ig "$c" diff --name-only -z "$base" "$tip" > "$ITEMS.diff" 2>/dev/null || return 1
+    while IFS= read -r -d '' f; do
+        nf=$((nf + 1))
+        [ "$nf" -gt "$INV_FILE_CAP" ] && return 1
+        want=$(ig "$c" rev-parse --verify --quiet "$tip:$f" 2>/dev/null) || want=absent
+        blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null || return 1
+        [ "$want" = "$(cat "$ITEMS.blob")" ] || return 1
+    done < "$ITEMS.diff"
+    return 0
+}
+
+# inv_clone DIR -- inventory one clone.
+inv_clone() {
+    local C=$1 REL URL LIVE common n tip bname st f full fdir have line w wr
+    REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
+    filters_off "$C"
+    common=$(ig "$C" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+        || { inv_item "$REL" unchecked "not a readable repository"; return; }
+    common=$(cd -P "$common" 2>/dev/null && pwd -P) || common=/
+    case "$common/" in "$IROOT"/*) ;; *) inv_item "$REL" unchecked "its git directory is outside the instance, not read"; return ;; esac
+    URL=$(rd_git -C "$C" config --get remote.origin.url 2>/dev/null)
+    if ! REPO=$(rd_github_repo "$URL"); then
+        inv_item "$REL" unchecked "no github.com origin to compare against"; return
+    fi
+    LIVE=$(rd_deadline "$DEADLINE" rd_git -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
+        || { inv_item "$REL" unchecked "remote refs could not be read"; return; }
+    DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
+    DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
+    rd_valid_sha "$DEFAULT_SHA" || { inv_item "$REL" unchecked "the default branch could not be resolved"; return; }
+
+    # The live shas this clone has, as rev-list exclusions: a tip with no
+    # commit outside them is pushed. One rev-list per tip, no cap on refs.
+    printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u > "$ITEMS.live"
+    ig_stdin "$C" "$ITEMS.live" cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
+        | awk '$2 == "commit" { print "^" $1 }' > "$ITEMS.exclude"
+    {
+        ig "$C" for-each-ref refs/heads --format='%(objectname)%09branch %(refname:short)' 2>/dev/null
+        if ! ig "$C" symbolic-ref -q HEAD >/dev/null 2>&1; then
+            tip=$(ig "$C" rev-parse --verify --quiet HEAD 2>/dev/null) && printf '%s\tdetached HEAD\n' "$tip"
+        fi
+    } > "$ITEMS.tips"
+    while IFS=$'\t' read -r tip bname; do
+        rd_valid_sha "$tip" || continue
+        { printf '%s\n' "$tip"; cat "$ITEMS.exclude"; } > "$ITEMS.revs"
+        n=$(ig_stdin "$C" "$ITEMS.revs" rev-list --stdin --count 2>/dev/null) \
+            || { inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue; }
+        [ "$n" = 0 ] && continue
+        inv_landed "$C" "$tip" || inv_item "$REL" commit "$bname"
+    done < "$ITEMS.tips"
+
+    # A stash is local by nature: listed whenever it exists.
+    if ig "$C" rev-parse --verify --quiet refs/stash >/dev/null 2>&1; then
+        n=$(ig "$C" rev-list --walk-reflogs --count refs/stash 2>/dev/null) || n="?"
+        inv_item "$REL" change "stash ($n entries)"
+    fi
+
+    # Changed and untracked files: unique unless the content is the default
+    # branch's for that path. Ignored files aren't listed.
+    if ! ig "$C" status --porcelain=v1 -z --untracked-files=all > "$ITEMS.status" 2>/dev/null; then
+        inv_item "$REL" unchecked "the working tree could not be read"
+    else
+        local nf=0
+        while IFS= read -r -d '' line; do
+            st=${line:0:2}
+            f=${line:3}
+            # A rename's or copy's second field is its old path.
+            case "$st" in R*|C*) IFS= read -r -d '' _ ;; esac
+            nf=$((nf + 1))
+            if [ "$nf" -gt "$INV_FILE_CAP" ]; then TRUNC=true; break; fi
+            full="$C/$f"
+            case "$f" in
+                */)
+                    # An untracked directory with its own .git is a nested
+                    # repository: walked as a clone of its own.
+                    if [ -e "$full.git" ]; then inv_queue "$full" || inv_item "$REL" unchecked "$f (nested repository outside the instance)"; fi
+                    continue ;;
+            esac
+            if [ -L "$full" ]; then inv_item "$REL" file "$f (symlink, not read)"; continue; fi
+            if [ ! -e "$full" ]; then inv_item "$REL" change "$f (deleted)"; continue; fi
+            if [ -d "$full" ]; then
+                [ -e "$full/.git" ] && { inv_queue "$full" || inv_item "$REL" unchecked "$f (nested repository outside the instance)"; }
+                continue
+            fi
+            [ -f "$full" ] || continue
+            fdir=$(cd -P "$(dirname "$full")" 2>/dev/null && pwd -P) || continue
+            case "$fdir/" in "$C"/*) ;; *) inv_item "$REL" file "$f (outside the clone, not read)"; continue ;; esac
+            have=$(ig "$C" hash-object --no-filters -- "$f" 2>/dev/null) || { inv_item "$REL" file "$f"; continue; }
+            if blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null && [ "$have" = "$(cat "$ITEMS.blob")" ]; then
+                continue
+            fi
+            inv_item "$REL" file "$f"
+        done < "$ITEMS.status"
+    fi
+
+    # Worktrees: one inside the instance is walked like a clone; one outside
+    # is listed, not read.
+    ig "$C" worktree list --porcelain > "$ITEMS.wt" 2>/dev/null || inv_item "$REL" unchecked "worktrees could not be listed"
+    while IFS= read -r line; do
+        case "$line" in "worktree "*) ;; *) continue ;; esac
+        w=${line#worktree }
+        wr=$(cd -P "$w" 2>/dev/null && pwd -P) || continue
+        [ "$wr" = "$C" ] && continue
+        inv_queue "$wr" || inv_item "$REL" worktree "$(basename "$w") (outside the instance, not read)"
+    done < "$ITEMS.wt"
+}
+
 # board_fact -- map board-verdict.sh's object to a board fact. A verdict it
 # doesn't recognise is not verified: an unknown answer is not a failing board.
 board_fact() {
@@ -403,108 +564,26 @@ leg)
     ;;
 
 inventory)
-    # What a worker's instance holds that exists nowhere else, read without
-    # writing: no fetch, no index refresh, nothing the clone's config names.
     [ -n "$IPATH" ] || usage
     case "$IPATH" in /*) ;; *) refuse inventory "instance path is not absolute" ;; esac
     [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
     IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
     ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
-    trap 'rm -f "$ITEMS"' EXIT
+    trap 'rm -f "$ITEMS" "$ITEMS".*' EXIT
     TRUNC=false
-    item() {  # item CLONE KIND PATH
-        jq -nc --arg c "$1" --arg k "$2" --arg p "$3" '{clone: $c, kind: $k, path: $p}' >> "$ITEMS"
-    }
-    # find -P follows no symlinks; a .git file marks a linked worktree.
-    CLONES=$(find -P "$IROOT" -maxdepth 4 -name .git \( -type d -o -type f \) 2>/dev/null | sort)
-    NCLONE=0
+    QUEUE=()
+    FILTERS_OFF=()
+    # find -P follows no symlinks; a .git file marks a linked worktree. Deeper
+    # clones are reached through worktree lists and untracked directories.
     while IFS= read -r gitpath; do
-        [ -n "$gitpath" ] || continue
-        NCLONE=$((NCLONE + 1))
-        if [ "$NCLONE" -gt "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi
-        C=$(cd -P "$(dirname "$gitpath")" 2>/dev/null && pwd -P) || continue
-        case "$C/" in "$IROOT"/*) ;; *) continue ;; esac
-        REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
-        URL=$(rd_git -C "$C" config --get remote.origin.url 2>/dev/null)
-        if ! REPO=$(rd_github_repo "$URL"); then
-            item "$REL" unchecked "no github.com origin to compare against"
-            continue
-        fi
-        LIVE=$(rd_deadline "$DEADLINE" rd_git -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
-            || { item "$REL" unchecked "remote refs could not be read"; continue; }
-        DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
-        DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
-        rd_valid_sha "$DEFAULT_SHA" || { item "$REL" unchecked "the default branch could not be resolved"; continue; }
-        SHAS=$(printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u | head -n 500)
-
-        # Commits: a branch tip reachable from a live remote sha counts as
-        # pushed. A tip that isn't: its changed files are compared by content
-        # with the default branch, so a squash-landed branch isn't unique.
-        while IFS=$'\t' read -r bname tip; do
-            [ -n "$tip" ] || continue
-            pushed=false
-            while IFS= read -r s; do
-                [ -n "$s" ] || continue
-                if [ "$s" = "$tip" ]; then pushed=true; break; fi
-                rd_git -C "$C" cat-file -e "$s^{commit}" 2>/dev/null || continue
-                if rd_git -C "$C" merge-base --is-ancestor "$tip" "$s" 2>/dev/null; then pushed=true; break; fi
-            done <<EOF
-$SHAS
-EOF
-            [ "$pushed" = true ] && continue
-            landed=false
-            if rd_git -C "$C" cat-file -e "$DEFAULT_SHA^{commit}" 2>/dev/null; then
-                BASE=$(rd_git -C "$C" merge-base "$tip" "$DEFAULT_SHA" 2>/dev/null)
-                if rd_valid_sha "$BASE"; then
-                    landed=true
-                    NF=0
-                    while IFS= read -r -d '' f; do
-                        NF=$((NF + 1))
-                        [ "$NF" -gt "$INV_FILE_CAP" ] && { landed=false; break; }
-                        want=$(rd_git -C "$C" rev-parse --verify --quiet "$tip:$f" 2>/dev/null) || want=absent
-                        BLOB=""
-                        blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null || { landed=false; break; }
-                        BLOB=$(cat "$ITEMS.blob")
-                        [ "$want" = "$BLOB" ] || { landed=false; break; }
-                    done < <(rd_git -C "$C" diff --name-only -z "$BASE" "$tip" 2>/dev/null)
-                    [ "$NF" -eq 0 ] && landed=true
-                fi
-            fi
-            [ "$landed" = true ] || item "$REL" commit "branch $bname"
-        done < <(rd_git -C "$C" for-each-ref refs/heads --format='%(refname:short)%09%(objectname)' 2>/dev/null)
-
-        # Files: a changed or untracked file is unique unless its content is
-        # the default branch's for that path.
-        NF=0
-        while IFS= read -r -d '' entry; do
-            st=${entry:0:2}
-            f=${entry:3}
-            # A rename's second NUL field is its old path; skip it.
-            case "$st" in R*|C*) IFS= read -r -d '' _ ;; esac
-            NF=$((NF + 1))
-            if [ "$NF" -gt "$INV_FILE_CAP" ]; then TRUNC=true; break; fi
-            full="$C/$f"
-            if [ -L "$full" ]; then item "$REL" file "$f (symlink, not read)"; continue; fi
-            if [ ! -e "$full" ]; then item "$REL" change "$f (deleted)"; continue; fi
-            [ -f "$full" ] || continue
-            fdir=$(cd -P "$(dirname "$full")" 2>/dev/null && pwd -P) || continue
-            case "$fdir/" in "$C"/*) ;; *) item "$REL" file "$f (outside the clone, not read)"; continue ;; esac
-            have=$(rd_git -C "$C" hash-object --no-filters -- "$f" 2>/dev/null)
-            blob_at "$f" "$DEFAULT_SHA" > "$ITEMS.blob" 2>/dev/null || { item "$REL" file "$f"; continue; }
-            [ "$have" = "$(cat "$ITEMS.blob")" ] || item "$REL" file "$f"
-        done < <(rd_git -C "$C" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
-
-        # Worktrees outside the instance: listed, not read.
-        while IFS= read -r line; do
-            case "$line" in "worktree "*) ;; *) continue ;; esac
-            w=${line#worktree }
-            wr=$(cd -P "$w" 2>/dev/null && pwd -P) || wr=$w
-            case "$wr/" in "$IROOT"/*) ;; *) item "$REL" worktree "$(basename "$w") (outside the instance, not read)" ;; esac
-        done < <(rd_git -C "$C" worktree list --porcelain 2>/dev/null)
-    done <<EOF
-$CLONES
-EOF
-    rm -f "$ITEMS.blob"
+        [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
+    done < <(find -P "$IROOT" -maxdepth 4 -name .git \( -type d -o -type f \) 2>/dev/null | sort)
+    i=0
+    while [ "$i" -lt "${#QUEUE[@]}" ]; do
+        if [ "$i" -ge "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi
+        inv_clone "${QUEUE[$i]}"
+        i=$((i + 1))
+    done
     jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
         '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS"
     ;;

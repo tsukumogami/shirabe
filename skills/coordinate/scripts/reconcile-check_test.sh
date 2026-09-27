@@ -361,6 +361,7 @@ inv_case() {
     pathblob "x.txt" "$SBLOB"; pathblob "landed.txt" "$LANDED"
 }
 pathblob() { printf '{"sha":"%s"}' "$2" > "$CASE/contents@$MAIN@$(printf '%s' "$1" | tr '/' '_')"; }
+ls -l --time-style=full-iso "$RP/.git/index" > "$T/idx-before" 2>/dev/null || stat -f '%m %z' "$RP/.git/index" > "$T/idx-before"
 inv_case inventory
 out=$(run inventory --path "$I")
 expect "the inventory is taken" '.kind == "inventory" and .status == "ok" and .taken == true' "$out"
@@ -374,10 +375,10 @@ expect "a symlink is listed, not read" '[.items[] | .path] | any(startswith("lin
 expect "a worktree outside the instance is listed, not read" '[.items[] | select(.kind == "worktree")] | length == 1' "$out"
 expect "paths are clone-relative" '[.items[] | .clone, .path] | all(startswith("/") | not)' "$out"
 ALOG="$CASE/log"
-grep -qE '^git (fetch|pull|push|checkout|commit|reset|add)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E '^git (fetch|pull|push)' "$ALOG")" || ok "the inventory never writes in the clone"
-grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
+grep -qE '^git .* (fetch|pull|push|checkout|commit|reset|add|stash|gc|update-index|update-ref|config [^-]|config --(add|unset|replace))( |$)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E ' (fetch|pull|push|checkout|commit|reset|add) ' "$ALOG")" || ok "the inventory never writes in the clone"
+grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
 grep -q 'hash-object --no-filters' "$ALOG" && ! grep -q 'hash-object -w' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
-[ -z "$(git -C "$RP" status --porcelain -- .git 2>/dev/null)" ] && ok "the clone is unchanged" || bad "the clone is unchanged"
+[ "$(cat "$T/idx-before")" = "$(ls -l --time-style=full-iso "$RP/.git/index" 2>/dev/null || stat -f '%m %z' "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
@@ -387,6 +388,70 @@ expect "a symlinked instance path is not followed" '.status == "not_verified"' "
 new_case inventory-no-remote
 I2="$T/inst2"; mkdir -p "$I2/r"; git -C "$I2/r" init -q; git -C "$I2/r" remote add origin https://gitlab.example/x/y.git
 expect "a clone with no github.com origin is marked unchecked" '.items | any(.kind == "unchecked")' "$(run inventory --path "$I2")"
+
+echo "== inventory: panel cases =="
+# A clean filter the clone's config names must never run.
+I3="$T/inst3"; R3="$I3/repo"; mkdir -p "$R3"
+g3() { git -C "$R3" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g3 init -q -b main; g3 remote add origin https://github.com/acme/widgets.git
+printf '*.txt filter=probe\n' > "$R3/.gitattributes"; echo a > "$R3/a.txt"
+g3 add -A; g3 commit -qm a
+M3=$(git -C "$R3" rev-parse HEAD)
+g3 checkout -q --detach                          # a detached HEAD with its own commit
+echo det > "$R3/det.md"; g3 add det.md; g3 commit -qm det
+echo stashme > "$R3/s.md"; g3 add s.md; g3 stash -q
+mkdir -p "$R3/.claude/worktrees"; g3 worktree add -q "$R3/.claude/worktrees/deep" -b deep "$M3"
+echo deepwork > "$R3/.claude/worktrees/deep/work.md"
+mkdir -p "$R3/vendor/inner"; git -C "$R3/vendor/inner" init -q; git -C "$R3/vendor/inner" remote add origin https://github.com/acme/inner.git
+echo inner > "$R3/vendor/inner/i.md"
+# Last: a clean filter the clone's config names, and a same-size edit under
+# it, so git has to hash the file to see the change.
+git -C "$R3" config filter.probe.clean "touch $T/FILTER-RAN; cat"
+git -C "$R3" config filter.probe.required true
+sleep 1; echo c > "$R3/a.txt"
+rm -f "$T/FILTER-RAN"
+new_case inventory-probe
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.1"
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.2"
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.3"
+out=$(run inventory --path "$I3")
+[ ! -e "$T/FILTER-RAN" ] && ok "a clean filter the clone's config names never runs" || bad "a clean filter the clone's config names never runs" "$out"
+expect "a same-size edit under a filter is still found" '[.items[] | .path] | index("a.txt") != null' "$out"
+expect "a detached HEAD's commit is unique" '[.items[] | select(.kind == "commit") | .path] | index("detached HEAD") != null' "$out"
+expect "a stash is listed" '[.items[] | .path] | any(startswith("stash ("))' "$out"
+expect "a worktree deep inside the instance is walked" '[.items[] | select(.clone | test("worktrees/deep")) | .path] | index("work.md") != null' "$out"
+expect "a nested repository is walked as a clone" '[.items[] | select(.clone | test("vendor/inner"))] | length > 0' "$out"
+
+# Truncation: more clones than the cap, the last one holding the only work.
+I4="$T/inst4"; mkdir -p "$I4"
+for k in $(seq -w 1 21); do
+    git -C "$I4" init -q -b main "r$k" >/dev/null 2>&1
+    git -C "$I4/r$k" remote add origin https://github.com/acme/widgets.git
+done
+echo late > "$I4/r21/late.txt"
+new_case inventory-cap
+for k in $(seq 1 21); do printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M3" > "$CASE/ls-remote.out.$k"; done
+out=$(run inventory --path "$I4")
+expect "past the clone cap the inventory says truncated" '.truncated == true' "$out"
+rep=$(jq -nc --argjson inv "$out" '{schema: "coordinate-reconcile-facts/v1", scope: {kind: "roadmap", name: "d", repo: "acme/widgets"},
+  record: {written: "2026-09-26T10:00:00Z"}, reconciled_at: "2026-09-27T10:00:00Z", reasoning: null, unparseable: [], side_effects: [], deferrals: [],
+  holdings: [{row: {worker: "w", pull_request: "none yet"}, refused: null, facts: [{kind: "host", status: "ok", state: "found"}, $inv]}]}' \
+  | bash "$HERE/reconcile-report.sh" md)
+printf '%s' "$rep" | grep -q 'not everything was read' && ok "a truncated empty inventory never reads 'nothing unique found'" || bad "a truncated empty inventory never reads 'nothing unique found'" "$rep"
+
+# Many live refs: a pushed branch whose own ref sorts late is still pushed.
+I5="$T/inst5"; R5="$I5/repo"; mkdir -p "$R5"
+git -C "$R5" init -q -b main; git -C "$R5" remote add origin https://github.com/acme/widgets.git
+echo a > "$R5/a"; git -C "$R5" add -A; git -C "$R5" -c user.email=t@e -c user.name=t commit -qm a
+M5=$(git -C "$R5" rev-parse HEAD)
+git -C "$R5" checkout -qb feature; echo f > "$R5/f"; git -C "$R5" add -A; git -C "$R5" -c user.email=t@e -c user.name=t commit -qm f
+F5=$(git -C "$R5" rev-parse HEAD); git -C "$R5" checkout -q main
+new_case inventory-refs
+{ printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M5"
+  for k in $(seq 1 600); do printf '%040x\trefs/pull/%s/head\n' "$k" "$k"; done
+  printf '%s\trefs/heads/feature\n' "$F5"; } > "$CASE/ls-remote.out.1"
+out=$(run inventory --path "$I5")
+expect "a pushed branch is pushed however many refs the remote has" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
 
 echo "== close =="
 new_case close-closed
@@ -465,7 +530,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|cat-file -e [0-9a-f]{40}\^\{commit\}|merge-base (--is-ancestor )?[^ ]+ [0-9a-f]{40}|rev-parse --verify --quiet .*|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads --format=.*|status --porcelain=v1 -z --untracked-files=all|hash-object --no-filters -- .*|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|(-c filter\.[^ ]+ )*-C [^ ]+ (config --get remote\.origin\.url|config --name-only --get-regexp .*|rev-parse --path-format=absolute --git-common-dir|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads --format=.*|status --porcelain=v1 -z --untracked-files=all|hash-object --no-filters -- .*|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"
