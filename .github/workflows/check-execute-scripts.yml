@@ -31,6 +31,8 @@ on:
       - 'scripts/check-merged-wording.sh'
       - 'scripts/check-merged-wording_test.sh'
       - 'scripts/check-merged-wording.allow'
+      # An edit to this workflow changes what runs, so it has to run the suite.
+      - '.github/workflows/check-execute-scripts.yml'
 
 env:
   # `tsuku install` calls the GitHub API; the token
