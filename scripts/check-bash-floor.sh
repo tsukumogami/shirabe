@@ -214,6 +214,9 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/record-changed-paths_test.sh"
+            # Its script cases need only jq, git and a stubbed gh, so they run
+            # on the floor; its engine cases skip without koto.
+            echo "skills/work-on/scripts/check-staleness_test.sh"
             # The --koto-leg entry: its own refusals run on a koto stub, so they
             # execute on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/work-on-open_test.sh"

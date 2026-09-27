@@ -82,6 +82,10 @@ variables:
       done_blocked. Without that test the failure is exit 127, whose output koto
       discards, and the run holds with no diagnostic.
 
+      staleness_check's gate reaches check-staleness.sh the same way and guards
+      it the same way, except that it exits 3: an absent check is the
+      "unavailable" outcome that state routes to analysis, not a blocked run.
+
       Unlike /scope and /execute, this template is both initialized directly and
       materialized as a child, so it has more than one kind of init site. Every
       one of them passes this variable; check-init-site-vars.sh is what keeps
@@ -388,20 +392,30 @@ states:
 
   staleness_check:
     gates:
+      # shirabe's own check, reached through PLUGIN_ROOT because koto runs the
+      # gate from the repository being worked. Its exit status is the verdict:
+      # 0 fresh, 1 stale, 3 unavailable, 2 usage. The test -x guard turns an
+      # empty or wrong PLUGIN_ROOT into 3 rather than 127. No pipe, so koto
+      # running gates without pipefail can't mask the script's status.
       staleness_fresh:
         type: command
-        command: "check-staleness.sh --issue {{ISSUE_NUMBER}} | jq -e '.introspection_recommended == false'"
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" --issue "{{ISSUE_NUMBER}}"'
         override_default:
           exit_code: 0
           error: ""
     accepts:
       staleness_signal:
         type: enum
-        values: [fresh, stale_requires_introspection, override, blocked]
+        values: [fresh, stale_requires_introspection, unavailable, override, blocked]
         required: true
       detail:
         type: string
-        description: Override reason or failure detail
+        description: Why the check was unavailable, the override reason, or failure detail
+    # Every route out is explicit. There is no trailing unconditional edge:
+    # with one, evidence matching nothing else on a passing gate would fall
+    # through to analysis, so `unavailable` could be recorded for a check that
+    # ran. `fresh` and `unavailable` are each accepted only on the exit status
+    # that means them, and stay put otherwise.
     transitions:
       - target: introspection
         when:
@@ -412,13 +426,20 @@ states:
           gates.staleness_fresh.exit_code: 0
       - target: analysis
         when:
+          staleness_signal: unavailable
+          gates.staleness_fresh.exit_code: 3
+      - target: analysis
+        when:
+          staleness_signal: unavailable
+          gates.staleness_fresh.exit_code: -1
+      - target: analysis
+        when:
           staleness_signal: override
       - target: done_blocked
         when:
           staleness_signal: blocked
         context_assignments:
           failure_reason: "staleness_check blocked: ${evidence.detail}"
-      - target: analysis
 
   introspection:
     gates:
@@ -1635,23 +1656,44 @@ if reusing an existing branch (including when `SHARED_BRANCH` is set), or `statu
 
 ## staleness_check
 
-This state assesses whether the codebase has changed significantly since the issue
-was opened. The gate runs `check-staleness.sh --issue {{ISSUE_NUMBER}}` and pipes
-through jq to check `introspection_recommended == false`. When fresh (gate passes),
-the workflow auto-advances to analysis.
+This state assesses whether the codebase has moved on since the issue was opened.
+The gate runs shirabe's own staleness check against issue {{ISSUE_NUMBER}}, and
+the check's exit status is its verdict. What it measures, and the thresholds, are
+in `references/staleness-signals.md`. A passing gate does not advance the
+workflow by itself: this state requires evidence in every case.
 
-If the gate fails, you are here because the staleness check found significant
-changes or could not complete.
+Read the gate's `exit_code` from the blocking condition (a passing gate shows
+none) and submit the value it calls for:
 
-Submit `staleness_signal: fresh` if you have confirmed the issue context is still
-current, `staleness_signal: stale_requires_introspection` if the codebase has
-changed enough to warrant re-reading the issue against current code,
-`staleness_signal: override` if the user says to skip the staleness check, or
-`staleness_signal: blocked` if the check cannot complete.
+- **passed (exit 0)**: fresh. Submit `staleness_signal: fresh`.
+- **exit 1**: stale. Submit `staleness_signal: stale_requires_introspection`; the
+  run re-reads the issue against current code in `introspection`.
+- **exit 3, or -1 (koto could not run the gate to completion: it timed out or
+  failed to start)**: unavailable. The check could not reach a verdict: the
+  plugin root was not passed, `gh` is unauthenticated or unreachable, or a read
+  failed. Submit `staleness_signal: unavailable` with the
+  reason in `detail`. The run continues to analysis with staleness recorded as
+  not assessed. This is not an override; nobody chose to skip the check.
+- **exit 2**: the gate passed the check a bad argument, which is a template
+  defect. Submit `staleness_signal: blocked` with the detail.
+
+`fresh` is accepted only on a passing gate and `unavailable` only on exit 3 or
+-1; on any other exit status either one leaves the workflow here.
+
+For the check's reasons (the signals it measured, or why it was unavailable),
+run it yourself and read its JSON report:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/check-staleness.sh" --issue {{ISSUE_NUMBER}}
+```
+
+Two values don't depend on the gate. Submit `staleness_signal: override` only
+when the user explicitly said to skip the staleness check, and
+`staleness_signal: blocked` when the run has to stop here.
 
 Evidence schema:
-- `staleness_signal`: `fresh`, `stale_requires_introspection`, `override`, or `blocked`
-- `detail`: explanation of the signal or override reason
+- `staleness_signal`: `fresh`, `stale_requires_introspection`, `unavailable`, `override`, or `blocked`
+- `detail`: why the check was unavailable, the override reason, or the blocking detail
 
 ## introspection
 
