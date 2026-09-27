@@ -35,8 +35,11 @@ RD_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # The validators. coord-common.sh is sourced for its patterns and functions
 # only; it defines, it doesn't run.
+# coord-common.sh finds its own directory through COORD_SELF_DIR, which its
+# callers set before sourcing it.
+COORD_SELF_DIR=$(cd "$RD_HERE/../../execute/scripts" && pwd)
 # shellcheck source=/dev/null
-. "$RD_HERE/../../execute/scripts/coord-common.sh"
+. "$COORD_SELF_DIR/coord-common.sh"
 
 RD_BOARD_CHECK=$RD_HERE/board-verdict.sh
 RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh

@@ -296,7 +296,7 @@ states:
     transitions:
       - target: reconcile
         when:
-          gates.reconcile_pass_verdict.exit_code: 140
+          gates.reconcile_pass_verdict.exit_code: 140  # reconciled
 
   reconcile:
     gates:
