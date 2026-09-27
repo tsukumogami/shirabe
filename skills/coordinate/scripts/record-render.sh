@@ -71,7 +71,7 @@ set +e
 OUT=$(printf '%s' "$DATA" | jq -n -r -L "$HERE" \
     --arg container "$CONTAINER" --arg written "$WRITTEN" \
     --arg private "$PRIVATE" \
-    'include "record-codec"; [inputs] as $docs | if ($docs | length) != 1 then refuse("expected one JSON document, got \($docs | length)") else $docs[0] end | ($private | split(",") | map(select(. != ""))) as $private | '"$PROG" 2>"$ERR")
+    'include "record-codec"; [inputs] as $docs | if ($docs | length) != 1 then refuse("expected one JSON document, got \($docs | length)") else $docs[0] end | ($private | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $private | '"$PROG" 2>"$ERR")
 RC=$?
 set -e
 if [ $RC -ne 0 ]; then

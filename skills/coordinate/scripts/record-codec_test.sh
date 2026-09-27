@@ -189,6 +189,9 @@ printf '  \n' | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "
 { full_record; full_record; } | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "two JSON documents are refused" || bad "two JSON documents are refused"
 printf '%s' "$(full_record | jq -c '.holdings[0].repo = "acme/secret-public" | .holdings[0].pull_request = "[#1](https://github.com/acme/secret-public/pull/1)" | .side_effects[0].target = "xacme/secret#2"')" > "$T/in.json"
 bash "$R" --written "$W" --private-repos acme/secret "$T/in.json" > /dev/null 2>&1 && ok "a public repository whose name extends a private one is accepted" || bad "a public repository whose name extends a private one is accepted"
+refuse "a private repository ending a sentence is refused" "$(full_record | jq -c '.side_effects[0].target = "see acme/secret."')" "isn't public" --private-repos acme/secret
+refuse "a private repository as a .git URL is refused" "$(full_record | jq -c '.side_effects[0].target = "https://github.com/acme/secret.git"')" "isn't public" --private-repos acme/secret
+refuse "a private-repository list with spaces is trimmed" "$(full_record | jq -c '.holdings[0].repo = "acme/secret"')" "isn't public" --private-repos "x/y, acme/secret"
 refuse "a private repository named case-insensitively is refused" "$(full_record | jq -c '.holdings[0].repo = "ACME/Secret"')" "isn't public" --private-repos acme/secret
 
 echo "== usage =="

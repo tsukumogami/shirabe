@@ -73,7 +73,7 @@ def check_worker:
 # whole owner/repo token rather than a substring of a longer name?
 def names_repo($r):
   ascii_downcase as $v | ($r | ascii_downcase | gsub("\\."; "\\.")) as $l
-  | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "($|[^A-Za-z0-9_.-])");
+  | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "(\\.git)?\\.*($|[^A-Za-z0-9_.-])");
 
 def check_cell($key; $private):
   . as $v
