@@ -1,5 +1,27 @@
 ---
+schema: design/v1
+status: Proposed
 upstream: docs/prds/PRD-coordinate-record.md
+problem: |
+  `/coordinate` is prose, so the four checks it asks for (the record exists once with its
+  four sections, a predecessor's deferrals are disposed of before the first dispatch, a
+  verified head exists before any land step, and the CI board really ran) can each be
+  skipped or satisfied by the coordinator's word, and the record is hand-written markdown
+  nothing finds, renders or rewrites.
+decision: |
+  Carry the loop as a koto workflow: an event hub the coordinator ticks on each message,
+  with a check state in front of each protected step. Every check state has no evidence to
+  submit; its default action reads GitHub and prints a sealed verdict token the engine
+  captures, routed by a non-overridable command gate. Every GitHub write is an agent-run
+  script that re-reads GitHub and the session log first. The record is its visible tables,
+  written and parsed by one codec with a byte-exact round trip.
+rationale: |
+  Captures are the only koto channel that carries a script's output and that no CLI verb
+  lets the agent write; context keys and evidence are the agent's to write. Keeping writes
+  agent-run follows shirabe's default-action rule. Visible tables keep what the checks read
+  and what a person reads the same. The hub fits a loop whose input is one message at a
+  time about any holding. `koto next --to` still skips gates (koto#251); a seal on each
+  token and a log scan in every write script make that visible until koto fixes it.
 ---
 
 # DESIGN: The coordination record and the coordinator's workflow
@@ -408,9 +430,9 @@ The turn:
 | State | Kind | Routes |
 |---|---|---|
 | `pick_facts` | data: `pick-facts.sh` writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts, scope-complete and rotation-over flags); context-exists gate | pick -> `pick`; scope complete -> `roadmap_close`; rotation over -> `rotation_close` |
-| `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`; ask_up -> `ask_up`; hold -> `wait` |
+| `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
 | `ask_up` | evidence `sent` | -> `wait` |
-| `dispatch_check` | check: `deferral-check.sh` (record once, four sections, no pre-run deferral undisposed, predecessor handoff until the first pass, cap and parked bound) | ok -> `dispatch`; deferral open -> `deferral_dispose`; record gone or doubled -> `record_find`; at the cap -> `wait` |
+| `dispatch_check` | check: `deferral-check.sh`, which passes `dispatch_topic` through to `dispatch` (record once, four sections, no pre-run deferral undisposed, predecessor handoff until the first pass, cap and parked bound) | ok -> `dispatch`; deferral open -> `deferral_dispose`; record gone or doubled -> `record_find`; at the cap -> `wait` |
 | `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
 | `dispatch` | entry action repeats `deferral-check.sh` (the far side of a `--to`); evidence `sent` or `failed`, `topic` | sent -> `record` expecting the holding row; failed -> `failure` |
 | `record` | check: `record-confirm.sh` over the sealed expectation | confirmed -> `pick_facts`; `--to` found or unconfirmable -> `record_conflict` |
@@ -421,14 +443,14 @@ The hub and its spokes:
 |---|---|---|
 | `wait` | evidence `event: report, quiet, decision, deferral, merged, retire, end`; optional `unit`; no action, gate or details | each event to its spoke; `end` -> `rotation_close` or `done_stopped` |
 | `report_facts` | data: `report-facts.sh` finds the holding by topic in the record and writes `coord/report.json` (plus the `worker_report` key the dispatch path fills); context-exists gate | found -> `classify_report`; unknown topic -> `wait` |
-| `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider | done -> `verify`; blocked -> `failure`; needs_fix -> `fix_relay` |
-| `fix_relay` | evidence `sent` | -> `wait` |
+| `classify_report` | evidence `classification: done, blocked, needs_fix` with a shadow decider | done -> `verify`; blocked -> `surface`; needs_fix -> `rebrief` |
+| `rebrief` | evidence `sent` (the worker gets what was learned, by message); the dispatch path fills it | -> `wait` |
 | `verify` | evidence: the prediction (R12) | -> `verify_board` |
 | `verify_board` | check: `board-record.sh` (refuses unless the log shows the prediction since the last arrival at `verify`) | verified -> `verified_confirm`; unverified -> `failure`; pending -> `wait`; error -> `record_conflict` |
 | `verified_confirm` | check: `record-confirm.sh`, the holding's Verified head cell equals the sealed verified sha | -> `land` |
 | `land` | check: `land-check.sh` (head re-read, seal, posture) | permitted -> `land_merge`; denied, confirm or unread -> `surface`; moved -> `verify`; `DIRTY` or `--to` -> `record_conflict` |
 | `land_merge` | evidence `attempted` or `failed` after `merge-exec.sh` | -> `merge_confirm` or `failure` |
-| `surface` | evidence `handed_over` (the merge-order table from `verification-checklist.md`) | -> `record` expecting the parked row |
+| `surface` | evidence `surfaced: merge_table` (the merge-order table from `verification-checklist.md`) or `surfaced: blocker` (a blocked worker's report, put to the human once with a recommendation) | merge_table -> `record` expecting the parked row; blocker -> `wait` |
 | `merge_confirm` | check: `merge-confirm.sh` | merged -> `record` expecting the merged change; unconfirmed -> `record` expecting a side-effect row |
 | `teardown` | evidence `done` or `kept`, from the hub's `retire` event; guidance is the prose inventory rules; the dispatch path adds its inventory gate here | -> `record` |
 | `quiet_check` | check: `quiet-check.sh` sweeps every holding; silent counts come from the log | nothing -> `wait`; first silence -> `status_message`; second -> `failure` |
@@ -449,9 +471,12 @@ pointers: `references/loop.md` from `reconcile`, `pick`, `quiet_check`, `failure
 
 ### Seams for the dispatch path and reconcile
 
-The dispatch path fills `dispatch` and the report side of `wait`, adds its leg-reading state beside
-`report_facts`, writes the `worker_report` key `classify_report`'s decider reads, and adds its
-inventory gate to `teardown`. It routes back into `pick`, `verify`, `record` and `surface`, which
+The dispatch path fills `dispatch`, `wait` and `rebrief`, adds its leg-reading and report-taking
+states beside `report_facts`, writes the `worker_report` key `classify_report`'s decider reads, and
+extends `teardown` with its sealed inventory (through `coord-log.sh`) and the states after it.
+This feature owns `classify_report` and the prose `teardown`; the dispatch path extends both and
+duplicates neither. `pick` writes `dispatch_topic` on its edge to `dispatch_check`, which passes
+it through to `dispatch`. It routes back into `pick`, `verify`, `record` and `surface`, which
 keep these names. Reconcile hardens `reconcile` and reuses `coord-log.sh`. Every holding row
 changes only through `record-holding.sh`:
 
@@ -462,17 +487,18 @@ record-holding.sh --scope roadmap|discipline --name <name> --repo <owner/repo> -
 
 It reads the live body, parses it, replaces the row whose Worker equals `--topic` or appends one,
 renders, self-checks and writes the whole body. The row file holds the Holdings keys
-(`unit, entry_point, mode, phase, return_path, worker, repo, branch, verified_head, dispatched,
+(`unit, entry_point, mode, phase, dispatch_status, return_path, worker, repo, branch, verified_head, dispatched,
 pull_request`); its `worker` must equal `--topic`. Exit codes: 0 written (prints the record URL),
 10 refused because the target isn't an open record or a `--to` is in the log, 11 the write
 failed, 2 a read failed, 64 usage, 65 the row was refused by the renderer (the reason on stderr).
 
 ### Record format
 
-Holdings: Unit, Entry point, Mode, Phase, Return path, Worker, Repo, Branch, Verified head,
-Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side effects in
+Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, Repo, Branch,
+Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Disposition. Side effects in
 flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date, Reversed, Now,
-Reason, From. Phase is `scoping-ahead` or `executing`; Return path is `message` or
+Reason, From. Phase is `scoping-ahead` or `executing`; Dispatch status is `dispatching`,
+`dispatched` or `dispatch-failed`; Return path is `message` or
 `leg <request-id>:<leg>`; Raised, Attempted and a carry-forward's time are `YYYY-MM-DDTHH:MMZ`;
 Disposition is empty, `filed #<n>`, `closed: <text>` or `carried <time>: <text>`.
 
@@ -481,7 +507,7 @@ Disposition is empty, `filed #<n>`, `closed: <text>` or `carried <time>: <text>`
 A worker messages that its pull request is ready. The coordinator ticks `wait` with
 `event: report, unit: <topic>`. `report_facts` finds the topic's holding in the record and writes
 `coord/report.json`; `classify_report` takes the coordinator's classification (the shadow decider
-records its own); `verify` takes the prediction; `verify_board` reads the board and captures
+records its own; `blocked` goes to `surface`, `needs_fix` to `rebrief`); `verify` takes the prediction; `verify_board` reads the board and captures
 `verified <pr> <sha> sealed:...`; the coordinator writes that sha into the holding with
 `record-holding.sh`; `verified_confirm` sees it on GitHub; `land` re-reads the head and routes by
 the posture; `land_merge` or `surface` runs; `merge_confirm` or `record` confirms the outcome on

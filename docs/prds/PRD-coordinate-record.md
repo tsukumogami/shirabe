@@ -195,8 +195,9 @@ PRD adds:
 - **R14. One renderer, fixed columns.** The record body and the discipline handoff file are
   produced by one renderer from structured input. The body opens with the declaration line
   and a `Written:` UTC time, then the four sections with these columns:
-  - Holdings: Unit, Entry point, Mode, Phase, Return path, Worker, Repo, Branch, Verified
-    head, Dispatched, Pull request. Return path is `leg <request-id>:<leg>` when the worker
+  - Holdings: Unit, Entry point, Mode, Phase, Dispatch status, Return path, Worker, Repo,
+    Branch, Verified head, Dispatched, Pull request. Dispatch status is `dispatching`,
+    `dispatched` or `dispatch-failed`. Return path is `leg <request-id>:<leg>` when the worker
     reports through a koto request leg, or `message`.
   - Deferrals: Deferral, Reason, Raised, Disposition. Raised and a carry-forward's date are
     UTC times to the minute (`YYYY-MM-DDTHH:MMZ`).
@@ -310,9 +311,9 @@ Workflow and start:
       entering dispatch.
 - [ ] A test with an unreadable posture fixture routes start to a question to the human
       rather than to reconcile.
-- [ ] A coverage table in the design lists every step, bound, definition and "never does"
-      of the current skill and references against the state or file that carries it, and a
-      test checks each row's key phrase is present where the table says.
+- [ ] A coverage table committed with the skill's tests lists every step, bound, definition
+      and "never does" of the current skill and references against the state or file that
+      carries it, and a test checks each row's key phrase is present where the table says.
 - [ ] Each of the four reference files exists and is named in at least one state's guidance.
 - [ ] Advancing into a state and then advancing again without leaving it shows the state's
       longer guidance only the first time.
@@ -371,7 +372,8 @@ The record:
       unchanged and every row keeps its column count.
 - [ ] Adding a holding for a topic already in Holdings replaces its row; the table never
       holds two rows for one topic; the Return path cell accepts `message` and
-      `leg <request-id>:<leg>` and refuses anything else.
+      `leg <request-id>:<leg>`, the Dispatch status cell accepts `dispatching`, `dispatched`
+      and `dispatch-failed`, and each refuses anything else.
 - [ ] The discipline handoff file comes from the same renderer and parses with the same
       parser.
 - [ ] The open script isn't run by any state on its own; a restart fixture with a record
@@ -417,8 +419,8 @@ Packaging:
 - [ ] The load-time check passes with the requirements file as committed.
 - [ ] `evals/evals.json` keeps all nine existing scenarios and adds those named in R30, and an
       eval run passes.
-- [ ] The skill file's Known Limitations section names shirabe#395, #396, #398, koto#250 and
-      shirabe#401, each with what it costs today.
+- [ ] The skill file's Known Limitations section names shirabe#395, #396, #398, koto#250,
+      koto#251 and shirabe#401, each with what it costs today.
 - [ ] `git grep -n 'wip/'` over added and changed files is empty, and a grep of them for
       private repository names, session ids, instance directory names and UUID-shaped
       strings is empty.
@@ -454,6 +456,12 @@ Packaging:
 - **No leg flag on `/deliver` and `/work-on` (shirabe#401).** Only `/scope` and `/execute`
   accept `--koto-leg` today, so the workers a coordinator most often dispatches report by
   message only.
+- **`koto next --to` skips gates (koto#251).** A directed transition moves a session past
+  any gate, non-overridable ones included, so no template can fully hold "no value the
+  coordinator supplies satisfies a check" while it exists. Each check's result is sealed to
+  the visit that produced it, and every write script and downstream reader scans the session
+  log for a directed transition and refuses on one, so a skip is detected at the next write
+  rather than prevented.
 - **Single host for legs.** koto's request store is local, so a worker on another host
   always reports by message.
 
