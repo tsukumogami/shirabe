@@ -347,6 +347,13 @@ if [ "$NEXT_STATE" = "finalization" ]; then
 else
     fail "finalization: summary.md cleared + ready_for_pr -> expected to hold, got [$NEXT_STATE]"
 fi
+# summary_shape fails too once the key is gone, so the hold alone no longer
+# isolates summary_exists; the response has to name it.
+if printf '%s' "$NEXT_RESPONSE" | grep -q '"name":"summary_exists"'; then
+    pass "finalization: the held submission names summary_exists"
+else
+    fail "finalization: expected summary_exists named; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
+fi
 
 to_finalization defer-hold
 seed_finishing defer-hold

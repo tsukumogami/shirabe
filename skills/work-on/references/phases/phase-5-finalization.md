@@ -104,7 +104,10 @@ EOF
 
 `cleanup_commit` is the commit whose diff you reviewed in the cleanup pass.
 `design_diagram` is the path of the design diagram you updated, or
-`not-applicable: <reason>` when the change touches no design document.
+`not-applicable: <reason>` when the change touches no design document. When the
+issue body carries a `Design:` reference, run the update in
+`phase-6-design-diagram-update.md` now and record that path, so the line names
+an update that has happened rather than one still to come.
 
 ### Commit
 

@@ -1811,7 +1811,8 @@ Two shapes are required, and `ready_for_pr` does not advance without them:
   and a line `design_diagram: docs/<path>.md` or
   `design_diagram: not-applicable: <reason>`. The form is hyphenated and carries a
   reason; the evidence enum `not_applicable` at `pre_pr_evidence` is a different
-  thing and does not satisfy it.
+  thing and does not satisfy it. When the issue body carries a `Design:`
+  reference, update that diagram now (phase-5 says how) and record its path.
 
 ```bash
 cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
@@ -1855,8 +1856,11 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
-  lacks the shape `finalization` requires; fix it as that state's directive says
-  and submit again.
+  lacks the required shape. Fix that artifact with `koto context add` and submit
+  again: `summary_shape` needs a `## Changes Made` heading in `summary.md`;
+  `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`;
+  `diagram_referent` needs `design_diagram: docs/<path>.md` or
+  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
 - If the human **rejects** the deferral: the issue is not done. Submit
   `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
 
@@ -1889,8 +1893,9 @@ recording a referent you cannot stand behind.
 The gates check the summary's shape, the tip commit's subject against
 Conventional Commits, and the two referents. A failing one stops the run before
 the pull request is opened, with the reason naming which. The shape and referent
-checks already held at `finalization`, so here they are the backstop; the
-commit convention is checked only here.
+checks already held at `finalization`, so here they are the backstop. The
+commit convention is checked only here, because the tip can still move after
+finalization (the summary commit lands there).
 
 `references/finishing-obligations.md` is the table of every finishing obligation
 — which are gate-enforced, which are evidence-carried, and which are
