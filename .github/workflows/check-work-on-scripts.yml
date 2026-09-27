@@ -113,6 +113,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/pre-pr-evidence_test.sh
 
+      # Walks the shipped template to finalization and asserts a malformed
+      # summary.md or pre_pr.md holds the run there, naming the failing gate,
+      # rather than reaching pre_pr_evidence's done_blocked backstop. Also pins
+      # that the early gates carry the backstop's patterns. Needs the engine.
+      - name: Run finalization shape tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/finalization-shape_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
       # to assert the run's context survives it, and materializes a child to
       # assert that a child carrying the same flag blocks its parent's converge.

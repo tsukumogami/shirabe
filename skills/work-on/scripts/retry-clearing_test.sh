@@ -172,6 +172,15 @@ new_session() {
 
 seed() { printf 'round-1 artifact\n' | koto context add "$1" "$2" >/dev/null 2>&1; }
 
+# The two artifacts finalization writes, in the shape its gates require. The
+# summary_exists cases below need everything else about the edge satisfied, so
+# a hold is down to the key under test and an advance is not refused for shape.
+seed_finishing() {
+    printf '# Summary\n\n## Changes Made\n- f.txt\n' | koto context add "$1" summary.md >/dev/null 2>&1
+    printf 'cleanup_commit: 4f2a91c\ndesign_diagram: not-applicable: no design document\n' \
+        | koto context add "$1" pre_pr.md >/dev/null 2>&1
+}
+
 # `koto next` reports the resulting state in its JSON response and keeps
 # reporting it after a terminal transition; `koto status` answers "workflow not
 # found" once a workflow is terminal, so the submission response is the surface
@@ -330,7 +339,7 @@ fi
 echo "--- Case 5/6: the two summary_exists gates"
 
 to_finalization sum-hold
-seed sum-hold summary.md
+seed_finishing sum-hold
 koto context remove sum-hold summary.md >/dev/null 2>&1
 submit sum-hold '{"finalization_status":"ready_for_pr"}'
 if [ "$NEXT_STATE" = "finalization" ]; then
@@ -340,7 +349,7 @@ else
 fi
 
 to_finalization defer-hold
-seed defer-hold summary.md
+seed_finishing defer-hold
 submit defer-hold '{"finalization_status":"deferral_requested"}'
 if [ "$NEXT_STATE" = "deferral_approval" ]; then
     koto context remove defer-hold summary.md >/dev/null 2>&1
@@ -352,7 +361,7 @@ if [ "$NEXT_STATE" = "deferral_approval" ]; then
     fi
     # The mirror, so the case above cannot pass by way of a malformed submission
     # that the state would have refused whatever the key's status.
-    seed defer-hold summary.md
+    seed_finishing defer-hold
     submit defer-hold '{"approval_decision":"approved"}'
     # The approved path now stops at pre_pr_evidence rather than chaining on to
     # pr_creation. That is the pre-PR obligation state doing its job: it declares
@@ -384,7 +393,7 @@ else
 fi
 
 to_finalization sum-adv
-seed sum-adv summary.md
+seed_finishing sum-adv
 submit sum-adv '{"finalization_status":"ready_for_pr"}'
 if [ "$NEXT_STATE" != "finalization" ] && [ -n "$NEXT_STATE" ]; then
     pass "finalization: summary.md present + ready_for_pr -> advances to $NEXT_STATE"
@@ -571,6 +580,17 @@ if koto context exists final-clear summary.md >/dev/null 2>&1; then
     fail "finalization (issues_found): summary.md survived the shipped block"
 else
     pass "finalization (issues_found): summary.md cleared by the shipped block"
+fi
+
+# pre_pr.md is written at finalization too, so the same return trip must clear it
+# or the next round's referent gates would accept this round's cleanup commit.
+to_finalization final-clear-prepr
+seed final-clear-prepr pre_pr.md
+render "$FINAL_BLOCK" final-clear-prepr | bash >/dev/null 2>&1
+if koto context exists final-clear-prepr pre_pr.md >/dev/null 2>&1; then
+    fail "finalization (issues_found): pre_pr.md survived the shipped block"
+else
+    pass "finalization (issues_found): pre_pr.md cleared by the shipped block"
 fi
 
 # --- Case 10b — every retry edge covers the traversal it starts ----------------
