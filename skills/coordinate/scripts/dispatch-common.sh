@@ -77,6 +77,12 @@
 #       place a script reads a holding, so a change to the record's reader is
 #       one edit here.
 #
+#   dc_rp_from_row <cell> / dc_rp_to_row <return-path>
+#       A return path is `message` or `<request-id>:<leg>` inside these
+#       scripts, and `message` or `leg <request-id>:<leg>` in the record's
+#       Return path cell, the record codec's form. These convert between
+#       the two; every read and write of the cell goes through them.
+#
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
 #       0 (an empty array when there are none), 10 refused, 2 otherwise.
@@ -264,6 +270,20 @@ dc_flag_allowed() {
         esac
     done
     return 1
+}
+
+dc_rp_from_row() {
+    case "$1" in
+        'leg '*) printf '%s\n' "${1#leg }" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+dc_rp_to_row() {
+    case "$1" in
+        message | '') printf '%s\n' "${1:-message}" ;;
+        *) printf 'leg %s\n' "$1" ;;
+    esac
 }
 
 dc_record_present() {

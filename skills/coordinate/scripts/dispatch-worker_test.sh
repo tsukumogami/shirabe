@@ -187,7 +187,7 @@ eq  "row: mode" "--auto --no-merge" "$(row mode)"
 eq  "row: phase" executing "$(row phase)"
 eq  "row: unit" "Feature 2: the plugin API" "$(row unit)"
 eq  "row: branch empty" "" "$(row branch)"
-eq  "row: pull request" "none yet" "$(row pull_request)"
+eq  "row: pull request empty (the record's none yet)" "" "$(row pull_request)"
 eq  "row: date" "$(date -u +%Y-%m-%d)" "$(row dispatched)"
 ROWTXT=$(cat "$ST/rows/plugin-api.json")
 lacks "row: no session name" "$ROWTXT" "plugin_api-1a2b3c4d"
@@ -216,7 +216,7 @@ eq  "leg: exit 0" 0 "$RC"
 LOG=$(calls)
 has "leg: one-leg request named scope" "$LOG" '"name":"scope","role":"scope","template":"scope.md","inputs":{"TOPIC":"plugin-api"}'
 has "leg: coordinator of record" "$LOG" "--coordinator-of-record coordinate-plugin-api"
-eq  "leg: return path" "req_1:scope" "$(row return_path)"
+eq  "leg: return path in the record's form" "leg req_1:scope" "$(row return_path)"
 has "leg: prompt carries --koto-leg" "$(cat "$ST/prompt")" "--koto-leg=req_1:scope"
 has "leg: the brief shows the same invocation" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:scope plugin-api --auto --intent=continue --koto-leg=req_1:scope`'
 CREATE=$(grep -n 'koto request create' "$ST/calls.log" | cut -d: -f1)
@@ -251,7 +251,7 @@ eq  "resume, launched: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")
 eq  "resume, launched: row dispatched" dispatched "$(row dispatch_status)"
 
 reset "$INPUT_SCOPE"
-printf '%s' '{"dispatch_status":"dispatching","return_path":"req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue"}' >"$ST/rows/plugin-api.json"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue"}' >"$ST/rows/plugin-api.json"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "resume, not launched: exit 0" 0 "$RC"
 eq  "resume, not launched: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"

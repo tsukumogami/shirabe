@@ -156,7 +156,7 @@ candidates() {
         fi
         printf '%s\t%s\t%s\t%s\n' "$disp" "$topic" "$req" "$leg"
     done <<EOF
-$(printf '%s' "$rows" | jq -r '.[] | select(.dispatch_status == "dispatched") | select((.return_path // "") | test("^[^:]+:[^:]+$")) | [.worker, .return_path] | @tsv')
+$(printf '%s' "$rows" | jq -r '.[] | select(.dispatch_status == "dispatched") | select((.return_path // "") | test("^leg [^: ]+:[^: ]+$")) | [.worker, (.return_path | ltrimstr("leg "))] | @tsv')
 EOF
 }
 

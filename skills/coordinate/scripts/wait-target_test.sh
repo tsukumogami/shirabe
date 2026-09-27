@@ -88,11 +88,11 @@ sel() { bash "$S" select --session coord "$@"; }
 target() { jq -r "$1" "$ST/ctx/wait_target"; }
 
 ROWS='[
- {"worker":"alpha","dispatch_status":"dispatched","return_path":"req_a:scope"},
+ {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"},
  {"worker":"beta","dispatch_status":"dispatched","return_path":"message"},
- {"worker":"gamma","dispatch_status":"dispatched","return_path":"req_g:execute"},
- {"worker":"delta","dispatch_status":"dispatching","return_path":"req_d:scope"},
- {"worker":"eps","dispatch_status":"dispatched","return_path":"req_e;rm -rf:scope"}
+ {"worker":"gamma","dispatch_status":"dispatched","return_path":"leg req_g:execute"},
+ {"worker":"delta","dispatch_status":"dispatching","return_path":"leg req_d:scope"},
+ {"worker":"eps","dispatch_status":"dispatched","return_path":"leg req_e;rm -rf:scope"}
 ]'
 
 # --- select --------------------------------------------------------------------------------
@@ -129,8 +129,8 @@ eq  "select: the oldest open leg when none resolved" req_a "$(sel)"
 # delta is still dispatching; its leg has resolved, and it comes first. It
 # must not be picked: only a dispatched worker is watched.
 reset '[
- {"worker":"delta","dispatch_status":"dispatching","return_path":"req_d:scope"},
- {"worker":"alpha","dispatch_status":"dispatched","return_path":"req_a:scope"}
+ {"worker":"delta","dispatch_status":"dispatching","return_path":"leg req_d:scope"},
+ {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"}
 ]'
 req req_d scope resolved; req req_a scope open
 eq  "select: skips a holding that isn't dispatched yet" req_a "$(sel)"

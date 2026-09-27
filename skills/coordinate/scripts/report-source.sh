@@ -57,7 +57,7 @@ case "$?" in
     1) printf '%s: no holding for %s\n' "$PROG" "$TOPIC" >&2; exit 1 ;;
     *) printf '%s: the record could not be read for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
 esac
-RP=$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')
+RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
 
 if [ "$SOURCE" = message ]; then
     [ "$RP" = message ] && exit 0

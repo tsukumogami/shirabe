@@ -43,7 +43,8 @@
 #      is `<request-id>:<leg>`, and `--koto-leg=<request-id>:<leg>` joins the
 #      worker's invocation. Otherwise the return path is `message`.
 #   5. Write ahead: the holding row with dispatch status `dispatching`, branch
-#      empty (not yet known) and pull request "none yet".
+#      empty (not yet known) and the pull request cell empty, the record's
+#      "none yet".
 #   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
 #      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300).
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
@@ -239,7 +240,7 @@ if [ "$REBRIEF" = 1 ]; then
     # re-briefed worker reports by message: the holding moves to the message
     # path and the spent request is abandoned. The brief says so by showing
     # the invocation without --koto-leg.
-    ROW_RP=$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')
+    ROW_RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')")
     BRIEF=$(bash "$HERE/render-brief.sh" --input "$WORK/rebrief.json" --workspace-root "$ROOT" --return-path message)
     case "$?" in
         0) ;;
@@ -281,7 +282,7 @@ if [ "$STATUS" = dispatching ]; then
     NAME=$(find_session)
     case "$?" in
         0) confirm "$NAME" ;;
-        1) RETURN_PATH=$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings') ;;
+        1) RETURN_PATH=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')") ;;
         *) die 6 "an earlier run left $TOPIC dispatching and niwa list can't be read to settle it" ;;
     esac
 else
@@ -378,13 +379,13 @@ if [ "$STATUS" != dispatching ]; then
         --arg ep "$ENTRY" \
         --arg mode "$(dc_mode "$INPUT")" \
         --arg phase "$(jq -r '.phase' "$INPUT")" \
-        --arg rp "$RETURN_PATH" \
+        --arg rp "$(dc_rp_to_row "$RETURN_PATH")" \
         --arg topic "$TOPIC" \
         --arg repo "$REPO" \
         --arg today "$TODAY" \
         '{unit: $unit, entry_point: $ep, mode: $mode, phase: $phase, dispatch_status: "dispatching",
           return_path: $rp, worker: $topic, repo: $repo, branch: "", verified_head: "",
-          dispatched: $today, pull_request: "none yet"}')
+          dispatched: $today, pull_request: ""}')
     write_row "$ROW"
 fi
 
