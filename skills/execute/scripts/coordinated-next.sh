@@ -13,6 +13,7 @@
 #   coordinated-next.sh --plan <path> --slug <slug> --repos <owner/repo,...>
 #                       --home-repo <owner/repo> --coord-branch <branch>
 #                       --merge true|false [--attempts <node:result,...>]
+#                       [--run-id <id>]
 #
 #   --plan          the PLAN in the coordination checkout. While it exists its
 #                   nodes come from plan-to-tasks.sh; once the finalization
@@ -26,6 +27,11 @@
 #                   passed explicitly by the caller from the session's MERGE
 #                   variable. The script reads no koto variable or environment
 #                   for it; a missing or other value is a usage error.
+#   --run-id        this run's identity (`run-id.sh get <session>`),
+#                   ^[0-9a-f]{32}$. Every owned-PR lookup carries it, so a PR
+#                   another run opened on a node or coordination branch is
+#                   never adopted. Omitted only on a hand run, where the
+#                   lookups match by login and branch alone.
 #   --attempts      the session's `merge_attempts` record, written by
 #                   coord-merge.sh: `<node>:merge-not-observed` or
 #                   `<node>:merge-call-failed` for a merge this run already
@@ -78,7 +84,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coordinated-next.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>]" >&2
+    echo "usage: coordinated-next.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--run-id <id>]" >&2
     exit 64
 }
 
@@ -86,11 +92,12 @@ CC_PLAN=""; CC_SLUG=""; CC_REPOS=""; CC_HOME=""; CC_CB=""; CC_MERGE=""; CC_ATTEM
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts)
+        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
+                --run-id) COORD_RUN_ID="$2" ;;
                 --plan) CC_PLAN="$2" ;;
                 --slug) CC_SLUG="$2" ;;
                 --repos) CC_REPOS="$2" ;;
@@ -120,6 +127,9 @@ case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a ch
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
     usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed>,..."
 fi
+case "$SEEN" in
+    *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
+esac
 command -v jq >/dev/null || { printf 'error:execute:status-read\n'; echo "$PROG: jq is not on PATH" >&2; exit 0; }
 
 coord_compute

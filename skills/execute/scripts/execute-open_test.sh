@@ -291,6 +291,12 @@ fi
 # A retained paused_for_review session: replaced, and resumed as the finalize
 # invocation.
 run_open '["docs/plans/PLAN-paused.md"]'
+FIRST_RUN_ID=$(k context get execute-paused run_id 2>/dev/null)
+if [[ $FIRST_RUN_ID =~ ^[0-9a-f]{32}$ ]]; then
+    pass "an opened session carries a run identity (run_id)"
+else
+    fail "no run_id after open: [$FIRST_RUN_ID]"
+fi
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
     k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
@@ -302,6 +308,11 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
         pass "a retained pause is replaced, and the resume passes PAUSE_BEFORE_FINALIZE=false"
     else
         fail "paused resume: out [$OUT], PAUSE [$(session_var execute-paused PAUSE_BEFORE_FINALIZE)]; $ERR"
+    fi
+    if [ "$(k context get execute-paused run_id 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+        pass "the replacement carries the finished run's identity, so it still owns that run's PR"
+    else
+        fail "run_id after replacement: [$(k context get execute-paused run_id 2>/dev/null)], was [$FIRST_RUN_ID]"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"

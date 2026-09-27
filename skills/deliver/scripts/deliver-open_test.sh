@@ -150,6 +150,11 @@ open_deliver '["t-new"]'
 eq "exit 0" 0 "$RC"
 has "prints opened=new" "opened=new" "$STDOUT"
 has "prints session=deliver-t-new" "session=deliver-t-new" "$STDOUT"
+if [[ "$(k context get deliver-t-new run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; then
+    ok "the opened session carries a run identity (run_id, minted at the open)"
+else
+    bad "the opened session carries a run identity" "[$(k context get deliver-t-new run_id 2>&1)]"
+fi
 eq "a fresh session at preflight" preflight "$(state_of t-new)"
 eq "MODE interactive with no flag and no header" '["interactive"]' "$(var MODE)"
 eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"

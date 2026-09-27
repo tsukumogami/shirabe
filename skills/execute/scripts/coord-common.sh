@@ -21,9 +21,18 @@
 #
 # Callers set COORD_SELF_DIR (this directory) before sourcing.
 #
+# Every owned-PR lookup here goes through coord_owned, which carries the run's
+# identity (owned-pr.sh --run-id) when the caller set COORD_RUN_ID: from its
+# own --run-id flag (coordinated-next.sh, coordination-verdict.sh,
+# node-push.sh), or from its session through run-id.sh (coord-merge.sh,
+# record-coordination-verdict.sh). Empty means a hand run, and owned-pr.sh then
+# matches by login and branch alone.
+#
 # Requires: bash 3.2+, jq, gh (through owned-pr.sh and the reads below).
 
 COORD_MARKER='This is a **coordination PR**'
+COORD_RUN_ID=""
+RE_COORD_RUN_ID='^[0-9a-f]{32}$'
 # The PLAN's node list, from /plan's script: the one cross-skill path the
 # coordinated scripts share.
 COORD_PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
@@ -135,19 +144,32 @@ coord_find_entry() {
     return 0
 }
 
+# coord_owned <repo> <head> <state> -- owned-pr.sh, carrying COORD_RUN_ID.
+# Prints its output and returns its exit code.
+coord_owned() {
+    if [ -n "$COORD_RUN_ID" ]; then
+        "$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$1" --head "$2" --state "$3" \
+            --run-id "$COORD_RUN_ID" </dev/null
+    else
+        "$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$1" --head "$2" --state "$3" </dev/null
+    fi
+}
+
 # coord_find_pr <home-repo> <coord-branch> <state> -- the coordination PR.
 # Sets C_URL, C_NUM, C_JSON (state,isDraft,body,headRefOid,url). Returns 0 on
 # success, 2 on a failed read, 3 when no single owned PR carries the marker
-# (zero, several, or the marker missing).
+# (zero, several, an ambiguous lookup, another run's PR, or the marker
+# missing).
 coord_find_pr() {
     local out rc
     C_URL=""; C_NUM=""; C_JSON=""
-    out=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$1" --head "$2" --state "$3" </dev/null)
+    out=$(coord_owned "$1" "$2" "$3")
     rc=$?
     case "$rc" in
         0) [ -n "$out" ] || { echo "$PROG: no owned coordination PR on $1 head $2" >&2; return 3; } ;;
         2) echo "$PROG: the coordination PR lookup failed" >&2; return 2 ;;
-        3) echo "$PROG: several owned PRs on $1 head $2; refusing to pick one" >&2; return 3 ;;
+        3|4) echo "$PROG: several owned PRs on $1 head $2, or an ambiguous lookup (owned-pr.sh exit $rc); refusing to pick one" >&2; return 3 ;;
+        5) echo "$PROG: the PR on $1 head $2 was opened by another run" >&2; return 3 ;;
         *) echo "$PROG: owned-pr.sh exited $rc" >&2; return 2 ;;
     esac
     C_URL="$out"
@@ -314,7 +336,7 @@ coord_compute() {
             CC_ACTION="error:execute:pr-adopt"; return 0
         fi
         # The indexed PR must be the one owned PR on this node's branch.
-        out=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$E_REPO" --head "$node_branch" --state all </dev/null)
+        out=$(coord_owned "$E_REPO" "$node_branch" all)
         rc=$?
         case "$rc" in
             0) ;;
