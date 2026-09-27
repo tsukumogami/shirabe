@@ -275,7 +275,7 @@ usage_is "a flag without its value is a usage error" --session
 
 echo "== contract: the record feature's own parser =="
 REAL=""
-for d in "$HERE" "${RECORD_FEATURE_SCRIPTS:-}"; do
+for d in "${RECORD_FEATURE_SCRIPTS:-}" "$HERE"; do
     [ -n "$d" ] && [ -f "$d/record-parse.sh" ] && [ -f "$d/record-render.sh" ] && [ -f "$d/record-codec.jq" ] && { REAL=$d; break; }
 done
 if [ -z "$REAL" ]; then
@@ -350,6 +350,20 @@ else
     capture $ROADMAP_ARGS
     expect "the real parser: a Written: line that isn't a time is not carried, and is listed" \
         '.status == "found" and .record.written == null and (.unparseable | any(.reason | test("Written")))'
+
+    # The record feature's `held` phase (3891bf4): once its codec accepts the
+    # value, a held row reads back as a row, not as unparseable.
+    if grep -q 'held' "$C/record-codec.jq"; then
+        new_case real-held
+        printf '%s' "$ROADMAP_JSON" | jq 'del(.written) | .holdings[0].phase = "held"' \
+            | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
+        serve issue-view 1 "$(body "$CASE/body.md")"
+        capture $ROADMAP_ARGS
+        expect "the real parser: a held row reads back with its phase and verified head" \
+            '.status == "found" and .holdings[0].row.phase == "held" and (.holdings[0].row.verified_head | length) == 40 and .unparseable == []'
+    else
+        echo "skip held-row contract case: this codec predates the record feature's held phase (3891bf4)"
+    fi
 
     new_case real-other-scope
     serve issue-view 1 "$(body "$RB")"

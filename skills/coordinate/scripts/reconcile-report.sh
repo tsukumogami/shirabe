@@ -79,7 +79,7 @@
 #                   board, leg, next, next_code, source, read_at,
 #                   grade: {state, board, leg, phase, next}}
 #                  next_code is the token a reader routes on: drop, decide,
-#                  fix_ci, land, wait, read_again, refused. source is
+#                  fix_ci, land, held, wait, read_again, refused. source is
 #                  record or handoff, per row when a holding carries
 #                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
@@ -92,7 +92,12 @@
 #   not_verified[] {what, reason, raw}
 #
 # Phase. A row's `phase` value decides it, matched whole and ignoring case:
-# "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing.
+# "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing,
+# and "held" is held: verified, with the merge withheld by the human's
+# direction (the record feature writes it from land_merge's `merge: held`).
+# A held holding waits on the human, not on its worker: its next line is
+# "held", listed under "Waiting on a person", unless its pull request has
+# merged or closed since.
 # An empty `phase` falls back to the entry point and mode: the scoping entry
 # point (".../scope"), or a mode carrying `--intent=stop` or `--intent stop`,
 # is scoping ahead; anything else is executing. Any other `phase` value is
@@ -148,11 +153,12 @@ def safe_path: if type == "string" and startswith("/") then "(absolute path with
 def topic: .row.worker // "(no worker)";
 
 def phase_key: (.row.phase // "") | ascii_downcase;
-def phase_known: phase_key | . == "" or . == "scoping" or . == "scoping-ahead" or . == "executing";
+def phase_known: phase_key | . == "" or . == "scoping" or . == "scoping-ahead" or . == "executing" or . == "held";
 def phase_of:
   phase_key as $p
   | if $p == "scoping" or $p == "scoping-ahead" then "scoping ahead"
     elif $p == "executing" then "executing"
+    elif $p == "held" then "held"
     elif $p != "" then "executing"
     elif ((.row.entry_point // "") | test("(^|:|/)scope$"))
       or ((.row.mode // "") | test("--intent(=| +)stop( |$)")) then "scoping ahead"
@@ -208,6 +214,7 @@ def next_code_of:
     elif ok($pr) then
       (if $pr.state == "MERGED" then "drop"
        elif $pr.state == "CLOSED" then "decide"
+       elif phase_key == "held" then "held"
        elif ((board_of // "") | startswith("fails")) then "fix_ci"
        elif (board_of == "holds") and ((.row.verified_head // "") != "")
             and ($pr.head == .row.verified_head) then "land"
@@ -217,7 +224,9 @@ def next_code_of:
     else "read_again" end;
 def next_text:
   {drop: "drop from holdings", decide: "decide: re-dispatch or drop",
-   fix_ci: "worker fixes CI", land: "ready to land", wait: "wait on worker",
+   fix_ci: "worker fixes CI", land: "ready to land",
+   held: "verified; merge withheld by the human\u0027s direction, waiting on them",
+   wait: "wait on worker",
    read_again: "read again, then decide", refused: "refused by the record reader"}[.];
 def next_of: next_code_of | next_text;
 
@@ -326,7 +335,7 @@ def changes_of($written):
           | {what: ((.row.action // "") + " " + (.row.target // "")), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next_code == "land" or .next_code == "decide") | {topic, why: .next, grade: "inferred"}]
+    [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 '
 
