@@ -27,8 +27,11 @@
 #   schema         "coordinate-reconcile-facts/v1"
 #   scope          {kind: roadmap|discipline, name, repo}
 #   record         {written: <ISO time the record says it was written>,
-#                   source: record|handoff, handoff_date: <date>|null}
+#                   source: record|handoff|"record and handoff",
+#                   handoff_date: <date>|null}
 #   reconciled_at  <ISO time the pass finished>
+#   plugin_root    optional: inside|outside|unknown, where the scripts that
+#                  ran sit relative to the repository being worked on
 #   holdings[]     one per Holdings row:
 #     source       optional: record|handoff, for a discipline start that
 #                  mixes its predecessor's rows with its own
@@ -248,7 +251,8 @@ def changes_of($written):
     schema: "coordinate-reconcile-report/v1",
     header: {scope: (($in.scope.kind // "") + " " + ($in.scope.name // "")), written: $w,
              reconciled_at: $in.reconciled_at, source: ($in.record.source // "record"),
-             handoff_date: ($in.record.handoff_date // null)},
+             handoff_date: ($in.record.handoff_date // null),
+             plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
     changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
@@ -349,7 +353,12 @@ def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "No
 "# Reconcile report",
 "",
 "Scope: \(.header.scope). Record written \(.header.written); reconciled \(.header.reconciled_at)."
-  + (if .header.source == "handoff" then " Rows as written by the previous rotation on \(.header.handoff_date)." else "" end),
+  + (if .header.source == "handoff" then " Rows as written by the previous rotation on \(.header.handoff_date)."
+     elif .header.source == "record and handoff" then " Rows marked as the previous rotation'"'"'s are as it wrote them on \(.header.handoff_date)."
+     else "" end)
+  + (if .header.plugin_root == "inside" then " The reconcile scripts ran from inside the repository being worked on."
+     elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."
+     else "" end),
 "",
 section("Changed since then"; [.changes[] | "- \(.topic): \(.what): record said \(.recorded), now \(.live) (written \(.written); \(.grade))."]),
 section("Holding"; [.holdings[] | "- \(.topic) (\(.unit)): \(.phase)"
