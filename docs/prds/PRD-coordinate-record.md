@@ -291,7 +291,7 @@ PRD adds:
   dispatch; a verified head recorded before a land step; pick filling the cap, scoping
   ahead, and asking up.
 - **R31. Public repository hygiene.** No committed file references a private repository,
-  session, instance, job id, or a `wip/` path.
+  session, instance, job id, or a path under the workflow staging directory.
 
 ## Acceptance Criteria
 
@@ -421,7 +421,8 @@ Packaging:
       eval run passes.
 - [ ] The skill file's Known Limitations section names shirabe#395, #396, #398, koto#250,
       koto#251 and shirabe#401, each with what it costs today.
-- [ ] `git grep -n 'wip/'` over added and changed files is empty, and a grep of them for
+- [ ] A grep of added and changed files for the workflow staging directory's path prefix is
+      empty, and a grep of them for
       private repository names, session ids, instance directory names and UUID-shaped
       strings is empty.
 

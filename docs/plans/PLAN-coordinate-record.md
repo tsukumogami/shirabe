@@ -274,7 +274,7 @@ design lists, the check-state contract, and the two shadow deciders.
 - [ ] `references/koto-session-retention.md` gains an adopters row.
 - [ ] A rule-coverage fixture lists every rule of the prose skill against the state or file that
       carries it, and a test checks each key phrase is present there.
-- [ ] A hygiene test over the skill's files finds no `wip/` path, private repository name, session
+- [ ] A hygiene test over the skill's files finds no workflow-staging path, private repository name, session
       id, instance name or UUID-shaped string.
 
 **Dependencies**: <<ISSUE:7>>
