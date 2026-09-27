@@ -10,13 +10,20 @@
 # is no write in this file, so a lint over a check script and this file finds
 # only reads.
 #
+# It sources record-common.sh beside it for what every /coordinate script
+# shares: the topic grammar (RE_TOPIC), the pull request link (lib_pr_link),
+# and the token scrub. The session log is read only through coord-log.sh.
+#
 # The deadline: a check state's default action has 30 seconds. Every read
 # checks bash's SECONDS against BL_DEADLINE (24) before it starts, and a
 # watchdog kills a read still running at the deadline, so a hung gh can't hold
 # the action past its limit. BOARD_DEADLINE_SECS may lower it (1..24) for the
 # deadline test; it can never raise it.
 #
-# Requires: bash 3.2+, jq, gh, and coord-log.sh beside the caller.
+# Requires: bash 3.2+, jq, gh, and coord-log.sh and record-common.sh beside
+# the caller.
+
+. "$HERE/record-common.sh"
 
 BL_RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 BL_RE_PR='^[1-9][0-9]*$'
@@ -85,15 +92,6 @@ bl_gh() {
         attempt=2
         sleep 1
     done
-}
-
-# bl_log <session>: the session's state log path.
-bl_log() {
-    local dir f
-    dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
-    f="$dir/koto-$1.state.jsonl"
-    [ -r "$f" ] || return 1
-    printf '%s\n' "$f"
 }
 
 # bl_capture <session> <NAME> <state> [--any-visit] [--for KEY]: the latest
@@ -178,12 +176,10 @@ bl_posture_merge() {
 # record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
-    local s=$1 log ev facts repo ref scope name min body
-    log=$(bl_log "$s") || return 2
-    ev=$(jq -c 'select(.type == "evidence_submitted" and .payload.state == "posture_ask")
-        | {timestamp: (.timestamp // ""), merge: (.payload.fields.merge // "")}' "$log" 2>/dev/null | tail -1)
-    [ -n "$ev" ] || return 1
-    [ "$(printf '%s' "$ev" | jq -r '.merge')" = permitted ] || return 1
+    local s=$1 ev facts repo ref scope name min body
+    ev=$(bash "$HERE/coord-log.sh" evidence --session "$s" --state posture_ask 2>/dev/null)
+    case $? in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    [ "$(printf '%s' "$ev" | jq -r '.fields.merge // ""')" = permitted ] || return 1
     min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2

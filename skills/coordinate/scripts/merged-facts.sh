@@ -49,8 +49,9 @@ if [ -n "$PR$REPO" ]; then
     bl_pr_ok "$PR" && bl_repo_ok "$REPO" || usage
 else
     if [ -z "$UNIT" ]; then
-        LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
-        UNIT=$(jq -r 'select(.type == "evidence_submitted" and .payload.state == "wait") | .payload.fields.unit // ""' "$LOG" | tail -1)
+        EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait 2>/dev/null)
+        [ $? -eq 2 ] && { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
+        UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
         bl_topic_ok "$UNIT" || { echo "$PROG: the latest wait evidence names no unit [$UNIT]" >&2; exit 2; }
     fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)

@@ -273,6 +273,47 @@ body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD
 log_ev "$S" directed_transition '{"from":"verify","to":"verified_confirm"}'
 eq "--verified: a directed transition in the run is directed" directed "$(confirm --verified)"
 
+echo "== the leg path =="
+# A report arriving on a koto request leg: the hub's wait evidence names no
+# unit, so the unit is the holding whose Return path is the captured leg, as
+# report-facts.sh finds it. alpha's earlier message report, and its own #12 in
+# acme/gadgets, must not stand in for it.
+leg_arrival() { # leg_arrival <request-id> <leg>
+    log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:40:00.000Z
+    log_to "$S" wait report_facts; log_to "$S" report_facts wait
+    log_evidence "$S" wait '{"event":"leg"}' 2026-09-26T09:50:00.000Z
+    log_to "$S" wait leg_pick
+    log_capture "$S" WAIT_REQ "$1"
+    log_to "$S" leg_pick wait_leg
+    log_capture "$S" WAIT_LEG "$2"
+    log_to "$S" wait_leg take_report
+    log_to "$S" take_report report_facts
+}
+THETA_X=$(jq -nc --arg s "$SHA_HEAD" '{return_path: "leg req-1:execute", verified_head: $s}')
+session
+leg_arrival req-1 execute
+log_to "$S" report_facts verify
+log_to "$S" verify verify_board
+log_capture "$S" VERIFIED "$(bash "$CL" seal --session "$S" --state verify_board --token "verified 12 $SHA_HEAD")" "$EVT"
+log_to "$S" verify_board verified_confirm "$EVT"
+reset_calls
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg --verified: the leg's holding confirms, not the last message's unit" confirmed "$(confirm --verified)"
+grep -q "pr view 12 --repo acme/widgets --json headRefOid" "$GH_DB.calls" && ok "leg --verified: the head is read from the leg holding's repository" || bad "leg --verified: the head is read from the leg holding's repository" "$(calls)"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
+eq "leg --verified: a leg no holding carries waits, as a unit with no row does" waiting "$(confirm --verified)"
+TWO_X='{"return_path":"leg req-1:execute"}'
+body "$(rec | jq -c --argjson a "$(holding alpha "$TWO_X")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg --verified: a leg two holdings carry is a conflict" conflict "$(confirm --verified)"
+session
+leg_arrival req-1 execute
+sealed_capture merge_confirm MERGE_CONFIRM "merged 12 $SHA_HEAD"
+log_to "$S" merge_confirm record "$EVT"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
+eq "leg merge_confirm: the leg's unit gone confirms though alpha links gadgets#12" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
+eq "leg merge_confirm: the leg's holding still linking #12 waits" waiting "$(confirm)"
+
 echo "== conflicts and refusals =="
 session
 checked alpha

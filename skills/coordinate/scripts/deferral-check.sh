@@ -70,7 +70,7 @@ set -uo pipefail
 PROG=deferral-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= ROWFILE= RUNSTART=
-NO_SEAL=0 SKIP_CHECKS=0
+NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes,/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -137,7 +137,7 @@ fi
 [ -n "$SESSION" ] || usage
 lib_facts
 lib_bounds
-lib_log || lib_die2 "no readable log for $SESSION"
+lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
@@ -183,7 +183,7 @@ case "$FROMST" in
             [ -n "$W" ] && U=$(printf '%s' "$W" | jq -r '.fields.unit // "" | tostring')
         fi ;;
 esac
-[[ $U =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && TOPIC=$U
+[[ $U =~ $RE_TOPIC ]] && TOPIC=$U
 case "$CHOICE" in ''|dispatch|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
 
 # The record, by the run's ref.
@@ -243,12 +243,15 @@ done
 # The previous rotation's handoff, until this run's first pass.
 if [ "$SCOPE" = discipline ]; then
     PASSED=0
-    for V in $(jq -r 'select(.type == "variable_captured" and .payload.key == "DISPATCH_CHECK") | .payload.value | select(startswith("ok ")) | @base64' "$LOG"); do
-        V=$(printf '%s' "$V" | base64 -d 2>/dev/null || printf '%s' "$V" | base64 -D 2>/dev/null)
-        if bash "$HERE/coord-log.sh" check --session "$SESSION" --state dispatch_check --sealed "$V" --any-visit > /dev/null 2>&1; then
+    bash "$CL" captures --session "$SESSION" --name DISPATCH_CHECK > "$T/passes.jsonl" 2> /dev/null
+    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+    while IFS= read -r C; do
+        V=$(printf '%s' "$C" | jq -r '.value | strings | select(startswith("ok "))')
+        [ -n "$V" ] || continue
+        if bash "$CL" check --session "$SESSION" --state dispatch_check --sealed "$V" --any-visit > /dev/null 2>&1; then
             PASSED=1; break
         fi
-    done
+    done < "$T/passes.jsonl"
     if [ "$PASSED" = 0 ]; then
         COMPARED=true
         lib_default_branch || lib_die2 "cannot read $REPO's default branch"

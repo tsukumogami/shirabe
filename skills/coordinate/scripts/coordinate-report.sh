@@ -17,6 +17,7 @@
 # Exit codes: 0 printed; 64 usage; 65 the input carries no result.
 set -uo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= INPUT=-
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -43,7 +44,6 @@ emit scope '^(roadmap|discipline)$'
 emit host '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 emit record '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+$'
 if [ -n "$SESSION" ]; then
-    DIR=$(koto session dir "$SESSION") && [ -r "$DIR/koto-$SESSION.state.jsonl" ] \
-        && printf 'events=%s\n' "$(($(wc -l < "$DIR/koto-$SESSION.state.jsonl") - 1))"
+    N=$(bash "$HERE/coord-log.sh" count --session "$SESSION" 2>/dev/null) && printf 'events=%s\n' "$N"
 fi
 exit 0

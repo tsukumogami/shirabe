@@ -52,14 +52,17 @@ bl_session_ok "$SESSION" || usage
 [ -z "$PR" ] || bl_pr_ok "$PR" || usage
 [ -z "$REPO" ] || bl_repo_ok "$REPO" || usage
 
-LOG=$(bl_log "$SESSION") || { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
-if ! jq -s -e '
-    [ .[] | select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound") and .payload.to == "verify") | .seq ] as $e
-    | ($e | max) as $last
-    | $last != null and any(.[]; .type == "evidence_submitted" and .payload.state == "verify" and .seq > $last)' "$LOG" >/dev/null 2>&1; then
+no_prediction() {
     echo "$PROG: refused: the log shows no prediction submitted since the latest arrival at verify" >&2
     exit 2
-fi
+}
+ENT=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state verify 2>/dev/null)
+case $? in
+    0) ;;
+    1) no_prediction ;;
+    *) echo "$PROG: no readable log for $SESSION" >&2; exit 2 ;;
+esac
+bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state verify --after "${ENT%% *}" >/dev/null 2>&1 || no_prediction
 
 if [ -z "$PR" ]; then
     REP=$(bl_capture "$SESSION" REPORT report_facts) || {

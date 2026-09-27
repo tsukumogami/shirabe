@@ -42,7 +42,7 @@ set -uo pipefail
 PROG=quiet-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= NOW=
-NO_SEAL=0 SKIP_CHECKS=0
+NO_SEAL=0
 QUIET_SECONDS=1800
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -63,7 +63,7 @@ done
 lib_facts
 [ -n "$NOW" ] || NOW=$(lib_now)
 NOW_S=$(lib_epoch "$NOW") || usage
-lib_log || lib_die2 "no readable log for $SESSION"
+lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
@@ -82,23 +82,25 @@ START_S=$(lib_epoch "$START") || lib_die2 "the run start $START is not a time"
 
 # Earlier sweeps: "<epoch>\t<word>\t<topics>" per QUIET capture whose seal checks.
 : > "$T/sweeps.tsv"
-for E in $(jq -r 'select(.type == "variable_captured" and .payload.key == "QUIET") | [.timestamp, .payload.value] | @base64' "$LOG"); do
-    E=$(printf '%s' "$E" | base64 -d 2>/dev/null || printf '%s' "$E" | base64 -D 2>/dev/null)
-    TS=$(printf '%s' "$E" | jq -r '.[0]')
-    V=$(printf '%s' "$E" | jq -r '.[1]')
+bash "$HERE/coord-log.sh" captures --session "$SESSION" --name QUIET > "$T/quiet.jsonl" 2> /dev/null
+[ $? -eq 2 ] && lib_die2 "cannot read the session log"
+while IFS= read -r E; do
+    TS=$(printf '%s' "$E" | jq -r '.timestamp')
+    V=$(printf '%s' "$E" | jq -r '.value')
     bash "$HERE/coord-log.sh" check --session "$SESSION" --state quiet_check --sealed "$V" --any-visit > /dev/null 2>&1 || continue
     S=$(lib_epoch "$TS") || continue
     B=${V% sealed:*}
     W=${B%% *}
     case "$W" in first-silence|second-silence) printf '%s\t%s\t%s\n' "$S" "$W" "${B#* }" >> "$T/sweeps.tsv" ;; esac
-done
+done < "$T/quiet.jsonl"
 
-# latest_evidence <state> <field> <value>: epoch of the latest such evidence, or empty.
+# latest_evidence <state> <field> <value>: epoch of the latest such evidence
+# (at wait, only a report), or empty.
 latest_evidence() {
     local ts
-    ts=$(jq -r --arg s "$1" --arg f "$2" --arg v "$3" 'select(.type == "evidence_submitted" and .payload.state == $s
-        and ((.payload.fields[$f] // "") | tostring) == $v
-        and ($s != "wait" or (.payload.fields.event // "") == "report")) | .timestamp' "$LOG" | tail -1)
+    set -- --state "$1" --where "$2=$3"
+    [ "$2" = wait ] && set -- "$@" --where event=report
+    ts=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" "$@" 2> /dev/null | jq -r '.timestamp // empty')
     [ -n "$ts" ] && lib_epoch "$ts"
 }
 

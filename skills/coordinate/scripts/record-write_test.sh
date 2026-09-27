@@ -229,8 +229,5 @@ log_new "$DBAD" "$(discipline_vars CI_Health..)"
 bash "$WR" --session "$DBAD" --body-file "$T/dnew.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a session not named by the slug is refused by the guard" "10 not the live" "$rc $(grep -o 'not the live' "$T/err" | head -1)"
 log_end "$DSESS"
-eq "record-common.sh derives the slug with coordinate-open.sh's own pipeline" \
-    "$(grep -A1 '^SLUG=\$(printf' "$HERE/coordinate-open.sh" | sed 's/^ *//')" \
-    "$(grep -A1 '^    SLUG=\$(printf' "$HERE/record-common.sh" | sed 's/^ *//')"
 
 done_tests record-write

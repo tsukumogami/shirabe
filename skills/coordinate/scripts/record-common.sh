@@ -21,7 +21,13 @@
 # Requires: bash 3.2+, jq, and coord-log.sh beside this file.
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+# RE_NAME is a scope's name (a roadmap's or a discipline's), the codec's
+# re_name: unlike a topic it may start with `.`, `_` or `-`.
 RE_NAME='^[A-Za-z0-9._-]+$'
+# RE_TOPIC is a dispatch topic, the Worker cell's shape (the codec's
+# check_worker): a letter or digit, then letters, digits, `.`, `_` or `-`.
+# Every script that holds a topic to its shape uses this one.
+RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_LOGIN='^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$'
 RE_NUM='^[1-9][0-9]*$'
 RE_SHA='^[0-9a-f]{40}$'
@@ -193,13 +199,10 @@ lib_emit() {
     exit 0
 }
 
-# lib_slug: SLUG, the scope slug coordinate-open.sh names sessions by:
-# `<scope>-<name>` lowercased, every character outside [a-z0-9-] made `-`,
-# runs of `-` squeezed, one trailing `-` trimmed. The pipeline is the same
-# text as coordinate-open.sh's (record-write_test.sh checks that it stays so).
+# lib_slug: SLUG, the scope slug coordinate-open.sh names sessions by, from
+# coord-log.sh slug, the one derivation both use.
 lib_slug() {
-    SLUG=$(printf '%s-%s' "$SCOPE" "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-' | tr -s '-')
-    SLUG=${SLUG%-}
+    SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope slug"
 }
 
 # lib_write_guard: every write refuses (exit 10) when the session wasn't
@@ -257,15 +260,45 @@ lib_drop_disposed() {
 
 lib_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# lib_log: set LOG to the session's state log, found the way coord-log.sh
-# finds it (koto session dir). record-confirm.sh reads evidence events that
-# coord-log.sh has no subcommand for; every seal it relies on is still
-# checked through coord-log.sh.
-lib_log() {
-    local d
-    d=$("$KOTO" session dir "$SESSION" 2>/dev/null) || return 1
-    LOG="$d/koto-$SESSION.state.jsonl"
-    [ -r "$LOG" ]
+# lib_log_readable: the session's log is there and in a schema coord-log.sh
+# knows. A check calls it before its first GitHub read, so a run whose log
+# can't be read reads nothing; every event it needs comes through coord-log.sh.
+lib_log_readable() {
+    bash "$HERE/coord-log.sh" count --session "$SESSION" > /dev/null
+}
+
+# lib_unit <before-seq> <event> <holdings-fn>: set UNIT to the dispatch topic
+# of the unit the run's latest arrival names (coord-log.sh unit, with
+# --before and --event when given). On the message path that is the wait
+# evidence's unit. On the leg path (wait_leg, then take_report) the hub's
+# evidence carries no unit, so the unit is the one Holdings row whose Return
+# path is the `leg <request>:<leg>` coord-log.sh prints; <holdings-fn> is a
+# function printing the Holdings rows as a JSON array, called only then (it
+# may exit the script on a failed read). On the leg path UNIT_LEG is that
+# leg and LEG_ROWS how many rows carry it (both empty otherwise). Returns 0
+# UNIT set; 1 no arrival, or evidence whose unit is empty; 3 an arrival
+# naming no unit (not a topic, or a leg no single row carries). Exits 2 on a
+# read failure.
+lib_unit() {
+    local before=$1 event=$2 fn=$3 out rc rows n
+    UNIT= UNIT_LEG= LEG_ROWS=
+    set --
+    [ -n "$before" ] && set -- --before "$before"
+    [ -n "$event" ] && set -- "$@" --event "$event"
+    out=$(bash "$HERE/coord-log.sh" unit --session "$SESSION" "$@" 2> /dev/null)
+    rc=$?
+    case $rc in 0) ;; 1|3) return $rc ;; *) lib_die2 "cannot read the session log" ;; esac
+    case "$out" in
+        "topic ") return 1 ;;
+        "topic "*) UNIT=${out#topic } ;;
+        "leg "*)
+            rows=$("$fn") || exit 2
+            n=$(printf '%s' "$rows" | jq --arg l "$out" '[.[] | select(.return_path == $l)] | length') || lib_die2 "the Holdings rows are not JSON"
+            UNIT_LEG=$out LEG_ROWS=$n
+            [ "$n" = 1 ] && UNIT=$(printf '%s' "$rows" | jq -r --arg l "$out" '.[] | select(.return_path == $l) | .worker')
+            ;;
+    esac
+    [[ $UNIT =~ $RE_TOPIC ]] || { UNIT=; return 3; }
 }
 
 # lib_run_ref: REF from --ref (tests) or from coord-log.sh run-facts.
