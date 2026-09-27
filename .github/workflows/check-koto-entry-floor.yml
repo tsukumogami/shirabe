@@ -1,6 +1,7 @@
 name: Check koto entry floor
 
-# Every koto-backed skill -- /scope, /execute, /deliver and /work-on -- requires
+# Every koto-backed skill -- /scope, /execute, /deliver, /work-on and
+# /coordinate -- requires
 # the koto minimum scripts/assert-koto-floor.sh defines, and that file is its one
 # definition. .tsuku.toml tracks the newest koto 0.x rather than pinning a
 # release, so every other workflow runs whatever 0.x is newest, and nothing else
@@ -16,6 +17,7 @@ on:
       - 'skills/execute/**'
       - 'skills/deliver/**'
       - 'skills/work-on/**'
+      - 'skills/coordinate/**'
       # The scope and execute suites call /plan's scripts.
       - 'skills/plan/scripts/**'
       - 'scripts/assert-koto-floor.sh'
@@ -111,7 +113,8 @@ jobs:
                    skills/execute/koto-templates/execute.md \
                    skills/execute/koto-templates/execute-coordinated.md \
                    skills/deliver/koto-templates/deliver.md \
-                   skills/work-on/koto-templates/work-on.md; do
+                   skills/work-on/koto-templates/work-on.md \
+                   skills/coordinate/koto-templates/coordinate.md; do
             echo "Compiling $t..."
             koto template compile "$t" >/dev/null
           done
@@ -167,3 +170,6 @@ jobs:
           bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh
+
+      - name: Run /coordinate's koto-backed suites
+        run: bash skills/coordinate/scripts/run-tests.sh --engine

@@ -32,6 +32,15 @@ entry point to run, for example `/shirabe:deliver <topic> --auto`.>
 Run mode: `--auto` unless the human's decisions say otherwise. A
 background worker can't answer the confirmation `--interactive` waits for.
 
+Where to start: a koto session binds to the directory it starts in, so start
+it where you'll work. Enter your worktree before the first `koto init`, before
+running the entry point; a session opened in one directory can't be moved to
+another.
+
+Settings files: read a settings file for the keys you need and never print one
+whole. Its `env` block can hold credentials, and whatever a session prints
+lands in its transcript.
+
 ## Checkpoints
 
 Report at each one and continue; don't wait for approval to go past it.
@@ -107,7 +116,8 @@ niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.
   --name <topic> --detach
 ```
 
-Record the holding under the dispatch topic you passed.
+Record the holding under the dispatch topic you passed, with
+`record-holding.sh`, before any other action.
 
 ## What a Brief Leaves Out
 

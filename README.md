@@ -235,7 +235,7 @@ Claude Code session:
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, and `/work-on` require koto 0.14.0 or later. `.tsuku.toml` tracks
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.14.0 or later. `.tsuku.toml` tracks
   the newest koto 0.x rather than pinning a release, so `tsuku install` never
   downgrades a newer koto you already have. 0.14.0 is the release that keeps a
   session reaching a failure terminal and delivers a child's result whether or

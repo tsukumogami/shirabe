@@ -216,7 +216,8 @@ person running `/scope` or `/execute` directly never needs it.
 
 ## koto version
 
-`/scope`, `/execute`, `/deliver`, and `/work-on` require koto 0.14.0 or later.
+`/scope`, `/execute`, `/deliver`, `/work-on`, and `/coordinate` require koto
+0.14.0 or later.
 shirabe's CI runs the newest koto 0.x, plus one job that runs these skills'
 suites on exactly 0.14.0, so both the minimum and current releases stay tested.
 Each skill's `requires.tsv` declares the koto surface it calls, including the
