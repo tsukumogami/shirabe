@@ -11,23 +11,15 @@
 # directory, except those named in STAND_INS, which come from
 # testdata/decisions/stand-ins/.
 #
-# What moves as the coordinate-decisions plan lands: each issue that ships a
-# script removes it from STAND_INS (Issue 6 report-questions.sh, Issue 7
-# record-decision.sh, Issue 8 decision-next.sh and coord-verdict.sh), and
-# Issue 8, which puts the states in coordinate.md, points STATES_FROM there.
-# Issue 10 deletes stand-in-states.yaml and the stand-ins directory. The
-# driver, the arrivals, the fixtures and the assertions stay: they use
-# record-decision.sh's interface, the sealed captures and context keys the
-# real scripts write, and records rendered by the real codec.
-#
-# Some of that interface is chosen here, where the DESIGN leaves it open, for
-# Issues 6 and 7 to adopt or change together with this harness:
-# record-decision.sh's write-mode flags, the shape of coord/questions.json
-# (report-questions.sh's header), an Outcome cell written
-# `<outcome>; reason: <reason>`, a nested Decided by written
-# `<target> (final: <decider>)`, and the addressed mark (the codec's
-# d_addressed_mark). The stand-in record-decision.sh also answers --list and
-# --read itself, in place of the shipped read modes, until Issue 7 replaces it.
+# The stand-ins left are decision-next.sh and coord-verdict.sh, which the
+# plan's Issue 8 ships together with the states in coordinate.md; it removes
+# them from STAND_INS and points STATES_FROM at coordinate.md, and Issue 10
+# deletes stand-in-states.yaml and the stand-ins directory. The driver, the
+# arrivals, the fixtures and the assertions use only what the shipped scripts
+# own: record-decision.sh's modes and flags, the sealed captures and context
+# keys (coord/decision_message.txt, coord/questions.json), and records
+# rendered by the codec, with the forms the DESIGN records under "Forms the
+# scripts share".
 #
 # Proves:
 #   1. the niwa#330 replay: a settled entry whose source is the worker, the
@@ -245,7 +237,9 @@ table_check() {
 # verdict_for <session> <n>: the scenario's coordinator's verdict, one of
 #   settle|<outcome>|<reason>
 #   escalate|<recommendation>|<reason>|<context>|<problem>|<grounds>
-verdict_for() { echo "settle|default|default"; }
+# Each scenario defines verdict_for before it drives; this one fails a drive
+# that reaches a verdict no scenario planned for.
+verdict_for() { echo "unplanned"; }
 
 # What an arrival carries into the agent state it lands on.
 PEND_SRC="" PEND_TEXT="" PEND_Q="" PEND_OUT="" PEND_REASON="" PEND_FINAL=""
@@ -277,6 +271,7 @@ EOF
                     settle) rd "$s" --settle --outcome "$a" --reason "$b"; tick "$s" --with-data '{"verdict":"settle"}' ;;
                     escalate) rd "$s" --escalate --recommendation "$a" --reason "$b" --context "$c" --problem "$d" --grounds "$e"
                               tick "$s" --with-data '{"verdict":"escalate"}' ;;
+                    *) bad "drive $s: no verdict planned for entry $n" "$v"; return 0 ;;
                 esac ;;
             decision_open)
                 # The coordinator words each extracted question for the record.
@@ -358,7 +353,7 @@ SETTLED_D='{"next":2,"entries":[{"decision":"1","round":"0","question":"Which ma
   "options":"(c) per-project clones -- each project pins its own marketplace version\n(d) a shared clone -- one clone serves every project",
   "state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",
   "outcome":"(d) a shared clone; reason: the flip condition is a per-project version moving, which is untested",
-  "decided_by":"this coordinator","updated":"2026-09-20T08:30Z"}]}'
+  "decided_by":"the coordinator","updated":"2026-09-20T08:30Z"}]}'
 verdict_for() {
     case "$2" in
         1) echo "settle|(d) a shared clone|the per-project installs held, so the flip condition didn't happen, and the record already accepts the shared clone moving" ;;
