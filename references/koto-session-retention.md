@@ -45,7 +45,8 @@ reports its state (`current_state`, `is_terminal`), and `koto context get <name>
 <key>` reads any context key, including the `failure_reason` a blocked edge
 writes. For a kept child, the parent's `retry_failed` and `koto rewind` still
 act on it. Kept children are removed along with their parent, and `koto
-workspace prune` and `koto session cleanup <name>` reclaim any kept session.
+workspace prune --root <name>` (which reclaims that session and its children)
+and `koto session cleanup <name>` reclaim any kept session.
 
 ## The rule
 

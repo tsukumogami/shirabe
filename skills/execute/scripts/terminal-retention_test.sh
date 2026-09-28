@@ -8,9 +8,9 @@
 # and at `merged`, `ready_awaiting_merge` or `done` otherwise; each loses its
 # context without `koto next --no-cleanup` (#360). The pause is the worst loss
 # -- it is solicited, and what dies with it is what a resume reads. From koto
-# 0.14.0, shirabe's koto minimum, `done_blocked` is a failure terminal koto
-# keeps either way, so its cases assert the record survives with and without
-# the flag.
+# 0.14.0 on, `done_blocked` is a failure terminal koto keeps either way, so its
+# cases assert the record survives with and without the flag. The suite assumes
+# a koto at shirabe's minimum (scripts/assert-koto-floor.sh).
 #
 # `/execute` passes the flag on every tick, as every shirabe skill does. Case
 # groups, in execution order -- deliberately not numbered, because a numbered

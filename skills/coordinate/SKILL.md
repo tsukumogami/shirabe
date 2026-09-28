@@ -97,8 +97,8 @@ work.
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries
-   `--no-cleanup`, on every tick**: the session is a root, and the flag keeps the
-   run's log readable after it ends (`references/koto-session-retention.md` in
+   `--no-cleanup`, on every tick**: the flag keeps the run's log readable after
+   it ends (`references/koto-session-retention.md` in
    the plugin). After the start, the workflow waits at a hub: tick it on each
    message or notification, naming the event, and never poll.
 
@@ -311,8 +311,8 @@ until then it is a procedure the coordinator runs with a local agent.
   can describe more than the pull request carries. The verify step's file-list
   read is the defence, at one more read per report.
 - **Leg wakes aren't watched (tsukumogami/koto#250, fixed in koto 0.14.0).**
-  koto 0.14.0, which shirabe's minimum requires, records a wake when a leg a
-  session waits on resolves, readable with `koto request watch`. This skill
+  koto 0.14.0 and later record a wake when a leg a session waits on resolves,
+  readable with `koto request watch`. This skill
   doesn't watch for it yet, so the coordinator still ticks the workflow on each
   message or notification. Wakes are local to one machine either way.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto

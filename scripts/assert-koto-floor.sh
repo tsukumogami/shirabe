@@ -27,18 +27,31 @@
 # release brings.
 #
 # Usage: scripts/assert-koto-floor.sh
+#        scripts/assert-koto-floor.sh --print-floor
+#
+# --print-floor prints the floor defined below and exits, ignoring KOTO_FLOOR
+# and checking no koto. It is how everything else reads the minimum
+# (check-koto-entry-floor.yml, check-koto-release.sh and its test, the
+# consistency test), so the value has one definition and one reader.
 #
 # Environment:
 #   KOTO_BIN     the koto binary to check (default: `koto` from PATH)
-#   KOTO_FLOOR   override the floor (used by the tests)
+#   KOTO_FLOOR   override the floor (used by the tests; ignored by --print-floor)
 #
 # Exit codes:
-#   0 -- koto is present and at or above the floor
-#   1 -- koto is missing, its version is unreadable, or it is below the floor
+#   0 -- koto is present and at or above the floor, or --print-floor printed it
+#   1 -- koto is missing, its version is unreadable, or it is below the floor,
+#        or the defined floor is not MAJOR.MINOR.PATCH
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile, no sort -V.
 
 set -uo pipefail
+
+PRINT_FLOOR=0
+if [ "${1-}" = "--print-floor" ]; then
+    PRINT_FLOOR=1
+    unset KOTO_FLOOR
+fi
 
 FLOOR="${KOTO_FLOOR:-0.14.0}"
 KOTO="${KOTO_BIN:-koto}"
@@ -64,6 +77,11 @@ FLOOR="${FLOOR#v}"
 if ! printf '%s' "$FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     echo "assert-koto-floor: the floor \"$FLOOR\" is not a MAJOR.MINOR.PATCH version" >&2
     exit 1
+fi
+
+if [ "$PRINT_FLOOR" -eq 1 ]; then
+    printf '%s\n' "$FLOOR"
+    exit 0
 fi
 
 if ! command -v "$KOTO" >/dev/null 2>&1; then

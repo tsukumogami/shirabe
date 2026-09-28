@@ -4,12 +4,14 @@
 #
 # koto disposes of a session that reaches a success terminal, and every context
 # key the session holds goes with it. `koto next --no-cleanup` keeps it, which is
-# how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0,
-# shirabe's koto minimum, a session that reaches a failure terminal such as
-# `done_blocked` is kept with or without the flag, and on a child the flag only
+# how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0
+# on, a session that reaches a failure terminal such as `done_blocked` is kept
+# with or without the flag, and on a child the flag only
 # keeps the session: the child's result still reaches its parent. So the rule
 # is one line with no root/child split -- every `koto next` carries the flag --
 # and this harness pins both the rule's text and the koto behaviour it rests on.
+# It assumes a koto at shirabe's minimum (scripts/assert-koto-floor.sh), which
+# every job that runs it asserts first.
 #
 # Groups, in execution order -- deliberately not numbered, because a numbered
 # map goes stale the first time a case is inserted and then misdirects the
@@ -44,10 +46,11 @@
 #   1 -- one or more cases failed
 #
 # A missing koto exits 0 with a loud SKIP rather than failing, matching
-# retry-clearing_test.sh. The suite runs on two legs and only one has koto: the
-# Linux leg of check-work-on-scripts.yml installs it through the project tool
-# manifest, so the assertions genuinely run there; the macOS leg is the bash 3.2
-# floor check and exists to test portability of the shell itself. The Linux
+# retry-clearing_test.sh. The suite runs on three legs and two have koto: the
+# Linux leg of check-work-on-scripts.yml installs the newest koto 0.x through the
+# project tool manifest, check-koto-entry-floor.yml installs exactly the
+# minimum, so the assertions genuinely run on both; the macOS leg is the bash
+# 3.2 floor check and exists to test portability of the shell itself. The Linux
 # leg's explicit install step is what keeps a silent skip from hiding a koto
 # that vanished from CI -- the install fails first -- and its
 # assert-koto-floor.sh step fails a koto below the minimum these cases assume.

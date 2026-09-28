@@ -49,7 +49,7 @@ jobs:
       - name: Read the floor
         run: |
           set -euo pipefail
-          floor=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' scripts/assert-koto-floor.sh | head -1)
+          floor=$(bash scripts/assert-koto-floor.sh --print-floor)
           if [ -z "$floor" ]; then
             echo "cannot read the floor from scripts/assert-koto-floor.sh" >&2
             exit 1
