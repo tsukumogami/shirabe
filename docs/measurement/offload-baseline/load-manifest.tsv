@@ -215,7 +215,9 @@ scope	skills/plan/references/phases/phase-6-review.md	file	1	resident
 scope	skills/plan/references/phases/phase-7-creation.md	file	1	resident
 scope	skills/plan/references/quality/plan-doc-structure.md	file	1	resident
 scope	skills/plan/references/plan-format.md	file	0	profile-excluded
-scope	skills/plan/references/templates/agent-prompt.md	file	0	subagent-only
+scope	skills/plan/references/templates/agent-prompt.md	file	1	resident
+scope	references/decision-presentation.md	file	2	reread
+scope	references/decision-report-format.md	file	1	resident
 scope	skills/review-plan/SKILL.md	file	1	resident
 scope	skills/review-plan/references/phases/phase-0-setup.md	file	1	resident
 scope	skills/review-plan/references/phases/phase-1-scope-gate.md	file	1	resident
@@ -223,5 +225,7 @@ scope	skills/review-plan/references/phases/phase-2-design-fidelity.md	file	1	res
 scope	skills/review-plan/references/phases/phase-3-ac-discriminability.md	file	1	resident
 scope	skills/review-plan/references/phases/phase-4-sequencing.md	file	1	resident
 scope	skills/review-plan/references/phases/phase-5-verdict.md	file	1	resident
+scope	skills/review-plan/references/templates/review-result-schema.md	file	1	resident
+scope	skills/review-plan/references/templates/ac-discriminability-taxonomy.md	file	1	resident
 scope	skills/writing-style/SKILL.md	file	6	reread
 scope	skills/public-content/SKILL.md	file	4	reread
