@@ -8,8 +8,10 @@
 # confirm all make (the open-issue listing, the discipline branch and its pull
 # requests, the author-authority read), sealing a check's verdict, and the
 # session checks every write makes first. It makes no GitHub write: writes
-# live only in the agent-run scripts that call these helpers, so a lint over
-# a check script's own text and this file finds only reads.
+# live only in the agent-run scripts that call these helpers, and the record's
+# body is written only by record-write-core.sh, which only those scripts
+# source, so a lint over a check script's own text and this file finds only
+# reads.
 #
 # Globals the caller sets before calling lib_facts:
 #   SESSION   --session, may be empty when OVERRIDE=1 and the script only reads

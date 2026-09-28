@@ -70,7 +70,7 @@ DISPATCH=$(jq -r '.states as $st
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"
 
-WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-holding|rotation-close|land-merge|merge-exec")) | $s' "$J")
+WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|rotation-close|land-merge|merge-exec")) | $s' "$J")
 [ -z "$WRITES" ] && pass "no write script runs as an action or a gate" || fail "no write script runs as an action or a gate" "$WRITES"
 
 MEXEC=$(jq -r '.states | to_entries[] | select(((.value.directive // "") + (.value.details // "")) | test("merge-exec")) | .key' "$J")
@@ -84,7 +84,9 @@ for c in $CHECKS; do
     bad=$(grep -n 'gh api' "$f" | grep -v -- '--method GET' | grep -v 'gh api graphql' | grep -v '^[0-9]*:[[:space:]]*#' || true)
     [ -z "$bad" ] && pass "$c: every gh api call is a GET or a GraphQL query" || fail "$c: every gh api call is a GET or a GraphQL query" "$bad"
     grep -qi 'mutation' "$f" && fail "$c: sends no GraphQL mutation" || pass "$c: sends no GraphQL mutation"
+    grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*record-write-core' "$f" && fail "$c: sources no write core" || pass "$c: sources no write core"
 done
+grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*record-write-core' "$HERE/record-common.sh" && fail "record-common.sh sources no write core" || pass "record-common.sh sources no write core"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do

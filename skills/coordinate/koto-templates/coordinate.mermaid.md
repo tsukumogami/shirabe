@@ -91,6 +91,7 @@ stateDiagram-v2
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 132
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 133
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 134
+    roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 136
     roadmap_close --> done : gates.roadmap_close_verdict.exit_code: 135
     roadmap_close_step --> roadmap_close : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
