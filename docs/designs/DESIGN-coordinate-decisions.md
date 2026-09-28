@@ -466,8 +466,9 @@ call it rather than evaluating the rules themselves. The rules, in routing order
    from any state that leads there, has no entry with this run's `raise` stamp for it.
 3. `withdraw <n>`: an entry owes a withdrawal.
 4. `reply <n>`: an entry owes a reply.
-5. `redirect <n>`: a report with an addressed question has no `redirect` line yet; `<n>` is the
-   first entry the report wrote to.
+5. `redirect <n> <seq>`: a report with an addressed question has no `redirect` line yet on
+   any entry; `<n>` is the first entry the report wrote to and `<seq>` the report's log
+   sequence, which the renderer and `--sent` need to name the report.
 6. `escalate <n>`: an entry owes its escalation (never sent, including after a crash between
    the verdict and the message).
 7. `take <n>`: a `proposed` entry, lowest identifier first.
@@ -514,14 +515,16 @@ already uses for `land` and `land_merge`. The render state (`escalate`, `decisio
 refuses unless the entry owes the kind it is asked to render (so a second rendering of the same
 owing can't happen), runs the shared validator, writes the text to the detail key
 `coord/decision_message.txt`, seals it with `coord-log.sh seal --file --key`, and prints
-`message <kind> <n> <round> [report:<seq>] keyseal:<seq>:<hash>`, or `refused` (routed to
+`message <kind> <n> <round> [report:<seq>] [qseal:<seq>:<hash>] keyseal:<seq>:<hash>`, or
+`refused` (routed to
 `record_conflict`, since only a record changed underneath can cause it). The key's seal rides
 in the verdict because a reader can check a key only against a seal the engine wrote, and the
 capture is engine-written; `report:<seq>` names the report a redirect answers. The renderer
 takes `--state` besides `--kind`, since it seals to the state it runs in. For an escalation it
 also writes the structured form, `coord/decision_question.json`: the question, the context and
 problem paragraphs, and the options as `{label, explanation}` with the recommended one first,
-sealed the same way. The send state (`escalate_send`, `decision_withdraw_send`,
+sealed the same way, its seal carried in the verdict as `qseal:` so the question-tool route asks
+exactly what was rendered. The send state (`escalate_send`, `decision_withdraw_send`,
 `decision_reply_send`, `decision_redirect_send`) shows the text; the coordinator sends exactly
 that, runs `record-decision.sh --sent`, and submits `sent`, which returns to `decision_next`.
 `--sent` refuses unless the key checks against the render's seal and the render names this
