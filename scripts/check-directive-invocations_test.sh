@@ -293,8 +293,33 @@ EOF
     teardown
 }
 
-# The passing half of the shebang rule is every passing fixture above: each
-# script starts with #!/usr/bin/env bash and the check stays green.
+# A CRLF script run by path asks for an interpreter named `bash\r` and exits
+# 127, which a preflight line's `|| true` swallows. The rule reads the working
+# tree, so the fixture's CR survives whatever the host does to line endings on
+# `git add`.
+test_shebang_crlf_fails() {
+    setup
+    add_script skills/demo/scripts/run.sh 755 "$(printf '#!/usr/bin/env bash\r')"
+    skill_md <<'EOF'
+!`${CLAUDE_PLUGIN_ROOT}/skills/demo/scripts/run.sh demo 2>&1 || true`
+EOF
+    commit
+    assert_fails "script with a CRLF #! line fails" "has a carriage return on its #! line"
+    teardown
+}
+
+# The same script with LF endings, named the same way, passes. Every other
+# passing fixture above is an LF script too.
+test_shebang_lf_passes() {
+    setup
+    add_script skills/demo/scripts/run.sh 755 '#!/usr/bin/env bash'
+    skill_md <<'EOF'
+!`${CLAUDE_PLUGIN_ROOT}/skills/demo/scripts/run.sh demo 2>&1 || true`
+EOF
+    commit
+    assert_passes "script with an LF #! line passes"
+    teardown
+}
 
 # -- unresolved ---------------------------------------------------------------
 
@@ -350,8 +375,66 @@ Nothing to run.
 EOF
     commit
     printf 'no-such-rule\tskills/demo/SKILL.md\tx.sh\towner/repo#1\treason\n' > "$TEST_DIR/allow"
-    assert_fails "an allowlist record naming an unknown rule fails" "unknown rule"
+    assert_fails "an allowlist record naming an unknown rule fails" \
+        "known rules: bash-invocation, exec-bit, shebang, unresolved"
     teardown
+}
+
+# The loader is shared with check-template-directives.sh (scripts/lib/
+# allowlist.sh); this check's records still name a file in field 2, and the
+# error says so.
+test_allowlist_untabbed_record_fails() {
+    setup
+    skill_md <<'EOF'
+Nothing to run.
+EOF
+    commit
+    printf 'unresolved skills/demo/SKILL.md x.sh owner/repo#1 spaces, not tabs\n' > "$TEST_DIR/allow"
+    assert_fails "an allowlist record that is not tab-separated fails, naming the file field" \
+        "expected: <rule><TAB><file><TAB><subject>"
+    teardown
+}
+
+# A record missing its subject would otherwise have its issue field reused as
+# the subject and be accepted, deferring nothing anyone meant to defer.
+test_allowlist_truncated_record_fails() {
+    setup
+    skill_md <<'EOF'
+Nothing to run.
+EOF
+    commit
+    printf 'exec-bit\tskills/demo/SKILL.md\towner/repo#1\n' > "$TEST_DIR/allow"
+    assert_fails "an allowlist record with fewer than four fields fails" \
+        "is not a tab-separated record"
+    teardown
+}
+
+# -- scan coverage --------------------------------------------------------------
+
+# scan_fails <repo-relative-path> -- a `bash x.sh` line in that file is found.
+scan_fails() {
+    local path="$1"
+    setup
+    add_script scripts/run.sh 755
+    mkdir -p "$TEST_DIR/repo/$(dirname "$path")"
+    printf 'Run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh`.\n' > "$TEST_DIR/repo/$path"
+    commit
+    assert_fails "$path is scanned as a directive" "FAIL: $path:1 [bash-invocation]"
+    teardown
+}
+
+# Every SKILL.md pulls in its extension file with `@`, so each line there is a
+# directive, as is every line of the root CLAUDE.md and AGENTS.md.
+test_extension_file_is_scanned() {
+    scan_fails .claude/shirabe-extensions/demo.md
+}
+
+test_claude_md_is_scanned() {
+    scan_fails CLAUDE.md
+}
+
+test_agents_md_is_scanned() {
+    scan_fails AGENTS.md
 }
 
 # -- the shipped tree -----------------------------------------------------------
@@ -384,6 +467,8 @@ test_exec_bit_missing_fails
 test_untracked_script_fails
 
 test_shebang_missing_fails
+test_shebang_crlf_fails
+test_shebang_lf_passes
 
 test_unresolved_fails
 test_skill_dir_outside_skills_fails
@@ -391,6 +476,12 @@ test_skill_dir_outside_skills_fails
 test_allowlist_defers_finding
 test_allowlist_record_without_issue_fails
 test_allowlist_unknown_rule_fails
+test_allowlist_untabbed_record_fails
+test_allowlist_truncated_record_fails
+
+test_extension_file_is_scanned
+test_claude_md_is_scanned
+test_agents_md_is_scanned
 
 test_shipped_tree_passes
 

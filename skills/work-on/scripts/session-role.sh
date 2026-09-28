@@ -29,9 +29,10 @@
 # {{KEY}} reference resolves when it names a declared `variables:` entry, a
 # `capture_stdout_as` capture, or one of the two reserved runtime names
 # (SESSION_NAME, SESSION_DIR), and fails template compilation otherwise -- so
-# {{SESSION_NAME}} needs no declaration, while {{PLUGIN_ROOT}} would fail here
-# because work-on.md declares no such variable. A command koto itself runs (a
-# default_action, where there is no agent shell) would have to declare it.
+# {{SESSION_NAME}} needs no declaration. work-on.md declares PLUGIN_ROOT, so
+# {{PLUGIN_ROOT}} would resolve here too; the shell form is used because the
+# agent's shell has it. A command koto itself runs (a gate or default_action,
+# where there is no agent shell) has to use {{PLUGIN_ROOT}}.
 #
 # Usage:
 #   session-role.sh <session-name>
