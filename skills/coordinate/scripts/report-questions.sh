@@ -107,7 +107,7 @@ if [ "$HOLDING" = 1 ]; then
     EP=$(printf '%s' "$ROW" | jq -r '.entry_point // ""')
     SECTION=$(bash "$HERE/record-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
 fi
-# An open entry opened from <source> (a source without its stamp).
+# Whether an entry was opened from <source> (a source without its stamp), settled or not.
 opened_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; .source | startswith($p))' >/dev/null; }
 
 # write_list <file of JSON items, one per line>: cap, store, seal.
@@ -242,7 +242,7 @@ phrase_lines decision "$T/cand.txt" > "$T/cand.hit" || lib_die2 "the phrasing li
 # the cap goes to the human instead.
 N_ITEMS=$(wc -l < "$T/all" | tr -d ' ')
 if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || awk -F'\t' -v m="$MAX_LEN" 'length($3) > m { found = 1 } END { exit !found }' "$T/all"; then
-    VIA=$("$KOTO" context get "$SESSION" report_source || true)
+    VIA=$("$KOTO" context get "$SESSION" report_source) || lib_die2 "cannot read how the report arrived (report_source)"
     [ "$VIA" = leg ] && { echo "$PROG: a leg report over the cap can't be rebriefed" >&2; verdict unreadable; }
     verdict overflow
 fi

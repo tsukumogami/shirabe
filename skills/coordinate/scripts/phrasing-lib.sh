@@ -101,7 +101,7 @@ phrase_lines() {
     [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
     # One grep over the whole file, so a report's lines are matched in one
     # pass, never one process per line. grep's own status is the one read.
-    grep -Ein -e "$pats" "$file" | cut -d: -f1
+    grep -aEin -e "$pats" "$file" | cut -d: -f1
     rc=${PIPESTATUS[0]}
     [ "$rc" -le 1 ] || return 2
     return 0

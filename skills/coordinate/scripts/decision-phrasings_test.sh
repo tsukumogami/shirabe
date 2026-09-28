@@ -111,6 +111,8 @@ eq "phrase_lines numbers the addressed lines" "2 4" "$(phrase_lines addressed "$
 while IFS= read -r l; do phrase_match decision "$l" && printf '+' || printf '.'; done < "$T/lines.txt" > "$T/one"
 awk 'NR == FNR { h[$1] = 1; next } { printf (h[FNR] ? "+" : ".") }' <(phrase_lines decision "$T/lines.txt") "$T/lines.txt" > "$T/batch"
 eq "phrase_lines agrees with phrase_match line by line" "$(cat "$T/one")" "$(cat "$T/batch")"
+printf 'a stray \377 byte, then please decide whether to ship\n' > "$T/binary.txt"
+eq "phrase_lines reads a line holding an invalid byte as text" "1" "$(phrase_lines decision "$T/binary.txt")"
 printf 'nothing\n' > "$T/none.txt"
 phrase_lines decision "$T/none.txt" > "$T/out"; eq "no match prints nothing and exits 0" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
 phrase_lines decision "$T/lines.txt" "$T/missing.tsv" >/dev/null 2>&1; eq "phrase_lines on an unreadable list can't check" 2 "$?"
