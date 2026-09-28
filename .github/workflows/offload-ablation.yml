@@ -39,9 +39,11 @@ jobs:
         # landed on main meanwhile are not this PR's.
         run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
-  # No home-directory path, wip/ path, session or job identifier, private
-  # repository or vendor name, or secret shape in the lines this pull request
-  # adds, or in its body.
+  # No home-directory path, wip/ file path, session or job identifier,
+  # hosted-session URL or secret shape in the lines this pull request adds, or
+  # in its body. Names that must not appear are checked only against a list a
+  # maintainer supplies from outside the repository; no such list is wired
+  # here, so the job prints that the denylisted-term check did not run.
   public-content:
     runs-on: ubuntu-latest
     steps:

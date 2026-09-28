@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # Tests for check-public-content.sh. Every refused shape is planted in a
-# scratch file built here; the denylist case builds its own hashed list from a
-# made-up term, so this file names no real term either.
+# scratch file built here. The denylist cases use a list of made-up terms,
+# written to a scratch directory outside the checkout at run time, so no real
+# term appears here in any form.
 #
 # Usage:
 #   bash scripts/ablation/check-public-content_test.sh
@@ -23,16 +24,8 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 fail() { echo "FAIL: $1 - $2" >&2; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 pass() { echo "PASS: $1" >&2; PASS_COUNT=$((PASS_COUNT + 1)); }
 
-sha256_of_string() {
-    if command -v sha256sum >/dev/null 2>&1; then
-        printf '%s' "$1" | sha256sum | awk '{ print $1 }'
-    else
-        printf '%s' "$1" | shasum -a 256 | awk '{ print $1 }'
-    fi
-}
-
 DENY="$TEST_DIR/deny.txt"
-{ echo "# test list"; sha256_of_string "zorblatt-private"; sha256_of_string "acme/secretrepo"; } > "$DENY"
+printf '# made-up terms for the test\nzorblatt-private\nacme/secretrepo\n' > "$DENY"
 
 run() {
     STATUS=0
@@ -112,13 +105,45 @@ case "$STATUS:$ERR" in
     *) fail "no input is a usage error" "status $STATUS: $ERR" ;;
 esac
 
-# The committed list is well formed: comments, blanks, or 64 lowercase hex.
-BAD=$(grep -vE '^(#.*|[0-9a-f]{64}|)$' "$SCRIPT_DIR/public-content-denylist.txt" || true)
-if [ -z "$BAD" ] && grep -qE '^[0-9a-f]{64}$' "$SCRIPT_DIR/public-content-denylist.txt"; then
-    pass "the committed denylist holds only hashes and comments"
-else
-    fail "the committed denylist holds only hashes and comments" "[$BAD]"
-fi
+# Without a list the check runs everything else and says plainly that the
+# term check did not run.
+STATUS=0
+OUT=$("$SUT" "$CLEAN" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    0:*"denylist not provided: denylisted-term check did not run"*"secret shapes"*) pass "no list: the term check is reported as not run" ;;
+    *) fail "no list: the term check is reported as not run" "status $STATUS: $OUT" ;;
+esac
+printf 'mentions Zorblatt-Private here\n' > "$TEST_DIR/term.txt"
+STATUS=0
+OUT=$("$SUT" "$TEST_DIR/term.txt" 2>&1) || STATUS=$?
+case "$STATUS" in
+    0) pass "no list: a term is not refused, since the term check did not run" ;;
+    *) fail "no list: a term is not refused" "status $STATUS: $OUT" ;;
+esac
+
+# The list can come from the environment.
+STATUS=0
+OUT=$(ABLATION_DENYLIST="$DENY" "$SUT" "$TEST_DIR/term.txt" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    1:*"term.txt:1: denylisted term"*) pass "ABLATION_DENYLIST supplies the list" ;;
+    *) fail "ABLATION_DENYLIST supplies the list" "status $STATUS: $OUT" ;;
+esac
+
+# --require-denylist makes a missing list an error.
+STATUS=0
+OUT=$("$SUT" --require-denylist "$CLEAN" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    2:*"no denylist given"*) pass "--require-denylist without a list is refused" ;;
+    *) fail "--require-denylist without a list is refused" "status $STATUS: $OUT" ;;
+esac
+
+# A list inside the checkout is refused: the list must not live in the repository.
+STATUS=0
+OUT=$("$SUT" --denylist "$SCRIPT_DIR/check-public-content.sh" "$CLEAN" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    2:*"inside the checkout"*) pass "a list inside the checkout is refused" ;;
+    *) fail "a list inside the checkout is refused" "status $STATUS: $OUT" ;;
+esac
 
 echo "check-public-content_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
 [ "$FAIL_COUNT" -eq 0 ]

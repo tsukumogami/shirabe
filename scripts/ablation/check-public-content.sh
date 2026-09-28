@@ -14,18 +14,26 @@
 #     snake_case <name>-<8 hex digits>; a jobs/<8 hex> path; a session_<id>
 #   - a hosted-session URL
 #   - common secret shapes: GitHub and cloud tokens, API keys, private keys
-#   - any term whose sha256 appears in the denylist
+#   - any term in a denylist, when one is supplied
 #
-# The denylist holds hashes, one lowercase hex sha256 per line, of terms that
-# must not appear (private repository names, vendor names). Storing hashes
-# means the list itself names nothing. A term matches when the sha256 of a
-# lowercased token of the text equals a listed hash; tokens are runs of
-# [A-Za-z0-9._/-], and every '/'-joined suffix of a token is tried too, so
-# "owner/name" is checked whole and "name" on its own.
+# The denylist is never part of this repository: a list of names that must
+# not appear, kept in the repository in any form, would publish those names
+# (a hash of a short name is recovered by hashing guesses). It is read at run
+# time from --denylist <file> or $ABLATION_DENYLIST, and a path inside this
+# checkout is refused. The file holds one term per line, matched
+# case-insensitively; blank lines and lines starting with # are ignored. A
+# term matches a token of the text (a run of [A-Za-z0-9._/-]) or any
+# '/'-joined suffix of one, so "owner/name" is checked whole and "name" on its
+# own. The terms stay in memory; nothing about them is printed or written.
+#
+# Without a list, the check says plainly that the denylisted-term check did
+# not run and runs everything else. --require-denylist makes a missing list an
+# error instead. A maintainer can supply the list in CI from a repository
+# secret; the workflow does not assume one exists.
 #
 # Usage:
-#   scripts/ablation/check-public-content.sh [--denylist <file>] <file>...
-#   scripts/ablation/check-public-content.sh [--denylist <file>] --diff <base> [--head <commit>]
+#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] <file>...
+#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] --diff <base> [--head <commit>]
 #
 # With --diff, only the lines <head> (default HEAD) adds relative to its merge
 # base with <base> are checked. With files, every line; "-" reads stdin.
@@ -39,7 +47,9 @@ set -euo pipefail
 
 PROG=check-public-content
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-denylist="$SCRIPT_DIR/public-content-denylist.txt"
+CHECKOUT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+denylist="${ABLATION_DENYLIST:-}"
+require_denylist=0
 base=""
 head="HEAD"
 files=()
@@ -52,6 +62,7 @@ die() {
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --denylist) [ "$#" -ge 2 ] || die "--denylist requires a file"; denylist="$2"; shift ;;
+        --require-denylist) require_denylist=1 ;;
         --diff) [ "$#" -ge 2 ] || die "--diff requires a base"; base="$2"; shift ;;
         --head) [ "$#" -ge 2 ] || die "--head requires a commit"; head="$2"; shift ;;
         -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
@@ -62,7 +73,15 @@ while [ "$#" -gt 0 ]; do
     esac
     shift
 done
-[ -f "$denylist" ] || die "denylist not found: $denylist"
+if [ -n "$denylist" ]; then
+    [ -f "$denylist" ] || die "denylist not found: $denylist"
+    real=$(cd "$(dirname "$denylist")" && pwd -P)/$(basename "$denylist")
+    case "$real" in
+        "$CHECKOUT"/*) die "refusing a denylist inside the checkout: the list must not live in the repository" ;;
+    esac
+elif [ "$require_denylist" -eq 1 ]; then
+    die "--require-denylist: no denylist given (--denylist <file> or \$ABLATION_DENYLIST)"
+fi
 if [ -n "$base" ]; then
     [ "${#files[@]}" -eq 0 ] || die "--diff takes no files"
     for ref in "$base" "$head"; do
@@ -128,15 +147,18 @@ for entry in "${patterns[@]}"; do
     done < <(grep -nE -- "$re" "$texts" | cut -d: -f1 || true)
 done
 
-# Denylisted terms: hash every token and every '/'-suffix of it.
-hashes="$TMP/hashes"
-grep -E '^[0-9a-f]{64}$' "$denylist" > "$hashes" || true
-if [ -s "$hashes" ]; then
+# Denylisted terms: every token and every '/'-suffix of it, against the list.
+if [ -z "$denylist" ]; then
+    echo "$PROG: denylist not provided: denylisted-term check did not run;" \
+        "checked home-directory paths, wip/ file paths, session and job identifiers," \
+        "hosted-session URLs and secret shapes"
+else
     command -v python3 >/dev/null 2>&1 || die "python3 is required for the denylist check"
-    hits=$(python3 - "$rows" "$hashes" <<'PY'
-import hashlib, re, sys
-rows_path, hashes_path = sys.argv[1], sys.argv[2]
-hashes = {l.strip() for l in open(hashes_path) if l.strip()}
+    hits=$(python3 - "$rows" "$denylist" <<'PY'
+import re, sys
+rows_path, list_path = sys.argv[1], sys.argv[2]
+terms = {l.strip().lower() for l in open(list_path, encoding="utf-8", errors="replace")
+         if l.strip() and not l.strip().startswith("#")}
 for line in open(rows_path, encoding="utf-8", errors="replace"):
     parts = line.rstrip("\n").split("\t", 2)
     if len(parts) < 3:
@@ -146,7 +168,7 @@ for line in open(rows_path, encoding="utf-8", errors="replace"):
     for tok in re.findall(r"[a-z0-9._/-]+", text.lower()):
         tok = tok.rstrip(".")
         while tok and not hit:
-            if hashlib.sha256(tok.encode()).hexdigest() in hashes:
+            if tok in terms:
                 hit = True
             tok = tok.split("/", 1)[1] if "/" in tok else ""
         if hit:
@@ -160,6 +182,7 @@ PY
             report "$src" "$n" "denylisted term"
         done <<< "$hits"
     fi
+    echo "$PROG: denylisted-term check ran against the supplied list"
 fi
 
 exit "$found"
