@@ -2797,9 +2797,10 @@ Pull requests are links, workers are inline code, and no commit hash is shown.
 <!-- details -->
 
 A parked worker is one with a verified, ready pull request waiting only on a
-merge. After a merge-order table, record the holding as parked with its verified
-head, and with Phase `held` when you came here because the human directed merges
-held (the record step checks it); if a pull request's head moves after you hand the table over, it drops
+merge. After a merge-order table, the holding is already parked: its verified
+head went into the record at verified_confirm, and the record step confirms it
+there without a rewrite. Rewrite it only to set Phase `held`, when you came here
+because the human directed merges held (the record step checks it); if a pull request's head moves after you hand the table over, it drops
 back to unverified until you read it again.
 
 ## surface_check
@@ -2932,7 +2933,11 @@ submit `change`; `none` when nothing recorded changes.
 <!-- details -->
 
 A new decision takes effect at the start of the next turn of the loop. The worked
-examples in `references/loop.md` show which decisions are the human's.
+examples in `references/loop.md` show which decisions are the human's. Record it
+as soon as it arrives, even before you tick `decision` at the hub: the record
+step counts anything written since the run last reached `wait`, so a row written
+first needs no second write. Tick `decision` next; handling another event first
+brings the run back to `wait`, and the row then has to be written again.
 
 ## roadmap_close
 
