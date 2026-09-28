@@ -1104,12 +1104,6 @@ continue or `decision: stop` to end here.
 
 <!-- details -->
 
-This is the only question /deliver itself asks, and only when the run is
-interactive; with `--auto` koto moves past this state without showing it. A
-stop ends the run `scoped` with `next=/deliver {{TOPIC}}`: the PLAN and its
-scoping PR stay as they are, and the next `/deliver {{TOPIC}}` picks the topic
-up through /scope.
-
 Evidence schema:
 - `decision`: `proceed` or `stop`
 
