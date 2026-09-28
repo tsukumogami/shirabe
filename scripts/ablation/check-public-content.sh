@@ -10,7 +10,8 @@
 #   - a wip/ path that names a file (wip/<name>); the bare words "wip/ path"
 #     in prose describing the rule are not a path and pass
 #   - a UUID-shaped identifier (session ids have that shape)
-#   - an instance or job name of the shape <name>-<8 hex digits> after a '+'
+#   - an instance or session name: <name>-<8 hex digits> after a '+', or a
+#     snake_case <name>-<8 hex digits>; a jobs/<8 hex> path; a session_<id>
 #   - a hosted-session URL
 #   - common secret shapes: GitHub and cloud tokens, API keys, private keys
 #   - any term whose sha256 appears in the denylist
@@ -26,7 +27,7 @@
 #   scripts/ablation/check-public-content.sh [--denylist <file>] <file>...
 #   scripts/ablation/check-public-content.sh [--denylist <file>] --diff <base>
 #
-# With --diff, only the lines the working tree's HEAD adds relative to <base>
+# With --diff, only the lines HEAD adds relative to its merge base with <base>
 # are checked. With files, every line; "-" reads stdin.
 #
 # Exit codes:
@@ -62,6 +63,8 @@ done
 [ -f "$denylist" ] || die "denylist not found: $denylist"
 if [ -n "$base" ]; then
     [ "${#files[@]}" -eq 0 ] || die "--diff takes no files"
+    git rev-parse --verify --quiet --end-of-options "${base}^{commit}" >/dev/null \
+        || die "not a commit: $base"
     case "$base" in -*) die "refusing base that starts with '-': $base" ;; esac
 else
     [ "${#files[@]}" -gt 0 ] || die "nothing to check: give files or --diff <base>"
@@ -75,7 +78,9 @@ trap 'rm -rf "$TMP"' EXIT
 rows="$TMP/rows"
 : > "$rows"
 if [ -n "$base" ]; then
-    git diff --unified=0 --no-color "$base" HEAD -- . | awk '
+    # Three dots: against the merge base, so commits that landed on the base
+    # branch after this branch forked are never read as this branch's lines.
+    git diff --unified=0 --no-color "$base"...HEAD -- . | awk '
         /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
         /^@@ / { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
         /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }
@@ -102,7 +107,7 @@ patterns=(
     'home-directory path|(/home|/Users)/[A-Za-z0-9._-]+/|~/\.[A-Za-z]'
     'wip/ path|(^|[^A-Za-z0-9_])wip/[A-Za-z0-9_][A-Za-z0-9_.-]*'
     'uuid-shaped identifier|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-    'instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)'
+    'instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|/)jobs/[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9])session_[A-Za-z0-9]{8,}'
     'hosted-session url|claude\.ai/code/session_'
     'secret shape|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 )

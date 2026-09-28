@@ -50,16 +50,21 @@ expect_refused() {
     esac
 }
 
-expect_refused "a linux home path" "see /home/someone/dev/x" "home-directory path"
-expect_refused "a macOS home path" "at /Users/someone/Library" "home-directory path"
-expect_refused "a tilde dot-directory" "read ~/.config/thing" "home-directory path"
-expect_refused "a wip path naming a file" "left in wip/plan_foo_state.md" "wip/ path"
-expect_refused "a uuid" "session 3f2a9c1e-1b2c-4d5e-8f90-a1b2c3d4e5f6 ran" "uuid-shaped identifier"
-expect_refused "an instance name after +" "in repo+some_task-0a1b2c3d" "instance or job name"
-expect_refused "a session name" "ask some_coordinator-deadbeef now" "instance or job name"
-expect_refused "a hosted-session url" "https://claude.ai/code/session_abc" "hosted-session url"
-expect_refused "a GitHub token" "token ghp_abcdefghijklmnopqrstuvwxyz0123" "secret shape"
-expect_refused "a private key header" "-----BEGIN OPENSSH PRIVATE KEY-----" "secret shape"
+# The planted strings are split with "" so this file's own text never matches:
+# the public-content job runs the check over the lines a pull request adds,
+# this file included.
+expect_refused "a linux home path" "see /ho""me/someone/dev/x" "home-directory path"
+expect_refused "a macOS home path" "at /Us""ers/someone/Library" "home-directory path"
+expect_refused "a tilde dot-directory" "read ~""/.config/thing" "home-directory path"
+expect_refused "a wip path naming a file" "left in wi""p/plan_foo_state.md" "wip/ path"
+expect_refused "a uuid" "session 3f2a9c1e""-1b2c-4d5e-8f90-a1b2c3d4e5f6 ran" "uuid-shaped identifier"
+expect_refused "an instance name after +" "in repo+some_task""-0a1b2c3d" "instance or job name"
+expect_refused "a session name" "ask some_coordinator""-deadbeef now" "instance or job name"
+expect_refused "a job path" "under /jo""bs/0a1b2c3d/tmp" "instance or job name"
+expect_refused "a session id" "id session""_01AbCdEfGhIj" "instance or job name"
+expect_refused "a hosted-session url" "https://claude.ai/code/""session_abc" "hosted-session url"
+expect_refused "a GitHub token" "token gh""p_abcdefghijklmnopqrstuvwxyz0123" "secret shape"
+expect_refused "a private key header" "-----BEGIN OPENSSH PRIV""ATE KEY-----" "secret shape"
 expect_refused "a denylisted term" "mentions Zorblatt-Private here" "denylisted term"
 expect_refused "a denylisted owner/name" "see acme/secretrepo:docs/x.md" "denylisted term"
 
@@ -81,10 +86,10 @@ REPO="$TEST_DIR/repo"
 mkdir -p "$REPO"
 g() { git -C "$REPO" -c user.email=t@example.invalid -c user.name=t "$@"; }
 g init -q -b main
-printf 'old line mentioning /home/someone/x\n' > "$REPO/a.md"
+printf 'old line mentioning /ho''me/someone/x\n' > "$REPO/a.md"
 g add -A
 g commit -q -m base
-printf 'ok\nnew line in wip/leftover.md\n' >> "$REPO/a.md"
+printf 'ok\nnew line in wi''p/leftover.md\n' >> "$REPO/a.md"
 g commit -q -am change
 STATUS=0
 ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~1 2>&1 >/dev/null) || STATUS=$?
@@ -92,6 +97,13 @@ case "$STATUS:$ERR" in
     *"home-directory path"*) fail "--diff checks only added lines" "flagged a pre-existing line: $ERR" ;;
     1:*"a.md:3: wip/ path"*) pass "--diff checks only added lines, by file and new line number" ;;
     *) fail "--diff checks only added lines" "status $STATUS: $ERR" ;;
+esac
+
+STATUS=0
+ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff nosuchref 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    2:*"not a commit"*) pass "--diff with an unknown base is a usage error" ;;
+    *) fail "--diff with an unknown base is a usage error" "status $STATUS: $ERR" ;;
 esac
 
 run

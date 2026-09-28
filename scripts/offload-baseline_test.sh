@@ -413,7 +413,8 @@ else
     fail "count --tree: a checkout of a commit gives the commit's figures" "status $STATUS, got [$OUT], expected [$FROM_COMMIT], stderr: $ERR"
 fi
 
-# Removing a span's bytes from the tree lowers the raw figure by those bytes.
+# Editing a file in the tree changes the figures: count --tree reads the
+# files on disk, not the commit's objects.
 printf 'extra bytes in the tree only\n' >> "$TREE/skills/work-on/SKILL.md"
 run count --tree "$TREE" --manifest "$MANIFEST"
 if [ "$STATUS" -eq 0 ] && [ "$OUT" != "$FROM_COMMIT" ]; then
