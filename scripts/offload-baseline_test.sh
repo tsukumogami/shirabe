@@ -110,8 +110,10 @@ for s in work-on scope deliver; do
     template "$s" 1.0 alpha beta > "$FIX/skills/$s/koto-templates/$s.md"
 done
 mkdir -p "$FIX/skills/execute/koto-templates" "$FIX/skills/other/koto-templates"
-# execute.md names its child by a relative path, as the shipped one does, so
-# verify-pin has to compile it with the other templates beside it.
+# execute.md names its child by a relative path, as the shipped one does (in
+# its spawn state's materialize_children block; the stand-in reads a
+# top-level line, which is enough to need the child on disk), so verify-pin
+# has to compile it with the other templates beside it.
 template execute 1.0 alpha beta \
     | awk '{ print } $0 == "description: fixture" { print "default_template: ../../work-on/koto-templates/work-on.md" }' \
     > "$FIX/skills/execute/koto-templates/execute.md"
@@ -209,7 +211,8 @@ case "$STATUS:$ERR" in
     *) fail "verify-pin: blob checks still run when the hash comparison is skipped" "status $STATUS, stderr: $ERR" ;;
 esac
 
-# No koto on PATH at all: point PATH at a directory with only git and jq.
+# No koto on PATH at all: point PATH at a directory holding links to the
+# script's other tools and nothing named koto.
 NOKOTO="$TEST_DIR/nokoto"
 mkdir -p "$NOKOTO"
 for tool in git jq awk sed sort comm grep basename mktemp rm cat tr wc dirname env bash; do
@@ -296,7 +299,6 @@ exp_p2_raw=$(awk -v a="$whole" 'BEGIN { printf "%d", a / 4 + 0.5 }')
 exp_p2_w=$(awk -v a="$whole" 'BEGIN { printf "%d", a * 0.5 / 4 + 0.5 }')
 EXPECTED=$(printf 'p1\t%s\t%s\np2\t%s\t%s' "$exp_p1_raw" "$exp_p1_w" "$exp_p2_raw" "$exp_p2_w")
 
-git_fix status --porcelain > "$TEST_DIR/status-before"
 # Leave an untracked file and a local edit in the tree: count must ignore both.
 printf 'local edit\n' >> "$FIX/skills/work-on/SKILL.md"
 printf 'scratch\n' > "$FIX/scratch.txt"

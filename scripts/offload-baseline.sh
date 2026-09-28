@@ -10,10 +10,16 @@
 # The method, the figures and the provisional definitions are in that
 # directory's README.md.
 #
-# Both subcommands read git objects, never the working tree, so they give the
-# same answer at the same commit from any checkout and leave the tree as they
-# found it. The only files they write are under a mktemp -d directory removed
-# on exit (and koto's own compile cache, when verify-pin compiles a template).
+# Both subcommands read the measured files from git objects at the commit, not
+# from the working tree, so they give the same answer at the same commit from
+# any checkout and leave the tree as they found it. The pin and the manifest
+# themselves are ordinary files: by default the ones committed beside this
+# script (resolved from the script's own location), so `count <old commit>`
+# applies today's manifest to that commit's files. git runs in the repository
+# of the current directory, which is normally the same one; the tests rely on
+# the split to point the script at a throwaway repository. The only files
+# written are under a mktemp -d directory removed on exit, plus koto's own
+# compile cache when verify-pin compiles a template.
 #
 # Usage:
 #   scripts/offload-baseline.sh verify-pin [--pin <file>]
@@ -40,11 +46,16 @@
 #   file          the whole file
 #   body          the file after its leading YAML frontmatter block
 #   state:<name>  in a koto template, the `## <name>` section after the
-#                 frontmatter, up to the next `## ` heading
+#                 frontmatter, up to the next `## ` heading. Trailing blank
+#                 lines of the section are not counted (the section is read
+#                 through a command substitution); file and body count every
+#                 byte. Changing either rule changes every recorded figure.
 #
 # Exit codes:
 #   0 - verify-pin found no mismatch; count printed its figures
-#   1 - verify-pin found one or more mismatches (each printed on stderr)
+#   1 - verify-pin found a problem with the pin: a mismatch, a pin that does
+#       not parse or lacks a field, or a pinned commit that is not a commit
+#       here (each printed on stderr)
 #   2 - usage error, or count could not complete (nothing printed on stdout)
 
 set -euo pipefail
@@ -71,8 +82,12 @@ die() {
 }
 
 usage() {
-    sed -n '/^# Usage:/,/^# verify-pin$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2
-    exit 2
+    cat <<'EOF'
+Usage:
+  scripts/offload-baseline.sh verify-pin [--pin <file>]
+  scripts/offload-baseline.sh count <commit> [--manifest <file>]
+EOF
+    exit 0
 }
 
 need() {
@@ -274,6 +289,8 @@ cmd_verify_pin() {
     jq -e '.templates | type == "array"' "$pin" >/dev/null 2>&1 \
         || { echo "$PROG: pin has no templates array" >&2; exit 1; }
 
+    # resolve_commit is not reused here: a bad pinned commit is a problem with
+    # the pin (exit 1), not a usage error (exit 2).
     local sha
     case "$commit" in
         -*) echo "$PROG: pinned_commit starts with '-': $commit" >&2; exit 1 ;;
@@ -354,6 +371,7 @@ EOF
             *) mismatch "entry $path: skill '$skill' does not match its path" ;;
         esac
 
+        # A path the commit lacks was already reported by the set comparison.
         git cat-file -e "$sha:$path" 2>/dev/null || continue
 
         actual_blob=$(git rev-parse "$sha:$path")
@@ -388,7 +406,7 @@ EOF
 need git
 need jq
 
-[ "$#" -ge 1 ] || usage
+[ "$#" -ge 1 ] || die "a subcommand is required: verify-pin or count (--help for usage)"
 sub="$1"
 shift
 case "$sub" in
