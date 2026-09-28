@@ -504,9 +504,11 @@ states:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
 
   escalate_upstream_drift:
-    # The accepts block is vestigial: every tick that reaches this state chains
-    # through it, so nothing here is ever submitted. It stays until its removal
-    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       rationale:
         type: string
@@ -718,9 +720,11 @@ states:
           failure_reason: "ci_monitor: the PR lookup read failed"
 
   escalate_dirty_merge_state:
-    # The accepts block is vestigial: every tick that reaches this state chains
-    # through it, so nothing here is ever submitted. It stays until its removal
-    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       rationale:
         type: string
@@ -1071,9 +1075,11 @@ states:
           reason: merge-not-observed
 
   escalate:
-    # The accepts block is vestigial: every tick that reaches this state chains
-    # through it, so nothing here is ever submitted. It stays until its removal
-    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       failure_reason:
         type: string
