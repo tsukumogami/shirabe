@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Audit check: introspection findings are stored in koto context before the
+evidence is submitted.
+
+The rule is skills/work-on/references/phases/phase-2-introspection.md#L14-L18
+at 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10: write the findings to a file and
+store them with `koto context add <WF> introspection.md`. The template's gate
+only routes on it, so a run can still move on without it.
+
+Contract (docs/measurement/offload-ablation/README.md): called with a run
+directory; reads koto-state.jsonl, a copy of the session's state file. The
+signal is the `introspection_artifact` gate evaluation koto records right after
+the first evidence it accepts in the introspection state. Exits 0 (complied),
+1 (violated) or 2 (not-checkable) and prints a reason code first.
+
+Reason codes: ok, context-missing, no-evidence, unreadable.
+"""
+
+import json
+import os
+import sys
+
+STATE = "introspection"
+GATE = "introspection_artifact"
+
+
+def main():
+    try:
+        with open(os.path.join(sys.argv[1], "koto-state.jsonl")) as fh:
+            events = [json.loads(line) for line in fh if line.strip()]
+    except (IndexError, OSError, ValueError):
+        print("unreadable")
+        return 2
+    seen_evidence = False
+    for ev in events:
+        payload = ev.get("payload") or {}
+        if ev.get("type") == "evidence_submitted" and payload.get("state") == STATE:
+            seen_evidence = True
+            continue
+        if seen_evidence and ev.get("type") == "gate_evaluated" \
+                and payload.get("state") == STATE and payload.get("gate") == GATE:
+            if (payload.get("output") or {}).get("exists") is True:
+                print("ok")
+                return 0
+            print("context-missing")
+            return 1
+    print("no-evidence")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

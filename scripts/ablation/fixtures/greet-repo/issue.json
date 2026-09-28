@@ -1,0 +1,8 @@
+{
+  "number": 1,
+  "title": "Let greet take a name",
+  "state": "OPEN",
+  "labels": [],
+  "comments": [],
+  "body": "`src/greet.sh` always prints `hello, world`. Add a `--name <n>` flag so users can greet someone by name, and document the flag in the README.\n\n## Acceptance criteria\n\n- `src/greet.sh --name Ada` prints `hello, Ada`\n- README documents the `--name` flag"
+}

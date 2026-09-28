@@ -24,6 +24,7 @@
 # Usage:
 #   scripts/offload-baseline.sh verify-pin [--pin <file>]
 #   scripts/offload-baseline.sh count <commit> [--manifest <file>]
+#   scripts/offload-baseline.sh count --tree <dir> [--manifest <file>]
 #   scripts/offload-baseline.sh check-figures [--dir <baseline dir>]
 #
 # check-figures
@@ -41,6 +42,12 @@
 #   and does not fail the check.
 #
 # count
+#   With --tree <dir> instead of a commit, reads each span from the files under
+#   <dir> rather than from git objects, by the same selectors and rounding. The
+#   eval harness's ablation mode uses it to count what a scratch copy of the
+#   plugin loads (see docs/measurement/offload-ablation/README.md); over a
+#   checkout of a commit it prints exactly what `count <commit>` prints.
+#
 #   Prints, per profile in manifest order, a tab-separated line:
 #     <profile> <raw tokens> <weighted tokens>
 #   Tokens are bytes divided by 4. Raw counts each distinct (path, selector) of
@@ -94,6 +101,7 @@ usage() {
 Usage:
   scripts/offload-baseline.sh verify-pin [--pin <file>]
   scripts/offload-baseline.sh count <commit> [--manifest <file>]
+  scripts/offload-baseline.sh count --tree <dir> [--manifest <file>]
   scripts/offload-baseline.sh check-figures [--dir <baseline dir>]
 EOF
     exit 0
@@ -142,24 +150,47 @@ state_section() {
     '
 }
 
+# Where count reads spans from: a commit's git objects, or, when TREE_DIR is
+# set by `count --tree`, the files under that directory. The source argument
+# is the commit sha in the first case and ignored in the second.
+TREE_DIR=""
+
+src_exists() {
+    if [ -n "$TREE_DIR" ]; then
+        [ -f "$TREE_DIR/$2" ]
+    else
+        git cat-file -e "$1:$2" 2>/dev/null
+    fi
+}
+
+src_cat() {
+    if [ -n "$TREE_DIR" ]; then
+        cat -- "$TREE_DIR/$2"
+    else
+        blob "$1" "$2"
+    fi
+}
+
 # Prints the byte count of one (commit, path, selector) span, or fails with a
 # message naming what is missing.
 span_bytes() {
-    local sha="$1" path="$2" selector="$3" out status
-    git cat-file -e "$sha:$path" 2>/dev/null \
-        || { echo "$PROG: $path does not exist at ${sha}" >&2; return 1; }
+    local sha="$1" path="$2" selector="$3" out status where
+    where="at ${sha}"
+    [ -z "$TREE_DIR" ] || where="under $TREE_DIR"
+    src_exists "$sha" "$path" \
+        || { echo "$PROG: $path does not exist $where" >&2; return 1; }
     case "$selector" in
         file)
-            blob "$sha" "$path" | wc -c | tr -d ' '
+            src_cat "$sha" "$path" | wc -c | tr -d ' '
             ;;
         body)
-            blob "$sha" "$path" | strip_frontmatter | wc -c | tr -d ' '
+            src_cat "$sha" "$path" | strip_frontmatter | wc -c | tr -d ' '
             ;;
         state:*)
             status=0
-            out=$(blob "$sha" "$path" | state_section "${selector#state:}") || status=$?
+            out=$(src_cat "$sha" "$path" | state_section "${selector#state:}") || status=$?
             if [ "$status" -ne 0 ]; then
-                echo "$PROG: state '${selector#state:}' not found in $path at ${sha}" >&2
+                echo "$PROG: state '${selector#state:}' not found in $path $where" >&2
                 return 1
             fi
             printf '%s\n' "$out" | wc -c | tr -d ' '
@@ -172,12 +203,15 @@ span_bytes() {
 }
 
 cmd_count() {
-    local commit="" manifest="$BASELINE_DIR/load-manifest.tsv"
+    local commit="" tree="" manifest="$BASELINE_DIR/load-manifest.tsv"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --manifest)
                 [ "$#" -ge 2 ] || die "--manifest requires a value"
                 manifest="$2"; shift ;;
+            --tree)
+                [ "$#" -ge 2 ] || die "--tree requires a directory"
+                tree="$2"; shift ;;
             -h|--help) usage ;;
             *)
                 [ -z "$commit" ] || die "unexpected argument: $1"
@@ -185,11 +219,18 @@ cmd_count() {
         esac
         shift
     done
-    [ -n "$commit" ] || die "count requires a commit"
     [ -f "$manifest" ] || die "manifest not found: $manifest"
 
     local sha
-    sha=$(resolve_commit "$commit")
+    if [ -n "$tree" ]; then
+        [ -z "$commit" ] || die "count takes a commit or --tree, not both"
+        [ -d "$tree" ] || die "not a directory: $tree"
+        TREE_DIR=$(cd "$tree" && pwd)
+        sha="tree"
+    else
+        [ -n "$commit" ] || die "count requires a commit"
+        sha=$(resolve_commit "$commit")
+    fi
 
     TMP_DIR=$(mktemp -d)
     local rows="$TMP_DIR/rows"
@@ -229,7 +270,7 @@ EOF
         fi
     done < "$manifest"
 
-    [ "$failed" -eq 0 ] || die "count failed at ${sha}; no figures printed"
+    [ "$failed" -eq 0 ] || die "count failed ${TREE_DIR:+under }${TREE_DIR:-at ${sha}}; no figures printed"
     [ -s "$rows" ] || die "manifest has no rows: $manifest"
 
     awk -F '\t' '
