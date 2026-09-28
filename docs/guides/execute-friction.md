@@ -227,8 +227,9 @@ than a version number. On a koto older than 0.13.0, the preflight that runs
 when the skill loads names the missing flags and the command that installs a
 new enough koto, before the skill does any work. What 0.14.0 added (a failure
 terminal keeps its session, and a child delivers its result under
-`--no-cleanup`) is behaviour with no flag to probe, so on 0.13.0 the preflight
-passes; upgrade with `tsuku install koto@latest`.
+`--no-cleanup`) is behaviour with no flag to probe, so the preflight also
+compares koto's version with the minimum and, below it, tells you to upgrade
+with `tsuku install koto@latest` before the skill runs.
 
 Before you upgrade from a koto older than v0.13.0, finish any `/scope` or `/execute` run
 that's still in flight on the old koto, or remove its session with
