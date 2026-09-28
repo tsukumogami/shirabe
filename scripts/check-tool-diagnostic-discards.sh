@@ -298,8 +298,13 @@ own_bindings() {
       sub(/^[ \t]+/, "", line)
       if (line ~ /^#/) next
 
+      # A source path runs to the first blank-led operator or comment, not to
+      # the first `}` or `)`: those close the `${NAME}` or `$(dirname ...)`
+      # the path starts with. resolve_source decides what the text names.
       if (match(line, /^(\.|source)[ \t]+/)) {
-        v = token(substr(line, RLENGTH + 1))
+        v = substr(line, RLENGTH + 1)
+        sub(/[ \t]+(\|\||&&|[;|&#<>]|[0-9]>).*$/, "", v)
+        sub(/[ \t;]+$/, "", v)
         if (v != "") printf "S\t%s\n", unq(v)
         next
       }
@@ -341,7 +346,10 @@ resolve_source() {
     '$(dirname "$0")/'*) p="${p#*)/}" ;;
     '$(dirname "${BASH_SOURCE[0]}")/'*|'$(dirname "$BASH_SOURCE")/'*) p="${p#*)/}" ;;
     '${'*'}/'*) p="${p#*\}/}" ;;
-    '$'*/*) p="${p#*/}" ;;
+    '$'*/*)
+      # One `$NAME/` prefix, NAME an identifier; anything else is computed.
+      case "${p%%/*}" in '$'|'$'*[!A-Za-z0-9_]*) return 0 ;; esac
+      p="${p#*/}" ;;
   esac
   case "$p" in
     *'$'*|*'`'*|'') return 0 ;;
@@ -349,7 +357,7 @@ resolve_source() {
     *) p="$dir/$p" ;;
   esac
   [ -f "$p" ] || return 0
-  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd)" "$(basename "$p")"
+  printf '%s/%s\n' "$(CDPATH='' cd "$(dirname "$p")" && pwd)" "$(basename "$p")"
 }
 
 # file_vars FILE WITH_LOCAL SEEN -- print the variable names FILE holds a
@@ -376,21 +384,46 @@ EOF
 }
 
 # bind_file_vars FILE -- set VAR_RE to match a reference to any of FILE's
-# tool-holding variables at command position: at the start of the line,
-# after a case arm's pattern (`a|b)`) that starts the line or follows `in`,
-# `;;`, `;&` or `;;&`, or after an operator or a
-# keyword that starts a command. A variable holding a
-# tool's name as data -- an argument, a message -- is not at command position
-# and is not charged.
+# tool-holding variables at command position. VAR_RE is per-file state that
+# names_declared_tool reads, so it is set by scan_file for each file before
+# either arm runs. A variable holding a tool's name as data -- an argument, a
+# message -- is not at command position and is not charged.
+#
+# The pieces are single-quoted ERE fragments, so what is written here is what
+# grep sees:
+#   ARM   a case arm's pattern (`a|b)`, `*)`, `(x)`) that starts the line or
+#         follows `in`, `;;`, `;&` or `;;&`. The pattern may not hold a quote,
+#         `$`, backtick, `;`, `&` or blank, which keeps `$(foo)` and prose from
+#         reading as an arm.
+#   START the line start, an ARM, one of `; & | ( { ! \``, or a keyword that
+#         begins a command.
+#   REF   `$V`, `"$V"`, `${V}` or `"${V}"` for a traced V.
+#   END   what may follow REF: not an identifier character (that is another
+#         name), not `/` (a directory with a path after it), and not a second
+#         `"` (which would let the optional quote above be skipped and the `/`
+#         test be dodged, as in `"$CACHE"/run.sh`).
 VAR_RE=""
 bind_file_vars() {
-  local v alt=""
+  local v alt="" arm start ref end
   VAR_RE=""
   for v in $(file_vars "$1" 1 "" | LC_ALL=C sort -u); do
     if [ -z "$alt" ]; then alt="$v"; else alt="$alt|$v"; fi
   done
   [ -n "$alt" ] || return 0
-  VAR_RE="(^|(^[[:space:]]*|[[:space:]]in[[:space:]]+|;;&?[[:space:]]*|;&[[:space:]]*)\\(?[^()\"\$\`;&[:space:]]+\\)|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt))\"?([^A-Za-z0-9_/\"]|\$)"
+  arm='(^[[:space:]]*|[[:space:]]in[[:space:]]+|;;&?[[:space:]]*|;&[[:space:]]*)\(?[^()"$`;&[:space:]]+\)'
+  start='(^|'"$arm"'|[;&|({!`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))'
+  ref='"?\$(\{('"$alt"')\}|('"$alt"'))"?'
+  end='([^A-Za-z0-9_/"]|$)'
+  VAR_RE="$start[[:space:]]*$ref$end"
+}
+
+# scan_file FILE REL -- bind FILE's variables, then run both arms on it. The
+# one place the order is kept: an arm run without binding first would judge
+# FILE by the previous file's variables.
+scan_file() {
+  bind_file_vars "$1"
+  scan_redirects "$1" "$2"
+  scan_unread_vars "$1" "$2"
 }
 
 # The files a scan target contributes. Test files are out of scope; a fixture
@@ -635,9 +668,7 @@ main() {
   for target in "${targets[@]}"; do
     if [ -f "$target" ]; then
       files_scanned=$((files_scanned + 1))
-      bind_file_vars "$target"
-      scan_redirects "$target" "${target#"$REPO_ROOT"/}"
-      scan_unread_vars "$target" "${target#"$REPO_ROOT"/}"
+      scan_file "$target" "${target#"$REPO_ROOT"/}"
     elif [ -d "$target" ]; then
       local base
       base="$(cd "$target" && pwd)"
@@ -646,9 +677,7 @@ main() {
         files_scanned=$((files_scanned + 1))
         local rel="${f#"$REPO_ROOT"/}"
         if [ "$rel" = "$f" ]; then rel="${f#"$base"/}"; fi
-        bind_file_vars "$f"
-        scan_redirects "$f" "$rel"
-        scan_unread_vars "$f" "$rel"
+        scan_file "$f" "$rel"
       done <<EOF
 $(list_files "$target")
 EOF

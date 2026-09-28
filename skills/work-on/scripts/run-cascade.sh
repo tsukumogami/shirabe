@@ -900,7 +900,7 @@ if [[ -f "$PLAN_DOC" ]]; then
         # unexpected current status can land here. Log a warning and proceed
         # to the deletion regardless — the deletion is the forcing function,
         # the Done flip is the audit-trail marker.
-        log_warn "shirabe transition $PLAN_DOC Done failed (PLAN may already be Done or at an unexpected status); proceeding to git rm"
+        log_warn "shirabe transition $PLAN_DOC Done failed (shirabe's reason is above); proceeding to git rm"
     fi
 fi
 

@@ -525,7 +525,7 @@ assert_rejects "a variable-held capture nobody reads is a finding" "is not enume
 
 # --- Case 33: a binding in a sourced lib -------------------------------------
 # The coordinate scripts set KOTO in a shared lib and call it from the script
-# that sources it. The lib's own call is charged as well.
+# that sources it.
 new_fixture sourced
 add_requires koto
 add_file 'lib.sh' 'KOTO=${KOTO_BIN:-koto}' 'helper() { local K2=koto; "$K2" version; }'
@@ -552,6 +552,31 @@ add_file 'sub/main.sh' '#!/usr/bin/env bash' '. "$(dirname "$0")/../mid.sh"' \
   'st=$("$KOTO" status "$id" 2>/dev/null) || continue'
 enum_open; enum_close
 assert_rejects "a binding two sourced levels down is charged" "skills/sourced-chain/sub/main.sh"
+
+# The other supported spellings of the source path, unquoted and with the
+# failure handling the coordinate scripts put after it.
+source_case() {
+  local label="$1" line="$2"
+  new_fixture "src-$label"
+  add_requires koto
+  add_file 'lib.sh' 'KOTO=koto'
+  add_file 'main.sh' '#!/usr/bin/env bash' "$line" '"$KOTO" status 2>/dev/null || true'
+  enum_open; enum_close
+  assert_rejects "source spelling '$line' is followed" "skills/src-$label/main.sh"
+}
+source_case braced     '. ${HERE}/lib.sh'
+source_case dirname    'source $(dirname "$0")/lib.sh'
+source_case dirnameq   '. "$(dirname "${BASH_SOURCE[0]}")/lib.sh" || exit 2'
+source_case handled    '. "$HERE/lib.sh" || { echo "cannot source" >&2; exit 2; }'
+source_case literal    '. lib.sh'
+
+# A prefix that is not one plain name is computed at run time and not read.
+new_fixture src-computed
+add_requires koto
+add_file 'lib.sh' 'KOTO=koto'
+add_file 'main.sh' '#!/usr/bin/env bash' '. "$HERE$SUB/lib.sh"' '"$KOTO" status 2>/dev/null || true'
+enum_open; enum_close
+assert_accepts "a source path under a computed prefix is not followed"
 
 # A lib nobody sources lends its bindings to nobody.
 new_fixture unsourced
