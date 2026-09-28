@@ -268,7 +268,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Cases 9-12 — shirabe#422. A referent shaped right that names nothing. The
+# Cases 8-11 — shirabe#422. A referent shaped right that names nothing. The
 # mistyped full sha is the one the issue was filed from: the tip's first seven
 # characters and nothing real behind them.
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ referent_case missing-diagram done_blocked "does not record a design_diagram" \
     'cleanup_commit: @HEAD@
 design_diagram: docs/designs/DESIGN-missing.md'
 
-# Case 8 — the evidence is required. Submitting none must not advance, since the
+# Case 12 — the evidence is required. Submitting none must not advance, since the
 # state would otherwise be satisfied by silence.
 OUT=$(land "prepr-empty-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" '{}' || true)
 if echo "$OUT" | grep -qE '"state":"pr_precheck"|"state":"done_blocked"'; then

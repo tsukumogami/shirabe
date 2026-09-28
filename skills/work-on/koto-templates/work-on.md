@@ -995,7 +995,7 @@ states:
       # The concrete referents, in an artifact the run writes, checked for
       # existence and not only for shape (check-pre-pr-referents.sh):
       # "cleanup_commit: done" is not a sha, a sha that names no commit or a
-      # commit off this branch is not the reviewed commit, "design_diagram: yes"
+      # commit outside HEAD's history is not the reviewed commit, "design_diagram: yes"
       # is neither a path nor the explicit not-applicable form with a reason
       # after it, and a docs/ path that is not a file in HEAD's tree names no
       # diagram. Exit 0 or 1 only, which the ladder below routes on.
@@ -1018,8 +1018,8 @@ states:
           Whether the cleanup pass removed anything. An enum rather than prose,
           because a free-text field here is satisfied by "cleaned up" and the
           obligation is then unenforced in substance. The commit it was judged
-          against goes in pre_pr.md, where a gate checks it is a commit on this
-          branch.
+          against goes in pre_pr.md, where a gate checks it is HEAD or an
+          ancestor of it.
       design_diagram:
         type: enum
         values: [updated, not_applicable]
@@ -1884,21 +1884,25 @@ Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
   sha `git rev-parse HEAD` prints, not a word such as `done` and not a sha typed
   by hand.
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
-  committed on this branch, or `design_diagram: not-applicable: <reason>`, in
+  committed in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in
   `pre_pr.md`.
+
+`koto context add` replaces the whole key, so rewrite `pre_pr.md` with both
+lines, not just the one that failed.
 
 koto keeps only a referent gate's exit status, not what it printed. To see why
 one failed, run its check yourself; it prints the reason on stderr:
 
 ```bash
-{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --cleanup {{SESSION_NAME}}
-{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --diagram {{SESSION_NAME}}
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"
 ```
 
 If the shell can't run it ("No such file" or "Permission denied"), `PLUGIN_ROOT`
-doesn't point at a usable plugin checkout and
-no edit to `pre_pr.md` will help: stop and report it rather than rewriting the
-record.
+doesn't point at a usable plugin checkout and no edit to `pre_pr.md` will help:
+stop and report it rather than rewriting the record. The same applies when the
+check passes by hand and the gate still holds: report it rather than editing a
+record the check accepts.
 
 Reaching this state means verification ran and passed (the `verification` state only
 routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
@@ -1931,6 +1935,8 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   commit that is `HEAD` or an ancestor of it;
   `diagram_referent` needs `design_diagram: docs/<path>.md` for a file in
   `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in `pre_pr.md`.
+  For why a referent gate failed, run its check by hand as the `finalization`
+  section says; the same stop rule applies when the check itself can't run.
 - If the human **rejects** the deferral: the issue is not done. Submit
   `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
 
@@ -1943,10 +1949,13 @@ Evidence schema:
 The finishing obligations that can be decided before a pull request exists.
 `pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
 The one exception is history rewritten since then (an amend or rebase of the
-reviewed commit): its old sha is no longer on the branch and the gate fails. A
-failure here ends the run rather than holding it, so if you rewrote history,
-run `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --cleanup {{SESSION_NAME}}`
-before submitting, and on a failure record the reviewed commit's new sha.
+reviewed commit): its old sha is no longer in `HEAD`'s history and the gate
+fails. A failure here ends the run rather than holding it, so if you rewrote
+history, run
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
+before submitting, and on a failure rewrite `pre_pr.md` with the reviewed
+commit's new sha, keeping its `design_diagram` line (`koto context add`
+replaces the whole key).
 Its two lines are the referents:
 
 `cleanup_commit` is the commit whose diff you reviewed for debug statements,

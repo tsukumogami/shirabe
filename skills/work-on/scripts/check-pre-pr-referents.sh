@@ -34,7 +34,10 @@
 # pre_pr_evidence is past the reviewed one. What the gate can check is that the
 # agent's answer names a real commit in HEAD's history. That history
 # includes commits already on the base branch, so the check proves the sha is
-# real and reachable, not that it is one of this branch's own commits.
+# real and reachable, not that it is one of this branch's own commits. It is not
+# bounded by impl_base (record-changed-paths.sh): a rebase after `analysis` can
+# leave impl_base off HEAD's history, and a bound on it would then refuse the
+# reviewed commit of a run that did nothing wrong.
 #
 # Each key must appear on exactly one line, starting at the beginning of the
 # line. A second line for the same key is refused rather than resolved: which
@@ -57,9 +60,13 @@
 #   0 -- the referent exists
 #   1 -- anything else: the key is absent or malformed, the referent does not
 #        exist, pre_pr.md could not be read, this is not a git repository, or
-#        the arguments are wrong. Fails closed on every path, and only 0 and 1
-#        are ever returned, because the gates' transitions route on exactly
-#        those two values; any other status would match no edge.
+#        the arguments are wrong. Fails closed on every path. Only 0 and 1 are
+#        ever returned: a check that cannot run must not pass, and at
+#        pre_pr_evidence a status no edge names would leave a run that already
+#        submitted its evidence held with no reason recorded, where 1 stops it
+#        at done_blocked with a failure_reason that says to run this script.
+#        A separate "could not run" code would need a rung of its own on that
+#        ladder for no difference in what the agent does next.
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail

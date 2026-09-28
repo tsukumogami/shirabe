@@ -68,8 +68,8 @@ enforced in the record.
 
 The routing is real: a failing gate sends the run to a distinct terminal edge.
 Each edge's `context_assignments` writes a human-readable `failure_reason` into
-the session's context, which says which rung fired. It
-does not say why the gate failed. koto keeps a failed command gate's exit status
+the session's context, which says which rung fired. It does not say why the
+gate failed. koto keeps a failed command gate's exit status
 and discards what the command printed, so the detail has to be recovered by
 running the gate's script by hand, which is why the scripts those gates call
 keep their stderr rather than discarding it. For the referent gates the

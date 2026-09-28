@@ -37,7 +37,7 @@ failing gate. Fix that artifact and submit again:
 - `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, from
   `git rev-parse HEAD` rather than typed by hand.
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
-  committed on this branch, or `design_diagram: not-applicable: <reason>`, in
+  committed in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in
   `pre_pr.md`.
 
 The same hold applies to an approved deferral at `deferral_approval`.
