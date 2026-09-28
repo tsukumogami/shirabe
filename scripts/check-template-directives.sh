@@ -455,8 +455,10 @@ resolve_script() {
     fi
 
     base="${token##*/}"
-    hit=$(find "$tmpl_dir" -name "$base" -type f 2>/dev/null | head -1)
-    [ -n "$hit" ] || hit=$(find "$root" -name "$base" -type f 2>/dev/null | head -1)
+    # -print -quit rather than `| head -1`: under pipefail, find writing after
+    # head has exited dies of SIGPIPE and takes the script with it (#436).
+    hit=$(find "$tmpl_dir" -name "$base" -type f -print -quit 2>/dev/null)
+    [ -n "$hit" ] || hit=$(find "$root" -name "$base" -type f -print -quit 2>/dev/null)
     [ -n "$hit" ] && printf '%s' "$hit"
     return 0
 }
@@ -666,7 +668,9 @@ EOF
     # reported once per gate that calls it.
     local entry path
     while [ -n "$queue" ]; do
-        entry=$(printf '%s' "$queue" | grep -v '^$' | head -1)
+        # awk reads the whole queue, so nothing upstream is cut off mid-write
+        # the way `grep -v '^$' | head -1` was under pipefail (#436).
+        entry=$(printf '%s' "$queue" | awk 'length && !done { print; done = 1 }')
         queue=$(printf '%s' "$queue" | grep -v '^$' | tail -n +2)
         [ -n "$entry" ] || break
 
