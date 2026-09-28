@@ -380,7 +380,16 @@ else
     serve issue-view 1 "$(body "$CASE/body.md")"
     capture $ROADMAP_ARGS
     expect "the real parser: a record with a Decisions section is read" '.status == "found" and (.holdings | length) == 1 and .unparseable == []'
+    expect "a proposed entry isn't among the decisions the report shows a person" '.decisions == []'
     RDB="$T/real-decisions-body.md"; cp "$CASE/body.md" "$RDB"
+    new_case real-decisions-escalated
+    DEC_X=$(jq -nc --argjson e "$DEC_E" '$e + {round: "1", state: "escalated", verdict: "escalate", recommendation: "wait", reason: "r", context: "c", problem: "p", grounds: "scope", target: "a person"}')
+    printf '%s' "$ROADMAP_JSON" | jq --argjson e "$DEC_X" 'del(.written) | .decisions = {next: 2, entries: [$e]}' \
+        | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "an escalated entry is carried with its question, recommendation, reason and target" \
+        '.decisions == [{"decision":"1","question":"Ship first?","recommendation":"wait","reason":"r","target":"a person"}]'
     new_case real-decisions-bad-row
     sed 's/plugin-registry/plugin-registry (hand edit)/' "$RDB" > "$CASE/body.md"
     serve issue-view 1 "$(body "$CASE/body.md")"
