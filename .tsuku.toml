@@ -10,8 +10,4 @@
 # workflow that installs koto runs; check-koto-entry-floor.yml also runs the
 # koto-backed suites on exactly that release.
 "tsukumogami/koto" = "0"
-# niwa, the workspace manager /coordinate's reconcile reads with `niwa list`.
-# skills/coordinate/requires.tsv declares it for presence only, and the
-# preflight suite checks that every shipped declaration is met on the CI host.
-"tsukumogami/niwa" = "latest"
 # gh = "latest"  # disabled: segfaults on Linux (tsukumogami/tsuku#2245)

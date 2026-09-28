@@ -39,12 +39,11 @@ koto	context get	-	always
 # only writes. git reads the origin remote for the host at roadmap scope.
 gh	-	-	always
 git	-	-	always
-# The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys;
-# reconcile-check.sh reads a request leg, finds a worker's instance by its
-# dispatch topic, and stops a read's children at its deadline with pkill.
+# The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys,
+# and reconcile-check.sh stops a read's children at its deadline with pkill.
+# It also reads a request leg and the workspace manager's listing, declared
+# below with the dispatch path's records.
 koto	context remove	-	always
-koto	request get	-	always
-niwa	-	-	always
 pkill	-	-	always
 # The record's codec (record-render.sh, record-parse.sh) and every script
 # that reads or writes the record are jq programs over the rendered tables.

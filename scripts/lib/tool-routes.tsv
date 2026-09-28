@@ -60,5 +60,4 @@ git	homebrew	darwin	brew -	brew install git	-
 git	apt-get	linux	apt-get -	sudo apt-get install -y git	-
 python3	homebrew	darwin	brew -	brew install python3	-
 python3	apt-get	linux	apt-get -	sudo apt-get install -y python3	-
-niwa	tsuku	any	tsuku tsuku-info	tsuku install niwa@latest && . ~/.tsuku/env	-
 pkill	apt-get	linux	apt-get -	sudo apt-get install -y procps	-
