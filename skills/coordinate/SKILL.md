@@ -175,7 +175,11 @@ Three parts of the loop run through scripts, so the step a check depends on
 happens the same way every time. Each state's guidance names its script; the
 states never ask you to do these steps by hand.
 
-- **Dispatch.** `scripts/render-brief.sh` renders a worker's brief from one
+- **Dispatch.** A roadmap feature to be built goes to `/shirabe:deliver`; one
+  scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
+  issue goes to `/shirabe:work-on`. The brief lists the checkpoints the worker
+  reports at and waits on no approval.
+  `scripts/render-brief.sh` renders a worker's brief from one
   JSON input and refuses an incomplete one; `scripts/dispatch-worker.sh`
   renders it, writes the holding, runs the workspace manager's dispatch and
   confirms the holding. The `dispatch` state can't be left until
