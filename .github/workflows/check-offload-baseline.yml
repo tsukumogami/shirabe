@@ -81,16 +81,24 @@ jobs:
         run: |
           set -euo pipefail
           dir=docs/measurement/offload-baseline
+          out="$RUNNER_TEMP/offload-baseline"
+          mkdir -p "$out"
+          commits=$(awk -F '\t' '!/^#/ && $5 == "recount" { print $1 }' "$dir/token-baseline.tsv" | sort -u)
+          # No recount rows would make the loop below check nothing and pass.
+          if [ -z "$commits" ]; then
+            echo "::error::token-baseline.tsv has no recount rows to reproduce"
+            exit 1
+          fi
           status=0
-          for commit in $(awk -F '\t' '!/^#/ && $5 == "recount" { print $1 }' "$dir/token-baseline.tsv" | sort -u); do
+          for commit in $commits; do
             manifest="$dir/load-manifest.tsv"
             if [ -f "$dir/load-manifest-$commit.tsv" ]; then
               manifest="$dir/load-manifest-$commit.tsv"
             fi
             awk -F '\t' -v c="$commit" '!/^#/ && $1 == c && $5 == "recount" { print $2 "\t" $3 "\t" $4 }' \
-              "$dir/token-baseline.tsv" > expected.tsv
-            scripts/offload-baseline.sh count "$commit" --manifest "$manifest" > actual.tsv
-            if diff -u expected.tsv actual.tsv; then
+              "$dir/token-baseline.tsv" > "$out/expected.tsv"
+            scripts/offload-baseline.sh count "$commit" --manifest "$manifest" > "$out/actual.tsv"
+            if diff -u "$out/expected.tsv" "$out/actual.tsv"; then
               echo "figures at $commit reproduce"
             else
               echo "::error::figures at $commit differ from token-baseline.tsv"
