@@ -2697,10 +2697,6 @@
      "survivor": "skills/brief/references/phases/phase-4-validate.md#L100-L110"
     },
     {
-     "loc": "skills/brief/SKILL.md#L256-L260",
-     "survivor": "skills/brief/SKILL.md#L244-L245"
-    },
-    {
      "loc": "skills/brief/SKILL.md#L264-L272",
      "survivor": "skills/brief/references/phases/phase-0-setup.md#L113-L160"
     },
@@ -2737,7 +2733,11 @@
      "survivor": "skills/brief/references/brief-format.md#L73-L92"
     },
     {
-     "loc": "skills/brief/references/phases/phase-2-draft.md#L128-L145",
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L128-L134",
+     "survivor": "skills/brief/references/brief-format.md#L403-L415"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L138-L145",
      "survivor": "skills/brief/references/brief-format.md#L403-L415"
     },
     {
@@ -2745,7 +2745,7 @@
      "survivor": "skills/brief/references/brief-format.md#L419-L424"
     },
     {
-     "loc": "skills/brief/references/phases/phase-2-draft.md#L163-L172",
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L163-L171",
      "survivor": "skills/brief/references/brief-format.md#L419-L426"
     },
     {
@@ -2755,10 +2755,6 @@
     {
      "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L56-L61",
      "survivor": "skills/brief/references/brief-format.md#L434-L440"
-    },
-    {
-     "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L73-L75",
-     "survivor": "skills/brief/references/brief-format.md#L447-L449"
     },
     {
      "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L79-L82",
@@ -2785,7 +2781,7 @@
      "survivor": "skills/brief/references/brief-format.md#L246-L251"
     },
     {
-     "loc": "skills/brief/references/brief-format.md#L145-L175",
+     "loc": "skills/brief/references/brief-format.md#L145-L168",
      "survivor": "skills/brief/references/brief-format.md#L403-L455"
     },
     {
@@ -2821,7 +2817,11 @@
      "survivor": "skills/brief/references/brief-format.md#L181-L195"
     },
     {
-     "loc": "skills/brief/references/brief-format.md#L475-L498",
+     "loc": "skills/brief/references/brief-format.md#L475-L491",
+     "survivor": "skills/brief/references/brief-format.md#L403-L455"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L496-L498",
      "survivor": "skills/brief/references/brief-format.md#L403-L455"
     }
    ]
@@ -2857,14 +2857,6 @@
     {
      "loc": "skills/prd/SKILL.md#L145-L146",
      "survivor": "skills/prd/references/phases/phase-1-scope.md#L23-L61"
-    },
-    {
-     "loc": "skills/prd/SKILL.md#L148-L148",
-     "survivor": "skills/prd/references/phases/phase-4-validate.md#L29-L36"
-    },
-    {
-     "loc": "skills/prd/SKILL.md#L195-L198",
-     "survivor": "skills/prd/references/phases/phase-4-validate.md#L243-L252"
     },
     {
      "loc": "skills/prd/SKILL.md#L211-L219",
@@ -3009,10 +3001,6 @@
     {
      "loc": "skills/plan/SKILL.md#L592-L593",
      "survivor": "skills/plan/references/phases/phase-7-creation.md#L605-L638"
-    },
-    {
-     "loc": "skills/plan/SKILL.md#L597-L597",
-     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L49-L52"
     },
     {
      "loc": "skills/plan/SKILL.md#L599-L599",
@@ -3189,7 +3177,11 @@
      "survivor": "skills/review-plan/references/templates/review-result-schema.md#L51-L62"
     },
     {
-     "loc": "skills/review-plan/references/templates/review-result-schema.md#L84-L89",
+     "loc": "skills/review-plan/references/templates/review-result-schema.md#L84-L87",
+     "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L42-L53"
+    },
+    {
+     "loc": "skills/review-plan/references/templates/review-result-schema.md#L89-L89",
      "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L42-L53"
     },
     {
