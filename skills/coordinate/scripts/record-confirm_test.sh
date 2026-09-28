@@ -10,7 +10,11 @@
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
 # and acme/gadgets#12 are both held: the unit is found by its Worker from the
 # log, links are matched by their full URL, and the live head is read from
-# the unit's own repository; a bare #12 never confirms. Also: an older
+# the unit's own repository; a bare #12 never confirms. The natural order:
+# for decision_apply (reversal and deferral) and surface(merge_table), a
+# record written after the run reached the hub but before the evidence that
+# leaves the step confirms with no rewrite, and one written before the hub
+# waits. Also: an older
 # Written: time waits even when the rows match; a missing or non-canonical
 # body is a conflict; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail.

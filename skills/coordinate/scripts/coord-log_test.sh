@@ -82,6 +82,7 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     log_evidence "$S" wait '{"event":"tick"}'                                  # 6
     eq "$L: entry prints the seq and the source" "4 wait" "$(bash "$CL" entry --session "$S" --state report_facts)"
     bash "$CL" entry --session "$S" --state report_facts --before 4; eq "$L: entry before the only entry is none" 1 $?
+    eq "$L: entry --with-time adds the entry's timestamp" "4 wait 2026-09-26T10:00:00.000Z" "$(bash "$CL" entry --session "$S" --state report_facts --with-time)"
     eq "$L: evidence is the latest in the state" 6 "$(bash "$CL" evidence --session "$S" --state wait | jq .seq)"
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"
