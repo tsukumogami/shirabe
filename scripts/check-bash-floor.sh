@@ -380,6 +380,8 @@ suite_scripts() {
             echo "skills/coordinate/scripts/decision-render_test.sh"
             echo "skills/coordinate/scripts/report-questions_test.sh"
             echo "skills/coordinate/scripts/record-decision_test.sh"
+            echo "skills/coordinate/scripts/decision-next_test.sh"
+            echo "skills/coordinate/scripts/need-check_test.sh"
             ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the

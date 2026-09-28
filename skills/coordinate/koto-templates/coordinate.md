@@ -1105,17 +1105,17 @@ states:
       capture_stdout_as: ESCALATE_MESSAGE
       fallback: The render failed; tick again.
     gates:
-      render_verdict:
+      escalate_verdict:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state escalate --capture "{{ESCALATE_MESSAGE}}"'
         overridable: false
     transitions:
       - target: escalate_send
         when:
-          gates.render_verdict.exit_code: 180  # message
+          gates.escalate_verdict.exit_code: 180  # message
       - target: record_conflict
         when:
-          gates.render_verdict.exit_code: 62  # refused
+          gates.escalate_verdict.exit_code: 62  # refused
 
   escalate_send:
     # Two routes for a person target, one switch in the directive: the
@@ -1148,17 +1148,17 @@ states:
       capture_stdout_as: WITHDRAW_MESSAGE
       fallback: The render failed; tick again.
     gates:
-      render_verdict:
+      decision_withdraw_verdict:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_withdraw --capture "{{WITHDRAW_MESSAGE}}"'
         overridable: false
     transitions:
       - target: decision_withdraw_send
         when:
-          gates.render_verdict.exit_code: 180  # message
+          gates.decision_withdraw_verdict.exit_code: 180  # message
       - target: record_conflict
         when:
-          gates.render_verdict.exit_code: 62  # refused
+          gates.decision_withdraw_verdict.exit_code: 62  # refused
 
   decision_withdraw_send:
     accepts:
@@ -1178,17 +1178,17 @@ states:
       capture_stdout_as: REPLY_MESSAGE
       fallback: The render failed; tick again.
     gates:
-      render_verdict:
+      decision_reply_verdict:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_reply --capture "{{REPLY_MESSAGE}}"'
         overridable: false
     transitions:
       - target: decision_reply_send
         when:
-          gates.render_verdict.exit_code: 180  # message
+          gates.decision_reply_verdict.exit_code: 180  # message
       - target: record_conflict
         when:
-          gates.render_verdict.exit_code: 62  # refused
+          gates.decision_reply_verdict.exit_code: 62  # refused
 
   decision_reply_send:
     accepts:
@@ -1208,17 +1208,17 @@ states:
       capture_stdout_as: REDIRECT_MESSAGE
       fallback: The render failed; tick again.
     gates:
-      render_verdict:
+      decision_redirect_verdict:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_redirect --capture "{{REDIRECT_MESSAGE}}"'
         overridable: false
     transitions:
       - target: decision_redirect_send
         when:
-          gates.render_verdict.exit_code: 180  # message
+          gates.decision_redirect_verdict.exit_code: 180  # message
       - target: record_conflict
         when:
-          gates.render_verdict.exit_code: 62  # refused
+          gates.decision_redirect_verdict.exit_code: 62  # refused
 
   decision_redirect_send:
     accepts:

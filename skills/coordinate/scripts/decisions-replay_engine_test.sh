@@ -7,16 +7,11 @@
 # state that seals `found <ref>` so the run has a record as a real run does.
 # Every state they route to that isn't under test is a terminal, or a
 # pass-through (take_report, pick_facts, classify_report) so one run can take
-# several arrivals. Every script is the shipped one, copied from this
-# directory, except those named in STAND_INS, which come from
-# testdata/decisions/stand-ins/.
-#
-# The stand-ins left are decision-next.sh and coord-verdict.sh, which the
-# plan's Issue 8 ships together with the states in coordinate.md; it removes
-# them from STAND_INS and points STATES_FROM at coordinate.md, and Issue 10
-# deletes stand-in-states.yaml and the stand-ins directory. The driver, the
-# arrivals, the fixtures and the assertions use only what the shipped scripts
-# own: record-decision.sh's modes and flags, the sealed captures and context
+# several arrivals. The states are cut from the shipped coordinate.md, and
+# every script is the shipped one, copied from this directory; STAND_INS,
+# empty now, names any script to take from testdata/decisions/stand-ins/
+# instead. The driver, the arrivals, the fixtures and the assertions use only
+# what the shipped scripts own: record-decision.sh's modes and flags, the sealed captures and context
 # keys (coord/decision_message.txt, coord/questions.json), and records
 # rendered by the codec, with the forms the DESIGN records under "Forms the
 # scripts share".
@@ -52,8 +47,8 @@ for bin in koto jq git; do
 done
 ORIG_PATH=$PATH
 
-STATES_FROM="$HERE/testdata/decisions/stand-in-states.yaml"
-STAND_INS="coord-verdict.sh decision-next.sh"
+STATES_FROM="$HERE/../koto-templates/coordinate.md"
+STAND_INS=""
 
 # test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
