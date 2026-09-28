@@ -85,7 +85,7 @@ jobs:
         run: sudo apt-get install -y jq
 
       - name: Install tsuku
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
       # Exactly the floor release, not the newest 0.x .tsuku.toml resolves to.
       - name: Install koto at the floor
