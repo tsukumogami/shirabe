@@ -131,6 +131,53 @@ structured cell, and a control character. Quoted text such as a CI log line
 is safe in any cell: pipes, newlines and backticks are encoded so they can't
 break a table.
 
+### The Decisions section
+
+After Reversals, once the record holds a decision, comes a fifth section. It
+opens with the identifier the next decision takes, and has one row per decision
+the scope opened:
+
+```markdown
+## Decisions
+
+Next decision: <n>
+
+| Decision | Round | Question | Options | State | Source | Verdict | Recommendation | Reason | Context | Problem | Grounds | Target | Owed | Asked | Evidence | Outcome | Decided by | Updated |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| <n> | <times escalated> | <one line> | <one per line> | <proposed, coordinator-verdict, escalated or settled> | <worker <topic>, coordinator <topic> #<n> round <r>, dispatcher or self, then a stamp> | <blank, settle, escalate or hold> | <one of the options> | <its reason, or what a hold waits on> | <what is being decided and why now> | <what is unresolved and why the coordinator can't settle it> | <scope, supplied-decision, reserved-step, outside-scope> | <a person or coordinator <topic>> | <blank, escalation, withdrawal or reply> | <YYYY-MM-DDTHH:MMZ> | <one line per item: <time> <source> <stamp>: <text>> | <outcome and reason> | <who decided> | <YYYY-MM-DDTHH:MMZ> |
+```
+
+Every entry has Decision, Round, Question, State, Source and Updated. What
+each state means, and what else it requires:
+
+| State | Means | Also requires | Reached by |
+|---|---|---|---|
+| `proposed` | Opened, not yet taken up | Options | `--open`, `--open-from-report` |
+| `coordinator-verdict` | With the coordinator for a verdict; a Verdict of `hold` waits on the fact in Reason, and `escalate` is queued behind the escalated entry | Reason, when the Verdict is `hold` | `--take`; any evidence, from any state |
+| `escalated` | Asked of the run's target, one entry at a time | Options (each `<option> -- <explanation>`), Recommendation, Reason, Context, Problem, Grounds, Target | `--escalate`, or the release of a queued verdict |
+| `settled` | Decided | Outcome (`<outcome>; reason: <reason>`), Decided by | `--settle`, `--answer` |
+
+Owed says which message the entry still owes (an escalation, a withdrawal
+after new evidence on a sent escalation, or a reply to the source that asked),
+and clears when `--sent` marks it. Asked is when the escalation went out.
+
+A record written before the section existed has none and stays canonical. The
+section appears at the first decision and stays: `Next decision` only goes up,
+so an identifier is never reused, and a section holding `Next decision: 1` and
+no entry is not canonical. A stamp, `[<run> <kind> <seq>]`, names the run (the
+UTC stamp in its session's name) and the visit that caused a write. `@` is
+encoded in the text columns so a record never mentions anyone, and those columns
+refuse a private repository, a home-directory path and a token-shaped string.
+
+Only `record-decision.sh` changes the section: `record-write.sh` refuses a body
+whose section differs from the live record's, and `record-open.sh` refuses a new
+record that carries one. A rotation's handoff carries the unsettled entries and
+the same `Next decision`; a predecessor copy carries the section as it stands. A
+roadmap record can't close while an entry is unsettled.
+
+The write core refuses a body over 60,000 bytes (`record-full`, exit 13), under
+GitHub's 65,536-byte limit.
+
 The declaration line is for readers. It is deliberately different from the
 `This is a **coordination PR**` marker that `/execute` uses, so no gate
 written for coordination pull requests ever parses a record.
@@ -147,7 +194,8 @@ messages and bodies.
 ## Closing a Roadmap Record
 
 When every feature reads Done or Dropped on the roadmap, Holdings and Side
-effects in flight are empty, and every deferral is filed or closed: write
+effects in flight are empty, every deferral is filed or closed, and every
+decision is settled: write
 the final body, then close the issue if the workspace permits, or hand the
 close to the human.
 
@@ -164,7 +212,7 @@ checks on it:
 
 Rotation from <start> to <end>. Host repository: <owner/repo>. Record: <pull request URL>, kept on coordinate/discipline-<name>.
 
-<the four sections, exactly as in the record>
+<the four sections, and the Decisions section with its unsettled entries when the record has one>
 
 ## Reasoning for the next rotation
 

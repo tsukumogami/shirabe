@@ -1,0 +1,3 @@
+Questions:
+1. Should the loader pin v2.1.0 or track main? (decision 3)
+2. Is the flaky upload test in scope for this unit?

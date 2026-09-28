@@ -8,7 +8,8 @@
 # block; at discipline scope the empty commit on the default branch's head, the
 # ref and the draft pull request with the rotation title; an open pull request
 # and an existing branch refused, --recut deleting and cutting it again; an end
-# before the start and a body for another scope refused (65); partial-write
+# before the start, a body for another scope, and a body carrying a Decisions
+# section refused (65); partial-write
 # failures reporting their step (11); provenance and directed-transition
 # refusals through a prepared session log (10).
 #
@@ -46,6 +47,9 @@ db_init
 bash "$O" "${RM[@]}" --body-file "$T/ds.md" >/dev/null 2>&1; eq "a discipline body is refused at roadmap scope" 65 $?
 render "$(record_json roadmap other)" issue > "$T/other.md"
 bash "$O" "${RM[@]}" --body-file "$T/other.md" >/dev/null 2>&1; eq "another roadmap's body is refused" 65 $?
+render "$(record_json roadmap plugin-system | jq -c '.decisions = {next: 3, entries: []}')" issue > "$T/dec.md"
+bash "$O" "${RM[@]}" --body-file "$T/dec.md" >/dev/null 2>"$T/err"; eq "a body with a Decisions section is refused" 65 $?
+grep -q 'record-decision.sh' "$T/err" && ok "the refusal names the decision writer" || bad "the refusal names the decision writer" "$(cat "$T/err")"
 eq "a refused body writes nothing" "" "$(grep -E 'issue create|POST|DELETE' "$GH_DB.calls")"
 db '.fail = [{match: "issue create", rc: 1}]'
 OUT=$(bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>/dev/null); rc=$?

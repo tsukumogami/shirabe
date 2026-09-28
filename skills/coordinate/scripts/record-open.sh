@@ -83,6 +83,13 @@ case $? in
     3|65) echo "$PROG: refused: the body is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 65 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+# A new record opens with no Decisions section: entries are written, and a
+# predecessor's are carried in, only by record-decision.sh, which checks each
+# one.
+if jq -e 'has("decisions")' "$T/parsed.json" > /dev/null; then
+    echo "$PROG: refused: a new record opens without a Decisions section; record-decision.sh writes and carries decisions" >&2
+    exit 65
+fi
 
 step_failed() { echo "step=$1"; echo "$PROG: the $1 write failed: $(lib_scrub < "$T/w.err")" >&2; exit 11; }
 

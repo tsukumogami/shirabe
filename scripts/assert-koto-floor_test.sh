@@ -54,11 +54,19 @@ expect() { # expect <rc> <label>
 }
 
 # The script's own floor, read from its one definition.
-DEFAULT_FLOOR=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$ASSERT" | head -1)
+DEFAULT_FLOOR=$("$BASH_BIN" "$ASSERT" --print-floor 2>/dev/null)
 if printf '%s' "$DEFAULT_FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     pass "the script defines its floor in one place ($DEFAULT_FLOOR)"
 else
     fail "cannot read the floor from $ASSERT: [$DEFAULT_FLOOR]"
+fi
+
+# --print-floor ignores KOTO_FLOOR, so no environment can move the value the
+# other readers see.
+if [ "$(KOTO_FLOOR=9.9.9 "$BASH_BIN" "$ASSERT" --print-floor 2>/dev/null)" = "$DEFAULT_FLOOR" ]; then
+    pass "--print-floor prints the defined floor and ignores KOTO_FLOOR"
+else
+    fail "--print-floor honoured KOTO_FLOOR or printed something else"
 fi
 
 stub "koto $DEFAULT_FLOOR (b4db451 2026-09-24T23:34:00Z)"

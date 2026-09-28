@@ -48,6 +48,12 @@ db '.prs += [{repo: "acme/widgets", number: 151, title: $t, body: $b, state: "OP
     baseRefName: "main", headRefName: "x", headRefOid: $h, author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$ROADMAP_BODY" --arg h "$SHA_HEAD"
 eq "the record among 150 open issues is found" "found 75" "$(find_rm)"
 grep -q -- '--paginate' "$GH_DB.calls" && ok "the listing is paginated" || bad "the listing is paginated" "$(calls)"
+db_init; add_issue 7 "$TITLE" "$(cat "$HERE/testdata/record/pre-decisions.md")"
+eq "a record body written before the Decisions section is found and adopted" "found 7" "$(find_rm)"
+db_init; add_issue 7 "$TITLE" "$(render "$(record_json roadmap plugin-system | jq -c '.decisions = {next: 3, entries: []}')" issue)"
+eq "a record with a Decisions section is found and adopted" "found 7" "$(find_rm)"
+db_init; add_issue 7 "$TITLE" "$(printf '%s\n\n## Decisions\n\nNext decision: 1\n\nNone.' "$ROADMAP_BODY")"
+eq "a Decisions section holding only Next decision: 1 is malformed" "malformed 7" "$(find_rm)"
 grep -qi 'search' "$GH_DB.calls" && bad "no search form is used" "$(calls)" || ok "no search form is used"
 
 db_init

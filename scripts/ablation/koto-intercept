@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""koto-intercept: the `koto` an ablation run's agent finds first on PATH.
+
+It stands where a deployed gate would stand. Every call is logged to the run's
+koto-calls.jsonl with a monotonic timestamp, then handed to the real koto with
+its original argv. The exception is a production: a `koto next <wf>` carrying
+evidence while the session sits in the case's target state. The first
+production in the state, and the first one after a delivery, are graded by
+the case's deployed check. The first time a graded production is `violated`,
+the wrapper answers the way koto answers bad evidence (an `invalid_submission`
+error object on stdout, exit 2) with the check's failure message, and koto
+never sees that submission. That refusal is the run's one delivery.
+
+The wrapper only ever delivers the check's own message. A real deployment
+would deliver the rule's short text inside koto's own failure payload, so an
+after-delivery rate measured here is for this delivery shape only; records
+carry `delivery.shape` so the two are never pooled.
+
+Environment (set by ablation.py; the wrapper refuses to start without them):
+  ABLATION_REAL_KOTO      absolute path of the real koto; must not be this file
+  ABLATION_RUN_DIR        where koto-calls.jsonl, productions.jsonl and the
+                          production files go
+  ABLATION_KOTO_HOME      HOME for every real koto call, so koto's discovery
+                          scan, cursor, cache and config stay in the run root
+  ABLATION_TARGET_STATE   the state whose evidence is a production
+  ABLATION_DEPLOYED_CHECK absolute path of the deployed check
+  ABLATION_CHECK_SECONDS  the check's time limit
+
+When KOTO_TICK_SESSION is set the caller is koto itself, running a gate or an
+action; the call goes straight to the real koto and is not logged.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+REASON_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+# `koto next` options that take a value; everything else starting with -- is a switch.
+VALUE_FLAGS = {"--with-data", "--to", "--rationale", "--redelegation-cap", "--dispatch-epoch",
+               "--koto-leg"}
+
+
+def die(msg):
+    sys.stderr.write(f"koto-intercept: {msg}\n")
+    sys.exit(3)
+
+
+def env(name):
+    value = os.environ.get(name, "")
+    if not value:
+        die(f"{name} is not set")
+    return value
+
+
+def real_koto():
+    path = env("ABLATION_REAL_KOTO")
+    if os.path.realpath(path) == os.path.realpath(__file__):
+        die("ABLATION_REAL_KOTO resolves to the wrapper itself")
+    if not os.access(path, os.X_OK):
+        die(f"ABLATION_REAL_KOTO is not executable: {path}")
+    return path
+
+
+def koto_env():
+    e = dict(os.environ)
+    e["HOME"] = env("ABLATION_KOTO_HOME")
+    return e
+
+
+def exec_real(argv):
+    koto = real_koto()
+    os.execve(koto, [koto] + argv, koto_env())
+
+
+def append(path, obj):
+    with open(path, "a") as fh:
+        fh.write(json.dumps(obj, sort_keys=True) + "\n")
+
+
+def workflow_of(argv):
+    """The first positional argument after `next`, skipping options and their values."""
+    skip = False
+    for arg in argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if arg in VALUE_FLAGS:
+            skip = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return None
+
+
+def evidence_of(argv):
+    """The evidence text of a `koto next` call, or None."""
+    for i, arg in enumerate(argv):
+        value = None
+        if arg == "--with-data" and i + 1 < len(argv):
+            value = argv[i + 1]
+        elif arg.startswith("--with-data="):
+            value = arg[len("--with-data="):]
+        if value is None:
+            continue
+        if value.startswith("@"):
+            try:
+                with open(value[1:]) as fh:
+                    return fh.read()
+            except OSError:
+                return None
+        return value
+    return None
+
+
+def current_state(wf):
+    try:
+        out = subprocess.run([real_koto(), "status", wf], capture_output=True,
+                             text=True, env=koto_env(), timeout=60)
+        return json.loads(out.stdout).get("current_state")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def run_check(check, production_file, seconds):
+    try:
+        out = subprocess.run([check, production_file], capture_output=True,
+                             text=True, timeout=seconds)
+    except subprocess.TimeoutExpired:
+        return "not-checkable", "check-timeout", ""
+    except OSError:
+        return "not-checkable", "check-error", ""
+    lines = out.stdout.splitlines()
+    reason = lines[0].strip() if lines else ""
+    outcome = {0: "complied", 1: "violated", 2: "not-checkable"}.get(out.returncode)
+    if outcome is None or not REASON_RE.match(reason):
+        return "not-checkable", "check-error", ""
+    message = "\n".join(lines[1:]).strip() if outcome == "violated" else ""
+    return outcome, reason, message
+
+
+def main():
+    argv = sys.argv[1:]
+    if os.environ.get("KOTO_TICK_SESSION"):
+        exec_real(argv)
+
+    run_dir = env("ABLATION_RUN_DIR")
+    calls = os.path.join(run_dir, "koto-calls.jsonl")
+    t = time.monotonic_ns()
+    wf = workflow_of(argv) if argv[:1] == ["next"] else None
+    if wf is None:
+        append(calls, {"t": t, "argv": argv})
+        exec_real(argv)
+    # For `koto next`, the state the session is in when the call arrives: the
+    # record attributes the tokens spent before a tick to that state.
+    state = current_state(wf)
+    append(calls, {"t": t, "argv": argv, "state": state})
+    evidence = evidence_of(argv)
+    target = env("ABLATION_TARGET_STATE")
+    if evidence is None or state != target:
+        exec_real(argv)
+
+    prod_log = os.path.join(run_dir, "productions.jsonl")
+    history = []
+    if os.path.exists(prod_log):
+        with open(prod_log) as fh:
+            history = [json.loads(l) for l in fh if l.strip()]
+    delivered = any(p.get("delivered") for p in history)
+    graded_first = any(p.get("point") == "first" for p in history)
+    graded_second = any(p.get("point") == "second" for p in history)
+
+    point = None
+    if not graded_first:
+        point = "first"
+    elif delivered and not graded_second:
+        point = "second"
+
+    record = {"t": time.monotonic_ns(), "call_t": t, "index": len(history) + 1, "point": point,
+              "delivered": False}
+    if point is None:
+        record.update({"graded": False})
+        append(prod_log, record)
+        exec_real(argv)
+
+    try:
+        parsed = json.loads(evidence)
+    except ValueError:
+        parsed = None
+    production_file = os.path.join(run_dir, f"production-{record['index']}.json")
+    with open(production_file, "w") as fh:
+        json.dump({"workflow": wf, "state": target, "evidence": parsed}, fh)
+    outcome, reason, message = run_check(env("ABLATION_DEPLOYED_CHECK"), production_file,
+                                         float(env("ABLATION_CHECK_SECONDS")))
+    record.update({"graded": True, "outcome": outcome, "reason": reason})
+
+    if outcome == "violated" and not delivered:
+        record["delivered"] = True
+        append(prod_log, record)
+        sys.stdout.write(json.dumps({"error": {
+            "code": "invalid_submission",
+            "details": [{"field": "evidence", "reason": message}],
+            "message": message}}) + "\n")
+        sys.exit(2)
+
+    append(prod_log, record)
+    exec_real(argv)
+
+
+if __name__ == "__main__":
+    main()

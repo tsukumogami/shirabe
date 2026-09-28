@@ -61,7 +61,7 @@ jobs:
       # gh, jq, git, and python3 come with both runner images. shirabe is built
       # from this checkout, following .github/workflows/validate-docs.yml, and
       # koto arrives through tsuku from .tsuku.toml, following
-      # .github/workflows/validate-templates.yml. Nothing here installs jq: the
+      # .github/workflows/validate-templates.yml, and niwa through tsuku too. Nothing here installs jq: the
       # suites parse no JSON. The declarations are tab-separated, the probe
       # reads --help text, and the reports are prose.
       # ---------------------------------------------------------------------
@@ -88,12 +88,21 @@ jobs:
           echo "$HOME/.preflight-bin" >> "$GITHUB_PATH"
 
       - name: Install tsuku
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
       - name: Install koto
         env:
           TSUKU_TELEMETRY: "0"
         run: tsuku install -y
+
+      # /coordinate declares the workspace manager, niwa, for presence; it
+      # comes from tsuku like koto, on the route scripts/lib/tool-routes.tsv
+      # names. The bare name is ambiguous in tsuku's registry (other
+      # ecosystems publish a niwa too), so it's named by its recipe source.
+      - name: Install niwa
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y tsukumogami/niwa
 
       # /scope's and /execute's declarations name the koto init entry flags
       # only koto 0.13.0 and later have, so the zero-bytes assertions hold only
@@ -151,11 +160,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/lib/preflight-report_test.sh
 
+      - name: The koto minimum at load (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/preflight-minimum_test.sh
+
       - name: Declaration conformance (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/check-skill-requires_test.sh
 
-      # The four harnesses above and the scan below, plus the injection and
+      # The five harnesses above and the scan below, plus the injection and
       # discard checks' harnesses: the `preflight` suite in
       # scripts/check-bash-floor.sh.
       - name: Preflight suite on the bash 3.2 floor (macOS, system bash)

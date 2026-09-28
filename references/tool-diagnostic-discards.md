@@ -138,6 +138,83 @@ must itself cover `koto-templates/`, that false-positive class is guaranteed to
 recur, and the test suite asserts that exact line is not charged to `koto`
 while a real `koto` call in the same directory still is.
 
+### Tools held in a variable
+
+A script that has to locate a tool usually resolves it first and calls it
+through a variable: `KOTO=${KOTO_BIN:-koto}`, then
+`"$KOTO" status "$id" 2>/dev/null`. That call has no literal name for the tool
+test to find, so the scan reads each file's assignments (never running them)
+and charges a variable to the declared tool its value resolves to. Both arms
+see it.
+
+Traced, on a line whose first word is the assignment, with an optional
+`export`, `readonly`, `local`, `declare` or `typeset` and optional quotes around
+the value:
+
+```text
+VAR=tool                      VAR=$(command -v tool)
+VAR=${OTHER:-tool}            VAR=${OTHER:-$(command -v tool)}
+VAR=/any/path/tool            VAR="$DIR/tool"
+```
+
+`$(which tool)`, the backtick spellings and a probe with its own `2>/dev/null`
+count like `$(command -v tool)`. The `:=`, `-` and `=` expansions count like
+`:-`, and `OTHER` is charged along with `VAR`, since it's the override for the
+same tool. A value that only
+contains the name, such as `koto-open.sh` or `"koto failed"`, isn't a binding.
+
+A file also takes the bindings of each file it sources with `.` or `source`,
+recursively. That's how `board-record.sh` gets `KOTO` from `record-common.sh`
+through `board-lib.sh`. The path has to be literal, or start with one `$NAME/`,
+`${NAME}/`, `$(dirname "$0")/` or `$(dirname "${BASH_SOURCE[0]}")/`, which is
+read as the sourcing file's directory, quoted or not. The path ends at the
+first operator after it, so `. "$HERE/lib.sh" || exit 2` is followed. A sourced
+file's `local` bindings stay inside its functions. A sourced file outside the
+scanned tree, a lib under `scripts/` for instance, lends its bindings all the
+same. It is read for them, never reported as a site.
+
+A variable is charged only at command position: `$VAR`, `"$VAR"`, `${VAR}` or
+`"${VAR}"` at the start of the line, after a case arm's pattern that starts
+the line or follows `in`, `;;`, `;&` or `;;&`
+(`case "$x" in a|b) "$VAR" ...`), or after `;`, `&`, `|`, `(`, `{`, `!`, a
+backtick, or one of `then`, `do`, `else`, `elif`, `if`, `while`, `until`,
+`exec`, `command` and `time`. A variable holding the name as data isn't
+charged: an argument, a message, or a directory with a path after it
+(`"$CACHE"/run.sh`).
+`command -v "$VAR"` falls under the carve-out below.
+
+These aren't traced:
+
+- a copy (`A=$B`), an array element, indirect expansion, `eval`, or a nested
+  default
+- an assignment that isn't the line's first word, such as
+  `[ -n "$X" ] || K=koto` or `local a K=koto`
+- a variable set only by a caller or the environment
+- a call behind an env prefix (`FOO=1 "$VAR" ...`) or a runner such as
+  `timeout`, `xargs`, `env`, `nohup` or `sudo`
+- a tool wrapped in a shell function
+- a case arm whose pattern is quoted or expands a variable
+- a source path spelled any other way
+
+When the scan landed, no discard in `skills/` called a declared tool through
+any of these. A probe that charged every variable at command position
+on a discard line found only sites the trace already covers. A site that needs
+one of these shapes is enumerated by hand, with a comment line in the record
+block naming the shape. Any traced assignment charges its variable, even when
+another assignment in the same file gives it a different value. Command
+position is judged without tracking quotes, so a separator inside a string
+(`echo "a; $K"`) can charge a name held as data. That errs toward a finding,
+which a record or a rewrite settles, never toward a miss.
+
+Like a literal call, a variable-held call is judged on the line holding the
+redirect. A command continued with `\` whose redirect sits on a later line
+than the tool isn't seen, whether the tool is named or held.
+
+The trace applies wherever the scan runs, and by default that's `skills/`.
+Scripts under `scripts/`, such as `scripts/assert-koto-floor.sh`, are outside
+the default scan for literal and held calls alike. Pointing the scan at them
+brings their variable-held calls in too.
+
 ### The `command -v` carve-out
 
 `command -v <tool>` is carved out, measured rather than assumed:
@@ -272,6 +349,34 @@ skills/work-on/references/phases/phase-5-finalization.md	koto context remove <WF
 skills/work-on/references/phases/phase-5-finalization.md	if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then	1	3	exit status IS the result being read here -- present or absent -- so there is no diagnostic to lose, and koto's stdout would corrupt the block's own output	shirabe#304
 skills/work-on/koto-templates/work-on.md	koto context remove <WF> "$KEY" >/dev/null 2>&1	1	3	the block prints its own diagnostic naming the key and the way out, so koto's text would be duplicate noise; the exit status is captured into REMOVE_STATUS and tested on the next line rather than ignored	shirabe#304
 skills/work-on/koto-templates/work-on.md	if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then	1	3	exit status IS the result being read here -- present or absent -- so there is no diagnostic to lose, and koto's stdout would corrupt the block's own output	shirabe#304
+skills/coordinate/scripts/reconcile-check.sh	> "$TREE" 2>/dev/null && jq -e '.blobs | type == "object"' "$TREE" >/dev/null 2>&1 \	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-check.sh	b=$(jq -r --arg p "$1" '.blobs[$p] // (if .truncated then "?" else "absent" end)' "$TREE" 2>/dev/null) || return 1	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-check.sh	OUT=$(rd_deadline "$DEADLINE" koto request get "$REQ" </dev/null 2>/dev/null)	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-check.sh	WROOT=$(printf '%s' "$OUT" | jq -r '[.[].path | select(type == "string") | sub("/[^/]+$"; "")] | unique | if length == 1 then .[0] else empty end' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-deps.sh	pkill -KILL -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null	1	1	Stopping the children of a process that may already have ended: no match (exit 1) is the ordinary case, and the kill beside it handles the process itself.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-deps.sh	pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null	1	1	Stopping the children of a process that may already have ended: no match (exit 1) is the ordinary case, and the kill beside it handles the process itself.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-deps.sh	pkill -TERM -P "$watcher" 2>/dev/null	1	1	Stopping the children of a process that may already have ended: no match (exit 1) is the ordinary case, and the kill beside it handles the process itself.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	ctx_rm() { koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true; }	1	non-zero	Removing a context key that may be absent is idempotent by intent; a key left behind is overwritten or re-checked against the seal by the gate.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	fact=$(jq -c '.' "$R/$id.out" 2>/dev/null | head -1)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	if [ "$clipped" = 1 ] && printf '%s' "$fact" | jq -e '.status != "ok" and ((.reason // "") | test("timed out"))' >/dev/null 2>&1; then	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	if [ -z "$fact" ] || ! printf '%s' "$fact" | jq -e '(.kind | type) == "string" and (.status | type) == "string"' >/dev/null 2>&1; then	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	koto context get "$SESSION" reconcile/report.json > "$T/back.json" 2>/dev/null || die "the stored report can't be read back"	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	pkill -TERM -P "${RUN_PIDS[$i]}" 2>/dev/null; kill -TERM "${RUN_PIDS[$i]}" 2>/dev/null	1	1	Stopping the children of a process that may already have ended: no match (exit 1) is the ordinary case, and the kill beside it handles the process itself.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-pass.sh	REASON=$(printf '%s' "$REC" | jq -r '.reason // empty' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null)	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	elif jq -e '.unparseable == []' "$out" >/dev/null 2>&1; then	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	jq -e '(.state | type) == "string" and (.body | type) == "string"' "$T/view.json" >/dev/null 2>&1 \	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	NAME=$(printf '%s' "$FACTS" | jq -r '.name // empty' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	rd_deadline "$DEADLINE" gh "$CONTAINER" view "$REF" --repo "$REPO" --json state,body > "$T/view.json" 2>/dev/null	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	REF=$(printf '%s' "$FACTS" | jq -r '.ref // empty' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	REPO=$(printf '%s' "$FACTS" | jq -r '.repo // empty' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	SCOPE=$(printf '%s' "$FACTS" | jq -r '.scope // empty' 2>/dev/null)	1	2,4,5	Reading a field from JSON this script or its own read produced: unparseable input leaves the value empty, and the value is then checked against a fixed pattern before any use.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-read.sh	SENTENCE=$(jq -n -r -f "$(codec_program predecessor_sentence)" 2>/dev/null) \	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-report-get.sh	jq -e '.schema == "coordinate-reconcile-report/v1"' "$T/report.json" >/dev/null 2>&1 \	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-report-get.sh	koto context get "$SESSION" "$KEY" > "$T/report.json" 2>/dev/null || fail 2 "context key $KEY can't be read"	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-report.sh	SCHEMA=$(printf '%s' "$INPUT" | jq -r '.schema? // empty' 2>/dev/null)	1	2,4,5	Reading the schema field of the input document: unparseable input leaves it empty, and the script then refuses the input with exit 65 as not a facts document.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
+skills/coordinate/scripts/reconcile-report.sh	if ! printf '%s' "$INPUT" | jq -e '(.header | type) == "object" and ([.changes, .holdings, .waiting, .nowhere_else, .side_effects, .deferrals, .not_verified] | all(type == "array"))' >/dev/null 2>&1; then	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
 ```
 
 ## Running the scan

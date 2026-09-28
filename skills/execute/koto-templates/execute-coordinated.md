@@ -14,8 +14,7 @@
 # (template_mismatch), and --replace-terminal replaces a finished one.
 #
 # Terminal-tick retention: EVERY `koto next` on this session carries
-# --no-cleanup, as it does on execute.md. The session is always a root, so the
-# flag withholds nothing from a parent; under --koto-leg the result reaches
+# --no-cleanup, as it does on execute.md; under --koto-leg the result reaches
 # the leg by promotion. See ../../../references/koto-session-retention.md.
 #
 # Results. Every edge into a terminal assigns `outcome`, and assigns `step` or
@@ -27,10 +26,6 @@
 # refusal creates no session, and koto records it on the leg.
 name: execute-coordinated
 version: "1.0"
-# koto-floor: pinned -- result maps, constrained and rebindable variables,
-# transition context_assignments, and non-overridable gates need koto
-# 0.13.0 or later, the floor skills/execute/requires.tsv declares. The
-# v0.12.2 floor check (scripts/check-koto-floor.sh) does not cover this template.
 description: >
   Coordinated-PLAN envelope. Records the write set and the coordination home,
   runs the script-decided per-node loop, records the verdict the loop ended
@@ -43,9 +38,11 @@ variables:
     description: >
       Path to the coordinated PLAN in the coordination checkout, relative to
       it. Interpolated into the verdict's default action, so it is held to a
-      path of plain characters with no `..` segment. Not rebindable.
+      path of plain characters (letters, digits, `.`, `_`, `-`, and the `+` an
+      absolute checkout path can carry, which koto's own value check admits
+      from 0.14.1, tsukumogami/koto#266) with no `..` segment. Not rebindable.
     required: true
-    pattern: '^/?([A-Za-z0-9_][A-Za-z0-9._-]*/)*[A-Za-z0-9_][A-Za-z0-9._-]*\.md$'
+    pattern: '^/?([A-Za-z0-9_+][A-Za-z0-9._+-]*/)*[A-Za-z0-9_+][A-Za-z0-9._+-]*\.md$'
   PLAN_SLUG:
     description: >
       The PLAN's topic slug, matching ^[a-z0-9-]+$. It names the session

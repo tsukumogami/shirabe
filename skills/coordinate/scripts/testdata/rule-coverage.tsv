@@ -39,12 +39,12 @@ C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check 
 C28	skills/coordinate/koto-templates/coordinate.md	-	returns through `record`, whose check confirms the change on	changed: the seven prose steps became a koto state graph with wait as a hub
 C29	skills/coordinate/koto-templates/coordinate.md	decision_apply	A new decision takes effect at the start of the next turn
 C30	skills/coordinate/koto-templates/coordinate.md	reconcile	This full reconcile runs once per run, on this path.
-C31	skills/coordinate/koto-templates/coordinate.md	reconcile	Treat every claim in the record as a snapshot
-C32	skills/coordinate/koto-templates/coordinate.md	reconcile	Re-check each against GitHub (pull request state
-C33	skills/coordinate/koto-templates/coordinate.md	reconcile	record and GitHub disagree, GitHub wins
+C31	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Treat every claim in the record as a snapshot	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
+C32	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Re-check each against GitHub (pull request state	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
+C33	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	record and GitHub disagree, GitHub wins	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C34	skills/coordinate/koto-templates/coordinate.md	reconcile	Report three things: what changed since the record
 C35	skills/coordinate/koto-templates/coordinate.md	record_find	Finding this scope's record on GitHub.	changed: finding and opening the record are their own states (record_find, record_open) that run before reconcile
-C36	skills/coordinate/koto-templates/coordinate.md	reconcile	hand the reads to a local agent when there are more
+C36	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	hand the reads to a local agent when there are more	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C37	skills/coordinate/references/loop.md	-	## A Full Reconcile, in Order
 C38	skills/coordinate/references/loop.md	-	For a roadmap, read its Features section from the
 C39	skills/coordinate/references/loop.md	-	--json state,isDraft,headRefOid,mergeStateStatus
@@ -53,7 +53,7 @@ C41	skills/coordinate/references/loop.md	-	Read the state of any issue a holding
 C42	skills/coordinate/references/loop.md	-	`niwa list` from the workspace root
 C43	skills/coordinate/references/loop.md	-	`git log --branches --not --remotes --oneline`
 C44	skills/coordinate/references/loop.md	-	Prove a file durable
-C45	skills/coordinate/koto-templates/coordinate.md	reconcile	Record a session missing from
+C45	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Record a session missing from	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C46	skills/coordinate/references/loop.md	-	**Re-check side effects in flight.**
 C47	skills/coordinate/references/loop.md	-	**Read the deferrals.** List every row for the report
 C48	skills/coordinate/koto-templates/coordinate.md	reconcile	Never average the
@@ -62,7 +62,7 @@ C50	skills/coordinate/references/loop.md	-	## The Reconcile Report
 C51	skills/coordinate/koto-templates/coordinate.md	pick	**Fill every free slot.**
 C52	skills/coordinate/koto-templates/coordinate.md	pick	Roadmap features in the roadmap's order
 C53	skills/coordinate/koto-templates/coordinate.md	pick	A roadmap feature is unblocked when every
-C54	skills/coordinate/references/loop.md	-	then list the open issues and failing checks in its
+C54	skills/coordinate/references/loop.md	-	list the open issues and failing checks in its	changed: the scope read follows the sealed report rather than preceding the reads
 C55	skills/coordinate/koto-templates/coordinate.md	pick	| An issue that is already specified | `/shirabe:work-on` |
 C56	skills/coordinate/koto-templates/coordinate.md	pick	**Before dispatching an issue**, check its timeline
 C57	skills/coordinate/references/loop.md	-	An open or merged one that closes the issue means
@@ -74,7 +74,7 @@ C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of {{CAP}} 
 C63	skills/coordinate/koto-templates/coordinate.md	pick	When {{PARKED_BOUND}} or more workers are parked
 C64	skills/coordinate/SKILL.md	-	**Inside your scope, dispatch without asking.**
 C65	skills/coordinate/SKILL.md	-	**A decision is the human's when it does any of these:**
-C66	skills/coordinate/SKILL.md	-	Ask each such
+C66	skills/coordinate/SKILL.md	-	decision is escalated once, as a decision entry	changed: asked through an escalated decision entry, rendered by the workflow
 C68	skills/coordinate/references/loop.md	-	## More Worked Examples
 C69	skills/coordinate/koto-templates/coordinate.md	dispatch	Write the worker's brief from `references/brief-template.md`
 C70	skills/coordinate/koto-templates/coordinate.md	dispatch	A worker's goal is the
@@ -191,11 +191,28 @@ C181	skills/coordinate/SKILL.md	-	A rule whose justification
 C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
-C185	skills/coordinate/koto-templates/coordinate.md	reconcile	Include a "Waiting on the human" section
+C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
-C187	skills/coordinate/SKILL.md	-	Two named features build on this one.	changed: record tooling shipped; the dispatch path and mechanised reconcile remain named later work
-C188	skills/coordinate/SKILL.md	-	**The workspace manager isn't checked at load.**
+C187	skills/coordinate/SKILL.md	-	Both features this version named as later work have landed	changed: the dispatch path and mechanised reconcile both shipped
+C188	skills/coordinate/SKILL.md	-	runs the workspace manager's dispatch	changed: the dispatch path runs the workspace manager through a script and declares it in requires.tsv, so the load-time preflight checks it
 C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
 C190	skills/coordinate/SKILL.md	-	**The coordinator's record has no merge order
 C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: asked
 C98	skills/coordinate/koto-templates/coordinate.md	classify_report	a premise found to be wrong is a
+# The decision flow's rules (D1..D16), added with it; same columns.
+D1	skills/coordinate/SKILL.md	-	scripts/record-decision.sh` is the only thing that
+D2	skills/coordinate/koto-templates/coordinate.md	report_questions	Reading the report's questions.
+D3	skills/coordinate/koto-templates/coordinate.md	decision_verdict	question isn't obviously answerable
+D4	skills/coordinate/koto-templates/coordinate.md	decision_verdict	a fact you can find is missing
+D5	skills/coordinate/koto-templates/coordinate.md	decision_verdict	Evidence clears any verdict
+D6	skills/coordinate/SKILL.md	-	One entry is escalated at a time
+D7	skills/coordinate/koto-templates/coordinate.md	escalate_send	Send exactly what was rendered
+D8	skills/coordinate/koto-templates/coordinate.md	escalate_send	only when the turn you are in was started by a message
+D9	skills/coordinate/koto-templates/coordinate.md	escalate_send	and keep coordinating.
+D10	skills/coordinate/koto-templates/coordinate.md	escalate_send	The answer comes back the same way on both
+D11	skills/coordinate/koto-templates/coordinate.md	surface_check	A decision never travels as a need
+D12	skills/coordinate/SKILL.md	-	never a free-text section
+D13	skills/coordinate/scripts/render-brief.sh	-	Your questions go to the coordinator
+D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it by hand
+D15	skills/coordinate/SKILL.md	-	nothing blocks `wait`
+D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry

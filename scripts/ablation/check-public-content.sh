@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+#
+# check-public-content.sh - refuse text a public repository must not carry
+#
+# shirabe is public. The ablation harness writes run records and a summary
+# into the repository, and a pull request body goes with them, so this check
+# refuses, in the text it is given:
+#
+#   - a home-directory path (/home/<user>/..., /Users/<user>/..., ~/.<dir>)
+#   - a wip/ path that names a file (wip/<name>); the bare words "wip/ path"
+#     in prose describing the rule are not a path and pass
+#   - a UUID-shaped identifier (session ids have that shape)
+#   - an instance or session name: <name>-<8 hex digits> after a '+', or a
+#     snake_case <name>-<8 hex digits>; a jobs/<8 hex> path; a session_<id>
+#   - a hosted-session URL
+#   - common secret shapes: GitHub and cloud tokens, API keys, private keys
+#   - any term in a denylist, when one is supplied
+#
+# The denylist is never part of this repository: a list of names that must
+# not appear, kept in the repository in any form, would publish those names
+# (a hash of a short name is recovered by hashing guesses). It is read at run
+# time from --denylist <file> or $ABLATION_DENYLIST, and a path inside this
+# checkout is refused. The file holds one term per line, matched
+# case-insensitively; blank lines and lines starting with # are ignored. A
+# term matches a token of the text (a run of [A-Za-z0-9._/-]) or any
+# '/'-joined suffix of one, so "owner/name" is checked whole and "name" on its
+# own. The terms stay in memory; nothing about them is printed or written.
+#
+# Without a list, the check says plainly that the denylisted-term check did
+# not run and runs everything else. --require-denylist makes a missing list an
+# error instead. A maintainer can supply the list in CI from a repository
+# secret; the workflow does not assume one exists.
+#
+# Usage:
+#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] <file>...
+#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] --diff <base> [--head <commit>]
+#
+# With --diff, only the lines <head> (default HEAD) adds relative to its merge
+# base with <base> are checked. With files, every line; "-" reads stdin.
+#
+# Exit codes:
+#   0 - nothing refused
+#   1 - at least one line refused; each is named on stderr as <source>:<line>: <class>
+#   2 - usage error
+
+set -euo pipefail
+
+PROG=check-public-content
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECKOUT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+denylist="${ABLATION_DENYLIST:-}"
+require_denylist=0
+base=""
+head="HEAD"
+files=()
+
+die() {
+    echo "$PROG: $*" >&2
+    exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --denylist) [ "$#" -ge 2 ] || die "--denylist requires a file"; denylist="$2"; shift ;;
+        --require-denylist) require_denylist=1 ;;
+        --diff) [ "$#" -ge 2 ] || die "--diff requires a base"; base="$2"; shift ;;
+        --head) [ "$#" -ge 2 ] || die "--head requires a commit"; head="$2"; shift ;;
+        -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+        --) shift; files+=("$@"); break ;;
+        -) files+=("-") ;;
+        -*) die "unknown option: $1" ;;
+        *) files+=("$1") ;;
+    esac
+    shift
+done
+if [ -n "$denylist" ]; then
+    [ -f "$denylist" ] || die "denylist not found: $denylist"
+    real=$(cd "$(dirname "$denylist")" && pwd -P)/$(basename "$denylist")
+    case "$real" in
+        "$CHECKOUT"/*) die "refusing a denylist inside the checkout: the list must not live in the repository" ;;
+    esac
+elif [ "$require_denylist" -eq 1 ]; then
+    die "--require-denylist: no denylist given (--denylist <file> or \$ABLATION_DENYLIST)"
+fi
+if [ -n "$base" ]; then
+    [ "${#files[@]}" -eq 0 ] || die "--diff takes no files"
+    for ref in "$base" "$head"; do
+        case "$ref" in -*) die "refusing a ref that starts with '-': $ref" ;; esac
+        git rev-parse --verify --quiet --end-of-options "${ref}^{commit}" >/dev/null \
+            || die "not a commit: $ref"
+    done
+else
+    [ "${#files[@]}" -gt 0 ] || die "nothing to check: give files or --diff <base>"
+fi
+
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# Collect "<source>\t<line number>\t<text>" rows.
+rows="$TMP/rows"
+: > "$rows"
+if [ -n "$base" ]; then
+    # Three dots: against the merge base, so commits that landed on the base
+    # branch after this branch forked are never read as this branch's lines.
+    git diff --unified=0 --no-color "$base"..."$head" -- . | awk '
+        /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
+        /^@@ / { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+        /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }
+    ' > "$rows"
+else
+    for f in "${files[@]}"; do
+        if [ "$f" = "-" ]; then
+            awk '{ printf "stdin\t%d\t%s\n", NR, $0 }' >> "$rows"
+        else
+            [ -f "$f" ] || die "no such file: $f"
+            awk -v src="$f" '{ printf "%s\t%d\t%s\n", src, NR, $0 }' "$f" >> "$rows"
+        fi
+    done
+fi
+
+found=0
+report() {
+    echo "$PROG: $1:$2: $3" >&2
+    found=1
+}
+
+# Pattern classes. ERE, matched against the text column only.
+patterns=(
+    'home-directory path|(/home|/Users)/[A-Za-z0-9._-]+/|~/\.[A-Za-z]'
+    'wip/ path|(^|[^A-Za-z0-9_])wip/[A-Za-z0-9_][A-Za-z0-9_.-]*'
+    'uuid-shaped identifier|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+    'instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|/)jobs/[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9])session_[0-9A-Z][A-Za-z0-9]{15,}'
+    'hosted-session url|claude\.ai/code/session_'
+    'secret shape|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+)
+
+# One grep per class over the text column; its line numbers index the rows.
+texts="$TMP/texts"
+cut -f3- "$rows" > "$texts"
+for entry in "${patterns[@]}"; do
+    class="${entry%%|*}"
+    re="${entry#*|}"
+    while IFS= read -r idx; do
+        where=$(awk -F '\t' -v i="$idx" 'NR == i { print $1 "\t" $2; exit }' "$rows")
+        report "${where%%$'\t'*}" "${where#*$'\t'}" "$class"
+    done < <(grep -nE -- "$re" "$texts" | cut -d: -f1 || true)
+done
+
+# Denylisted terms: every token and every '/'-suffix of it, against the list.
+if [ -z "$denylist" ]; then
+    echo "$PROG: denylist not provided: denylisted-term check did not run;" \
+        "checked home-directory paths, wip/ file paths, session and job identifiers," \
+        "hosted-session URLs and secret shapes"
+else
+    command -v python3 >/dev/null 2>&1 || die "python3 is required for the denylist check"
+    hits=$(python3 - "$rows" "$denylist" <<'PY'
+import re, sys
+rows_path, list_path = sys.argv[1], sys.argv[2]
+terms = {l.strip().lower() for l in open(list_path, encoding="utf-8", errors="replace")
+         if l.strip() and not l.strip().startswith("#")}
+for line in open(rows_path, encoding="utf-8", errors="replace"):
+    parts = line.rstrip("\n").split("\t", 2)
+    if len(parts) < 3:
+        continue
+    src, n, text = parts
+    hit = False
+    for tok in re.findall(r"[a-z0-9._/-]+", text.lower()):
+        tok = tok.rstrip(".")
+        while tok and not hit:
+            if tok in terms:
+                hit = True
+            tok = tok.split("/", 1)[1] if "/" in tok else ""
+        if hit:
+            break
+    if hit:
+        print(f"{src}\t{n}")
+PY
+)
+    if [ -n "$hits" ]; then
+        while IFS=$'\t' read -r src n; do
+            report "$src" "$n" "denylisted term"
+        done <<< "$hits"
+    fi
+    echo "$PROG: denylisted-term check ran against the supplied list"
+fi
+
+exit "$found"

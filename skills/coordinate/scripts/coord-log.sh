@@ -57,9 +57,15 @@
 #   coord-log.sh entered --session S --state ST
 #       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
 #       failure. Write scripts ask it whether the run has dispatched yet.
-#   coord-log.sh entry --session S --state ST [--before SEQ]
+#   coord-log.sh current --session S
+#       Prints "<state> <seq>": the state the session is in now, the target of
+#       the log's latest transition (transitioned, directed or rewound), and
+#       that entry's sequence. Exit 0; 1 no transition; 2 read failure.
+#       record-decision.sh binds each write mode to its state with it.
+#   coord-log.sh entry --session S --state ST [--before SEQ] [--with-time]
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
-#       directed or rewound), before SEQ when given. Exit 0; 1 none; 2 read failure.
+#       directed or rewound), before SEQ when given; --with-time adds the
+#       entry's timestamp as a third word. Exit 0; 1 none; 2 read failure.
 #   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
 #                         [--where FIELD=VALUE]... [--has FIELD]
 #       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
@@ -103,7 +109,7 @@ sha256() {
 # know, so the log is refused rather than misread.
 session_log() {
     local dir f v
-    dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
+    dir=$("$KOTO" session dir "$1") || return 1
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
     v=$(head -1 "$f" | jq -c '.schema_version') || v=unreadable
@@ -130,7 +136,7 @@ seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
 SCOPE= EVENT= HAS=
 WHERE='[]'
-ANY=0 ALL=0
+ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
 [ -n "$CMD" ] || usage
 shift
@@ -158,6 +164,7 @@ while [ $# -gt 0 ]; do
             shift 2 ;;
         --any-visit) ANY=1; shift ;;
         --all) ALL=1; shift ;;
+        --with-time) WITH_TIME=1; shift ;;
         *) usage ;;
     esac
 done
@@ -203,7 +210,7 @@ check)
         [ -z "$BODY" ] || usage
         T=$(mktemp "${TMPDIR:-/tmp}/coord-log.XXXXXX")
         trap 'rm -f "$T"' EXIT
-        "$KOTO" context get "$SESSION" "$KEY" > "$T" 2>/dev/null || die "cannot read context key $KEY"
+        "$KOTO" context get "$SESSION" "$KEY" > "$T" || die "cannot read context key $KEY"
         DIGEST=$(sha256 < "$T")
         [ "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$DIGEST")" = "$HASH" ] || { echo "coord-log: $KEY does not match its seal" >&2; exit 1; }
         cat "$T"
@@ -264,7 +271,7 @@ provenance)
     MINE=$(cd "$HERE/../../.." && pwd -P)
     [ -n "$ROOT" ] && [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$MINE" ] || { echo "coord-log: PLUGIN_ROOT is not this plugin" >&2; exit 1; }
     [ -n "$TEMPLATE" ] || TEMPLATE="$MINE/skills/coordinate/koto-templates/coordinate.md"
-    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null) || die "cannot compile $TEMPLATE"
+    COMPILED=$("$KOTO" template compile "$TEMPLATE") || die "cannot compile $TEMPLATE"
     WANT=$(basename "$COMPILED" .json)
     [ -n "$HASH" ] && [ "$HASH" = "$WANT" ] || { echo "coord-log: the session was not created from $TEMPLATE" >&2; exit 1; }
     ;;
@@ -276,7 +283,7 @@ live-session)
     # A run's name is coordinate-<slug>-<UTC stamp>; matching the stamp keeps a
     # longer slug (a -v2 roadmap) from reading as this scope's run.
     for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
-        st=$("$KOTO" status "$id" 2>/dev/null) || continue
+        st=$("$KOTO" status "$id") || continue
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
         jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
@@ -312,6 +319,13 @@ entered)
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     [ -n "$(latest_entry "$LOG" "$STATE")" ] || exit 1
     ;;
+current)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    CUR=$(jq -r 'select(.type == "transitioned" or .type == "directed_transition" or .type == "rewound") | "\(.payload.to) \(.seq)"' "$LOG" | tail -1)
+    [ -n "$CUR" ] || exit 1
+    printf '%s\n' "$CUR"
+    ;;
 entry|evidence|captures)
     if [ "$CMD" = captures ]; then need SESSION NAME; else need SESSION STATE; fi
     for n in "$AFTER" "$BEFORE"; do case "$n" in *[!0-9]*) usage ;; esac; done
@@ -320,7 +334,8 @@ entry|evidence|captures)
     case "$CMD" in
     entry)
         OUT=$(jq -r --arg s "$STATE" --arg b "$B" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
-            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber))) | "\(.seq) \(.payload.from // "")"' "$LOG" | tail -1) || die "cannot read $LOG"
+            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber)))
+            | "\(.seq) \(.payload.from // "")" + (if $t == 1 then " \(.timestamp)" else "" end)' --argjson t "$WITH_TIME" "$LOG" | tail -1) || die "cannot read $LOG"
         ;;
     evidence)
         OUT=$(jq -c --arg s "$STATE" --argjson a "$A" --arg b "$B" --argjson w "$WHERE" --arg h "$HAS" '

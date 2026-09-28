@@ -483,14 +483,14 @@ else
     fail "docs with commits reached [$STATE]"
 fi
 
-# code with no commits over main still reaches scrutiny; scrutiny then holds
+# code with no commits since impl_base still reaches scrutiny; scrutiny then holds
 # passed until a commit exists.
 fixture e-code
 to_implementation e-code
 tick e-code '{"implementation_status":"complete"}'
 tick e-code '{"issue_type":"code"}'
 if [ "$STATE" = scrutiny ]; then
-    pass "code reaches scrutiny with no commits over main"
+    pass "code reaches scrutiny with no commits since impl_base"
 else
     fail "code with no commits reached [$STATE]"
 fi
@@ -593,7 +593,7 @@ printf '{}\n' | ctx add e-plan qa_results.json
 tick e-plan '{"qa_outcome":"passed"}'
 tick e-plan '{"verification_outcome":"passed","commands_run":"none"}'
 printf '## Changes Made\n' | ctx add e-plan summary.md
-printf 'cleanup_commit: 4f2a91c\ndesign_diagram: not-applicable: fixture\n' | ctx add e-plan pre_pr.md
+printf 'cleanup_commit: %s\ndesign_diagram: not-applicable: fixture\n' "$(head_sha)" | ctx add e-plan pre_pr.md
 tick e-plan '{"finalization_status":"ready_for_pr"}'
 if [ "$STATE" = pre_pr_evidence ]; then
     pass "plan-backed: the run reaches pre_pr_evidence"

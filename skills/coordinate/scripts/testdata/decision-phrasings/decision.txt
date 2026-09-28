@@ -1,0 +1,18 @@
+decide whether to ship
+needs your decision
+please decide
+please decide which approach to take
+Decide whether to ship with the mixed result
+waiting on the human's decision
+needs your sign-off
+your decision on the retry limit
+which option should we take?
+should we ship or drop it?
+The user should decide
+It's the user's call
+Please confirm whether we ship
+could you pick the layout?
+your call on the flag name
+Next: decide which issue to pick up
+Decision needed: which cache backend?
+awaiting human approval

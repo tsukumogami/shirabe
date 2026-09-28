@@ -8,7 +8,10 @@
 # status, default 0) and <key>.sleep (seconds to wait first). For the Nth call
 # of a key, <key>.out.N, <key>.rc.N and so on win when present. Keys:
 #
-#   api graphql ...                               snapshot
+#   api graphql ...                               snapshot (rollup for the
+#                                                 query reading the check
+#                                                 rollup, when the case has
+#                                                 any rollup.* file)
 #   api --method GET repos/R/actions/runs?head_sha=...      runs
 #   api --method GET repos/R/actions/runs/<id>/jobs...      jobs-<id>
 #   api --method GET repos/R/branches/<b>                   branch
@@ -49,6 +52,13 @@ case "${1-} ${2-}" in
             case "$a" in query=*mutation*|query=*Mutation*) refuse "a GraphQL mutation" ;; esac
         done
         key=snapshot
+        # A case that gives the rollup query its own response (rollup.*)
+        # answers the query without the rollup from snapshot.* as before.
+        if ls "$D"/rollup.* >/dev/null 2>&1; then
+            for a in "$@"; do
+                case "$a" in query=*statusCheckRollup*) key=rollup ;; esac
+            done
+        fi
         ;;
     "api --method")
         [ "${3-}" = GET ] || refuse "a REST call that isn't GET: $*"

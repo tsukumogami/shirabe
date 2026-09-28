@@ -65,6 +65,17 @@ eq "the rotation line carries the title's dates and the record" "2026-09-15 2026
     "$(printf '%s' "$P" | jq -r '.rotation | "\(.start) \(.end) \(.host_repo) \(.record_url)"')"
 eq "it only reads GitHub" "pr view 22 --repo acme/widgets --json title,body,headRefOid" "$(calls)"
 
+DEC_E='{"decision": "1", "round": "0", "question": "Keep the retry?", "options": "keep\ndrop", "state": "settled",
+  "source": "self [20260922T090000Z raise 30]", "verdict": "settle", "recommendation": "", "reason": "", "context": "", "problem": "",
+  "grounds": "", "target": "", "owed": "", "asked": "", "evidence": "", "outcome": "keep", "decided_by": "coordinator ci-health", "updated": "2026-09-22T09:05Z"}'
+PRED_DEC=$(printf '%s' "$PRED_JSON" | jq -c --argjson e "$DEC_E" '.decisions = {next: 2, entries: [$e]}')
+seed "$(render "$PRED_DEC" pr 2026-09-22T17:00:00Z)"; session "predecessor 22"
+OUT=$(bash "$PH" --session "$S" 2>"$T/err"); rc=$?
+eq "a predecessor with a Decisions section renders" "0 rendered 22" "$rc ${OUT% sealed:*}"
+eq "the predecessor's Decisions section is copied as it stands, settled entries too" \
+    "$(printf '%s' "$PRED_DEC" | jq -S -c .decisions)" \
+    "$(bash "$HERE/record-parse.sh" --format handoff "$KOTO_STORE/sessions/$S/predecessor-handoff.md" | jq -S -c .decisions)"
+
 echo "== unparseable =="
 seed "$(render "$PRED_JSON" pr 2026-09-22T17:00:00Z)
 stray note"; session "predecessor 22"

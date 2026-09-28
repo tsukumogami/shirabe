@@ -1,0 +1,37 @@
+name: Check koto minimum
+
+# scripts/assert-koto-floor.sh defines shirabe's koto minimum once, and a dozen
+# files restate it for their readers. scripts/koto-minimum-consistency_test.sh
+# fails when one of them names another version, so this runs on any change to
+# a file it scans. It needs no koto and no network, so it gets a job of its own
+# rather than riding a workflow that installs koto. The bash 3.2 floor run is
+# in the koto-open suite (scripts/check-bash-floor.sh).
+
+on:
+  pull_request:
+    paths:
+      # The scan's git pathspecs descend (`*` crosses `/`), so the trigger does too.
+      - 'scripts/**'
+      - 'README.md'
+      - 'CLAUDE.md'
+      - '.tsuku.toml'
+      - 'docs/guides/**'
+      - 'references/**'
+      - 'skills/**/SKILL.md'
+      - 'skills/**/requires.tsv'
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/references/**'
+      - 'skills/*/scripts/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check every statement of the koto minimum agrees
+        run: bash scripts/koto-minimum-consistency_test.sh

@@ -69,7 +69,7 @@ with_deferrals() { record_json roadmap plugin-system | jq -c --argjson d "[$(IFS
 N=0
 session() { # session <vars-json> <ref> [choice] [unit]: a run at dispatch_check after a pick
     N=$((N + 1))
-    S="coordinate-roadmap-plugin-system-20260926T0800${N}Z"
+    S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
     found_session "$S" "$1" "$2"
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
     log_evidence "$S" pick "$(jq -nc --arg c "${3:-dispatch}" --arg u "${4:-beta}" '{choice: $c, unit: $u}')"
@@ -111,10 +111,51 @@ seed "$(record_json roadmap other)"
 eq "another scope's record under the number is record-changed" "record-changed" "$(check)"
 seed "$(record_json roadmap plugin-system)"; db '.fail = [{match: "issue view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 check >/dev/null; eq "a failed record read exits 2" 2 ${PIPESTATUS[0]}
-N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T0800${N}Z"
+N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
 log_new "$S" "$(roadmap_vars plugin-system)"; log_to "$S" pick dispatch_check
 seed "$(record_json roadmap plugin-system)"
 eq "a run without a found record is record-changed" "record-changed" "$(check)"
+
+echo "== check mode: owed decision work, the DESIGN's blocking table row by row =="
+ESC='"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "r", "context": "c", "problem": "p", "grounds": "scope", "target": "a person"'
+dentry() { # dentry <n> <state> [extra JSON members]: one Decisions entry
+    printf '{"decision": "%s", "round": "0", "question": "Q%s?", "options": "ship -- now\\nwait -- later", "state": "%s", "source": "self [20260925T080000Z raise %s]", "updated": "2026-09-26T07:00Z"%s}' \
+        "$1" "$1" "$2" "$1" "${3:+, $3}"
+}
+with_entries() { record_json roadmap plugin-system | jq -c --argjson e "[$(IFS=,; echo "$*")]" '.decisions = {next: 20, entries: $e}'; }
+# later: the run has already dispatched once, and this is a second pick.
+later() {
+    log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record pick_facts; log_to "$S" pick_facts pick
+    log_evidence "$S" pick '{"choice":"dispatch","unit":"gamma"}'
+    log_to "$S" pick dispatch_check
+}
+# row <label> <first-dispatch verdict> <later-dispatch verdict> <entries...>
+row_owed() {
+    local label=$1 first=$2 next=$3; shift 3
+    seed "$(with_entries "$@")"; session "$(roadmap_vars plugin-system)" 7
+    eq "$label: the first dispatch" "$first" "$(check)"
+    session "$(roadmap_vars plugin-system)" 7; later
+    eq "$label: a later dispatch" "$next" "$(check)"
+}
+# 2 an unrecorded write: a visit to decision_raise with no entry stamped for it.
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7
+log_to "$S" dispatch_check decision_raise; log_to "$S" decision_raise pick_facts; log_to "$S" pick_facts pick
+log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'; log_to "$S" pick dispatch_check
+eq "an unrecorded write: the first dispatch" "decision-owed unrecorded-raise" "$(check)"
+later
+eq "an unrecorded write: a later dispatch" "decision-owed unrecorded-raise" "$(check)"
+# 3 to 6 an owed message.
+row_owed "an owed withdrawal" "decision-owed withdraw" "decision-owed withdraw" "$(dentry 2 coordinator-verdict '"owed": "withdrawal"')"
+row_owed "an owed reply" "decision-owed reply" "decision-owed reply" \
+    "$(dentry 3 settled '"owed": "reply", "outcome": "wait; reason: r", "decided_by": "a person", "source": "worker w1 [20260925T080000Z report 1.1]"')"
+row_owed "an owed escalation" "decision-owed escalate" "decision-owed escalate" "$(dentry 5 escalated "$ESC, \"owed\": \"escalation\"")"
+# 7 and 8, and the two rows that block nothing.
+row_owed "a proposed entry" "decision-owed take" "ok gamma" "$(dentry 6 proposed)"
+row_owed "an unjudged entry" "decision-owed verdict" "ok gamma" "$(dentry 7 coordinator-verdict)"
+row_owed "a held entry" "ok beta" "ok gamma" "$(dentry 7 coordinator-verdict '"verdict": "hold", "reason": "waits on the benchmark"')"
+row_owed "an escalated entry that owes nothing" "ok beta" "ok gamma" "$(dentry 5 escalated "$ESC")"
+OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)" 7; bash "$DC" --session "$S" 2>/dev/null)
+tok_shape "decision-owed is in koto's capture alphabet" "$OUT"
 
 echo "== check mode: a topic already held =="
 pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
@@ -228,7 +269,7 @@ dseed() { # dseed <record-json> [handoff-on-main: yes|no]
 }
 dsession() {
     N=$((N + 1))
-    S="coordinate-discipline-ci-health-20260926T0800${N}Z"
+    S="coordinate-discipline-ci-health-20260926T08$(printf %02d "$N")00Z"
     found_session "$S" "$(discipline_vars ci-health)" 22
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
     log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
@@ -247,6 +288,18 @@ db '.issues += [{repo: "acme/widgets", number: 12, title: "lint", body: "", stat
 eq "filed into the record passes" "ok beta" "$(check)"
 dseed "$(record_json discipline ci-health)" no
 eq "no handoff file on the default branch is no deferral" "ok beta" "$(check)"
+# 1 carry: the handoff's unsettled entry isn't in this record yet. It blocks
+# the first dispatch; a later one never meets it, since the carry is refused
+# after the first dispatch.
+dseed "$(record_json discipline ci-health)" no
+record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '. + {decisions: {next: 9, entries: $e},
+    rotation: {start: "2026-09-19", end: "2026-09-26", date: "2026-09-26", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"},
+    reasoning: "Lint is flaky."}' | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$HP" --arg t "$(cat "$T/prev.md")"
+dsession
+eq "a carry owed: the first dispatch" "decision-owed carry" "$(check)"
+later
+eq "a carry owed: a later dispatch" "ok gamma" "$(check)"
 echo "-- after the first pass --"
 dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"closed: fixed upstream"}')"
 dsession

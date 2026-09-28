@@ -121,8 +121,9 @@ summary; if the script succeeds but the AC is not met, the script is wrong.
 
 ## Implementation Review
 
-**Self-review (always):** `git diff main...HEAD`, then re-read acceptance
-criteria and verify each is satisfied.
+**Self-review (always):** `git diff "$(koto context get <WF> impl_base)" HEAD`
+-- this run's changes from the commit `analysis` recorded, which needs no local
+`main` -- then re-read acceptance criteria and verify each is satisfied.
 
 **Agent review (non-trivial implementations):** Launch specialized agents as
 needed: security, performance, testing, architecture. Check for scope shrinkage
@@ -159,7 +160,7 @@ for KEY in plan.md scrutiny_results.json review_results.json qa_results.json sum
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}" --no-cleanup
 ```
 
 The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.

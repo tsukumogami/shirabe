@@ -13,12 +13,8 @@ on:
       # skills/execute/scripts/** untouched.
       - 'skills/execute/koto-templates/**'
       - 'skills/execute/SKILL.md'
-      # terminal-retention_test.sh asserts that NO skill names execute.md as its
-      # children's template. That premise is broken by an edit to some OTHER
-      # skill, and the scan reads every markdown file under skills/ -- this repo
-      # puts `koto init` in references/phases too -- so the trigger has to be
-      # just as wide as the scan. A narrower one merges the case the scan was
-      # widened for without ever running it.
+      # Wide, because the suites here read other skills' files: run-cascade.sh
+      # lives under skills/work-on/, and execute.md materializes work-on.md.
       - 'skills/**'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
@@ -123,6 +119,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/eval-gh-shim_test.sh
 
+      # The eval koto shim's execute-session arm: what the drift scenarios'
+      # ticks, status and failure_reason answer.
+      - name: Run eval koto shim tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/eval-koto-shim_test.sh
+
       # The coordinated loop's scripts: the next action, the verdict and its
       # record, the setup record, node branches, node pushes and their head=
       # records, and the merge. Each drives the eval gh shim's repository
@@ -145,7 +147,7 @@ jobs:
       # same way validate-templates.yml gets it.
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
@@ -199,9 +201,7 @@ jobs:
 
       # terminal-retention_test.sh drives the shipped execute.md to its real
       # terminals to assert the session's context survives them, which needs the
-      # same engine. It also checks the premise behind /execute passing
-      # --no-cleanup unconditionally: that nothing materializes execute.md as a
-      # koto child.
+      # same engine.
       - name: Run terminal-retention tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/terminal-retention_test.sh

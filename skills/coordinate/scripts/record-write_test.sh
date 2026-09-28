@@ -16,7 +16,11 @@
 # session refused unless it is its scope's one live session (an older run of
 # the same record, several live, a terminal run, another scope's name), with
 # the slug derived as coordinate-open.sh derives it; the record number from
-# run-facts; failed writes (11) and reads (2).
+# run-facts; failed writes (11) and reads (2). The Decisions section: a write
+# that adds, drops or edits it is refused (65) even with DECISIONS_WRITER=1 in
+# the environment, one that carries the live section is written, and a
+# Decisions text cell naming a private repository from a public host is
+# refused; a render over the 60,000-byte budget is refused as record-full (13).
 #
 # Usage: bash skills/coordinate/scripts/record-write_test.sh
 set -uo pipefail
@@ -229,5 +233,56 @@ log_new "$DBAD" "$(discipline_vars CI_Health..)"
 bash "$WR" --session "$DBAD" --body-file "$T/dnew.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a session not named by the slug is refused by the guard" "10 not the live" "$rc $(grep -o 'not the live' "$T/err" | head -1)"
 log_end "$DSESS"
+
+echo "== the Decisions section =="
+DEC='{"next": 3, "entries": [{"decision": "1", "round": "0", "question": "Ship with the mixed result?", "options": "ship\nhold", "state": "proposed",
+      "source": "worker ci-pin [20260927T233505Z report 40.1]", "verdict": "", "recommendation": "", "reason": "", "context": "", "problem": "",
+      "grounds": "", "target": "", "owed": "", "asked": "", "evidence": "", "outcome": "", "decided_by": "", "updated": "2026-09-27T23:40Z"},
+     {"decision": "2", "round": "0", "question": "Which cache?", "options": "a\nb", "state": "proposed",
+      "source": "self [20260927T233505Z raise 41]", "verdict": "", "recommendation": "", "reason": "", "context": "", "problem": "",
+      "grounds": "", "target": "", "owed": "", "asked": "", "evidence": "", "outcome": "", "decided_by": "", "updated": "2026-09-27T23:40Z"}]}'
+seed_rm
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d')" issue > "$T/adddec.md"
+bash "$WR" "${RM[@]}" --body-file "$T/adddec.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a write that adds a Decisions section is refused" 65 "$rc"
+grep -q 'record-decision.sh' "$T/err" && ok "the refusal names the decision writer" || bad "the refusal names the decision writer" "$(cat "$T/err")"
+eq "and nothing is written" "$OLD" "$(body7)"
+DECENV=$(DECISIONS_WRITER=1 bash "$WR" "${RM[@]}" --body-file "$T/adddec.md" 2>&1 >/dev/null; echo "rc=$?")
+eq "DECISIONS_WRITER in the environment doesn't open the section" 65 "${DECENV##*rc=}"
+OLDD=$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DEC" '.decisions = $d')" issue)
+seed_rm; db '.issues[0].body = $b' --arg b "$OLDD"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d')" issue > "$T/keepdec.md"
+bash "$WR" "${RM[@]}" --body-file "$T/keepdec.md" >/dev/null 2>"$T/err"; eq "a write carrying the live Decisions section is written" 0 $?
+body7 | grep -qx 'Next decision: 3' && ok "the section is kept as it was" || bad "the section is kept as it was" "$(body7 | tail -5)"
+seed_rm; db '.issues[0].body = $b' --arg b "$OLDD"
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write that drops the live Decisions section is refused" 65 $?
+seed_rm; db '.issues[0].body = $b' --arg b "$OLDD"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d | .decisions.entries[1].question = "Which cache backend?"')" issue > "$T/editdec.md"
+bash "$WR" "${RM[@]}" --body-file "$T/editdec.md" >/dev/null 2>"$T/err"; eq "a write that edits an entry is refused" 65 $?
+DECPROSE=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does the and/or rule hold for CI/CD, n/a elsewhere, and acme/secret?"')
+seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue)"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue > "$T/prose.md"
+reset_calls
+bash "$WR" "${RM[@]}" --body-file "$T/prose.md" >/dev/null 2>"$T/err"
+eq "a word/word in a Decisions question is prose, not a repository" 0 "$?"
+calls | grep -Eq 'repos/(and/or|CI/CD|n/a|acme/secret)' && bad "prose makes no repository read" "$(calls | grep repos/)" || ok "prose makes no repository read"
+DECPRIV=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does acme/secret#3 ship first?"')
+seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue)"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue > "$T/privdec.md"
+bash "$WR" "${RM[@]}" --body-file "$T/privdec.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a Decisions text cell naming a private repository from a public host is refused" 65 "$rc"
+grep -q 'acme/secret' "$T/err" && ok "the refusal names it" || bad "the refusal names it" "$(cat "$T/err")"
+
+echo "== the size budget =="
+seed_rm
+BIG=$(head -c 61000 /dev/zero | tr '\0' 'x')
+render "$(printf '%s' "$NEWJ" | jq -c --arg r "$BIG" '.deferrals[3].reason = $r')" issue > "$T/big.md"
+bash "$WR" "${RM[@]}" --body-file "$T/big.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a body over the 60,000-byte budget is refused as record-full" 13 "$rc"
+grep -q 'record-full' "$T/err" && ok "the refusal says record-full" || bad "the refusal says record-full" "$(cat "$T/err")"
+eq "and nothing is written" "$OLD" "$(body7)"
+{ cat "$T/big.md"; head -c 70000 /dev/zero | tr '\0' 'y'; } > "$T/huge.md"
+bash "$WR" "${RM[@]}" --body-file "$T/huge.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a body past the parser's own limit is record-full too, not a parse refusal" 13 "$rc"
 
 done_tests record-write

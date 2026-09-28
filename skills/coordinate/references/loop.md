@@ -10,72 +10,74 @@ fires. The land step's table and merge confirmation are in
 
 ## A Full Reconcile, in Order
 
-Hand the reads to a local agent when there are more than a few holdings, and
-have it return the report below rather than the raw output. Your context is
-for the judgment at the end, not for the reads.
+The reads are the engine's, not yours. Once `record_find` has found the
+record, the workflow enters `reconcile_pass`, whose action is
+`scripts/reconcile-pass.sh`. Each tick runs one bounded pass of it; your only
+move there is to tick again with no evidence.
 
-1. **Read the record.** The record is the one `record_find` adopted (the
-   reconcile directive names it; an issue at roadmap scope, a pull request at
-   discipline scope). Read its body and note its `Written:` time: every row
-   under it is a claim as of that time.
-2. **Read the scope.** For a roadmap, read its Features section from the
-   default branch (each feature's status and dependencies). For a
-   discipline, read the previous handoff at `docs/disciplines/<name>.md` on
-   the default branch, then list the open issues and failing checks in its
-   area.
-3. **Re-check each holding against GitHub.** For each row in Holdings:
+- **Pending.** While reads remain, the state holds and `reconcile/progress`
+  says how many are left. A worker the workspace manager didn't list is read
+  again 30 seconds after the first read, so a pass can end pending with that
+  re-read still due. Tick again after the wait.
+- **Blocked.** When the record can't be read, the state holds and
+  `reconcile/refusal` names the case (`none` or `unreadable`) and the reason.
+  Say what it names to the human and stop. Ticking again re-reads the record.
+- **Sealed.** When every read is done, the pass writes `reconcile/report.json`
+  and `reconcile/report.md` (and, at discipline scope, `reconcile/reasoning.md`
+  with the previous rotation's reasoning, verbatim), seals the report to this
+  visit, and the workflow moves to `reconcile`. Read `reconcile/report.md`
+  there and report it up. The state's gate accepts only the report the pass
+  sealed in this visit.
 
-   ```bash
-   gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus
-   ```
+Never write a `reconcile/` context key. A report written or changed by anyone
+but the pass holds the workflow in `reconcile`.
 
-   When the row has a Verified head and the pull request is still open,
-   compare its current head with that Verified head: a head that moved is
-   unverified again, and goes back through verify before any merge is
-   considered.
+What the pass reads, per claim in the record. The report grades each claim as
+measured, verified by reading, or inferred:
 
-   Read its CI and remote ref with `scripts/board-verdict.sh --repo
-   <owner/repo> --pr <n>`, not a checks rollup: it is the read that shows each
-   job's runner and step count and re-reads the ref last, and the same one the
-   verify step uses (`references/verification-checklist.md`, "The Reads").
+1. **The record.** It reads the record body live, parses it with the record
+   feature's parser, and treats every row as a claim as of its `Written:`
+   time. A row it can't parse is listed under "Not verified" with its raw
+   line, and every other row is still re-checked. At discipline scope it adds
+   the previous handoff at `docs/disciplines/<name>.md` on the default branch,
+   rows labelled with the handoff's date.
+2. **Each holding against GitHub.** For a holding with a pull request, it runs
+   `gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus,baseRefName`
+   and reads the branch with `git ls-remote`. It reads CI at the verified head
+   (and at the live head when they differ) through the record feature's board
+   check, which reads runs then jobs, not a checks rollup. For a row whose pull
+   request is "none yet", it lists pull requests on its branch the way
+   `gh pr list --repo <owner/repo> --head <branch> --state all` does.
+   Read the state of any issue a holding names yourself, when you act on it.
+3. **Each holding against the host.** It finds each worker by its dispatch
+   topic in the workspace manager's listing: with niwa,
+   `niwa list` from the workspace root, the listing it reads. A worker it finds has its unique
+   material listed from every clone in the instance: commits no live remote
+   ref holds (the plumbing equivalent of
+   `git log --branches --not --remotes --oneline`, run without `git status`
+   and without fetching), uncommitted changes, untracked files, stashes and
+   worktrees. Prove a file durable by its content, not by ancestry: the pass
+   compares each changed file's content with the default branch's tree, so a
+   squash-merged branch reads as landed. A worker missing from two listing
+   reads 30 seconds apart is "not found on this read", never "dead" or
+   "gone". A roster read just after an outage can't tell "gone" from "not back
+   yet", so only a signal that the worker is gone, such as a message that
+   bounces, makes it gone.
+4. **Re-check side effects in flight.** A merge is confirmed when the pull
+   request is merged and every file it changed has, on the default branch,
+   the content it had at the verified head, as "Confirming a Merge" in
+   `references/verification-checklist.md` describes. It is the same check
+   the loop's `merge_confirm` makes, so the two can't disagree. A close is confirmed when
+   the target reads closed, and a teardown by two listing reads and the disk.
+   Any other side effect is reported as not re-checked.
+5. **Read the deferrals.** List every row for the report, disposed or not,
+   through the record feature's disposal check; SKILL.md's record section says
+   when each must be disposed of.
 
-   For a row whose pull request is "none yet", check whether one has
-   appeared since:
-
-   ```bash
-   gh pr list --repo <owner/repo> --head <branch> --state all --json number,state,url
-   ```
-
-   Read the state of any issue a holding names with `gh issue view`.
-4. **Re-check each holding against the host.** Ask the workspace manager
-   whether each worker's session and instance still exist: with niwa,
-   `niwa list` from the workspace root, finding each worker by its dispatch
-   topic, then check that its instance directory is still on disk. For any
-   session or instance you might tear down, list its unique material: in
-   each clone, `git status --porcelain` and
-   `git log --branches --not --remotes --oneline`; its worktrees
-   (`git worktree list`); and its scratch directory. Prove a file durable
-   by its content, not by ancestry: its blob hash must appear on a remote
-   ref that survives a squash merge, since a commit reachable from a
-   feature branch is gone once that branch is squashed and deleted.
-
-   ```bash
-   BLOB=$(git hash-object <file>)
-   git fetch origin <default-branch>
-   git log origin/<default-branch> --find-object="$BLOB" --oneline -1
-   ```
-
-   Output means the content is on the default branch; no output means the
-   file is unique material. Record a session missing from the roster as "not
-   seen" in the report, never "dead": a roster read just after an outage
-   can't tell "gone" from "not back yet", so only a signal that the worker
-   is gone, such as a message that bounces, makes it dead.
-5. **Re-check side effects in flight.** For each row, run its "How to
-   confirm" read. A merge attempted and never confirmed is settled by
-   comparing the default branch against the row's verified head, as
-   "Confirming a Merge" in `references/verification-checklist.md` shows.
-6. **Read the deferrals.** List every row for the report; SKILL.md's
-   record section says when each must be disposed of.
+After the report is up, read the scope. For a roadmap, read its Features section from the
+default branch (each feature's status and dependencies). For a discipline,
+list the open issues and failing checks in its
+area. The pick that follows works from both.
 
 ## Before Dispatching an Issue
 
@@ -120,26 +122,55 @@ feature's status on the roadmap rather than setting it yourself.
 
 ## The Reconcile Report
 
-```
-Reconciled <scope> against the record written <time>.
+The pass builds the report (`scripts/reconcile-report.sh`) and seals it; you
+report it, you don't write it. `reconcile/report.md` opens with the scope,
+when the record was written and when it was reconciled, then has these
+sections, in this order, each line carrying its grade:
 
-Changed since then:
-- <holding or side effect>: record said <old>, GitHub or the host says <new> (measured | verified by reading | inferred).
+- **Changed since then:** each claim the reads contradict, with what the
+  record said and what GitHub or the host says now.
+- **Where things stand:** one table, `Kind | Unit | Session | PR | Status |
+  Next or needs`, with N/A where a column can't apply (a pull request that
+  isn't there yet but could be reads "none yet"). Its rows come in four
+  kinds, always in this order:
+  1. **Ready to merge:** pull requests ready to be reviewed and merged (ready to
+     land, or held by the person's direction), each with its session so the
+     person can talk to it, in the order to merge them. Reconcile keeps the
+     record's holding order; it doesn't read dependencies, so reorder by them
+     when you report it up if they say otherwise.
+  2. **Blocked on you:** only what waits on the person: a decision entry
+     escalated to them, with its recommendation and reason, and a finishing
+     step reserved for them, such as a merge that didn't confirm. A holding
+     whose pull request was closed is yours to re-dispatch or drop, so it is
+     in Ongoing. It is derived at each report and never stored.
+  3. **Ongoing:** every other session in flight, with its pull request link if
+     it has one, its status as just read, and what happens next.
+  4. **Waiting to be assigned:** reconcile reads the record, not the scope's
+     unassigned work, so its row is N/A. Fill it from the scope read that
+     follows, in the order the work will be assigned as the cap frees.
 
-Holding (<n> of <bound> active; parked at ready: <m>):
-- <unit> -- `<dispatch topic>` -- <state as just read> -- next: <what happens next> -- [#<n>](<URL>), or "none yet"
+  A holding whose pull request merged or that the reader refused has no row;
+  its change or refusal is in its own section.
+- **Exists nowhere else:** workers with no pull request, and anything their
+  instance holds that no remote does.
+- **Side effects:** each side effect in flight, confirmed, not confirmed with
+  the reason, or not re-checked.
+- **Undisposed deferrals:** every deferral still owed a disposition.
+- **Predecessor's reasoning** (discipline scope): where the previous
+  rotation's reasoning is, as its view, not re-checked.
+- **Not verified:** everything the pass couldn't read, and why, including
+  record rows it couldn't parse.
 
-Waiting on the human:
-- <decision or finishing step> -- <recommendation>
-
-Unique material held outside any remote:
-- <worker or instance>: <what, where>
-
-Open deferrals:
-- <deferral> (raised <date>): <reason>
-
-Not verified: <anything you could not read, and why>.
-```
+What a person reads follows two rules, and the renderer enforces both: the
+one table above, in its four kinds and their order; and a pull request or
+issue is a clickable link, never a bare number, a worker's name is inline
+code, and no commit hash appears. Heads stay in the record's rows and in
+`reconcile/report.json`, where the checks read them. Keep the same form when
+you report it up, and keep the report's own words for its header and section
+names: its opening lines as written (they say when the record was written,
+when it was reconciled, and whether the reconcile scripts ran from inside or
+outside the repository being worked on), and each section under its own name,
+such as "Changed since then".
 
 Every later report ends with the progress table `scripts/progress-view.sh`
 prints (SKILL.md, "Reporting").
@@ -147,23 +178,33 @@ prints (SKILL.md, "Reporting").
 ## The Shape of an Escalation
 
 An escalation goes to whoever dispatched you, once, and carries everything
-needed to decide without asking back. It lists options because the
-recipient is choosing between moves you can't make alone:
+needed to decide without asking back. You don't write it: it is a decision
+entry you escalated at `decision_verdict`, and the `escalate` check renders it
+from the entry, which is why the verdict asks for every part of it. The
+rendered form is:
 
-```
-Escalating <unit> in <scope>.
+```text
+Decision <n> round <r>.
 
-What happened: <the failure, with the pull request and the CI job or
-conflict that shows it>.
-What I verified: <reads, with the head sha and time, each marked measured, verified by reading, or inferred>.
-What I tried: <re-dispatches so far, with what each learned>.
-Options: <two or three, each with its consequence>.
-Recommendation: <one option and why>.
-Until you answer: <what stays paused, and the units that keep moving, each by name>.
-Waiting on the human:
-- <this decision> -- <recommendation>
-- <anything else already waiting on them>
+<context: what happened, what you verified and tried, each claim graded>
+
+<problem: why this is the recipient's to decide, and what stays paused
+until they answer>
+
+<question>
+1. <recommended option> (recommended: <reason>)
+   <what choosing it does>
+2. <other option>
+   <what choosing it does>
+
+Answer naming decision <n> round <r> and an option, or give another outcome with its reason.
+Digest: <sha256 of every byte above this line>
 ```
+
+Put what happened, what you verified and what you tried in the context, and
+what stays paused and what keeps moving in the problem. What else waits on
+the recipient is the progress table's "Blocked on you" rows, not a list in
+the message.
 
 ## More Worked Examples
 

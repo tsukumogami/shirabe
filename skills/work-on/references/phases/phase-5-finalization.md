@@ -5,35 +5,40 @@ Verify changes, create summary, record the pre-PR referents, clean up artifacts.
 ## What this state must write
 
 Two koto context keys, both before you submit `ready_for_pr` (or before a
-deferral is approved). Their shape is
+deferral is approved). They are
 checked on the way out of this state and checked again at `pre_pr_evidence`:
 
 | Key | Required | Gate |
 |-----|----------|------|
 | `summary.md` | a `## Changes Made` heading, spelled exactly that way | `summary_shape` |
-| `pre_pr.md` | a line `cleanup_commit: <sha>`, 7 to 40 hex characters | `cleanup_referent` |
-| `pre_pr.md` | a line `design_diagram: docs/<path>.md` or `design_diagram: not-applicable: <reason>` | `diagram_referent` |
+| `pre_pr.md` | one line `cleanup_commit: <sha>`, 7 to 40 lowercase hex characters, naming a commit that is `HEAD` or an ancestor of it | `cleanup_referent` |
+| `pre_pr.md` | one line `design_diagram: docs/<path>.md`, a file in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>` | `diagram_referent` |
 
 `## Changes Made` is required because it's the part of the summary a reviewer
 and the PR body are built from; the rest of the template below is guidance.
 The `pre_pr.md` lines are referents rather than claims, so a word such as `done`
-or `yes` where a sha or a path belongs fails. `not-applicable` is hyphenated and
+or `yes` where a sha or a path belongs fails, and so does a sha that names no
+commit in `HEAD`'s history or a path that isn't committed.
+`scripts/check-pre-pr-referents.sh` makes both checks. koto keeps only the
+gate's exit status, so when one fails, run the script yourself (the template's
+finalization directive gives the command) and read the reason it prints. `not-applicable` is hyphenated and
 needs a reason after it. Don't confuse it with the `not_applicable` evidence
 value you submit later at `pre_pr_evidence`: that one is an enum, this one is a
 line of text, and neither accepts the other's spelling.
 
 Why here: at `pre_pr_evidence` the same check failing ends the run at
-`done_blocked`, and for a child of `/execute` that terminal also disposes of its
-log (tsukumogami/koto#240), so the parent can't retry it. Here a failure only holds. A
-`ready_for_pr` submission with either artifact malformed matches no edge, the
+`done_blocked`, and the run has to be re-entered to fix one artifact. Here a
+failure only holds. A `ready_for_pr` submission with either artifact malformed matches no edge, the
 state stays `finalization`, and the response's `blocking_conditions` names the
 failing gate. Fix that artifact and submit again:
 
 - `summary_exists` or `summary_shape` failed: write `summary.md` with a
   `## Changes Made` section.
-- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`.
-- `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
-  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
+- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, from
+  `git rev-parse HEAD` rather than typed by hand.
+- `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
+  committed in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in
+  `pre_pr.md`.
 
 The same hold applies to an approved deferral at `deferral_approval`.
 
@@ -109,7 +114,9 @@ EOF
 `not-applicable: <reason>` when the change touches no design document. When the
 issue body carries a `Design:` reference, run the update in
 `phase-6-design-diagram-update.md` now and record that path, so the line names
-an update that has happened rather than one still to come.
+an update that has happened rather than one still to come. The path has to be
+committed before you submit `ready_for_pr`: the gate looks for it in `HEAD`'s
+tree, not in the working directory.
 
 ### Commit
 
@@ -149,7 +156,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md 
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}" --no-cleanup
 ```
 
 Two states gate on `summary.md`, and both are covered by clearing it here. This phase is the obvious one. `deferral_approval` is the one worth naming, because it looks safe and is not: exactly one transition targets it and nothing routes back into it, so the state is entered once — but `finalization` upstream of it sits on a cycle, so that single entry can happen carrying a summary written before the fixes. What makes presence gating sound is that the key cannot survive from one evaluation of the gate into another, by any path; counting entries into the state is the wrong test.

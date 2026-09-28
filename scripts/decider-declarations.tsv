@@ -21,3 +21,6 @@ skills/coordinate/koto-templates/coordinate.md	pick	choice	hold	shadow
 skills/coordinate/koto-templates/coordinate.md	classify_report	classification	done	shadow
 skills/coordinate/koto-templates/coordinate.md	classify_report	classification	blocked	shadow
 skills/coordinate/koto-templates/coordinate.md	classify_report	classification	needs_fix	shadow
+skills/coordinate/koto-templates/coordinate.md	decision_verdict	verdict	settle	shadow
+skills/coordinate/koto-templates/coordinate.md	decision_verdict	verdict	escalate	shadow
+skills/coordinate/koto-templates/coordinate.md	decision_verdict	verdict	hold	shadow

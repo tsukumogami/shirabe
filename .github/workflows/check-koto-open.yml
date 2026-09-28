@@ -15,6 +15,10 @@ on:
       - 'scripts/koto-open_test.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
+      # In the koto-open floor suite, so their bash 3.2 runs happen here.
+      - 'scripts/koto-minimum-consistency_test.sh'
+      - 'scripts/check-koto-release.sh'
+      - 'scripts/check-koto-release_test.sh'
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
@@ -44,7 +48,7 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
@@ -63,6 +67,14 @@ jobs:
       - name: Run koto floor assertion tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/assert-koto-floor_test.sh
+
+      - name: Run the decider check's tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          # ubuntu-latest ships mikefarah yq v4; a skip here would be a runner
+          # image that stopped shipping it, which should fail, not pass.
+          CHECK_KOTO_RELEASE_REQUIRE_YQ: "1"
+        run: bash scripts/check-koto-release_test.sh
 
       - name: Run koto-open suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

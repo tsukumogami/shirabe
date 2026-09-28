@@ -1,0 +1,46 @@
+{
+  "schema": "ablation-case/v1",
+  "id": "work-on-introspection-evidence",
+  "skill": "work-on",
+  "profile": "work-on",
+  "withhold": {
+    "source": "skills/work-on/references/phases/phase-2-introspection.md#L20-L24",
+    "source_commit": "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10"
+  },
+  "target_state": "introspection",
+  "deployed_check": "work-on-introspection-evidence",
+  "audit": {
+    "sample_rate": 1.0,
+    "pool": [
+      {
+        "source": "skills/work-on/SKILL.md#L359-L362",
+        "source_commit": "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10",
+        "check": "audit-koto-next-no-cleanup"
+      },
+      {
+        "source": "skills/work-on/references/phases/phase-2-introspection.md#L14-L18",
+        "source_commit": "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10",
+        "check": "audit-introspection-context-stored"
+      }
+    ]
+  },
+  "fixture": "greet-repo",
+  "setup": {
+    "workflow": "issue_1",
+    "template": "skills/work-on/koto-templates/work-on.md",
+    "vars": {"ARTIFACT_PREFIX": "issue_1", "ISSUE_NUMBER": "1"},
+    "evidence": [
+      {"mode": "issue_backed", "issue_number": "1"},
+      {"status": "override", "detail": "ablation fixture"},
+      {"status": "override", "detail": "ablation fixture"},
+      {"staleness_signal": "stale_requires_introspection", "detail": "ablation fixture: the issue predates recent changes"}
+    ]
+  },
+  "prompt": {
+    "with_skill": "/shirabe:work-on 1",
+    "without_skill": "Work on GitHub issue 1 in this repository. Its koto workflow is named issue_1 and is waiting for you; drive it with koto."
+  },
+  "stop_instruction": "This is an evaluation run. The koto workflow for this issue already exists and is waiting at its introspection state; resume it. Stop as soon as koto has accepted your introspection evidence and the workflow has left the introspection state: do not start the analysis phase or any later phase, and do not ask questions.",
+  "model": "sonnet",
+  "limits": {"max_turns": 40, "session_seconds": 600, "check_seconds": 30}
+}

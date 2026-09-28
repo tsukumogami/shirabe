@@ -31,6 +31,7 @@
 #
 koto	tsuku	any	tsuku tsuku-info	tsuku install koto@latest && . ~/.tsuku/env	-
 shirabe	tsuku	any	tsuku tsuku-info	tsuku install shirabe@latest && . ~/.tsuku/env	-
+niwa	tsuku	any	tsuku tsuku-info	tsuku install tsukumogami/niwa && . ~/.tsuku/env	-
 gh	tsuku	linux	never	-	tsukumogami/tsuku#2245
 gh	tsuku	darwin	tsuku tsuku-info	tsuku install gh@latest && . ~/.tsuku/env	-
 gh	homebrew	darwin	brew -	brew install gh	-
@@ -59,3 +60,4 @@ git	homebrew	darwin	brew -	brew install git	-
 git	apt-get	linux	apt-get -	sudo apt-get install -y git	-
 python3	homebrew	darwin	brew -	brew install python3	-
 python3	apt-get	linux	apt-get -	sudo apt-get install -y python3	-
+pkill	apt-get	linux	apt-get -	sudo apt-get install -y procps	-

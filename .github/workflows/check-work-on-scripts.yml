@@ -13,7 +13,7 @@ on:
       # which gate holds which state.
       - 'skills/work-on/koto-templates/**'
       # terminal-retention_test.sh reads the retention rule out of SKILL.md and
-      # fails when it is missing or stops routing through the discriminator.
+      # fails when it is missing, names a state, or depends on the run's role.
       - 'skills/work-on/SKILL.md'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
@@ -42,8 +42,8 @@ jobs:
       # cannot be checked without the engine that evaluates the gate. koto
       # arrives through the project tool manifest, the same way
       # check-execute-scripts.yml and validate-templates.yml get it.
-      # terminal-retention_test.sh needs jq to read koto's parentage field and its
-      # converge verdicts. Without this the suite skips its engine-backed cases
+      # terminal-retention_test.sh and ci-monitor-role_test.sh need jq to read
+      # koto's responses and its parentage field. Without this the suite skips its engine-backed cases
       # with exit 0, so a runner that stopped shipping jq would go green having
       # tested almost nothing.
       - name: Install jq (Linux)
@@ -52,7 +52,7 @@ jobs:
 
       - name: Install tsuku (Linux)
         if: runner.os == 'Linux'
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@377de20d99e3b219c7c408eeec76311b97990840  # installs tsuku 0.15.0
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
       - name: Install project tools (Linux)
         if: runner.os == 'Linux'
@@ -120,15 +120,23 @@ jobs:
       # Walks the shipped template to finalization and asserts a malformed
       # summary.md or pre_pr.md holds the run there, naming the failing gate,
       # rather than reaching pre_pr_evidence's done_blocked backstop. Also pins
-      # that the early gates carry the backstop's patterns. Needs the engine.
+      # that the early gates are identical to the backstop's. Needs the engine.
       - name: Run finalization shape tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/finalization-shape_test.sh
 
+      # Runs the referent check the pre-PR gates call against a repository with
+      # real commits: a sha naming no commit, a commit from another branch and a
+      # diagram path never committed must fail; HEAD and a committed path pass.
+      - name: Run pre-PR referent check tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/check-pre-pr-referents_test.sh
+
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
-      # to assert the run's context survives it, and materializes a child to
-      # assert that a child carrying the same flag blocks its parent's converge.
-      # Both need the engine.
+      # to assert the run's context survives it, and materializes children to
+      # assert that a flagged child is kept and still delivers its result, and
+      # that a failed child is kept, readable, and retryable. Both need the
+      # engine.
       - name: Run terminal-retention tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/terminal-retention_test.sh
@@ -142,6 +150,15 @@ jobs:
       - name: Run changed-paths record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
+
+      # has-commits_test.sh runs the has_commits check against real clones of
+      # three shapes (plain, no local main, linked worktree) through a koto
+      # stand-in, so those cases also run on the macOS floor through the
+      # work-on suite. Its engine half drives the shipped template's docs and
+      # scrutiny routes in each shape and skips without koto, so it runs here.
+      - name: Run has_commits tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/has-commits_test.sh
 
       # check-staleness_test.sh runs the ported staleness check against a
       # stubbed gh and a throwaway repository, which needs only jq and git. Its
@@ -163,7 +180,7 @@ jobs:
         run: bash skills/work-on/scripts/work-on-open_test.sh
 
       # The mode:koto-leg floor record, against a stand-in koto older than the
-      # entry flags: a run without the flag stays on the older floor. The macOS
+      # entry flags: a run without the flag is not refused for lacking them. The macOS
       # leg runs it on the floor through the work-on suite.
       - name: Run koto floor declaration tests (Linux)
         if: runner.os == 'Linux'

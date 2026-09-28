@@ -1,23 +1,13 @@
 ---
-# Terminal-tick retention (#360). --no-cleanup is DELIBERATELY ABSENT from this
-# template and must stay absent. This file is also the child template for
-# /execute's spawn_and_await, and on a koto child the flag suppresses the events
-# that carry the child's result to the parent, so the parent never receives it.
-#
-# Root runs still get retention: the rule lives in ../SKILL.md's Execution Loop,
-# gated on scripts/session-role.sh. A root passes the flag on every tick; a child
-# passes it nowhere.
-#
-# The rule and the measurements behind it, including why /execute's template
-# takes the opposite position: ../../../references/koto-session-retention.md
-#
-# scripts/terminal-retention_test.sh greps this file to keep the flag out, and
-# pins what the flag does to a child's result. koto#240 is the platform fix that
-# would retire the exception.
+# Terminal-tick retention (#360). Every `koto next` a /work-on run makes
+# carries --no-cleanup, whether the run is a root or a child that /execute
+# materialized from this template: on a child the flag only keeps the session,
+# and its result still reaches the parent. The rule lives in ../SKILL.md's
+# Execution Loop, and the command lines in the phase files carry the flag.
+# Why every tick: ../../../references/koto-session-retention.md
 #
 # A YAML comment, so it reaches a template editor without koto rendering it into
-# any state's directive -- which is also why the grep above excludes frontmatter
-# comments but nothing below them.
+# any state's directive.
 name: work-on
 version: "1.0"
 description: >
@@ -93,8 +83,7 @@ variables:
 
       Rebindable, as in execute.md: a plugin update moves the path, and a
       resume under --koto-leg attaches through `koto init --attach-live`, which
-      refuses a changed non-rebind variable. koto 0.12.2, the floor for runs
-      without that flag, ignores the key; the template behaves the same there.
+      refuses a changed non-rebind variable.
     required: true
     rebind: true
 
@@ -322,8 +311,8 @@ states:
 
   plan_validation:
     # verdict is decider-eligible. The decider block lives inside the field,
-    # where koto v0.12.2 drops it unread, so a user without a decider sees this
-    # state exactly as before. `proceed` is shadow and `exit` is never: exit
+    # and a user without a decider sees this state exactly as before. `proceed`
+    # is shadow and `exit` is never: exit
     # routes to the validation_exit terminal, which no answer may take on a
     # model's word. Golden fixtures sit beside this template as
     # work-on.plan_validation.verdict.decider.jsonl, and
@@ -484,13 +473,15 @@ states:
     # earlier commits from the record. On a SHARED_BRANCH, the base is also what
     # keeps the commits siblings made before this run out of it.
     #
-    # The action's failure is not the run's failure. It stops the tick with the
-    # fallback below, and submitting the analysis evidence skips the action;
-    # changed_paths_record then falls back to a merge-base.
+    # The action's failure stops the tick with the fallback below. The run can
+    # go on once impl_base is recorded, by a re-run or by the agent; without it
+    # changed_paths_record falls back to a merge-base, but has_commits fails
+    # (it guards routes that must not be taken without commits), so the
+    # fallback asks for the key before the analysis evidence.
     #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
-    # variable carries the session's name. koto 0.12.2 substitutes it inside a
+    # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}"'
@@ -500,10 +491,13 @@ states:
         HEAD names no commit or this is not a git repository, 66 when writing
         the context key failed, and 127 or 126 when PLUGIN_ROOT does not reach
         the plugin. Fix the cause and tick again -- the action re-runs on entry
-        and never overwrites a base it already recorded. Or carry on: do the
-        analysis and submit `plan_outcome` as usual, which skips the action.
-        The changed-paths record then diffs from the merge-base with the
-        default branch instead.
+        and never overwrites a base it already recorded. If it can't be fixed,
+        record the base yourself before committing anything:
+        `git rev-parse HEAD | koto context add <session> impl_base`, with
+        this workflow's session name for <session>.
+        Then do the analysis and submit `plan_outcome` as usual, which skips
+        the action. Don't go on without impl_base: the has_commits gate on the
+        docs and scrutiny routes fails until it is recorded.
     gates:
       plan_artifact:
         type: context-exists
@@ -679,8 +673,10 @@ states:
     # straight to verification with no later state that would notice a branch
     # carrying no commits.
     #
-    # has_commits is byte-identical to scrutiny's copy, and to what
-    # implementation carried before the question moved here.
+    # has_commits is byte-identical to scrutiny's copy. It counts the commits
+    # since impl_base, the commit analysis recorded as this run's start, so
+    # it needs no local branch named main and ignores commits the run didn't
+    # make; an unrecorded impl_base fails it (scripts/has-commits.sh).
     #
     # issue_type is decider-eligible: `code` is shadow, and `docs` and `task`
     # are never. The code route tests no gate, so promoting `code` later clears
@@ -690,7 +686,7 @@ states:
     gates:
       has_commits:
         type: command
-        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
     accepts:
       issue_type:
         type: enum
@@ -735,12 +731,12 @@ states:
           error: ""
       # Moved here from implementation with the issue-type question, so the
       # code route out of issue_type_routing carries no gate. It still stands
-      # between a code-typed issue and the panels after this one: a branch
-      # with no commits over main cannot pass scrutiny, whatever the panel
+      # between a code-typed issue and the panels after this one: a run with
+      # no commits since impl_base cannot pass scrutiny, whatever the panel
       # reported. Identical to issue_type_routing's copy.
       has_commits:
         type: command
-        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
     accepts:
       scrutiny_outcome:
         type: enum
@@ -867,27 +863,37 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
-      # The shape checks pre_pr_evidence makes, made again here where summary.md
-      # and pre_pr.md are written. They gate the advancing edge only and no edge
-      # routes their failure anywhere, so a malformed artifact holds the run in
-      # this state with the failing gate named, and the agent fixes it in place.
-      # At pre_pr_evidence the same failure ends the run at done_blocked, and for
-      # a child that terminal also disposes of its log (tsukumogami/koto#240) -- the gates
-      # there stay as the backstop, and these keep a run from reaching them with
-      # a shape it could still have fixed. The patterns must stay identical to
+      # The checks pre_pr_evidence makes, made again here where summary.md and
+      # pre_pr.md are written. They gate the advancing edge only and no edge
+      # routes their failure anywhere, so a malformed artifact, or a referent
+      # that names nothing, holds the run in this state with the failing gate
+      # named, and the agent fixes it in place. At pre_pr_evidence the same
+      # failure ends the run at done_blocked, which has to be re-entered to fix
+      # one artifact -- the gates there stay as the backstop, and these keep a
+      # run from reaching them with a record it could still have fixed in place.
+      # The gate definitions must stay identical to
       # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
+      #
+      # The two referent gates run check-pre-pr-referents.sh, which requires
+      # cleanup_commit to name a commit that is HEAD or an ancestor of it, and a
+      # design_diagram path to name a file in HEAD's tree. A pattern alone passed
+      # any hex string (shirabe#422). The script answers 0 or 1 only, and the
+      # test -x guard turns an empty or wrong PLUGIN_ROOT into 1 rather than
+      # 127. Here any failure holds; the contract matters at pre_pr_evidence,
+      # whose ladder names exactly 0 and 1, so a gate that cannot run stops the
+      # run at done_blocked instead of matching no edge. koto
+      # discards a failed gate's output, so the directive tells the agent to
+      # run the script itself for the reason.
       summary_shape:
         type: context-matches
         key: summary.md
         pattern: "## Changes Made"
       cleanup_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       finalization_status:
         type: enum
@@ -907,14 +913,14 @@ states:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable via verification_outcome: passed.
-      # It also requires both artifacts to have the shape pre_pr_evidence checks.
+      # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
-          gates.cleanup_referent.matches: true
-          gates.diagram_referent.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
       # deferral must be a surfaced human decision, never a clean self-report (Decision E).
       - target: deferral_approval
         when:
@@ -931,21 +937,19 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
-      # The same early shape checks as finalization, for the same reason: this
-      # edge also leads to pre_pr_evidence, and a shape failure there is a
-      # terminal. The rejected edge stays ungated.
+      # The same early checks as finalization, for the same reason: this edge
+      # also leads to pre_pr_evidence, and a failure there is a terminal. The
+      # rejected edge stays ungated.
       summary_shape:
         type: context-matches
         key: summary.md
         pattern: "## Changes Made"
       cleanup_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       approval_decision:
         type: enum
@@ -962,8 +966,8 @@ states:
           approval_decision: approved
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
-          gates.cleanup_referent.matches: true
-          gates.diagram_referent.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
       - target: done_blocked
         when:
           approval_decision: rejected
@@ -982,7 +986,7 @@ states:
     # an obligation unenforced in substance while looking enforced in the record
     # (PRD R7a). So the judgment calls are enums, which are closed sets a
     # placeholder cannot satisfy, and the concrete referents live in a context
-    # artifact whose shape a gate checks.
+    # artifact whose referents a gate checks exist.
     gates:
       # The summary exists by the time this state is reached -- both edges into
       # it require it -- so this checks its SHAPE, not its presence. Both edges
@@ -997,18 +1001,19 @@ states:
       commit_convention:
         type: command
         command: "git log -1 --format=%s | grep -qE '^(feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert)(\\([^)]+\\))?!?: .+'"
-      # The concrete referents, in an artifact the run writes. The patterns are
-      # what makes a placeholder fail: "cleanup_commit: done" does not match a
-      # hex sha, and "design_diagram: yes" matches neither a path nor the
-      # explicit not-applicable form with a reason after it.
+      # The concrete referents, in an artifact the run writes, checked for
+      # existence and not only for shape (check-pre-pr-referents.sh):
+      # "cleanup_commit: done" is not a sha, a sha that names no commit or a
+      # commit outside HEAD's history is not the reviewed commit, "design_diagram: yes"
+      # is neither a path nor the explicit not-applicable form with a reason
+      # after it, and a docs/ path that is not a file in HEAD's tree names no
+      # diagram. Exit 0 or 1 only, which the ladder below routes on.
       cleanup_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "cleanup_commit: [0-9a-f]{7,40}"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
       diagram_referent:
-        type: context-matches
-        key: pre_pr.md
-        pattern: "design_diagram: (docs/[^ ]+[.]md|not-applicable: [^ ]+)"
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
     accepts:
       pre_pr_status:
         type: enum
@@ -1022,7 +1027,8 @@ states:
           Whether the cleanup pass removed anything. An enum rather than prose,
           because a free-text field here is satisfied by "cleaned up" and the
           obligation is then unenforced in substance. The commit it was judged
-          against goes in pre_pr.md, where a gate checks it is a sha.
+          against goes in pre_pr.md, where a gate checks it is HEAD or an
+          ancestor of it.
       design_diagram:
         type: enum
         values: [updated, not_applicable]
@@ -1042,8 +1048,8 @@ states:
           pre_pr_status: recorded
           gates.summary_shape.matches: true
           gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.matches: true
-          gates.diagram_referent.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
       - target: done_blocked
         when:
           pre_pr_status: recorded
@@ -1062,18 +1068,18 @@ states:
           pre_pr_status: recorded
           gates.summary_shape.matches: true
           gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.matches: false
+          gates.cleanup_referent.exit_code: 1
         context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit as a sha. A word like 'done' is not a referent: name the commit whose diff was reviewed."
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit that names HEAD or an ancestor of it, or the check could not run. A word like 'done', or a sha that names no commit, is not a referent: name the commit whose diff was reviewed. Run check-pre-pr-referents.sh --cleanup for the reason."
       - target: done_blocked
         when:
           pre_pr_status: recorded
           gates.summary_shape.matches: true
           gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.matches: true
-          gates.diagram_referent.matches: false
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 1
         context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path or as 'not-applicable: <reason>'."
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path that is a file in HEAD's tree, or as 'not-applicable: <reason>', or the check could not run. Run check-pre-pr-referents.sh --diagram for the reason."
       - target: done_blocked
         when:
           pre_pr_status: blocked
@@ -1765,10 +1771,15 @@ a starting point and override it when the changed paths say otherwise.
 
 - `code` -- behaviour changes: source, tests, build or CI logic, templates that
   drive a workflow. Goes through the scrutiny, review, and QA panels. Scrutiny
-  will not pass on a branch with no commits over main.
+  will not pass while this run has no commits since `impl_base`.
 - `docs` -- writing or structural documentation changes. Skips the panels and
-  goes to verification. Needs at least one commit over main: submitted on a
-  branch with none, the state holds; commit the work, then submit it again.
+  goes to verification. Needs at least one commit since `impl_base`:
+  submitted with none, the state holds; commit the work, then submit it again.
+  If the work is already committed and the state still holds, `impl_base`
+  is missing or was recorded after the work (compare
+  `koto context get {{SESSION_NAME}} impl_base` with `git log`): record
+  the commit the run started from, the parent of its first commit, with
+  `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 - `task` -- operational work (running scripts or commands) with no reviewable
   change set. Skips the panels, goes to verification, and needs no commits.
 
@@ -1781,7 +1792,7 @@ Evidence schema:
 
 Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
 
-Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while the branch has no commits over main. If the work really has none, submit `blocking_retry` and commit it in implementation.
+Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, submit `blocking_retry` and commit it in implementation. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
@@ -1835,7 +1846,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md;
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}" --no-cleanup
 ```
 
 The check is on both signals deliberately: `koto context exists` cannot tell a key that
@@ -1856,15 +1867,18 @@ before you submit `ready_for_pr` or `deferral_requested`. The deferral edge
 doesn't check them, but an approved deferral does, so writing them first keeps
 the human's approval from stopping on an edit.
 
-Two shapes are required, and `ready_for_pr` does not advance without them:
+Two records are required, and `ready_for_pr` does not advance without them:
 
 - `summary.md` must contain a `## Changes Made` heading, spelled exactly that way.
-- `pre_pr.md` must contain a line `cleanup_commit: <sha>` (7 to 40 hex characters)
-  and a line `design_diagram: docs/<path>.md` or
-  `design_diagram: not-applicable: <reason>`. The form is hyphenated and carries a
-  reason; the evidence enum `not_applicable` at `pre_pr_evidence` is a different
-  thing and does not satisfy it. When the issue body carries a `Design:`
-  reference, update that diagram now (phase-5 says how) and record its path.
+- `pre_pr.md` must contain exactly one line `cleanup_commit: <sha>` (7 to 40
+  lowercase hex characters) naming a commit that is `HEAD` or an ancestor of it,
+  and exactly one line `design_diagram: docs/<path>.md`, naming a file committed
+  in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`. Each line
+  starts at the beginning of the line and carries nothing after the value. The
+  not-applicable form is hyphenated and carries a reason; the evidence enum
+  `not_applicable` at `pre_pr_evidence` is a different thing and does not
+  satisfy it. When the issue body carries a `Design:` reference, update that
+  diagram now (phase-5 says how), commit it, and record its path.
 
 ```bash
 cat <<EOF | koto context add {{SESSION_NAME}} pre_pr.md
@@ -1873,17 +1887,36 @@ design_diagram: not-applicable: no design document is touched
 EOF
 ```
 
-The same shapes are checked again at `pre_pr_evidence`, where a failure ends the
+The same checks run again at `pre_pr_evidence`, where a failure ends the
 run at `done_blocked`. Here a failure only holds: the submission matches no edge,
 the state stays `finalization`, and `blocking_conditions` names the failing gate.
 Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
 
 - `summary_exists` or `summary_shape` failed: write `summary.md` with a
   `## Changes Made` section.
-- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, a sha
-  and not a word such as `done`.
-- `diagram_referent` failed: write `design_diagram: docs/<path>.md` or
-  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
+- `cleanup_referent` failed: write `cleanup_commit: <sha>` in `pre_pr.md`, the
+  sha `git rev-parse HEAD` prints, not a word such as `done` and not a sha typed
+  by hand.
+- `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
+  committed in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in
+  `pre_pr.md`.
+
+`koto context add` replaces the whole key, so rewrite `pre_pr.md` with both
+lines, not just the one that failed.
+
+koto keeps only a referent gate's exit status, not what it printed. To see why
+one failed, run its check yourself; it prints the reason on stderr:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"
+```
+
+If the shell can't run it ("No such file" or "Permission denied"), `PLUGIN_ROOT`
+doesn't point at a usable plugin checkout and no edit to `pre_pr.md` will help:
+stop and report it rather than rewriting the record. The same applies when the
+check passes by hand and the gate still holds: report it rather than editing a
+record the check accepts.
 
 Reaching this state means verification ran and passed (the `verification` state only
 routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
@@ -1909,12 +1942,15 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
-  lacks the required shape. Fix that artifact with `koto context add` and submit
-  again: `summary_exists` and `summary_shape` need a `summary.md` with a
-  `## Changes Made` heading;
-  `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`;
-  `diagram_referent` needs `design_diagram: docs/<path>.md` or
-  `design_diagram: not-applicable: <reason>` in `pre_pr.md`.
+  lacks the required shape or names a referent that does not exist. Fix that
+  artifact with `koto context add` and submit again: `summary_exists` and
+  `summary_shape` need a `summary.md` with a `## Changes Made` heading;
+  `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`, naming a
+  commit that is `HEAD` or an ancestor of it;
+  `diagram_referent` needs `design_diagram: docs/<path>.md` for a file in
+  `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in `pre_pr.md`.
+  For why a referent gate failed, run its check by hand as the `finalization`
+  section says; the same stop rule applies when the check itself can't run.
 - If the human **rejects** the deferral: the issue is not done. Submit
   `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
 
@@ -1925,15 +1961,26 @@ Evidence schema:
 ## pre_pr_evidence
 
 The finishing obligations that can be decided before a pull request exists.
-`pre_pr.md` was written and its shape checked at `finalization`; don't rewrite
-it here. Its two lines are the referents:
+`pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
+The one exception is history rewritten since then (an amend or rebase of the
+reviewed commit): its old sha is no longer in `HEAD`'s history and the gate
+fails. A failure here ends the run rather than holding it, so if you rewrote
+history, run
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
+before submitting, and on a failure rewrite `pre_pr.md` with the reviewed
+commit's new sha, keeping its `design_diagram` line (`koto context add`
+replaces the whole key). If the check can't run at all, stop and report it, as
+the `finalization` section says, rather than submitting.
+
+The two lines of `pre_pr.md` are the referents:
 
 `cleanup_commit` is the commit whose diff you reviewed for debug statements,
 commented-out code, addressed TODOs and unused imports. `design_diagram` is the
 path of the diagram you updated, or `not-applicable: <reason>` when the change
-touches no design document. Both are checked for shape, so a word standing in
-for a referent fails the state rather than satisfying it — that is the point of
-asking for them rather than for a claim that the work was done.
+touches no design document. Both are checked for existence: the commit must be
+`HEAD` or an ancestor of it and the path a file in `HEAD`'s tree, so a word, or a sha or path
+that names nothing, fails the state rather than satisfying it — that is the
+point of asking for them rather than for a claim that the work was done.
 
 Submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
 `none_found`) and `design_diagram` (`updated` or `not_applicable`). The
@@ -1947,7 +1994,9 @@ recording a referent you cannot stand behind.
 The gates check the summary's shape, the tip commit's subject against
 Conventional Commits, and the two referents. A failing one stops the run before
 the pull request is opened, with the reason naming which. The shape and referent
-checks already held at `finalization`, so here they are the backstop. The
+checks already held at `finalization`, so here they are the backstop. The tip
+moving after finalization doesn't invalidate `cleanup_commit`: a commit that was
+`HEAD` then is an ancestor of `HEAD` now. The
 commit convention is checked only here, because the tip can still move after
 finalization (the summary commit lands there).
 

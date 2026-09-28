@@ -8,8 +8,10 @@
 # confirm all make (the open-issue listing, the discipline branch and its pull
 # requests, the author-authority read), sealing a check's verdict, and the
 # session checks every write makes first. It makes no GitHub write: writes
-# live only in the agent-run scripts that call these helpers, so a lint over
-# a check script's own text and this file finds only reads.
+# live only in the agent-run scripts that call these helpers, and the record's
+# body is written only by record-write-core.sh, which only those scripts
+# source, so a lint over a check script's own text and this file finds only
+# reads.
 #
 # Globals the caller sets before calling lib_facts:
 #   SESSION   --session, may be empty when OVERRIDE=1 and the script only reads
@@ -270,6 +272,15 @@ lib_drop_disposed() {
 }
 
 lib_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# lib_run_stamp: RUN, the run's own stamp, the UTC time in the session's name
+# (coordinate-<slug>-<YYYYMMDDTHHMMSSZ>, one per run). Every Decisions stamp
+# starts with it, so a write keyed on a log sequence is never mistaken for
+# another run's: sequences restart with each run, the record outlives them.
+lib_run_stamp() {
+    RUN=${SESSION##*-}
+    [[ $RUN =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || lib_die2 "the session's name carries no run stamp: $SESSION"
+}
 
 # lib_log_readable: the session's log is there and in a schema coord-log.sh
 # knows. A check calls it before its first GitHub read, so a run whose log

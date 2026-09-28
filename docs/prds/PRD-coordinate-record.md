@@ -454,8 +454,9 @@ Packaging:
 - **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body can
   describe more than the pull request carries; the verify step's file-list read is the
   defence, at one more read per report.
-- **No delivered wake when a leg resolves (koto#250).** The engine's waker is a stub, so the
-  coordinator advances the workflow on each message or notification.
+- **Leg wakes aren't watched (koto#250, fixed in koto 0.14.0).** koto 0.14.0 and
+  later record a wake when a leg resolves, readable with `koto request watch`. The skill doesn't watch for it yet, so the coordinator advances the
+  workflow on each message or notification.
 - **Leg flags on `/deliver` and `/work-on` (shirabe#401, fixed by shirabe#407).** All four
   entry points accept `--koto-leg`; binding a leg at dispatch is the dispatch path's work, so
   until it lands a dispatched worker reports by message.

@@ -231,6 +231,17 @@ eq "one undisposed deferral is deferrals" "deferrals 7" "$(rm_read)"
 rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson a "$D_OK" --argjson b "$D_CL" '.deferrals = [$a, $b]')"
 file_at main "$RP" "$(roadmap Done Done Dropped)"
 eq "filed and closed deferrals are ready" "ready 7" "$(rm_read)"
+DENTRY() { jq -nc --arg s "$1" '{decision: "1", round: "1", question: "Ship?", options: "ship\nhold", state: $s,
+    source: "self [20260927T233505Z raise 41]", verdict: "", recommendation: "ship", reason: "the check held",
+    context: "c", problem: "p", grounds: "scope", target: "a person", owed: "", asked: "", evidence: "",
+    outcome: (if $s == "settled" then "ship" else "" end), decided_by: (if $s == "settled" then "a person" else "" end),
+    updated: "2026-09-27T23:40Z"}'; }
+rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson e "$(DENTRY escalated)" '.decisions = {next: 2, entries: [$e]}')"
+file_at main "$RP" "$(roadmap Done Done Dropped)"
+OUT=$(rm_read); eq "an unsettled decision is decisions" "decisions 7" "$OUT"; tok_shape "decisions is in koto's capture alphabet" "$OUT"
+rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson e "$(DENTRY settled)" '.decisions = {next: 2, entries: [$e]}')"
+file_at main "$RP" "$(roadmap Done Done Dropped)"
+eq "settled decisions are ready" "ready 7" "$(rm_read)"
 rm_seed "$CLEAR" closed; file_at main "$RP" "$(roadmap Done 'Not started' Done)"
 OUT=$(rm_read); eq "a closed record issue is closed" "closed 7" "$OUT"; tok_shape "closed is in koto's capture alphabet" "$OUT"
 rm_seed "$CLEAR"; file_at main "$RP" "$(roadmap Done Done Done)"; db '.fail = [{match: "contents/", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
