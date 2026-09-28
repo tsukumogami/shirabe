@@ -96,7 +96,7 @@ case "$V" in
 esac
 
 if [ "$NO_SEAL" = 0 ]; then
-    "$KOTO" context add "$SESSION" coord/board.json --from-file "$T" >/dev/null 2>&1 || {
+    "$KOTO" context add "$SESSION" coord/board.json --from-file "$T" >/dev/null || {
         echo "$PROG: could not write coord/board.json" >&2; exit 2; }
 fi
 bl_seal "$SESSION" verify_board "$TOKEN" "$NO_SEAL" || exit 2

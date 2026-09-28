@@ -75,7 +75,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || { echo "$PROG: the predecessor's number is not a number" >&2; exit 64; }
 if [ -z "$OUT" ]; then
-    SDIR=$("$KOTO" session dir "$SESSION" 2>/dev/null) || lib_die2 "cannot find the session directory"
+    SDIR=$("$KOTO" session dir "$SESSION") || lib_die2 "cannot find the session directory"
     [ -d "$SDIR" ] || lib_die2 "the session directory $SDIR does not exist"
     OUT="$SDIR/predecessor-handoff.md"
 fi

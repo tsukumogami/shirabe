@@ -895,7 +895,7 @@ rm -f "$FINALIZE_ERR_FILE"
 # Idempotent: `shirabe transition <plan> Done` is a no-op on a Done doc.
 if [[ -f "$PLAN_DOC" ]]; then
     log_info "Transitioning PLAN: $PLAN_DOC Active -> Done (ephemeral, in-process)"
-    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null 2>&1; then
+    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null; then
         # Non-fatal: a PLAN at Draft (auto-transition didn't fire) or other
         # unexpected current status can land here. Log a warning and proceed
         # to the deletion regardless — the deletion is the forcing function,
