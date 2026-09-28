@@ -895,12 +895,12 @@ rm -f "$FINALIZE_ERR_FILE"
 # Idempotent: `shirabe transition <plan> Done` is a no-op on a Done doc.
 if [[ -f "$PLAN_DOC" ]]; then
     log_info "Transitioning PLAN: $PLAN_DOC Active -> Done (ephemeral, in-process)"
-    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null 2>&1; then
+    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null; then
         # Non-fatal: a PLAN at Draft (auto-transition didn't fire) or other
         # unexpected current status can land here. Log a warning and proceed
         # to the deletion regardless — the deletion is the forcing function,
         # the Done flip is the audit-trail marker.
-        log_warn "shirabe transition $PLAN_DOC Done failed (PLAN may already be Done or at an unexpected status); proceeding to git rm"
+        log_warn "shirabe transition $PLAN_DOC Done failed (shirabe's reason is above); proceeding to git rm"
     fi
 fi
 
