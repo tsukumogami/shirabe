@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   Before a maintainer withholds an instruction section from a koto-templated
   skill, shirabe has to be able to measure what withholding it does: run the
@@ -39,7 +39,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 The architecture, security and structural-format reviewers' blocking
 findings were resolved in a second round.

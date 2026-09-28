@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe maintainers plan to withhold instruction sections from the
   koto-templated skills and deliver each only when its check fails, measured
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers passed it on a third
 round. The downstream DESIGN owns the approach.

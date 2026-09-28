@@ -11,7 +11,7 @@ scratch copy of the plugin, inside an ablation run.
 The requirements are in
 [PRD-offload-offline-ablation](../../prds/PRD-offload-offline-ablation.md) and
 the approach in
-[DESIGN-offload-offline-ablation](../../designs/DESIGN-offload-offline-ablation.md).
+[DESIGN-offload-offline-ablation](../../designs/current/DESIGN-offload-offline-ablation.md).
 The rule keys, observation points and outcome values are the provisional ones
 the [offload baseline](../offload-baseline/README.md) defines.
 
