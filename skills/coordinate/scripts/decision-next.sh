@@ -24,9 +24,11 @@
 #                       escalate_send's `answered`) reached decision_answer and
 #                       no line carries this run's `wait <seq>` stamp for it (a
 #                       re-sent identical answer writes its own stamped line
-#                       too). An arrival that names no decision can't be
-#                       written, so it is never owed: routing back to it would
-#                       loop with no way out
+#                       too). An arrival record-decision.sh can't write (no
+#                       decision, one that isn't a plain number, one the
+#                       record has no entry for, or an answer with no plain
+#                       round) is never owed: routing back to it would loop
+#                       with no way out
 #     unrecorded-evidence  likewise for the latest `wait` evidence event
 #     unrecorded-raise  the latest visit to decision_raise left no entry with
 #                       this run's `raise <seq>` stamp
@@ -146,12 +148,19 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   | ($listed and $op > $rq and $wt < $rq) as $to_open
   # The latest answer, by either route, and whether it reached decision_answer.
   | ([$wans, $tans] | map(select(.seq != null)) | max_by(.seq)) as $ans
-  | (if $ans == null or (($ans.fields.decision // "") == "") then false else $an > $ans.seq end) as $ans_taken
+  # An arrival record-decision.sh can write: a decision that is a plain
+  # number with an entry in the record, and for an answer a plain-number
+  # round. Anything else it refuses, so owing it would loop back forever.
+  | def writable($a; $round):
+      (($a.fields.decision // "") | tostring) as $d
+      | ($d | test("^[1-9][0-9]*$")) and any($es[]; .decision == $d)
+        and ((($round | not)) or ((($a.fields.round // "") | tostring) | test("^[1-9][0-9]*$")));
+  (if $ans == null or (writable($ans; true) | not) then false else $an > $ans.seq end) as $ans_taken
   # Every answer record-decision.sh takes, a re-sent identical one included,
   # writes a line with its arrival stamp, so the stamp alone says it landed; an
   # answer line without it may be another answer for the same round.
   | ($ans_taken and stamped("wait"; ($ans.seq | tostring))) as $ans_recorded
-  | (if $wevi.seq == null or (($wevi.fields.decision // "") == "") then false else $evs > $wevi.seq end) as $evi_taken
+  | (if $wevi.seq == null or (writable($wevi; false) | not) then false else $evs > $wevi.seq end) as $evi_taken
   # Rule 5: the reports of this run that addressed someone and have no redirect.
   | ([$mine[] | select(.kind == "report") | .seq | split(".")[0]] | unique) as $reports
   | ([ $reports[] as $r

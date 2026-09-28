@@ -167,6 +167,17 @@ eq "an answer that names no decision is not owed" "clear" "$(word)"
 build
 to wait; log_evidence "$S" wait '{"event":"evidence"}'; to decision_evidence; to decision_next
 eq "evidence that names no decision is not owed" "clear" "$(word)"
+# Nor any other arrival record-decision.sh refuses: an answer naming no round,
+# a decision the record has no entry for, one that isn't a plain number.
+unwritable() { # unwritable <label> <state> <wait fields-json> <build rule>: entry 1 and an earlier arrival, then this one
+    build ${4-}
+    to wait; log_evidence "$S" wait "$3"; to "$2"; to decision_next
+    eq "$1 is not owed" "clear" "$(word)"
+}
+unwritable "an answer naming no round" decision_answer '{"event":"answer","decision":"1"}' unrecorded-answer
+unwritable "an answer naming a decision with no entry" decision_answer '{"event":"answer","decision":"9","round":"1"}' unrecorded-answer
+unwritable "an answer naming a decision that isn't a number" decision_answer '{"event":"answer","decision":"#1","round":"1"}' unrecorded-answer
+unwritable "evidence naming a decision with no entry" decision_evidence '{"event":"evidence","decision":"9"}' unrecorded-evidence
 
 echo "== record-full =="
 build take

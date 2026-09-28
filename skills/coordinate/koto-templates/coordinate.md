@@ -1933,8 +1933,8 @@ an author or editor without write access, a predecessor whose handoff doesn't
 parse or whose rotation closed without merging, or a record check that found a
 `koto next --to` in this run. It is also reached from the decision states: a
 record too full for the next decision write (`record-full`: the record is near
-GitHub's size limit, and settling or closing entries elsewhere won't make room
-here), and a message the workflow refused to render (`refused`: the entry no
+GitHub's size limit; the way out, as the script says, is to compact settled
+decisions or prune the record, which is the human's call), and a message the workflow refused to render (`refused`: the entry no
 longer owes it as recorded, so the record changed underneath). Don't pick among
 candidates and don't repair a record by hand: the human decides. A pull request
 on the record's branch that isn't a record is a scope question.
@@ -2532,7 +2532,7 @@ a worker's report, a notification or a scheduled wake. Then print the context
 and problem from `coord/decision_question.json` in chat, ask its question with
 its options in order (the recommended one first) and each option's explanation,
 run `--sent --route tool`, and submit `sent: answered` with the `decision` and
-`round` of `coord/decision_question.json`. Otherwise, and whenever the tool is unavailable, is
+`round` of `coord/decision_question.json`, each as a string (`"4"`, not `4`). Otherwise, and whenever the tool is unavailable, is
 refused or times out, send the rendered text as a message, run `--sent --route
 message`, submit `sent: sent`, and keep coordinating.
 
@@ -2736,8 +2736,10 @@ For a merge the workspace reserves, put the merge-order table from
 reason for the order (`surfaced: merge_table`). For a blocked worker, show the
 human nothing yet: name what it needs as `need`, one of `credential <name>`,
 `reserved-step <merge|release|close|teardown> <link>` or `access <owner/repo>`,
-and submit `surfaced: blocker`; the need reaches the human, worded by
-`surface_check`, in the progress table's "Blocked on you" rows. When what blocks
+and submit `surfaced: blocker`. Once `surface_check` accepts it, report up at
+once, before anything else: the progress table with `--blocked <session>=<the
+need as you submitted it>`, which words it in the "Blocked on you" rows. When
+`surface_check` refuses it, you are back here to name it again. When what blocks
 it is a choice, submit `surfaced: decision` and raise it as an entry instead.
 Pull requests are links, workers are inline code, and no commit hash is shown.
 
@@ -2754,7 +2756,10 @@ back to unverified until you read it again.
 Checking the need. koto runs `need-check.sh` itself: the `need` you submitted at
 `surface` must be one of the need kinds, with nothing in its argument that reads
 as a decision. An accepted need is worded for the progress table's cell and
-stored as `coord/need.json`; a refused one goes back to `surface`.
+stored as `coord/need.json`; a refused one goes back to `surface`. An accepted
+one goes on to `wait`: report it up now, before the next tick, with the progress
+table and `--blocked <session>=<the need>`, since nothing else shows it to the
+person who holds what the worker needs.
 
 <!-- details -->
 

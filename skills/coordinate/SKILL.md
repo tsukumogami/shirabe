@@ -327,7 +327,8 @@ and the workspace's to decide, and this skill carries no rule about it.
 ## Reporting
 
 Report up to whoever dispatched you after each reconcile, each landed or
-handed-over unit, each escalation, and at the end of the scope or rotation. Lead
+handed-over unit, each escalation, each need `surface_check` accepts, and at
+the end of the scope or rotation. Lead
 with what changed and what you hold. Name what you verified and what you didn't,
 and grade every claim you pass on as measured, verified by reading, or inferred.
 Name the record in every report (a roadmap record's issue number, a rotation's
