@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 decision: |
   The skill-load prerequisite check compares one version: koto's, against
   shirabe's koto minimum. When a skill's in-scope declaration names koto and
@@ -37,7 +37,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted on 2026-09-27.
 
 ## Context
 
@@ -60,14 +60,13 @@ Nothing at load catches that. The commands `/work-on` calls exist on 0.13.0
 with the same flags, so the surface probe passes. The minimum is stated in the
 README and enforced in CI, but a user's machine never runs CI.
 
-Four statements in this record describe the tree #457 produced, and each has
-held on `main` since #457 merged (05d672c): shirabe's koto minimum is 0.14.0;
-every `koto next` in `/work-on` carries `--no-cleanup`, root or child (before
-#457, `skills/work-on/scripts/session-role.sh` kept the flag off a child's
-ticks, so #457 is what makes shirabe depend on 0.14.0's behaviour); the minimum
-is the release CI installs exactly and runs every koto-backed suite on; and
-`scripts/koto-minimum-consistency_test.sh` guards the restatements of the
-minimum.
+The record relies on four facts #457 established (05d672c). shirabe's koto
+minimum is 0.14.0. Every `koto next` in `/work-on` carries `--no-cleanup`, root
+or child; before #457, `skills/work-on/scripts/session-role.sh` kept the flag
+off a child's ticks, so #457 is what makes shirabe depend on 0.14.0's
+behaviour. The minimum is the release CI installs exactly and runs every
+koto-backed suite on. `scripts/koto-minimum-consistency_test.sh` guards the
+restatements of the minimum.
 
 ## Decision
 
