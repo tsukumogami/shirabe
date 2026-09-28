@@ -21,7 +21,7 @@
 # addressed.txt, or both), put a near miss that must not match in
 # no-match.txt, and run decision-phrasings_test.sh.
 decision	(^|[^[:alnum:]])decide (whether|if|between|which|on|to)([^[:alnum:]]|$)
-decision	(^|[^[:alnum:]])(needs|need|awaiting|waiting (on|for)) (your|a human|the human'?s?|a person'?s?|the user'?s?) (decision|call|choice|approval|sign-off)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])(needs|need|awaiting|waiting (on|for)) (your|human|a human|the human'?s?|a person'?s?|the user'?s?) (decision|call|choice|approval|sign-off)([^[:alnum:]]|$)
 decision	(^|[^[:alnum:]])your decision( (on|about|whether|here)|[.,;:!?)]|$)
 decision	(^|[^[:alnum:]])which (option|approach|one) (should|do you|would you)([^[:alnum:]]|$)
 decision	(^|[^[:alnum:]])should (we|i) (ship|merge|drop|keep|proceed|go ahead)([^[:alnum:]]|$)
@@ -35,3 +35,5 @@ addressed	(^|[^[:alnum:]])you decide([^[:alnum:]]|$)
 addressed	(^|[^[:alnum:]])up to you([^[:alnum:]]|$)
 addressed	(^|[^[:alnum:]])(ask|asking) the (user|operator|person|human)([^[:alnum:]]|$)
 addressed	(^|[^[:alnum:]])(for|to) the (user|operator|person|human) to decide([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])decision (needed|required|wanted)([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])let the (user|operator|person|human) (decide|choose|pick)([^[:alnum:]]|$)

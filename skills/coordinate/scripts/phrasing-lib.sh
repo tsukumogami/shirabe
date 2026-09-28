@@ -14,8 +14,8 @@
 #       is unreadable or has a refused row, or a kind with no patterns. <kind>
 #       is `decision` or `addressed`; a row of kind `both` counts for each.
 #   phrasings_check [list]
-#       Exit 0 when every row is well formed; 65 a refused row (stderr names the
-#       line); 2 the list is unreadable.
+#       Exit 0 when every row is well formed and its pattern compiles under
+#       grep -E; 65 a refused row (stderr names it); 2 the list is unreadable.
 #
 # [list] is for tests only; every caller in the skill passes none and reads the
 # shipped list beside this file.
@@ -51,9 +51,17 @@ _phrasings_read() {
 }
 
 phrasings_check() {
-    local f="${1:-$PHRASINGS_LIST}"
+    local f="${1:-$PHRASINGS_LIST}" pat rc
     [ -r "$f" ] || { echo "decision phrasings: cannot read $f" >&2; return 2; }
-    _phrasings_read "" "$f" >/dev/null
+    _phrasings_read "" "$f" >/dev/null || return $?
+    # Each pattern must also compile: grep exits 2 on a malformed expression.
+    # It is given one line to read, since some greps compile only then.
+    while IFS= read -r pat; do
+        printf 'x\n' | grep -Eq -e "$pat"
+        rc=${PIPESTATUS[1]}
+        [ "$rc" -le 1 ] || { echo "decision phrasings: a pattern grep -E can't compile: $pat" >&2; return 65; }
+    done < <(awk -F'\t' '!/^#/ && NF >= 2 { sub(/^[^\t]*\t/, ""); print }' "$f")
+    return 0
 }
 
 phrase_match() {
@@ -66,11 +74,13 @@ phrase_match() {
     pats=$(_phrasings_read "$kind" "$f"); rc=$?
     [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
     # One -e argument holding newline-separated patterns is a POSIX grep
-    # pattern list: a line matches when any pattern does. A here-string rather
-    # than a pipe, so grep quitting early on a match can't raise SIGPIPE in a
-    # caller running under pipefail.
-    grep -Eiq -e "$pats" <<< "$text"
-    rc=$?
+    # pattern list: a line matches when any pattern does. The status is grep's
+    # own, read from PIPESTATUS: printf may take SIGPIPE when grep quits early
+    # on a match, which must not count, and a here-string is no better, since a
+    # redirection that can't write its temporary file skips grep and reads as
+    # no match.
+    printf '%s\n' "$text" | grep -Eiq -e "$pats"
+    rc=${PIPESTATUS[1]}
     [ "$rc" -le 1 ] || return 2
     return "$rc"
 }

@@ -95,6 +95,7 @@ while [ "$i" -lt 3000 ]; do long="$long please decide whether to ship"; i=$((i +
 refused "an unknown kind" 'question	decide'
 refused "a row with no pattern" 'decision'
 refused "a carriage return" $'decision\tplease decide\r'
+refused "a pattern grep -E can't compile" 'decision	(please decide'
 list '# a comment' '' 'both	please decide'
 phrasings_check "$T/list.tsv"; eq "comments and blank lines are skipped" 0 "$?"
 phrase_match addressed "please decide" "$T/list.tsv"; eq "a both row counts for addressed" 0 "$?"
