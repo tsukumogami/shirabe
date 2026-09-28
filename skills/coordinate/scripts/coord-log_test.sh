@@ -10,8 +10,9 @@
 # run-start, vars, entered, entry, evidence (--where, --has), captures, unit
 # (the message and leg paths), count, slug, live-session --all, the refusal of
 # a header whose schema_version isn't 1, provenance by template hash and
-# plugin root, and coord-verdict.sh's exit codes for a valid, a stale and an
-# unknown token.
+# plugin root (and, after the plugin is rewritten in place, by the template
+# path koto compiled the run from and the compiled copy it runs), and
+# coord-verdict.sh's exit codes for a valid, a stale and an unknown token.
 #
 # Usage: bash skills/coordinate/scripts/coord-log_test.sh
 set -uo pipefail
@@ -68,6 +69,25 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     S3=coordinate-alien-20260926T080000Z
     rm -rf "$KOTO_STORE/sessions/$S3"; found_session "$S3" "$(roadmap_vars alien | jq -c '.PLUGIN_ROOT = "/elsewhere"')" 7
     bash "$CL" provenance --session "$S3" 2>/dev/null; eq "$L: provenance fails for another plugin root" 1 $?
+    # The plugin rewritten in place since the run opened: the shipped template
+    # now compiles to another hash, but koto opened the run from the shipped
+    # template's path and still holds the compiled copy it runs it from.
+    local SHIPPED="$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" S5=coordinate-swap-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S5"; found_session "$S5" "$(roadmap_vars swap)" 7
+    H5=$(opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}')
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes after the plugin is rewritten in place" 0 $?
+    rm -f "$KOTO_STORE/cache/$H5.json"
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5" 2>/dev/null; eq "$L: provenance fails once the run's compiled copy is gone" 1 $?
+    opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}' >/dev/null
+    printf 'edited' > "$KOTO_STORE/cache/$H5.json"
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5" 2>/dev/null; eq "$L: provenance fails when the run's compiled copy no longer matches its hash" 1 $?
+    # A foreign session: opened from a template at another path.
+    local S6=coordinate-foreign-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S6"; found_session "$S6" "$(roadmap_vars foreign)" 7
+    opened_from "$S6" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for a session opened from another template path" 1 $?
+    opened_from "$S6" "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/other.md" '{"compiled":"foreign"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for another template beside the shipped one" 1 $?
     bash "$CL" frobnicate 2>/dev/null; eq "$L: an unknown subcommand is a usage error" 64 $?
     event_reads "$L"
 }

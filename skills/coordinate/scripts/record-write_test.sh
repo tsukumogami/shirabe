@@ -201,6 +201,21 @@ bash "$WR" --session "$S" --ref 7 --body-file "$T/new.md" >/dev/null 2>&1; eq "-
 echo "== the session must be the scope's one live session =="
 # Every earlier session above is ended; each case starts from none live.
 for s in "$S3" "$S4"; do log_end "$s"; done
+# The plugin rewritten in place mid-run: the shipped template now compiles to
+# another hash, and the run koto opened from it still writes.
+SW=coordinate-roadmap-plugin-system-20260926T120000Z
+found_session "$SW" "$(roadmap_vars plugin-system)" 7
+opened_from "$SW" "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" '{"compiled":"as opened"}' >/dev/null
+seed_rm
+KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SW" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write after the plugin is rewritten in place succeeds" 0 $?
+log_end "$SW"
+SF=coordinate-roadmap-plugin-system-20260926T130000Z
+found_session "$SF" "$(roadmap_vars plugin-system)" 7
+opened_from "$SF" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+seed_rm; reset_calls
+KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SF" --body-file "$T/new.md" >/dev/null 2>&1; eq "a session opened from another template is still refused" 10 $?
+eq "and nothing is written" "" "$(calls | grep 'edit' || true)"
+log_end "$SF"
 OLDS=coordinate-roadmap-plugin-system-20260927T080000Z
 found_session "$OLDS" "$(roadmap_vars plugin-system)" 7
 NEWS=coordinate-roadmap-plugin-system-20260927T090000Z

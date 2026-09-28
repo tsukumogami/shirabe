@@ -11,7 +11,9 @@
 # bytes and `check --key` verifies them and refuses an edited value; `capture`
 # and `run-facts` read engine-written captures; `koto next --to` leaves a
 # directed_transition that `directed-since 0` reports; `provenance` passes for
-# the template the session was created from and fails for an edited copy;
+# the template the session was created from, still passes after that template
+# is rewritten in place (the run advancing from the copy koto compiled at init),
+# and fails for an edited copy elsewhere or once koto's compiled copy is gone;
 # `live-session` finds the live run and drops it once it ends.
 #
 # Needs koto and jq; SKIPs (exit 0) without koto, which CI asserts first.
@@ -195,9 +197,23 @@ sed 's/^description: a skeleton/description: an edited skeleton/' "$TPL" > "$T/e
 S4=coordinate-other-20260101T000003Z
 start "$S4" "$T/edited.md" "found 1" && tick "$S4" >/dev/null
 bash "$CL" provenance --session "$S4" --template "$TPL" 2>/dev/null; eq "provenance fails for an edited copy" 1 $?
+# The template rewritten in place under a live run, as a plugin reinstall
+# under the same version directory does: the run still passes, and still runs.
+mkdir -p "$T/swap"
+cp "$TPL" "$T/swap/coordinate.md"
+S5=coordinate-swap-20260101T000004Z
+start "$S5" "$T/swap/coordinate.md" "found 1" && tick "$S5" >/dev/null
+cp "$T/edited.md" "$T/swap/coordinate.md"
+bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" && pass "provenance passes after the template is rewritten in place" || fail "provenance passes after the template is rewritten in place"
+bash "$CL" provenance --session "$S4" --template "$TPL" 2>/dev/null; eq "a session from an edited copy elsewhere still fails" 1 $?
+tick "$S5" --with-data '{"go":"again"}' >/dev/null
+eq "the run still advances after the rewrite" hold "$(koto status "$S5" | jq -r '.current_state // .state // empty')"
 eq "live-session finds the one live run" "$S3" "$(bash "$CL" live-session --scope-slug demo)"
 tick "$S3" --with-data '{"go":"finish"}' >/dev/null
 bash "$CL" live-session --scope-slug demo >/dev/null 2>&1; eq "no live run once it ends" 1 $?
+RAN=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path' "$(koto session dir "$S5")/koto-$S5.state.jsonl")
+rm -f "$RAN"
+bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" 2>/dev/null; eq "provenance fails once koto's compiled copy is gone" 1 $?
 
 echo
 echo "coord-log engine: $PASS passed, $FAIL failed"
