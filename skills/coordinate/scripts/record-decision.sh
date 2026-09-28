@@ -91,11 +91,14 @@
 # after a failed compare-and-swap never duplicates. The modes that write no
 # stamp (--take, --settle, --escalate, --carry, --sent for a reply or a
 # withdrawal) are held by their state instead: once one lands, the entry is no
-# longer in the state the mode needs, and a repeat is refused. Any single item
-# holding a line break is refused. A write that frees the one escalated slot
+# longer in the state the mode needs, and a repeat is refused (a verdict mode
+# also needs the Verdict empty, so one visit records one verdict). Any single
+# item holding a line break is refused, and a source or final decider holding
+# a bracket, which could forge the stamp after it. A write that frees the one escalated slot
 # releases the queued escalation with the lowest identifier, or clears its
-# verdict when it no longer passes. Every settled entry that owes nothing,
-# other than the one this write changed, is compacted (the codec's
+# verdict when it no longer passes. On every write but --carry (which copies
+# the handoff as it stands), every settled entry that owes nothing, other
+# than the one this write changed, is compacted (the codec's
 # compact_settled), keeping the Evidence lines stamped by this run for as long
 # as the run lasts. The body
 # is written through record-write-core.sh with the Decisions section opened
@@ -226,6 +229,11 @@ NOW=$(date -u +%Y-%m-%dT%H:%MZ)
 for v in "$Q" "$TEXT" "$OUTC" "$REASON" "$REC" "$CTX" "$PROB" "$GROUNDS" "$FINAL" "$SRC" ${OPTS[@]+"${OPTS[@]}"}; do
     case "$v" in *$'\n'*|*$'\r'*) refuse "an item holds a line break" ;; esac
 done
+# A source or a final decider is written in front of a stamp, and stamps are
+# read by position, so a bracket in one could forge the stamp that follows.
+for v in "$SRC" "$FINAL"; do
+    case "$v" in *'['*|*']'*) refuse "a source or a final decider holds a bracket" ;; esac
+done
 
 # The state the session is in binds the mode.
 CUR=$(bash "$HERE/coord-log.sh" current --session "$SESSION") || lib_die2 "cannot read the session's current state"
@@ -241,7 +249,7 @@ case " $WANT " in *" $CUR_STATE "*) ;; *) refuse "--$MODE runs in ${WANT// / or 
 TARGET_RT=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.REPORTS_TO // ""') || lib_die2 "cannot read the session's variables"
 if [ -n "$TARGET_RT" ]; then TARGET="coordinator $TARGET_RT"; else TARGET="a person"; fi
 
-# routed <word>: the entry decision_next's sealed capture routed here, with that word.
+# routed: decision_next's sealed capture from its latest visit, whole.
 routed() {
     local cap
     cap=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name DECISION_NEXT --state decision_next)
@@ -258,7 +266,7 @@ routed_entry() { # routed_entry <word>: prints N, refusing another word
     printf '%s' "$n"
 }
 
-# The rules, as jq definitions over the parsed record. $now, $run and $t (the
+# The rules, as jq definitions over the Decisions section. $now, $run and $t (the
 # run's target) are bound on every call.
 LIB='include "record-codec";
 def blank: (. // "") | gsub("^\\s+|\\s+$"; "") == "";
@@ -409,7 +417,9 @@ take)
     write ;;
 settle|escalate|hold)
     N=$(routed_entry verdict) || exit $?
-    has_entry "$N" '.state == "coordinator-verdict"' || refuse "entry $N isn't awaiting a verdict"
+    # One verdict per entry: a recorded one (queued, held or any other) is
+    # cleared only by evidence, which brings the entry back to a fresh visit.
+    has_entry "$N" '.state == "coordinator-verdict" and ((.verdict // "") == "")' || refuse "entry $N isn't awaiting a verdict"
     case "$MODE" in
     settle)
         [ -n "$OUTC" ] && [ -n "$REASON" ] || refuse "a settle needs an outcome and its reason"

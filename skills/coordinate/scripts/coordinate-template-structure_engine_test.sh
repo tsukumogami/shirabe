@@ -155,14 +155,14 @@ grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*record-write-core' "$HERE/rec
 # decisions_writers <dir>: every script there, other than record-decision.sh
 # and the tests, that opens the Decisions section (sets DECISIONS_WRITER=1).
 decisions_writers() {
-    grep -lE '^[^#]*DECISIONS_WRITER=1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-decision\.sh$' || true
+    grep -lE '^[^#]*DECISIONS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-decision\.sh$' || true
 }
 OPENERS=$(decisions_writers "$HERE")
 [ -z "$OPENERS" ] && pass "only record-decision.sh opens the Decisions section" || fail "only record-decision.sh opens the Decisions section" "$OPENERS"
 grep -qE '^[^#]*DECISIONS_WRITER=1' "$HERE/record-decision.sh" && pass "record-decision.sh opens it" || fail "record-decision.sh opens it"
 mkdir -p "$T/openers"
 cp "$HERE/record-decision.sh" "$HERE/record-write.sh" "$T/openers/"
-printf '\nDECISIONS_WRITER=1\n' >> "$T/openers/record-write.sh"
+printf '\nDECISIONS_WRITER="1"\n' >> "$T/openers/record-write.sh"
 [ "$(decisions_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens it" ||
     fail "the check names another script that opens it" "$(decisions_writers "$T/openers")"
 

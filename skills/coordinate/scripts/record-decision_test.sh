@@ -180,6 +180,8 @@ rd --hold --reason "the benchmark run"; wrote "--hold writes"
 eq "--hold: a held verdict with what it waits on, and its hold line" "coordinator-verdict|hold|the benchmark run|holding: the benchmark run" \
     "$(ent 1 | jq -r '"\(.state)|\(.verdict)|\(.reason)|\(.evidence | split(": ")[1:] | join(": "))"')"
 refused "--hold: a second hold for the same visit is refused" --hold --reason again
+refused "--settle: a held entry takes no second verdict in the same visit" --settle --outcome ship --reason r
+refused "--escalate: nor an escalation" --escalate --recommendation wait --reason r --context c --problem p --grounds scope
 setup "[$(E 1 coordinator-verdict)]"
 route "verdict 1" decision_verdict
 refused "--hold: an empty reason is refused" --hold --reason ""
@@ -194,6 +196,9 @@ eq "evidence: the line is last, with its time, source and wait stamp" "dispatche
     "$(f 1 evidence | tail -1 | cut -d' ' -f2-)"
 setup "[$(E 1 coordinator-verdict '{verdict: "hold", reason: "r"}')]"; ev
 eq "evidence on a held entry clears the hold" "coordinator-verdict|" "$(f 1 state)|$(f 1 verdict)"
+# A stamp-shaped source would be read as the stamp: a bracket is refused.
+setup "[$(E 1 proposed)]"; arrive decision_evidence '{"event":"evidence","decision":"1"}'
+refused "evidence: a source holding a bracket is refused, so it can't forge a stamp" --evidence --source "dispatcher [$RUN wait 99]: note" --text t
 setup "[$(E 1 escalated "$ESCALATED")]"; ev
 eq "evidence on a sent escalation owes a withdrawal" "coordinator-verdict|withdrawal" "$(f 1 state)|$(f 1 owed)"
 setup "[$(E 1 escalated "$UNSENT")]"; ev
