@@ -171,8 +171,8 @@ read as the sourcing file's directory. A sourced file's `local` bindings stay
 inside its functions.
 
 A variable is charged only at command position: `$VAR`, `"$VAR"`, `${VAR}` or
-`"${VAR}"` at the start of the line, after a one-line case arm's pattern
-(`a|b) "$VAR" ...`), or after `;`, `&`, `|`, `(`, `{`, `!`, a backtick, or one
+`"${VAR}"` at the start of the line, after a case arm's pattern that starts
+the line or follows `in` or `;;` (`case "$x" in a|b) "$VAR" ...`), or after `;`, `&`, `|`, `(`, `{`, `!`, a backtick, or one
 of `then`, `do`, `else`, `elif`, `if`, `while`, `until`, `exec`, `command` and
 `time`. A variable holding the name as data isn't charged: an argument, a
 message, or a directory with a path after it (`"$CACHE"/run.sh`).
