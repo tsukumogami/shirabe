@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe maintainers plan to withhold instruction sections from the
   koto-templated skills and deliver each only when its check fails, measured
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness, clarity and testability reviewers passed it on a third
 round. The downstream DESIGN owns the approach.
@@ -166,7 +166,9 @@ observation point, numerator, denominator, attribute names) keep its
   refuses the run before any session starts, with a message naming the key
   and which of those it was.
 - **R3. Arms.** Each repetition runs the three arms from the same scenario
-  setup and the same prompt text. The `full` and `without_skill` arms also
+  setup. The `full` and `withheld` arms get the same prompt text; the
+  `without_skill` arm gets the scenario's own prompt for it, since it has no
+  skill to invoke, and the summary shows both. The `full` and `without_skill` arms also
   load their koto template from a scratch copy, so every arm's koto session
   is an ablation fixture.
 - **R4. Deployed-check grading.** Each arm is graded by the deployed check
@@ -292,7 +294,8 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
   and a span found twice each refuse before any model session starts, and the
   message names the key and the reason.
 - [ ] Each repetition produces one record per arm from the same scenario
-  setup and prompt, and every record's `observed_by` is `script`.
+  setup, the `full` and `withheld` arms from the same prompt, and every
+  record's `observed_by` is `script`.
 - [ ] A check that exits outside 0, 1 and 2, or exceeds the time limit,
   yields `not-checkable` with a reason, and the run's other records are
   written.
@@ -363,8 +366,8 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
   guards nothing irreversible, and its rule is fully judgeable from the
   structured evidence a run submits to koto, so a script can grade it. koto
   already refuses an evidence value outside the enum, which leaves the
-  section's remaining content, the rationale an updated or superseded verdict
-  must carry, as what the check measures.
+  section's remaining content, the rationale an `approach_updated` verdict
+  must describe, as what the check measures.
 - **Grade all three arms with one check.** Grading the without-skill arm with
   the same check costs nothing extra and turns a discarded run into a lower
   bound.
