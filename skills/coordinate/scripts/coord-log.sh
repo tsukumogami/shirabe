@@ -273,7 +273,7 @@ provenance)
     [ -n "$HASH" ] || { echo "coord-log: the session's header has no template_hash" >&2; exit 1; }
     # A template that doesn't compile (a reinstall left half-written, say)
     # proves nothing either way, so it falls through to the check below.
-    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null) || COMPILED=
+    COMPILED=$("$KOTO" template compile "$TEMPLATE") || COMPILED=
     [ -n "$COMPILED" ] && [ "$HASH" = "$(basename "$COMPILED" .json)" ] && exit 0
     # The template no longer compiles to the hash the session opened under:
     # a foreign session, or the plugin rewritten in place since the run
