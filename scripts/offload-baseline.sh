@@ -205,11 +205,14 @@ EOF
             failed=1
             continue
         fi
-        if ! printf '%s\n' "$weight" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-            echo "$PROG: bad weight '$weight' for $path" >&2
-            failed=1
-            continue
-        fi
+        # A plain decimal: digits, optionally one point followed by digits.
+        case "$weight" in
+            ""|*[!0-9.]*|.*|*.|*.*.*)
+                echo "$PROG: bad weight '$weight' for $path" >&2
+                failed=1
+                continue
+                ;;
+        esac
         if bytes=$(span_bytes "$sha" "$path" "$selector"); then
             printf '%s\t%s\t%s\t%s\n' "$profile" "$path|$selector" "$bytes" "$weight" >> "$rows"
         else
@@ -237,17 +240,23 @@ EOF
 }
 
 # Reads a top-level frontmatter scalar (name or version) from stdin.
+#
+# It reads its input to the end rather than exiting at the frontmatter's
+# close: the writer is `git cat-file` on a template larger than a pipe buffer,
+# and a reader that exits early sends it SIGPIPE, which pipefail turns into a
+# silent exit 141 wherever SIGPIPE isn't ignored (it is on CI runners).
 frontmatter_scalar() {
     awk -v key="$1" '
-        NR == 1 && $0 != "---" { exit }
+        done { next }
+        NR == 1 && $0 != "---" { done = 1; next }
         NR == 1 { next }
-        $0 == "---" { exit }
+        $0 == "---" { done = 1; next }
         index($0, key ":") == 1 {
             v = substr($0, length(key) + 2)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
             if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
             print v
-            exit
+            done = 1
         }
     '
 }

@@ -40,7 +40,7 @@ The definitions in Solution Architecture stay provisional after acceptance.
 ## Context and Problem Statement
 
 The requirements are in
-[PRD-offload-baseline-pin](../prds/PRD-offload-baseline-pin.md). This design
+[PRD-offload-baseline-pin](../../prds/PRD-offload-baseline-pin.md). This design
 settles four things the PRD leaves open: how a template's identity is
 recorded, where the baseline lives and in what form, how the token count is
 computed so it can be re-run, and the proposed preloaded-rate definition with
