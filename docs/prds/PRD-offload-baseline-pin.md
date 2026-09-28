@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe's four koto-templated skills (work-on, execute, scope, deliver) are
   about to change what they load into an agent's context, and nothing fixes
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness, clarity and testability reviewers all passed it, the last
 two on a second round. The downstream DESIGN owns the approach.
@@ -233,9 +233,10 @@ Boundaries:
 
 - [ ] `git diff --name-only <pinned commit>` on the branch lists no path
       under `skills/` or `references/`.
-- [ ] `git grep` over the branch's added lines finds no match for the
-      private repository names, the home-directory path prefixes, and the
-      session, instance and job identifier formats that the design lists.
+- [ ] A check over the branch's added files finds no repository reference
+      outside the public-repository allowlist, and no match for the
+      home-directory path prefixes or the session, instance and job
+      identifier formats, as the design lists them.
 - [ ] The tooling's tests pass in CI on the pull request, including under
       bash 3.2.
 
