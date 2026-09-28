@@ -47,7 +47,7 @@ findings were resolved in a second round.
 ## Context and Problem Statement
 
 The requirements are in
-[PRD-offload-offline-ablation](../prds/PRD-offload-offline-ablation.md),
+[PRD-offload-offline-ablation](../../prds/PRD-offload-offline-ablation.md),
 cited here by requirement number. In short: run a scenario in three arms
 (`full`, `withheld`, `without_skill`), withhold one section named by its
 baseline rule key without touching shipped files (R1, R2, R14), grade each arm
