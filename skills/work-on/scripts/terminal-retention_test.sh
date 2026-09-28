@@ -4,12 +4,14 @@
 #
 # koto disposes of a session that reaches a success terminal, and every context
 # key the session holds goes with it. `koto next --no-cleanup` keeps it, which is
-# how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0,
-# shirabe's koto minimum, a session that reaches a failure terminal such as
-# `done_blocked` is kept with or without the flag, and on a child the flag only
+# how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0
+# on, a session that reaches a failure terminal such as `done_blocked` is kept
+# with or without the flag, and on a child the flag only
 # keeps the session: the child's result still reaches its parent. So the rule
 # is one line with no root/child split -- every `koto next` carries the flag --
 # and this harness pins both the rule's text and the koto behaviour it rests on.
+# It assumes a koto at shirabe's minimum (scripts/assert-koto-floor.sh), which
+# every job that runs it asserts first.
 #
 # Groups, in execution order -- deliberately not numbered, because a numbered
 # map goes stale the first time a case is inserted and then misdirects the
@@ -44,10 +46,11 @@
 #   1 -- one or more cases failed
 #
 # A missing koto exits 0 with a loud SKIP rather than failing, matching
-# retry-clearing_test.sh. The suite runs on two legs and only one has koto: the
-# Linux leg of check-work-on-scripts.yml installs it through the project tool
-# manifest, so the assertions genuinely run there; the macOS leg is the bash 3.2
-# floor check and exists to test portability of the shell itself. The Linux
+# retry-clearing_test.sh. The suite runs on three legs and two have koto: the
+# Linux leg of check-work-on-scripts.yml installs the newest koto 0.x through the
+# project tool manifest, check-koto-entry-floor.yml installs exactly the
+# minimum, so the assertions genuinely run on both; the macOS leg is the bash
+# 3.2 floor check and exists to test portability of the shell itself. The Linux
 # leg's explicit install step is what keeps a silent skip from hiding a koto
 # that vanished from CI -- the install fails first -- and its
 # assert-koto-floor.sh step fails a koto below the minimum these cases assume.
@@ -202,7 +205,8 @@ echo "koto: $(koto version 2>/dev/null | head -1)"
 # and assertions written against a session that never existed pass or fail for
 # reasons unrelated to what they claim to test. Every init in this suite is
 # checked. (The failure is not hypothetical: koto validates template variables
-# against `^[a-zA-Z0-9._/:@ \-]*$`, so a checkout under a path containing a `+`
+# against `^[a-zA-Z0-9._/:@+ \-]*$`, so a checkout under a path carrying a
+# character outside it -- a quote, a `$`, a comma, or a `+` before koto 0.14.1 --
 # fails init on any template that takes a path variable.)
 init_or_die() {
     if ! koto status "$1" >/dev/null 2>&1; then
@@ -397,7 +401,7 @@ drive_work_on_to_blocked() {
     # anchor finder against it) and koto resolves every required variable at
     # init, so a session cannot be created without it even though no case here
     # reaches that state. A literal rather than this checkout's path: koto
-    # validates a value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the init if it
+    # validates a value against ^[a-zA-Z0-9._/:@+ \-]*$ and rejects the init if it
     # does not match, which a checkout under a directory containing "+" would.
     koto init "$1" --template "$TEMPLATE" \
         --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX="$1" \

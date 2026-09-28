@@ -1,7 +1,8 @@
 ---
 # Terminal-tick retention (#360). EVERY `koto next` in this template carries
 # --no-cleanup, including the two in spawn_and_await. Without it, the tick that
-# reaches a terminal disposes of the session and its ctx/.
+# reaches a success terminal disposes of the session and every context key it
+# holds.
 #
 # Do not restore a carve-out for a tick that looks non-terminal. An earlier
 # version of this note had one, reasoning that spawn_and_await routes only to
@@ -503,6 +504,11 @@ states:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
 
   escalate_upstream_drift:
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       rationale:
         type: string
@@ -510,11 +516,15 @@ states:
         description: Why the upstream change invalidates the chain's intent
     transitions:
       # The upstream-must-change boundary: the run's re-evaluation exit.
+      # No failure_reason here: the intent-changing tick chains through this
+      # state without stopping, and the evidence submitted at
+      # worktree_discipline_check doesn't carry into it, so an assignment from
+      # ${evidence.rationale} would overwrite the reason that state wrote with
+      # an empty one.
       - target: done_blocked
         context_assignments:
           outcome: error
           step: "execute:re-evaluation"
-          failure_reason: "escalate_upstream_drift: ${evidence.rationale}"
 
   spawn_and_await:
     gates:
@@ -542,6 +552,10 @@ states:
           gates.batch_done.all_complete: true
           gates.batch_done.all_success: false
           gates.batch_done.needs_attention: true
+        # This tick submits no evidence and chains through escalate, so the
+        # reason is written here, from the gate, where the counts are.
+        context_assignments:
+          failure_reason: "spawn_and_await: ${gates.batch_done.failed} failed, ${gates.batch_done.skipped} skipped, ${gates.batch_done.spawn_failed} not spawned; batch_final_view names each child and its reason"
 
   pr_finalization:
     accepts:
@@ -706,6 +720,11 @@ states:
           failure_reason: "ci_monitor: the PR lookup read failed"
 
   escalate_dirty_merge_state:
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       rationale:
         type: string
@@ -719,7 +738,9 @@ states:
         context_assignments:
           outcome: ready-awaiting-merge
           reason: "merge-state:DIRTY"
-          failure_reason: "escalate_dirty_merge_state: ${evidence.rationale}"
+          # No failure_reason: ci_monitor's tick chains through this state and
+          # its rationale doesn't carry, so the reason ci_monitor's edge wrote
+          # is the one that holds it.
 
   plan_completion:
     # The completion cascade runs BEFORE gh pr ready so the chain is
@@ -1054,17 +1075,24 @@ states:
           reason: merge-not-observed
 
   escalate:
+    # The accepts block is vestigial: koto today chains through a state whose
+    # transitions are all unconditional (tsukumogami/koto#202), so nothing here
+    # is ever submitted. If that changes, this state would stop for evidence
+    # it no longer uses; drop the block then, or first
+    # (scripts/check-template-directives.allow).
     accepts:
       failure_reason:
         type: string
         required: true
         description: Summary of which children failed and why, for the batch view
     transitions:
+      # No failure_reason here: the attention tick chains through this state
+      # with no evidence, so ${evidence.failure_reason} would overwrite the
+      # reason spawn_and_await's edge wrote with an empty one.
       - target: done_blocked
         context_assignments:
           outcome: error
           step: "execute:escalate"
-          failure_reason: "${evidence.failure_reason}"
 
   paused_for_review:
     # D2 (execute-friction): a non-failure terminal reached in interactive mode
@@ -1304,7 +1332,7 @@ Submit `impact` as one of:
 
 ## escalate_upstream_drift
 
-A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The terminal state routes to `done_blocked` carrying the `failure_reason` for batch-view visibility.
+A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The tick that submitted `intent-changing` chains through this state to `done_blocked`, which keeps the `failure_reason` `worktree_discipline_check` wrote, rationale included.
 
 ## spawn_and_await
 
@@ -1454,7 +1482,7 @@ When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with 
 
 ## escalate_dirty_merge_state
 
-The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. Submit `rationale` naming the conflict files; the workflow routes to `done_blocked` with the DIRTY-specific failure reason. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
+The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. The `rationale` naming the conflict files is submitted at `ci_monitor` with `ci_outcome: dirty_merge_state`; that tick chains through here to `done_blocked`, and the DIRTY-specific failure reason `ci_monitor` wrote, rationale included, is the one the run ends with. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
 
 ## plan_completion
 
@@ -1531,12 +1559,12 @@ The three cascade values route to `ci_monitor` in the state machine, which waits
 
 One or more children reached `done_blocked` or were skipped due to dependency failure. Inspect `batch_final_view` to understand which children failed and why.
 
-Read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-child data. Summarize:
+The tick that routes here doesn't stop: it chains on to `done_blocked`, and `failure_reason` already holds the gate's counts (failed, skipped, not spawned), written on `spawn_and_await`'s edge. There is nothing to submit.
+
+For the operator summary, read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-child data and report:
 - Which children failed (name + `reason` field)
 - Which children were skipped (name + `skipped_because_chain`)
 - What the user should do to resolve the blockers
-
-Submit `failure_reason` with this summary. The workflow routes to `done_blocked` and the `failure_reason` is written to context for the batch view.
 
 ## merge_readiness
 

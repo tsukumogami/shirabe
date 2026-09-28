@@ -8,9 +8,9 @@
 # and at `merged`, `ready_awaiting_merge` or `done` otherwise; each loses its
 # context without `koto next --no-cleanup` (#360). The pause is the worst loss
 # -- it is solicited, and what dies with it is what a resume reads. From koto
-# 0.14.0, shirabe's koto minimum, `done_blocked` is a failure terminal koto
-# keeps either way, so its cases assert the record survives with and without
-# the flag.
+# 0.14.0 on, `done_blocked` is a failure terminal koto keeps either way, so its
+# cases assert the record survives with and without the flag. The suite assumes
+# a koto at shirabe's minimum (scripts/assert-koto-floor.sh).
 #
 # `/execute` passes the flag on every tick, as every shirabe skill does. Case
 # groups, in execution order -- deliberately not numbered, because a numbered
@@ -284,15 +284,16 @@ k() { (cd "$FIXREPO" && koto "$@"); }
 
 # --- the plugin root ------------------------------------------------------------
 #
-# koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
-# checkout under a directory with a `+` in it fails that. The actions these cases
+# koto validates a variable's value against ^[a-zA-Z0-9._/:@+ \-]*$, and a
+# checkout under a directory whose name carries a character outside it (a
+# quote, a `$`, a comma; a `+` before koto 0.14.1) fails that. The actions these cases
 # run (the write set, the verdict, the confirm read) live in the plugin, so the
 # plugin root has to be real: this checkout's path when it is clean, a symlink in
 # the temp tree when that is clean, and otherwise -- a temp tree that is itself
 # under such a directory -- a copy of the template with this checkout's path
 # written where {{PLUGIN_ROOT}} stood, under a stand-in PLUGIN_ROOT. The copy is
 # the one departure from "the shipped template", and the note says so.
-KOTO_ALLOW='^[a-zA-Z0-9._/:@ -]*$'
+KOTO_ALLOW='^[a-zA-Z0-9._/:@+ -]*$'
 TPL="$TEMPLATE"
 if [[ $REPO_ROOT =~ $KOTO_ALLOW ]]; then
     PLUGIN_ROOT_VAR="$REPO_ROOT"
@@ -625,9 +626,70 @@ if k status execute-payload-dirty | jq -e '.result.status == "failure"' >/dev/nu
 else
     fail "the DIRTY route's result status is not failure"
 fi
+# The deciding tick chains through escalate_dirty_merge_state, where the
+# rationale submitted at ci_monitor doesn't carry, so ci_monitor's reason is
+# the one that must survive to the terminal.
+got=$(k context get execute-payload-dirty failure_reason 2>/dev/null)
+if [ "$got" = "ci_monitor: PR merge state is DIRTY; checks suppressed. src/a.go conflicts" ]; then
+    pass "the DIRTY done_blocked keeps ci_monitor's failure_reason with the rationale"
+else
+    fail "the DIRTY done_blocked failure_reason: [$got]"
+fi
 at_ci_monitor payload-dirty-ctl
 decide execute-payload-dirty-ctl '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' ""
 expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge failure
+
+# The attention route: a child fails, and the gate-routed tick chains
+# spawn_and_await -> escalate -> done_blocked with no evidence submitted, so
+# the reason has to come from the gate, not from escalate's evidence.
+cat > "$WORKDIR/failing-child.md" <<'CHILD_EOF'
+---
+name: failing-child
+version: "1.0"
+description: A child that fails when told to.
+initial_state: start
+states:
+  start:
+    accepts:
+      go:
+        type: enum
+        values: [fail]
+        required: true
+    transitions:
+      - target: done_blocked
+        when:
+          go: fail
+        context_assignments:
+          failure_reason: "failed on purpose"
+  done_blocked:
+    terminal: true
+    failure: true
+---
+
+## start
+Submit go.
+
+## done_blocked
+Terminal.
+CHILD_EOF
+init_orchestrator payload-escalate
+# spawn_and_await reads the SETTLED_BRANCH capture, which only a real run of
+# settled_branch_record's action delivers, so that one state is ticked rather
+# than hopped. The tick stops at drift_facts (this fixture has no origin), and
+# the directed hops go on from there.
+walk execute-payload-escalate settled_branch_record
+k next execute-payload-escalate --no-cleanup >/dev/null 2>&1
+walk execute-payload-escalate worktree_sync spawn_and_await
+k next execute-payload-escalate --with-data "{\"tasks\":[{\"name\":\"c1\",\"template\":\"$WORKDIR/failing-child.md\"}]}" --no-cleanup >/dev/null 2>&1
+k next execute-payload-escalate.c1 --with-data '{"go":"fail"}' --no-cleanup >/dev/null 2>&1
+k next execute-payload-escalate --no-cleanup >/dev/null 2>&1
+expect_payload "the attention-route done_blocked" execute-payload-escalate done_blocked error "execute:escalate" ""
+got=$(k context get execute-payload-escalate failure_reason 2>/dev/null)
+if [ "$got" = "spawn_and_await: 1 failed, 0 skipped, 0 not spawned; batch_final_view names each child and its reason" ]; then
+    pass "the attention-route done_blocked carries the batch counts in failure_reason"
+else
+    fail "the attention-route done_blocked failure_reason: [$got]"
+fi
 
 # A verdict error: a failed check makes the verdict error:execute:ci, and the
 # step reaches the result through the key the record script wrote.

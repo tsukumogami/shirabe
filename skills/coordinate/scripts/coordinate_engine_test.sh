@@ -14,12 +14,13 @@
 #   2. a restart with a record present takes the found arm, never record_open;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      record-write.sh disposes it, then dispatch is reached;
-#   4. after dispatch, `record` holds until the Holdings row shows, so wait is
-#      unreachable until then;
+#   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
+#      Holdings row shows dispatched, so record and wait are unreachable until
+#      then;
 #   5. a Draft roadmap ends at done_not_active;
 #   6. an unread posture reaches posture_ask;
-#   7. `koto overrides record` is refused on a check gate, with and without
-#      data;
+#   7. `koto overrides record` is refused on a check gate and on the dispatch
+#      gate, with and without data;
 #   8. evidence that contradicts the stand-in doesn't change a check's route;
 #   9. every value of wait's event enum reaches its spoke with no
 #      template_error;
@@ -226,7 +227,7 @@ if open_run restart && [ "$(at)" = record_open ]; then
         [ "$S" != "$FIRST" ] && ok "2: the restart is a new session" || bad "2: the restart is a new session" "$S"
         eq "2: the restart reaches reconcile" reconcile "$(at)"
         eq "2: the restart never enters record_open" 0 "$(entered record_open)"
-        from_to record_find reconcile && ok "2: record_find -> reconcile is the found arm" || bad "2: record_find -> reconcile is the found arm"
+        from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
         grep -q '^issue create' "$GH_DB.calls" && bad "2: nothing opens a second record" "$(grep '^issue create' "$GH_DB.calls")" \
             || ok "2: nothing opens a second record"
         eq "2: one record still" 1 "$(record_number restart | wc -w | tr -d ' ')"
@@ -263,17 +264,19 @@ fi
 
 # ---- 4. the record step holds until the Holdings row shows -------------------
 echo "== 4. dispatch reaches wait only through a recorded holding =="
+# dispatched_row <topic>: the row dispatch-worker.sh leaves once the worker is
+# confirmed launched.
+dispatched_row() { holding "$1" "$(jq -nc '{unit: "Feature 1", pull_request: "", branch: "", dispatch_status: "dispatched", return_path: "message"}')"; }
 if to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
-    eq "4: dispatched without a row holds at record" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
-    eq "4: another tick still holds" record "$(at)"
-    R=$(tick --with-data '{"choice":"hold"}')
-    eq "4: record refuses evidence" precondition_failed "$(printf '%s' "$R" | jq -r '.error.code // empty')"
+    eq "4: dispatched without a row holds at dispatch" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "4: another tick still holds" dispatch "$(at)"
+    eq "4: record is unreachable before the row" 0 "$(entered record)"
     eq "4: wait is unreachable before the row" 0 "$(entered wait)"
     sleep 1
-    unit_row feat-1 > "$T/row.json"
+    dispatched_row feat-1 > "$T/row.json"
     write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
     eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
-    eq "4: with the row on GitHub, record confirms and reaches pick" pick "$(at)"
+    eq "4: with the row on GitHub, dispatch leaves, record confirms and reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
     bad "4: reach dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -323,12 +326,12 @@ if open_run ovr && [ "$(at)" = reconcile ]; then
     try_override "an override of reconcile_posture with data" reconcile_posture '{"exit_code":25}'
     at --with-data '{"reconciled":"reported"}' >/dev/null
     at --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
-    if [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = record ]; then
-        try_override "an override of record_verdict without data" record_verdict
-        try_override "an override of record_verdict with data" record_verdict '{"exit_code":50}'
-        eq "7: record stays blocked after the attempts" record "$(at)"
+    if [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = dispatch ]; then
+        try_override "an override of holding_recorded without data" holding_recorded
+        try_override "an override of holding_recorded with data" holding_recorded '{"exit_code":0}'
+        eq "7: dispatch stays blocked after the attempts" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     else
-        bad "7: reach a blocked record" "$(cat "$T/tick.err")"
+        bad "7: reach a blocked dispatch" "$(cat "$T/tick.err")"
     fi
     OV=$(cd "$WD" && koto overrides list "$S" 2>/dev/null | jq -r '[.. | objects | select(has("gate"))] | length' 2>/dev/null)
     eq "7: no override is on record" 0 "${OV:-0}"
@@ -356,12 +359,12 @@ else
     bad "8: reach reconcile with an unread posture" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 if to_pick contra3 "$(record_json roadmap contra3)" 81 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ] \
-    && [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = record ]; then
-    R=$(tick --with-data '{"confirmed":"yes"}')
-    eq "8: record refuses evidence claiming it is confirmed" precondition_failed "$(printf '%s' "$R" | jq -r '.error.code // empty')"
-    eq "8: and stays at record, the row not on GitHub" record "$(at)"
+    && [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = dispatch ]; then
+    R=$(tick --with-data '{"dispatched":"sent","topic":"feat-1","confirmed":"yes"}')
+    [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: dispatch refuses evidence claiming it is confirmed" || bad "8: dispatch refuses evidence claiming it is confirmed" "$R"
+    eq "8: and stays at dispatch, the row not on GitHub" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
 else
-    bad "8: reach a blocked record" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    bad "8: reach a blocked dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 # ---- 9. every wait event reaches its spoke -----------------------------------
@@ -438,7 +441,7 @@ land_run() {
     bt_board complete-board
     to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" "$2" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
-    [ "$(at --with-data '{"event":"report","unit":"feat-1"}')" = classify_report ] || return 1
+    [ "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR #12 is ready; CI is green."}')" = classify_report ] || return 1
     [ "$(at --with-data '{"classification":"done"}')" = verify ] || return 1
     [ "$(at --with-data '{"predicted":"recorded","prediction":"every job green"}')" = verified_confirm ]
 }

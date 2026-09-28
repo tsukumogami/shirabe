@@ -36,14 +36,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.matches: true, gates.diagram_referent.matches: true, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.matches: true, gates.diagram_referent.matches: true, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
     implementation --> implementation : implementation_status: partial_tests_failing_retry
@@ -75,11 +75,11 @@ stateDiagram-v2
     pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
     pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
-    pre_pr_evidence --> pr_precheck : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: true, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: false, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.cleanup_referent.matches: true, gates.commit_convention.exit_code: 0, gates.diagram_referent.matches: false, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 1, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry

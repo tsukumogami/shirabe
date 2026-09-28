@@ -22,6 +22,7 @@
 #   --list                         list the suites and what each one runs
 #   --suites                       the CI suite names, one per line
 #   --scripts <suite>              that suite's scripts, one per line
+#   --require-rootless             docker backend: refuse a rootful daemon
 #   -h, --help                     this message
 #
 # Backends:
@@ -31,10 +32,35 @@
 #            and runs the suite inside it. Every bash in that container is 3.2.
 #   auto     system when /bin/bash is 3.2, otherwise docker.
 #
+# The docker backend's container:
+#   - sees the checkout read-only, at the same path it has on the host, so a
+#     suite cannot change a file in it; suites write under the container's
+#     /tmp, and HOME is a tmpfs.
+#   - resolves a linked worktree: the git directories its .git file points to
+#     are mounted read-only at their host paths too. A .git file whose git
+#     directory the host cannot resolve is refused before anything runs.
+#   - runs on whatever daemon docker reaches (DOCKER_HOST's choice). On a
+#     rootless daemon the container's root is the invoking user. On a rootful
+#     one the container runs as --user "$(id -u):$(id -g)", which with the
+#     read-only mount keeps a suite from changing the checkout; a notice
+#     recommends a rootless daemon, which also keeps the daemon's own work
+#     off the host's root. --require-rootless refuses a rootful daemon, for
+#     hosts that allow only rootless containers. CI's hosted runners have a
+#     rootful daemon, so CI exercises the --user path; a rootless host
+#     exercises the other.
+#   - has GNU coreutils, grep, sed, findutils, gawk, diffutils and procps next
+#     to bash 3.2, so its userland matches a Linux host's. It still does not
+#     match macOS, whose tools are BSD: a GNU-only flag passes here and fails
+#     there, which only the system backend on macOS catches.
+#
 # Environment:
-#   SHIRABE_FLOOR_IMAGE   override the container image tag that gets built
-#   SHIRABE_BIN           a shirabe binary to inject instead of building one
-#                         (docker backend only; must be static/musl-linked)
+#   SHIRABE_FLOOR_IMAGE             override the container image tag that gets
+#                                   built
+#   SHIRABE_BIN                     a shirabe binary to inject instead of
+#                                   building one (docker backend only; must be
+#                                   static/musl)
+#   SHIRABE_FLOOR_REQUIRE_ROOTLESS  any value but empty or 0 is the same as
+#                                   --require-rootless (docker backend only)
 #
 # Exit codes:
 #   0 - the suite passed on the floor
@@ -49,12 +75,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FLOOR_IMAGE="${SHIRABE_FLOOR_IMAGE:-shirabe-bash-floor:3.2}"
 BASE_IMAGE="bash:3.2"
 
-# Mount points inside the container. /w is the checkout; /floor holds what the
-# floor run injects and the checkout must not see.
-WORKDIR=/w
+# Mount points inside the container. The checkout is mounted at $REPO_ROOT,
+# its own host path, and must stay there: the gitdir link in a linked
+# worktree's .git file only resolves at that path. /floor holds what the floor
+# run injects and the checkout must not see; HOME is a tmpfs, since the
+# checkout is read-only and on a rootful daemon the container user has no home
+# of its own.
 INJECT_DIR=/floor
+FLOOR_HOME=/home/floor
 
 BACKEND=auto
+# A policy switch fails closed: anything but empty or 0 turns it on.
+case "${SHIRABE_FLOOR_REQUIRE_ROOTLESS:-0}" in
+    ""|0) REQUIRE_ROOTLESS=0 ;;
+    *)    REQUIRE_ROOTLESS=1 ;;
+esac
+# Set by check_docker_daemon: 1 when the daemon is rootless, 0 when rootful.
+DAEMON_ROOTLESS=""
 TMP_DIRS=""
 
 cleanup() {
@@ -117,12 +154,13 @@ mktempdir() {
 #       test, scripts/check-koto-release_test.sh, drives it against a stand-in
 #       koto in the koto-open suite, wherever yq is present.
 #
-# Backend limit, not an exemption: the `preflight` suite fails on the docker
-# backend for non-bash reasons (busybox lacks `ps -o pgid=` and job control),
-# so `all` on Linux reports it red; its floor run is the macOS leg, on the
-# system backend.
+# Backend limit, not an exemption: the `preflight` suite fails one case on the
+# docker backend for a non-bash reason (the image has no koto, gh or shirabe,
+# so the shipped declarations are not silent there, as they are on a
+# provisioned host), so `all` on Linux reports it red; its floor run is the
+# macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile"
 
 suite_scripts() {
     case "$1" in
@@ -156,6 +194,8 @@ suite_scripts() {
             echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
             echo "skills/execute/scripts/print-exit_test.sh"
             echo "skills/execute/scripts/eval-gh-shim_test.sh"
+            # The eval koto shim on an execute session; needs only jq.
+            echo "skills/execute/scripts/eval-koto-shim_test.sh"
             # Its own refusals run on a koto stub; its engine cases, like the
             # structure test's compile, skip without koto.
             echo "skills/execute/scripts/execute-open_test.sh"
@@ -204,6 +244,9 @@ suite_scripts() {
             echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions, and skips cleanly without them.
             echo "skills/work-on/scripts/finalization-shape_test.sh"
+            # Holds pre_pr.md in a real koto session, and skips cleanly
+            # without one.
+            echo "skills/work-on/scripts/check-pre-pr-referents_test.sh"
             # Its rule-text cases need no engine; its engine cases skip without
             # koto.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
@@ -226,12 +269,14 @@ suite_scripts() {
             # engine-free case runs without koto and invokes it.
             ;;
         preflight)
-            # Runs on the system backend only. In the docker container it fails
-            # for reasons unrelated to bash: the probe needs `ps -o pgid=` and
-            # job control, which busybox lacks. Its floor run is the macOS leg.
+            # Runs on the system backend only. In the docker container one
+            # case fails for a reason unrelated to bash: the image carries no
+            # koto, gh or shirabe to satisfy the shipped declarations. Its
+            # floor run is the macOS leg.
             echo "scripts/skill-preflight_test.sh"
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
+            echo "scripts/lib/preflight-minimum_test.sh"
             echo "scripts/check-skill-requires_test.sh"
             # The scan on its own, against the committed tree: the verdict the
             # macOS leg reports, not only a case inside the harness above.
@@ -320,6 +365,13 @@ suite_scripts() {
             echo "skills/coordinate/scripts/skill-hygiene_test.sh"
             echo "skills/coordinate/scripts/progress-view_test.sh"
             echo "skills/coordinate/scripts/coord-verdict-table_test.sh"
+            # The dispatch path's scripts: test-local niwa, koto, gh and record
+            # stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/dispatch-common_test.sh"
+            echo "skills/coordinate/scripts/render-brief_test.sh"
+            echo "skills/coordinate/scripts/dispatch-worker_test.sh"
+            echo "skills/coordinate/scripts/wait-target_test.sh"
+            echo "skills/coordinate/scripts/teardown-inventory_test.sh"
             # The decision-phrasing list's reader: bash, awk and grep only.
             echo "skills/coordinate/scripts/decision-phrasings_test.sh"
             ;;
@@ -361,6 +413,14 @@ suite_scripts() {
             # self-test through the same code path as a real suite.
             echo "scripts/bash-floor-canary.sh"
             ;;
+        coordinate-reconcile)
+            # /coordinate's reconcile scripts: bash, jq and git only, with
+            # stand-ins for gh, niwa and koto, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/reconcile-report_test.sh"
+            echo "skills/coordinate/scripts/reconcile-check_test.sh"
+            echo "skills/coordinate/scripts/reconcile-read_test.sh"
+            echo "skills/coordinate/scripts/reconcile-pass_test.sh"
+            ;;
         *)
             return 1
             ;;
@@ -379,6 +439,7 @@ suite_workflow() {
         deliver)              echo ".github/workflows/check-deliver-scripts.yml" ;;
         scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
         coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
+        coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
@@ -437,7 +498,8 @@ resolve_shirabe_bin() {
 
     if [ -n "${SHIRABE_BIN:-}" ]; then
         [ -x "$SHIRABE_BIN" ] || die "SHIRABE_BIN is set but not executable: $SHIRABE_BIN"
-        SHIRABE_FLOOR_BIN="$SHIRABE_BIN"
+        # Absolute, because it becomes a --mount source.
+        SHIRABE_FLOOR_BIN="$(CDPATH= cd "$(dirname "$SHIRABE_BIN")" && pwd)/$(basename "$SHIRABE_BIN")"
         return 0
     fi
 
@@ -469,6 +531,19 @@ resolve_shirabe_bin() {
 # are what the suites shell out to; without them a floor run reports
 # missing-tool failures that have nothing to do with the bash version.
 #
+# The GNU packages replace busybox's applets of the same names. No host shirabe
+# supports has a busybox userland, so without them a suite using a GNU or BSD
+# flag (grep --include, ps -o pgid=) fails here for a reason that says nothing
+# about bash 3.2. They go on top of bash:3.2 rather than a rebase onto a glibc
+# distribution: that image is the maintained bash 3.2 build, it is Alpine
+# only, and the static musl shirabe the plan and execute suites need already
+# runs on it. The base image keeps its bash in /usr/local/bin only, while
+# every supported host has a /bin/bash that a #!/bin/bash stub or a
+# PATH=/usr/bin:/bin run relies on, so the 3.2 binary is linked there too.
+# None of the packages pulls in Alpine's own bash, and the last step
+# fails the build if any bash on PATH is not 3.2, since a floor image that
+# quietly carried a newer one would pass everything.
+#
 # yq is the mikefarah v4 release binary, the same version check-templates.yml
 # pins, checked against the SHA-256 that release's checksums file records.
 # Alpine's own package is not used: its name and version move with the base
@@ -477,12 +552,59 @@ FLOOR_YQ_VERSION="v4.47.1"
 FLOOR_YQ_SHA256_AMD64="0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb"
 FLOOR_YQ_SHA256_ARM64="b7f7c991abe262b0c6f96bbcb362f8b35429cefd59c8b4c2daa4811f1e9df599"
 
-build_floor_image() {
+FLOOR_PACKAGES="jq git python3 coreutils grep sed findutils gawk diffutils procps-ng"
+
+# The floor runs whatever test code the branch under check carries. On a
+# rootful daemon everything the daemon does for a container - creating a
+# missing mount point, writing through a mount, the container's own root - is
+# done as the host's root, which is how #413's root-owned files got into a
+# checkout. The read-only mount and --user close the paths #413 names, so a
+# rootful daemon, the one stock Docker installs and CI's hosted runners have,
+# is used by default. A rootless daemon closes the class, since nothing it does
+# can reach past the invoking user, so a rootful run recommends it, and
+# --require-rootless turns the recommendation into a refusal on hosts whose
+# rule is rootless containers only.
+#
+# Which daemon is reached is DOCKER_HOST's (or the docker context's) choice,
+# not this script's.
+check_docker_daemon() {
+    local opts
     command -v docker >/dev/null 2>&1 || die "docker is required for the docker backend (on macOS use --backend system: /bin/bash is already 3.2)"
+    opts=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null) \
+        || die "cannot reach a docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset})"
+    case "$opts" in
+        *name=rootless*)
+            DAEMON_ROOTLESS=1
+            ;;
+        *)
+            DAEMON_ROOTLESS=0
+            if [ "$REQUIRE_ROOTLESS" = 1 ]; then
+                die "refusing a rootful docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}): --require-rootless (or SHIRABE_FLOOR_REQUIRE_ROOTLESS=1) is set; point DOCKER_HOST at a rootless daemon's socket"
+            fi
+            echo "check-bash-floor: rootful docker daemon; the container runs as $(id -u):$(id -g) over a read-only checkout (a rootless daemon also keeps the daemon's own work off the host's root)" >&2
+            ;;
+    esac
+}
+
+# Besides building the image, this settles what every run_suite_docker call
+# relies on: DAEMON_ROOTLESS (check_docker_daemon) and GIT_MOUNT_DIRS
+# (resolve_git_mounts). A change that skips the build, for a cached image say,
+# must still run these, or the #413 worktree failure comes back silently.
+build_floor_image() {
+    check_docker_daemon
+    # The container's user is the invoking user on either daemon, and git
+    # refuses a repository that user doesn't own, which would fail every git
+    # call in the suites or leave a check silently checking nothing. So
+    # ownership is checked here, before anything runs.
+    [ -O "$REPO_ROOT" ] || die "$REPO_ROOT is not owned by the invoking user ($(id -un)); git inside the floor container would refuse it. Run the floor as the checkout's owner"
+    # Before the build, so a checkout the container could not resolve is
+    # refused before anything is pulled or built.
+    resolve_git_mounts
     echo "check-bash-floor: building $FLOOR_IMAGE" >&2
     docker build -q -t "$FLOOR_IMAGE" - >/dev/null <<EOF || die "could not build $FLOOR_IMAGE from $BASE_IMAGE"
 FROM $BASE_IMAGE
-RUN apk add --no-cache jq git python3
+RUN apk add --no-cache $FLOOR_PACKAGES
+RUN ln -s /usr/local/bin/bash /bin/bash
 RUN case "\$(uname -m)" in \\
         x86_64) a=amd64; s=$FLOOR_YQ_SHA256_AMD64 ;; \\
         aarch64) a=arm64; s=$FLOOR_YQ_SHA256_ARM64 ;; \\
@@ -492,6 +614,16 @@ RUN case "\$(uname -m)" in \\
     && echo "\$s  /usr/local/bin/yq" | sha256sum -c - \\
     && chmod +x /usr/local/bin/yq \\
     && yq --version
+RUN for b in \$(which -a bash) /bin/bash /usr/bin/bash; do \\
+        [ -x "\$b" ] || continue; \\
+        "\$b" -c 'case "\$BASH_VERSION" in 3.2*) exit 0;; *) exit 1;; esac' \\
+            || { echo "\$b is not bash 3.2" >&2; exit 1; }; \\
+    done \\
+    && for t in ls grep sed find awk diff; do \\
+        "\$t" --version 2>&1 | head -n 1 | grep -q GNU \\
+            || { echo "\$t is not the GNU one" >&2; exit 1; }; \\
+    done \\
+    && ps --version | grep -q procps
 EOF
 }
 
@@ -518,13 +650,112 @@ EOF
     chmod +x "$path"
 }
 
+# A linked worktree's .git is a file naming its git directory, which lives in
+# the main checkout's .git and so outside the mount; git inside the container
+# then fails with "not a git repository" and a suite that reads the checkout's
+# history fails for a reason unrelated to bash. So the directories that file
+# leads to are mounted read-only at the paths it names. The paths are taken
+# from the files themselves, not from `git rev-parse`, because the container
+# has to find exactly what the file says, relative links included. A
+# submodule's .git file works the same way, minus the commondir.
+#
+# Refusing linked worktrees outright (#413's first suggestion) would be
+# simpler, but it would put the docker floor out of reach for anyone who works
+# in worktrees, which is the usual way to run several changes side by side.
+#
+# Sets GIT_MOUNT_DIRS, one directory per line. A .git file that does not lead
+# to a git directory on the host is refused here: the container could not
+# resolve it either.
+GIT_MOUNT_DIRS=""
+resolve_git_mounts() {
+    local dotgit="$REPO_ROOT/.git" link gitdir common d
+
+    GIT_MOUNT_DIRS=""
+    # A plain checkout's git directory is inside the mount already.
+    [ -f "$dotgit" ] || return 0
+
+    link=$(sed -n 's/^gitdir: //p' "$dotgit" | head -n 1)
+    [ -n "$link" ] || die "$dotgit is a file with no 'gitdir:' line, so git inside the container cannot find this checkout's repository"
+    case "$link" in
+        /*) ;;
+        *) link="$REPO_ROOT/$link" ;;
+    esac
+    gitdir=$(CDPATH= cd "$link" 2>/dev/null && pwd) && [ -f "$gitdir/HEAD" ] \
+        || die "$dotgit points at $link, which is not a git directory on this host (a moved or pruned worktree?); run 'git worktree repair' from the main checkout, or run the floor from a checkout whose .git resolves"
+
+    common="$gitdir"
+    if [ -f "$gitdir/commondir" ]; then
+        link=$(head -n 1 "$gitdir/commondir")
+        case "$link" in
+            /*) ;;
+            *) link="$gitdir/$link" ;;
+        esac
+        common=$(CDPATH= cd "$link" 2>/dev/null && pwd) && [ -d "$common/objects" ] \
+            || die "$gitdir/commondir points at $link, which is not a git directory on this host; run 'git worktree repair' from the main checkout"
+    fi
+
+    for d in "$common" "$gitdir"; do
+        case "$d/" in
+            "$REPO_ROOT"/*) continue ;;
+        esac
+        if [ "$d" != "$common" ]; then
+            case "$d/" in
+                "$common"/*) continue ;;
+            esac
+        fi
+        GIT_MOUNT_DIRS="$GIT_MOUNT_DIRS$d
+"
+    done
+}
+
+# bind_ro <source> [<target>]: sets BIND_RO_RESULT to a --mount value binding
+# <source> read-only at <target> (default: the same path). The checkout
+# sits at its host path, which may hold a colon that -v and --tmpfs would split
+# on; --mount only splits on commas, so a comma is refused rather than
+# misparsed.
+BIND_RO_RESULT=""
+bind_ro() {
+    local src="$1" dst="${2:-$1}"
+    case "$src$dst" in
+        *,*) die "cannot mount a path containing a comma into the floor container: $src" ;;
+    esac
+    BIND_RO_RESULT="type=bind,source=$src,target=$dst,readonly"
+}
+
 run_suite_docker() {
     local suite="$1"
-    local script status shirabe_bin stub_dir
+    local script status shirabe_bin stub_dir d
     # Always non-empty, so `set -u` never meets an empty array expansion -
     # which is itself a bash 3.2 trap, and this script runs on the floor too.
     local args
-    args=(--rm -v "$REPO_ROOT:$WORKDIR")
+
+    [ -n "$DAEMON_ROOTLESS" ] || die "internal: run_suite_docker ran before build_floor_image checked the daemon and the git mounts"
+
+    # Read-only: whatever user the container runs as, no suite can change a
+    # file in the checkout. They write under /tmp, which is the container's
+    # own and goes with it.
+    bind_ro "$REPO_ROOT"
+    args=(--rm --mount "$BIND_RO_RESULT")
+    # GIT_MOUNT_DIRS was resolved by build_floor_image, before the build.
+    while read -r d; do
+        [ -n "$d" ] || continue
+        bind_ro "$d"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
+    done <<EOF
+$GIT_MOUNT_DIRS
+EOF
+
+    # On a rootless daemon the container's root is the invoking user on the
+    # host, and a --user uid would map to one of that user's subordinate ids
+    # instead. On a rootful daemon root is the host's root, so the container
+    # runs as the invoking user. Either way the checkout's owner is the
+    # container's user, so git needs no safe.directory exception to read it.
+    if [ "$DAEMON_ROOTLESS" != 1 ]; then
+        args=("${args[@]}" --user "$(id -u):$(id -g)")
+    fi
+    # exec because suites write stand-in binaries under $HOME and run them;
+    # 1777 because on a rootful daemon the container user owns nothing here.
+    args=("${args[@]}" --tmpfs "$FLOOR_HOME:rw,exec,mode=1777" -e "HOME=$FLOOR_HOME" -e TMPDIR=/tmp)
 
     if suite_needs_shirabe "$suite"; then
         resolve_shirabe_bin
@@ -538,23 +769,23 @@ run_suite_docker() {
         # where each harness looks: plan-to-tasks_test.sh honours SHIRABE_BIN,
         # run-cascade_test.sh does not and reads target/release/shirabe.
         #
-        # The mkdir is not redundant. Docker creates a missing mount point
-        # itself, and it creates it as root - on the host, because the parent
-        # is a bind mount of the checkout. A floor run would leave behind a
-        # root-owned target/ that the next `cargo build` cannot write to.
+        # The mkdir is not redundant. The checkout is mounted read-only, so
+        # docker cannot create a missing mount point in it; and were it
+        # writable, docker would create the directory as the daemon's root
+        # on the host, leaving a target/ the next `cargo build` cannot write.
         mkdir -p "$REPO_ROOT/target"
-        args=("${args[@]}" --tmpfs "$WORKDIR/target")
-        args=("${args[@]}" -v "$shirabe_bin:$INJECT_DIR/shirabe:ro")
-        args=("${args[@]}" -v "$shirabe_bin:$WORKDIR/target/release/shirabe:ro")
-        args=("${args[@]}" -v "$stub_dir:$INJECT_DIR/bin:ro")
+        args=("${args[@]}" --mount "type=tmpfs,target=$REPO_ROOT/target")
+        bind_ro "$shirabe_bin" "$INJECT_DIR/shirabe"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
+        bind_ro "$shirabe_bin" "$REPO_ROOT/target/release/shirabe"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
+        bind_ro "$stub_dir" "$INJECT_DIR/bin"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
         args=("${args[@]}" -e "SHIRABE_BIN=$INJECT_DIR/shirabe")
         args=("${args[@]}" -e "PATH=$INJECT_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     fi
 
-    # The container runs as root over a checkout owned by someone else, which
-    # git refuses to read without this.
-    args=("${args[@]}" -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e "GIT_CONFIG_VALUE_0=*")
-    args=("${args[@]}" -w "$WORKDIR" "$FLOOR_IMAGE")
+    args=("${args[@]}" -w "$REPO_ROOT" "$FLOOR_IMAGE")
 
     status=0
     while read -r script; do
@@ -645,6 +876,10 @@ while [ $# -gt 0 ]; do
             ;;
         --backend=*)
             BACKEND="${1#--backend=}"
+            shift
+            ;;
+        --require-rootless)
+            REQUIRE_ROOTLESS=1
             shift
             ;;
         -h|--help)

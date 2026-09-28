@@ -10,16 +10,15 @@ name: Check koto minimum
 on:
   pull_request:
     paths:
-      - 'scripts/assert-koto-floor.sh'
-      - 'scripts/koto-minimum-consistency_test.sh'
-      - 'scripts/*.sh'
+      # The scan's git pathspecs descend (`*` crosses `/`), so the trigger does too.
+      - 'scripts/**'
       - 'README.md'
       - 'CLAUDE.md'
       - '.tsuku.toml'
       - 'docs/guides/**'
       - 'references/**'
-      - 'skills/*/SKILL.md'
-      - 'skills/*/requires.tsv'
+      - 'skills/**/SKILL.md'
+      - 'skills/**/requires.tsv'
       - 'skills/*/koto-templates/**'
       - 'skills/*/references/**'
       - 'skills/*/scripts/**'
