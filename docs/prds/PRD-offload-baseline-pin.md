@@ -14,7 +14,8 @@ goals: |
   load at that commit is recorded and re-runnable; and preloaded rate is
   defined per rule, provisionally, so later instruction changes can be
   measured against the same starting point.
-upstream: docs/briefs/BRIEF-offload-baseline-pin.md
+absorbed:
+  - docs/briefs/BRIEF-offload-baseline-pin.md
 ---
 
 # PRD: offload-baseline-pin
@@ -25,6 +26,28 @@ Accepted
 
 The completeness, clarity and testability reviewers all passed it, the last
 two on a second round. The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-offload-baseline-pin](docs/briefs/BRIEF-offload-baseline-pin.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so that the first change to what shirabe's koto-templated
+workflows load has something fixed to be measured against. The brief framed
+that as three missing pieces, which this document's Problem Statement states in
+full: template texts that can't be told apart because the declared version
+never moves, a preloaded rate nobody has defined, and a token count taken
+outside the repository at an older commit that nobody can re-run.
+
+The outcome it asked for is that a maintainer landing such a change can name
+the template versions the "before" ran, re-run the same token count on their
+branch, and count rule violations with a written definition whose provisional
+parts are marked. Those are this document's Goals, and the four people it
+imagined doing that work (comparing a cleanup, selecting runs by template,
+refining a definition, re-keying rules to ids) are its User Stories.
+
+Its boundary held the baseline to measuring, never changing, what a run loads,
+and left violation rates, a rule-id scheme and settling the definitions to later
+work. Those are this document's Out of Scope.
 
 ## Problem Statement
 
