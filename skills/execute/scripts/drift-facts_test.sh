@@ -667,6 +667,21 @@ if [ "$STATE" = "done_blocked" ]; then
 else
     fail "deletion: intent-changing reached [$STATE]"
 fi
+# The tick chains through escalate_upstream_drift, where the submitted
+# evidence doesn't carry, so the reason worktree_discipline_check assigned is
+# the only one that holds the rationale. Nothing later may overwrite it.
+reason=$(cd "$FX/repo" && koto context get execute-e-deletion failure_reason 2>/dev/null)
+if [ "$reason" = "worktree_discipline_check: upstream-drift detected (intent-changing): src/a.go is gone" ]; then
+    pass "deletion: failure_reason names worktree_discipline_check and carries the rationale"
+else
+    fail "deletion: failure_reason [$reason]"
+fi
+step=$(cd "$FX/repo" && koto context get execute-e-deletion step 2>/dev/null)
+if [ "$step" = "execute:re-evaluation" ]; then
+    pass "deletion: step is execute:re-evaluation"
+else
+    fail "deletion: step [$step]"
+fi
 
 # The question offers exactly two answers.
 fixture e-values

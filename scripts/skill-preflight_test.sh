@@ -76,6 +76,10 @@ new_root() {
     cp "$REPO/scripts/lib/preflight-read.sh" "$root/scripts/lib/preflight-read.sh"
     cp "$REPO/scripts/lib/preflight-resolve.sh" "$root/scripts/lib/preflight-resolve.sh"
     cp "$REPO/scripts/lib/tool-routes.tsv" "$root/scripts/lib/tool-routes.tsv"
+    # The minimum check ships too; without the probe it has no bounded way to
+    # run koto and stays silent, which is what these cases assume.
+    cp "$REPO/scripts/lib/preflight-minimum.sh" "$root/scripts/lib/preflight-minimum.sh"
+    cp "$REPO/scripts/assert-koto-floor.sh" "$root/scripts/assert-koto-floor.sh"
     printf '%s' "$root"
 }
 

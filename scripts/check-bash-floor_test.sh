@@ -11,9 +11,9 @@ set -euo pipefail
 # Usage:
 #   bash scripts/check-bash-floor_test.sh
 #
-# Requires a reachable floor: docker on Linux, or a macOS /bin/bash. Set
-# FLOOR_BACKEND to pin one (docker or system); the default lets the runner
-# choose.
+# Requires a reachable floor: a docker daemon on Linux, or a macOS /bin/bash.
+# Set FLOOR_BACKEND to pin one (docker or system); the default lets the runner
+# choose. The container-shape cases run against a stub docker and need neither.
 #
 # Exit codes:
 #   0 - All tests passed
@@ -266,6 +266,397 @@ test_system_backend_refuses_a_newer_bin_bash() {
     esac
 }
 
+# -- the docker backend's container, against a stub docker ---------------------
+#
+# These cases never reach a daemon. A stub docker on PATH answers `docker info`
+# as a rootless or rootful daemon (or fails, as an unreachable one does),
+# swallows `docker build`, and records each `docker run` argument on its own
+# line. The runner is copied into a scratch repository, because the mounts it
+# asks for depend on what kind of checkout it sits in.
+
+STUB_ROOT=""
+cleanup_stub() {
+    [ -n "$STUB_ROOT" ] && rm -rf "$STUB_ROOT"
+    return 0
+}
+trap cleanup_stub EXIT
+
+STUB_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/check-bash-floor-test.XXXXXX")
+STUB_ROOT=$(cd "$STUB_ROOT" && pwd)
+STUB_BIN="$STUB_ROOT/bin"
+mkdir -p "$STUB_BIN"
+cat >"$STUB_BIN/docker" <<'STUB'
+#!/usr/bin/env bash
+# Stand-in docker for check-bash-floor_test.sh.
+case "${1:-}" in
+    info)
+        case "${STUB_DAEMON:-rootless}" in
+            rootless) echo '["name=seccomp,profile=builtin","name=rootless","name=cgroupns"]' ;;
+            rootful)  echo '["name=apparmor","name=seccomp,profile=builtin","name=cgroupns"]' ;;
+            *)        echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;
+        esac
+        ;;
+    build)
+        cat >"$STUB_LOG.build"
+        ;;
+    run)
+        shift
+        for a in "$@"; do printf '%s\n' "$a"; done >>"$STUB_LOG.run"
+        ;;
+    *)
+        echo "stub docker: unexpected $*" >&2
+        exit 127
+        ;;
+esac
+STUB
+chmod +x "$STUB_BIN/docker"
+
+# A repository holding a copy of the runner, and a linked worktree of it.
+FIX_MAIN="$STUB_ROOT/main"
+FIX_WT="$STUB_ROOT/wt"
+mkdir -p "$FIX_MAIN/scripts"
+cp "$RUNNER" "$FIX_MAIN/scripts/check-bash-floor.sh"
+git -C "$FIX_MAIN" init -q
+git -C "$FIX_MAIN" add scripts
+git -C "$FIX_MAIN" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+    commit -q -m fixture
+git -C "$FIX_MAIN" worktree add -q "$FIX_WT" 2>/dev/null
+# The main checkout's git directory, as the worktree's .git file names it.
+FIX_COMMON=$(sed -n 's/^gitdir: //p' "$FIX_WT/.git")
+FIX_COMMON=$(cd "$FIX_COMMON/../.." && pwd)
+
+STUB_OUT=""
+STUB_RC=0
+# run_stubbed <checkout> <daemon> [runner args...]: runs the runner copy in
+# <checkout> on the canary suite against the stub, leaving its output in
+# STUB_OUT, its exit status in STUB_RC and what docker was asked in
+# $STUB_ROOT/log.run and log.build.
+run_stubbed() {
+    local checkout="$1" daemon="$2"
+    shift 2
+    rm -f "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
+    STUB_RC=0
+    STUB_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS PATH="$STUB_BIN:$PATH" \
+        STUB_DAEMON="$daemon" STUB_LOG="$STUB_ROOT/log" \
+        "$checkout/scripts/check-bash-floor.sh" --backend docker "$@" canary 2>&1) || STUB_RC=$?
+}
+
+# Whether the recorded `docker run` arguments hold this exact line.
+run_has() {
+    [ -f "$STUB_ROOT/log.run" ] && grep -qxF -- "$1" "$STUB_ROOT/log.run"
+}
+
+# Stock Docker and CI's hosted runners are rootful, so that is the default
+# path: the container runs as the invoking user over the read-only checkout,
+# and one notice line recommends a rootless daemon.
+test_rootful_daemon_runs_as_the_invoking_user() {
+    local name="a rootful daemon runs by default, as the invoking user, with a notice"
+
+    run_stubbed "$FIX_MAIN" rootful
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if ! run_has "--user" || ! run_has "$(id -u):$(id -g)"; then
+        fail "$name" "no --user $(id -u):$(id -g) in: $(cat "$STUB_ROOT/log.run")"
+        return
+    fi
+    if ! run_has "type=bind,source=$FIX_MAIN,target=$FIX_MAIN,readonly"; then
+        fail "$name" "the checkout is not mounted read-only"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"rootful docker daemon"*"a rootless daemon"*) pass "$name" ;;
+        *) fail "$name" "no notice recommending a rootless daemon: $STUB_OUT" ;;
+    esac
+}
+
+# Strict mode, for hosts whose rule is rootless containers only: a rootful
+# daemon is refused before anything is built or run, by flag or by env.
+test_require_rootless_refuses_a_rootful_daemon() {
+    local name="--require-rootless refuses a rootful daemon with exit 2 and nothing runs"
+    local via
+
+    for via in flag env=1 env=true; do
+        if [ "$via" = flag ]; then
+            run_stubbed "$FIX_MAIN" rootful --require-rootless
+        else
+            # Inline rather than run_stubbed, which unsets this variable so a
+            # caller's setting can't mask the default; here it is the subject.
+            # "true" as well as "1": a policy switch must fail closed.
+            rm -f "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
+            STUB_RC=0
+            STUB_OUT=$(PATH="$STUB_BIN:$PATH" STUB_DAEMON=rootful STUB_LOG="$STUB_ROOT/log" \
+                SHIRABE_FLOOR_REQUIRE_ROOTLESS="${via#env=}" \
+                "$FIX_MAIN/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || STUB_RC=$?
+        fi
+        if [ $STUB_RC -ne 2 ]; then
+            fail "$name" "($via) expected exit 2, got $STUB_RC: $STUB_OUT"
+            return
+        fi
+        if [ -f "$STUB_ROOT/log.run" ] || [ -f "$STUB_ROOT/log.build" ]; then
+            fail "$name" "($via) docker build or run was called against the refused daemon"
+            return
+        fi
+        case "$STUB_OUT" in
+            *"refusing a rootful docker daemon"*"--require-rootless"*) ;;
+            *) fail "$name" "($via) the refusal does not name itself and its switch: $STUB_OUT"; return ;;
+        esac
+    done
+    pass "$name"
+}
+
+test_require_rootless_accepts_a_rootless_daemon() {
+    local name="--require-rootless runs on a rootless daemon, without --user"
+
+    run_stubbed "$FIX_MAIN" rootless --require-rootless
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if run_has "--user"; then
+        fail "$name" "--user passed on a rootless daemon"
+        return
+    fi
+    pass "$name"
+}
+
+test_unreachable_daemon_exits_2() {
+    local name="an unreachable daemon exits 2, not 1"
+
+    run_stubbed "$FIX_MAIN" down
+    if [ $STUB_RC -ne 2 ]; then
+        fail "$name" "expected exit 2, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"cannot reach a docker daemon"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+# On a rootless daemon the container's root already is the invoking user, and a
+# --user would map to a subordinate id. The checkout is read-only at its own
+# path and HOME is scratch. No safe.directory exception is passed: the
+# checkout's owner is the container's user, which the runner checks up front.
+test_rootless_container_shape() {
+    local name="rootless: read-only checkout at its host path, no --user, scratch HOME"
+
+    run_stubbed "$FIX_MAIN" rootless
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if ! run_has "type=bind,source=$FIX_MAIN,target=$FIX_MAIN,readonly"; then
+        fail "$name" "the checkout is not mounted read-only at $FIX_MAIN: $(cat "$STUB_ROOT/log.run")"
+        return
+    fi
+    if run_has "--user"; then
+        fail "$name" "--user passed on a rootless daemon"
+        return
+    fi
+    if ! run_has "-w" || ! run_has "$FIX_MAIN"; then
+        fail "$name" "the working directory is not the checkout's host path"
+        return
+    fi
+    if ! run_has "HOME=/home/floor" || ! grep -q '^/home/floor:' "$STUB_ROOT/log.run"; then
+        fail "$name" "HOME is not the scratch tmpfs"
+        return
+    fi
+    if grep -q 'safe.directory' "$STUB_ROOT/log.run"; then
+        fail "$name" "a safe.directory exception is passed"
+        return
+    fi
+    # A plain checkout's git directory is inside the mount: nothing else is.
+    if [ "$(grep -c '^type=bind' "$STUB_ROOT/log.run")" -ne 1 ]; then
+        fail "$name" "a plain checkout got extra mounts: $(grep '^type=bind' "$STUB_ROOT/log.run")"
+        return
+    fi
+    pass "$name"
+}
+
+test_linked_worktree_mounts_its_git_directory() {
+    local name="a linked worktree gets the main checkout's git directory, read-only, at its path"
+
+    run_stubbed "$FIX_WT" rootless
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if ! run_has "type=bind,source=$FIX_COMMON,target=$FIX_COMMON,readonly"; then
+        fail "$name" "no read-only mount of $FIX_COMMON: $(grep '^type=bind' "$STUB_ROOT/log.run")"
+        return
+    fi
+    # The worktree's own git directory sits inside the common one, which
+    # already covers it.
+    if [ "$(grep -c '^type=bind' "$STUB_ROOT/log.run")" -ne 2 ]; then
+        fail "$name" "expected the checkout and one git mount: $(grep '^type=bind' "$STUB_ROOT/log.run")"
+        return
+    fi
+    pass "$name"
+}
+
+# git can write the link relative (worktree.useRelativePaths); the container
+# must still find what it names, so the mount is at the resolved path.
+test_relative_gitdir_link_resolves() {
+    local name="a relative gitdir link is mounted where it resolves"
+    local saved
+
+    saved=$(cat "$FIX_WT/.git")
+    printf 'gitdir: ../main/.git/worktrees/wt\n' >"$FIX_WT/.git"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$FIX_WT/.git"
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if run_has "type=bind,source=$FIX_MAIN/.git,target=$FIX_MAIN/.git,readonly"; then
+        pass "$name"
+    else
+        fail "$name" "no mount of $FIX_MAIN/.git: $(grep '^type=bind' "$STUB_ROOT/log.run")"
+    fi
+}
+
+test_unresolvable_git_file_is_refused() {
+    local name="a .git file naming no git directory is refused up front"
+    local saved
+
+    saved=$(cat "$FIX_WT/.git")
+    printf 'gitdir: %s/gone/.git/worktrees/wt\n' "$STUB_ROOT" >"$FIX_WT/.git"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$FIX_WT/.git"
+    if [ $STUB_RC -ne 2 ]; then
+        fail "$name" "expected exit 2, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if [ -f "$STUB_ROOT/log.run" ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "the image was built or a suite ran before the refusal"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"not a git directory on this host"*"git worktree repair"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+test_git_file_without_gitdir_is_refused() {
+    local name="a .git file with no gitdir: line is refused up front"
+    local saved
+
+    saved=$(cat "$FIX_WT/.git")
+    printf 'not a link\n' >"$FIX_WT/.git"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$FIX_WT/.git"
+    if [ $STUB_RC -ne 2 ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "expected exit 2 before any build, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"no 'gitdir:' line"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+test_broken_commondir_is_refused() {
+    local name="a worktree whose commondir resolves nowhere is refused up front"
+    local cd_file saved
+
+    cd_file="$FIX_COMMON/worktrees/wt/commondir"
+    saved=$(cat "$cd_file")
+    printf '../../../gone\n' >"$cd_file"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$cd_file"
+    if [ $STUB_RC -ne 2 ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "expected exit 2 before any build, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"commondir points at"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+# The same shape, on a real daemon. From a linked worktree the container used
+# to see no repository at all, so every `git ls-files` came back empty and
+# check-directive-invocations.sh reported "OK (0 directive file(s) checked)":
+# the templates suite passed while checking nothing. A probe put where the
+# canary would be runs through the runner's own docker path, from a scratch
+# worktree, and has to see the tracked files and fail to write the checkout.
+test_real_container_reads_a_worktree_and_cannot_write_it() {
+    local name="on a real daemon, a linked worktree's git resolves and the checkout is read-only"
+    local out rc=0
+
+    if [ "${FLOOR_BACKEND:-}" = system ]; then
+        echo "SKIP: $name - the system backend has no container" >&2
+        return
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        echo "SKIP: $name - no reachable docker daemon" >&2
+        return
+    fi
+
+    cat >"$FIX_WT/scripts/bash-floor-canary.sh" <<'PROBE'
+#!/usr/bin/env bash
+# Probe written by check-bash-floor_test.sh in place of the canary.
+tracked=$(git ls-files | wc -l | tr -d ' ')
+echo "tracked=$tracked"
+if touch ./floor-write-probe 2>/dev/null; then
+    echo "checkout=writable"
+else
+    echo "checkout=read-only"
+fi
+PROBE
+    # Whatever daemon the harness reaches, rootful included: this case is
+    # about the mounts, and strict mode has its own cases above.
+    out=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS \
+        "$FIX_WT/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || rc=$?
+    rm -f "$FIX_WT/scripts/bash-floor-canary.sh" "$FIX_WT/floor-write-probe"
+    if [ $rc -ne 0 ]; then
+        fail "$name" "expected exit 0, got $rc: $out"
+        return
+    fi
+    case "$out" in
+        *"not a git repository"*) fail "$name" "git inside the container cannot resolve the worktree: $out"; return ;;
+    esac
+    case "$out" in
+        *"tracked=1
+"*|*"tracked=1") ;;
+        *) fail "$name" "git ls-files did not see the worktree's one tracked file: $out"; return ;;
+    esac
+    case "$out" in
+        *"checkout=read-only"*) pass "$name" ;;
+        *) fail "$name" "the container could write the checkout: $out" ;;
+    esac
+}
+
+# The image is what makes the docker floor a bash 3.2 floor with a GNU
+# userland; its recipe has to say both.
+test_image_recipe() {
+    local name="the image adds a GNU userland and fails on any bash that is not 3.2"
+    local pkg
+
+    run_stubbed "$FIX_MAIN" rootless
+    if [ ! -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "no docker build was requested: $STUB_OUT"
+        return
+    fi
+    for pkg in coreutils grep sed findutils gawk diffutils procps-ng; do
+        if ! grep -q "apk add .* $pkg" "$STUB_ROOT/log.build"; then
+            fail "$name" "the image does not install $pkg"
+            return
+        fi
+    done
+    if ! grep -q 'is not bash 3.2' "$STUB_ROOT/log.build"; then
+        fail "$name" "the image does not check its bash version"
+        return
+    fi
+    if ! grep -q 'is not the GNU one' "$STUB_ROOT/log.build"; then
+        fail "$name" "the image does not check that its tools are the GNU ones"
+        return
+    fi
+    pass "$name"
+}
+
 echo "Running check-bash-floor.sh tests..."
 echo ""
 
@@ -280,6 +671,18 @@ test_no_suite_is_refused
 test_unreachable_floor_is_not_reported_as_a_suite_failure
 test_unknown_backend_is_refused
 test_system_backend_refuses_a_newer_bin_bash
+test_rootful_daemon_runs_as_the_invoking_user
+test_require_rootless_refuses_a_rootful_daemon
+test_require_rootless_accepts_a_rootless_daemon
+test_unreachable_daemon_exits_2
+test_rootless_container_shape
+test_linked_worktree_mounts_its_git_directory
+test_relative_gitdir_link_resolves
+test_unresolvable_git_file_is_refused
+test_git_file_without_gitdir_is_refused
+test_broken_commondir_is_refused
+test_real_container_reads_a_worktree_and_cannot_write_it
+test_image_recipe
 
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

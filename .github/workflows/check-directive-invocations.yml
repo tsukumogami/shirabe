@@ -20,6 +20,11 @@ on:
       # Every directive file the check scans.
       - 'skills/**/*.md'
       - 'references/**'
+      - '.claude/shirabe-extensions/**'
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
+      # The line-ending pin for scripts, which the shebang rule backs up.
+      - '.gitattributes'
       # The scripts a directive names: a mode or #! change there changes the
       # exec-bit and shebang findings without touching a directive.
       - 'skills/*/scripts/**'

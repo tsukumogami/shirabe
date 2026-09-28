@@ -143,9 +143,12 @@ land in.
   R8 read the same thing at two depths: what the installed tool says it
   offers, not what it accepts when actually run.
 - **R9.** The check SHALL NOT parse, compare, or gate on a version
-  number of any tool, anywhere. Version floors are removed from the
-  requirements surface entirely; `skills/work-on/SKILL.md`'s stated
-  `koto >= 0.3.3` floor is retired rather than mechanized.
+  number of any tool, anywhere. (Superseded for koto only by
+  `docs/decisions/DECISION-preflight-koto-minimum-2026-09-27.md`,
+  which compares koto against shirabe's koto minimum at load.)
+  Version floors are removed from the requirements surface entirely;
+  `skills/work-on/SKILL.md`'s stated `koto >= 0.3.3` floor is retired
+  rather than mechanized.
 - **R10.** The check SHALL evaluate only the always-required portion of
   a declaration. Mode-scoped requirements SHALL NOT be reported as
   satisfied or unsatisfied at load, because the mode has not been

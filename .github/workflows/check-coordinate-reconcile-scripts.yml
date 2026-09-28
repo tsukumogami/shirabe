@@ -1,0 +1,56 @@
+name: Check coordinate reconcile scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/coordinate/scripts/reconcile-*'
+      # The record feature's parser and session-log helpers, which the
+      # reader's contract cases and the pass run for real.
+      - 'skills/coordinate/scripts/record-*'
+      - 'skills/coordinate/scripts/coord-log.sh'
+      - 'skills/coordinate/scripts/coord-verdict.sh'
+      # reconcile-deps.sh sources /execute's validators.
+      - 'skills/execute/scripts/coord-common.sh'
+      - 'scripts/check-bash-floor.sh'
+      - '.github/workflows/check-coordinate-reconcile-scripts.yml'
+
+jobs:
+  test-reconcile-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      # The reconcile scripts need bash, jq and git only; gh, niwa and koto
+      # are stand-ins. Linux's own bash 5 runs the suites directly. The macOS
+      # leg is the floor check, so it goes through the runner: a bare `bash`
+      # on a macOS runner is Homebrew's bash 5, and only /bin/bash is 3.2.
+      - name: Run reconcile script tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash skills/coordinate/scripts/reconcile-report_test.sh
+          bash skills/coordinate/scripts/reconcile-check_test.sh
+          bash skills/coordinate/scripts/reconcile-read_test.sh
+          bash skills/coordinate/scripts/reconcile-pass_test.sh
+
+      # The runner refuses a /bin/bash that is not 3.2 and keeps a nested
+      # `bash` on 3.2 as well.
+      - name: Run the reconcile suites on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system coordinate-reconcile
+
+  # Every bash in the floor container is 3.2, including the ones the suites
+  # start themselves.
+  bash-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the reconcile suites on the bash 3.2 floor
+        run: scripts/check-bash-floor.sh --backend docker coordinate-reconcile

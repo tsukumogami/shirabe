@@ -2,20 +2,23 @@
 # session-role.sh -- is this koto session a root run, or a child of a batch?
 # Part of the work-on skill
 #
-# Prints `root` or `child` for a koto session name. It is the single
-# discriminator for every /work-on behaviour that has to differ between a
-# directly-invoked run and one materialized as a child of /execute's
-# `spawn_and_await`, so that two such behaviours cannot drift apart into two
-# independently invented tests.
+# Prints `root` or `child` for a koto session name: whether a /work-on run was
+# invoked directly or materialized as a child of /execute's `spawn_and_await`.
+# Its one caller is ci_monitor's `session_role` evidence in work-on.md, which
+# sends a root to the cascade and a child to done.
 #
-# Callers ask this script, they do not re-derive the answer:
+# A caller asks this script rather than re-deriving the answer:
 #
-#   ROLE=$("${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh" "$WF")
-#   [ "$ROLE" = root ] && ...
+#   role=$("${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh" "$WF")
+#   [ "$role" = root ] && ...
+#
+# (Lower case on purpose: SKILL.md resolves no ROLE, and
+# terminal-retention_test.sh fails on the word there, since the retention rule
+# must not depend on a session's role.)
 #
 # TEST POSITIVELY FOR `root`. The fail-safe below holds only for a caller that
 # does. On a usage error this exits 2 having printed NOTHING to stdout, so a
-# caller written as `[ "$ROLE" = child ] || treat-as-root` reads an empty string
+# caller written as `[ "$role" = child ] || treat-as-root` reads an empty string
 # as "not child" and takes the root branch -- cascading from a session whose
 # role was never determined, which is the one outcome the fail-safe exists to
 # prevent. Anything that is not exactly `root` is `child`.
@@ -29,9 +32,10 @@
 # {{KEY}} reference resolves when it names a declared `variables:` entry, a
 # `capture_stdout_as` capture, or one of the two reserved runtime names
 # (SESSION_NAME, SESSION_DIR), and fails template compilation otherwise -- so
-# {{SESSION_NAME}} needs no declaration, while {{PLUGIN_ROOT}} would fail here
-# because work-on.md declares no such variable. A command koto itself runs (a
-# default_action, where there is no agent shell) would have to declare it.
+# {{SESSION_NAME}} needs no declaration. work-on.md declares PLUGIN_ROOT, so
+# {{PLUGIN_ROOT}} would resolve here too; the shell form is used because the
+# agent's shell has it. A command koto itself runs (a gate or default_action,
+# where there is no agent shell) has to use {{PLUGIN_ROOT}}.
 #
 # Usage:
 #   session-role.sh <session-name>
@@ -91,10 +95,8 @@
 #
 # ---------------------------------------------------------------------------
 #
-# The one caller is ci_monitor's `session_role` evidence in work-on.md. It
-# once also decided terminal-tick retention (#360); koto 0.14.0 made the flag
-# safe on a child, and every tick now carries it (#439). Later callers should
-# route through here rather than re-deriving the test: if koto changes how it
+# It once also decided terminal-tick retention (#360); koto 0.14.0 made the flag
+# safe on a child, and every tick now carries it (#439). If koto changes how it
 # records parentage, this file is the one place that changes, and
 # skills/work-on/scripts/ci-monitor-role_test.sh describes the behaviour
 # ("a child classifies as child") rather than the mechanism, so the tests

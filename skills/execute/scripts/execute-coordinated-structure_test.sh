@@ -162,8 +162,8 @@ pass "execute-coordinated.md compiles"
 
 # PLAN_DOC's declared pattern narrows koto's own value check, so it has to admit
 # every path shirabe hands it -- including an absolute one under a directory
-# with a `+`, which koto's own value check admits once tsukumogami/koto#266
-# ships -- while still refusing
+# with a `+`, which koto's own value check admits from 0.14.1
+# (tsukumogami/koto#266) -- while still refusing
 # a `..` segment and shell-active characters. Read from the compiled template
 # and run as an ERE, which its plain classes are.
 PLAN_DOC_PATTERN=$(jq -r '.variables.PLAN_DOC.pattern // ""' "$SHIPPED")

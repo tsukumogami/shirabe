@@ -97,8 +97,9 @@ every one of the prose skill's roughly 190 rules has to land in the state that u
   `accepts` has a `when`), mermaid freshness, interpolation (no `$VAR` in command fields, so
   logic lives in scripts reached through a `PLUGIN_ROOT` variable), decider declarations
   (TSV rows and at least 40 fixtures per decider), the entry floor, and bash 3.2.
-- **koto 0.13.0 floor.** Non-overridable gates, constrained variables and result maps need it;
-  the template carries the `# koto-floor: pinned` marker.
+- **koto 0.13.0 floor.** Non-overridable gates, constrained variables and result maps need it.
+  (The template's `# koto-floor: pinned` marker was retired with the v0.12.2 floor job in
+  shirabe#439, which moved shirabe's minimum to koto 0.14.0.)
 - **Default actions run within 30 seconds and re-run on every entry.** A GitHub read in one
   must be bounded and idempotent, and must clear the keys it owns before rewriting them.
 - **Offline tests (R29).** Every script is testable with stand-in `gh` and `koto` on `PATH`,

@@ -121,8 +121,8 @@ copy_tree() {
 
 check_yq || exit 1
 
-# The same read check-koto-entry-floor.yml makes, so the two agree on the value.
-MINIMUM=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$REPO_ROOT/scripts/assert-koto-floor.sh" | head -1)
+# The one reader of the minimum, as check-koto-entry-floor.yml uses it.
+MINIMUM=$(bash "$REPO_ROOT/scripts/assert-koto-floor.sh" --print-floor 2>/dev/null)
 if [ -z "$MINIMUM" ]; then
     err "cannot read the koto minimum from scripts/assert-koto-floor.sh"
     exit 1

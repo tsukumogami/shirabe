@@ -1,1 +1,4 @@
 *.mermaid.md text eol=lf
+# Directives run scripts by path, and a CRLF #! line names an interpreter the
+# kernel can't find. scripts/check-directive-invocations.sh rejects one too.
+*.sh text eol=lf

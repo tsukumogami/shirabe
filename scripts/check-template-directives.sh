@@ -113,7 +113,6 @@ ALLOWLIST="${TEMPLATE_DIRECTIVES_ALLOWLIST:-$SCRIPT_DIR/check-template-directive
 TAB=$(printf '\t')
 
 errors=0
-allow_records=""
 
 # The two rule identifiers, used in allowlist records and in findings.
 RULE_UNGUARDED="unguarded-evidence"
@@ -121,70 +120,10 @@ RULE_STATE_FILE="state-file-read"
 
 # -- allowlist ---------------------------------------------------------------
 
-# Records are "<rule>\t<template>\t<subject>\t<issue>\t<reason>". The template
-# path is repository-relative; subject is a state name for rule one and a gate
-# name for rule two.
-load_allowlist() {
-    [ -f "$ALLOWLIST" ] || return 0
-
-    local line rule template subject issue rest lineno=0
-    while IFS= read -r line || [ -n "$line" ]; do
-        lineno=$((lineno + 1))
-        case "$line" in
-            ''|'#'*) continue ;;
-        esac
-
-        rule="${line%%"$TAB"*}"; rest="${line#*"$TAB"}"
-        template="${rest%%"$TAB"*}"; rest="${rest#*"$TAB"}"
-        subject="${rest%%"$TAB"*}"; rest="${rest#*"$TAB"}"
-        issue="${rest%%"$TAB"*}"
-
-        if [ "$rule" = "$line" ] || [ -z "$template" ] || [ -z "$subject" ]; then
-            echo "FAIL: $ALLOWLIST:$lineno is not a tab-separated record"
-            echo "  expected: <rule><TAB><template><TAB><subject><TAB><issue><TAB><reason>"
-            errors=$((errors + 1))
-            continue
-        fi
-
-        case "$rule" in
-            "$RULE_UNGUARDED"|"$RULE_STATE_FILE") ;;
-            *)
-                echo "FAIL: $ALLOWLIST:$lineno names an unknown rule '$rule'"
-                echo "  known rules: $RULE_UNGUARDED, $RULE_STATE_FILE"
-                errors=$((errors + 1))
-                continue
-                ;;
-        esac
-
-        # An allowlist entry is a deferral, and a deferral needs somewhere to be
-        # chased. Without a ticket it is just a suppression that nobody will
-        # ever revisit.
-        case "$issue" in
-            *[A-Za-z0-9]'#'[0-9]*) ;;
-            *)
-                echo "FAIL: $ALLOWLIST:$lineno has no issue reference"
-                echo "  field 4 must carry one, in the form owner/repo#N"
-                echo "  record: $line"
-                errors=$((errors + 1))
-                continue
-                ;;
-        esac
-
-        allow_records="${allow_records}${rule}|${template}|${subject}
-"
-    done < "$ALLOWLIST"
-}
-
-# is_allowed <rule> <repo-relative-template> <subject>
-is_allowed() {
-    case "
-$allow_records" in
-        *"
-$1|$2|$3
-"*) return 0 ;;
-    esac
-    return 1
-}
+# The loader is shared with check-directive-invocations.sh. Here a record's
+# location is the repository-relative template, and its subject a state name
+# for rule one and a gate name for rule two.
+. "$SCRIPT_DIR/lib/allowlist.sh"
 
 # -- frontmatter readers -----------------------------------------------------
 
@@ -455,8 +394,10 @@ resolve_script() {
     fi
 
     base="${token##*/}"
-    hit=$(find "$tmpl_dir" -name "$base" -type f 2>/dev/null | head -1)
-    [ -n "$hit" ] || hit=$(find "$root" -name "$base" -type f 2>/dev/null | head -1)
+    # -print -quit rather than `| head -1`: under pipefail, find writing after
+    # head has exited dies of SIGPIPE and takes the script with it (#436).
+    hit=$(find "$tmpl_dir" -name "$base" -type f -print -quit 2>/dev/null)
+    [ -n "$hit" ] || hit=$(find "$root" -name "$base" -type f -print -quit 2>/dev/null)
     [ -n "$hit" ] && printf '%s' "$hit"
     return 0
 }
@@ -584,7 +525,7 @@ check_rule_unguarded() {
         [ "$accepts" = "1" ] || continue
         [ "$guarded" = "0" ] || continue
 
-        if is_allowed "$RULE_UNGUARDED" "$rel" "$state"; then
+        if allowlist_has "$RULE_UNGUARDED" "$rel" "$state"; then
             continue
         fi
 
@@ -626,7 +567,7 @@ check_rule_state_file() {
     while IFS="$TAB" read -r lineno state gate text; do
         [ -n "$gate" ] || continue
 
-        if is_allowed "$RULE_STATE_FILE" "$rel" "$gate"; then
+        if allowlist_has "$RULE_STATE_FILE" "$rel" "$gate"; then
             continue
         fi
 
@@ -666,7 +607,9 @@ EOF
     # reported once per gate that calls it.
     local entry path
     while [ -n "$queue" ]; do
-        entry=$(printf '%s' "$queue" | grep -v '^$' | head -1)
+        # awk reads the whole queue, so nothing upstream is cut off mid-write
+        # the way `grep -v '^$' | head -1` was under pipefail (#436).
+        entry=$(printf '%s' "$queue" | awk 'length && !done { print; done = 1 }')
         queue=$(printf '%s' "$queue" | grep -v '^$' | tail -n +2)
         [ -n "$entry" ] || break
 
@@ -729,7 +672,8 @@ check_template() {
 
 # -- main --------------------------------------------------------------------
 
-load_allowlist
+allowlist_load "$ALLOWLIST" template "$RULE_UNGUARDED" "$RULE_STATE_FILE"
+errors=$((errors + allowlist_rejected))
 
 TEMPLATES=""
 if [ $# -gt 0 ]; then
