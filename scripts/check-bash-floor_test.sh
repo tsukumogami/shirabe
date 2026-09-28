@@ -572,6 +572,55 @@ test_broken_commondir_is_refused() {
     esac
 }
 
+# The same shape, on a real daemon. From a linked worktree the container used
+# to see no repository at all, so every `git ls-files` came back empty and
+# check-directive-invocations.sh reported "OK (0 directive file(s) checked)":
+# the templates suite passed while checking nothing. A probe put where the
+# canary would be runs through the runner's own docker path, from a scratch
+# worktree, and has to see the tracked files and fail to write the checkout.
+test_real_container_reads_a_worktree_and_cannot_write_it() {
+    local name="on a real daemon, a linked worktree's git resolves and the checkout is read-only"
+    local out rc=0
+
+    if [ "${FLOOR_BACKEND:-}" = system ]; then
+        echo "SKIP: $name - the system backend has no container" >&2
+        return
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        echo "SKIP: $name - no reachable docker daemon" >&2
+        return
+    fi
+
+    cat >"$FIX_WT/scripts/bash-floor-canary.sh" <<'PROBE'
+#!/usr/bin/env bash
+# Probe written by check-bash-floor_test.sh in place of the canary.
+tracked=$(git ls-files | wc -l | tr -d ' ')
+echo "tracked=$tracked"
+if touch ./floor-write-probe 2>/dev/null; then
+    echo "checkout=writable"
+else
+    echo "checkout=read-only"
+fi
+PROBE
+    out=$("$FIX_WT/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || rc=$?
+    rm -f "$FIX_WT/scripts/bash-floor-canary.sh" "$FIX_WT/floor-write-probe"
+    if [ $rc -ne 0 ]; then
+        fail "$name" "expected exit 0, got $rc: $out"
+        return
+    fi
+    case "$out" in
+        *"not a git repository"*) fail "$name" "git inside the container cannot resolve the worktree: $out"; return ;;
+    esac
+    case "$out" in
+        *"tracked=1"*) ;;
+        *) fail "$name" "git ls-files did not see the worktree's one tracked file: $out"; return ;;
+    esac
+    case "$out" in
+        *"checkout=read-only"*) pass "$name" ;;
+        *) fail "$name" "the container could write the checkout: $out" ;;
+    esac
+}
+
 # The image is what makes the docker floor a bash 3.2 floor with a GNU
 # userland; its recipe has to say both.
 test_image_recipe() {
@@ -624,6 +673,7 @@ test_relative_gitdir_link_resolves
 test_unresolvable_git_file_is_refused
 test_git_file_without_gitdir_is_refused
 test_broken_commondir_is_refused
+test_real_container_reads_a_worktree_and_cannot_write_it
 test_image_recipe
 
 echo ""
