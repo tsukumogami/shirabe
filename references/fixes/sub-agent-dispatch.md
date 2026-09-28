@@ -154,9 +154,10 @@ routing:
 ## NOT covered (R8 carve-out)
 
 This file documents the resolution guidance for sub-agent dispatch
-within the existing seven-child chain. It does NOT cover the
-amplifier-layer mandate refinement work tracked at
-`tsukumogami/vision#535` Track B. The Track B work introduces a
-separate mandate layer above the chain skills; its dispatch
-semantics are out of scope here and resolve under a different
-contract published when Track B lands.
+within the existing seven-child chain. It does NOT cover dispatch
+from a layer above the chain skills, one that hands them mandates
+rather than running as a step in the chain. Such a layer brings its
+own dispatch semantics, which this contract doesn't define: the
+parent-chain sentinel, the rationale values and the ownership rules
+above all assume the parent is a chain skill. Dispatch from that
+layer is governed by the contract the layer itself publishes.
