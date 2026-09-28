@@ -1,23 +1,13 @@
 ---
-# Terminal-tick retention (#360). --no-cleanup is DELIBERATELY ABSENT from this
-# template and must stay absent. This file is also the child template for
-# /execute's spawn_and_await, and on a koto child the flag suppresses the events
-# that carry the child's result to the parent, so the parent never receives it.
-#
-# Root runs still get retention: the rule lives in ../SKILL.md's Execution Loop,
-# gated on scripts/session-role.sh. A root passes the flag on every tick; a child
-# passes it nowhere.
-#
-# The rule and the measurements behind it, including why /execute's template
-# takes the opposite position: ../../../references/koto-session-retention.md
-#
-# scripts/terminal-retention_test.sh greps this file to keep the flag out, and
-# pins what the flag does to a child's result. koto#240 is the platform fix that
-# would retire the exception.
+# Terminal-tick retention (#360). Every `koto next` a /work-on run makes
+# carries --no-cleanup, whether the run is a root or a child that /execute
+# materialized from this template: on a child the flag only keeps the session,
+# and its result still reaches the parent. The rule lives in ../SKILL.md's
+# Execution Loop, and the command lines in the phase files carry the flag.
+# Why every tick: ../../../references/koto-session-retention.md
 #
 # A YAML comment, so it reaches a template editor without koto rendering it into
-# any state's directive -- which is also why the grep above excludes frontmatter
-# comments but nothing below them.
+# any state's directive.
 name: work-on
 version: "1.0"
 description: >
@@ -93,8 +83,7 @@ variables:
 
       Rebindable, as in execute.md: a plugin update moves the path, and a
       resume under --koto-leg attaches through `koto init --attach-live`, which
-      refuses a changed non-rebind variable. koto 0.12.2, the floor for runs
-      without that flag, ignores the key; the template behaves the same there.
+      refuses a changed non-rebind variable.
     required: true
     rebind: true
 
@@ -322,8 +311,8 @@ states:
 
   plan_validation:
     # verdict is decider-eligible. The decider block lives inside the field,
-    # where koto v0.12.2 drops it unread, so a user without a decider sees this
-    # state exactly as before. `proceed` is shadow and `exit` is never: exit
+    # and a user without a decider sees this state exactly as before. `proceed`
+    # is shadow and `exit` is never: exit
     # routes to the validation_exit terminal, which no answer may take on a
     # model's word. Golden fixtures sit beside this template as
     # work-on.plan_validation.verdict.decider.jsonl, and
@@ -490,7 +479,7 @@ states:
     #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
-    # variable carries the session's name. koto 0.12.2 substitutes it inside a
+    # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}"'
@@ -872,10 +861,10 @@ states:
       # routes their failure anywhere, so a malformed artifact, or a referent
       # that names nothing, holds the run in this state with the failing gate
       # named, and the agent fixes it in place. At pre_pr_evidence the same
-      # failure ends the run at done_blocked, and for a child that terminal also
-      # disposes of its log (tsukumogami/koto#240) -- the gates there stay as the
-      # backstop, and these keep a run from reaching them with a record it could
-      # still have fixed. The gate definitions must stay identical to
+      # failure ends the run at done_blocked, which has to be re-entered to fix
+      # one artifact -- the gates there stay as the backstop, and these keep a
+      # run from reaching them with a record it could still have fixed in place.
+      # The gate definitions must stay identical to
       # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
       #
       # The two referent gates run check-pre-pr-referents.sh, which requires
@@ -1843,7 +1832,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md;
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}" --no-cleanup
 ```
 
 The check is on both signals deliberately: `koto context exists` cannot tell a key that

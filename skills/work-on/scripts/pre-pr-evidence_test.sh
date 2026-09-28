@@ -272,21 +272,16 @@ fi
 # mistyped full sha is the one the issue was filed from: the tip's first seven
 # characters and nothing real behind them.
 # ---------------------------------------------------------------------------
-# The rung is read from failure_reason, which a transition's
-# context_assignments write from koto 0.13.0 on. koto 0.12.2 drops those
-# assignments at compile time (see requires.tsv), so there the case checks the
-# state alone.
-KOTO_MINOR=$(koto version | sed -n 's/^koto 0\.\([0-9][0-9]*\)\..*/\1/p')
-READS_RUNG=1
-[[ -n "$KOTO_MINOR" && "$KOTO_MINOR" -lt 13 ]] && READS_RUNG=0
-
+# The rung that fired is read back from failure_reason, which each done_blocked
+# edge's context_assignments writes.
+#
 # referent_case <label> <want-state> <failure_reason-fragment|-> <pre_pr-body>
 referent_case() {
     local label="$1" want="$2" why="$3" prepr="$4"
     OUT=$(land "prepr-$label-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$prepr" "$GOOD_EVIDENCE" || true)
     if ! echo "$OUT" | grep -q "\"state\":\"$want\""; then
         fail "$label: expected $want, got: $(echo "$OUT" | head -c 300)"
-    elif [[ "$why" != - && "$READS_RUNG" = 1 ]] && ! echo "$OUT" | grep -qF "$why"; then
+    elif [[ "$why" != - ]] && ! echo "$OUT" | grep -qF "$why"; then
         fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(echo "$OUT" | tail -n 1 | head -c 300)"
     else
         pass "$label: reaches $want"

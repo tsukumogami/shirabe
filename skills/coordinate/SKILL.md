@@ -310,9 +310,11 @@ until then it is a procedure the coordinator runs with a local agent.
 - **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body
   can describe more than the pull request carries. The verify step's file-list
   read is the defence, at one more read per report.
-- **No delivered wake when a leg resolves (koto#250).** koto's waker is a stub, so
-  the coordinator ticks the workflow on each message or notification rather than
-  being woken by a leg.
+- **Leg wakes aren't watched (tsukumogami/koto#250, fixed in koto 0.14.0).**
+  koto 0.14.0, which shirabe's minimum requires, records a wake when a leg a
+  session waits on resolves, readable with `koto request watch`. This skill
+  doesn't watch for it yet, so the coordinator still ticks the workflow on each
+  message or notification. Wakes are local to one machine either way.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
   0.14.0 and later refuse a directed transition past a failing non-overridable
   gate, so no check can be skipped that way. The seal stays as defence in depth:

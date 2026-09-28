@@ -35,10 +35,10 @@ path exist, since a shape check passed a sha that named nothing. At
 approved edge) a failure matches no edge: the run holds in that state with the
 gate named, and the agent fixes the artifact in place. At `pre_pr_evidence` the
 same failure routes to `done_blocked`. The second check is the backstop and is
-not weakened by the first; the first exists because that terminal is expensive
-for a child of `/execute`, whose log koto disposes of at a terminal
-(tsukumogami/koto#240), so the parent cannot retry it. The gate definitions must
-be identical in all three states, which `scripts/finalization-shape_test.sh` checks.
+not weakened by the first; the first exists because that terminal is expensive:
+the run has to be re-entered to fix what was one edit away. The gate definitions
+must be identical in all three states, which `scripts/finalization-shape_test.sh`
+checks.
 
 ## Evidence-carried
 
@@ -68,7 +68,7 @@ enforced in the record.
 
 The routing is real: a failing gate sends the run to a distinct terminal edge.
 Each edge's `context_assignments` writes a human-readable `failure_reason` into
-the session's context (koto 0.13.0 and later), which says which rung fired. It
+the session's context, which says which rung fired. It
 does not say why the gate failed. koto keeps a failed command gate's exit status
 and discards what the command printed, so the detail has to be recovered by
 running the gate's script by hand, which is why the scripts those gates call

@@ -13,7 +13,7 @@ on:
       # which gate holds which state.
       - 'skills/work-on/koto-templates/**'
       # terminal-retention_test.sh reads the retention rule out of SKILL.md and
-      # fails when it is missing or stops routing through the discriminator.
+      # fails when it is missing, names a state, or depends on the run's role.
       - 'skills/work-on/SKILL.md'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
@@ -42,8 +42,8 @@ jobs:
       # cannot be checked without the engine that evaluates the gate. koto
       # arrives through the project tool manifest, the same way
       # check-execute-scripts.yml and validate-templates.yml get it.
-      # terminal-retention_test.sh needs jq to read koto's parentage field and its
-      # converge verdicts. Without this the suite skips its engine-backed cases
+      # terminal-retention_test.sh and ci-monitor-role_test.sh need jq to read
+      # koto's responses and its parentage field. Without this the suite skips its engine-backed cases
       # with exit 0, so a runner that stopped shipping jq would go green having
       # tested almost nothing.
       - name: Install jq (Linux)
@@ -133,9 +133,10 @@ jobs:
         run: bash skills/work-on/scripts/check-pre-pr-referents_test.sh
 
       # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
-      # to assert the run's context survives it, and materializes a child to
-      # assert that a child carrying the same flag blocks its parent's converge.
-      # Both need the engine.
+      # to assert the run's context survives it, and materializes children to
+      # assert that a flagged child is kept and still delivers its result, and
+      # that a failed child is kept, readable, and retryable. Both need the
+      # engine.
       - name: Run terminal-retention tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/terminal-retention_test.sh
@@ -170,7 +171,7 @@ jobs:
         run: bash skills/work-on/scripts/work-on-open_test.sh
 
       # The mode:koto-leg floor record, against a stand-in koto older than the
-      # entry flags: a run without the flag stays on the older floor. The macOS
+      # entry flags: a run without the flag is not refused for lacking them. The macOS
       # leg runs it on the floor through the work-on suite.
       - name: Run koto floor declaration tests (Linux)
         if: runner.os == 'Linux'

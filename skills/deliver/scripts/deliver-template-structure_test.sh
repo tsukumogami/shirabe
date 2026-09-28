@@ -3,7 +3,6 @@
 # template source and from the graph koto compiles.
 #
 # Engine-free, over the source:
-#   - the `# koto-floor: pinned` marker
 #   - every context_assignments block assigns only literals, {{VAR}} values,
 #     and ${gates.scope_leg.payload.*} / ${gates.exec_leg.payload.*} paths:
 #     no ${context. (koto rejects it at compile time) and no
@@ -63,12 +62,6 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/deliver-structure-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 # --- engine-free -------------------------------------------------------------------
-
-if grep -q '^# koto-floor: pinned' "$TEMPLATE"; then
-    pass "deliver.md carries the # koto-floor: pinned marker"
-else
-    fail "deliver.md lacks the # koto-floor: pinned marker"
-fi
 
 # assignment_findings <file> -- every value line inside a context_assignments
 # block that reads ${context. or a ${gates. path other than a leg payload.
