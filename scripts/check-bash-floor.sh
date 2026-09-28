@@ -499,7 +499,10 @@ resolve_shirabe_bin() {
 # The GNU packages replace busybox's applets of the same names. No host shirabe
 # supports has a busybox userland, so without them a suite using a GNU or BSD
 # flag (grep --include, ps -o pgid=) fails here for a reason that says nothing
-# about bash 3.2. The base image keeps its bash in /usr/local/bin only, while
+# about bash 3.2. They go on top of bash:3.2 rather than a rebase onto a glibc
+# distribution: that image is the maintained bash 3.2 build, it is Alpine
+# only, and the static musl shirabe the plan and execute suites need already
+# runs on it. The base image keeps its bash in /usr/local/bin only, while
 # every supported host has a /bin/bash that a #!/bin/bash stub or a
 # PATH=/usr/bin:/bin run relies on, so the 3.2 binary is linked there too.
 # None of the packages pulls in Alpine's own bash, and the last step
@@ -516,15 +519,23 @@ FLOOR_YQ_SHA256_ARM64="b7f7c991abe262b0c6f96bbcb362f8b35429cefd59c8b4c2daa4811f1
 
 FLOOR_PACKAGES="jq git python3 coreutils grep sed findutils gawk diffutils procps-ng"
 
-# A rootful daemon runs containers as the host's root, which this host's rule
-# forbids and which is how #413's root-owned files got into a checkout. A
-# rootless one maps the container's root to the invoking user. Which daemon is
-# reached is DOCKER_HOST's (or the docker context's) choice, not this script's.
+# The floor runs whatever test code the branch under check carries. On a
+# rootful daemon everything the daemon does for a container - creating a
+# missing mount point, writing through a mount, the container's own root - is
+# done as the host's root, which is how #413's root-owned files got into a
+# checkout. The read-only mount and --user close the paths known today; a
+# rootless daemon closes the class, since nothing it does can reach past the
+# invoking user. So rootless is the default and rootful is an explicit choice,
+# made where the host is disposable (CI's hosted runners) or where the invoking
+# user has decided the trade-off is theirs.
+#
+# Which daemon is reached is DOCKER_HOST's (or the docker context's) choice,
+# not this script's.
 check_docker_daemon() {
     local opts
     command -v docker >/dev/null 2>&1 || die "docker is required for the docker backend (on macOS use --backend system: /bin/bash is already 3.2)"
     opts=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null) \
-        || die "cannot reach a docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}); start the rootless daemon and point DOCKER_HOST at its socket"
+        || die "cannot reach a docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}); point DOCKER_HOST at a running rootless daemon's socket"
     case "$opts" in
         *name=rootless*)
             DAEMON_ROOTLESS=1
@@ -532,7 +543,7 @@ check_docker_daemon() {
         *)
             DAEMON_ROOTLESS=0
             if [ "$ALLOW_ROOTFUL" != 1 ]; then
-                die "refusing a rootful docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}): point DOCKER_HOST at a rootless daemon's socket, or pass --allow-rootful-docker (SHIRABE_FLOOR_ALLOW_ROOTFUL=1) where a rootful daemon is acceptable"
+                die "refusing a rootful docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}): its containers act as the host's root. Point DOCKER_HOST at a rootless daemon's socket, or pass --allow-rootful-docker (SHIRABE_FLOOR_ALLOW_ROOTFUL=1) to run on this one as $(id -u):$(id -g)"
             fi
             echo "check-bash-floor: using a rootful docker daemon (allowed by override); the container runs as $(id -u):$(id -g)" >&2
             ;;
@@ -541,6 +552,9 @@ check_docker_daemon() {
 
 build_floor_image() {
     check_docker_daemon
+    # Before the build, so a checkout the container could not resolve is
+    # refused before anything is pulled or built.
+    resolve_git_mounts
     echo "check-bash-floor: building $FLOOR_IMAGE" >&2
     docker build -q -t "$FLOOR_IMAGE" - >/dev/null <<EOF || die "could not build $FLOOR_IMAGE from $BASE_IMAGE"
 FROM $BASE_IMAGE
@@ -560,7 +574,11 @@ RUN for b in \$(which -a bash) /bin/bash /usr/bin/bash; do \\
         "\$b" -c 'case "\$BASH_VERSION" in 3.2*) exit 0;; *) exit 1;; esac' \\
             || { echo "\$b is not bash 3.2" >&2; exit 1; }; \\
     done \\
-    && grep --version | grep -q GNU
+    && for t in ls grep sed find awk diff; do \\
+        "\$t" --version 2>&1 | head -n 1 | grep -q GNU \\
+            || { echo "\$t is not the GNU one" >&2; exit 1; }; \\
+    done \\
+    && ps --version | grep -q procps
 EOF
 }
 
@@ -595,6 +613,10 @@ EOF
 # from the files themselves, not from `git rev-parse`, because the container
 # has to find exactly what the file says, relative links included. A
 # submodule's .git file works the same way, minus the commondir.
+#
+# Refusing linked worktrees outright (#413's first suggestion) would be
+# simpler, but it would put the docker floor out of reach for anyone who works
+# in worktrees, which is the usual way to run several changes side by side.
 #
 # Sets GIT_MOUNT_DIRS, one directory per line. A .git file that does not lead
 # to a git directory on the host is refused here: the container could not
@@ -641,14 +663,18 @@ resolve_git_mounts() {
     done
 }
 
-# --mount splits its value on commas and -v on colons; --mount is used for the
-# host paths below, so a comma in one is refused rather than misparsed.
+# bind_ro <source> [<target>]: sets BIND_RO_RESULT to a --mount value binding
+# <source> read-only at <target> (default: the same path). The checkout now
+# sits at its host path, which may hold a colon that -v and --tmpfs would split
+# on; --mount only splits on commas, so a comma is refused rather than
+# misparsed.
 BIND_RO_RESULT=""
 bind_ro() {
-    case "$1" in
-        *,*) die "cannot mount a path containing a comma into the floor container: $1" ;;
+    local src="$1" dst="${2:-$1}"
+    case "$src$dst" in
+        *,*) die "cannot mount a path containing a comma into the floor container: $src" ;;
     esac
-    BIND_RO_RESULT="type=bind,source=$1,target=$1,readonly"
+    BIND_RO_RESULT="type=bind,source=$src,target=$dst,readonly"
 }
 
 run_suite_docker() {
@@ -663,7 +689,7 @@ run_suite_docker() {
     # own and goes with it.
     bind_ro "$REPO_ROOT"
     args=(--rm --mount "$BIND_RO_RESULT")
-    resolve_git_mounts
+    # GIT_MOUNT_DIRS was resolved by build_floor_image, before the build.
     while read -r d; do
         [ -n "$d" ] || continue
         bind_ro "$d"
@@ -680,6 +706,8 @@ EOF
     if [ "$DAEMON_ROOTLESS" != 1 ]; then
         args=("${args[@]}" --user "$(id -u):$(id -g)")
     fi
+    # exec because suites write stand-in binaries under $HOME and run them;
+    # 1777 because on a rootful daemon the container user owns nothing here.
     args=("${args[@]}" --tmpfs "$FLOOR_HOME:rw,exec,mode=1777" -e "HOME=$FLOOR_HOME" -e TMPDIR=/tmp)
 
     if suite_needs_shirabe "$suite"; then
@@ -699,10 +727,13 @@ EOF
         # writable, docker would create the directory as the daemon's root
         # on the host, leaving a target/ the next `cargo build` cannot write.
         mkdir -p "$REPO_ROOT/target"
-        args=("${args[@]}" --tmpfs "$WORKDIR/target")
-        args=("${args[@]}" -v "$shirabe_bin:$INJECT_DIR/shirabe:ro")
-        args=("${args[@]}" -v "$shirabe_bin:$WORKDIR/target/release/shirabe:ro")
-        args=("${args[@]}" -v "$stub_dir:$INJECT_DIR/bin:ro")
+        args=("${args[@]}" --mount "type=tmpfs,target=$WORKDIR/target")
+        bind_ro "$shirabe_bin" "$INJECT_DIR/shirabe"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
+        bind_ro "$shirabe_bin" "$WORKDIR/target/release/shirabe"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
+        bind_ro "$stub_dir" "$INJECT_DIR/bin"
+        args=("${args[@]}" --mount "$BIND_RO_RESULT")
         args=("${args[@]}" -e "SHIRABE_BIN=$INJECT_DIR/shirabe")
         args=("${args[@]}" -e "PATH=$INJECT_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     fi

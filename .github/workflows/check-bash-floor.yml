@@ -31,10 +31,11 @@ jobs:
         suite: [templates, template-consistency]
     runs-on: ubuntu-latest
     # GitHub's hosted ubuntu runners have only a rootful docker daemon, which
-    # check-bash-floor.sh refuses by default. The runner is ephemeral and the
-    # container runs as the runner's own user there, so the override is safe
-    # on this job; it is set per job, never repository-wide, so no developer's
-    # host inherits it.
+    # check-bash-floor.sh refuses by default. The runner is a disposable VM,
+    # so nothing the daemon's root could touch outlives the job, and the
+    # override is safe here; it is set per job, never repository-wide, so no
+    # developer's host inherits it. This leg exercises the rootful --user path;
+    # developers' hosts exercise the rootless one.
     env:
       SHIRABE_FLOOR_ALLOW_ROOTFUL: "1"
     steps:
@@ -51,10 +52,11 @@ jobs:
   runner:
     runs-on: ubuntu-latest
     # GitHub's hosted ubuntu runners have only a rootful docker daemon, which
-    # check-bash-floor.sh refuses by default. The runner is ephemeral and the
-    # container runs as the runner's own user there, so the override is safe
-    # on this job; it is set per job, never repository-wide, so no developer's
-    # host inherits it.
+    # check-bash-floor.sh refuses by default. The runner is a disposable VM,
+    # so nothing the daemon's root could touch outlives the job, and the
+    # override is safe here; it is set per job, never repository-wide, so no
+    # developer's host inherits it. This leg exercises the rootful --user path;
+    # developers' hosts exercise the rootless one.
     env:
       SHIRABE_FLOOR_ALLOW_ROOTFUL: "1"
     steps:

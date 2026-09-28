@@ -152,9 +152,16 @@ scripts/check-bash-floor.sh plan
 scripts/check-bash-floor.sh all
 ```
 
-On Linux this runs the suite in a `bash:3.2` container (docker required); on
+On Linux this runs the suite in a `bash:3.2` container with a GNU userland; on
 macOS it uses `/bin/bash` directly, with a shim first on `PATH` so a nested
 `bash` is 3.2 too. Same command either way, and the same one CI runs.
+
+The container needs a rootless docker daemon: point `DOCKER_HOST` at its
+socket. It sees the checkout read-only, so a suite can't leave anything behind
+in it, and it works from a linked worktree. A rootful daemon is refused unless
+you pass `--allow-rootful-docker` (or set `SHIRABE_FLOOR_ALLOW_ROOTFUL=1`); the
+container then runs as your user. CI's hosted runners only have a rootful
+daemon, so the floor workflow sets the override on its own jobs.
 
 Every macOS CI leg reaches the floor that way, as
 `scripts/check-bash-floor.sh --backend system <suite>`. On a macOS runner a bare

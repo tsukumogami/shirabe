@@ -11,9 +11,11 @@ set -euo pipefail
 # Usage:
 #   bash scripts/check-bash-floor_test.sh
 #
-# Requires a reachable floor: docker on Linux, or a macOS /bin/bash. Set
-# FLOOR_BACKEND to pin one (docker or system); the default lets the runner
-# choose.
+# Requires a reachable floor: a rootless docker daemon on Linux (or a rootful
+# one with SHIRABE_FLOOR_ALLOW_ROOTFUL=1 in the environment), or a macOS
+# /bin/bash. Set FLOOR_BACKEND to pin one (docker or system); the default lets
+# the runner choose. The container-shape cases run against a stub docker and
+# need neither.
 #
 # Exit codes:
 #   0 - All tests passed
@@ -318,7 +320,8 @@ mkdir -p "$FIX_MAIN/scripts"
 cp "$RUNNER" "$FIX_MAIN/scripts/check-bash-floor.sh"
 git -C "$FIX_MAIN" init -q
 git -C "$FIX_MAIN" add scripts
-git -C "$FIX_MAIN" -c user.name=t -c user.email=t@example.invalid commit -q -m fixture
+git -C "$FIX_MAIN" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+    commit -q -m fixture
 git -C "$FIX_MAIN" worktree add -q "$FIX_WT" 2>/dev/null
 # The main checkout's git directory, as the worktree's .git file names it.
 FIX_COMMON=$(sed -n 's/^gitdir: //p' "$FIX_WT/.git")
@@ -496,12 +499,49 @@ test_unresolvable_git_file_is_refused() {
         fail "$name" "expected exit 2, got $STUB_RC: $STUB_OUT"
         return
     fi
-    if [ -f "$STUB_ROOT/log.run" ]; then
-        fail "$name" "a suite ran before the refusal"
+    if [ -f "$STUB_ROOT/log.run" ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "the image was built or a suite ran before the refusal"
         return
     fi
     case "$STUB_OUT" in
         *"not a git directory on this host"*"git worktree repair"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+test_git_file_without_gitdir_is_refused() {
+    local name="a .git file with no gitdir: line is refused up front"
+    local saved
+
+    saved=$(cat "$FIX_WT/.git")
+    printf 'not a link\n' >"$FIX_WT/.git"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$FIX_WT/.git"
+    if [ $STUB_RC -ne 2 ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "expected exit 2 before any build, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"no 'gitdir:' line"*) pass "$name" ;;
+        *) fail "$name" "unhelpful message: $STUB_OUT" ;;
+    esac
+}
+
+test_broken_commondir_is_refused() {
+    local name="a worktree whose commondir resolves nowhere is refused up front"
+    local cd_file saved
+
+    cd_file="$FIX_COMMON/worktrees/wt/commondir"
+    saved=$(cat "$cd_file")
+    printf '../../../gone\n' >"$cd_file"
+    run_stubbed "$FIX_WT" rootless
+    printf '%s\n' "$saved" >"$cd_file"
+    if [ $STUB_RC -ne 2 ] || [ -f "$STUB_ROOT/log.build" ]; then
+        fail "$name" "expected exit 2 before any build, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    case "$STUB_OUT" in
+        *"commondir points at"*) pass "$name" ;;
         *) fail "$name" "unhelpful message: $STUB_OUT" ;;
     esac
 }
@@ -517,7 +557,7 @@ test_image_recipe() {
         fail "$name" "no docker build was requested: $STUB_OUT"
         return
     fi
-    for pkg in coreutils grep sed findutils gawk; do
+    for pkg in coreutils grep sed findutils gawk diffutils procps-ng; do
         if ! grep -q "apk add .* $pkg" "$STUB_ROOT/log.build"; then
             fail "$name" "the image does not install $pkg"
             return
@@ -551,6 +591,8 @@ test_rootless_container_shape
 test_linked_worktree_mounts_its_git_directory
 test_relative_gitdir_link_resolves
 test_unresolvable_git_file_is_refused
+test_git_file_without_gitdir_is_refused
+test_broken_commondir_is_refused
 test_image_recipe
 
 echo ""
