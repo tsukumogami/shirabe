@@ -37,6 +37,12 @@ check "reserved-step merge acme/widgets#12"
 eq "a reserved step on owner/repo#n is accepted" "accepted reserved-step" "$(w)"
 check "access acme/secret"
 eq "access to a repository is accepted" "accepted access" "$(w)"
+check "access acme/.github"
+eq "a repository whose name starts with a dot is accepted" "accepted access" "$(w)"
+check "credential decide-whether-to-ship"
+eq "a decision hidden in one hyphenated token is refused" "refused" "$(w | cut -d' ' -f1)"
+check "access ../.."
+eq "a repository path of dots is refused" "refused" "$(w | cut -d' ' -f1)"
 
 for bad in "decide whether to ship" "please decide whether to ship" "credential" "credential two words" \
     "reserved-step deploy #12" "reserved-step merge somewhere" "access not-a-repo" "access acme/widgets extra" \

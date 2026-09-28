@@ -51,6 +51,7 @@ set -f; set -- $NEED; set +f
 KIND=${1-}
 RE_NAME='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+RE_DOTS='(^|/)\.\.?(/|$)'
 RE_LINK='^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(pull|issues)/[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|#[1-9][0-9]*)$'
 case "$KIND" in
     credential)
@@ -62,12 +63,14 @@ case "$KIND" in
         [[ $3 =~ $RE_LINK ]] || refuse "reserved-step names a pull request or an issue"
         ARG="$2 $3" CELL="$2 $3, reserved for a person" ;;
     access)
-        [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] || refuse "access takes one owner/repo"
+        [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] && ! [[ $2 =~ $RE_DOTS ]] || refuse "access takes one owner/repo"
         ARG=$2 CELL="access to $2" ;;
     *) refuse "a need is credential, reserved-step or access; a decision goes to decision_raise" ;;
 esac
 # The argument is a token by now, but the list is the backstop behind that.
-phrase_match decision "$ARG"
+# Its patterns are phrases, so the token is read with its separators as
+# spaces: `should-we-ship` is checked as `should we ship`.
+phrase_match decision "$(printf '%s' "$ARG" | tr '_.-' '   ')"
 case $? in 0) refuse "the need reads as a decision; raise it instead" ;; 1) ;; *) die2 "the phrasing list can't be read" ;; esac
 
 jq -nc --arg k "$KIND" --arg a "$ARG" --arg c "$CELL" '{kind: $k, argument: $a, cell: $c}' > "$T/need.json" || die2 "cannot build the need"

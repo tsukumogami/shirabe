@@ -159,6 +159,14 @@ db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c 
 eq "the re-sent answer's own line, with this run's stamp, counts as recorded" "clear" "$(word)"
 db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c --argjson e "[$(E 1 settled "\"round\": \"1\", \"outcome\": \"ship; reason: r\", \"decided_by\": \"a person\", \"evidence\": \"2026-09-26T07:20Z a person [$RUN wait 3]: answer for round 1: ship\"")]" '.decisions = {next: 20, entries: $e}')" pr)"
 eq "another answer line for the same round, under another stamp, doesn't hide this one" "unrecorded-answer" "$(word)"
+# An arrival naming no decision can't be written, so it is never owed: routing
+# back to decision_answer for it would loop with no way out.
+build
+to wait; log_evidence "$S" wait '{"event":"answer"}'; to decision_answer; to decision_next
+eq "an answer that names no decision is not owed" "clear" "$(word)"
+build
+to wait; log_evidence "$S" wait '{"event":"evidence"}'; to decision_evidence; to decision_next
+eq "evidence that names no decision is not owed" "clear" "$(word)"
 
 echo "== record-full =="
 build take

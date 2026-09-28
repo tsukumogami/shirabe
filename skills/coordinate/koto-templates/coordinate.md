@@ -1931,9 +1931,13 @@ This state is reached from a record that isn't one (a title or branch match
 without the declaration line), several candidates, a body that isn't canonical,
 an author or editor without write access, a predecessor whose handoff doesn't
 parse or whose rotation closed without merging, or a record check that found a
-`koto next --to` in this run. Don't pick among candidates and don't repair a
-record by hand: the human decides. A pull request on the record's branch that
-isn't a record is a scope question.
+`koto next --to` in this run. It is also reached from the decision states: a
+record too full for the next decision write (`record-full`: the record is near
+GitHub's size limit, and settling or closing entries elsewhere won't make room
+here), and a message the workflow refused to render (`refused`: the entry no
+longer owes it as recorded, so the record changed underneath). Don't pick among
+candidates and don't repair a record by hand: the human decides. A pull request
+on the record's branch that isn't a record is a scope question.
 
 ## predecessor_handoff
 
@@ -2073,7 +2077,11 @@ and parked counts.
 
 It also decides whether the scope is done: every roadmap feature Done or Dropped
 goes to the roadmap close-out; a rotation whose end date has passed goes to the
-rotation close-out.
+rotation close-out. Before either, owed decision work (`decisions`) goes to
+`decision_next`: a write that didn't land, a message owed, a carry, a proposed
+entry or one waiting for your verdict. A held entry, and an escalation that
+owes nothing, don't count. The facts also carry the record's unsettled decision
+entries, the rows the progress table renders.
 
 ## pick
 
@@ -2140,6 +2148,10 @@ this run started may be undisposed, the topic must not already be held, and the
 cap and parked bound must allow it.
 
 <!-- details -->
+
+Owed decision work (`decision-owed`) sends you to `decision_next` first: before
+the run's first dispatch, any of it; after, only a write that didn't land and a
+message owed. A proposed or unjudged entry doesn't hold up a later dispatch.
 
 A topic a Holdings row already names as its worker can't be dispatched again: a
 worker's session name is machine-wide, so a second live worker on the same topic
@@ -2263,9 +2275,14 @@ Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `report` for a worker's message, with the message itself as
 `report`; `leg` when a notification says a worker's request leg may have
 resolved, or when a leg-bound worker has been quiet; `quiet` when a worker has
-been silent; `decision` or `deferral` for a new decision; `merged` when the
-human merged a pull request you handed over; `retire` to finish with a worker;
-`end` when the rotation or the scope ends.
+been silent; `decision` or `deferral` for a new decision from whoever
+dispatched you that isn't the answer to an escalation; `answer` when an answer
+to an escalated decision arrives, naming its `decision` and `round` as the
+answer names them; `evidence` when a fact arrives that bears on a decision
+entry, naming its `decision` (a held entry's fact included); `raise` when you
+need a decision made that no entry holds yet; `merged` when the human merged a
+pull request you handed over; `retire` to finish with a worker; `end` when the
+rotation or the scope ends.
 
 <!-- details -->
 
@@ -2437,6 +2454,11 @@ reader of the record understands without the report. A cited item becomes
 evidence on the entry it cites, and a withdrawal evidence on the entry opened
 from its source, without a wording of yours.
 
+A question marked `addressed` asked a person directly. You don't answer the
+worker here: the write marks the entry, and `decision_next` then owes the worker
+one redirect, rendered by the workflow, saying its questions come to you. After
+that the entry is taken up and gets your verdict like any other.
+
 ## decision_raise
 
 Open the decision you need made as an entry: run
@@ -2475,6 +2497,10 @@ then submit `recorded: recorded`.
 
 <!-- details -->
 
+Name the source without brackets, which the record reserves for its stamps: a
+bot login such as `dependabot[bot]` is written `dependabot`. The same holds for
+`--final` at `decision_answer`.
+
 The entry comes from the `evidence` event's `decision`. Evidence clears any
 verdict, a hold included; on a settled entry the old outcome goes to Evidence,
 and on a sent escalation a withdrawal is owed.
@@ -2506,7 +2532,7 @@ a worker's report, a notification or a scheduled wake. Then print the context
 and problem from `coord/decision_question.json` in chat, ask its question with
 its options in order (the recommended one first) and each option's explanation,
 run `--sent --route tool`, and submit `sent: answered` with the `decision` and
-`round` the message names. Otherwise, and whenever the tool is unavailable, is
+`round` of `coord/decision_question.json`. Otherwise, and whenever the tool is unavailable, is
 refused or times out, send the rendered text as a message, run `--sent --route
 message`, submit `sent: sent`, and keep coordinating.
 
@@ -2705,14 +2731,15 @@ until it merges.
 
 ## surface
 
-Put it in front of the human, once: for a merge the workspace reserves, the
-merge-order table from `references/verification-checklist.md` with the reason for
-the order (`surfaced: merge_table`). For a blocked worker, name what it needs as
-`need`, one of `credential <name>`, `reserved-step <merge|release|close|teardown>
-<link>` or `access <owner/repo>`, and submit `surfaced: blocker`; when what
-blocks it is a choice, submit `surfaced: decision` and raise it as an entry
-instead. Pull requests are links, workers are inline code, and no commit hash is
-shown.
+For a merge the workspace reserves, put the merge-order table from
+`references/verification-checklist.md` in front of the human, once, with the
+reason for the order (`surfaced: merge_table`). For a blocked worker, show the
+human nothing yet: name what it needs as `need`, one of `credential <name>`,
+`reserved-step <merge|release|close|teardown> <link>` or `access <owner/repo>`,
+and submit `surfaced: blocker`; the need reaches the human, worded by
+`surface_check`, in the progress table's "Blocked on you" rows. When what blocks
+it is a choice, submit `surfaced: decision` and raise it as an entry instead.
+Pull requests are links, workers are inline code, and no commit hash is shown.
 
 <!-- details -->
 

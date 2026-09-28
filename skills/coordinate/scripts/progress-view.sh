@@ -84,6 +84,7 @@ not_a_decision() {
 # no free sentence left to put a decision in.
 RE_NAME='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+RE_DOTS='(^|/)\.\.?(/|$)'
 RE_LINK='^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(pull|issues)/[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|#[1-9][0-9]*)$'
 WORDED='{}'
 while IFS= read -r k; do
@@ -98,11 +99,12 @@ while IFS= read -r k; do
             case "$2" in merge|release|close|teardown) ;; *) refuse "$k: reserved-step is merge, release, close or teardown" ;; esac
             [[ $3 =~ $RE_LINK ]] || refuse "$k: reserved-step names a pull request or an issue"
             CELL="$2 $3, reserved for a person" ARG="$2 $3" ;;
-        access) [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] || refuse "$k: access takes one owner/repo"
+        access) [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] && ! [[ $2 =~ $RE_DOTS ]] || refuse "$k: access takes one owner/repo"
             CELL="access to $2" ARG=$2 ;;
         *) refuse "$k: a need is credential <name>, reserved-step <step> <link> or access <owner/repo>; a decision is raised as an entry" ;;
     esac
-    not_a_decision "$k's need" "$ARG"
+    # The list's patterns are phrases: read the token's separators as spaces.
+    not_a_decision "$k's need" "$(printf '%s' "$ARG" | tr '_.-' '   ')"
     WORDED=$(jq -c --arg k "$k" --arg v "$CELL" '. + {($k): $v}' <<< "$WORDED")
 done < <(jq -r 'keys[]' <<< "$BLOCKED")
 BLOCKED=$WORDED

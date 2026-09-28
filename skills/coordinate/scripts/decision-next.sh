@@ -22,9 +22,11 @@
 #                       `report <seq>.` stamp for it
 #     unrecorded-answer the latest answer (a `wait` answer event, or
 #                       escalate_send's `answered`) reached decision_answer and
-#                       no line carries this run's `wait <seq>` stamp for it,
-#                       unless its entry is settled and holds an
-#                       `answer for round <r>:` line (the same answer again)
+#                       no line carries this run's `wait <seq>` stamp for it (a
+#                       re-sent identical answer writes its own stamped line
+#                       too). An arrival that names no decision can't be
+#                       written, so it is never owed: routing back to it would
+#                       loop with no way out
 #     unrecorded-evidence  likewise for the latest `wait` evidence event
 #     unrecorded-raise  the latest visit to decision_raise left no entry with
 #                       this run's `raise <seq>` stamp
@@ -144,12 +146,12 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   | ($listed and $op > $rq and $wt < $rq) as $to_open
   # The latest answer, by either route, and whether it reached decision_answer.
   | ([$wans, $tans] | map(select(.seq != null)) | max_by(.seq)) as $ans
-  | (if $ans == null then false else $an > $ans.seq end) as $ans_taken
+  | (if $ans == null or (($ans.fields.decision // "") == "") then false else $an > $ans.seq end) as $ans_taken
   # Every answer record-decision.sh takes, a re-sent identical one included,
   # writes a line with its arrival stamp, so the stamp alone says it landed; an
   # answer line without it may be another answer for the same round.
   | ($ans_taken and stamped("wait"; ($ans.seq | tostring))) as $ans_recorded
-  | (if $wevi.seq == null then false else $evs > $wevi.seq end) as $evi_taken
+  | (if $wevi.seq == null or (($wevi.fields.decision // "") == "") then false else $evs > $wevi.seq end) as $evi_taken
   # Rule 5: the reports of this run that addressed someone and have no redirect.
   | ([$mine[] | select(.kind == "report") | .seq | split(".")[0]] | unique) as $reports
   | ([ $reports[] as $r

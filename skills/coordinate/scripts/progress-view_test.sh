@@ -84,7 +84,8 @@ eq_ "a reserved step is worded for its cell" "merge https://github.com/acme/widg
     "$(needcell 'reserved-step merge https://github.com/acme/widgets/pull/14')"
 eq_ "access is worded for its cell" "access to acme/secret" "$(needcell 'access acme/secret')"
 for need in "decide whether to ship" "a product call: which config format" "credential" "credential two words" \
-    "reserved-step deploy #12" "reserved-step merge somewhere" "access not-a-repo" "your call on the pin"; do
+    "reserved-step deploy #12" "reserved-step merge somewhere" "access not-a-repo" "your call on the pin" \
+    "credential decide-whether-to-ship" "access ../.."; do
     refused "--blocked refuses a need outside the kinds: [$need]" "refused" "${MO[@]}" --blocked "plugin-cli=$need" "$F"
 done
 

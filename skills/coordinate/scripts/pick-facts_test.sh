@@ -104,6 +104,13 @@ picked() {
     eq "$label" "$want" "${OUT% sealed:*}"
 }
 RMTEXT=$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)
+# An unrecorded write: a visit to decision_raise that left no entry stamped for it.
+seed "$REC"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$RMTEXT"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+log_to "$S" pick_facts decision_raise; log_to "$S" decision_raise decision_next; log_to "$S" decision_next pick_facts
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "an unrecorded write is decisions" "decisions unrecorded-raise" "${OUT% sealed:*}"
 picked "an owed withdrawal is decisions" "decisions withdraw" "$(dentry 2 coordinator-verdict '"owed": "withdrawal"')"
 picked "an owed reply is decisions" "decisions reply" \
     "$(dentry 3 settled '"owed": "reply", "outcome": "wait; reason: r", "decided_by": "a person", "source": "worker w1 [20260925T080000Z report 1.1]"')"
@@ -163,5 +170,15 @@ eq "after the title's end date it is rotation-over" rotation-over "$OUT"
 tok_shape "rotation-over is in koto's capture alphabet" "$OUT"
 dseed "docs(coordinate): ci-health rotation 2026-09-22 to soon"
 bash "$PF" --scope discipline --name ci-health --repo "$REPO" --ref 22 --no-seal >/dev/null 2>&1; eq "a record title that isn't a rotation title exits 2" 2 $?
+# A carry: the previous rotation's handoff holds an unsettled entry this
+# record doesn't carry yet, before the run's first dispatch.
+dseed "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29"
+record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '. + {decisions: {next: 9, entries: $e},
+    rotation: {start: "2026-09-15", end: "2026-09-22", date: "2026-09-22", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"},
+    reasoning: "Lint is flaky."}' | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
+db '.files["acme/widgets"]["main:docs/disciplines/ci-health.md"] = $t' --arg t "$(cat "$T/prev.md")"
+session "$(discipline_vars ci-health)" 22 discipline-ci-health
+OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
+eq "a carry owed is decisions" "decisions carry" "${OUT% sealed:*}"
 
 done_tests pick-facts
