@@ -324,7 +324,8 @@ cmd_verify_pin() {
     # Whether the koto hash can be compared on this machine.
     local koto_installed="" compare_koto=0
     if command -v koto >/dev/null 2>&1; then
-        koto_installed=$(koto version 2>/dev/null | awk 'NR == 1 { print $2 }')
+        # A koto that fails to report a version is treated as absent.
+        koto_installed=$(koto version 2>/dev/null | awk 'NR == 1 { print $2 }') || koto_installed=""
     fi
     if [ -n "$koto_installed" ] && [ "$koto_installed" = "$koto_pinned" ]; then
         compare_koto=1
@@ -427,8 +428,8 @@ EOF
 }
 
 # Re-derives every recorded figure: re-runs `count` at each commit that
-# token-baseline.tsv has recount rows for (with load-manifest-<commit>.tsv when
-# one exists, else load-manifest.tsv) and compares the output with those rows,
+# token-baseline.tsv has recount rows for, with the directory's
+# load-manifest.tsv, and compares the output with those rows,
 # then checks the README's figures table against the same rows. The census
 # rows are quoted from the September census, not computed, and are not checked.
 cmd_check_figures() {
@@ -450,10 +451,8 @@ cmd_check_figures() {
     awk -F '\t' '!/^#/ && $5 == "recount" { print $1 }' "$tsv" | LC_ALL=C sort -u > "$TMP_DIR/commits"
     [ -s "$TMP_DIR/commits" ] || { echo "$PROG: $tsv has no recount rows to check" >&2; exit 1; }
 
-    local errors=0 commit manifest
+    local errors=0 commit manifest="$dir/load-manifest.tsv"
     while IFS= read -r commit; do
-        manifest="$dir/load-manifest.tsv"
-        [ -f "$dir/load-manifest-$commit.tsv" ] && manifest="$dir/load-manifest-$commit.tsv"
         awk -F '\t' -v c="$commit" '!/^#/ && $1 == c && $5 == "recount" { print $2 "\t" $3 "\t" $4 }' \
             "$tsv" > "$TMP_DIR/expected"
         if ! "$0" count "$commit" --manifest "$manifest" > "$TMP_DIR/actual"; then

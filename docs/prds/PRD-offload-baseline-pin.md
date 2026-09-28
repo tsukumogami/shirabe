@@ -69,15 +69,13 @@ the number the offload work is supposed to halve, yet nothing defines what
 counts as a violation, what it's divided by, or how a rule is named. And the
 only count of instruction tokens per skill was a census taken in September
 2026 at shirabe commit e592501, recorded outside the repository with a method
-nobody can re-run from shirabe. shirabe has moved more than 20 commits since, several
-of them in these skills.
+nobody can re-run from shirabe. shirabe has moved more than 20 commits
+since, several of them in these skills.
 
-The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
 If the first instruction change lands before this is fixed, the "before" is
 whatever someone reconstructs from git history afterwards, measured however
 they choose.
 
-The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
 ## Goals
 
 - A shirabe maintainer can name exactly which template texts the "before"
@@ -110,7 +108,6 @@ The completeness, clarity and testability reviewers all passed it; the last two 
   its alternative, so that I can accept or change it before it becomes the
   baseline.
 
-The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
 ## Requirements
 
 **Terms.** A *run* is one koto workflow session started from one of the
@@ -123,7 +120,6 @@ template and can be computed without starting a session.
 
 ### Functional
 
-The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
 - **R1. Pinned commit.** The baseline names one shirabe commit on `main` as
   the pinned commit. It's the commit `main` pointed at when the baseline was
   taken, not the census commit.
@@ -257,7 +253,6 @@ Boundaries:
 - Settling the definitions. They stay provisional until a separate
   measurement-definitions effort settles them.
 
-The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
 ## Known Limitations
 
 - Weighted tokens depend on load weights (visits per state, re-read rates)
@@ -274,8 +269,8 @@ The completeness, clarity and testability reviewers all passed it; the last two 
 ## Decisions and Trade-offs
 
 - **Pin at current main, not at the census commit.** The census commit is
-  already more than 20 commits behind, and the work this baseline exists for starts
-  from main. Pinning the census commit would compare later changes against a
+  already more than 20 commits behind, and the work this baseline exists for
+  starts from main. Pinning the census commit would compare later changes against a
   state nobody runs. The September figures stay as the reference so nothing
   measured then is lost.
 - **Identify templates by content, not by the declared version.** Bumping

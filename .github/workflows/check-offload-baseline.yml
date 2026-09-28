@@ -69,10 +69,26 @@ jobs:
       - name: Install tsuku
         uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
-      - name: Install koto
+      # Exactly the koto the pin's hashes were computed under, not the newest
+      # 0.x .tsuku.toml resolves to: with any other koto, verify-pin skips the
+      # hash comparison, and this job would pass having compared nothing.
+      - name: Install the pinned koto
         env:
           TSUKU_TELEMETRY: "0"
-        run: tsuku install -y
+        run: |
+          set -euo pipefail
+          want=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
+          echo "KOTO_PINNED=$want" >> "$GITHUB_ENV"
+          tsuku install -y "tsukumogami/koto@$want"
+
+      - name: Assert koto is exactly the pinned release
+        run: |
+          set -euo pipefail
+          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          if [ "$got" != "$KOTO_PINNED" ]; then
+            echo "koto on PATH is ${got:-unknown}, expected exactly $KOTO_PINNED" >&2
+            exit 1
+          fi
 
       - name: Verify the template pin
         run: scripts/offload-baseline.sh verify-pin

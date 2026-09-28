@@ -262,9 +262,10 @@ temporary files are under `mktemp -d`, removed on exit.
 The manifest is built by reading, at the pinned commit, what each skill's
 SKILL.md and directives tell the agent to load, following the census's load
 tables for which files load in which state. The same manifest is run at
-e592501. If a listed file or state doesn't exist there,
-`load-manifest-e592501.tsv` records that commit's rows, and the README names
-every row that differs.
+e592501; every file and state it lists exists there, so one manifest serves
+both recorded commits. A later commit that drops a listed file or state makes
+`count` fail by name, and the manifest is updated with the change that caused
+it.
 
 The census's load model isn't in the repository, so the weights enter the
 manifest as data with their provenance in the `note` column: `resident` (1,
