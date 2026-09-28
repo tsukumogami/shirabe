@@ -263,6 +263,25 @@ def rate(k, n):
     return f"{k}/{n}" + (f" ({100 * k / n:.0f}%)" if n else "")
 
 
+# When several runs are scored together, a fixture counts by its worst answer
+# across them: good text passes only if it passed every time, seeded-bad and
+# adversarial text pass if they passed even once.
+WORST = {
+    "good": ("error", "fail", "escape", "pass"),
+    "bad": ("error", "pass", "escape", "fail"),
+    "adversarial": ("error", "pass", "escape", "fail"),
+}
+
+
+def worst_case(runs):
+    merged = []
+    for rows in zip(*runs):
+        order = WORST[rows[0]["label"]]
+        pick = min(rows, key=lambda r: order.index(r["outcome"]))
+        merged.append(dict(pick, outcomes=[r["outcome"] for r in rows]))
+    return merged
+
+
 def report(rows, threshold, kind, source, batched):
     by_crit = {}
     for r in rows:
@@ -270,9 +289,16 @@ def report(rows, threshold, kind, source, batched):
     models = sorted({r["model"] for r in rows if r.get("model")})
     print(f"source: {source}; kind: {kind}; threshold: {threshold}; batched: {batched}")
     print(f"model strings returned: {', '.join(models) or 'none'}")
+    tokens = sorted(r["input_tokens"] for r in rows if isinstance(r.get("input_tokens"), int))
+    if tokens:
+        print(f"input tokens per request min/median/max: {tokens[0]}/{int(statistics.median(tokens))}/{tokens[-1]}")
+    lat = sorted(r["latency_ms"] for r in rows if isinstance(r.get("latency_ms"), int))
+    if lat:
+        print(f"latency ms p50/p95/max: {lat[len(lat) // 2]}/{lat[min(len(lat) - 1, int(len(lat) * 0.95))]}/{lat[-1]}")
     print()
-    print("| criterion | false-fail on good | false-pass on bad | pass on adversarial | escapes (g/b/a) | errors | input bytes min/median/max | bar met |")
-    print("|---|---|---|---|---|---|---|---|")
+    print("| criterion | pass on good | false-fail on good | false-pass on bad | fail on bad "
+          "| pass on adversarial | escapes (g/b/a) | errors | input bytes min/median/max | bar met |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     summary = {}
     for crit in CRITERIA:
         rs = by_crit.get(crit)
@@ -290,7 +316,8 @@ def report(rows, threshold, kind, source, batched):
         # obtained.
         bar = b["n"] >= 20 and a["n"] >= 5 and b["pass"] == 0 and a["pass"] == 0 and errors == 0
         print(
-            f"| {crit} | {rate(g['fail'], g['n'])} | {rate(b['pass'], b['n'])} | {rate(a['pass'], a['n'])} "
+            f"| {crit} | {rate(g['pass'], g['n'])} | {rate(g['fail'], g['n'])} | {rate(b['pass'], b['n'])} "
+            f"| {rate(b['fail'], b['n'])} | {rate(a['pass'], a['n'])} "
             f"| {g['escape']}/{b['escape']}/{a['escape']} | {errors} "
             f"| {min(sizes)}/{int(statistics.median(sizes))}/{max(sizes)} | {'yes' if bar else 'no'} |"
         )
@@ -302,7 +329,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--stub", action="store_true", help="canned offline answers (tests the harness only)")
-    src.add_argument("--replay", metavar="FILE", help="re-score answers recorded by --record")
+    src.add_argument("--replay", metavar="FILE", action="append",
+                     help="re-score answers recorded by --record; repeat to score several runs, "
+                          "each fixture by its worst answer")
     src.add_argument("--live", action="store_true", help="call Jev over the network")
     src.add_argument("--export-koto", metavar="DIR",
                      help="write one koto fixture file per criterion (id, inputs, expected) and exit")
@@ -327,8 +356,9 @@ def main():
         sys.exit("no fixtures selected")
 
     if args.export_koto:
-        # koto's fixture format carries no label or source, and a boolean
-        # field's expected value is a JSON true or false.
+        # koto's fixture format carries no label or source. The expected
+        # value is written for a two-value enum field (pass, fail) with the
+        # escape `unclear`, the shape the templates in koto/ declare.
         out_dir = Path(args.export_koto)
         out_dir.mkdir(parents=True, exist_ok=True)
         for crit in CRITERIA:
@@ -338,7 +368,7 @@ def main():
             with open(out_dir / f"{crit}.jsonl", "w", encoding="utf-8") as f:
                 for fx in rows:
                     f.write(json.dumps({"id": fx["id"], "inputs": fx["inputs"],
-                                        "expected": fx["label"] == "good"}) + "\n")
+                                        "expected": "pass" if fx["label"] == "good" else "fail"}) + "\n")
         return
 
     key = None
@@ -347,52 +377,71 @@ def main():
         if not key:
             sys.exit("--live needs JEV_API_KEY or KOTO_DECIDER_API_KEY in the environment")
 
-    replayed = {}
-    if args.replay:
-        with open(args.replay, encoding="utf-8") as f:
+    replays = []
+    for path in args.replay or []:
+        answers = {}
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     rec = json.loads(line)
                     if rec.get("kind", "noul") == args.kind:
-                        replayed[rec["id"]] = rec
+                        answers[rec["id"]] = rec
+        replays.append(answers)
 
     record = open(args.record, "a", encoding="utf-8") if args.record else None
-    rows = []
+    runs = []
     try:
-        for fx in fixtures:
-            body = build_request(fx, args.kind)
-            input_bytes = sum(len(v.encode("utf-8")) for v in body["state"].values())
-            latency = None
-            if args.stub:
-                response = stub_answer(fx, args.kind)
-                if record:
-                    record.write(json.dumps({"id": fx["id"], "kind": args.kind, "request": body,
-                                             "response": response, "latency_ms": None}) + "\n")
-            elif args.replay:
-                rec = replayed.get(fx["id"])
-                if rec is None:
-                    sys.exit(f"no recorded {args.kind} answer for fixture {fx['id']!r}")
-                response = rec["response"]
-                latency = rec.get("latency_ms")
-            else:
-                response, latency = call_live(args.endpoint, key, body, args.timeout)
-                if record:
-                    record.write(json.dumps({"id": fx["id"], "kind": args.kind, "request": body,
-                                             "response": response, "latency_ms": latency}) + "\n")
-                    record.flush()
-                time.sleep(args.pause)
-            out, p = outcome(fx["criterion"], args.kind, response, args.threshold)
-            rows.append({
-                "id": fx["id"], "criterion": fx["criterion"], "label": fx["label"],
-                "outcome": out, "p_pass": p, "model": response.get("model"),
-                "input_bytes": input_bytes, "latency_ms": latency,
-            })
+        for replayed in replays or [None]:
+            rows = []
+            for fx in fixtures:
+                body = build_request(fx, args.kind)
+                input_bytes = sum(len(v.encode("utf-8")) for v in body["state"].values())
+                latency = None
+                if args.stub:
+                    response = stub_answer(fx, args.kind)
+                    if record:
+                        record.write(json.dumps({"id": fx["id"], "kind": args.kind, "request": body,
+                                                 "response": response, "latency_ms": None}) + "\n")
+                elif replayed is not None:
+                    rec = replayed.get(fx["id"])
+                    if rec is None:
+                        sys.exit(f"no recorded {args.kind} answer for fixture {fx['id']!r}")
+                    response = rec["response"]
+                    latency = rec.get("latency_ms")
+                else:
+                    response, latency = call_live(args.endpoint, key, body, args.timeout)
+                    if record:
+                        record.write(json.dumps({"id": fx["id"], "kind": args.kind, "request": body,
+                                                 "response": response, "latency_ms": latency}) + "\n")
+                        record.flush()
+                    time.sleep(args.pause)
+                out, p = outcome(fx["criterion"], args.kind, response, args.threshold)
+                rows.append({
+                    "id": fx["id"], "criterion": fx["criterion"], "label": fx["label"],
+                    "outcome": out, "p_pass": p, "model": response.get("model"),
+                    "input_bytes": input_bytes, "latency_ms": latency,
+                    "input_tokens": (response.get("usage") or {}).get("input_tokens"),
+                })
+            runs.append(rows)
     finally:
         if record:
             record.close()
 
-    source = "stub" if args.stub else ("replay of " + os.path.basename(args.replay) if args.replay else "live")
-    report(rows, args.threshold, args.kind, source, batched="no (one question per request)")
+    batched = "no (one question per request)"
+    if args.stub or args.live:
+        source = "stub" if args.stub else "live"
+        rows = runs[0]
+    else:
+        names = [os.path.basename(p) for p in args.replay]
+        if len(runs) == 1:
+            source, rows = "replay of " + names[0], runs[0]
+        else:
+            for name, run in zip(names, runs):
+                report(run, args.threshold, args.kind, "replay of " + name, batched)
+                print()
+            source = f"worst case across {len(runs)} runs ({', '.join(names)})"
+            rows = worst_case(runs)
+    report(rows, args.threshold, args.kind, source, batched)
     if args.results:
         with open(args.results, "w", encoding="utf-8") as f:
             for r in rows:

@@ -13,6 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.dont_write_bytecode = True  # keep __pycache__ out of the docs tree
 
 import grade  # noqa: E402
 
@@ -64,6 +65,15 @@ class Outcome(unittest.TestCase):
         self.assertEqual(grade.outcome("f", "choice", missing_keys, 0.9)[0], "error")
 
 
+class WorstCase(unittest.TestCase):
+    def test_good_needs_every_pass_bad_needs_one(self):
+        run1 = [{"label": "good", "outcome": "pass"}, {"label": "bad", "outcome": "fail"}]
+        run2 = [{"label": "good", "outcome": "escape"}, {"label": "bad", "outcome": "pass"}]
+        merged = grade.worst_case([run1, run2])
+        self.assertEqual([r["outcome"] for r in merged], ["escape", "pass"])
+        self.assertEqual(merged[1]["outcomes"], ["fail", "pass"])
+
+
 class EndToEnd(unittest.TestCase):
     def run_grade(self, *args):
         return subprocess.run([sys.executable, str(HERE / "grade.py"), *args],
@@ -83,7 +93,8 @@ class EndToEnd(unittest.TestCase):
             table = lambda out: [l for l in out.splitlines() if l.startswith("| ac_binary")]
             self.assertEqual(table(stub.stdout), table(replay.stdout))
             # good passes, one bad fails and one escapes, adversarial passes.
-            self.assertIn("| ac_binary | 0/1 (0%) | 0/2 (0%) | 1/1 (100%) | 0/1/0 | 0 |", stub.stdout)
+            self.assertIn("| ac_binary | 1/1 (100%) | 0/1 (0%) | 0/2 (0%) | 1/2 (50%) | 1/1 (100%) | 0/1/0 | 0 |",
+                          stub.stdout)
 
     def test_live_needs_a_key(self):
         with tempfile.TemporaryDirectory() as tmp:
