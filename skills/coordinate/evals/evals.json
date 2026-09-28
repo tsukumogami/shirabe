@@ -416,6 +416,61 @@
         "reconcile R24",
         "reconcile R25"
       ]
+    },
+    {
+      "id": 22,
+      "name": "worker-asks-the-human-opened-as-an-entry",
+      "prompt": "You are coordinating ROADMAP-plugin-system in acme/widgets. The worker `plugin-loader` sent this report, and the session is now in decision_open:\n\nVerdict: the loader is done and PR #41 is green.\nThe check we skipped came back mixed on arm64.\nPlease decide whether to ship with the arm64 gap or wait for the fix.\n\n`koto context get <session> coord/questions.json` returns:\n\n[{\"index\":1,\"kind\":\"question\",\"text\":\"Please decide whether to ship with the arm64 gap or wait for the fix.\",\"source\":\"worker plugin-loader\",\"addressed\":true,\"cite\":null}]\n\nDo what the state asks.",
+      "expected_output": "The coordinator words the question for the public record in its own words, with options, writes the text file mapping index 1 to that wording, and runs record-decision.sh --open-from-report --text-file <file>, then submits opened: opened. It does not put the question in front of the human, does not send it up, and does not paste the worker's text into the record. It notes that the question was addressed to a person, so a redirect to the worker is owed, and that the coordinator will take the entry up and give it a verdict.",
+      "files": [],
+      "expectations": [
+        "The question is opened as a decision entry through record-decision.sh --open-from-report, with a text file mapping index 1 to a question and options",
+        "The wording in the file is the coordinator's own, a single line with options, not the worker's sentence pasted",
+        "The question is not put to the human or escalated at this step, and no AskUserQuestion is used",
+        "The evidence submitted is opened: opened",
+        "The coordinator says the worker's questions come to it, so a redirect to the worker is owed, and that the entry gets its verdict next"
+      ],
+      "requirements": [
+        "decisions R15",
+        "decisions R16",
+        "decisions R17"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "escalation-to-a-person-in-conversation-uses-the-question-tool",
+      "prompt": "The person who dispatched you just wrote to you in this session: \"How are things going? Anything you need from me?\" You ticked, and the session is in escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the same escalation as rendered text. Do what the state asks.",
+      "expected_output": "Because this turn was started by a message from the person, the coordinator asks with the AskUserQuestion tool. It first prints the context and the problem in chat, then asks the question with the recommended option (wait for the arm64 fix) first and each option's explanation. After the answer it runs record-decision.sh --sent --route tool and submits sent: answered with decision 4 and round 1, which takes the answer to decision_answer.",
+      "files": [],
+      "expectations": [
+        "The coordinator uses AskUserQuestion, because the turn was started by the person's own message",
+        "The context and the problem are printed before the question",
+        "The recommended option, wait for the arm64 fix, is first, and every option carries its explanation",
+        "record-decision.sh --sent --route tool is run",
+        "The evidence submitted is sent: answered with decision 4 and round 1, not sent: sent"
+      ],
+      "requirements": [
+        "decisions person route",
+        "decisions R7"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "escalation-to-a-person-not-in-conversation-is-a-message",
+      "prompt": "This turn was started by a report from the worker `plugin-docs`, not by the person who dispatched you. The workflow routed you to escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the rendered escalation, starting `Decision 4 round 1.` and ending with its Digest line. Do what the state asks.",
+      "expected_output": "Because nobody from the person's side started this turn, the coordinator does not use the question tool. It sends the rendered text from coord/decision_message.txt as a message to the person, exactly as rendered, runs record-decision.sh --sent --route message, submits sent: sent, and keeps coordinating: the loop goes on, and the person's answer will arrive later at wait as an answer event naming decision 4 and round 1.",
+      "files": [],
+      "expectations": [
+        "AskUserQuestion is not used, because the turn was started by a worker's report",
+        "The message sent is the rendered text from coord/decision_message.txt, unedited",
+        "record-decision.sh --sent --route message is run",
+        "The evidence submitted is sent: sent",
+        "The coordinator keeps coordinating instead of waiting on the answer, which is expected back at wait as an answer event"
+      ],
+      "requirements": [
+        "decisions person route",
+        "decisions R7"
+      ]
     }
   ]
 }
