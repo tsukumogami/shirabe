@@ -67,11 +67,6 @@ jobs:
   # wall-clock limit). The stub stands in for the model, so nothing is billed.
   ablation-tests:
     runs-on: ubuntu-latest
-    env:
-      # `tsuku install` calls the GitHub API; the token keeps shared runners
-      # from hitting the unauthenticated rate limit. The job itself has no
-      # secret and runs no model session.
-      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,20 +77,23 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install tsuku
-        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
-
-      # The koto the offload baseline pins: the fixture's template hash is only
-      # comparable with the pin under that release.
+      # The koto the offload baseline pins (template-pin.json's koto_version),
+      # checked against a sha256 recorded here rather than one read from the
+      # release it came from.
       - name: Install the pinned koto
         env:
-          TSUKU_TELEMETRY: "0"
+          GH_TOKEN: ${{ github.token }}
+          KOTO_VERSION: "0.14.1"
+          KOTO_SHA256: "b3facd75f310b5f1a3dc8a500c3ff414e03fbe755c0e72c27771ecc74b60514a"
         run: |
           set -euo pipefail
-          want=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
-          tsuku install -y "tsukumogami/koto@$want"
-          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
-          [ "$got" = "$want" ] || { echo "koto is ${got:-unknown}, expected $want" >&2; exit 1; }
+          pinned=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
+          [ "$pinned" = "$KOTO_VERSION" ] || { echo "template pin names koto $pinned; update KOTO_VERSION and KOTO_SHA256" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/koto-bin"
+          gh release download "v$KOTO_VERSION" --repo tsukumogami/koto --pattern koto-linux-amd64 --dir "$RUNNER_TEMP/koto-bin"
+          echo "$KOTO_SHA256  $RUNNER_TEMP/koto-bin/koto-linux-amd64" | sha256sum -c -
+          install -m 0755 "$RUNNER_TEMP/koto-bin/koto-linux-amd64" "$RUNNER_TEMP/koto-bin/koto"
+          echo "$RUNNER_TEMP/koto-bin" >> "$GITHUB_PATH"
 
       - name: Run the harness tests
         run: python3 -W error::ResourceWarning scripts/ablation/ablation_test.py -v
@@ -129,3 +127,8 @@ jobs:
 
       - name: Run run-evals tests
         run: bash scripts/run-evals_test.sh
+
+      # --withhold, wherever it sits in the arguments, reaches the ablation
+      # harness; without it the harness is never reached.
+      - name: Check the ablation hand-off
+        run: bash scripts/ablation/run-evals-handoff_test.sh

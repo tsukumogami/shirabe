@@ -133,6 +133,22 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILLS_DIR="${RUN_EVALS_SKILLS_DIR:-$REPO_ROOT/skills}"
 CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
 
+# ---------------------------------------------------------------------------
+# Ablation mode
+#
+# `--withhold <rule key>` anywhere in the arguments measures what withholding
+# one instruction section does, instead of running a suite: the arguments go
+# unchanged to scripts/ablation/ablation.py run, which runs its own sessions
+# and grades them with scripts, sharing nothing below this block. Without the
+# flag nothing here runs and the runner takes its usual path.
+# Method: docs/measurement/offload-ablation/README.md.
+# ---------------------------------------------------------------------------
+for arg in "$@"; do
+  case "$arg" in
+    --withhold|--withhold=*) exec python3 "$SCRIPT_DIR/ablation/ablation.py" run "$@" ;;
+  esac
+done
+
 # The permission mode every nested claude session runs under. See "Nested
 # session permission mode" in the header for why it is this and nothing wider.
 # The mode is kept separately because the not-executed report compares it with
