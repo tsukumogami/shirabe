@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The four koto-templated skills (work-on, execute, scope, deliver) and the
   references they and scope's child hops load tell the agent incompatible
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 Framed under `/scope`; the approval step is the parent's.
 
