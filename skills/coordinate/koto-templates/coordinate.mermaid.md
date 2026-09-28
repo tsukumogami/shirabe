@@ -131,6 +131,9 @@ stateDiagram-v2
     verify_board --> verified_confirm : gates.verify_board_verdict.exit_code: 70
     verify_board --> failure : gates.verify_board_verdict.exit_code: 71
     verify_board --> wait : gates.verify_board_verdict.exit_code: 72
+    verify_board --> wait : gates.verify_board_verdict.exit_code: 73
+    verify_board --> surface : gates.verify_board_verdict.exit_code: 74
+    verify_board --> surface : gates.verify_board_verdict.exit_code: 75
     wait --> take_report : event: report
     wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet

@@ -8,7 +8,10 @@
 # and a permitted land to land_merge; land-merge.sh, run by the agent, merges
 # the verified sha through a stand-in merge-exec.sh, and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
-# wait; a denied posture routes land to surface; `koto next --to verify_board`
+# wait; a refused check rollup still verifies (from the Actions jobs); an
+# unreadable board routes to wait, which then takes the next event, and a pull
+# request merged outside the run routes to surface, so verify_board never holds
+# the run; a denied posture routes land to surface; `koto next --to verify_board`
 # without a prediction leaves no VERIFIED capture (board-record.sh refuses);
 # and a `--to` anywhere in the run makes land-merge.sh refuse.
 #
@@ -106,6 +109,15 @@ states:
       - target: wait
         when:
           gates.verdict.exit_code: 72
+      - target: wait
+        when:
+          gates.verdict.exit_code: 73
+      - target: surface
+        when:
+          gates.verdict.exit_code: 74
+      - target: surface
+        when:
+          gates.verdict.exit_code: 75
   wait:
     accepts:
       go:
@@ -256,6 +268,16 @@ start coordinate-demo-20260926T150003Z queued-run
 eq "a pending board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 start coordinate-demo-20260926T150004Z complete-board "readable merge:deny close:permit teardown:permit"
 eq "a denied merge routes land to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+
+echo "== a board that can't be judged leaves verify_board =="
+start coordinate-demo-20260926T150007Z checks-refused
+eq "a refused check rollup verifies from the Actions jobs and reaches land_merge" land_merge "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+start coordinate-demo-20260926T150008Z rules-unreadable
+eq "an unreadable board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "and wait takes the next event" verify "$(state "$(tick "$S" --with-data '{"go":"verify"}')")"
+start coordinate-demo-20260926T150009Z pr-merged
+eq "a pull request merged outside the run routes to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "not-open 12 none sealed:"*) ok "VERIFIED is the sealed not-open" ;; *) bad "VERIFIED is the sealed not-open" ;; esac
 
 echo "== --to =="
 start coordinate-demo-20260926T150005Z complete-board

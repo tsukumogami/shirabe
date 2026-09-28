@@ -63,9 +63,11 @@ bl_scrub() {
 }
 
 # bl_gh <out> <gh args...>: one read, stdin from /dev/null, stdout to <out>,
-# stderr to <out>.err. At most two attempts, 1 s apart; a 404 isn't retried.
-# Returns 0 read; 1 failed, with <out>.fail holding `deadline`, `notfound` or
-# `read`.
+# stderr to <out>.err. At most two attempts, 1 s apart; a 404 isn't retried,
+# and neither is a refusal (HTTP 403, or GraphQL's "Resource not accessible",
+# which gh reports without a status): the token can't read that source, and a
+# second attempt won't change it. Returns 0 read; 1 failed, with <out>.fail
+# holding `deadline`, `notfound`, `refused` or `read`.
 bl_gh() {
     local out=$1 attempt=1 rc remain pid wd
     shift
@@ -88,6 +90,7 @@ bl_gh() {
         if [ "$(bl_left)" -le 0 ]; then echo deadline > "$out.fail"; return 1; fi
         bl_scrub < "$out.err" | sed "s/^/$PROG: gh: /" >&2
         if grep -q 'HTTP 404' "$out.err" 2>/dev/null; then echo notfound > "$out.fail"; return 1; fi
+        if grep -Eq 'HTTP 403|Resource not accessible' "$out.err" 2>/dev/null; then echo refused > "$out.fail"; return 1; fi
         if [ "$attempt" -ge 2 ]; then echo read > "$out.fail"; return 1; fi
         attempt=2
         sleep 1
@@ -131,7 +134,8 @@ bl_seal() {
 # is #<pr>, from the Holdings row whose Pull request cell links it (read live
 # through record-holding.sh). A token carries only the number, so the record
 # says where it lives; no row, or rows naming #<pr> in two repositories, is a
-# failure rather than a guess. Returns 0 printed; 2 otherwise.
+# failure rather than a guess. Returns 0 printed; 1 no row, or rows in two
+# repositories; 2 the holdings couldn't be read.
 bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
@@ -142,7 +146,7 @@ bl_unit_repo() {
     n=$(printf '%s' "$repos" | grep -c . )
     if [ "$n" -ne 1 ]; then
         echo "$PROG: $n holdings link pull request #$2; can't tell its repository" >&2
-        return 2
+        return 1
     fi
     bl_repo_ok "$repos" || return 2
     printf '%s\n' "$repos"

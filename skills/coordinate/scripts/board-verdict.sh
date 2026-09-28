@@ -28,6 +28,15 @@
 #   5. files:  repos/R/pulls/N/files, for the workflows-changed note.
 #   6. the remote ref last: repos/<head repo>/git/ref/heads/<head branch> must
 #      still be H, so a push during the read shows as a moved head.
+# When the token can't read checks (GitHub refuses the snapshot's rollup, or
+# the commit's check runs, with a 403 or "Resource not accessible"), the
+# snapshot is read again without the rollup and the check contexts are the
+# Actions jobs from reads 2 and 3: each job is a check run named for it, from
+# the GitHub Actions app. `source` says which was read (`checks` or
+# `actions`), and a `checks-refused` note says what was refused. Only a
+# refusal falls back; any other failed read is still an error. With the jobs
+# as checks, a required check that only another app or a commit status
+# reports reads missing: never a pass.
 # With --sha, there is no pull request: the head is the sha, the required set
 # comes from <base>'s protection and rules, and the rollup is the commit's
 # check runs and statuses (repos/R/commits/S/check-runs and .../status); no
@@ -37,10 +46,13 @@
 # another error form.
 #
 # Output (exit 0): one compact JSON object on stdout, diagnostics on stderr:
-#   {"verdict", "head", "merge_state", "reasons": [{code, run?, job?, name?,
-#    detail?}], "skipped", "superseded", "required": [{name, source, result}],
-#    "counts": {runs, jobs, jobs_ran, required}, "notes": [{code:
-#    "workflows-changed", paths}]}
+#   {"verdict", "head", "source", "pr_state", "merge_state", "reasons":
+#    [{code, run?, job?, name?, detail?}], "skipped", "superseded",
+#    "required": [{name, source, result}], "counts": {runs, jobs, jobs_ran,
+#    required}, "notes": [{code: "workflows-changed", paths} | {code:
+#    "checks-refused" | "statuses-refused", detail}]}
+# pr_state is the pull request's state (OPEN, MERGED, CLOSED) when the
+# snapshot was read, else null.
 # verdict: verified | pending | unverified | error:board-read |
 # error:pr-state | error:deadline (and head | error:head-moved with
 # --head-only). Precedence: any read failure or the deadline is an error;
@@ -99,6 +111,33 @@ STOPPED=
 
 # reason <code> [detail]: a finding from the reads themselves.
 reason() { jq -nc --arg c "$1" --arg d "${2-}" '{code: $c} + (if $d == "" then {} else {detail: $d} end)' >> "$TMPD/reasons.jsonl"; }
+# checks_refused <what>: the token can't read that check source, so the check
+# contexts come from the Actions jobs instead (SOURCE=actions); a note names it.
+SOURCE=checks
+: > "$TMPD/notes.jsonl"
+checks_refused() {
+    SOURCE=actions
+    jq -nc --arg d "$1" '{code: "checks-refused", detail: "\($d) was refused; the checks are the Actions jobs at the head"}' >> "$TMPD/notes.jsonl"
+}
+# actions_contexts [status contexts]: the check contexts as the Actions jobs
+# read at the head (a job's check run carries the job's name and is GitHub
+# Actions'), plus the status contexts in the given file, into
+# $TMPD/snap.json. A run still going had no jobs read, so a required check it
+# would report reads missing: pending while it runs, unverified once every run
+# is done. A pin to another app (a GitHub Enterprise Server's Actions app has
+# its own id) reads missing too: never a pass.
+ACTIONS_APP=15368
+actions_contexts() {
+    local st=${1:-/dev/null} base=$TMPD/snap.json
+    [ -f "$base" ] || { echo '{"head": null, "merge_state": null}' > "$TMPD/snap.base"; base=$TMPD/snap.base; }
+    jq -c --slurpfile j "$TMPD/jobs.json" --slurpfile st "$st" --argjson app "$ACTIONS_APP" '
+        .contexts = ([ ($j[0] // {}) | to_entries[] | .value[]
+            | {kind: "check", name, done: (.status == "completed"),
+               result: ((if .status == "completed" then (.conclusion // "none") else .status end) | ascii_upcase),
+               required: false, app: $app} ]
+          + ($st[0] // []))' "$base" > "$TMPD/snap.ctx" || return 1
+    mv "$TMPD/snap.ctx" "$TMPD/snap.json"
+}
 # read_failed <out> <what>: record why a bl_gh read failed.
 read_failed() {
     if [ "$(cat "$1.fail" 2>/dev/null)" = deadline ]; then reason deadline "$2"
@@ -117,6 +156,7 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "read-failed":"e", "required-set-unreadable":"e", "deadline":"e"};
 slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
+| $cnotes as $cnotes
 | $reads as $early
 | (if $mode == "sha" then $sha else ($s.head // null) end) as $H
 # runs
@@ -183,19 +223,22 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
 | [ ($files // [])[] | select(test("^\\.github/(workflows|actions)/")) ] as $wf
 | {verdict: $verdict,
    head: $H,
+   source: $source,
+   pr_state: ($s.state // null),
    merge_state: $ms,
    reasons: [ $allc[] | del(.cls) ],
    skipped: ($rskip + $jskip),
    superseded: [ $R[] | select((.run_attempt // 1) > 1) | {run: .id, name, latest_attempt: .run_attempt, earlier: [range(1; .run_attempt)]} ],
    required: [ $reqj[] | {name, source, result} ],
    counts: {runs: ($R | length), jobs: ($J | length), jobs_ran: ($ran | length), required: ($reqj | length)},
-   notes: (if ($wf | length) > 0 then [{code: "workflows-changed", paths: ($wf | unique)}] else [] end)}
+   notes: ((if ($wf | length) > 0 then [{code: "workflows-changed", paths: ($wf | unique)}] else [] end) + $cnotes)}
 JQ
 
 emit() {
     local f
     for f in snap runs jobs req ref files; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
-    jq -nc --arg mode "$MODE" --arg sha "$SHA" --arg stopped "$STOPPED" \
+    jq -nc --arg mode "$MODE" --arg sha "$SHA" --arg stopped "$STOPPED" --arg source "$SOURCE" \
+        --slurpfile cnotes "$TMPD/notes.jsonl" \
         --slurpfile snap "$TMPD/snap.json" --slurpfile runs "$TMPD/runs.json" \
         --slurpfile jobs "$TMPD/jobs.json" --slurpfile req "$TMPD/req.json" \
         --slurpfile ref "$TMPD/ref.json" --slurpfile files "$TMPD/files.json" \
@@ -261,10 +304,14 @@ def norm:
   end
 JQ
 
-snapshot() { # snapshot <full 0|1>: read and normalise into $TMPD/snap.json
+snapshot() { # snapshot <full 0|1> [fallback]: read and normalise into $TMPD/snap.json
+    # Returns 0 read; 1 failed (a reason recorded); 3, only when asked for
+    # with `fallback`, the full read was refused and no reason is recorded, so
+    # the caller can read the pull request without the rollup.
     local q=$Q_HEAD pag=
     if [ "$1" = 1 ]; then q=$Q_FULL; pag=--paginate; fi
     if ! bl_gh "$TMPD/snap.raw" api graphql $pag -F "owner=$OWNER" -F "name=$NAME" -F "number=$PR" -f "query=$q"; then
+        if [ "${2-}" = fallback ] && [ "$(cat "$TMPD/snap.raw.fail" 2>/dev/null)" = refused ]; then return 3; fi
         read_failed "$TMPD/snap.raw" "snapshot"; return 1
     fi
     if ! jq -sc --argjson full "$([ "$1" = 1 ] && echo true || echo false)" "$NORM_SNAP" "$TMPD/snap.raw" > "$TMPD/snap.n"; then
@@ -303,7 +350,18 @@ if [ "$MODE" = pr ]; then
         else jq -nc --arg h "$H" --arg r "$R" '{verdict: "error:head-moved", head: $h, ref: $r}'; fi
         exit 0
     fi
-    snapshot 1 || emit
+    FULL=1
+    snapshot 1 fallback; rc=$?
+    if [ $rc -eq 3 ]; then
+        # The token can't read the check rollup: read the pull request
+        # without it, and judge the checks from the Actions jobs instead.
+        echo "$PROG: the check rollup was refused; reading the checks from the Actions runs" >&2
+        checks_refused "the pull request's check rollup"
+        FULL=0
+        snapshot 0 || emit
+    elif [ $rc -ne 0 ]; then
+        emit
+    fi
     if [ "$(jq -r .state "$TMPD/snap.json")" != OPEN ]; then
         echo "$PROG: pull request #$PR is $(jq -r .state "$TMPD/snap.json")" >&2
         STOPPED=pr-state; emit
@@ -311,7 +369,7 @@ if [ "$MODE" = pr ]; then
     if [ "$(jq -r .merge_state "$TMPD/snap.json")" = UNKNOWN ]; then
         # GitHub computes the merge state lazily; give it one more look.
         [ "$(bl_left)" -gt 2 ] && sleep 2
-        snapshot 1 || emit
+        snapshot $FULL || emit
         [ "$(jq -r .state "$TMPD/snap.json")" = OPEN ] || { STOPPED=pr-state; emit; }
     fi
     H=$(jq -r .head "$TMPD/snap.json")
@@ -363,6 +421,9 @@ for id in $IDS; do
     jq -c --arg id "$id" --slurpfile j "$TMPD/jobs-$id.json" '. + {($id): $j[0]}' "$TMPD/jobs.acc" > "$TMPD/jobs.tmp" && mv "$TMPD/jobs.tmp" "$TMPD/jobs.acc"
 done
 mv "$TMPD/jobs.acc" "$TMPD/jobs.json"
+if [ "$MODE" = pr ] && [ "$SOURCE" = actions ]; then
+    actions_contexts || { reason read-failed "the Actions jobs as checks"; emit; }
+fi
 
 # ---- 4. the required set -----------------------------------------------------
 if ! bl_gh "$TMPD/branch.raw" api --method GET "repos/$REPO/branches/$BASEB"; then
@@ -400,12 +461,25 @@ fi
 jq -sc 'add' "$TMPD/req.classic" "$TMPD/req.rules" > "$TMPD/req.json"
 
 if [ "$MODE" = sha ]; then
-    # The commit's own rollup: its check runs and its statuses.
+    # The commit's own rollup: its check runs and its statuses. A refused
+    # read of either is no source rather than a failed board: refused check
+    # runs are read as the Actions jobs, refused statuses add no context (so a
+    # required status reads missing, never a pass).
     if ! bl_gh "$TMPD/cr.raw" api --method GET "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate; then
-        read_failed "$TMPD/cr.raw" "check runs"; emit
+        if [ "$(cat "$TMPD/cr.raw.fail")" = refused ]; then
+            checks_refused "the commit's check runs"
+            echo '{"total_count": 0, "check_runs": []}' > "$TMPD/cr.raw"
+        else
+            read_failed "$TMPD/cr.raw" "check runs"; emit
+        fi
     fi
     if ! bl_gh "$TMPD/st.raw" api --method GET "repos/$REPO/commits/$SHA/status?per_page=100" --paginate; then
-        read_failed "$TMPD/st.raw" "statuses"; emit
+        if [ "$(cat "$TMPD/st.raw.fail")" = refused ]; then
+            jq -nc '{code: "statuses-refused", detail: "the commit statuses were refused; a required status reads missing"}' >> "$TMPD/notes.jsonl"
+            echo '{"total_count": 0, "statuses": []}' > "$TMPD/st.raw"
+        else
+            read_failed "$TMPD/st.raw" "statuses"; emit
+        fi
     fi
     if ! jq -nc --slurpfile cr "$TMPD/cr.raw" --slurpfile st "$TMPD/st.raw" '
         ($cr[0].total_count) as $ct | [ $cr[].check_runs[]? ] as $c
@@ -422,6 +496,11 @@ if [ "$MODE" = sha ]; then
         > "$TMPD/snap.json" 2>/dev/null; then
         rm -f "$TMPD/snap.json"
         reason read-failed "the commit's check runs or statuses"; emit
+    fi
+    if [ "$SOURCE" = actions ]; then
+        jq -c '[.contexts[] | select(.kind == "status")]' "$TMPD/snap.json" > "$TMPD/st.ctx"
+        rm -f "$TMPD/snap.json"
+        actions_contexts "$TMPD/st.ctx" || { reason read-failed "the Actions jobs as checks"; emit; }
     fi
     emit
 fi

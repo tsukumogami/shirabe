@@ -93,6 +93,12 @@ rm -f "$GH_BOARD_DIR/calls"
 bash "$BV" --repo acme/widgets --pr 12 > /dev/null 2>&1
 grep -q 'runs/102/jobs' "$GH_BOARD_DIR/calls" && bad "a pending run's jobs aren't read" || ok "a pending run's jobs aren't read"
 
+bt_board checks-refused
+rm -f "$GH_BOARD_DIR/calls"
+bash "$BV" --repo acme/widgets --pr 12 > /dev/null 2>&1
+eq "a refused rollup is read once, not retried" 1 "$(grep -c 'statusCheckRollup' "$GH_BOARD_DIR/calls")"
+eq "then the pull request is read without the rollup" 1 "$(grep 'api graphql' "$GH_BOARD_DIR/calls" | grep -vc 'statusCheckRollup')"
+
 echo "== at most six job reads at once =="
 jq -n -L "$TD/board" 'include "lib";
     [range(201; 214)] as $ids

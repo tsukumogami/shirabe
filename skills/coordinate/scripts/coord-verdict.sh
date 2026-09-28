@@ -57,6 +57,7 @@ case "$WORD" in
     holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
+    unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;;
     # land
     permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; dirty) exit 84 ;;
     # merge_confirm, merged_facts

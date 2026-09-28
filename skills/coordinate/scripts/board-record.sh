@@ -19,18 +19,25 @@
 # The repository is the one the record's Holdings row for #N links
 # (record-holding.sh --list); --repo overrides it, for tests.
 #
-# Token: `verified <pr> <head>`, `unverified <pr> none` or `pending <pr>
-# none`, sealed to the latest entry into verify_board. Only a verified token
-# carries a head, so nothing downstream can land an unverified one; the
-# reasons, skipped jobs and superseded attempts are in coord/board.json for
-# the verify report. An error verdict (a read failed, the deadline, a pull
-# request that isn't open) exits 2, so koto takes the action-failure path
-# and the state re-runs the read.
+# Token, sealed to the latest entry into verify_board:
+#   verified <pr> <head>   the board is green at <head>
+#   unverified <pr> none   the board failed
+#   pending <pr> none      the board is still running
+#   unreadable <pr> none   the board or the record couldn't be read, or the
+#                          read ran out of time
+#   not-open <pr> none     the pull request is merged or closed
+#   unlinked <pr> none     no single Holdings row links #<pr> (its holding
+#                          was removed), so its repository is unknown
+# Only a verified token carries a head, so nothing downstream can land an
+# unverified one. Every token leaves verify_board, so one pull request whose
+# board can't be read doesn't hold the run at this state; the reasons (and
+# for a board read, the skipped jobs, superseded attempts, the source the
+# checks came from and the pull request's state) are in coord/board.json.
 #
 # --no-seal (tests): print the bare token and write no context key.
 #
-# Exit codes: 0 a token printed; 2 refused, a read failed or an error
-# verdict; 64 usage.
+# Exit codes: 0 a token printed; 2 refused (no prediction, no report
+# capture), board-verdict.sh failed, or a write failed; 64 usage.
 set -uo pipefail
 
 PROG=board-record
@@ -78,21 +85,41 @@ if [ -z "$PR" ]; then
     PR=$2
 fi
 
-if [ -z "$REPO" ]; then
-    REPO=$(bl_unit_repo "$SESSION" "$PR") || exit 2
-fi
-
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
 trap 'rm -f "$T"' EXIT
-bash "$HERE/board-verdict.sh" --repo "$REPO" --pr "$PR" > "$T" || { echo "$PROG: board-verdict.sh failed" >&2; exit 2; }
-V=$(jq -r '.verdict // ""' "$T")
-H=$(jq -r '.head // ""' "$T")
-case "$V" in
-    verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
-              TOKEN="verified $PR $H" ;;
-    unverified|pending) TOKEN="$V $PR none" ;;
-    *) echo "$PROG: the board read ended in [$V]: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T")" >&2
-       exit 2 ;;
+# stopped <word> <code> <detail>: a verdict with no board read behind it.
+stopped() {
+    jq -nc --arg v "$1" --argjson pr "$PR" --arg c "$2" --arg d "$3" \
+        '{verdict: $v, pull_request: $pr, head: null, reasons: [{code: $c, detail: $d}]}' > "$T"
+    TOKEN="$1 $PR none"
+}
+
+TOKEN=
+if [ -z "$REPO" ]; then
+    REPO=$(bl_unit_repo "$SESSION" "$PR")
+    case $? in
+        0) ;;
+        1) stopped unlinked unlinked "no single holding in the record links pull request #$PR, so its repository is unknown" ;;
+        *) stopped unreadable record-read "the record's holdings could not be read" ;;
+    esac
+fi
+
+if [ -z "$TOKEN" ]; then
+    bash "$HERE/board-verdict.sh" --repo "$REPO" --pr "$PR" > "$T" || { echo "$PROG: board-verdict.sh failed" >&2; exit 2; }
+    V=$(jq -r '.verdict // ""' "$T")
+    H=$(jq -r '.head // ""' "$T")
+    case "$V" in
+        verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
+                  TOKEN="verified $PR $H" ;;
+        unverified|pending) TOKEN="$V $PR none" ;;
+        error:pr-state) TOKEN="not-open $PR none" ;;
+        error:board-read|error:deadline) TOKEN="unreadable $PR none" ;;
+        *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
+    esac
+fi
+case "$TOKEN" in
+    verified\ *|unverified\ *|pending\ *) ;;
+    *) echo "$PROG: $TOKEN: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T")" >&2 ;;
 esac
 
 if [ "$NO_SEAL" = 0 ]; then
