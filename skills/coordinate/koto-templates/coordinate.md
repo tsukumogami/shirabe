@@ -2284,6 +2284,12 @@ need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `retire` to finish with a worker; `end` when the
 rotation or the scope ends.
 
+Arriving here straight after `surface` with a blocker means `surface_check`
+accepted the need (its worded cell is in `coord/need.json`): before anything
+else, report it up with the progress table and `--blocked <session>=<the
+need>`, since no other step shows it to the person who holds what the worker
+needs.
+
 <!-- details -->
 
 A worker bound to a request leg (its holding's Return path names one) reports
@@ -2757,9 +2763,7 @@ Checking the need. koto runs `need-check.sh` itself: the `need` you submitted at
 `surface` must be one of the need kinds, with nothing in its argument that reads
 as a decision. An accepted need is worded for the progress table's cell and
 stored as `coord/need.json`; a refused one goes back to `surface`. An accepted
-one goes on to `wait`: report it up now, before the next tick, with the progress
-table and `--blocked <session>=<the need>`, since nothing else shows it to the
-person who holds what the worker needs.
+one goes on to `wait` in the same tick, whose directive says to report it up.
 
 <!-- details -->
 

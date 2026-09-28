@@ -104,6 +104,11 @@ done
 jq -e '.states.decision_next.gates.decision_input == {type: "context-exists", key: "coord/decision.json", overridable: false}
        and any(.states.decision_next.transitions[]; .target == "decision_verdict" and .when["gates.decision_input.exists"] == true)' "$J" >/dev/null \
     && pass "decision_next's verdict arm needs coord/decision.json" || fail "decision_next's verdict arm needs coord/decision.json"
+# surface_check passes through to wait in the same tick, so the step that
+# reports an accepted need must be in wait's own directive, the one shown.
+jq -e '.states.surface_check.accepts == null and (.states.wait.directive | contains("coord/need.json") and contains("--blocked"))' "$J" >/dev/null \
+    && pass "wait's directive says to report an accepted need, since surface_check is passed through" \
+    || fail "wait's directive says to report an accepted need, since surface_check is passed through"
 for w in answer evidence raise; do
     jq -e --arg w "$w" '.states.wait.accepts.event.values | index($w)' "$J" >/dev/null && pass "wait takes the $w event" || fail "wait takes the $w event"
 done
