@@ -241,7 +241,11 @@ phrase_lines decision "$T/cand.txt" > "$T/cand.hit" || lib_die2 "the phrasing li
 # rebriefed by message (its worker answers only through the leg), so one over
 # the cap goes to the human instead.
 N_ITEMS=$(wc -l < "$T/all" | tr -d ' ')
-if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || awk -F'\t' -v m="$MAX_LEN" 'length($3) > m { found = 1 } END { exit !found }' "$T/all"; then
+# Length is counted by jq, in characters and over the whole text after the
+# class field, the same count write_list's check makes; awk would count bytes
+# on some systems and stop at a tab.
+if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || jq -R -s -e --argjson m "$MAX_LEN" \
+        'split("\n") | map(select(length > 0) | split("\t")[2:] | join("\t")) | any(length > $m)' "$T/all" > /dev/null; then
     VIA=$("$KOTO" context get "$SESSION" report_source) || lib_die2 "cannot read how the report arrived (report_source)"
     [ "$VIA" = leg ] && { echo "$PROG: a leg report over the cap can't be rebriefed" >&2; verdict unreadable; }
     verdict overflow

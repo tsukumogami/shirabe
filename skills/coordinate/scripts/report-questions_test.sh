@@ -6,8 +6,8 @@
 # the digest checked, and the sealed list.
 #
 # testdata/report-questions/questions-shape.txt is the contract fixture: a
-# report written to the exact Questions: shape render-brief.sh asks workers
-# for, which render-brief_test.sh checks the brief prints.
+# report written to the exact Questions: shape a worker's report is asked to
+# use (a `Questions:` line, then one numbered item per line).
 #
 # Usage: bash skills/coordinate/scripts/report-questions_test.sh
 set -uo pipefail
@@ -204,6 +204,11 @@ VIA=leg run "holding none w1" "$(for i in 1 2 3 4 5 6 7 8 9 10 11; do echo "Ques
 eq "a leg report over the cap goes to the human, since its worker can't be rebriefed by message" "0 unreadable" "$RC $(word)"
 run "holding none w1" "$(printf 'Is %s?' "$(printf '%396s' '' | tr ' ' x)")" "$WORKER"
 eq "a question of exactly 400 characters is within the cap" "questions 1" "$(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+# 380 characters, 760 bytes: the cap counts characters.
+run "holding none w1" "$(printf 'Is %s?' "$(printf '%378s' '' | sed 's/ /é/g')")" "$WORKER"
+eq "the cap counts characters, not bytes" "questions 1" "$(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+run "holding none w1" "$(printf 'Is\t%s?' "$(printf '%420s' '' | tr ' ' x)")" "$WORKER"
+eq "a question with a tab in it is measured whole" "0 overflow" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1)"
 run "holding none rr" "$(escalation 4 1)" "$COORD" \
     '[{"decision":"2","round":"0","question":"Merge before the release?","options":"wait\nmerge now","state":"settled","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]","outcome":"wait; reason: r","decided_by":"a person","updated":"2026-09-26T09:00Z"}]'
 eq "escalation: a re-sent one whose entry has settled still opens nothing" "0 none" "$RC $(word)"
