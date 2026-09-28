@@ -5,7 +5,7 @@ execution_mode: coordinated
 split_mode_source: intent
 tracking_level: none
 milestone: "Contradiction Settlement"
-issue_count: 19
+issue_count: 20
 upstream: docs/designs/DESIGN-contradiction-settlement.md
 split_rationale: |
   Hard Constraint. No work item may change what a run loads before the
@@ -23,7 +23,7 @@ Active
 ## Scope Summary
 
 Settle the 46 contradictions and remove the dead prose inventoried in
-`docs/designs/DESIGN-contradiction-settlement.md`: seven per-skill items apply
+`docs/designs/DESIGN-contradiction-settlement.md`: nine per-skill items apply
 the 36 mechanical winners and the dead-prose deletions, ten items each apply
 one policy decision once it is recorded, and a final item re-counts every
 profile against the baseline pin.
@@ -137,7 +137,7 @@ Rules every item follows:
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Covers `brief-upstream-legal-parents` and `fc10-already-caught`, each resolved to the DESIGN's winner; the structural reviewer's prompt tells it to check the mechanical terms itself.
-- [ ] Deletes the spans of `dp-brief-history`.
+- [ ] Deletes the spans of `dp-brief-history` and `dp-brief-internal-restatements`, keeping each named survivor.
 - [ ] The repository's brief and writing-style tests and evals pass.
 
 **Dependencies**: None
@@ -148,11 +148,12 @@ Rules every item follows:
 
 **Group**: prd
 
-**Goal**: Make a PRD written from the format reference pass /scope's hop gate.
+**Goal**: Make a PRD written from the format reference pass /scope's hop gate, and delete /prd's internal restatements.
 
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Covers `prd-format-schema-field`: the frontmatter example and the required-fields sentence in `skills/prd/references/prd-format.md` include `schema: prd/v1`.
+- [ ] Deletes the spans of `dp-prd-internal-restatements`, keeping each named survivor.
 - [ ] The repository's prd tests and evals pass.
 
 **Dependencies**: None
@@ -168,7 +169,7 @@ Rules every item follows:
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Covers `plan-single-pr-draft-commit`, `plan-complexity-values` and `plan-required-sections`, each resolved to the DESIGN's winner; FC11's message names `references/issues-table.md`, and the validator's tests pass.
-- [ ] Deletes the spans of `dp-plan-history`, `dp-plan-rationale`, `dp-plan-duplicates` and `dp-plan-koto-restated`, keeping each named survivor.
+- [ ] Deletes the spans of `dp-plan-history`, `dp-plan-rationale`, `dp-plan-duplicates`, `dp-plan-koto-restated` and `dp-plan-internal-restatements`, keeping each named survivor.
 - [ ] The repository's plan tests and evals pass.
 
 **Dependencies**: None
@@ -185,7 +186,7 @@ Rules every item follows:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Covers `design-spawned-from-shape` and `design-superseded-location`, each resolved to the DESIGN's winner.
 - [ ] `skills/design/SKILL.md` lines 221 to 243, a policy statement held for Issue 14, are unchanged.
-- [ ] Deletes the spans of `dp-design-rationale` and `dp-design-duplicates`, keeping each named survivor.
+- [ ] Deletes the spans of `dp-design-rationale`, `dp-design-duplicates` and `dp-design-internal-restatements`, keeping each named survivor.
 - [ ] The repository's design tests and evals pass.
 
 **Dependencies**: None
@@ -227,7 +228,7 @@ Rules every item follows:
 
 **Group**: policy-retry-caps
 
-**Goal**: State each retry cap once, as decided, and drop /execute's pointer to /work-on's PR phase file.
+**Goal**: State each retry cap once, as decided, and drop /execute's pointer to /work-on's PR phase file. The caps stated in directives are temporary: when koto enforces retry caps from its attempt counts, the numbers stay the same and that prose becomes a deletion candidate.
 
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
@@ -434,10 +435,26 @@ Rules every item follows:
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Re-runs the baseline pin's count for `work-on`, `execute-single-pr`, `execute-coordinated`, `deliver` and `scope`, and records the before and after raw figures beside the DESIGN's dead-prose estimate less the withholding candidates and less the spans of any policy item still undecided.
+- [ ] Reports each profile twice: with the pinned load manifest as it is, and with the rows removed for files that profile no longer loads after the landed items (dropped pointers, and the reference table `scope-reference-table-vs-lazy-load` corrects), since the pinned manifest keeps counting a file whose pointer is gone.
 - [ ] Explains, per entry, any shortfall over 10% of that estimate.
 - [ ] Changes no file under `skills/`, `references/`, `scripts/` or `crates/`.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:20>>
+
+### Issue 20: docs(review-plan): delete /review-plan's internal restatements
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: review-plan
+
+**Goal**: Remove text in /review-plan's files that restates another of its own files; /plan loads it under /scope.
+
+**Acceptance Criteria**:
+- [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
+- [ ] Deletes the spans of `dp-review-plan-internal-restatements`, keeping each named survivor.
+- [ ] The repository's review-plan tests and evals pass.
+
+**Dependencies**: None
 
 ## Dependency Graph
 
@@ -462,6 +479,7 @@ graph TD
     I17["17: abandonment"]
     I18["18: intent change"]
     I19["19: re-count"]
+    I20["20: review-plan"]
     I1 --> I2
     I1 --> I9
     I2 --> I9
@@ -491,10 +509,11 @@ graph TD
     I6 --> I19
     I7 --> I19
     I8 --> I19
+    I20 --> I19
     classDef ready fill:#bbdefb
     classDef blocked fill:#fff9c4
 
-    class I1,I3,I4,I5,I6,I7,I8 ready
+    class I1,I3,I4,I5,I6,I7,I8,I20 ready
     class I2,I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19 blocked
 ```
 
@@ -505,12 +524,12 @@ another item or on a recorded decision.
 
 ## Implementation Sequence
 
-**Critical path**: the baseline pin merges, then Issues 1 and 3 to 8 run in
-parallel, Issue 2 follows Issue 1, and Issue 19 re-counts once 1 to 8 have
+**Critical path**: the baseline pin merges, then Issues 1, 3 to 8 and 20 run in
+parallel, Issue 2 follows Issue 1, and Issue 19 re-counts once 1 to 8 and 20 have
 landed. Policy items join whenever their decisions are recorded; Issue 19
 counts only what has landed by then and does not wait for any decision.
 
-**Parallelization**: Issues 1 and 3 to 8 touch different files. Issue 2
+**Parallelization**: Issues 1, 3 to 8 and 20 touch different files. Issue 2
 waits for Issue 1 because both edit `skills/execute/koto-templates/execute.md`
 (Issue 1 through `pr-body-rule-restated-inline`).
 

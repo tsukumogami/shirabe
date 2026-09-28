@@ -176,7 +176,7 @@ The inventory below has 46 items: 36 mechanical, each with a winner chosen by
 the code-first rule, and 10 policy items carried open with a recommendation.
 Every PRD R2 item maps to at least one identifier. Dead prose comes to about
 28% of `/work-on`'s raw load, about 51% of `/execute`'s single-pr load, 62% of
-its coordinated load, 28% of `/deliver`'s and 7% of `/scope`'s, plus about
+its coordinated load, 28% of `/deliver`'s and 12% of `/scope`'s, plus about
 27,000 tokens of zero-weight plugin references that `scope-reference-table-vs-lazy-load`
 stops `/scope` from telling the agent to read. Five withholding candidates
 are listed and left alone.
@@ -295,7 +295,7 @@ Winner: `open`. Recommended: option 1, state each cap once, in the looping state
 - **Option 1 (recommended): State each cap once, in the looping state's directive.** One shared panel cap of 2 blocking retries across the three panels, 3 for analysis, implementation and PR creation, 3 fix pushes for CI then failing_unresolvable, never ask under --auto. The directive is what the agent reads when it decides.
 - **Option 2: Have koto count visits and enforce the caps.** Enforced rather than stated, but needs koto support that does not exist for this yet.
 - **Option 3: Drop the caps.** Removes the contradiction by removing the limit; loops are then bounded only by the agent's judgment.
-- **Why the recommendation.** It gives every loop one number in the place the agent reads it, and removes the --auto violation without waiting on koto.
+- **Why the recommendation.** It gives every loop one number in the place the agent reads it, and removes the --auto violation without waiting on koto. These directive caps are temporary: when koto enforces retry caps from its attempt counts, the numbers stay the same and the directive prose becomes a deletion candidate.
 
 #### `ci-fix-ends-run-unverified`
 
@@ -1276,6 +1276,172 @@ Profiles: `scope`. Size: 507 bytes (about 126 tokens). Only statement of a rule 
 - `skills/design/SKILL.md#L200-L204`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/design/SKILL.md#L187-L188`
 - `skills/design/references/phases/phase-0-setup-prd.md#L40-L42`, 201 bytes, excerpt `` (glob pattern, not a hardcoded `wip/scope_<topic>_state.md` ``; survivor `skills/plan/references/phases/phase-1-analysis.md#L46-L48`
 
+##### `dp-brief-internal-restatements`
+
+Profiles: `scope`. Size: 22272 bytes (about 5568 tokens). Only statement of a rule in force: no.
+
+Text in /brief's own files that restates another of its own files, so it is redundant even when /brief runs standalone.
+
+- `skills/brief/SKILL.md#L47-L49`, 314 bytes, excerpt `` **Lifecycle:** Durable. Stays in `docs/briefs/` ``; survivor `skills/brief/references/brief-format.md#L246-L256`
+- `skills/brief/SKILL.md#L60-L63`, 246 bytes, excerpt `` BRIEF documents live at `docs/briefs/BRIEF-<topic>.md` ``; survivor `skills/brief/references/brief-format.md#L246-L256`
+- `skills/brief/SKILL.md#L67-L73`, 368 bytes, excerpt `Before writing content, detect visibility`; survivor `skills/brief/references/phases/phase-0-setup.md#L274-L282`
+- `skills/brief/SKILL.md#L75-L84`, 654 bytes, excerpt `BRIEF has no visibility-gated section — there`; survivor `skills/brief/references/phases/phase-0-setup.md#L284-L288`
+- `skills/brief/SKILL.md#L120-L132`, 754 bytes, excerpt `A ROADMAP is the only document Input Mode`; survivor `skills/brief/references/phases/phase-0-setup.md#L174-L189`
+- `skills/brief/SKILL.md#L144-L153`, 679 bytes, excerpt `**Both routes read the roadmap; neither records`; survivor `skills/brief/references/phases/phase-0-setup.md#L221-L272`
+- `skills/brief/SKILL.md#L155-L162`, 529 bytes, excerpt `The flag is parsed before the positional`; survivor `skills/brief/references/phases/phase-0-setup.md#L57-L75`
+- `skills/brief/SKILL.md#L166-L171`, 382 bytes, excerpt `` **Topic slug constraint.** The `<topic>` ``; survivor `skills/brief/references/phases/phase-0-setup.md#L113-L139`
+- `skills/brief/SKILL.md#L173-L188`, 1128 bytes, excerpt `**Ground on the roadmap, record its ancestor.**`; survivor `skills/brief/references/phases/phase-0-setup.md#L221-L272`
+- `skills/brief/SKILL.md#L190-L194`, 311 bytes, excerpt `**Path canonicalization.** Any user-supplied`; survivor `skills/brief/references/phases/phase-0-setup.md#L141-L160`
+- `skills/brief/SKILL.md#L196-L199`, 223 bytes, excerpt `**Visibility detection.** Detect Public/Private`; survivor `skills/brief/references/phases/phase-0-setup.md#L274-L282`
+- `skills/brief/SKILL.md#L201-L202`, 110 bytes, excerpt `` BRIEF has no scope (`project`/`org`) dimension. ``; survivor `skills/brief/references/phases/phase-0-setup.md#L29-L31`
+- `skills/brief/SKILL.md#L208-L224`, 1312 bytes, excerpt `Phase 0: SETUP --> Phase 1: DISCOVER -->`; survivor `skills/brief/SKILL.md#L296-L314`
+- `skills/brief/SKILL.md#L226-L239`, 746 bytes, excerpt `Phase 4 jury runs two reviewers in parallel:`; survivor `skills/brief/references/phases/phase-4-validate.md#L100-L110`
+- `skills/brief/SKILL.md#L256-L260`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/brief/SKILL.md#L244-L245`
+- `skills/brief/SKILL.md#L264-L272`, 511 bytes, excerpt `- **Topic-slug constraint:** Phase 0 rejects`; survivor `skills/brief/references/phases/phase-0-setup.md#L113-L160`
+- `skills/brief/SKILL.md#L280-L284`, 326 bytes, excerpt `- **Conversational scoping:** Phase 1 is`; survivor `skills/brief/references/phases/phase-4-validate.md#L47-L51`
+- `skills/brief/SKILL.md#L288-L292`, 313 bytes, excerpt `` - **Status convention:** the body `## Status` ``; survivor `skills/brief/references/brief-format.md#L73-L92`
+- `skills/brief/SKILL.md#L322-L329`, 486 bytes, excerpt `After acceptance, suggest next steps:`; survivor `skills/brief/references/phases/phase-5-finalize.md#L194-L206`
+- `skills/brief/SKILL.md#L342-L352`, 466 bytes, excerpt `## Reference Files`; survivor `skills/brief/SKILL.md#L296-L314`
+- `skills/brief/references/phases/phase-1-discover.md#L61-L66`, 281 bytes, excerpt `### No Upstream-PRD Mode`; survivor `skills/brief/references/phases/phase-0-setup.md#L174-L189`
+- `skills/brief/references/phases/phase-2-draft.md#L82-L85`, 261 bytes, excerpt `` The `problem` and `outcome` fields are paragraph-length ``; survivor `skills/brief/references/brief-format.md#L67-L71`
+- `skills/brief/references/phases/phase-2-draft.md#L87-L96`, 696 bytes, excerpt `` **`upstream:` holds what Phase 0 step 0.3a ``; survivor `skills/brief/references/phases/phase-0-setup.md#L234-L256`
+- `skills/brief/references/phases/phase-2-draft.md#L118-L121`, 308 bytes, excerpt `The bare status word goes alone on its own`; survivor `skills/brief/references/brief-format.md#L73-L92`
+- `skills/brief/references/phases/phase-2-draft.md#L128-L145`, 934 bytes, excerpt `- Names something a user struggles with,`; survivor `skills/brief/references/brief-format.md#L403-L415`
+- `skills/brief/references/phases/phase-2-draft.md#L158-L160`, 171 bytes, excerpt `- Describes the user's experience: what they`; survivor `skills/brief/references/brief-format.md#L419-L424`
+- `skills/brief/references/phases/phase-2-draft.md#L163-L172`, 490 bytes, excerpt `` - Matches (paraphrased) the frontmatter `outcome:` ``; survivor `skills/brief/references/brief-format.md#L419-L426`
+- `skills/brief/references/phases/phase-3-structural-fill.md#L37-L48`, 739 bytes, excerpt `` - Each journey has a `###` heading naming ``; survivor `skills/brief/references/brief-format.md#L430-L443`
+- `skills/brief/references/phases/phase-3-structural-fill.md#L56-L61`, 292 bytes, excerpt `**Common failure modes:**`; survivor `skills/brief/references/brief-format.md#L434-L440`
+- `skills/brief/references/phases/phase-3-structural-fill.md#L73-L75`, 233 bytes, excerpt `- An explicit **in-scope** list: what this`; survivor `skills/brief/references/brief-format.md#L447-L449`
+- `skills/brief/references/phases/phase-3-structural-fill.md#L79-L82`, 265 bytes, excerpt `- The out-list must contain genuine exclusions,`; survivor `skills/brief/references/brief-format.md#L450-L454`
+- `skills/brief/references/phases/phase-3-structural-fill.md#L92-L94`, 215 bytes, excerpt `**Common failure mode:** an out-of-scope`; survivor `skills/brief/references/brief-format.md#L450-L454`
+- `skills/brief/references/phases/phase-4-validate.md#L309`, 132 bytes, excerpt `| Reviewers disagree on the same issue |`; survivor `skills/brief/references/phases/phase-4-validate.md#L311-L314`
+- `skills/brief/references/phases/phase-4-validate.md#L384-L388`, 114 bytes, excerpt `When fencing verdict bodies in this surfacing`; survivor `skills/brief/references/phases/phase-4-validate.md#L341-L346`
+- `skills/brief/references/phases/phase-5-finalize.md#L42-L46`, 354 bytes, excerpt `prevent rendered-markdown injection — verdict`; survivor `skills/brief/references/phases/phase-4-validate.md#L341-L346`
+- `skills/brief/references/phases/phase-5-finalize.md#L107-L109`, 224 bytes, excerpt `The subcommand updates both the frontmatter`; survivor `skills/brief/references/brief-format.md#L246-L251`
+- `skills/brief/references/brief-format.md#L145-L175`, 1667 bytes, excerpt `- **Status.** First non-blank line is the`; survivor `skills/brief/references/brief-format.md#L403-L455`
+- `skills/brief/references/brief-format.md#L197-L208`, 301 bytes, excerpt `## Section Matrix`; survivor `skills/brief/references/brief-format.md#L125-L195`
+- `skills/brief/references/brief-format.md#L287-L294`, 189 bytes, excerpt `### Directory Mapping`; survivor `skills/brief/references/brief-format.md#L248-L256`
+- `skills/brief/references/brief-format.md#L313-L315`, 196 bytes, excerpt `must be equal. Because the *whole* first`; survivor `skills/brief/references/brief-format.md#L73-L82`
+- `skills/brief/references/brief-format.md#L321-L353`, 945 bytes, excerpt `` ### The `## Status` first-line convention ``; survivor `skills/brief/references/brief-format.md#L73-L92`
+- `skills/brief/references/brief-format.md#L355-L362`, 339 bytes, excerpt `### During /brief (drafting)`; survivor `skills/brief/references/brief-format.md#L73-L92`
+- `skills/brief/references/brief-format.md#L371-L381`, 480 bytes, excerpt `### During /brief finalization (approval)`; survivor `skills/brief/references/brief-format.md#L430-L455`
+- `skills/brief/references/brief-format.md#L391-L396`, 216 bytes, excerpt `### Status consistency`; survivor `skills/brief/references/brief-format.md#L73-L92`
+- `skills/brief/references/brief-format.md#L457-L473`, 692 bytes, excerpt `### Open Questions (optional, Draft only)`; survivor `skills/brief/references/brief-format.md#L181-L195`
+- `skills/brief/references/brief-format.md#L475-L498`, 1374 bytes, excerpt `### Common Pitfalls`; survivor `skills/brief/references/brief-format.md#L403-L455`
+
+##### `dp-prd-internal-restatements`
+
+Profiles: `scope`. Size: 3725 bytes (about 931 tokens). Only statement of a rule in force: no.
+
+Text in /prd's own files that restates another of its own files, so it is redundant even when /prd runs standalone.
+
+- `skills/prd/SKILL.md#L90-L93`, 298 bytes, excerpt `` **Upstream:** check `$ARGUMENTS` for `--upstream ``; survivor `skills/prd/references/phases/phase-3-draft.md#L31-L35`
+- `skills/prd/SKILL.md#L97-L98`, 205 bytes, excerpt `Detect visibility (Private/Public) from CLAUDE.md`; survivor `skills/prd/SKILL.md#L52`
+- `skills/prd/SKILL.md#L104-L118`, 933 bytes, excerpt `Phase 0: SETUP --> Phase 1: SCOPE --> Phase`; survivor `skills/prd/SKILL.md#L150-L188`
+- `skills/prd/SKILL.md#L133-L135`, 213 bytes, excerpt `` The `wip/prd_<topic>_scope.md` row is a partial-run ``; survivor `skills/prd/references/phases/phase-1-scope.md#L19-L21`
+- `skills/prd/SKILL.md#L137-L141`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/prd/SKILL.md#L123-L124`
+- `skills/prd/SKILL.md#L145-L146`, 156 bytes, excerpt `- **Conversational First**: Phase 1 is a`; survivor `skills/prd/references/phases/phase-1-scope.md#L23-L61`
+- `skills/prd/SKILL.md#L148`, 166 bytes, excerpt `- **Jury Validation**: Phase 4 is not optional`; survivor `skills/prd/references/phases/phase-4-validate.md#L29-L36`
+- `skills/prd/SKILL.md#L195-L198`, 146 bytes, excerpt `| Complexity | Suggestion |`; survivor `skills/prd/references/phases/phase-4-validate.md#L243-L252`
+- `skills/prd/SKILL.md#L211-L219`, 354 bytes, excerpt `## Reference Files`; survivor `skills/prd/SKILL.md#L150-L188`
+- `skills/prd/references/phases/phase-3-draft.md#L108-L109`, 134 bytes, excerpt `- **Acceptance Criteria**: Derive from requirements.`; survivor `skills/prd/references/prd-format.md#L229-L233`
+- `skills/prd/references/phases/phase-4-validate.md#L178`, 121 bytes, excerpt `| Agents disagree on same issue | Present`; survivor `skills/prd/references/phases/phase-4-validate.md#L180-L183`
+- `skills/prd/references/phases/phase-4-validate.md#L316-L319`, 248 bytes, excerpt `current branch and is the durable observable`; survivor `skills/prd/references/phases/phase-4-validate.md#L223-L227`
+- `skills/prd/references/prd-format.md#L196-L200`, 245 bytes, excerpt `### During /prd finalization (approval)`; survivor `skills/prd/references/prd-format.md#L227-L233`
+- `skills/prd/references/prd-format.md#L242-L244`, 200 bytes, excerpt `- Mixing "what" and "how" -- save technical`; survivor `skills/prd/references/prd-format.md#L227-L230`
+
+##### `dp-design-internal-restatements`
+
+Profiles: `scope`. Size: 3947 bytes (about 986 tokens). Only statement of a rule in force: no.
+
+Text in /design's own files that restates another of its own files, so it is redundant even when /design runs standalone.
+
+- `skills/design/SKILL.md#L127-L130`, 196 bytes, excerpt `Directory structure makes lifecycle state`; survivor `skills/design/references/lifecycle.md#L14-L19`
+- `skills/design/SKILL.md#L170-L182`, 846 bytes, excerpt `Phase 0: SETUP --> Phase 1: DECOMPOSE -->`; survivor `skills/design/SKILL.md#L245-L257`
+- `skills/design/SKILL.md#L211-L212`, 180 bytes, excerpt `- **Security is mandatory**: Phase 5 always`; survivor `skills/design/references/phases/phase-5-security.md#L3-L8`
+- `skills/design/SKILL.md#L274-L285`, 590 bytes, excerpt `## Reference Files`; survivor `skills/design/SKILL.md#L245-L257`
+- `skills/design/references/phases/phase-0-setup-prd.md#L65-L74`, 619 bytes, excerpt `This is the symmetric three-skill contract:`; survivor `skills/design/references/phases/phase-0-setup-prd.md#L45-L63`
+- `skills/design/references/phases/phase-0-setup-prd.md#L200-L202`, 232 bytes, excerpt `` The `upstream` field creates a machine-readable ``; survivor `skills/design/references/phases/phase-0-setup-prd.md#L150-L153`
+- `skills/design/references/phases/phase-6-final-review.md#L326-L327`, 86 bytes, excerpt `the current branch and is the durable observable`; survivor `skills/design/references/phases/phase-6-final-review.md#L223-L227`
+- `skills/design/references/lifecycle.md#L36-L37`, 156 bytes, excerpt `- **Design accepted (Phase 6):** Remove whatever`; survivor `skills/design/references/phases/phase-6-final-review.md#L239-L243`
+- `skills/design/references/lifecycle.md#L46-L50`, 218 bytes, excerpt `### During /design or /explore (drafting)`; survivor `skills/design/references/phases/phase-6-final-review.md#L130-L139`
+- `skills/design/references/lifecycle.md#L69-L71`, 227 bytes, excerpt `Organized by decision question. Each gets`; survivor `skills/design/references/quality/considered-options-structure.md#L7-L8`
+- `skills/design/references/lifecycle.md#L76-L82`, 439 bytes, excerpt `The Security Considerations section must`; survivor `skills/design/references/phases/phase-5-security.md#L53-L64`
+- `skills/design/references/lifecycle.md#L86-L87`, 158 bytes, excerpt `- Strawman options -- alternatives that exist`; survivor `skills/design/references/phases/phase-5-security.md#L123-L127`
+
+##### `dp-plan-internal-restatements`
+
+Profiles: `scope`. Size: 13554 bytes (about 3388 tokens). Only statement of a rule in force: no.
+
+Text in /plan's own files that restates another of its own files, so it is redundant even when /plan runs standalone.
+
+- `skills/plan/SKILL.md#L64-L66`, 218 bytes, excerpt `` Frontmatter includes `schema: plan/v1`, `status`, ``; survivor `skills/plan/references/quality/plan-doc-structure.md#L61-L76`
+- `skills/plan/SKILL.md#L130-L131`, 143 bytes, excerpt `The skeleton issue comes first in the dependency`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L149-L160`
+- `skills/plan/SKILL.md#L149-L156`, 514 bytes, excerpt `` When the input is a roadmap (`input_type: ``; survivor `skills/plan/references/phases/phase-3-decomposition.md#L299-L323`
+- `skills/plan/SKILL.md#L160-L163`, 317 bytes, excerpt `This is a separate decision from the Decomposition`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L5-L21`
+- `skills/plan/SKILL.md#L195-L202`, 595 bytes, excerpt `The value-confirmation step (Phase 3.5a)`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L406-L480`
+- `skills/plan/SKILL.md#L204-L225`, 1329 bytes, excerpt `**Split mode.** Whether the work splits is`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L562-L605`
+- `skills/plan/SKILL.md#L229-L240`, 847 bytes, excerpt `` `coordinated` is the third execution mode. ``; survivor `skills/plan/references/quality/plan-doc-structure.md#L141-L160`
+- `skills/plan/SKILL.md#L248-L257`, 781 bytes, excerpt `Mechanically, each coordinated work item`; survivor `skills/plan/references/quality/plan-doc-structure.md#L169-L276`
+- `skills/plan/SKILL.md#L267-L276`, 301 bytes, excerpt `## Placeholder Conventions`; survivor `skills/plan/references/templates/agent-prompt.md#L65-L78`
+- `skills/plan/SKILL.md#L307-L308`, 135 bytes, excerpt `` Store the detected `input_type` in the Phase ``; survivor `skills/plan/references/phases/phase-1-analysis.md#L29`
+- `skills/plan/SKILL.md#L514-L526`, 1194 bytes, excerpt `Seven sequential phases, plus an execution`; survivor `skills/plan/SKILL.md#L556-L587`
+- `skills/plan/SKILL.md#L528-L543`, 1029 bytes, excerpt `#### Value Confirmation and Execution Mode`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L406-L605`
+- `skills/plan/SKILL.md#L592-L593`, 194 bytes, excerpt `- Design doc status transitions: Accepted`; survivor `skills/plan/references/phases/phase-7-creation.md#L605-L638`
+- `skills/plan/SKILL.md#L597`, 85 bytes, excerpt `- **Atomic Issues**: each issue should be`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L49-L52`
+- `skills/plan/SKILL.md#L599`, 126 bytes, excerpt `` - **Input Type**: store the detected `input_type` ``; survivor `skills/plan/references/phases/phase-1-analysis.md#L29`
+- `skills/plan/SKILL.md#L643-L652`, 452 bytes, excerpt `1. Parse flags from arguments, rejecting`; survivor `skills/plan/SKILL.md#L296-L364`
+- `skills/plan/SKILL.md#L672-L678`, 421 bytes, excerpt `` | `references/phases/phase-1-analysis.md` ``; survivor `skills/plan/SKILL.md#L556-L587`
+- `skills/plan/references/phases/phase-1-analysis.md#L110`, 56 bytes, excerpt `Do NOT proceed with planning unless status`; survivor `skills/plan/references/phases/phase-1-analysis.md#L103`
+- `skills/plan/references/phases/phase-3-decomposition.md#L67-L70`, 243 bytes, excerpt `This is the work-slicing decision: walking`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L5-L21`
+- `skills/plan/references/phases/phase-3-decomposition.md#L306-L311`, 441 bytes, excerpt `A roadmap input also lands multi-pr at step`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L423-L425`
+- `skills/plan/references/phases/phase-3-decomposition.md#L504-L513`, 582 bytes, excerpt `` **The surfaced rule** (`skills/plan/SKILL.md`, ``; survivor `skills/plan/SKILL.md#L165-L193`
+- `skills/plan/references/phases/phase-3-decomposition.md#L515-L518`, 251 bytes, excerpt `The branch this step selects is not bookkeeping:`; survivor `skills/plan/SKILL.md#L185-L188`
+- `skills/plan/references/phases/phase-3-decomposition.md#L630-L636`, 456 bytes, excerpt `` `### Gate: <name>` block under `## Issue ``; survivor `skills/plan/references/quality/plan-doc-structure.md#L212-L220`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L111-L115`, 467 bytes, excerpt `5. Build execution mode context string:`; survivor `skills/plan/references/phases/phase-4-agent-generation.md#L22-L30`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L208-L213`, 309 bytes, excerpt `The grep procedure is documented in the agent`; survivor `skills/plan/references/phases/phase-4-agent-generation.md#L203-L206`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L230-L243`, 475 bytes, excerpt `**Agent output instructions** (include in`; survivor `skills/plan/references/templates/agent-prompt.md#L118-L131`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L290`, 248 bytes, excerpt `**Validation differs by execution mode and`; survivor `skills/plan/references/phases/phase-4-agent-generation.md#L27-L28`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L380-L383`, 233 bytes, excerpt `above: **Front matter validation** (same as multi-pr):`; survivor `skills/plan/references/phases/phase-4-agent-generation.md#L332-L335`
+- `skills/plan/references/phases/phase-4-agent-generation.md#L488-L492`, 263 bytes, excerpt `Phase 4 produces these artifacts:`; survivor `skills/plan/references/phases/phase-4-agent-generation.md#L226`
+- `skills/plan/references/phases/phase-6-review.md#L14-L16`, 192 bytes, excerpt `Read both file paths before proceeding. If`; survivor `skills/plan/references/phases/phase-6-review.md#L8-L12`
+- `skills/plan/references/phases/phase-7-creation.md#L46`, 46 bytes, excerpt `above: subcommand's default.`; survivor `skills/plan/references/phases/phase-7-creation.md#L48`
+- `skills/plan/references/quality/plan-doc-structure.md#L357-L362`, 380 bytes, excerpt `**Feature-by-feature planning** maps each`; survivor `skills/plan/references/phases/phase-3-decomposition.md#L299-L323`
+- `skills/plan/references/templates/agent-prompt.md#L155-L157`, 231 bytes, excerpt `**Critical complexity** (multi-pr mode only):`; survivor `skills/plan/references/templates/agent-prompt.md#L84-L96`
+
+##### `dp-review-plan-internal-restatements`
+
+Profiles: `scope`. Size: 7522 bytes (about 1880 tokens). Only statement of a rule in force: no.
+
+Text in /review-plan's own files that restates another of its own files, so it is redundant even when /review-plan runs standalone.
+
+- `skills/review-plan/SKILL.md#L78-L79`, 167 bytes, excerpt `` Without `--adversarial`, the skill runs fast-path ``; survivor `skills/review-plan/SKILL.md#L68-L71`
+- `skills/review-plan/SKILL.md#L81-L90`, 419 bytes, excerpt `## Execution Mode Detection`; survivor `skills/review-plan/references/phases/phase-0-setup.md#L73-L85`
+- `skills/review-plan/SKILL.md#L151-L157`, 388 bytes, excerpt `` From `$ARGUMENTS` (after stripping flags): ``; survivor `skills/review-plan/references/phases/phase-0-setup.md#L12-L21`
+- `skills/review-plan/SKILL.md#L159-L182`, 1031 bytes, excerpt `## Phase Execution Sequence`; survivor `skills/review-plan/SKILL.md#L204-L217`
+- `skills/review-plan/SKILL.md#L186-L192`, 334 bytes, excerpt `Phase 5 writes exactly one file per review`; survivor `skills/review-plan/references/phases/phase-5-verdict.md#L55-L107`
+- `skills/review-plan/references/phases/phase-1-scope-gate.md#L112-L113`, 163 bytes, excerpt `` The `correction_hint` field is left empty ``; survivor `skills/review-plan/references/templates/review-result-schema.md#L128-L129`
+- `skills/review-plan/references/phases/phase-1-scope-gate.md#L117-L119`, 78 bytes, excerpt `## Loop-Back Target`; survivor `skills/review-plan/references/templates/review-result-schema.md#L43-L49`
+- `skills/review-plan/references/phases/phase-2-design-fidelity.md#L24`, 77 bytes, excerpt `` For `topic` and `roadmap` inputs, skip all ``; survivor `skills/review-plan/references/phases/phase-2-design-fidelity.md#L21-L22`
+- `skills/review-plan/references/phases/phase-2-design-fidelity.md#L86-L88`, 202 bytes, excerpt `` The `correction_hint` field is left empty ``; survivor `skills/review-plan/references/templates/review-result-schema.md#L128-L129`
+- `skills/review-plan/references/phases/phase-2-design-fidelity.md#L98-L100`, 73 bytes, excerpt `## Loop-Back Target`; survivor `skills/review-plan/references/templates/review-result-schema.md#L43-L49`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L30`, 74 bytes, excerpt `` For `roadmap` input types, this phase returns ``; survivor `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L28`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L39-L45`, 404 bytes, excerpt `trigger**: the AC text contains any of these terms`; survivor `skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L28-L34`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L51-L57`, 419 bytes, excerpt `**Detection trigger**: scan the *entire issue`; survivor `skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L99-L104`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L64-L72`, 547 bytes, excerpt `trigger**: the AC text contains any of these phrases`; survivor `skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L253-L262`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L111-L113`, 204 bytes, excerpt `- Pattern 3 triggers but the issue has at`; survivor `skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L106-L107`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L128-L133`, 389 bytes, excerpt `**Category C findings must include a non-empty`; survivor `skills/review-plan/references/templates/review-result-schema.md#L121-L136`
+- `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L137-L139`, 81 bytes, excerpt `## Loop-Back Target`; survivor `skills/review-plan/references/templates/review-result-schema.md#L43-L49`
+- `skills/review-plan/references/phases/phase-4-sequencing.md#L27`, 74 bytes, excerpt `` For `roadmap` input types, this phase returns ``; survivor `skills/review-plan/references/phases/phase-4-sequencing.md#L25`
+- `skills/review-plan/references/phases/phase-4-sequencing.md#L96-L98`, 235 bytes, excerpt `` The `correction_hint` field is left empty ``; survivor `skills/review-plan/references/templates/review-result-schema.md#L128-L129`
+- `skills/review-plan/references/phases/phase-4-sequencing.md#L102-L110`, 431 bytes, excerpt `## Loop-Back Targets for Category D Findings`; survivor `skills/review-plan/references/templates/review-result-schema.md#L43-L62`
+- `skills/review-plan/references/phases/phase-5-verdict.md#L29-L34`, 260 bytes, excerpt `if B findings exist`; survivor `skills/review-plan/references/templates/review-result-schema.md#L56-L62`
+- `skills/review-plan/references/phases/phase-5-verdict.md#L39-L40`, 157 bytes, excerpt `When a single verdict contains both D-structural`; survivor `skills/review-plan/references/templates/review-result-schema.md#L51-L62`
+- `skills/review-plan/references/templates/review-result-schema.md#L84-L89`, 342 bytes, excerpt `The review skill's confidence in the verdict.`; survivor `skills/review-plan/references/phases/phase-5-verdict.md#L42-L53`
+- `skills/review-plan/references/templates/review-result-schema.md#L145-L148`, 227 bytes, excerpt `` - `"Review passed. No critical findings across ``; survivor `skills/review-plan/references/phases/phase-5-verdict.md#L111-L116`
+- `skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L6-L10`, 256 bytes, excerpt `Phase 3 runs two passes:`; survivor `skills/review-plan/references/phases/phase-3-ac-discriminability.md#L3-L11`
+- `skills/review-plan/references/phases/phase-0-setup.md#L91-L96`, 490 bytes, excerpt `| input_type | Category A | Category B |`; survivor the input-type tables in review-plan phases 1 to 4
+
 #### Steps naming files or mechanisms that no longer exist
 
 ##### `dp-work-on-missing-files`
@@ -1396,7 +1562,35 @@ have weight 0 in the load manifest and are handled by
 | `execute-single-pr` | 41,083 | 83,779 | 20,944 | 51.0% |
 | `execute-coordinated` | 24,844 | 61,994 | 15,498 | 62.4% |
 | `deliver` | 6,181 | 6,901 | 1,725 | 27.9% |
-| `scope` | 226,407 | 61,067 | 15,266 | 6.7% |
+| `scope` | 226,407 | 112,087 | 28,021 | 12.4% |
+
+**Why the `scope` share is lower than a whole-load estimate would suggest.**
+The table counts only text that can be deleted. Four more parts of `/scope`'s
+raw load are prose the agent does not need at runtime, and each is left out
+of the figure for a stated reason:
+
+- *Parent-skill references with no runtime role under `/scope`* (the five
+  `references/parent-skill-*.md` files and `references/worktree-discipline.md`):
+  108,128 bytes, about 27,000 tokens or 11.9% of raw. The load manifest counts
+  them in raw at weight 0. `scope-reference-table-vs-lazy-load` removes the
+  instruction to read them; the files stay for `/charter` and for
+  maintainers, so this is a loading change, not a deletion, and Issue 19's
+  re-count reports it separately.
+- *Child-skill text restating a file from another skill or from `/scope`*:
+  about 30,000 bytes, about 7,500 tokens or 3.3% of raw. Each copy is needed
+  when that child runs standalone, so removing it is per-caller loading, a
+  separate feature. Restatements inside one child's own files are redundant
+  standalone too, and are counted above as the
+  `dp-<skill>-internal-restatements` entries.
+- *Summary sections in child phase files* (Goal, Quality Checklist, Artifact
+  State, Success Criteria): about 18,700 bytes, about 4,700 tokens. They
+  repeat their phase body, but a checklist also asks the agent to check its
+  work before moving on, so they are not treated as strictly redundant.
+- *Child text restating an open policy item's behavior*: about 4,500 bytes.
+  It goes with those items once they are decided.
+
+Counting the first two alongside the table's figure puts `scope` at roughly
+28% of raw, and all four at roughly 30%.
 
 ### Withholding candidates (out of this feature)
 
@@ -1412,13 +1606,17 @@ feature.
 
 ### Proposed follow-ups (not filed)
 
-Found while reading and outside this feature's scope. Each is a proposal for
-the maintainers, not a work item here.
+Found while reading, outside this feature's scope or after the inventory
+closed. Each is a proposal for the maintainers, not a work item here.
 
 - Let `/execute`'s PR title take the type the directive describes, limited to
   `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
 - Decide whether `/execute`'s children should receive an autonomy variable
   (see `execute-sentinel-no-reader`).
+- `skills/design/references/phases/phase-3-cross-validation.md` points at
+  `phase-4-investigation.md`; the file is `phase-4-architecture.md`.
+- `/prd`'s SKILL.md and its phase 3 say a PRD's upstream is typically a
+  ROADMAP, while `prd-format.md` says a BRIEF is the only legal upstream.
 - `/charter`'s phase 0 writes the same `exit: UNSET` literal that
   `scope-state-initial-values` fixes for `/scope`.
 - `skills/plan/references/quality/plan-doc-examples.md` nests
@@ -1438,7 +1636,8 @@ the maintainers, not a work item here.
    `references/`, `scripts/` or `crates/` starts before pull request #488
    merges.
 2. **Mechanical work items, one per skill.** `/work-on`, `/execute`,
-   `/deliver`, `/scope`, `/brief`, `/prd`, `/plan` and `/design`. A
+   `/deliver`, `/scope`, `/brief`, `/prd`, `/plan`, `/design` and
+   `/review-plan`. A
    mechanical item whose losing statement sits inside a policy statement
    moves into that policy item. Each re-finds its spans by excerpt, stops and
    reports an identifier whose excerpt is missing or found twice, applies the
