@@ -320,6 +320,8 @@ suite_scripts() {
             echo "skills/coordinate/scripts/skill-hygiene_test.sh"
             echo "skills/coordinate/scripts/progress-view_test.sh"
             echo "skills/coordinate/scripts/coord-verdict-table_test.sh"
+            # The decision-phrasing list's reader: bash, awk and grep only.
+            echo "skills/coordinate/scripts/decision-phrasings_test.sh"
             ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the

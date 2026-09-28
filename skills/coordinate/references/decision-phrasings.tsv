@@ -1,38 +1,37 @@
-# decision-phrasings.tsv -- the closed list of phrasings that mark a decision
-# asked of someone, or a question addressed to a person. One list, read by
-# progress-view.sh (--next text and needs), report-questions.sh (a worker's
-# report) and need-check.sh (a surfaced need), through record-common.sh's
-# lib_phrase_match. It is a backstop: a decision row comes only from an
-# escalated entry, and rewording evades any list.
+# decision-phrasings.tsv -- the closed list of phrasings that ask someone to
+# decide, or address a person rather than the coordinator. Read only through
+# scripts/phrasing-lib.sh (phrase_match), by the scripts that show text to a
+# person or read a worker's report. It is a backstop: a decision shown to a
+# person comes only from an escalated decision entry, and rewording evades any
+# list.
 #
 # Columns, tab-separated:
 #   kind     decision   the text asks someone to decide
-#            addressed  the text asks the reader, or a person, to act or decide
-#                       rather than the coordinator; an imperative such as
-#                       "please decide" is both
+#            addressed  the text asks a person, or the reader, to decide or act
+#                       instead of the coordinator
+#            both       both at once, such as the imperative "please decide";
+#                       one row, so the two kinds can't drift apart
 #   pattern  an extended regular expression, matched case-insensitively by
-#            grep -E. No back-references, so matching time stays linear. Word
-#            edges are spelled (^|[^[:alnum:]]) and ([^[:alnum:]]|$): \b, \<
-#            and \> aren't portable to BSD grep, and the check refuses them.
+#            grep -E. No back-references. Word edges are spelled
+#            (^|[^[:alnum:]]) and ([^[:alnum:]]|$): \b, \<, \>, \w and \s
+#            aren't taken by BSD grep, and phrasing-lib.sh refuses them.
 #
-# Adding a row: add a fixture beside it in
-# scripts/testdata/decision-phrasings/ and run decision-phrasings_test.sh.
+# Adding or changing a row: put an example that should match in the fixture for
+# its kind under scripts/testdata/decision-phrasings/ (decision.txt,
+# addressed.txt, or both), put a near miss that must not match in
+# no-match.txt, and run decision-phrasings_test.sh.
 decision	(^|[^[:alnum:]])decide (whether|if|between|which|on|to)([^[:alnum:]]|$)
-decision	(^|[^[:alnum:]])please (decide|confirm whether|(choose|pick) (between|one of|which|whether))([^[:alnum:]]|$)
 decision	(^|[^[:alnum:]])(needs|need|awaiting|waiting (on|for)) (your|a human|the human'?s?|a person'?s?|the user'?s?) (decision|call|choice|approval|sign-off)([^[:alnum:]]|$)
-decision	(^|[^[:alnum:]])your (decision|call)( (on|about|whether|here)|[.,;:!?)]|$)
-decision	(^|[^[:alnum:]])(can|could|would) you (choose|pick|decide)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])your decision( (on|about|whether|here)|[.,;:!?)]|$)
 decision	(^|[^[:alnum:]])which (option|approach|one) (should|do you|would you)([^[:alnum:]]|$)
 decision	(^|[^[:alnum:]])should (we|i) (ship|merge|drop|keep|proceed|go ahead)([^[:alnum:]]|$)
-decision	(^|[^[:alnum:]])(the |a )?(user|human|operator|person)('s)? (should|must|needs to|has to) decide([^[:alnum:]]|$)
-decision	(^|[^[:alnum:]])(it's|it is) (the )?(user|human|operator|person)'s call([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])please (decide|confirm whether|(choose|pick) (between|one of|which|whether))([^[:alnum:]]|$)
+both	(^|[^[:alnum:]])please (decide|confirm whether|(choose|pick) (between|one of|which|whether))([^[:alnum:]]|$)
+both	(^|[^[:alnum:]])your call( (on|about|whether|here)|[.,;:!?)]|$)
+both	(^|[^[:alnum:]])(can|could|would) you (choose|pick|decide)([^[:alnum:]]|$)
+both	(^|[^[:alnum:]])(the |a )?(user|human|operator|person)('s)? (should|must|needs to|has to) decide([^[:alnum:]]|$)
+both	(^|[^[:alnum:]])(it's|it is) (the )?(user|human|operator|person)'s call([^[:alnum:]]|$)
 addressed	(^|[^[:alnum:]])the human([^[:alnum:]-]|$)
 addressed	(^|[^[:alnum:]])you decide([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])your call( (on|about|whether|here)|[.,;:!?)]|$)
 addressed	(^|[^[:alnum:]])up to you([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])(can|could|would) you (choose|pick|decide)([^[:alnum:]]|$)
 addressed	(^|[^[:alnum:]])(ask|asking) the (user|operator|person|human)([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])(for|to) the (user|operator|person) to decide([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])(the |a )?(user|operator|person|human)('s)? (should|must|needs to|has to) decide([^[:alnum:]]|$)
-addressed	(^|[^[:alnum:]])(it's|it is) (the )?(user|human|operator|person)'s call([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])(for|to) the (user|operator|person|human) to decide([^[:alnum:]]|$)
