@@ -193,8 +193,8 @@ C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	Include a "Waiting on the human" section
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
-C187	skills/coordinate/SKILL.md	-	Two named features build on this one.	changed: record tooling shipped; the dispatch path and mechanised reconcile remain named later work
-C188	skills/coordinate/SKILL.md	-	**The workspace manager isn't checked at load.**
+C187	skills/coordinate/SKILL.md	-	Reconcile mechanises the full re-check	changed: the dispatch path shipped; mechanised reconcile remains named later work
+C188	skills/coordinate/SKILL.md	-	runs the workspace manager's dispatch	changed: the dispatch path runs the workspace manager through a script and declares it in requires.tsv, so the load-time preflight checks it
 C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
 C190	skills/coordinate/SKILL.md	-	**The coordinator's record has no merge order
 C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: asked

@@ -311,6 +311,69 @@
       "requirements": [
         "R22"
       ]
+    },
+    {
+      "id": 17,
+      "name": "brief-rendered-with-both-channels",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, running in the session named coordinate-plugin-system. The human's decisions name ci-health-rotation as the discipline coordinator for CI. Feature 1 is unblocked and you have a free slot. Write the brief for the worker you dispatch for feature 1, and show it.",
+      "expected_output": "The coordinator doesn't compose the brief by hand. It assembles the structured input (topic, repository, unit, entry point with its positional argument, run mode, phase, authority, goal, checkpoints, acceptance criteria and its own session name, plus the ci-health surface) and renders the brief with render-brief.sh. The rendered brief names both channels: status and blockers go by message to coordinate-plugin-system, which is the worker's only source of direction, and tooling or workspace problems go to ci-health-rotation with a copy to the coordinator, taking no direction from it. No checkpoint waits on an approval.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The brief is produced by render-brief.sh from a structured input, not written out by hand",
+        "The brief tells the worker to report status and blockers by message to coordinate-plugin-system",
+        "The brief says coordinate-plugin-system is the worker's only source of direction",
+        "The brief sends tooling or workspace problems to ci-health-rotation with a copy to the coordinator, and says to take no direction from it",
+        "The brief's checkpoints ask the worker to report and continue, and none of them waits on an approval"
+      ],
+      "requirements": [
+        "R1",
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "dispatch-refused-without-holding",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, at the dispatch step for feature 1 under the topic plugin-loader. You ran the dispatch for it, but your session was interrupted partway through: the record shows plugin-loader's holding as dispatching, and you can't tell whether the worker started. You submit dispatched: sent, and the workflow doesn't move on. What happened, and what do you do?",
+      "expected_output": "The workflow's dispatch state has a gate that reads the record through record-holding.sh, and it keeps the state until the holding for plugin-loader is there as dispatched; a holding still dispatching holds it, and the coordinator's own evidence can't satisfy it. The coordinator doesn't try to get past the gate with a directed transition or an override, and doesn't edit the row by hand. It runs dispatch-worker.sh for the topic again, which is safe to re-run: it settles the dispatching row from niwa list, confirming the worker if it started and marking the dispatch failed if it didn't, without launching a second worker. Only once the holding reads dispatched does sent move the workflow on; a failed dispatch is submitted as failed.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator explains that the dispatch state's gate blocked because the record's holding for plugin-loader is dispatching, not dispatched",
+        "The coordinator says its own submitted value can't satisfy the gate, which reads the record",
+        "The coordinator neither uses koto next --to nor tries to override the gate",
+        "The coordinator runs dispatch-worker.sh again to settle the holding, rather than editing the row by hand or skipping it",
+        "The coordinator doesn't launch a second worker for plugin-loader, and knows the re-run settles the row without launching one"
+      ],
+      "requirements": [
+        "R7",
+        "R9",
+        "R10",
+        "R22"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "report-classified-in-shadow",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md. The worker on topic plugin-loader, which reports by message, writes: \"PR #412 is open and ready for review; I'm blocked on one question: should the loader skip plugins with a bad manifest or fail startup?\" Walk through how the workflow takes this report and what you classify it as.",
+      "expected_output": "The coordinator ticks the wait hub with the report event, the topic and the message as the report. The report passes take_report, since the worker is on the message path and the report has text, and report_facts gathers its facts. At classify_report the classification is the coordinator's own judgment: blocked, because the worker needs a product decision that isn't its own, which routes to the human. The workflow's decider suggestion runs in shadow alongside it and is recorded, but it doesn't route and the coordinator doesn't defer to it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The report is submitted to the wait hub as a report event naming plugin-loader, with the worker's message as the report",
+        "The report passes a check that it came through the worker's own return path before it is classified",
+        "The coordinator classifies the report itself as blocked, since the worker needs a decision that isn't its own",
+        "The blocked classification routes the question to the human, not back to the worker as a fix",
+        "The workflow's own classification suggestion is recorded as a shadow suggestion and doesn't decide the route"
+      ],
+      "requirements": [
+        "R13",
+        "R15"
+      ]
     }
   ]
 }

@@ -10,11 +10,12 @@
 # declare, is the declared floor: the policy allows no version number here, and
 # preflight on an older koto names the missing flags.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.14.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.14.1 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, a child's result is delivered under --no-cleanup, and
 # `koto next --to` is refused past a failing non-overridable gate) is behaviour
-# with no flag to declare, so a koto that has the entry flags passes preflight
-# whatever its version; the README states the minimum and CI tests it.
+# with no flag to declare, so no record here carries it. The preflight compares
+# koto's version with that minimum at load instead
+# (scripts/lib/preflight-minimum.sh), and CI tests it.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 # The session: every tick is `koto next --no-cleanup`, with evidence through
 # --with-data; `koto status` re-reads a directive and feeds the report.
@@ -41,6 +42,23 @@ git	-	-	always
 # The record's codec (record-render.sh, record-parse.sh) and every script
 # that reads or writes the record are jq programs over the rendered tables.
 jq	-	-	always
+#
+# The dispatch path's scripts launch workers with the workspace manager's
+# `niwa dispatch --name <topic> --detach` and find them again with
+# `niwa list --json`, open a worker's request leg with
+# `koto request create --with-data` (abandoning one an interrupted run left,
+# found with `koto request list`) and abandon it on a failed launch or a
+# re-brief, and read the wait target's legs with `koto request get`.
+#
+# niwa is declared for presence only, like gh: the load-time probe reads
+# subcommands and flags from a help layout niwa's CLI doesn't print, so a
+# subcommand record would report "could not be checked" on every load.
+niwa	-	-	always
+koto	request create	--with-data,--requested-by,--coordinator-of-record	always
+koto	request abandon-request	--rationale	always
+koto	request list	--coordinator-of-record,--state	always
+koto	request get	-	always
+koto	context exists	-	always
 #
 # Citations, not calls: SKILL.md and coordinate.md tell the coordinator never
 # to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).

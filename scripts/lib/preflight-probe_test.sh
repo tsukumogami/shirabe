@@ -566,6 +566,10 @@ new_root() {
     cp "$REPO/scripts/lib/preflight-read.sh" "$root/scripts/lib/preflight-read.sh"
     cp "$REPO/scripts/lib/preflight-resolve.sh" "$root/scripts/lib/preflight-resolve.sh"
     cp "$REPO/scripts/lib/preflight-probe.sh" "$root/scripts/lib/preflight-probe.sh"
+    # What ships: the minimum check runs one `koto version` per load, and the
+    # counts below include it.
+    cp "$REPO/scripts/lib/preflight-minimum.sh" "$root/scripts/lib/preflight-minimum.sh"
+    cp "$REPO/scripts/assert-koto-floor.sh" "$root/scripts/assert-koto-floor.sh"
     cp "$REPO/scripts/lib/tool-routes.tsv" "$root/scripts/lib/tool-routes.tsv"
     printf '%s' "$root"
 }
@@ -599,6 +603,7 @@ CALLS="$BIN/calls"
     printf 'printf "koto %%s\\n" "$*" >> %s\n' "$CALLS"
     printf 'case "$*" in\n'
     printf '  "--help") printf "Commands:\\n  init  Init\\n  next  Next\\n  context  Context\\n  decisions  Decisions\\n  overrides  Overrides\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+    printf '  "version") printf "koto 999.0.0 (0000000 2026-01-01T00:00:00Z)\\n" ;;\n'
     printf '  "init --help") printf "Options:\\n      --template <TEMPLATE>  Template\\n  -h, --help  Print help\\n" ;;\n'
     printf '  "next --help") printf "Options:\\n      --json  JSON\\n  -h, --help  Print help\\n" ;;\n'
     printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n  exists  Exists\\n  list  List\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
@@ -656,7 +661,8 @@ run_preflight() {
     fi
 }
 
-# A /work-on-shaped declaration: ten distinct levels, nine --help calls.
+# A /work-on-shaped declaration: ten distinct levels, nine --help calls, and
+# the one `koto version` the minimum check makes.
 ROOT=$(new_root)
 write_decl "$ROOT" "work-on" \
     'koto\tinit\t--template\talways' \
@@ -675,14 +681,14 @@ write_decl "$ROOT" "work-on" \
 run_preflight "$ROOT" "work-on"
 WORK_ON_CALLS=$(wc -l <"$CALLS" | tr -d ' ')
 assert_eq "a /work-on-shaped declaration is silent on a satisfied host" "0" "$RUN_BYTES"
-assert_eq "a /work-on-shaped declaration costs nine --help calls" "9" "$WORK_ON_CALLS"
+assert_eq "a /work-on-shaped declaration costs ten calls: nine --help and one koto version" "10" "$WORK_ON_CALLS"
 assert_has "the memoized path probes koto context once" "$(cat "$CALLS")" "koto context --help"
 assert_lacks "a leaf with no declared flag is never probed" "$(cat "$CALLS")" "koto context add --help"
 
 NON_HELP=$(grep -v -- '--help$' <"$CALLS" || true)
-assert_eq "the probe only ever appends --help, and never runs a declared subcommand" "" "$NON_HELP"
+assert_eq "every call ends in --help except exactly one koto version, and no declared subcommand runs" "koto version" "$NON_HELP"
 
-# A /scope-shaped declaration: three calls.
+# A /scope-shaped declaration: three --help calls and one koto version.
 ROOT=$(new_root)
 write_decl "$ROOT" "scope" \
     'shirabe\tvalidate\t--mode\talways' \
@@ -691,7 +697,7 @@ write_decl "$ROOT" "scope" \
 run_preflight "$ROOT" "scope"
 SCOPE_CALLS=$(wc -l <"$CALLS" | tr -d ' ')
 assert_eq "a /scope-shaped declaration is silent on a satisfied host" "0" "$RUN_BYTES"
-assert_eq "a /scope-shaped declaration costs three --help calls" "3" "$SCOPE_CALLS"
+assert_eq "a /scope-shaped declaration costs four calls: three --help and one koto version" "4" "$SCOPE_CALLS"
 
 # The regression fixtures, end to end: a known-present flag in each clap layout
 # passes, and a known-absent one is reported. A help-rendering change fails here
@@ -776,6 +782,8 @@ koto_stub() {
     {
         printf '#!/bin/bash\n'
         printf 'case "$*" in\n'
+        # Above any minimum, so these cases stay about surface.
+        printf '  "version") printf "koto 999.0.0 (0000000 2026-01-01T00:00:00Z)\\n" ;;\n'
         printf '  "--help") printf "Commands:\\n  init  Init\\n  next  Next\\n  status  Status\\n  session  Session\\n  context  Context\\n  workflows  Workflows\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "init --help") printf "Options:\\n%s  -h, --help  Print help\\n" ;;\n' "$init_opts"
         printf '  "next --help") printf "Options:\\n      --with-data <DATA>  Evidence\\n      --no-cleanup  Keep\\n  -h, --help  Print help\\n" ;;\n'

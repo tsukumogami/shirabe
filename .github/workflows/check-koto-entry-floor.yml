@@ -49,7 +49,7 @@ jobs:
       - name: Read the floor
         run: |
           set -euo pipefail
-          floor=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' scripts/assert-koto-floor.sh | head -1)
+          floor=$(bash scripts/assert-koto-floor.sh --print-floor)
           if [ -z "$floor" ]; then
             echo "cannot read the floor from scripts/assert-koto-floor.sh" >&2
             exit 1
@@ -166,6 +166,7 @@ jobs:
           bash skills/work-on/scripts/cascade-chaining_test.sh
           bash skills/work-on/scripts/pre-pr-evidence_test.sh
           bash skills/work-on/scripts/finalization-shape_test.sh
+          bash skills/work-on/scripts/check-pre-pr-referents_test.sh
           bash skills/work-on/scripts/record-changed-paths_test.sh
           bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh

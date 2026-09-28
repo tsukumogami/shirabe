@@ -40,7 +40,7 @@ variables:
       it. Interpolated into the verdict's default action, so it is held to a
       path of plain characters (letters, digits, `.`, `_`, `-`, and the `+` an
       absolute checkout path can carry, which koto's own value check admits
-      once tsukumogami/koto#266 ships) with no `..` segment. Not rebindable.
+      from 0.14.1, tsukumogami/koto#266) with no `..` segment. Not rebindable.
     required: true
     pattern: '^/?([A-Za-z0-9_+][A-Za-z0-9._+-]*/)*[A-Za-z0-9_+][A-Za-z0-9._+-]*\.md$'
   PLAN_SLUG:

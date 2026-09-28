@@ -74,7 +74,13 @@
 #
 # The probe only ever appends `--help`, and it never runs a declared
 # subcommand: the path to `koto context add` is verified by reading what
-# `koto context --help` advertises, not by running `add`.
+# `koto context --help` advertises, not by running `add`. The one other call
+# made through the same bounds is `<tool> version`, which
+# scripts/lib/preflight-minimum.sh reads for koto to compare against shirabe's
+# koto minimum. Both go through _preflight_probe_bounded, whose argv is fixed
+# by its only two callers, preflight_probe_capture and preflight_probe_version;
+# preflight-probe_test.sh asserts that every call ends in --help except that
+# one `koto version`.
 #
 # bash 3.2 floor throughout: no `declare -A` (hence PROBE_KEYS/PROBE_DATA
 # below), no namerefs, no mapfile, no `${var^^}`, no `[[ -v ]]`.
@@ -285,6 +291,23 @@ preflight_probe_once() {
 # outcome, not an error, because the caller's job is to say nothing about a
 # surface it could not read.
 preflight_probe_capture() {
+    _preflight_probe_bounded "$@" --help
+}
+
+# preflight_probe_version <path>
+#
+# Runs `<path> version` under the same bounds and sets the same two outputs.
+# The argv is fixed here: nothing but `version` can reach the binary this way.
+preflight_probe_version() {
+    _preflight_probe_bounded "$1" version
+}
+
+# _preflight_probe_bounded <path> [<arg>...]
+#
+# The bounded call itself: `<path> [<arg>...]` exactly as given, with stdin
+# closed, stderr discarded, the wall-clock budget and the output cap. Internal:
+# call preflight_probe_capture or preflight_probe_version, whose argv is fixed.
+_preflight_probe_bounded() {
     local path="$1"
     shift
     local cap=$(( PREFLIGHT_PROBE_CAP + 1 ))
@@ -310,7 +333,7 @@ preflight_probe_capture() {
             # capture pipe open. It is turned back off immediately: nothing
             # else in this group wants it.
             set -m
-            "$path" "$@" --help </dev/null 2>/dev/null &
+            "$path" "$@" </dev/null 2>/dev/null &
             _preflight_probe_pid=$!
             set +m
 
@@ -831,7 +854,9 @@ fi
 # advertises rather than by probing it, so a record with no declared flag never
 # probes its own leaf. That is the rule the nine-call figure for /work-on comes
 # from, and it is why `koto context get` and `koto context exists` cost nothing
-# after `koto context add`.
+# after `koto context add`. The koto minimum adds one `koto version` to a
+# koto-declaring skill's load (scripts/lib/preflight-minimum.sh), so /work-on's
+# load is ten calls in all.
 #
 # The path is the one preflight_resolve_tool vetted: absolute, executable, and
 # outside the working directory. This function executes that path and never the
