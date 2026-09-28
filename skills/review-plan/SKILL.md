@@ -75,8 +75,6 @@ Invoked as:
 /review-plan <plan-artifact-or-topic> [--adversarial]
 ```
 
-
-
 ## Adversarial Mode: Multi-Agent Bakeoff
 
 When running in adversarial mode, each review category (phases 1–4) runs through
@@ -134,14 +132,11 @@ The verdict file format, field names, and loop-back behavior are identical. The 
 difference is evaluation depth — adversarial mode's multi-agent bakeoff catches more
 findings at the cost of significantly higher latency.
 
-## Input
-
-
-
 ## Verdict Artifacts
 
-Both files use the same `review_result` YAML schema. See
-`references/templates/review-result-schema.md` for the full field specification.
+Phase 5 writes the verdict file; `references/phases/phase-5-verdict.md` says which
+file each verdict gets. See `references/templates/review-result-schema.md` for the
+`review_result` YAML schema and its full field specification.
 
 ## Resume Logic
 
@@ -163,4 +158,4 @@ else                                           → start at Phase 0
 | `references/phases/phase-5-verdict.md` | Phase 5 |
 | `references/phases/phase-6-loop-back.md` | Phase 6 (loop-back only) |
 | `references/templates/review-result-schema.md` | Phases 1–5 (finding format) |
-| `references/templates/ac-discriminability-taxonomy.md` | Phase 3 (adversarial pass) |
+| `references/templates/ac-discriminability-taxonomy.md` | Phase 3, before Pass 1 (both passes read its detection triggers) |

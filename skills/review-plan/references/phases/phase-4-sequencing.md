@@ -24,7 +24,6 @@ Read the following from Phase 0 context:
 | `topic` | Full check |
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 
-
 ## Full Sequencing Check (design, prd, topic)
 
 Run the following checks:
@@ -92,6 +91,4 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""         # always empty for Category D
 ```
 
-
 If no findings: return `critical_findings: []` for this category.
-

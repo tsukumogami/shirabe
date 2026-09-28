@@ -3,7 +3,6 @@
 This file documents the 7 AC failure patterns used by Category C review (Phase 3).
 Review agents use these entries verbatim when evaluating acceptance criteria.
 
-
 ---
 
 ## Pattern 1 — Fixture-anchored

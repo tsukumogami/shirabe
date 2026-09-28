@@ -27,7 +27,6 @@ Read the following from Phase 0 context:
 | `topic` | Full check — both passes run; pattern 6 is skipped (no upstream doc) |
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 
-
 ## Pass 1: Pattern Pass
 
 For each acceptance criterion across all issue bodies, scan the AC text for these
@@ -35,17 +34,14 @@ exact signals:
 
 ### Pattern 1 — Fixture-anchored
 
-
 Flag immediately. Do not proceed to adversarial pass for this AC.
 
 ### Pattern 3 — Happy-path only (issue-level check)
-
 
 Flag immediately. Do not run adversarial pass on individual ACs of a happy-path-only
 issue — the finding is at the issue level.
 
 ### Pattern 7 — Existence-without-correctness
-
 
 Flag immediately. Do not proceed to adversarial pass for this AC.
 
@@ -98,6 +94,4 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: "..."              # non-empty; describes what a discriminating AC should check
 ```
 
-
 If no findings: return `critical_findings: []` for this category.
-

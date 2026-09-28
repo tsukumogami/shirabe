@@ -88,9 +88,8 @@ Record the selected mode. It determines agent count in phases 1–4:
 
 `input_type` gates category behavior in later phases:
 
-
-Record the `input_type` and the category behavior table entry. Pass both to
-phases 1–4 so they can gate correctly.
+Record the `input_type` and pass it to phases 1–4; each phase has its own
+input-type behavior table.
 
 ### 0.7 Log Setup Summary
 

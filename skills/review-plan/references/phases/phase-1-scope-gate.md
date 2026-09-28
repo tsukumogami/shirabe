@@ -109,6 +109,4 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""      # always empty for Category A
 ```
 
-
 If no findings: return `critical_findings: []` for this category.
-

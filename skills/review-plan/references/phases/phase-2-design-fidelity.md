@@ -21,7 +21,6 @@ Read the following from Phase 0 context:
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 | `topic` | Returns empty findings immediately — no upstream document to check against |
 
-
 ## Full Design Fidelity Check (design, prd)
 
 Read the upstream design doc. Run the following checks:
@@ -82,7 +81,6 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""         # always empty for Category B
 ```
 
-
 If no findings: return `critical_findings: []` for this category.
 
 ## Confidence Note
@@ -90,4 +88,3 @@ If no findings: return `critical_findings: []` for this category.
 When the upstream design doc is unavailable (wrong path in analysis.md, file missing),
 set `confidence: "low"` in the verdict and note the missing doc in the `summary`.
 Return empty findings for this category — do not invent findings without the source.
-

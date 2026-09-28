@@ -81,7 +81,6 @@ in `wip/plan_<topic>_analysis.md` as `review_rounds`.
 
 **Type:** string enum — `"high"`, `"medium"`, or `"low"`
 
-
 ### `critical_findings`
 
 **Type:** array of finding objects. Empty array (`[]`) when `verdict` is `"proceed"`.
@@ -135,7 +134,6 @@ and verify the table is empty, then populate and verify it contains the expected
 
 A 1–2 sentence human-readable summary of the review outcome. Suitable for display
 in `/plan` status output and for reading without parsing the full YAML block.
-
 
 ## Example: Proceed
 

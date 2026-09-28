@@ -20,16 +20,14 @@ verdict artifact files.
 
 **`verdict: "loop-back"`** — one or more critical findings exist across any category.
 The `critical_findings` array contains all findings. The `loop_target` is set
-according to the mapping below.
+according to the mapping in `references/templates/review-result-schema.md`.
 
 ## Loop Target Selection
 
 Use the deterministic category-to-phase mapping from the schema. Earliest phase wins:
 
-
 Read the schema reference for the full table:
 `references/templates/review-result-schema.md`
-
 
 ## Confidence
 
