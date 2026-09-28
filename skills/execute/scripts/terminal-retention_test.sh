@@ -284,15 +284,16 @@ k() { (cd "$FIXREPO" && koto "$@"); }
 
 # --- the plugin root ------------------------------------------------------------
 #
-# koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
-# checkout under a directory with a `+` in it fails that. The actions these cases
+# koto validates a variable's value against ^[a-zA-Z0-9._/:@+ \-]*$, and a
+# checkout under a directory whose name carries a character outside it (a
+# quote, a `$`, a comma; a `+` before koto 0.14.1) fails that. The actions these cases
 # run (the write set, the verdict, the confirm read) live in the plugin, so the
 # plugin root has to be real: this checkout's path when it is clean, a symlink in
 # the temp tree when that is clean, and otherwise -- a temp tree that is itself
 # under such a directory -- a copy of the template with this checkout's path
 # written where {{PLUGIN_ROOT}} stood, under a stand-in PLUGIN_ROOT. The copy is
 # the one departure from "the shipped template", and the note says so.
-KOTO_ALLOW='^[a-zA-Z0-9._/:@ -]*$'
+KOTO_ALLOW='^[a-zA-Z0-9._/:@+ -]*$'
 TPL="$TEMPLATE"
 if [[ $REPO_ROOT =~ $KOTO_ALLOW ]]; then
     PLUGIN_ROOT_VAR="$REPO_ROOT"

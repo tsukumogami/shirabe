@@ -235,9 +235,11 @@ Claude Code session:
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.14.0 or later. `.tsuku.toml` tracks
-  the newest koto 0.x rather than pinning a release, so `tsuku install` never
-  downgrades a newer koto you already have. 0.14.0 is the release that keeps a
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.14.1 or later.
+  `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
+  `tsuku install` never downgrades a newer koto you already have. 0.14.1 accepts
+  `+` in `--var` values, so a plugin or checkout under a directory whose name
+  carries `+` works (tsukumogami/koto#266). 0.14.0 is the release that keeps a
   session reaching a failure terminal and delivers a child's result whether or
   not its tick carried `--no-cleanup`, which is what lets every `koto next` in
   every skill carry that flag (see `references/koto-session-retention.md`).

@@ -205,7 +205,8 @@ echo "koto: $(koto version 2>/dev/null | head -1)"
 # and assertions written against a session that never existed pass or fail for
 # reasons unrelated to what they claim to test. Every init in this suite is
 # checked. (The failure is not hypothetical: koto validates template variables
-# against `^[a-zA-Z0-9._/:@ \-]*$`, so a checkout under a path containing a `+`
+# against `^[a-zA-Z0-9._/:@+ \-]*$`, so a checkout under a path carrying a
+# character outside it -- a quote, a `$`, a comma, or a `+` before koto 0.14.1 --
 # fails init on any template that takes a path variable.)
 init_or_die() {
     if ! koto status "$1" >/dev/null 2>&1; then
@@ -400,7 +401,7 @@ drive_work_on_to_blocked() {
     # anchor finder against it) and koto resolves every required variable at
     # init, so a session cannot be created without it even though no case here
     # reaches that state. A literal rather than this checkout's path: koto
-    # validates a value against ^[a-zA-Z0-9._/:@ \-]*$ and rejects the init if it
+    # validates a value against ^[a-zA-Z0-9._/:@+ \-]*$ and rejects the init if it
     # does not match, which a checkout under a directory containing "+" would.
     koto init "$1" --template "$TEMPLATE" \
         --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX="$1" \

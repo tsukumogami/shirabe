@@ -21,7 +21,12 @@
 # or not its tick carried --no-cleanup, which is what lets every skill pass the
 # flag on every tick (references/koto-session-retention.md); it also has the
 # koto init entry flags /scope, /execute and /deliver enter through, which
-# shipped in 0.13.0. Raise it in the pull request that adopts a feature from a
+# shipped in 0.13.0. 0.14.1 is the release that accepts `+` in --var values
+# (tsukumogami/koto#266), so a plugin root or checkout under a directory whose
+# name carries `+` works; a session whose recorded variables hold `+` fails
+# every tick on an older koto, because each tick re-checks recorded values. It
+# also records a batch's final view when the completing tick leaves the
+# batching state (tsukumogami/koto#263). Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
@@ -53,7 +58,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.14.0}"
+FLOOR="${KOTO_FLOOR:-0.14.1}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically

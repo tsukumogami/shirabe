@@ -14,7 +14,7 @@ property of koto's session disposal, not of any one skill. Five skills drive
 koto; an argument copied into each drifts, and shirabe#360 demonstrated the
 drift before the copies were consolidated.
 
-It describes koto 0.14.0 and later, shirabe's koto minimum
+It describes koto 0.14.0 and later. shirabe's koto minimum is 0.14.1
 (`scripts/assert-koto-floor.sh`).
 
 ## What koto does
