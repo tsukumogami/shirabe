@@ -132,6 +132,10 @@ mktempdir() {
 #       The runner's own suite, run offline against a stub claude on ubuntu
 #       runners. It tests an operator tool that never reaches a user's macOS
 #       /bin/bash, so it stays off the floor with the runner.
+#   scripts/ablation/ (offload-ablation.yml)
+#       The runner's ablation mode and its checks: an operator tool that
+#       starts model sessions, plus repository lint over pull requests. No
+#       skill invokes any of it, so it stays off the floor with the runner.
 #   .release/set-version.sh, .release/post-release.sh (release.yml,
 #   finalize-release.yml)
 #       Release automation. Runs only on ubuntu runners, from a workflow,

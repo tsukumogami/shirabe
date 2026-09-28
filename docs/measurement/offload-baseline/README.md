@@ -324,6 +324,12 @@ unchecked.
 Runs whose session `template_hash` equals a `koto_template_hash` in
 `template-pin.json`. A run of any other template text is a different version,
 even with the same declared version.
+
+Ablation runs are not in the population, whatever their template hash. They
+use a `shirabe-ablation.` template directory prefix so downstream measurement
+can exclude them: a session is an ablation fixture when a path component of
+its `template_source_dir` starts with `shirabe-ablation.`
+([offload-ablation](../offload-ablation/README.md)).
 *Provisional.* *Alternative:* runs in a date window; rejected because a window
 mixes template versions whenever a change lands inside it.
 

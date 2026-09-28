@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""is-fixture-session: is a koto session an ablation fixture?
+
+Ablation runs load every koto template from a scratch copy of the plugin under
+a directory whose name starts with `shirabe-ablation.`. koto records that
+directory as `template_source_dir` in the first line of the session's state
+file, so a session is an ablation fixture exactly when some path component of
+its `template_source_dir` starts with `shirabe-ablation.`. The rule holds even
+when the session's `template_hash` equals a pinned template's, which is the
+case it exists for: an ablation of an untouched template runs the pinned text.
+Downstream measurement excludes these sessions by the same prefix.
+
+Usage: is-fixture-session <state-file>...
+Prints `fixture` or `not-fixture` per file, tab-separated after the path.
+Exit codes: 0 every file read (whatever it printed), 2 a file was unreadable.
+"""
+
+import json
+import sys
+
+PREFIX = "shirabe-ablation."
+
+
+def classify(header):
+    source = header.get("template_source_dir")
+    if not isinstance(source, str) or not source:
+        return "not-fixture"
+    return "fixture" if any(part.startswith(PREFIX) for part in source.split("/")) else "not-fixture"
+
+
+def main(paths):
+    code = 0
+    for path in paths:
+        try:
+            with open(path) as fh:
+                header = json.loads(fh.readline())
+        except (OSError, ValueError):
+            sys.stderr.write(f"is-fixture-session: unreadable: {path}\n")
+            code = 2
+            continue
+        print(f"{path}\t{classify(header)}")
+    return code
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.stderr.write("usage: is-fixture-session <state-file>...\n")
+        sys.exit(2)
+    sys.exit(main(sys.argv[1:]))

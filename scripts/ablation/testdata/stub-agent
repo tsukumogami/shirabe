@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""A stand-in for the model session in ablation_test.py.
+
+ablation.py runs it (through ABLATION_AGENT_CMD, honoured only with
+ABLATION_TEST=1) with exactly the argv and environment a real session gets. It
+records both to $ABLATION_RUN_DIR/stub-dump.json, then plays the steps in the
+JSON file named by $ABLATION_STUB_SCRIPT, writing a minimal stream-json
+transcript on stdout the way `claude -p --output-format stream-json` does: a
+system init event, an assistant message per step (with an id and usage), a
+user tool_result per step, and a final result event.
+
+Steps:
+  {"koto": [args...]}          run `koto` as found on PATH (the wrapper)
+  {"koto_abs": [args...]}      run the real koto by absolute path (a bypass)
+  {"context": [wf, key, text]} koto context add through PATH, text on stdin
+  {"echo": text}               a tool result carrying text (a simulated read)
+  {"read_plugin": relpath}     read a file from the --plugin-dir copy
+  {"touch": abspath}           write a file (simulates tampering)
+  {"sleep": seconds}
+  {"no_result": true}          end without a result event
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+argv = sys.argv[1:]
+run_dir = os.environ["ABLATION_RUN_DIR"]
+plugin = argv[argv.index("--plugin-dir") + 1] if "--plugin-dir" in argv else None
+parts = sorted(os.listdir(plugin)) if plugin else []
+harness_copied = bool(plugin) and os.path.exists(os.path.join(plugin, "scripts", "ablation"))
+with open(os.path.join(run_dir, "stub-dump.json"), "w") as fh:
+    json.dump({"argv": argv, "env": sorted(os.environ), "plugin_parts": parts,
+               "harness_copied": harness_copied}, fh)
+with open(os.environ["ABLATION_STUB_SCRIPT"]) as fh:
+    steps = json.load(fh)
+
+n = 0
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def call(command):
+    """The assistant turn that asks for a tool call. A real session emits it
+    before the tool runs, which is what per-state attribution relies on."""
+    global n
+    n += 1
+    emit({"type": "assistant", "message": {"id": f"msg_{n}", "usage": {
+        "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 50,
+        "cache_creation_input_tokens": 5},
+        "content": [{"type": "tool_use", "id": f"tu_{n}", "name": "Bash", "input": {"command": command}}]}})
+
+
+def result(output):
+    emit({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": f"tu_{n}", "content": output}]}})
+
+
+emit({"type": "system", "subtype": "init", "model": "stub-model"})
+finish = True
+for step in steps:
+    if "koto" in step or "koto_abs" in step:
+        args = step.get("koto") or step.get("koto_abs")
+        exe = "koto" if "koto" in step else os.environ["ABLATION_REAL_KOTO"]
+        env = dict(os.environ)
+        if "koto_abs" in step:
+            env["HOME"] = os.environ["ABLATION_KOTO_HOME"]
+        call(" ".join([exe] + args))
+        out = subprocess.run([exe] + args, capture_output=True, text=True, env=env)
+        result(out.stdout + out.stderr)
+    elif "context" in step:
+        wf, key, text = step["context"]
+        call(f"koto context add {wf} {key}")
+        out = subprocess.run(["koto", "context", "add", wf, key], input=text, capture_output=True, text=True)
+        result(out.stdout + out.stderr)
+    elif "echo" in step:
+        call("cat notes.txt")
+        result(step["echo"])
+    elif "read_plugin" in step:
+        if not plugin:
+            call(f"cat {step['read_plugin']}")
+            result("cat: no such file")
+            continue
+        path = os.path.join(plugin, step["read_plugin"])
+        call(f"cat {path}")
+        with open(path) as fh:
+            result(fh.read())
+    elif "touch" in step:
+        call(f"touch {step['touch']}")
+        with open(step["touch"], "w") as fh:
+            fh.write("tampered\n")
+        result("")
+    elif "sleep" in step:
+        time.sleep(step["sleep"])
+    elif step.get("no_result"):
+        finish = False
+
+if finish:
+    emit({"type": "result", "subtype": "success", "usage": {
+        "input_tokens": 100 * n, "output_tokens": 10 * n, "cache_read_input_tokens": 50 * n,
+        "cache_creation_input_tokens": 5 * n},
+        "modelUsage": {"stub-model": {"inputTokens": 100 * n, "outputTokens": 10 * n, "costUSD": 0.001 * n}},
+        "total_cost_usd": 0.001 * n})
