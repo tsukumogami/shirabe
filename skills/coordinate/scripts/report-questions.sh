@@ -57,8 +57,9 @@
 #   unreadable  the report can't be read, names no dispatch topic, or is a
 #               coordinator's escalation that doesn't hash to its digest or
 #               has no question or options, or a report from a coordinator
-#               holding that ends in a digest line but doesn't start with the
-#               fixed line as rendered. It goes to the human (surface):
+#               holding that carries a digest line or the fixed answer line
+#               (quoted or not) but isn't an escalation exactly as rendered,
+#               first line to digest. It goes to the human (surface):
 #               an escalation altered in transit can be neither trusted nor
 #               bounced back as a worker's rebrief
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
@@ -145,15 +146,17 @@ write_list() {
 
 FIRST=$(head -1 "$T/report" | tr -d '\r')
 if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
-    # A report that ends in a digest line is an escalation whatever its first
-    # line says. One whose fixed first line was lost or rewritten on the way
-    # (a greeting prepended, CRLF line ends) is unreadable, never read on as
-    # a worker's question with the digest unchecked.
+    # A report holding a digest line or the fixed answer line anywhere, quoted
+    # or not, is an escalation whatever else it says. One that isn't exactly as
+    # rendered (a line put before or after it, CRLF line ends, a quoted relay)
+    # is unreadable, never read on as a worker's question with the digest
+    # unchecked. LAST is also the line the escalation branch checks the digest
+    # against, so it is read here, once.
     LAST=$(awk 'NF { l = $0 } END { print l }' "$T/report")
-    case "$LAST" in
-        Digest:\ *) [[ $FIRST =~ $RE_ESC ]] && [[ $LAST != *$'\r' ]] \
-            || { echo "$PROG: the report ends in a digest but isn't an escalation as rendered" >&2; verdict unreadable; } ;;
-    esac
+    if grep -qaE '^(> ?)*(Digest: [0-9a-f]{64}|Answer naming decision [1-9][0-9]* round [1-9][0-9]* )' "$T/report"; then
+        [[ $FIRST =~ $RE_ESC ]] && case "$LAST" in Digest:\ *) true ;; *) false ;; esac \
+            || { echo "$PROG: the report carries an escalation that isn't as rendered" >&2; verdict unreadable; }
+    fi
     if [[ $FIRST =~ $RE_ESC ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}
         SRC="coordinator $TOPIC #$N round $R"
