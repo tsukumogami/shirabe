@@ -259,7 +259,14 @@ bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write
 seed_rm; db '.issues[0].body = $b' --arg b "$OLDD"
 render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d | .decisions.entries[1].question = "Which cache backend?"')" issue > "$T/editdec.md"
 bash "$WR" "${RM[@]}" --body-file "$T/editdec.md" >/dev/null 2>"$T/err"; eq "a write that edits an entry is refused" 65 $?
-DECPRIV=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does acme/secret ship first?"')
+DECPROSE=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does the and/or rule hold for CI/CD, n/a elsewhere, and acme/secret?"')
+seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue)"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue > "$T/prose.md"
+reset_calls
+bash "$WR" "${RM[@]}" --body-file "$T/prose.md" >/dev/null 2>"$T/err"
+eq "a word/word in a Decisions question is prose, not a repository" 0 "$?"
+calls | grep -Eq 'repos/(and/or|CI/CD|n/a|acme/secret)' && bad "prose makes no repository read" "$(calls | grep repos/)" || ok "prose makes no repository read"
+DECPRIV=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does acme/secret#3 ship first?"')
 seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue)"
 render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue > "$T/privdec.md"
 bash "$WR" "${RM[@]}" --body-file "$T/privdec.md" >/dev/null 2>"$T/err"; rc=$?
@@ -274,5 +281,8 @@ bash "$WR" "${RM[@]}" --body-file "$T/big.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a body over the 60,000-byte budget is refused as record-full" 13 "$rc"
 grep -q 'record-full' "$T/err" && ok "the refusal says record-full" || bad "the refusal says record-full" "$(cat "$T/err")"
 eq "and nothing is written" "$OLD" "$(body7)"
+{ cat "$T/big.md"; head -c 70000 /dev/zero | tr '\0' 'y'; } > "$T/huge.md"
+bash "$WR" "${RM[@]}" --body-file "$T/huge.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a body past the parser's own limit is record-full too, not a parse refusal" 13 "$rc"
 
 done_tests record-write

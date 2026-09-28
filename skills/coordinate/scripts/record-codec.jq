@@ -157,7 +157,7 @@ def d_text_cols: ["question", "options", "recommendation", "reason", "context",
   "problem", "evidence", "outcome", "decided_by"];
 # A stamp names the run (the UTC stamp in the session's name) and the visit
 # that caused a write, so no run's write is mistaken for another's.
-def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect) [1-9][0-9]*(\\.[1-9][0-9]*)?\\]";
+def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect|ask) [1-9][0-9]*(\\.[1-9][0-9]*)?\\]";
 
 def enc_d: enc | gsub("@"; "&#64;");
 def dec_d: gsub("&#64;"; "@") | dec;
@@ -185,8 +185,8 @@ def check_dcell($key; $private):
   | if ($v != "") and any(d_text_cols[]; . == $key) then
       ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
       | if $hit != null then refuse("decisions.\($key): names \($hit), a repository that isn't public")
-        elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/|~/)")) then refuse("decisions.\($key): a home-directory path")
-        elif ($v | test("(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then refuse("decisions.\($key): a token-shaped string")
+        elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then refuse("decisions.\($key): a home-directory path")
+        elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then refuse("decisions.\($key): a token-shaped string")
         else . end
     else . end;
 
@@ -212,9 +212,6 @@ def escalation_problems($target):
       (if ($e.grounds | blank) then "no ground" else empty end),
       (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ];
 
-# compact_settled: a settled entry that owes nothing keeps only its identity,
-# its question, its outcome and who decided. `Next decision` keeps its
-# identifier from being reused.
 # The stamps an entry carries, by position: the one ending its Source, and the
 # one after each Evidence line's source. A stamp-like string inside a line's
 # text is not a stamp. Each is {run, kind, seq, text}; text is the Evidence
@@ -229,12 +226,22 @@ def d_stamps:
 # it, and record-decision.sh --open-from-report writes the mark.
 def d_addressed_mark: "addressed to a person";
 
+# compact_settled: a settled entry that owes nothing keeps its identity, round,
+# question, options, source, outcome, who decided, when, and its redirect
+# lines; every other cell is blanked. `Next decision` keeps its identifier from
+# being reused.
 def compact_settled:
   if .state == "settled" and (.owed // "") == "" then
     . as $e | reduce (decisions_cols[] | .[0]) as $k ({}; .[$k] = "")
     | .decision = $e.decision | .round = $e.round | .question = $e.question
+    | .options = $e.options
     | .state = "settled" | .source = $e.source | .outcome = $e.outcome
     | .decided_by = $e.decided_by | .updated = $e.updated
+    # Options stay because evidence can reopen a settled entry, which then
+    # needs them to be escalated again; a redirect line stays because losing it
+    # would owe the report's redirect a second time.
+    | .evidence = ([($e.evidence // "") | split("\n")[]
+        | select(test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))] | join("\n"))
   else . end;
 
 def check_drow($private):
