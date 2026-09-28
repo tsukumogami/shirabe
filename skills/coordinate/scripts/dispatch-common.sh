@@ -90,7 +90,8 @@
 #
 #   dc_record_write <session> <topic> <row-file>
 #       Adds or replaces the topic's holding row whole. Returns the writer's
-#       code: 0 written, 10 refused, 65 row refused, 2 otherwise. The
+#       code: 0 written, 10 refused, 13 the record is full (record-full), 65
+#       row refused, 2 otherwise. The
 #       writer's 12 (the record changed under it) is retried up to
 #       three times, then reads as a failed write.
 #
@@ -345,7 +346,7 @@ dc_record_write() {
         [ "$tries" -lt 3 ] || break
     done
     case "$rc" in
-        0 | 10 | 65) return "$rc" ;;
+        0 | 10 | 13 | 65) return "$rc" ;;
         *) return 2 ;;
     esac
 }

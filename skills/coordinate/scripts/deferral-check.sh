@@ -16,6 +16,10 @@
 #                         docs/disciplines/<name>.md on the host's default
 #                         branch (absent: none) that the record doesn't carry,
 #                         by its Deferral text, with a disposition
+#   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
+#                         blocks this dispatch (the DESIGN's blocking table):
+#                         before the run's first dispatch any owed rule, after
+#                         it an unrecorded write or an owed message
 #   duplicate-topic <topic>
 #                         the pick dispatches (dispatch or scope_ahead) a
 #                         topic a Holdings row already names as its Worker:
@@ -294,6 +298,14 @@ OPEN=$(jq -s -c 'unique_by(.deferral + "\u0000" + .why)' "$T/open.jsonl")
 COUNT=$(printf '%s' "$OPEN" | jq 'map(.deferral) | unique | length')
 if [ "$COUNT" -gt 0 ]; then
     REASON="$COUNT deferral(s) open"; finish "deferral-open $COUNT"
+fi
+
+# Owed decision work, by the one owed predicate: before the run's first
+# dispatch every owed rule blocks it, after it only an unrecorded write and an
+# owed message do. A held entry, and an escalation that owes nothing, never do.
+OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch) || lib_die2 "cannot read what the decisions are owed"
+if [ "$OWED_RULE" != none ]; then
+    REASON="decision work is owed first: $OWED_RULE"; finish "decision-owed $OWED_RULE"
 fi
 
 jq '.holdings' "$T/parsed.json" > "$T/holdings.json"

@@ -27,6 +27,15 @@
 #  10. two silent quiet checks reach failure and no teardown;
 #  11. land is unreachable until a verified head is recorded, and a moved head
 #      is refused at land.
+#  12. a restart takes over every decision entry before its first dispatch:
+#      the unsent escalation rendered once, the proposed one taken up, the
+#      unjudged one judged, a sent escalation and a held entry left alone;
+#  13. an answer that reverses a supplied decision passes decision_apply as a
+#      reversal, and record confirms the Reversals row;
+#  14. a close with every feature done and an escalation still out reaches
+#      roadmap_blocked, then wait;
+#  15. escalate_send to a person, both routes: the question tool's answer comes
+#      back from escalate_send, a message's from wait, each to decision_answer.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -377,7 +386,9 @@ J=$(koto template compile "$TPL" 2>/dev/null)
 if [ -n "$J" ] && [ -r "$J" ]; then
     EVENTS=$(jq -r '.states.wait.accepts.event.values[]' "$J")
     [ -n "$EVENTS" ] || bad "9: wait accepts an event enum" "none in the compiled template"
-    n=90
+    # Record numbers from 901 up, one per event, clear of every other case's
+    # record however many events wait accepts.
+    n=900
     for ev in $EVENTS; do
         n=$((n + 1))
         # The expected spoke: the arm for this value, and for a `vars.` guard
@@ -389,7 +400,10 @@ if [ -n "$J" ] && [ -r "$J" ]; then
             bad "9: reach wait for $ev" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"; continue
         fi
         SEQ=$(jq -s 'map(.seq) | max' "$(logf)")
-        R=$(tick --with-data "$(jq -nc --arg e "$ev" '{event: $e, unit: "feat-1"}')")
+        # answer and evidence name their decision (and an answer its round):
+        # wait's arms for them need the fields present.
+        R=$(tick --with-data "$(jq -nc --arg e "$ev" '{event: $e, unit: "feat-1"}
+            + (if $e == "answer" then {decision: "1", round: "1"} elif $e == "evidence" then {decision: "1"} else {} end)')")
         GOT=$(jq -r --argjson q "$SEQ" 'select(.seq > $q and .type == "transitioned" and .payload.from == "wait") | .payload.to' "$(logf)" | head -1)
         TE=$( { printf '%s\n' "$R"; cat "$T/tick.err"; jq -c --argjson q "$SEQ" 'select(.seq > $q)' "$(logf)"; } | grep -c 'template_error')
         if [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] && [ "$TE" = 0 ]; then
@@ -480,6 +494,133 @@ else
     bad "11: reach verified_confirm for the moved head" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+
+# ---- 12 to 15. the decision loop ----------------------------------------------
+# dent <n> <state> [jq object to merge]: one Decisions entry. The escalation
+# fields go through --arg: bash 3.2 misreads escaped quotes nested in "$(...)".
+dent() {
+    local extra=${3-}
+    [ -n "$extra" ] || extra='{}'
+    jq -nc --arg n "$1" --arg s "$2" --argjson x "$extra" '{decision: $n, round: "0", question: "Ship the loader first?",
+        options: "ship -- the loader is ready\nwait -- the registry needs it", state: $s,
+        source: "self [20260925T080000Z raise \($n)]", updated: "2026-09-26T07:00Z"} + $x'
+}
+ESCF='{"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "the registry lands Friday", "context": "The loader is done.", "problem": "The registry depends on it.", "grounds": "scope", "target": "a person"}'
+SENT=$(jq -nc --argjson e "$ESCF" '$e + {asked: "2026-09-26T07:30Z"}')
+UNSENT=$(jq -nc --argjson e "$ESCF" '$e + {owed: "escalation"}')
+with_decisions() { # with_decisions <name> <entries-json>
+    record_json roadmap "$1" | jq -c --argjson e "$2" '.decisions = {next: 20, entries: $e}'
+}
+# to_reconciled <name> <record-json> <number>: open a run and tick past
+# reconcile; sets S and REACHED, the state it lands on. Never called in $(...),
+# which would keep S from the caller.
+to_reconciled() {
+    REACHED=
+    seed_roadmap "$1"; seed_record "$1" "$3" "$2"
+    open_run "$1" || return 1
+    [ "$(at)" = reconcile ] || return 1
+    REACHED=$(at --with-data '{"reconciled":"reported"}')
+}
+entry_of() { live_body "$1" | jq -c --arg d "$2" '.decisions.entries[] | select(.decision == $d)'; }
+
+echo "== 12. a restart takes over every entry before its first dispatch =="
+E12=$(jq -nc --argjson a "$(dent 1 proposed)" --argjson b "$(dent 2 coordinator-verdict)" \
+    --argjson c "$(dent 3 escalated "$SENT")" --argjson d "$(dent 4 coordinator-verdict '{"verdict": "hold", "reason": "waits on the benchmark"}')" \
+    --argjson e "$(dent 5 escalated "$UNSENT")" '[$a, $b, $c, $d, $e]')
+to_reconciled takeover "$(with_decisions takeover "$E12")" 120
+if [ "$REACHED" = escalate_send ]; then
+    ok "12: the unsent escalation is rendered first, before any dispatch"
+    eq "12: the render names entry 5" "message escalation 5 1" "$(bash "$PS/coord-log.sh" capture --session "$S" --name ESCALATE_MESSAGE | cut -d' ' -f1-4)"
+    write_as_agent record-decision.sh --sent --route message
+    eq "12: --sent (agent-run) marks it" 0 $?
+    eq "12: then the proposed entry is taken up" decision_take "$(at --with-data '{"sent":"sent"}')"
+    write_as_agent record-decision.sh --take
+    eq "12: then the unjudged one is routed for a verdict" decision_verdict "$(at --with-data '{"taken":"taken"}')"
+    eq "12: its entry is in coord/decision.json" 1 "$(koto context get "$S" coord/decision.json | jq -r .decision)"
+    write_as_agent record-decision.sh --settle --outcome ship --reason "the loader is ready"
+    eq "12: then entry 2" decision_verdict "$(at --with-data '{"verdict":"settle","rationale":"ready"}')"
+    write_as_agent record-decision.sh --settle --outcome wait --reason "the registry needs it"
+    eq "12: with nothing owed the run reaches pick" pick "$(at --with-data '{"verdict":"settle","rationale":"needed"}')"
+    eq "12: the escalation was rendered once" 1 "$(entered escalate)"
+    eq "12: nothing was dispatched first" 0 "$(entered dispatch_check)"
+    eq "12: the sent escalation and the held entry are left alone" "escalated 2026-09-26T07:30Z|coordinator-verdict hold" \
+        "$(entry_of 120 3 | jq -r '"\(.state) \(.asked)"')|$(entry_of 120 4 | jq -r '"\(.state) \(.verdict)"')"
+else
+    bad "12: reach escalate_send" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+echo "== 13. an answer that reverses a supplied decision is a reversal =="
+E13=$(jq -nc --argjson a "$(dent 1 escalated "$SENT")" '[$a | .source = "dispatcher [20260925T080000Z raise 1]"]')
+to_reconciled reversal "$(with_decisions reversal "$E13")" 130
+if [ "$REACHED" = pick ] \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "13: the answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
+    write_as_agent record-decision.sh --answer --outcome ship
+    eq "13: --answer (agent-run) settles the entry" "settled|ship; reason: the loader is ready|a person" \
+        "$(entry_of 130 1 | jq -r '"\(.state)|\(.outcome)|\(.decided_by)"')"
+    eq "13: a reversal goes to decision_apply" decision_apply "$(at --with-data '{"answered":"reversal"}')"
+    # The evidence comes first: record waits until the record is written after it.
+    eq "13: the reversal holds at record until the record is written" record "$(at --with-data '{"change":"reversal"}')"
+    sleep 1
+    live_body 130 | jq -c '.reversals += [{date: $d, reversed: "wait for the registry", now: "ship the loader first", reason: "the answer to decision 1", from: "a person"}]' \
+        --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" > "$T/rev.json"
+    # Edited from the live body, so it carries the live written time.
+    jq 'del(.written)' "$T/rev.json" > "$T/rev.next.json"
+    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rev.json")" "$T/rev.next.json" > "$T/rev.md"
+    write_as_agent record-write.sh --body-file "$T/rev.md"
+    eq "13: record-write.sh (agent-run) adds the Reversals row" 0 $?
+    # The entry came from the dispatcher, so its settle owes it a reply, which
+    # the loop renders before it goes on.
+    eq "13: record confirms the Reversals row, and the reply to the dispatcher is rendered" decision_reply_send "$(at)"
+    write_as_agent record-decision.sh --sent
+    eq "13: with the reply sent the run goes on" pick "$(at --with-data '{"sent":"sent"}')"
+    eq "13: the Reversals row is on the record" 1 "$(live_body 130 | jq '.reversals | length')"
+else
+    bad "13: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+echo "== 14. a close with an escalation still out reports it and waits =="
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-closing.md"] = $t' --arg t "$(roadmap_text Active | sed 's/\*\*Status:\*\* Planned/**Status:** Done/')"
+seed_record closing 140 "$(with_decisions closing "$(jq -nc --argjson a "$(dent 1 escalated "$SENT")" '[$a]')")"
+if open_run closing && [ "$(at)" = reconcile ]; then
+    eq "14: every feature done and an escalation sent reaches roadmap_blocked" roadmap_blocked "$(at --with-data '{"reconciled":"reported"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name ROADMAP_CLOSE)" in
+        "decisions "*) ok "14: the close is blocked on decisions" ;; *) bad "14: the close is blocked on decisions" ;;
+    esac
+    eq "14: noted returns to wait, where the answer arrives" wait "$(at --with-data '{"noted":"noted"}')"
+else
+    bad "14: reach reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+echo "== 15. escalate_send's two routes to a person =="
+for route in tool message; do
+    n=$([ "$route" = tool ] && echo 150 || echo 151)
+    to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(dent 1 escalated "$UNSENT")" '[$a]')")" "$n"
+    if [ "$REACHED" = escalate_send ]; then
+        write_as_agent record-decision.sh --sent --route "$route"
+        case "$(entry_of "$n" 1 | jq -r .evidence)" in
+            *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of "$n" 1)" ;;
+        esac
+        if [ "$route" = tool ]; then
+            eq "15 tool: the answer comes back from escalate_send" decision_answer "$(at --with-data '{"sent":"answered","decision":"1","round":"1"}')"
+        else
+            eq "15 message: sent goes on, and nothing is owed" pick "$(at --with-data '{"sent":"sent"}')"
+            eq "15 message: the loop goes on to wait" wait "$(at --with-data '{"choice":"hold"}')"
+            eq "15 message: an answer naming no round doesn't leave wait" wait "$(at --with-data '{"event":"answer","decision":"1"}')"
+            eq "15 message: the answer comes back from wait" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
+        fi
+        write_as_agent record-decision.sh --answer --outcome wait
+        eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of "$n" 1 | jq -r '"\(.state) \(.decided_by)"')"
+        eq "15 $route: recorded goes back through decision_next to pick" pick "$(at --with-data '{"answered":"recorded"}')"
+        if [ "$route" = message ]; then
+            # A later answer naming nothing isn't carried by the earlier visit's fields.
+            eq "15 message: back at wait" wait "$(at --with-data '{"choice":"hold"}')"
+            eq "15 message: a later answer naming no decision doesn't leave wait" wait "$(at --with-data '{"event":"answer"}')"
+        fi
+    else
+        bad "15 $route: reach escalate_send" "$(cat "$T/open.err" "$T/tick.err" "$T/w.err" 2>/dev/null)"
+    fi
+done
 
 echo
 echo "coordinate_engine: $PASS passed, $FAIL failed"

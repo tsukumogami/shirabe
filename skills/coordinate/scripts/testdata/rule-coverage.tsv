@@ -74,7 +74,7 @@ C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of {{CAP}} 
 C63	skills/coordinate/koto-templates/coordinate.md	pick	When {{PARKED_BOUND}} or more workers are parked
 C64	skills/coordinate/SKILL.md	-	**Inside your scope, dispatch without asking.**
 C65	skills/coordinate/SKILL.md	-	**A decision is the human's when it does any of these:**
-C66	skills/coordinate/SKILL.md	-	Ask each such
+C66	skills/coordinate/SKILL.md	-	decision is escalated once, as a decision entry	changed: asked through an escalated decision entry, rendered by the workflow
 C68	skills/coordinate/references/loop.md	-	## More Worked Examples
 C69	skills/coordinate/koto-templates/coordinate.md	dispatch	Write the worker's brief from `references/brief-template.md`
 C70	skills/coordinate/koto-templates/coordinate.md	dispatch	A worker's goal is the
@@ -199,3 +199,20 @@ C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
 C190	skills/coordinate/SKILL.md	-	**The coordinator's record has no merge order
 C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: asked
 C98	skills/coordinate/koto-templates/coordinate.md	classify_report	a premise found to be wrong is a
+# The decision flow's rules (D1..D16), added with it; same columns.
+D1	skills/coordinate/SKILL.md	-	scripts/record-decision.sh` is the only thing that
+D2	skills/coordinate/koto-templates/coordinate.md	report_questions	Reading the report's questions.
+D3	skills/coordinate/koto-templates/coordinate.md	decision_verdict	question isn't obviously answerable
+D4	skills/coordinate/koto-templates/coordinate.md	decision_verdict	a fact you can find is missing
+D5	skills/coordinate/koto-templates/coordinate.md	decision_verdict	Evidence clears any verdict
+D6	skills/coordinate/SKILL.md	-	One entry is escalated at a time
+D7	skills/coordinate/koto-templates/coordinate.md	escalate_send	Send exactly what was rendered
+D8	skills/coordinate/koto-templates/coordinate.md	escalate_send	only when the turn you are in was started by a message
+D9	skills/coordinate/koto-templates/coordinate.md	escalate_send	and keep coordinating.
+D10	skills/coordinate/koto-templates/coordinate.md	escalate_send	The answer comes back the same way on both
+D11	skills/coordinate/koto-templates/coordinate.md	surface_check	A decision never travels as a need
+D12	skills/coordinate/SKILL.md	-	never a free-text section
+D13	skills/coordinate/scripts/render-brief.sh	-	Your questions go to the coordinator
+D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it by hand
+D15	skills/coordinate/SKILL.md	-	nothing blocks `wait`
+D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry

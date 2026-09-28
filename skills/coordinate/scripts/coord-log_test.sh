@@ -33,6 +33,7 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     eq "$L: vars" roadmap "$(bash "$CL" vars --session "$S" | jq -r .SCOPE)"
     bash "$CL" entered --session "$S" --state record_find; eq "$L: entered finds a visited state" 0 $?
     bash "$CL" entered --session "$S" --state dispatch; eq "$L: entered reports an unvisited state" 1 $?
+    eq "$L: current is the latest transition's target and its sequence" "reconcile 5" "$(bash "$CL" current --session "$S")"
     bash "$CV" --session "$S" --state record_find --capture "$CAP1"; eq "$L: coord-verdict maps found to 10" 10 $?
     bash "$CV" --session "$S" --state record_find --capture "found 8 ${CAP1#found 7 }" 2>/dev/null; eq "$L: an edited token is refused" 1 $?
     bash "$CV" --session "$S" --state record_find --capture "found 7" 2>/dev/null; eq "$L: an unsealed token is refused" 1 $?

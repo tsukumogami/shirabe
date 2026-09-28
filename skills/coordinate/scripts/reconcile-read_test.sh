@@ -370,6 +370,39 @@ else
     capture --scope roadmap --name plugin --repo $R --ref 40
     expect "the real parser: a record for another roadmap is unreadable" '.status == "unreadable"' 4
 
+    # A record carrying a Decisions section: read whole when canonical, and
+    # salvaged row by row when not, with a Decisions section it can't read set
+    # aside as one item.
+    DEC_E='{"decision":"1","round":"0","question":"Ship first?","options":"ship -- now\nwait -- later","state":"proposed","source":"self [20260926T080000Z raise 3]","updated":"2026-09-26T07:00Z"}'
+    new_case real-decisions
+    printf '%s' "$ROADMAP_JSON" | jq --argjson e "$DEC_E" 'del(.written) | .decisions = {next: 2, entries: [$e]}' \
+        | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a record with a Decisions section is read" '.status == "found" and (.holdings | length) == 1 and .unparseable == []'
+    expect "a proposed entry isn't among the decisions the report shows a person" '.decisions == []'
+    RDB="$T/real-decisions-body.md"; cp "$CASE/body.md" "$RDB"
+    new_case real-decisions-escalated
+    DEC_X=$(jq -nc --argjson e "$DEC_E" '$e + {round: "1", state: "escalated", verdict: "escalate", recommendation: "wait", reason: "r", context: "c", problem: "p", grounds: "scope", target: "a person"}')
+    printf '%s' "$ROADMAP_JSON" | jq --argjson e "$DEC_X" 'del(.written) | .decisions = {next: 2, entries: [$e]}' \
+        | bash "$C/record-render.sh" --written 2026-09-26T12:00:00Z > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "an escalated entry is carried with its question, recommendation, reason and target" \
+        '.decisions == [{"decision":"1","question":"Ship first?","recommendation":"wait","reason":"r","target":"a person"}]'
+    new_case real-decisions-bad-row
+    sed 's/plugin-registry/plugin-registry (hand edit)/' "$RDB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a record with a Decisions section and one bad row is salvaged, not unreadable" \
+        '.status == "found" and (.holdings | length) == 0 and (.deferrals | length) == 1 and (.unparseable | length) == 1 and (.unparseable[0].raw | test("hand edit"))'
+    new_case real-decisions-bad-decision
+    sed 's/| proposed |/| maybe |/' "$RDB" > "$CASE/body.md"
+    serve issue-view 1 "$(body "$CASE/body.md")"
+    capture $ROADMAP_ARGS
+    expect "the real parser: a Decisions section it can't read is one unparseable item; every other row is read" \
+        '.status == "found" and (.holdings | length) == 1 and (.deferrals | length) == 1 and (.unparseable | any(.raw == "## Decisions"))'
+
     new_case real-discipline
     printf '%s' "$DISC_JSON" | jq 'del(.written)' | bash "$C/record-render.sh" --container pr --written 2026-09-26T12:00:00Z > "$CASE/body.md"
     printf '%s' "$HANDOFF_JSON" | bash "$C/record-render.sh" --format handoff > "$CASE/handoff.md"
@@ -395,6 +428,21 @@ else
     expect "the real parser: a handoff with an empty reasoning section is read, reasoning not recorded" \
         '.status == "found" and .reasoning == "not_recorded"'
     [ -e "$CASE/reasoning.txt" ] && bad "the real parser: nothing is written for an empty reasoning" || ok "the real parser: nothing is written for an empty reasoning"
+    # A handoff carrying unsettled decisions, canonical and with one bad row.
+    printf '%s' "$HANDOFF_JSON" | jq --argjson e "$DEC_E" '.decisions = {next: 2, entries: [$e]}' \
+        | bash "$C/record-render.sh" --format handoff > "$DB.handoff-d"
+    new_case real-handoff-decisions
+    cp "$DB.handoff-d" "$CASE/handoff.out.1"
+    serve pr-view 1 "$(body "$DB")"; serve repo 1 '{"default_branch":"main"}'
+    capture $DISC_ARGS --reasoning-out "$CASE/reasoning.txt"
+    expect "the real parser: a handoff with a Decisions section is read, reasoning included" \
+        '.status == "found" and .reasoning == "present" and ([.holdings[].source] == ["record", "handoff"]) and .unparseable == []'
+    new_case real-handoff-decisions-bad-row
+    sed 's/flaky-fix/flaky-fix (hand edit)/' "$DB.handoff-d" > "$CASE/handoff.out.1"
+    serve pr-view 1 "$(body "$DB")"; serve repo 1 '{"default_branch":"main"}'
+    capture $DISC_ARGS --reasoning-out "$CASE/reasoning.txt"
+    expect "the real parser: a handoff with a Decisions section and one bad row is salvaged" \
+        '.status == "found" and .reasoning == "present" and ([.holdings[].source] == ["record"]) and (.unparseable | any(.raw | test("hand edit")))'
     handoff_case "s/^The flaky job is timing\\.\$/The outgoing rotation's reasoning was not recorded./"
     expect "the real parser: the fixed sentence without its copy line is not recorded" '.status == "found" and .reasoning == "not_recorded"'
     [ -e "$CASE/reasoning.txt" ] && bad "the real parser: the fixed sentence is never written as reasoning" "$(cat "$CASE/reasoning.txt")" || ok "the real parser: the fixed sentence is never written as reasoning"
