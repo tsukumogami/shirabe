@@ -6,8 +6,11 @@ set -euo pipefail
 #
 # A directive is text the agent reads and acts on: a SKILL.md, a koto template,
 # a reference or phase file under skills/ or references/, a
-# .claude/shirabe-extensions/*.md file every SKILL.md pulls in with `@`, and
-# the repository's CLAUDE.md and AGENTS.md. When one says to run
+# .claude/shirabe-extensions/*.md file a SKILL.md pulls in with `@`, and the
+# repository's CLAUDE.md and AGENTS.md. Every tracked `.md` in the extensions
+# directory is scanned, its README included, since which ones are imported is
+# up to each SKILL.md; the untracked `*.local.md` overrides are not in the
+# tree, so they are not scanned. When one says to run
 # `bash {{PLUGIN_ROOT}}/skills/x/scripts/y.sh args`, a Claude Code session
 # isolated in a worktree refuses the command line: it cannot show what a script
 # handed to `bash` does with git, so it will not let the call through. The same
@@ -50,6 +53,10 @@ set -euo pipefail
 #                     preflight and nothing says so. `.gitattributes` pins
 #                     `*.sh` to LF, which keeps a CRLF host from introducing
 #                     one; this rule catches a file that arrives some other way.
+#                     It reads line 1 from the work tree, not the index as the
+#                     exec-bit rule does: `eol=lf` leaves a CR already in a
+#                     committed blob in place on checkout, so the work tree
+#                     shows what a by-path call would meet.
 #   unresolved        A root-anchored path names no file in the tree. The other
 #                     two rules cannot be enforced on a file the check cannot
 #                     find, and passing it would overstate what was checked.
