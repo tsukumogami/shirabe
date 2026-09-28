@@ -109,6 +109,12 @@ for s in work-on scope deliver; do
     mkdir -p "$FIX/skills/$s/koto-templates"
     template "$s" 1.0 alpha beta > "$FIX/skills/$s/koto-templates/$s.md"
 done
+# work-on.md gets a state far larger than a pipe buffer, as the shipped
+# templates are. A reader that stops before the end of `git cat-file`'s output
+# leaves the writer to die of SIGPIPE (or, where SIGPIPE is ignored, of a
+# write error), which pipefail turns into a failed run with nothing said.
+awk 'BEGIN { print "## padding"; print ""; for (i = 0; i < 20000; i++) print "Filler line " i " that keeps the template large." }' \
+    >> "$FIX/skills/work-on/koto-templates/work-on.md"
 mkdir -p "$FIX/skills/execute/koto-templates" "$FIX/skills/other/koto-templates"
 # execute.md names its child by a relative path, as the shipped one does (in
 # its spawn state's materialize_children block; the stand-in reads a
