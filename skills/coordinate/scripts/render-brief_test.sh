@@ -106,7 +106,10 @@ questions_contract() { # questions_contract <label> <brief>
     has "$1: the channel sentence" "$2" "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation."
     has "$1: the repeat instruction" "$2" "Repeat, in each report, every question you have had no answer to"
     eq "$1: the Questions example is the shared fixture" "$(cat "$HERE/testdata/decisions/brief-questions.txt")" \
-        "$(printf '%s\n' "$2" | awk '/^```text$/ { on = 1; next } on && /^```$/ { exit } on')"
+        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { on = 1 } on && $0 == "" { exit } on')"
+    # Plain lines: a fenced example, copied, would be skipped as a code block.
+    eq "$1: the Questions example is not in a code block" "" \
+        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { print prev; exit } { prev = $0 }')"
 }
 questions_contract "channel" "$B"
 has "standing rule 1 verbatim"   "$B" "Enter a worktree before the first koto init of any run."
