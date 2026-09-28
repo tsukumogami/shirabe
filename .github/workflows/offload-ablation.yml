@@ -35,7 +35,9 @@ jobs:
         run: bash scripts/ablation/check-normal-runs-unchanged_test.sh
 
       - name: Compare with the pull request's base
-        run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}"
+        # The PR's own head, not the merge commit CI checks out: commits that
+        # landed on main meanwhile are not this PR's.
+        run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
   # No home-directory path, wip/ path, session or job identifier, private
   # repository or vendor name, or secret shape in the lines this pull request
@@ -51,7 +53,7 @@ jobs:
         run: bash scripts/ablation/check-public-content_test.sh
 
       - name: Check the added lines
-        run: scripts/ablation/check-public-content.sh --diff "${{ github.event.pull_request.base.sha }}"
+        run: scripts/ablation/check-public-content.sh --diff "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"
 
       # The body arrives through the environment, never interpolated into the
       # script, so nothing in it can run.

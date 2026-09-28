@@ -25,10 +25,10 @@
 #
 # Usage:
 #   scripts/ablation/check-public-content.sh [--denylist <file>] <file>...
-#   scripts/ablation/check-public-content.sh [--denylist <file>] --diff <base>
+#   scripts/ablation/check-public-content.sh [--denylist <file>] --diff <base> [--head <commit>]
 #
-# With --diff, only the lines HEAD adds relative to its merge base with <base>
-# are checked. With files, every line; "-" reads stdin.
+# With --diff, only the lines <head> (default HEAD) adds relative to its merge
+# base with <base> are checked. With files, every line; "-" reads stdin.
 #
 # Exit codes:
 #   0 - nothing refused
@@ -41,6 +41,7 @@ PROG=check-public-content
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 denylist="$SCRIPT_DIR/public-content-denylist.txt"
 base=""
+head="HEAD"
 files=()
 
 die() {
@@ -52,6 +53,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --denylist) [ "$#" -ge 2 ] || die "--denylist requires a file"; denylist="$2"; shift ;;
         --diff) [ "$#" -ge 2 ] || die "--diff requires a base"; base="$2"; shift ;;
+        --head) [ "$#" -ge 2 ] || die "--head requires a commit"; head="$2"; shift ;;
         -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
         --) shift; files+=("$@"); break ;;
         -) files+=("-") ;;
@@ -63,9 +65,11 @@ done
 [ -f "$denylist" ] || die "denylist not found: $denylist"
 if [ -n "$base" ]; then
     [ "${#files[@]}" -eq 0 ] || die "--diff takes no files"
-    git rev-parse --verify --quiet --end-of-options "${base}^{commit}" >/dev/null \
-        || die "not a commit: $base"
-    case "$base" in -*) die "refusing base that starts with '-': $base" ;; esac
+    for ref in "$base" "$head"; do
+        case "$ref" in -*) die "refusing a ref that starts with '-': $ref" ;; esac
+        git rev-parse --verify --quiet --end-of-options "${ref}^{commit}" >/dev/null \
+            || die "not a commit: $ref"
+    done
 else
     [ "${#files[@]}" -gt 0 ] || die "nothing to check: give files or --diff <base>"
 fi
@@ -80,7 +84,7 @@ rows="$TMP/rows"
 if [ -n "$base" ]; then
     # Three dots: against the merge base, so commits that landed on the base
     # branch after this branch forked are never read as this branch's lines.
-    git diff --unified=0 --no-color "$base"...HEAD -- . | awk '
+    git diff --unified=0 --no-color "$base"..."$head" -- . | awk '
         /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
         /^@@ / { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
         /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }

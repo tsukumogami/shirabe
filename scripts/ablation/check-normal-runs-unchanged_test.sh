@@ -86,6 +86,23 @@ case "$STATUS:$ERR" in
 esac
 reset_to_base
 
+# The base branch moves on after the change forked: its commits are not the
+# change's own.
+g checkout -q -b change "$BASE"
+printf 'harness only\n' >> "$FIX/scripts/tool.sh"
+g commit -q -am "the change"
+HEAD_SHA=$(g rev-parse HEAD)
+g checkout -q main
+commit_change skills/work-on/SKILL.md
+MOVED=$(g rev-parse HEAD)
+run "$MOVED" "$HEAD_SHA"
+if [ "$STATUS" -eq 0 ]; then
+    pass "a manifest change that landed on the base after the fork is not the change's"
+else
+    fail "a manifest change that landed on the base after the fork is not the change's" "status $STATUS: $ERR"
+fi
+reset_to_base
+
 run -rf
 case "$STATUS:$ERR" in
     2:*"starts with '-'"*) pass "a base starting with - is refused" ;;

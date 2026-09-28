@@ -6,14 +6,17 @@
 # copies of the plugin. Nothing a normal run of a shipped skill loads may
 # change. This script checks that mechanically: every path the offload
 # baseline's load manifest lists, and every koto template under
-# skills/*/koto-templates/ (at HEAD or at the base), must be identical between
-# <base> and HEAD.
+# skills/*/koto-templates/ (at <head> or at the base), must be identical
+# between the merge base of <base> and <head>, and <head>.
 #
 # Usage:
-#   scripts/ablation/check-normal-runs-unchanged.sh <base>
+#   scripts/ablation/check-normal-runs-unchanged.sh <base> [<head>]
 #
-# <base> is any commit-ish (for CI, the pull request's base sha). The manifest
-# is read from HEAD; set ABLATION_MANIFEST to point it elsewhere (tests do).
+# <base> is any commit-ish (for CI, the pull request's base sha) and <head>
+# defaults to HEAD. Comparing from the merge base means commits that landed on
+# the base branch after the change forked are never counted as the change's
+# own. The manifest is read from the working tree; set ABLATION_MANIFEST to
+# point it elsewhere (tests do).
 #
 # Exit codes:
 #   0 - nothing a normal run loads differs from <base>
@@ -29,13 +32,17 @@ die() {
     exit 2
 }
 
-[ "$#" -eq 1 ] || die "usage: $0 <base>"
+[ "$#" -eq 1 ] || [ "$#" -eq 2 ] || die "usage: $0 <base> [<head>]"
 base="$1"
-case "$base" in
-    ""|-*) die "refusing base that is empty or starts with '-': $base" ;;
-esac
-git rev-parse --verify --quiet --end-of-options "${base}^{commit}" >/dev/null \
-    || die "not a commit: $base"
+head="${2:-HEAD}"
+for ref in "$base" "$head"; do
+    case "$ref" in
+        ""|-*) die "refusing base that is empty or starts with '-': $ref" ;;
+    esac
+    git rev-parse --verify --quiet --end-of-options "${ref}^{commit}" >/dev/null \
+        || die "not a commit: $ref"
+done
+fork=$(git merge-base "$base" "$head") || die "no merge base between $base and $head"
 
 repo_root=$(git rev-parse --show-toplevel)
 manifest="${ABLATION_MANIFEST:-$repo_root/docs/measurement/offload-baseline/load-manifest.tsv}"
@@ -54,13 +61,13 @@ awk -F '\t' '
 # Every koto template, at HEAD and at the base, so a template added or
 # removed on either side is compared too.
 {
-    git ls-tree -r --name-only HEAD -- skills
-    git ls-tree -r --name-only "$base" -- skills
+    git ls-tree -r --name-only "$head" -- skills
+    git ls-tree -r --name-only "$fork" -- skills
 } | grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' >> "$list" || true
 
 changed=0
 while IFS= read -r path; do
-    if ! git diff --quiet "$base" HEAD -- "$path"; then
+    if ! git diff --quiet "$fork" "$head" -- "$path"; then
         echo "$PROG: $path differs from $base" >&2
         changed=1
     fi
