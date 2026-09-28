@@ -9,7 +9,6 @@ source commit, so a CI checkout needs fetch-depth 0.
 Usage: python3 scripts/ablation/ablation_test.py [-v]
 """
 
-import copy
 import json
 import os
 import shutil
@@ -19,6 +18,7 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 import ablation  # noqa: E402
 

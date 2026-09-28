@@ -107,7 +107,7 @@ patterns=(
     'home-directory path|(/home|/Users)/[A-Za-z0-9._-]+/|~/\.[A-Za-z]'
     'wip/ path|(^|[^A-Za-z0-9_])wip/[A-Za-z0-9_][A-Za-z0-9_.-]*'
     'uuid-shaped identifier|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-    'instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|/)jobs/[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9])session_[A-Za-z0-9]{8,}'
+    'instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|/)jobs/[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9])session_[0-9A-Z][A-Za-z0-9]{15,}'
     'hosted-session url|claude\.ai/code/session_'
     'secret shape|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 )

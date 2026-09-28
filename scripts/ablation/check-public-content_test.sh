@@ -61,7 +61,7 @@ expect_refused "a uuid" "session 3f2a9c1e""-1b2c-4d5e-8f90-a1b2c3d4e5f6 ran" "uu
 expect_refused "an instance name after +" "in repo+some_task""-0a1b2c3d" "instance or job name"
 expect_refused "a session name" "ask some_coordinator""-deadbeef now" "instance or job name"
 expect_refused "a job path" "under /jo""bs/0a1b2c3d/tmp" "instance or job name"
-expect_refused "a session id" "id session""_01AbCdEfGhIj" "instance or job name"
+expect_refused "a session id" "id session""_01AbCdEfGhIjKlMnOp" "instance or job name"
 expect_refused "a hosted-session url" "https://claude.ai/code/""session_abc" "hosted-session url"
 expect_refused "a GitHub token" "token gh""p_abcdefghijklmnopqrstuvwxyz0123" "secret shape"
 expect_refused "a private key header" "-----BEGIN OPENSSH PRIV""ATE KEY-----" "secret shape"

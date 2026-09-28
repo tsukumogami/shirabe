@@ -69,9 +69,11 @@ REASON_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 LIMIT_CAPS = {"max_turns": 80, "session_seconds": 1800, "check_seconds": 120}
 TEXT_CAP = 2048
 
-DENY_SETTINGS = {"permissions": {"deny": [
-    "Read(~/.claude/**)", "Read(~/.ssh/**)", "Read(~/.config/**)", "Read(~/.koto/**)",
-    "Read(~/.cache/**)", "Edit(~/**)", "Write(~/**)"]}}
+# Deny rules for the session's file tools under the home directory. They don't
+# bind Bash, so leak detection, not these, is the control that matters.
+HOME_DIRS = (".claude", ".ssh", ".config", ".koto", ".cache")
+DENY_SETTINGS = {"permissions": {"deny": [f"Read(~/{d}/**)" for d in HOME_DIRS] +
+                                 ["Edit(~/**)", "Write(~/**)"]}}
 
 
 class Refusal(Exception):
