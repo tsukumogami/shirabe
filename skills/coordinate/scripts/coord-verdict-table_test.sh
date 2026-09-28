@@ -3,7 +3,8 @@
 # template's arms agree.
 #
 # Proves: every check-state arm's code is in the table, and the word in the
-# arm's comment is the table's word for that code; every code in the table has
+# arm's comment is the table's word for that code; no word is in the table
+# twice; every code in the table has
 # an arm, except the two the table documents as having none here; and, for each
 # group of states the table lists together, every state has an arm for every
 # word of its group, except the pairs listed below. That last check is what
@@ -37,6 +38,7 @@ merge_confirm	not-merged
 predecessor_close	title-stale'
 
 # The table: word<TAB>code<TAB>group (the comment line above it, its state list).
+table() {
 awk '
     /^    # [a-z_]/ { g = $0; sub(/^    # /, "", g); sub(/ [(].*$/, "", g); sub(/, the .*$/, "", g); gsub(/ /, "", g); next }
     /waiting\|land-blocked/ { g = "" }
@@ -47,7 +49,9 @@ awk '
             w = m; sub(/\).*/, "", w); c = m; sub(/^[^ ]* exit /, "", c); sub(/ ;;$/, "", c)
             print w "\t" c "\t" g
         }
-    }' "$V" > "$T/table"
+    }' "$1"
+}
+table "$V" > "$T/table"
 # The arms: state<TAB>code<TAB>comment word, from the front matter only.
 awk '
     NR > 1 && /^---$/ { exit }
@@ -81,6 +85,16 @@ while IFS='	' read -r w c g; do
 done < "$T/table"
 if [ -s "$T/bad" ]; then bad "every arm, word and state group agrees with coord-verdict.sh" "$(cat "$T/bad")"
 else ok "every arm, word and state group agrees with coord-verdict.sh"; fi
+# A word listed twice: coord-verdict.sh's `case` runs the first label only, so
+# the second code could never be reached. Proved against a copy with one word
+# added again, so the check can't pass by reading nothing.
+dups() { cut -f1 "$1" | sort | uniq -d; }
+D=$(dups "$T/table")
+[ -z "$D" ] && ok "no verdict word appears twice in the table" || bad "no verdict word appears twice in the table" "$D"
+sed 's/^    reconciled) exit 140 ;;$/    reconciled) exit 140 ;; pick) exit 141 ;;/' "$V" > "$T/dup.sh"
+table "$T/dup.sh" > "$T/dup.table"
+[ "$(dups "$T/dup.table")" = pick ] && ok "the duplicate check catches a word listed twice" \
+    || bad "the duplicate check catches a word listed twice" "$(dups "$T/dup.table")"
 grep -q 'waiting|land-blocked)' "$V" && grep -q 'exit 4 ;;' "$V" && ok "a verdict that holds the state by design exits 4" || bad "a verdict that holds the state by design exits 4"
 grep -q 'unknown verdict word' "$V" && ok "an unknown word exits 3 and names itself" || bad "an unknown word exits 3 and names itself"
 

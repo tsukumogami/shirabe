@@ -15,6 +15,10 @@
 #   --host <owner/repo>          the record's host (discipline scope; at roadmap
 #                                scope it is the repository this runs in)
 #   --cap <n>, --parked-bound <n>, --rotation-days <n>
+#   --reports-to <topic>         the dispatch topic of the coordinator this run
+#                                reports to; without it the run reports to a
+#                                person. Fixed for the run: every escalation goes
+#                                there (REPORTS_TO)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # Values reach koto only through a vars file, mapped with jq; koto checks each
@@ -59,11 +63,11 @@ if (type != "array") or (map(type == "string") | all | not) then error("not a JS
 | .[:$cut] as $s
 | reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null};
     if .skip then .skip = false
-    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days")) then
+    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true
         | .pairs += [[({"--discipline": "DISCIPLINE", "--host": "HOST_REPO", "--cap": "CAP",
-                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS"})[$s[$i]], $s[$i + 1]]]
+                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS", "--reports-to": "REPORTS_TO"})[$s[$i]], $s[$i + 1]]]
       end
     elif ($s[$i] | startswith("--")) then .bad = "unknown option \($s[$i])"
     else .positional += [$s[$i]] end)
