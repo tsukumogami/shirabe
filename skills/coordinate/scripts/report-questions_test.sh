@@ -116,8 +116,8 @@ eq "a refused holding counts as none" "worker w1 null" "$(list | jq -r '.[0] | "
 
 # --- a coordinator's first lines ---------------------------------------------------------
 
-escalation() { # escalation <n> <round>: an escalation as decision-render.sh renders it
-    printf 'Decision %s round %s.\n\nThe context.\n\nThe problem.\n\nMerge before the release?\n1. wait (recommended: the release is Friday)\n   one upgrade carries both\n2. merge now\n   the format lands this week\n\nAnswer naming decision %s round %s and an option, or give another outcome with its reason.\n' "$1" "$2" "$1" "$2" > "$T/esc"
+escalation() { # escalation <n> <round> [question]: an escalation as decision-render.sh renders it
+    printf 'Decision %s round %s.\n\nThe context.\n\nThe problem.\n\n%s\n1. wait (recommended: the release is Friday)\n   one upgrade carries both\n2. merge now\n   the format lands this week\n\nAnswer naming decision %s round %s and an option, or give another outcome with its reason.\n' "$1" "$2" "${3:-Merge before the release?}" "$1" "$2" > "$T/esc"
     printf 'Digest: %s\n' "$(sha < "$T/esc")" >> "$T/esc"
     cat "$T/esc"
 }
@@ -168,7 +168,15 @@ run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is 
 eq "withdrawal: an item naming the source it reopens" "withdrawal|coordinator rr #4 round 1|4 1" \
     "$(list | jq -r '.[0] | "\(.kind)|\(.source)|\(.n) \(.round)"')"
 run "holding none rr" "$(printf 'Withdrawn: decision 5 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
-eq "withdrawal: of nothing open gives none" "0 none" "$RC $(word)"
+eq "withdrawal: of an entry never opened gives none" "0 none" "$RC $(word)"
+run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" \
+    "[$(printf '%s' "$OPEN_UP" | jq -c '.[0] | .state = "settled" | .outcome = "wait; reason: r" | .decided_by = "a person" | .owed = "reply" | del(.verdict)')]"
+eq "withdrawal: of a settled entry is an item too, which reopens it" "withdrawal|coordinator rr #4 round 1" \
+    "$(list | jq -r '.[0] | "\(.kind)|\(.source)"')"
+run "unknown -" "Should it ship?" ""
+eq "a report that names no dispatch topic is unreadable" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(escalation 4 1 "Merge $(printf '%420s' '' | tr ' ' x) before the release?")" "$COORD"
+eq "a coordinator's escalation isn't held to the 400-character cap" "0 questions 1" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
 run "holding none rr" "$(printf 'Answer: decision 4 round 1.\n\nOutcome: wait\n')" "$COORD" "$OPEN_UP"
 eq "an Answer: first line is ordinary text" "0 none" "$RC $(word)"
 

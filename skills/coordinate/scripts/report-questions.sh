@@ -33,8 +33,9 @@
 #       `Digest: <sha256>` of every byte above it, or the report is unreadable.
 #       An entry already opened from the same source gives `none`, so a re-sent
 #       escalation opens nothing.
-#   `Withdrawn: decision <n> round <r>.`  one withdrawal, when an entry opened
-#       from that source is still open; else `none`.
+#   `Withdrawn: decision <n> round <r>.`  one withdrawal, when an entry was
+#       opened from that source, settled or not: it becomes evidence there,
+#       which reopens the entry; with no such entry, `none`.
 #   `Answer: ...` is ordinary text.
 # Without a holding every citation is dropped and no first line is honored;
 # the source is the topic the report named.
@@ -49,9 +50,14 @@
 #       stored with coord-log.sh seal --file --key; keyseal is that key's seal,
 #       carried in the engine-written capture so a reader can check the key
 #   none        nothing to extract
-#   overflow    more than 10 items, or one over 400 characters; nothing stored
-#   unreadable  the report can't be read, or a coordinator's escalation doesn't
-#               hash to its digest
+#   overflow    more than 10 items, or a worker's question over 400
+#               characters (a coordinator's escalation is worded by that
+#               coordinator and isn't held to it); nothing stored
+#   unreadable  the report can't be read, names no dispatch topic, or is a
+#               coordinator's escalation that doesn't hash to its digest or
+#               has no question or options. It goes to the human (surface):
+#               an escalation altered in transit can be neither trusted nor
+#               bounced back as a worker's rebrief
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 set -uo pipefail
 
@@ -93,6 +99,9 @@ case "${1-}" in
     unknown|refused) TOPIC=${2-} ;;
     *) echo "$PROG: report_facts' verdict is not one this reads: ${1-}" >&2; verdict unreadable ;;
 esac
+# Every entry this list opens names the topic in its source, so a report that
+# names none (report_facts' `unknown -`) can't be recorded.
+[[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the report names no dispatch topic" >&2; verdict unreadable; }
 EP= SECTION='{"next":1,"entries":[]}'
 if [ "$HOLDING" = 1 ]; then
     [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the holding's topic isn't a topic" >&2; verdict unreadable; }
@@ -101,7 +110,6 @@ if [ "$HOLDING" = 1 ]; then
     SECTION=$(bash "$HERE/record-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
 fi
 # An open entry opened from <source> (a source without its stamp).
-open_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; (.source | startswith($p)) and .state != "settled")' >/dev/null; }
 opened_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; .source | startswith($p))' >/dev/null; }
 
 # write_list <file of JSON items, one per line>: cap, store, seal.
@@ -109,7 +117,7 @@ write_list() {
     local n
     n=$(jq -s 'length' "$1")
     [ "$n" -gt 0 ] || verdict none
-    if [ "$n" -gt "$MAX_ITEMS" ] || jq -s -e --argjson m "$MAX_LEN" 'any(.[]; (.text | length) > $m)' "$1" >/dev/null; then
+    if [ "$n" -gt "$MAX_ITEMS" ] || jq -s -e --argjson m "$MAX_LEN" 'any(.[]; .kind == "question" and (.text | length) > $m)' "$1" >/dev/null; then
         verdict overflow
     fi
     jq -s 'to_entries | map(.value + {index: (.key + 1)})' "$1" > "$T/questions.json" || lib_die2 "cannot build the list"
@@ -161,7 +169,7 @@ if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
     elif [[ $FIRST =~ $RE_WDR ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}
         SRC="coordinator $TOPIC #$N round $R"
-        open_from "$SRC" || verdict none
+        opened_from "$SRC" || verdict none
         jq -nc --arg t "$FIRST" --arg s "$SRC" --argjson n "$N" --argjson r "$R" \
             '{kind: "withdrawal", text: $t, source: $s, addressed: false, cite: null, n: $n, round: $r}' > "$T/items"
         write_list "$T/items"
