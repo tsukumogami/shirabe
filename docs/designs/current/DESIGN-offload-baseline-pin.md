@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe needs a fixed starting point before anything changes what its four
   koto-templated skills load: an identity for each template that a run record
@@ -32,7 +32,7 @@ upstream: docs/prds/PRD-offload-baseline-pin.md
 
 ## Status
 
-Planned
+Current
 
 The architecture, security and structural-format reviewers all passed it.
 The definitions in Solution Architecture stay provisional after acceptance.

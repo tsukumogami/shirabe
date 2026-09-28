@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe's four koto-templated skills (work-on, execute, scope, deliver) are
   about to change what they load into an agent's context, and nothing fixes
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers all passed it, the last
 two on a second round. The downstream DESIGN owns the approach.
@@ -291,5 +291,5 @@ The completeness, clarity and testability reviewers all passed it; the last two 
 
 ## Downstream Artifacts
 
-- `docs/designs/DESIGN-offload-baseline-pin.md`: where the pin and definitions
+- `docs/designs/current/DESIGN-offload-baseline-pin.md`: where the pin and definitions
   live, the proposed counting rules, and how the recount works.

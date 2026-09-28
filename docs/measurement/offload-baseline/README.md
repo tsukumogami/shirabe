@@ -20,7 +20,7 @@ Nothing here is loaded by a run. The directory sits outside `skills/` and
 
 The requirements and the design behind it are in
 [PRD-offload-baseline-pin](../../prds/PRD-offload-baseline-pin.md) and
-[DESIGN-offload-baseline-pin](../../designs/DESIGN-offload-baseline-pin.md).
+[DESIGN-offload-baseline-pin](../../designs/current/DESIGN-offload-baseline-pin.md).
 
 ## The pinned commit
 
