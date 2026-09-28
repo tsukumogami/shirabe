@@ -15,7 +15,8 @@ goals: |
   Dead prose is inventoried by category with its share of each skill's load,
   and executing the plan removes stale statements and duplicates without
   deleting the last statement of any rule still in force.
-upstream: docs/briefs/BRIEF-contradiction-settlement.md
+absorbed:
+  - docs/briefs/BRIEF-contradiction-settlement.md
 ---
 
 # PRD: Contradiction Settlement
@@ -23,6 +24,40 @@ upstream: docs/briefs/BRIEF-contradiction-settlement.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-contradiction-settlement](docs/briefs/BRIEF-contradiction-settlement.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed one problem: the files the koto-templated skills load,
+including the references `/scope`'s hops load, tell the agent incompatible
+things about the same situation and often disagree with the code that
+decides what happens, so neither the agent nor a reviewer of its output can
+tell which instruction is current. Some of those disagreements are plain
+staleness; others are workflow choices nobody has made. Around them sits a
+large share of prose the agent takes no action from, which costs context on
+every run and hides the disagreements. That problem is this document's
+Problem Statement.
+
+The outcome it asked for is that a maintainer can name the one
+authoritative statement of any rule these skills load, an agent gets one
+instruction per situation, a reviewer can tell which rule was followed,
+policy disagreements are decided by a person before any edit, and dead prose
+goes without losing the last statement of a rule still in force. Those are
+this document's Goals.
+
+Four journeys grounded it and survive as User Stories: a maintainer
+settling a mechanical disagreement from a located, reasoned item; the
+policy owner deciding one disagreement from a decision with a
+recommendation; a later gate feature citing one disagreement by
+identifier; and an implementer deleting duplicates while leaving a rule's
+last statement for the ablation feature.
+
+Its scope boundary held the inventory, the decisions, the dead-prose
+inventory and the plan's execution after the baseline pin merges, and
+pushed out edits before that, settling policy calls, withholding,
+per-state loading, gates, a rule registry and `/coordinate`. Those are
+this document's Requirements and Out of Scope.
 
 ## Problem Statement
 
@@ -43,8 +78,7 @@ does, which the agent takes no action from.
 
 Gate work and ablation work planned after this feature need to cite individual
 rules and know which statement of each is authoritative. Nothing lists the
-disagreements today, so that work has nothing to depend on. The framing is in
-`docs/briefs/BRIEF-contradiction-settlement.md`.
+disagreements today, so that work has nothing to depend on.
 
 ## Terms
 
