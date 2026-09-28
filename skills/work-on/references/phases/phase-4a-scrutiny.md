@@ -35,7 +35,7 @@ After all three return:
 koto context add <WF> scrutiny_results.json <<EOF
 {"passed": true, "round": <N>, "blocking_count": 0}
 EOF
-koto next <WF> --with-data '{"scrutiny_outcome": "passed"}'
+koto next <WF> --with-data '{"scrutiny_outcome": "passed"}' --no-cleanup
 ```
 
 `<N>` is the number of the scrutiny round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
@@ -57,7 +57,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md;
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
 ```
 
 Why removal rather than leaving the old verdict to be overwritten: the `scrutiny_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass, and the panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact — the refusal is the state machine's, not a matter of remembering to submit the right outcome.

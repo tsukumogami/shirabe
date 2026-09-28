@@ -1,45 +1,41 @@
 #!/usr/bin/env bash
-# terminal-retention_test.sh -- the terminal tick keeps its record, and only a root does it
+# terminal-retention_test.sh -- every tick keeps the record, root or child
 # Part of the work-on skill
 #
-# koto deletes a session when it reaches a terminal state, and the deletion
-# takes the session's `ctx/` with it. `koto next --no-cleanup` suppresses that,
-# which is how a /work-on run that ends at `done_blocked` keeps the record of
-# why (#360).
+# koto disposes of a session that reaches a success terminal, and every context
+# key the session holds goes with it. `koto next --no-cleanup` keeps it, which is
+# how a /work-on run keeps its record past its terminal (#360). From koto 0.14.0,
+# shirabe's koto minimum, a session that reaches a failure terminal such as
+# `done_blocked` is kept with or without the flag, and on a child the flag only
+# keeps the session: the child's result still reaches its parent. So the rule
+# is one line with no root/child split -- every `koto next` carries the flag --
+# and this harness pins both the rule's text and the koto behaviour it rests on.
 #
-# The flag cannot simply be applied everywhere. On a CHILD session it also
-# suppresses the `request_store.result` and `ChildCompleted` events that
-# /execute's `children-complete` gate reads to learn the child finished, and the
-# parent's converge then blocks permanently. So retention is root-only, and
-# `session-role.sh` is the discriminator that decides.
-#
-# This harness asserts that contract in these groups, in execution order --
-# deliberately not numbered, because a numbered map goes stale the first time a
-# case is inserted and then misdirects the reader it was written for:
+# Groups, in execution order -- deliberately not numbered, because a numbered
+# map goes stale the first time a case is inserted and then misdirects the
+# reader it was written for:
 #
 #   engine-free, so they also run on the bash 3.2 floor where koto is absent:
-#     nothing has tidied the flag into the child template or its phase files
-#     SKILL.md states the rule and routes it through the discriminator
-#     the template frontmatter records why the flag must not be added there
-#     the discriminator refuses a call it cannot answer
+#     SKILL.md states the rule once, over every tick, naming no state and no role
+#     every `koto next` command line the skill shows carries the flag
+#     the template frontmatter records where the rule lives
 #
 #   engine-backed:
-#     the discriminator answers correctly for a root, a child, and a parent,
-#       and fails safe on a session it cannot resolve
-#     a root run's record survives its blocked terminal, with a control, and
-#       the flag on an earlier tick is shown to retain nothing
+#     a root run's record survives done_blocked with and without the flag, and
+#       a success terminal keeps it only with the flag (the control)
+#     a blocked edge's context_assignments write failure_reason
+#     the flag on an earlier tick retains nothing
 #     retention does not become a false "already done" on the next run
-#     a child's terminal tick must NOT carry the flag, with a control
+#     a flagged child is kept and still delivers its result, to either shape
+#       of parent, with an unflagged child as the control
+#     an unflagged child that reaches a failure terminal is kept, readable with
+#       koto status and koto context get, and its parent's retry_failed acts on it
 #
 # The root-run cases drive the SHIPPED work-on.md to its real `done_blocked`
 # terminal rather than a stand-in, so a template edit that moves that terminal
 # fails here. The child cases use a minimal parent/child pair, because what they
 # assert is koto's convergence behaviour rather than anything about work-on.md's
 # own states.
-#
-# The discriminator cases describe BEHAVIOUR ("a child classifies as child"),
-# never the mechanism session-role.sh currently uses to decide. koto's parentage
-# signal may change; these cases should survive that without being rewritten.
 #
 # Usage: terminal-retention_test.sh
 #
@@ -53,7 +49,8 @@
 # manifest, so the assertions genuinely run there; the macOS leg is the bash 3.2
 # floor check and exists to test portability of the shell itself. The Linux
 # leg's explicit install step is what keeps a silent skip from hiding a koto
-# that vanished from CI -- the install fails first.
+# that vanished from CI -- the install fails first -- and its
+# assert-koto-floor.sh step fails a koto below the minimum these cases assume.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -64,7 +61,6 @@ SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
 PHASES="$SKILL_DIR/references/phases"
 SKILL_MD="$SKILL_DIR/SKILL.md"
-ROLE_SH="$SCRIPT_DIR/session-role.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -77,98 +73,25 @@ pass() { echo -e "${GREEN}PASS${NC}: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
-[ -f "$ROLE_SH" ]  || { echo "FAIL: discriminator not found at $ROLE_SH" >&2; exit 1; }
 
-# --- nothing has tidied the flag into the child template ---------------------
+# --- SKILL.md states the rule ---------------------------------------------------
 #
 # These need no engine, so they run first and the floor leg gets real coverage.
 #
-# work-on.md and its phase files are read by BOTH a root run and a child. A
-# `--no-cleanup` written into either would reach children, and a child carrying
-# it withholds its result from its parent -- the outcome this contract exists to
-# avoid. The rule therefore lives in SKILL.md,
-# which is consumed per-run, and these cases keep a later edit from relocating
-# it.
-
-# The frontmatter note that tells a template editor WHY the flag must not be
-# here has to be able to name it, so YAML comments are excluded -- but ONLY
-# inside the frontmatter. A `#`-leading line in the markdown body is not a
-# comment at all: koto renders body prose into the state's directive verbatim,
-# so a child would read it. Scoping the exclusion by position rather than by the
-# `#` alone is what keeps that distinction; an earlier file-wide version of this
-# grep would have let a body line through.
-template_flag_sites() {
-    awk '
-        NR == 1 && $0 == "---" { in_fm = 1; next }
-        in_fm && $0 == "---"   { in_fm = 0; next }
-        /--no-cleanup/ {
-            if (in_fm && $0 ~ /^[[:space:]]*#/) next
-            printf "%d: %s\n", NR, $0
-        }
-    ' "$1" 2>/dev/null
-}
-
-if [ -n "$(template_flag_sites "$TEMPLATE")" ]; then
-    fail "work-on.md carries --no-cleanup outside a YAML comment; a child reads this template and would withhold its result from its parent:
-$(template_flag_sites "$TEMPLATE")"
-else
-    pass "work-on.md carries no --no-cleanup call site, so a child cannot pick it up from the template"
-fi
-
-# Phase files a work-on.md state sends a child to must not carry the flag. The
-# ban is scoped to those files, not to the directory: phase-2.5 lives here but is
-# read only by /execute's worktree_discipline_check, on the orchestrator -- always
-# a root -- and it MUST carry the flag, because its intent-changing tick chains
-# into done_blocked. An earlier directory-wide ban here actively forbade that fix.
-#
-# The exemption is only as good as its premise, so the premise is checked:
-# work-on.md must never route to phase-2.5. If it ever does, that file becomes
-# child-readable and the exemption would hand the flag to children.
-ORCH_ONLY="phase-2.5-worktree-discipline.md"
-PHASE_HITS=$(grep -rln -- '--no-cleanup' "$PHASES" 2>/dev/null | grep -v "/$ORCH_ONLY\$")
-if [ -n "$PHASE_HITS" ]; then
-    fail "a child-readable references/phases file carries --no-cleanup:
-$PHASE_HITS"
-else
-    pass "no child-readable phase file carries --no-cleanup ($ORCH_ONLY excepted: orchestrator-only)"
-fi
-
-if grep -q "$ORCH_ONLY" "$TEMPLATE"; then
-    fail "work-on.md now references $ORCH_ONLY, so a child can be sent there -- its --no-cleanup would reach children. Drop the exemption above or move the file."
-else
-    pass "work-on.md never routes to $ORCH_ONLY, so its flag cannot reach a child"
-fi
-
-# The frontmatter note is itself required: without it a future editor has no
-# reason recorded for the flag's absence and re-adds it. This is the template
-# half of the issue's "say why the flag is there" criterion.
-if grep -q '^# *Terminal-tick retention' "$TEMPLATE"; then
-    pass "work-on.md's frontmatter records why the flag is absent here and where the rule lives"
-else
-    fail "work-on.md has no frontmatter note explaining why --no-cleanup must not be added to it"
-fi
-
-# The rule has to actually be stated somewhere a root run reads, and has to
-# route through the discriminator rather than asserting rootness on its own.
-if grep -q -- '--no-cleanup' "$SKILL_MD" && grep -q 'session-role.sh' "$SKILL_MD"; then
-    pass "SKILL.md states the retention rule and routes it through session-role.sh"
-else
-    fail "SKILL.md must state the retention rule and decide it with session-role.sh"
-fi
-
-# ...and it has to be UNIVERSAL, which the check above does not establish. The
-# rule's value is that it covers ticks nobody had thought of when it was written:
-# a state added later reaches a terminal through a tick the author never saw. An
-# enumeration cannot do that, and the difference is invisible to a grep for the
-# flag.
+# The rule's value is that it covers ticks nobody had thought of when it was
+# written: a state added later reaches a terminal through a tick the author never
+# saw. An enumeration cannot do that, and the difference is invisible to a grep
+# for the flag.
 #
 # Measured, before this case existed: narrowing the rule to "the koto next calls
 # that reach context_injection, analysis and implementation carry --no-cleanup"
 # -- an enumeration omitting the cascade terminals entirely -- left this suite
 # 20/20 green. Coverage of any tick not named in that list was an assumption.
 #
-# Two things are asserted. The rule quantifies over every tick, and it names no
-# state, because the moment it names one it has become a list.
+# So the rule has to quantify over every tick and name no state, because the
+# moment it names one it has become a list. And it names no role: a rule gated
+# on root versus child is the pre-0.14 exception, which leaves a child's
+# success terminal bare.
 RETENTION_RULE=$(awk '
     /^\*\*Retention:/ { inrule = 1 }
     inrule { print }
@@ -177,7 +100,9 @@ RETENTION_RULE=$(awk '
 
 if [ -z "$RETENTION_RULE" ]; then
     fail "the retention rule paragraph could not be found in SKILL.md -- it was reworded, and this case no longer reads it"
-elif ! printf '%s' "$RETENTION_RULE" | grep -qE 'every (\`?koto next\`?|tick)'; then
+elif ! printf '%s' "$RETENTION_RULE" | grep -q -- '--no-cleanup'; then
+    fail "the retention rule paragraph no longer names --no-cleanup"
+elif ! printf '%s' "$RETENTION_RULE" | grep -qE 'every (`?koto next`?|tick)'; then
     fail "the retention rule no longer quantifies over every tick, so a tick added later is not covered by it"
 else
     # State names come from the template rather than a hardcoded list, so a state
@@ -198,11 +123,50 @@ else
     fi
 fi
 
-bash "$ROLE_SH" >/dev/null 2>&1
-if [ "$?" -eq 2 ]; then
-    pass "the discriminator rejects a missing session name with exit 2"
+# No role gate anywhere in the skill's ticks: the ROLE variable the pre-0.14
+# rule resolved before the first tick is gone, and nothing tells a run to leave
+# the flag off because it is a child.
+if grep -n -E '\bROLE\b' "$SKILL_MD" >/dev/null 2>&1; then
+    fail "SKILL.md still resolves or reads ROLE -- the retention rule must not depend on a session's role:
+$(grep -n -E '\bROLE\b' "$SKILL_MD")"
 else
-    fail "the discriminator did not exit 2 on a missing session name"
+    pass "SKILL.md resolves no ROLE, so no tick's flag depends on whether the run is a child"
+fi
+
+# --- every koto next command line carries the flag ------------------------------
+#
+# A child run reads work-on.md's directives and the phase files they send it
+# to, and copies their command lines. Each one that submits a tick has to carry
+# the flag, or the rule in SKILL.md is contradicted where the agent actually
+# reads. Lines are matched as commands: `koto next` at the start of a line, or
+# inside backticks.
+bare_ticks() {
+    grep -n -E '(^|`)koto next (<WF>|\{\{SESSION_NAME\}\}|<[A-Za-z_]+>)' "$@" 2>/dev/null \
+        | grep -v -- '--no-cleanup'
+}
+BARE=$(bare_ticks "$SKILL_MD" "$TEMPLATE" "$PHASES"/*.md)
+if [ -n "$BARE" ]; then
+    fail "a koto next command line the skill shows is missing --no-cleanup:
+$BARE"
+else
+    pass "every koto next command line in SKILL.md, work-on.md and its phase files carries --no-cleanup"
+fi
+
+# The check above is only as good as its matcher, so it is shown to fire.
+printf 'Run:\n\nkoto next <WF> --with-data %s\n' "'{\"x\": 1}'" >"${TMPDIR:-/tmp}/tr-bare.$$.md"
+if [ -n "$(bare_ticks "${TMPDIR:-/tmp}/tr-bare.$$.md")" ]; then
+    pass "the bare-tick matcher fires on a command line without the flag (control)"
+else
+    fail "the bare-tick matcher missed a planted bare tick -- the case above proves nothing"
+fi
+rm -f "${TMPDIR:-/tmp}/tr-bare.$$.md"
+
+# The frontmatter note tells a template editor where the rule lives, so nobody
+# re-derives it in the template.
+if grep -q '^# *Terminal-tick retention' "$TEMPLATE"; then
+    pass "work-on.md's frontmatter records where the retention rule lives"
+else
+    fail "work-on.md has no frontmatter note pointing at the retention rule"
 fi
 
 command -v koto >/dev/null 2>&1 || {
@@ -232,38 +196,7 @@ trap cleanup EXIT
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
 
-role_of() { bash "$ROLE_SH" "$1" 2>/dev/null; }
-
-# koto 0.14.0 (koto#259, closing koto#240) changed two things this suite pins:
-# a session that reaches a failure terminal is kept whether or not the tick
-# carried --no-cleanup, and --no-cleanup no longer withholds a child's result
-# from its parent. The cases that depend on either assert the behaviour of the
-# koto on PATH, so the suite holds on both sides of the release until shirabe's
-# koto minimum moves past it (#439), when the older branch can go.
-#
-# The version is read with scripts/assert-koto-floor.sh's own sed, so the two
-# agree on what a version line is (an optional `v`, then major.minor.patch). A
-# line neither can read stops the suite: picking a branch by default would
-# report the wrong koto behaviour as a defect. execute's terminal-retention
-# suite carries the same reader; #439 removes both with the older branch.
-KOTO_VERSION_LINE=$(koto version 2>/dev/null | head -1)
-KOTO_VERSION=$(printf '%s' "$KOTO_VERSION_LINE" \
-    | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p')
-if [ -z "$KOTO_VERSION" ]; then
-    echo "FAIL: cannot read a version from \`koto version\` [$KOTO_VERSION_LINE] -- the version-dependent cases cannot pick a branch" >&2
-    exit 1
-fi
-koto_at_least_0_14() {
-    local major minor
-    major=${KOTO_VERSION%%.*}
-    minor=${KOTO_VERSION#*.}; minor=${minor%%.*}
-    [ "$major" -gt 0 ] || [ "$minor" -ge 14 ]
-}
-if koto_at_least_0_14; then
-    echo "koto $KOTO_VERSION: failure terminals are kept and a flagged child still delivers its result"
-else
-    echo "koto $KOTO_VERSION: a failure terminal is disposed without the flag, and the flag withholds a child's result"
-fi
+echo "koto: $(koto version 2>/dev/null | head -1)"
 
 # A `koto init` that fails leaves every later call reporting the session missing,
 # and assertions written against a session that never existed pass or fail for
@@ -280,42 +213,55 @@ init_or_die() {
 
 # --- a minimal parent/child pair, for the convergence cases -------------------
 #
-# These assert koto's behaviour when a child's terminal tick carries the flag.
-# work-on.md is not used: reaching a work-on terminal as a materialized child
-# would test the same koto code path through far more of work-on's own gates.
+# These assert koto's behaviour at a child's terminal. work-on.md is not used:
+# reaching a work-on terminal as a materialized child would test the same koto
+# code path through far more of work-on's own gates. `blocked` stands in for
+# work-on's done_blocked: a failure terminal whose edge writes failure_reason.
 
 cat > "$WORKDIR/child.md" <<'CHILD_EOF'
 ---
 name: retention-probe-child
 version: "1.0"
-description: Minimal child that ticks straight to a terminal.
+description: Minimal child that ticks straight to a success or a failure terminal.
 initial_state: work
 states:
   work:
     accepts:
       status:
         type: enum
-        values: [ok]
+        values: [ok, blocked]
         required: true
     transitions:
       - target: done
         when:
           status: ok
+      - target: blocked
+        when:
+          status: blocked
+        context_assignments:
+          failure_reason: "work blocked: probe"
   done:
     terminal: true
+  blocked:
+    terminal: true
+    failure: true
 ---
 
 ## work
 
-Submit `status: ok`.
+Submit `status: ok` or `status: blocked`.
 
 ## done
 
 Terminal.
+
+## blocked
+
+Failure terminal.
 CHILD_EOF
 
 # Two transitions to a non-failure terminal, so a flag can ride a real earlier
-# transition and be left off the one that lands (retain_early on koto 0.14).
+# transition and be left off the one that lands (retain_early).
 cat > "$WORKDIR/two_step.md" <<'TWO_STEP_EOF'
 ---
 name: retention-probe-two-step
@@ -360,6 +306,8 @@ Submit `go: yes`.
 Terminal.
 TWO_STEP_EOF
 
+# parent.md: a parent that waits for the gate to pass, behind a single
+# unconditional exit.
 cat > "$WORKDIR/parent.md" <<'PARENT_EOF'
 ---
 name: retention-probe-parent
@@ -394,42 +342,51 @@ Submit tasks.
 Terminal.
 PARENT_EOF
 
+# parent_hold.md: a parent that stays put whatever the gate says, so the gate
+# can be read, and retry_failed submitted, without the parent advancing.
+cat > "$WORKDIR/parent_hold.md" <<'HOLD_EOF'
+---
+name: retention-probe-parent-hold
+version: "1.0"
+description: A parent that only advances on explicit evidence, so the gate can be read.
+initial_state: spawn
+states:
+  spawn:
+    gates:
+      batch_done:
+        type: children-complete
+    accepts:
+      tasks:
+        type: tasks
+        required: true
+      go:
+        type: enum
+        values: ["yes"]
+        required: false
+    materialize_children:
+      from_field: tasks
+      failure_policy: continue
+      default_template: ./child.md
+    transitions:
+      - target: finished
+        when:
+          go: "yes"
+  finished:
+    terminal: true
+---
+
+## spawn
+
+Submit tasks.
+
+## finished
+
+Terminal.
+HOLD_EOF
+
 TASKS='{"tasks":[{"name":"leaf","description":"leaf task"}]}'
 
-# --- the discriminator -------------------------------------------------------
-
-koto init role_root --template "$WORKDIR/child.md" >/dev/null 2>&1
-init_or_die role_root
-if [ "$(role_of role_root)" = "root" ]; then
-    pass "a directly-initialized session classifies as root"
-else
-    fail "a directly-initialized session classified as '$(role_of role_root)', expected root"
-fi
-
-koto init role_parent --template "$WORKDIR/parent.md" >/dev/null 2>&1
-init_or_die role_parent
-koto next role_parent --with-data "$TASKS" >/dev/null 2>&1
-if [ "$(role_of role_parent.leaf)" = "child" ]; then
-    pass "a materialized child classifies as child"
-else
-    fail "a materialized child classified as '$(role_of role_parent.leaf)', expected child"
-fi
-
-if [ "$(role_of role_parent)" = "root" ]; then
-    pass "the parent of a materialized child still classifies as root"
-else
-    fail "the parent classified as '$(role_of role_parent)', expected root"
-fi
-
-# Unknown must fail toward withholding the flag: losing one run's record is
-# recoverable, wedging a parent's converge is not.
-if [ "$(role_of no-such-session-anywhere)" = "child" ]; then
-    pass "an unresolvable session classifies as child, withholding retention"
-else
-    fail "an unresolvable session classified as '$(role_of no-such-session-anywhere)', expected child"
-fi
-
-# --- a root run's record survives its blocked terminal -----------------------
+# --- a root run's record survives its terminal ---------------------------------
 #
 # Driven through the SHIPPED work-on.md: entry -> context_injection ->
 # done_blocked, which is the real terminal #360 is about.
@@ -447,7 +404,7 @@ drive_work_on_to_blocked() {
         --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
     init_or_die "$1"
     printf 'the running record\n' | koto context add "$1" plan.md >/dev/null 2>&1
-    koto next "$1" --with-data '{"mode":"issue_backed","issue_number":"360"}' >/dev/null 2>&1
+    koto next "$1" --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1
     if [ -n "$2" ]; then
         koto next "$1" --with-data '{"status":"blocked"}' "$2" >/dev/null 2>&1
     else
@@ -462,59 +419,49 @@ else
     fail "a root run reaching done_blocked with the flag lost plan.md"
 fi
 
-# The negative control matters: without it this suite would pass on a koto that
-# had stopped cleaning up at all, and the flag would look load-bearing when it
-# was doing nothing. From koto 0.14 a failure terminal is kept regardless, so
-# done_blocked keeps its record without the flag, and the control moves to a
-# terminal that isn't a failure: child.md's `done`, reached by a root run.
+# done_blocked is a failure terminal, which koto keeps without the flag.
 drive_work_on_to_blocked retain_no ""
-if koto_at_least_0_14; then
-    if [ "$(koto context get retain_no plan.md 2>/dev/null)" = "the running record" ]; then
-        pass "a root run reaching done_blocked without the flag keeps plan.md (koto >= 0.14 keeps failure terminals)"
-    else
-        fail "a root run reaching done_blocked without the flag lost plan.md on koto $KOTO_VERSION, which should keep a failure terminal"
-    fi
-    koto init retain_no_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
-    init_or_die retain_no_ok
-    printf 'the running record\n' | koto context add retain_no_ok plan.md >/dev/null 2>&1
-    koto next retain_no_ok --with-data '{"status":"ok"}' >/dev/null 2>&1
-    if koto context get retain_no_ok plan.md >/dev/null 2>&1; then
-        fail "a root run reaching a non-failure terminal without the flag kept plan.md -- the control did not fire"
-    else
-        pass "a root run reaching a non-failure terminal without the flag loses plan.md (control)"
-    fi
-    # The control's twin on the same terminal: with the flag the record stays,
-    # so on 0.14 the flag is still shown to be what keeps a non-failure run.
-    koto init retain_yes_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
-    init_or_die retain_yes_ok
-    printf 'the running record\n' | koto context add retain_yes_ok plan.md >/dev/null 2>&1
-    koto next retain_yes_ok --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-    if [ "$(koto context get retain_yes_ok plan.md 2>/dev/null)" = "the running record" ]; then
-        pass "a root run reaching a non-failure terminal with the flag keeps plan.md (koto >= 0.14)"
-    else
-        fail "a root run reaching a non-failure terminal with the flag lost plan.md on koto $KOTO_VERSION"
-    fi
-elif koto context get retain_no plan.md >/dev/null 2>&1; then
-    fail "a root run reaching done_blocked without the flag kept plan.md -- the control did not fire"
+if [ "$(koto context get retain_no plan.md 2>/dev/null)" = "the running record" ]; then
+    pass "a root run reaching done_blocked without the flag keeps plan.md (a failure terminal is kept)"
 else
-    pass "a root run reaching done_blocked without the flag loses plan.md (control)"
+    fail "a root run reaching done_blocked without the flag lost plan.md; koto $(koto version | head -1) should keep a failure terminal"
+fi
+
+# The control: without it this suite would pass on a koto that had stopped
+# cleaning up at all, and the flag would look load-bearing when it was doing
+# nothing. A success terminal is disposed of without the flag and kept with it.
+koto init retain_no_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
+init_or_die retain_no_ok
+printf 'the running record\n' | koto context add retain_no_ok plan.md >/dev/null 2>&1
+koto next retain_no_ok --with-data '{"status":"ok"}' >/dev/null 2>&1
+if koto context get retain_no_ok plan.md >/dev/null 2>&1; then
+    fail "a root run reaching a success terminal without the flag kept plan.md -- the control did not fire"
+else
+    pass "a root run reaching a success terminal without the flag loses plan.md (control)"
+fi
+koto init retain_yes_ok --template "$WORKDIR/child.md" >/dev/null 2>&1
+init_or_die retain_yes_ok
+printf 'the running record\n' | koto context add retain_yes_ok plan.md >/dev/null 2>&1
+RESP=$(koto next retain_yes_ok --with-data '{"status":"ok"}' --no-cleanup 2>/dev/null)
+if [ "$(koto context get retain_yes_ok plan.md 2>/dev/null)" = "the running record" ] \
+    && printf '%s' "$RESP" | jq -e '.retention.retained == true and .retention.reason == "no_cleanup"' >/dev/null 2>&1; then
+    pass "a root run reaching a success terminal with the flag keeps plan.md, and the response says retention.reason no_cleanup"
+else
+    fail "a root run reaching a success terminal with the flag lost plan.md or did not report no_cleanup: $(printf '%s' "$RESP" | head -c 300)"
 fi
 
 # --- a blocked edge's context_assignments execute --------------------------------
 #
-# koto releases before 0.13.0 dropped a transition's
-# context_assignments at compile time, so work-on.md's `failure_reason` blocks
-# compiled and did nothing. From koto 0.13.0 on they execute: the
-# blocked edge out of context_injection writes `failure_reason` into the
-# session's context with the submitted evidence interpolated, and koto's batch
-# view reads that key for a failed child. Compiling proves only that the blocks
+# The blocked edge out of context_injection writes `failure_reason` into the
+# session's context with the submitted evidence interpolated, where `koto
+# context get` reads it for a failed run. Compiling proves only that the blocks
 # are well-formed; this drives one edge and reads the key back, so it proves
-# they run. The retained terminal is what makes the key readable afterwards.
+# they run. The kept failure terminal is what makes the key readable afterwards.
 koto init assign_probe --template "$TEMPLATE" \
     --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=assign_probe \
     --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
 init_or_die assign_probe
-koto next assign_probe --with-data '{"mode":"issue_backed","issue_number":"360"}' >/dev/null 2>&1
+koto next assign_probe --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1
 koto next assign_probe --with-data '{"status":"blocked","detail":"issue body could not be read"}' --no-cleanup >/dev/null 2>&1
 ASSIGNED=$(koto context get assign_probe failure_reason 2>/dev/null)
 if [ "$ASSIGNED" = "context_injection blocked: issue body could not be read" ]; then
@@ -529,28 +476,18 @@ else
 fi
 
 # The flag is read only on the tick that lands on a terminal, so carrying it
-# earlier retains nothing. This is why the rule cannot be "pass it once". On
-# koto 0.14 and later done_blocked is kept anyway, so the case runs against
-# two_step.md's non-failure `done`: the flag rides the real work -> mid
-# transition, and the tick that lands on the terminal doesn't carry it.
-if koto_at_least_0_14; then
-    koto init retain_early --template "$WORKDIR/two_step.md" >/dev/null 2>&1
-    init_or_die retain_early
-    printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
-    koto next retain_early --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-    if [ "$(koto status retain_early 2>/dev/null | jq -r '.current_state')" != mid ]; then
-        fail "retain_early's flagged tick did not take the work -> mid transition -- the case below would prove nothing"
-    fi
-    koto next retain_early --with-data '{"go":"yes"}' >/dev/null 2>&1
-else
-    koto init retain_early --template "$TEMPLATE" \
-        --var ISSUE_NUMBER=360 --var ARTIFACT_PREFIX=retain_early \
-        --var PLUGIN_ROOT=/nonexistent/plugin-root >/dev/null 2>&1
-    init_or_die retain_early
-    printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
-    koto next retain_early --with-data '{"mode":"issue_backed","issue_number":"360"}' --no-cleanup >/dev/null 2>&1
-    koto next retain_early --with-data '{"status":"blocked"}' >/dev/null 2>&1
+# earlier retains nothing. This is why the rule cannot be "pass it once". The
+# case runs against two_step.md's success terminal, since a failure terminal is
+# kept anyway: the flag rides the real work -> mid transition, and the tick that
+# lands on the terminal doesn't carry it.
+koto init retain_early --template "$WORKDIR/two_step.md" >/dev/null 2>&1
+init_or_die retain_early
+printf 'the running record\n' | koto context add retain_early plan.md >/dev/null 2>&1
+koto next retain_early --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+if [ "$(koto status retain_early 2>/dev/null | jq -r '.current_state')" != mid ]; then
+    fail "retain_early's flagged tick did not take the work -> mid transition -- the case below would prove nothing"
 fi
+koto next retain_early --with-data '{"go":"yes"}' >/dev/null 2>&1
 if koto context get retain_early plan.md >/dev/null 2>&1; then
     fail "the flag on an earlier tick retained the record -- it is meant to act only on the terminal tick"
 else
@@ -559,11 +496,11 @@ fi
 
 # --- retention must not turn into a false "already done" ---------------------
 #
-# Retention creates an ambiguity that did not exist before it: a finished session
-# is still on disk, so the Resume step finds it where it used to find nothing and
-# fall through to a fresh `koto init`. Ticking it answers `action: "done"`, which
-# the Execution Loop says to report as the outcome -- a run claiming the issue is
-# complete having done none of it -- and that same tick disposes of the session.
+# Retention creates an ambiguity: a finished session is still on disk, so the
+# Resume step finds it where it used to find nothing and fall through to a
+# fresh `koto init`. Ticking it answers `action: "done"`, which the Execution
+# Loop says to report as the outcome -- a run claiming the issue is complete
+# having done none of it.
 #
 # Two halves, and they are not equally strong. The first is EXECUTED: the signal
 # the Resume step reads exists, says what the guard needs, and the ambiguity it
@@ -587,9 +524,7 @@ else
     fail "koto workflows no longer lists a retained finished session -- re-check whether the Resume guard is still needed"
 fi
 
-# Reading the signal must not advance or dispose of anything: the whole point of
-# using koto status rather than a tick is that discovering the session is
-# finished cannot itself destroy the record.
+# Reading the signal must not advance or dispose of anything.
 if [ "$(koto context get resume_probe plan.md 2>/dev/null)" = "the running record" ]; then
     pass "koto status left the record intact, so the guard cannot destroy what it inspects"
 else
@@ -602,132 +537,87 @@ else
     fail "SKILL.md no longer reads is_terminal before ticking a found session -- the Resume guard has been dropped"
 fi
 
-# --- a child's terminal tick must not carry the flag -------------------------
+# --- a flagged child is kept and still delivers its result ---------------------
 #
-# What the flag does to a child, pinned as the shape-independent fact: the
-# child's result never reaches its parent. The gate reports all_complete true
-# with results_in false.
-#
-# An earlier version of this block asserted that a flagged child blocks its
-# parent's converge. That holds only for a parent that waits for the gate to
-# pass, like parent.md's single unconditional exit -- NOT for /execute, whose
-# spawn_and_await keys on gates.batch_done.all_complete and so advances anyway,
-# without the child's result. So the assertion is the result, and the two parent
-# shapes are shown separately rather than one being generalised to the other.
-#
-# This is also the tripwire: if koto#240 or a later koto makes the flag safe for
-# children, results_in goes true under the flag, this case goes red, and the
-# exception can be dropped rather than surviving as folklore.
+# The pre-0.14 exception existed because the flag on a child withheld its
+# result: the parent's gate reported all_complete true with results_in false,
+# and a parent that waits on the gate never advanced. These cases pin the
+# opposite, which is what lets a child carry the flag like any other run.
 
-gate_field() { # $1 parent session, $2 field of the batch_done gate output
-    # Not `.output[$f] // "absent"`: jq's `//` treats false as empty as well as
-    # null, so a results_in of false would read back as "absent" and this suite
-    # would report the opposite of what koto said. Null is tested explicitly.
-    koto next "$1" --with-data "$TASKS" 2>/dev/null \
-        | jq -r --arg f "$2" '
-            ([.blocking_conditions[]? | select(.name=="batch_done")][0].output) as $o
-            | if $o == null or $o[$f] == null then "absent" else ($o[$f] | tostring) end'
+parent_tick() { # $1 parent session: resubmits the tasks and prints the response, whose blocking_conditions carry the gate
+    koto next "$1" --with-data "$TASKS" 2>/dev/null
 }
 
-# parent_hold.md: a parent that stays put whatever the gate says, so the gate
-# can be read without the parent advancing and cleaning itself up.
-cat > "$WORKDIR/parent_hold.md" <<'HOLD_EOF'
----
-name: retention-probe-parent-hold
-version: "1.0"
-description: A parent that only advances on explicit evidence, so the gate can be read.
-initial_state: spawn
-states:
-  spawn:
-    gates:
-      batch_done:
-        type: children-complete
-    accepts:
-      tasks:
-        type: tasks
-        required: true
-      go:
-        type: enum
-        values: ["yes"]
-        required: false
-    materialize_children:
-      from_field: tasks
-      failure_policy: skip_dependents
-      default_template: ./child.md
-    transitions:
-      - target: finished
-        when:
-          go: "yes"
-  finished:
-    terminal: true
----
-
-## spawn
-
-Submit tasks.
-
-## finished
-
-Terminal.
-HOLD_EOF
-
-koto init withheld --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
-init_or_die withheld
-koto next withheld --with-data "$TASKS" >/dev/null 2>&1
-koto next withheld.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if koto_at_least_0_14; then
-    # koto#240 is fixed: the flag no longer withholds the result, so the gate
-    # passes and isn't reported as a blocking condition, as for the unflagged
-    # control below. Dropping the child exception itself is #439. The tick's
-    # own response is read rather than gate_field's "absent", which an error
-    # response would also produce: the tick must be accepted, leave the parent
-    # at spawn (parent_hold advances only on `go`), and carry no batch_done
-    # blocker.
-    RESP=$(koto next withheld --with-data "$TASKS" 2>/dev/null)
-    if printf '%s' "$RESP" | jq -e '.error == null and .state == "spawn"
-            and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1; then
-        pass "a child whose terminal tick carries the flag still delivers its result (koto >= 0.14)"
-    else
-        fail "a flagged child's result did not reach its parent on koto $KOTO_VERSION, which should deliver it: $(printf '%s' "$RESP" | head -c 300)"
-    fi
-elif [ "$(gate_field withheld all_complete)" = "true" ] && [ "$(gate_field withheld results_in)" = "false" ]; then
-    pass "a child whose terminal tick carries the flag withholds its result: all_complete true, results_in false"
+koto init flagged --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
+init_or_die flagged
+koto next flagged --with-data "$TASKS" >/dev/null 2>&1
+koto next flagged.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+if [ "$(koto status flagged.leaf 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+    pass "a child whose terminal tick carries the flag is kept at its success terminal"
 else
-    fail "a flagged child's result reached its parent (results_in is not false) -- the child exception may no longer be needed; re-check koto#240 before dropping it"
+    fail "a flagged child was not kept at its success terminal"
+fi
+# The tick's own response is read rather than a missing field, which an error
+# response would also produce: the tick must be accepted, leave the parent at
+# spawn (parent_hold advances only on `go`), and carry no batch_done blocker.
+RESP=$(parent_tick flagged)
+if printf '%s' "$RESP" | jq -e '.error == null and .state == "spawn"
+        and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1; then
+    pass "a flagged child's result reaches its parent: the gate passes with nothing blocking"
+else
+    fail "a flagged child's result did not reach its parent: $(printf '%s' "$RESP" | head -c 300)"
 fi
 
-koto init delivered --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
-init_or_die delivered
-koto next delivered --with-data "$TASKS" >/dev/null 2>&1
-koto next delivered.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
-# An unflagged child delivers its result, so the gate passes and is not reported
-# as a blocking condition at all.
-if [ "$(gate_field delivered results_in)" = "absent" ]; then
-    pass "a child whose terminal tick omits the flag delivers its result (control)"
+# The control: an unflagged child delivers too, and is not kept.
+koto init unflagged --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
+init_or_die unflagged
+koto next unflagged --with-data "$TASKS" >/dev/null 2>&1
+koto next unflagged.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
+RESP=$(parent_tick unflagged)
+if printf '%s' "$RESP" | jq -e '.error == null and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1 \
+    && ! koto status unflagged.leaf >/dev/null 2>&1; then
+    pass "an unflagged child delivers its result and is not kept at a success terminal (control)"
 else
-    fail "an unflagged child's result did not reach its parent"
+    fail "the unflagged control did not deliver, or was kept: $(printf '%s' "$RESP" | head -c 300)"
 fi
 
-# The two consequences, which depend on the parent and not the child. parent.md
-# waits for the gate to pass, so it never advances; this is why the exception
-# matters for any parent shaped like it, even though /execute is not.
+# parent.md waits for the gate to pass, the shape a flagged child used to wedge.
 koto init waits --template "$WORKDIR/parent.md" >/dev/null 2>&1
 init_or_die waits
 koto next waits --with-data "$TASKS" >/dev/null 2>&1
 koto next waits.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if koto_at_least_0_14; then
-    # parent.md's only exit is unconditional behind the gate, so a delivered
-    # result shows as the parent actually reaching `finished` on this tick.
-    RESP=$(koto next waits --with-data "$TASKS" 2>/dev/null)
-    if printf '%s' "$RESP" | jq -e '.error == null and .state == "finished"' >/dev/null 2>&1; then
-        pass "against a parent that waits for the gate to pass, a flagged child no longer blocks it: the parent reaches finished (koto >= 0.14)"
-    else
-        fail "a parent that waits on the gate did not advance past a flagged child on koto $KOTO_VERSION: $(printf '%s' "$RESP" | head -c 300)"
-    fi
-elif [ "$(gate_field waits converge_blocked)" = "true" ]; then
-    pass "against a parent that waits for the gate to pass, a flagged child leaves it blocked"
+RESP=$(koto next waits --with-data "$TASKS" 2>/dev/null)
+if printf '%s' "$RESP" | jq -e '.error == null and .state == "finished"' >/dev/null 2>&1; then
+    pass "against a parent that waits for the gate to pass, a flagged child lets it reach finished"
 else
-    fail "a parent that waits on the gate advanced despite a flagged child"
+    fail "a parent that waits on the gate did not advance past a flagged child: $(printf '%s' "$RESP" | head -c 300)"
+fi
+
+# --- a failed child is kept and readable ----------------------------------------
+#
+# The record a needs_attention batch most wants is the failed child's. It is
+# kept without the flag, readable with koto's own commands, and still the
+# parent's to retry.
+koto init failed_child --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
+init_or_die failed_child
+koto next failed_child --with-data "$TASKS" >/dev/null 2>&1
+RESP=$(koto next failed_child.leaf --with-data '{"status":"blocked"}' 2>/dev/null)
+if printf '%s' "$RESP" | jq -e '.retention.retained == true and .retention.reason == "failure_terminal"' >/dev/null 2>&1 \
+    && [ "$(koto status failed_child.leaf 2>/dev/null | jq -r '.current_state')" = "blocked" ]; then
+    pass "an unflagged child reaching a failure terminal is kept (retention.reason failure_terminal), and koto status reports where it stopped"
+else
+    fail "an unflagged failed child was not kept: $(printf '%s' "$RESP" | head -c 300)"
+fi
+if [ "$(koto context get failed_child.leaf failure_reason 2>/dev/null)" = "work blocked: probe" ]; then
+    pass "the kept failed child's failure_reason is readable with koto context get"
+else
+    fail "koto context get could not read the kept failed child's failure_reason"
+fi
+koto next failed_child --with-data '{"retry_failed":{"children":["leaf"]}}' >/dev/null 2>&1
+if [ "$(koto status failed_child.leaf 2>/dev/null | jq -r '.current_state')" = "work" ]; then
+    pass "the parent's retry_failed acts on the kept failed child, rewinding it to work"
+else
+    fail "retry_failed did not rewind the kept failed child: state $(koto status failed_child.leaf 2>/dev/null | jq -r '.current_state')"
 fi
 
 echo

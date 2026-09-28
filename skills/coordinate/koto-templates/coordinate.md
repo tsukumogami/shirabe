@@ -1,11 +1,6 @@
 ---
 name: coordinate
 version: "1.0"
-# koto-floor: pinned -- constrained variables, capture_stdout_as, command gates
-# declared overridable: false, deciders, and result maps need koto 0.13.0 or
-# later, the floor skills/coordinate/requires.tsv declares. The v0.12.2 floor
-# check (scripts/check-koto-floor.sh) does not cover this template.
-#
 # The session is a root on every tick (`koto next --no-cleanup`); see
 # references/koto-session-retention.md. Nothing materializes this template as
 # a child.
@@ -1535,8 +1530,9 @@ Workers report by message, plus what they pushed. A same-host worker whose entry
 point accepts a koto request leg (`/deliver`, `/work-on`, `/scope` and `/execute`),
 dispatched with one, also has its result on that leg; read it before classifying.
 Every other worker reports by message only, and a worker on another host always
-does, since koto's request legs are local. koto#250 means a resolved leg wakes
-nobody, so the message is still what makes you tick.
+does, since koto's request legs are local. koto 0.14.0 records a wake when a leg
+resolves (tsukumogami/koto#250, fixed by koto#252), but this workflow doesn't
+watch for it, so the message is still what makes you tick.
 
 ## classify_report
 

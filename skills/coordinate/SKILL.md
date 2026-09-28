@@ -315,11 +315,13 @@ until then it is a procedure the coordinator runs with a local agent.
   read is the defence, at one more read per report. Reconcile makes the same
   file-list read only for a holding marked scoping ahead, to flag one whose
   pull request changes paths outside `docs/`.
-- **No delivered wake when a leg resolves (koto#250).** koto's waker is a stub, so
-  the coordinator ticks the workflow on each message or notification rather than
-  being woken by a leg. A reconcile pass left pending (a worker's listing
+- **Leg wakes aren't watched (tsukumogami/koto#250, fixed in koto 0.14.0).**
+  koto 0.14.0, which shirabe's minimum requires, records a wake when a leg a
+  session waits on resolves, readable with `koto request watch`. This skill
+  doesn't watch for it yet, so the coordinator still ticks the workflow on each
+  message or notification. A reconcile pass left pending (a worker's listing
   re-read still 30 seconds away) waits for the coordinator's next tick the same
-  way.
+  way. Wakes are local to one machine either way.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
   0.14.0 and later refuse a directed transition past a failing non-overridable
   gate, so no check can be skipped that way. The seal stays as defence in depth:
