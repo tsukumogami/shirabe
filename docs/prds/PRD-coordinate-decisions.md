@@ -157,7 +157,12 @@ and a failing test.
   target it's escalated to; when the escalation was sent; every item of evidence recorded
   against it, in order, each with its source and time; the outcome, its reason and who
   decided, once settled; and when it last changed. None of these is something GitHub can
-  recompute: every one is the coordinator's judgment or a fact about a message.
+  recompute: every one is the coordinator's judgment or a fact about a message. An entry's
+  identity, and the order of its evidence, survive a restart and a second coordinator run
+  against the same record: nothing that identifies an entry or an evidence item is local to
+  one run. The record stays within its size ceiling: a settled entry that owes nothing is
+  compacted to its question, outcome and decider, and a write that would still exceed the
+  ceiling is refused by a check rather than failing on GitHub.
 - **R2. Four states, fixed transitions.** An entry's state is `proposed`,
   `coordinator-verdict`, `escalated`, or `settled`. The only transitions are:
   1. `proposed` to `coordinator-verdict`, when the coordinator takes it up;
@@ -175,12 +180,17 @@ and a failing test.
   - settle: the outcome and its reason;
   - escalate: a recommendation that is one of the options, its reason, a context statement
     (what is being decided and why it matters now), a problem statement (what is
-    unresolved and why the coordinator can't settle it), and at least one of the skill's
-    three grounds: it changes the effort's scope; it reverses or extends a decision the
-    dispatcher supplied; or it is a choice whose options need a step the workspace
-    reserves for a person.
+    unresolved and why the coordinator can't settle it), and at least one of four grounds:
+    it changes the effort's scope; it reverses or extends a decision the dispatcher
+    supplied; it is a choice whose options need a step the workspace reserves for a
+    person; or it is outside the coordinator's scope.
 
-  A text field counts as empty when it is empty after trimming whitespace.
+  A text field counts as empty when it is empty after trimming whitespace. The coordinator
+  may instead hold its verdict, with a reason naming what it waits on (a fact a worker is
+  finding, a measurement, an answer from elsewhere). A held entry stays in
+  `coordinator-verdict`, blocks no dispatch and no other step, and comes back for a verdict
+  when evidence or an answer arrives for it or the coordinator takes it up again; the hold
+  is recorded on the entry with its reason.
 - **R4. Evidence reopens to the verdict, never to the dispatcher.** Recording evidence
   against an entry in any state appends it to the entry's evidence and moves the entry to
   `coordinator-verdict`. No transition goes from evidence to `escalated`; an escalation
@@ -197,7 +207,8 @@ and a failing test.
   and one whose escalation was never sent (a crash between the verdict and the message)
   has its message rendered and sent then, once. A rotation's handoff carries
   every entry that isn't settled; settled entries are not carried. A roadmap record can't
-  close while any entry isn't settled.
+  close while any entry isn't settled; the close then reports what it waits on and returns
+  to waiting for events, so an unanswered escalation never loops the run.
 
 ### What reaches the dispatcher
 
@@ -233,7 +244,11 @@ and a failing test.
   - An entry escalated to a coordinator is shown as with that coordinator, naming it, in
     a row that asks the reader nothing.
   - An entry in `coordinator-verdict` whose escalation waits (R8) is shown as with the
-    coordinator.
+    coordinator; a held entry is shown with what it waits on.
+  - Every other free text the table can carry (the "next or needs" text for any row) is
+    held to the same phrasing check, and the free-text "Waiting on the human" section of a
+    report gives way to the table's rows, so no human-facing surface of the workflow can
+    carry a decision that didn't come from an entry.
 - **R11. An answer settles an escalated entry.** An answer names the entry and gives one
   of its options, or a new outcome with its reason; either settles the entry, recording
   the outcome and who decided. An answer for an entry in any other state is recorded as
@@ -280,7 +295,8 @@ and a failing test.
 - **R18. The brief states the channel.** Every rendered brief carries a fixed sentence
   telling the worker that its questions go to the coordinator in the Questions part,
   numbered, and never to a person, and that the coordinator answers them or escalates them
-  with a recommendation.
+  with a recommendation. It also tells the worker to repeat, in each report, any question it
+  has had no answer to, so a question lost between the report and its record comes back.
 
 ### Deciders, the skill file, engine limits
 
@@ -333,7 +349,16 @@ and a failing test.
   passes.
 - [ ] An escalate verdict is refused for each of: empty recommendation, empty reason, empty
   context, empty problem, a whitespace-only field, a recommendation outside the options,
-  and no ground; with every part present it passes.
+  and no ground; with every part present it passes, including with the `outside-scope`
+  ground alone.
+- [ ] A held verdict without a reason is refused; with one, the entry stays in
+  `coordinator-verdict`, a dispatch after the run's first goes ahead, the run reaches the
+  wait hub, and evidence on the entry brings it back for a verdict.
+- [ ] A second coordinator run against a record the first run wrote, replaying the same log
+  sequence numbers, records its own report's questions as new entries and never mistakes
+  the first run's evidence for its own.
+- [ ] A write that would take the record past its size ceiling is refused by the check with
+  its own verdict, and a settled entry that owes nothing is compacted at the next write.
 - [ ] Evidence recorded against an entry in each of the four states leaves it in
   `coordinator-verdict` with the evidence appended after any earlier evidence, source and
   time included.
@@ -353,8 +378,10 @@ and a failing test.
   afterwards is recorded as evidence, not a settlement.
 - [ ] The progress table renders an escalated entry's row with its question,
   recommendation and reason; refuses the row with an empty recommendation or reason;
-  refuses each refused phrasing fixture as free text, including "decide whether to ship";
-  and accepts each accepted fixture.
+  refuses each refused phrasing fixture as free text, including "decide whether to ship",
+  in a blocked need and in any row's next-or-needs text; and accepts each accepted fixture.
+- [ ] A roadmap close with every feature done and one entry escalated and sent reports what
+  it waits on and returns to the wait hub, without looping.
 - [ ] An entry escalated to a coordinator renders as with that coordinator, by name, and
   its row contains no question to the reader.
 - [ ] An answer naming an option settles the escalated entry with the outcome and who
@@ -373,7 +400,9 @@ and a failing test.
   citing an existing identifier, evidence on that entry; with "please decide whether to
   ship" addressed to the human, a refusal noted on a new entry and a rendered reply to the
   worker; with a question-shaped line outside the Questions part, an entry.
-- [ ] Every rendered brief contains the fixed channel sentence.
+- [ ] Every rendered brief contains the fixed channel sentence and the instruction to repeat
+  unanswered questions, and a report written to the brief's Questions shape is parsed by the
+  question check.
 - [ ] Each declared decider on the decision flow has at least one fixture per answer, and
   flipping its answer changes no transition.
 - [ ] A check over the skill file passes when every state and check name it mentions is
@@ -421,6 +450,14 @@ and a failing test.
 - **A gone target.** An entry escalated to a coordinator that no longer exists stays
   escalated until the dispatcher's channel says otherwise; this feature adds no detection
   of a gone target beyond the quiet-worker check that exists.
+- **The coordinator's relay.** Questions travel mostly by message, and a message report
+  reaches the check as the text the coordinator relayed; a coordinator that drops a
+  question from its relay isn't caught. The check holds against the worker.
+- **Pull request text.** A worker's pull request body and comments are a durable path to a
+  person, linked from the merge-order table, that no check reads.
+- **A crash before the record write.** Questions extracted from a report and not yet written
+  when the coordinator crashes aren't recovered by the successor, whose log is new; the brief
+  asks the worker to repeat unanswered questions, which brings them back at the next report.
 
 ## Decisions and Trade-offs
 
