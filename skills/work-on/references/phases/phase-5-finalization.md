@@ -5,7 +5,7 @@ Verify changes, create summary, record the pre-PR referents, clean up artifacts.
 ## What this state must write
 
 Two koto context keys, both before you submit `ready_for_pr` (or before a
-deferral is approved). Their shape is
+deferral is approved). They are
 checked on the way out of this state and checked again at `pre_pr_evidence`:
 
 | Key | Required | Gate |
@@ -18,7 +18,7 @@ checked on the way out of this state and checked again at `pre_pr_evidence`:
 and the PR body are built from; the rest of the template below is guidance.
 The `pre_pr.md` lines are referents rather than claims, so a word such as `done`
 or `yes` where a sha or a path belongs fails, and so does a sha that names no
-commit on this branch or a path that isn't committed.
+commit in `HEAD`'s history or a path that isn't committed.
 `scripts/check-pre-pr-referents.sh` makes both checks. koto keeps only the
 gate's exit status, so when one fails, run the script yourself (the template's
 finalization directive gives the command) and read the reason it prints. `not-applicable` is hyphenated and

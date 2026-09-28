@@ -32,7 +32,9 @@
 # it would attest nothing about the review, and it would be the wrong commit
 # besides: the summary commit lands after pre_pr.md is written, so HEAD at
 # pre_pr_evidence is past the reviewed one. What the gate can check is that the
-# agent's answer names a real commit on this branch.
+# agent's answer names a real commit in HEAD's history. That history
+# includes commits already on the base branch, so the check proves the sha is
+# real and reachable, not that it is one of this branch's own commits.
 #
 # Each key must appear on exactly one line, starting at the beginning of the
 # line. A second line for the same key is refused rather than resolved: which
@@ -92,7 +94,7 @@ COUNT=$(printf '%s' "$LINES" | grep -c '^')
 [ "$COUNT" -eq 1 ] || fail "pre_pr.md has $COUNT lines starting with '${KEY}:'; write exactly one"
 
 VALUE=${LINES#"${KEY}: "}
-[ "$VALUE" != "$LINES" ] || fail "pre_pr.md's ${KEY} line has no value after '${KEY}: '"
+[ "$VALUE" != "$LINES" ] || fail "pre_pr.md's ${KEY} line is not written as '${KEY}: <value>' (one space after the colon)"
 
 git rev-parse --git-dir >/dev/null || fail "not inside a git repository"
 
@@ -102,7 +104,7 @@ if [ "$MODE" = --cleanup ]; then
     git cat-file -e "${VALUE}^{commit}" \
         || fail "cleanup_commit [$VALUE] does not name a commit in this repository"
     git merge-base --is-ancestor "$VALUE" HEAD \
-        || fail "cleanup_commit [$VALUE] is not HEAD or an ancestor of HEAD; name a commit on this branch"
+        || fail "cleanup_commit [$VALUE] is not HEAD or an ancestor of HEAD; name the reviewed commit on this branch"
     exit 0
 fi
 

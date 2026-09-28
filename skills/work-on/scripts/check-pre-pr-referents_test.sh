@@ -9,8 +9,8 @@
 #
 #   cleanup_commit: HEAD, abbreviated HEAD and an ancestor pass; a sha that
 #   names no object (the mistyped full sha from shirabe#422), a commit on
-#   another branch, a placeholder, an uppercase sha, a second line, and a line
-#   that does not start the line fail.
+#   another branch, a placeholder, an uppercase sha, a second line, and a key
+#   that does not start its line fail.
 #   design_diagram: a committed docs/ file and not-applicable with a reason
 #   pass; a missing path, a path present only in the working tree, a directory,
 #   the enum spelling, and not-applicable without a reason fail.

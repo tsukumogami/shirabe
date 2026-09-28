@@ -3,10 +3,11 @@
 # at finalization instead of ending it at pre_pr_evidence.
 #
 # summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
-# checks their shape and sends a failure to done_blocked. For a child of
-# /execute that terminal also disposes of the child's log (tsukumogami/koto#240), so a shape
+# checks them and sends a failure to done_blocked. For a child of /execute that
+# terminal also disposes of the child's log (tsukumogami/koto#240), so a record
 # the agent could have fixed in one edit cost a full re-entry. The same three
-# shape gates now sit on finalization's ready_for_pr edge and on
+# gates (summary_shape and the two referent checks) now sit on finalization's
+# ready_for_pr edge and on
 # deferral_approval's approved edge, where a failure matches no edge and the
 # state holds with the failing gate named.
 #
@@ -281,7 +282,7 @@ if to_finalization reject; then
     fi
 fi
 
-echo "--- Case 7/8: the early gates match the backstop, which is unchanged"
+echo "--- Case 7/8: the early gates match the backstop, which still routes to done_blocked"
 COMPILED=$(koto template compile "$TEMPLATE" 2>/dev/null)
 if [ -z "$COMPILED" ] || [ ! -f "$COMPILED" ]; then
     fail "could not compile $TEMPLATE"

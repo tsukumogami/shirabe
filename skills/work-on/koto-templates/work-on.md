@@ -1072,7 +1072,7 @@ states:
           gates.commit_convention.exit_code: 0
           gates.cleanup_referent.exit_code: 1
         context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit that names a commit on this branch. A word like 'done', or a sha that names no commit, is not a referent: name the commit whose diff was reviewed."
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit that names HEAD or an ancestor of it, or the check could not run. A word like 'done', or a sha that names no commit, is not a referent: name the commit whose diff was reviewed. Run check-pre-pr-referents.sh --cleanup for the reason."
       - target: done_blocked
         when:
           pre_pr_status: recorded
@@ -1081,7 +1081,7 @@ states:
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 1
         context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path that is a file in HEAD's tree, or as 'not-applicable: <reason>'."
+          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path that is a file in HEAD's tree, or as 'not-applicable: <reason>', or the check could not run. Run check-pre-pr-referents.sh --diagram for the reason."
       - target: done_blocked
         when:
           pre_pr_status: blocked
@@ -1864,7 +1864,7 @@ before you submit `ready_for_pr` or `deferral_requested`. The deferral edge
 doesn't check them, but an approved deferral does, so writing them first keeps
 the human's approval from stopping on an edit.
 
-Two shapes are required, and `ready_for_pr` does not advance without them:
+Two records are required, and `ready_for_pr` does not advance without them:
 
 - `summary.md` must contain a `## Changes Made` heading, spelled exactly that way.
 - `pre_pr.md` must contain exactly one line `cleanup_commit: <sha>` (7 to 40
@@ -1906,7 +1906,8 @@ one failed, run its check yourself; it prints the reason on stderr:
 {{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh --diagram {{SESSION_NAME}}
 ```
 
-If it fails with "No such file", `PLUGIN_ROOT` doesn't point at the plugin and
+If the shell can't run it ("No such file" or "Permission denied"), `PLUGIN_ROOT`
+doesn't point at a usable plugin checkout and
 no edit to `pre_pr.md` will help: stop and report it rather than rewriting the
 record.
 
@@ -1963,7 +1964,7 @@ Its two lines are the referents:
 commented-out code, addressed TODOs and unused imports. `design_diagram` is the
 path of the diagram you updated, or `not-applicable: <reason>` when the change
 touches no design document. Both are checked for existence: the commit must be
-on this branch and the path a file in `HEAD`'s tree, so a word, or a sha or path
+`HEAD` or an ancestor of it and the path a file in `HEAD`'s tree, so a word, or a sha or path
 that names nothing, fails the state rather than satisfying it — that is the
 point of asking for them rather than for a claim that the work was done.
 

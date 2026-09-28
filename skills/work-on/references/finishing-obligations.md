@@ -20,7 +20,7 @@ this table exists.
 | CI is green | `ci_monitor` | `ci_passing` | Any check is outside the pass and skipping buckets. |
 | The summary has the required shape | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `summary_shape` | `summary.md` has no `## Changes Made` section. |
 | The tip commit follows the commit convention | `pre_pr_evidence` | `commit_convention` | The tip subject is not a Conventional Commits subject. |
-| The cleanup referent is a commit on this branch | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
+| The cleanup referent is a commit in the branch's history | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
 | The diagram referent is a file or a stated reason | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path that is a file in `HEAD`'s tree nor `not-applicable: <reason>`. |
 | The issue has a PLAN behind it, or provably does not | `cascade_entry` | `anchor_present` | Undecidable rather than absent: an ambiguous or unreadable corpus stops the run instead of skipping the cascade in silence. |
 | The run is a root, not a child | `ci_monitor` | (evidence: `session_role`) | See below — carried rather than gated, because the discriminator is a script the run calls. |
@@ -42,7 +42,7 @@ be identical in all three states, which `scripts/finalization-shape_test.sh` che
 
 ## Evidence-carried
 
-Each field is an enum or a referent whose shape a gate checks. None is a free
+Each field is an enum or a referent a gate checks. None is a free
 string: koto's evidence schema has `type`, `required`, `values` and
 `description`, and nothing that constrains a string, so a `type: string` field is
 satisfied by `done` and the obligation is unenforced in substance while looking
@@ -50,7 +50,7 @@ enforced in the record.
 
 | Obligation | State | Field | Why a placeholder cannot satisfy it |
 |---|---|---|---|
-| The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as a commit on the branch. |
+| The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
 | The design diagram was updated, or does not apply | `pre_pr_evidence` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
 | The run knows whether it is a root or a child | `ci_monitor` | `session_role` | A closed enum read from `session-role.sh`, which reads koto's own `parent_workflow`. Required, because the state's last edge is unconditional and a missing value would take it. |
 | What the cascade did | `cascade_run` | `cascade_status` | A closed enum. |
@@ -67,8 +67,10 @@ enforced in the record.
 ## What this table does not claim
 
 The routing is real: a failing gate sends the run to a distinct terminal edge.
-The human-readable reason attached to each edge is not currently recorded
-anywhere, because `context_assignments` is inert in the engine
-(tsukumogami/koto#204, tsukumogami/shirabe#335). Until that is fixed, a blocked
-run's reason is recovered from the gate's own output, which is why the scripts
-those gates call keep their stderr rather than discarding it.
+Each edge's `context_assignments` writes a human-readable `failure_reason` into
+the session's context (koto 0.13.0 and later), which says which rung fired. It
+does not say why the gate failed. koto keeps a failed command gate's exit status
+and discards what the command printed, so the detail has to be recovered by
+running the gate's script by hand, which is why the scripts those gates call
+keep their stderr rather than discarding it. For the referent gates the
+finalization directive gives the command.
