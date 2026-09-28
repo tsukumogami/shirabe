@@ -32,10 +32,10 @@ NEXT=$(printf '%s' "$D" | jq -r --arg run "$RUN" '
       | select($n != null)
       | select(any($doc.entries[]; .decision == ($n | tostring)
           and ((.evidence // "") | test("\\[" + $run + " redirect " + $r + "\\]") | not)))
-      | $n] | min) as $redirect
+      | {n: $n, r: $r}] | min_by(.n)) as $redirect
   | if pick(.owed == "withdrawal") != null then "withdraw \(pick(.owed == "withdrawal"))"
     elif pick(.owed == "reply") != null then "reply \(pick(.owed == "reply"))"
-    elif $redirect != null then "redirect \($redirect)"
+    elif $redirect != null then "redirect \($redirect.n) \($redirect.r)"
     elif pick(.owed == "escalation") != null then "escalate \(pick(.owed == "escalation"))"
     elif pick(.state == "proposed") != null then "take \(pick(.state == "proposed"))"
     elif pick(.state == "coordinator-verdict" and (.verdict // "") == "") != null

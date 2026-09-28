@@ -15,12 +15,19 @@
 # script removes it from STAND_INS (Issue 6 report-questions.sh, Issue 7
 # record-decision.sh, Issue 8 decision-next.sh and coord-verdict.sh), and
 # Issue 8, which puts the states in coordinate.md, points STATES_FROM there.
-# Issue 10 deletes stand-in-states.yaml and every stand-in but
-# report-facts.sh, whose shipped script reads a pull request and board this
-# harness doesn't stand in for. The driver, the arrivals, the fixtures and
-# the assertions don't change: they use record-decision.sh's own interface,
-# the sealed captures and context keys the real scripts write, and records
-# rendered by the real codec.
+# Issue 10 deletes stand-in-states.yaml and the stand-ins directory. The
+# driver, the arrivals, the fixtures and the assertions stay: they use
+# record-decision.sh's interface, the sealed captures and context keys the
+# real scripts write, and records rendered by the real codec.
+#
+# Some of that interface is chosen here, where the DESIGN leaves it open, for
+# Issues 6 and 7 to adopt or change together with this harness:
+# record-decision.sh's write-mode flags, the shape of coord/questions.json
+# (report-questions.sh's header), an Outcome cell written
+# `<outcome>; reason: <reason>`, a nested Decided by written
+# `<target> (final: <decider>)`, and the addressed mark (the codec's
+# d_addressed_mark). The stand-in record-decision.sh also answers --list and
+# --read itself, in place of the shipped read modes, until Issue 7 replaces it.
 #
 # Proves:
 #   1. the niwa#330 replay: a settled entry whose source is the worker, the
@@ -54,7 +61,7 @@ done
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/testdata/decisions/stand-in-states.yaml"
-STAND_INS="coord-verdict.sh decision-next.sh report-questions.sh record-decision.sh report-facts.sh"
+STAND_INS="coord-verdict.sh decision-next.sh report-questions.sh record-decision.sh"
 
 # test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
@@ -337,9 +344,11 @@ replay_check() {
 
 # --- 1 and 2: the niwa#330 replay --------------------------------------------------------
 
+# Entry 1 as an earlier run left it: settled, owing nothing, and so compacted
+# by the codec's compact_settled (options, verdict and evidence blank).
 SETTLED_D='{"next":2,"entries":[{"decision":"1","round":"0","question":"Which marketplace layout do we ship?",
-  "options":"(c) per-project clones\n(d) a shared clone","state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",
-  "verdict":"settle","outcome":"(d) a shared clone; reason: the flip condition is a per-project version moving, which is untested",
+  "state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",
+  "outcome":"(d) a shared clone; reason: the flip condition is a per-project version moving, which is untested",
   "decided_by":"this coordinator","updated":"2026-09-20T08:30Z"}]}'
 verdict_for() {
     case "$2" in
@@ -349,7 +358,7 @@ verdict_for() {
 }
 replay() { # replay <session> <template> <record-number>
     new_run "$1" "$2" "replay-$3" "$3" || return 1
-    seed_holding "$3" "replay-$3" "$(holding w1 '{"entry_point":"/shirabe:work-on"}')"
+    seed_holding "$3" "replay-$3" "$(holding w1 '{"entry_point":"/shirabe:work-on","pull_request":""}')"
     seed_decisions "$3" "replay-$3" "$SETTLED_D"
     arrive_evidence "$1" 1 dispatcher "check result, mixed: the shared marketplace clone moved, the installed per-project versions held"
     back_to_wait "$1"
@@ -391,7 +400,7 @@ LW=coordinate-roadmap-ws-20260928T100003Z
 LR=coordinate-roadmap-rr-20260928T100004Z
 new_run "$LW" "$TPL" ws 21 || finish
 new_run "$LR" "$TPL" rr 22 ws || finish
-seed_holding 21 ws "$(holding rr '{"entry_point":"/shirabe:coordinate"}')"
+seed_holding 21 ws "$(holding rr '{"entry_point":"/shirabe:coordinate","pull_request":""}')"
 CTX_M="The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade."
 PROB_M="Shipping it now splits users across two formats for a week; waiting holds two other features behind it."
 CTX_P="The plugin floats to its latest version, and the release pins what users get for a quarter."
@@ -426,6 +435,12 @@ back_to_wait "$LW"
 arrive_answer "$LW" 1 1 "wait for the release"
 eq "levels: the person's answer settles W's entry" 'settled|a person' "$(field "$LW" 1 state)|$(field "$LW" 1 decided_by)"
 eq "levels: W's reply names R's entry and round" "reply|Answer: decision 1 round 1." "$(last_sent "$LW" .kind)|$(last_sent "$LW" .text | head -1)"
+back_to_wait "$LW"
+W_SENT=$(wc -l < "$T/$LW.sent")
+W_ENTRY=$(entry "$LW" 1)
+arrive_answer "$LW" 1 1 "wait for the release"
+eq "levels: the same answer sent again changes nothing and sends nothing" "same $W_SENT" \
+    "$([ "$(entry "$LW" 1)" = "$W_ENTRY" ] && echo same || echo changed) $(wc -l < "$T/$LW.sent")"
 back_to_wait "$LW"
 
 # R's coordinator relays W's reply as an answer, from the reply's own lines.

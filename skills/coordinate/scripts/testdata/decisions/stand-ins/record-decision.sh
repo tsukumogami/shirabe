@@ -217,10 +217,11 @@ sent)
         escalation) apply '.entries |= map(if .decision == $n then .owed = "" | .asked = $now | .updated = $now else . end)' --arg n "$N" ;;
         withdrawal|reply) apply '.entries |= map(if .decision == $n then .owed = "" | .updated = $now else . end)' --arg n "$N" ;;
         redirect)
+            RS=$(printf '%s\n' "$CAP" | tr ' ' '\n' | sed -n 's/^report://p')
+            [ -n "$RS" ] || refuse "the redirect's render names no report"
             apply '.entries |= map(if .decision == $n then
-                     ([(.source + "\n" + (.evidence // "")) | scan("\\[" + $run + " report ([0-9]+)\\.[0-9]+\\]")] | last | .[0]) as $rs
-                     | add_ev(ev_line("this coordinator"; "[\($run) redirect \($rs)]"; "redirect sent")) | .updated = $now else . end)' \
-                --arg n "$N" --arg run "$RUN" ;;
+                     add_ev(ev_line("this coordinator"; "[\($run) redirect \($rs)]"; "redirect sent")) | .updated = $now else . end)' \
+                --arg n "$N" --arg run "$RUN" --arg rs "$RS" ;;
     esac ;;
 *) echo "$PROG: no mode" >&2; exit 64 ;;
 esac
