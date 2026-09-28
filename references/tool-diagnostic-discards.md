@@ -198,7 +198,10 @@ any of these. A probe that charged every variable at command position
 on a discard line found only sites the trace already covers. A site that needs
 one of these shapes is enumerated by hand, with a comment line in the record
 block naming the shape. Any traced assignment charges its variable, even when
-another assignment in the same file gives it a different value.
+another assignment in the same file gives it a different value. Command
+position is judged without tracking quotes, so a separator inside a string
+(`echo "a; $K"`) can charge a name held as data. That errs toward a finding,
+which a record or a rewrite settles, never toward a miss.
 
 Like a literal call, a variable-held call is judged on the line holding the
 redirect. A command continued with `\` whose redirect sits on a later line
