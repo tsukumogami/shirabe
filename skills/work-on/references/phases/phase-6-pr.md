@@ -6,14 +6,16 @@ Create the PR and monitor CI until all checks pass.
 
 Rebase on latest main if behind. Resolve conflicts and re-run tests.
 
-Review with `git diff main...HEAD` — no unintended changes.
+Review with `git diff "$(koto context get <WF> impl_base)" HEAD` — this run's
+changes from the commit `analysis` recorded, with no local `main` needed — no
+unintended changes.
 
 ### Design Document Status
 
 Don't update the design diagram here. When the issue body contains
 `Design: \`<path>\``, finalization updated it and `pre_pr.md`'s
 `design_diagram` line names its path. Confirm that path appears in
-`git diff main...HEAD`. If it doesn't, the record and the diff disagree: go
+that diff. If it doesn't, the record and the diff disagree: go
 back through `finalization` rather than updating the diagram at this point.
 
 ## Push Branch

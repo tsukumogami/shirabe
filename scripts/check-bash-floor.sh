@@ -251,6 +251,9 @@ suite_scripts() {
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/record-changed-paths_test.sh"
+            # Same shape: its script cases run real clones through a koto
+            # stand-in; its engine cases skip without koto.
+            echo "skills/work-on/scripts/has-commits_test.sh"
             # Its script cases need only jq, git and a stubbed gh, so they run
             # on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/check-staleness_test.sh"

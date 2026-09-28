@@ -668,8 +668,10 @@ states:
     # straight to verification with no later state that would notice a branch
     # carrying no commits.
     #
-    # has_commits is byte-identical to scrutiny's copy, and to what
-    # implementation carried before the question moved here.
+    # has_commits is byte-identical to scrutiny's copy. It counts the commits
+    # since impl_base, the commit analysis recorded as this run's start, so
+    # it needs no local branch named main and ignores commits the run didn't
+    # make; an unrecorded impl_base fails it (scripts/has-commits.sh).
     #
     # issue_type is decider-eligible: `code` is shadow, and `docs` and `task`
     # are never. The code route tests no gate, so promoting `code` later clears
@@ -679,7 +681,7 @@ states:
     gates:
       has_commits:
         type: command
-        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
     accepts:
       issue_type:
         type: enum
@@ -724,12 +726,12 @@ states:
           error: ""
       # Moved here from implementation with the issue-type question, so the
       # code route out of issue_type_routing carries no gate. It still stands
-      # between a code-typed issue and the panels after this one: a branch
-      # with no commits over main cannot pass scrutiny, whatever the panel
+      # between a code-typed issue and the panels after this one: a run with
+      # no commits since impl_base cannot pass scrutiny, whatever the panel
       # reported. Identical to issue_type_routing's copy.
       has_commits:
         type: command
-        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
     accepts:
       scrutiny_outcome:
         type: enum
@@ -1764,10 +1766,10 @@ a starting point and override it when the changed paths say otherwise.
 
 - `code` -- behaviour changes: source, tests, build or CI logic, templates that
   drive a workflow. Goes through the scrutiny, review, and QA panels. Scrutiny
-  will not pass on a branch with no commits over main.
+  will not pass while this run has no commits since `impl_base`.
 - `docs` -- writing or structural documentation changes. Skips the panels and
-  goes to verification. Needs at least one commit over main: submitted on a
-  branch with none, the state holds; commit the work, then submit it again.
+  goes to verification. Needs at least one commit since `impl_base`:
+  submitted with none, the state holds; commit the work, then submit it again.
 - `task` -- operational work (running scripts or commands) with no reviewable
   change set. Skips the panels, goes to verification, and needs no commits.
 
@@ -1780,7 +1782,7 @@ Evidence schema:
 
 Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
 
-Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while the branch has no commits over main. If the work really has none, submit `blocking_retry` and commit it in implementation.
+Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, submit `blocking_retry` and commit it in implementation.
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
