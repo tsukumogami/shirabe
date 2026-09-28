@@ -229,7 +229,7 @@ calls for.
 | `scoped` | The author declined the confirmation; the report prints `next=/deliver <topic>`. |
 | `handed-off-multi-pr` | The PLAN is `multi-pr`; `/execute` was not started, and the startable items follow. |
 | `scope-ended-early` | `/scope` ended at `re-evaluation`, `abandonment`, or a clean cancel; `reason=` names which. |
-| `error` | A step failed; `step=` names it: `/scope`'s and `/execute`'s own steps, `scope:refused` and `execute:refused` (a child's arguments or attach refused), `deliver:intent-mismatch`, `deliver:child-outcome` (a result `/deliver` doesn't recognise, or a re-check that failed), `deliver:child-absent` (a child returned without ever recording a result), `deliver:request-abandoned` (this run's request was abandoned under it), or `deliver:refused` (the repository isn't public, `reason=private-repo`, or koto refused this invocation's own arguments). |
+| `error` | A step failed; `step=` names it: `/scope`'s and `/execute`'s own steps, `scope:refused` and `execute:refused` (a child's arguments or attach refused), `deliver:intent-mismatch`, `deliver:child-outcome` (a result `/deliver` doesn't recognise, or a re-check that failed), `deliver:child-absent` (a child returned without ever recording a result), `deliver:request-abandoned` (this run's request was abandoned under it), or `deliver:refused` (koto refused this invocation's own arguments). |
 
 The report also carries, where the run produced them, `repos=` (the
 repositories `/execute` wrote to), `pr=`, `pr_state=`, and `wip_paths=` (the
@@ -250,10 +250,13 @@ readying, and, with `--merge`, its one `gh pr merge` call site. The re-checks
 
 ## Security Considerations
 
-- **Repository binding.** `/deliver` runs public-repo tactical chains only, the
-  binding `/scope` has. The `preflight` state reads the `## Repo Visibility:`
-  header; `Private`, or no header at all, ends the run `outcome=error` with
-  `reason=private-repo` before any request is opened.
+- **Visibility is checked where content is written.** `/deliver` runs in public
+  and private repositories alike. It writes no repository content itself, so
+  the visibility rules apply at its children's writes, each against the
+  repository it writes to: `/scope`'s publish step runs the public-content
+  visibility check on the unpushed staging files when that repository declares
+  `## Repo Visibility: Public`, and `/execute` checks each pull request against
+  its own target repository (its Security Considerations say where).
 - **Arguments are data.** Tokens reach koto only through the args file and
   `--vars-file`, mapped with `jq`; koto enforces each variable's pattern before
   any gate sees a value, and every gate command quotes its variables.

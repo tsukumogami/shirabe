@@ -411,18 +411,18 @@
     },
     {
       "id": 28,
-      "name": "private-repo-refused",
-      "requirements": ["R29"],
+      "name": "private-repo-reaches-its-pr",
+      "requirements": ["R14", "R15"],
       "scenario": "deliver-private",
       "env": {"GH_CALL_LOG": "gh-calls.log"},
-      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-private --visibility private`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-private --auto` to its end. Print `koto status deliver-dlv-private`, the report deliver-report.sh prints, and `koto request list --coordinator-of-record deliver-dlv-private`.",
-      "expected_output": "/deliver inherits /scope's public-repo binding: preflight refuses the private repository before any request is opened or child runs, and the report prints outcome=error with step=deliver:refused and reason=private-repo.",
+      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-private --visibility private`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-private --auto` to its end. Print `koto status deliver-dlv-private` and the report deliver-report.sh prints.",
+      "expected_output": "/deliver runs in a private repository like any other: /scope publishes the topic branch and opens PR #42, the re-check verifies it, the PLAN is single-pr, and /execute adopts #42 and merges it. merged_check re-reads GitHub and the run ends done with outcome merged. Nothing refuses the repository for its visibility.",
       "files": [],
       "expectations": [
-        "The deliver-dlv-private result payload has reason `private-repo`",
-        "The printed report is `outcome=error`, `step=deliver:refused`, `reason=private-repo`",
-        "No request exists for coordinator deliver-dlv-private",
-        "gh-calls.log contains no line at all"
+        "The `koto status deliver-dlv-private` result payload has outcome `merged`",
+        "The result payload's pr is `https://github.com/eval-org/eval-repo/pull/42`",
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "Neither the result payload nor the printed report carries `private-repo`"
       ]
     },
     {

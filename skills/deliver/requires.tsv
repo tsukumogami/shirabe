@@ -66,9 +66,9 @@ koto	request close	-	always
 # Every lookup carries the session's run identity, which
 # skills/execute/scripts/run-id.sh reads with `koto context exists` and
 # `koto context get`; deliver-open.sh mints it once with `koto context add`.
-# deliver-preflight.sh reads the work-tree root with git. jq maps the
-# invocation's tokens and reads koto's and gh's JSON. Every repository write
-# happens inside /scope and /execute, under their own declarations.
+# jq maps the invocation's tokens and reads koto's and gh's JSON. Every
+# repository write happens inside /scope and /execute, under their own
+# declarations.
 gh	-	-	always
 git	-	-	always
 jq	-	-	always

@@ -389,14 +389,13 @@ suite_scripts() {
             echo "skills/coordinate/scripts/skill-states_test.sh"
             ;;
         deliver)
-            # The report, the probes, the binding check, the mode map, and the
-            # eval gh shim. They drive test-local gh and koto stand-ins and need
-            # only bash, git and jq, so every case runs on 3.2. The engine
+            # The report, the probes, the mode map, and the eval gh shim. They
+            # drive test-local gh and koto stand-ins and need only bash, git
+            # and jq, so every case runs on 3.2. The engine
             # suites stay on the Linux job that installs koto.
             echo "scripts/plan-mode_test.sh"
             echo "skills/deliver/scripts/deliver-report_test.sh"
             echo "skills/deliver/scripts/deliver-probe_test.sh"
-            echo "skills/deliver/scripts/deliver-preflight_test.sh"
             echo "skills/deliver/scripts/eval-gh-shim_test.sh"
             echo "skills/deliver/scripts/deliver-requires_test.sh"
             ;;
