@@ -11,14 +11,26 @@
 # floor. Without it, a skip, or a stale koto left on a runner, would pass as
 # green having tested something shirabe does not support.
 #
-# The floor is KOTO_FLOOR below, not a value read from .tsuku.toml: the
-# manifest names the major version shirabe tracks, the floor names the oldest
-# release that has what shirabe uses. 0.13.0 is the release that shipped the
-# koto init entry flags (--vars-file, --attach-live, --replace-terminal,
-# --koto-leg) /scope, /execute and /deliver enter through, and from which the
-# templates' context_assignments execute. Raise it in the pull request that
-# adopts a feature from a newer koto. check-koto-entry-floor.yml runs the koto-backed
-# suites on exactly this release, so keep the two in step.
+# The floor is FLOOR below, not a value read from .tsuku.toml: the manifest
+# names the major version shirabe tracks, the floor names the oldest release
+# that has what shirabe uses. It is shirabe's koto minimum, and this line is
+# its one definition: check-koto-entry-floor.yml and check-koto-release.sh read
+# it from here, and scripts/koto-minimum-consistency_test.sh fails when a
+# document or workflow states another value. 0.14.0 is the release that keeps
+# a session reaching a failure terminal and delivers a child's result whether
+# or not its tick carried --no-cleanup, which is what lets every skill pass the
+# flag on every tick (references/koto-session-retention.md); it also has the
+# koto init entry flags /scope, /execute and /deliver enter through, which
+# shipped in 0.13.0. Raise it in the pull request that adopts a feature from a
+# newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
+# update each restatement it names, adding to this paragraph what the new
+# release brings.
+#
+# The FLOOR line is also read at skill load. scripts/lib/preflight-minimum.sh
+# reads it from the installed plugin to report a koto below the minimum, so
+# the line's shape -- FLOOR="${KOTO_FLOOR:-MAJOR.MINOR.PATCH}" -- is a runtime
+# contract, not only CI's. KOTO_FLOOR is honoured here only; the preflight
+# ignores it, so the environment can't lower the minimum a user is held to.
 #
 # Usage: scripts/assert-koto-floor.sh
 #
@@ -34,7 +46,7 @@
 
 set -uo pipefail
 
-FLOOR="${KOTO_FLOOR:-0.13.0}"
+FLOOR="${KOTO_FLOOR:-0.14.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically

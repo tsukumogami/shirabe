@@ -344,7 +344,7 @@ Measurements on koto 0.12.2 set the constraints:
   `<parent>.scope` doesn't close that hole.
 - **A `--parent` child can't both keep its record and report it.** It either
   deletes itself at its terminal or, with `--no-cleanup`, emits no result at
-  all (koto#240).
+  all (tsukumogami/koto#240; koto 0.14.0 separated the two, see K7).
 - **koto's request store already separates retention from the result.** A
   root session attached to a request leg sends its result to the leg on its
   terminal tick even under `--no-cleanup`, and keeps its session. Once a
@@ -387,7 +387,7 @@ Key assumptions:
   `resolve`, leg-scoped `abandon`) are refused outright on a self-attached
   leg rather than fenced at a known epoch. If the carve-out is rejected, the
   fallback is both children as `--parent` children with a parent-side fence,
-  which needs koto#240.
+  which needs tsukumogami/koto#240.
 - The request store's limits are acceptable for v1: it's unix only, isn't
   replicated under koto's cloud backend, and has no prune yet.
 - The two-driver race is accepted, as it is in every option (see Security
@@ -467,7 +467,8 @@ a child-state gate, while `/scope` stays a plain call gated on durable files.
 Rejected: the asymmetry costs more than it looks. `/scope`'s stop outcomes
 would still arrive as agent evidence, and there'd be two observation
 mechanisms to document. `/execute` would lose "always a
-root" and need role-routed retention until koto#240 lands. A parent linking
+root" and need role-routed retention until tsukumogami/koto#240 lands (since
+shipped in koto 0.14.0). A parent linking
 by name still leaks stale children. And an interrupted direct `/execute` run
 couldn't be adopted, so it would end as a new `deliver:child-detached` error.
 Its durable re-checks (`scoped_check` with the recorded-intent check,
@@ -480,7 +481,7 @@ headers, adoption events for a live direct run, a refusal event distinct from
 a completion (so batch views don't count it), and a child-state gate with a
 latest-event-wins rule: three to five new mechanisms where the chosen option
 needs one verb and one gate. It still can't let a child keep its record
-without koto#240. Its `koto init` surface (variable constraints,
+without tsukumogami/koto#240. Its `koto init` surface (variable constraints,
 `--vars-file`, `--replace-terminal`, `--attach-live`, rebind) is adopted, and
 it remains the fallback if koto rejects the root carve-out.
 
@@ -877,9 +878,11 @@ paragraph below is the contract shirabe consumes. The code-level detail
   explicit, refused), `status`, `final_state`, `template`, `outcome`,
   `step`, `reason`, `valid`, `payload`, and `error`. An open leg is a
   temporal block.
-- **K7. Retention separate from result emission (koto#240, recommended).**
-  It serves `/work-on`'s batch children, which stay `--parent` children, and
-  would retire their role routing.
+- **K7. Retention separate from result emission (tsukumogami/koto#240,
+  recommended).** It serves `/work-on`'s batch children, which stay `--parent`
+  children, and would retire their role routing. Shipped in koto 0.14.0
+  (tsukumogami/koto#259); shirabe#439 moved the koto minimum to that release
+  and retired the retention role routing.
 - **K8. `overridable: false` on gates (required).** `koto overrides record`
   is refused on a gate so marked, with or without `--with-data`. shirabe
   marks the two leg gates (`scope_leg`, `exec_leg`), the `context-matches`
@@ -1606,7 +1609,7 @@ KA ships generic gate-field assignment on its own; the leg-gate path
 (`${gates.<g>.payload.<k>}`) gets its end-to-end test when KF lands. KR's
 condition is only that the release is published; shirabe's pin moves in
 Phase 2. K7
-(koto#240), K9 (request prune), and K10 (the `name_filter` fix) are
+(tsukumogami/koto#240), K9 (request prune), and K10 (the `name_filter` fix) are
 recommended or optional and off the critical path.
 
 Deliverables:

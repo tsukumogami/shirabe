@@ -147,17 +147,12 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Three also shell out to python3, so a floor run would
 #       mostly exercise that rather than bash.
-#   scripts/check-koto-floor.sh, scripts/check-koto-floor_test.sh,
-#   scripts/check-koto-release.sh, scripts/koto-floor/ (check-koto-floor.yml)
-#       The koto version-floor check and its release leg. They run only on
-#       ubuntu runners, from their own workflow, and no skill invokes them, so
-#       they never reach a macOS /bin/bash on a user's machine. Both checks
-#       install koto over the network, which a container run here cannot do.
-#       The floor image now carries yq (for the decider-declarations check),
-#       but the test has never been run inside it and stays exempt with the
-#       checks it covers. All three are written for bash 3.2 and were run under
-#       macOS /bin/bash when they changed; run them there by hand after
-#       changing them.
+#   scripts/check-koto-release.sh (check-koto-entry-floor.yml)
+#       The decider check on the koto minimum. It runs for real only on the
+#       ubuntu runner that installs exactly that release, and no skill invokes
+#       it, so it never reaches a macOS /bin/bash on a user's machine. Its
+#       test, scripts/check-koto-release_test.sh, drives it against a stand-in
+#       koto in the koto-open suite, wherever yq is present.
 #
 # Backend limit, not an exemption: the `preflight` suite fails one case on the
 # docker backend for a non-bash reason (the image has no koto, gh or shirabe,
@@ -181,7 +176,7 @@ suite_scripts() {
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
             echo "skills/execute/scripts/settled-branch-record_test.sh"
-            # Same koto-absent contract: its two static cases still run on the
+            # Same koto-absent contract: its static cases still run on the
             # macOS leg, and the engine-backed ones skip there.
             echo "skills/execute/scripts/terminal-retention_test.sh"
             # Need no engine and no network: both drive the merge scripts
@@ -238,7 +233,8 @@ suite_scripts() {
             # Needs no engine at all: it builds repositories and reads commits,
             # so every case genuinely executes on the floor.
             echo "skills/work-on/scripts/verify-cascade-commit_test.sh"
-            # Drives real koto sessions, and skips cleanly without them.
+            # Drives real koto sessions, and skips cleanly without them. Its
+            # engine-free case invokes the discriminator it carries.
             echo "skills/work-on/scripts/ci-monitor-role_test.sh"
             # Needs no engine: it runs the gate expression against stubbed gh.
             echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
@@ -246,8 +242,8 @@ suite_scripts() {
             echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions, and skips cleanly without them.
             echo "skills/work-on/scripts/finalization-shape_test.sh"
-            # Drives real koto sessions for the same reason, and carries the
-            # discriminator the retention rule reads.
+            # Its rule-text cases need no engine; its engine cases skip without
+            # koto.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
             # Its script cases write through a koto stand-in and need only git,
             # so they run on the floor; its engine cases skip without koto.
@@ -264,8 +260,8 @@ suite_scripts() {
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
-            # reaches the floor through the suite above, whose engine-free
-            # cases run without koto and include invoking it.
+            # reaches the floor through ci-monitor-role_test.sh, whose
+            # engine-free case runs without koto and invokes it.
             ;;
         preflight)
             # Runs on the system backend only. In the docker container one
@@ -275,6 +271,7 @@ suite_scripts() {
             echo "scripts/skill-preflight_test.sh"
             echo "scripts/lib/preflight-probe_test.sh"
             echo "scripts/lib/preflight-report_test.sh"
+            echo "scripts/lib/preflight-minimum_test.sh"
             echo "scripts/check-skill-requires_test.sh"
             # The scan on its own, against the committed tree: the verdict the
             # macOS leg reports, not only a case inside the harness above.
@@ -320,6 +317,11 @@ suite_scripts() {
             echo "scripts/koto-open_test.sh"
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
+            # Reads files and greps them; no koto, so every case runs on 3.2.
+            echo "scripts/koto-minimum-consistency_test.sh"
+            # The decider check against a stand-in koto; needs yq, and skips
+            # loudly without it.
+            echo "scripts/check-koto-release_test.sh"
             ;;
         coordinate)
             # /coordinate's script tests. They drive test-local gh and koto

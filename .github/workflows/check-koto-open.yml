@@ -15,6 +15,10 @@ on:
       - 'scripts/koto-open_test.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
+      # In the koto-open floor suite, so their bash 3.2 runs happen here.
+      - 'scripts/koto-minimum-consistency_test.sh'
+      - 'scripts/check-koto-release.sh'
+      - 'scripts/check-koto-release_test.sh'
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
@@ -63,6 +67,10 @@ jobs:
       - name: Run koto floor assertion tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/assert-koto-floor_test.sh
+
+      - name: Run the decider check's tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-koto-release_test.sh
 
       - name: Run koto-open suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
