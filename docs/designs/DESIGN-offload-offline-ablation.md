@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   Before a maintainer withholds an instruction section from a koto-templated
   skill, shirabe has to be able to measure what withholding it does: run the
@@ -39,7 +39,7 @@ user_visible_surface: false
 
 ## Status
 
-Accepted
+Planned
 
 The architecture, security and structural-format reviewers' blocking
 findings were resolved in a second round.
@@ -315,6 +315,7 @@ fixture, and case files with stable ids let outside cases run unchanged
 | `scripts/run-evals.sh` | Gains a `--withhold` check at the top that `exec`s the harness; nothing else changes |
 | `scripts/ablation/ablation.py` | `run`, `smoke`, `summarize`, `check-figures`, `resolve-span` and `validate-case` subcommands |
 | `scripts/ablation/check-normal-runs-unchanged.sh` | Fails when a load-manifest path or a koto template differs from a base ref |
+| `scripts/ablation/check-public-content.sh` | The public-content grep, with its denylist in a committed file |
 | `scripts/ablation/koto-intercept` | The `koto` wrapper placed first on PATH as `koto` |
 | `scripts/ablation/is-fixture-session` | The fixture rule over a koto state file |
 | `scripts/ablation/checks/` | Deployed and audit checks, one executable each |
