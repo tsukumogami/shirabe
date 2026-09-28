@@ -330,6 +330,7 @@ EOF
 
 allowlist_load "$ALLOWLIST" file \
     "$RULE_BASH" "$RULE_EXEC" "$RULE_SHEBANG" "$RULE_UNRESOLVED"
+errors=$((errors + allowlist_rejected))
 
 FILES=$(git -C "$ROOT" ls-files -- skills references .claude/shirabe-extensions \
         CLAUDE.md AGENTS.md \

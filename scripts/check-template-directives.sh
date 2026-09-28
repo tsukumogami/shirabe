@@ -669,6 +669,7 @@ check_template() {
 # -- main --------------------------------------------------------------------
 
 allowlist_load "$ALLOWLIST" template "$RULE_UNGUARDED" "$RULE_STATE_FILE"
+errors=$((errors + allowlist_rejected))
 
 TEMPLATES=""
 if [ $# -gt 0 ]; then

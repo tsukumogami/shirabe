@@ -395,6 +395,20 @@ EOF
     teardown
 }
 
+# A record missing its subject would otherwise have its issue field reused as
+# the subject and be accepted, deferring nothing anyone meant to defer.
+test_allowlist_truncated_record_fails() {
+    setup
+    skill_md <<'EOF'
+Nothing to run.
+EOF
+    commit
+    printf 'exec-bit\tskills/demo/SKILL.md\towner/repo#1\n' > "$TEST_DIR/allow"
+    assert_fails "an allowlist record with fewer than four fields fails" \
+        "is not a tab-separated record"
+    teardown
+}
+
 # -- scan coverage --------------------------------------------------------------
 
 # scan_fails <repo-relative-path> -- a `bash x.sh` line in that file is found.
@@ -463,6 +477,7 @@ test_allowlist_defers_finding
 test_allowlist_record_without_issue_fails
 test_allowlist_unknown_rule_fails
 test_allowlist_untabbed_record_fails
+test_allowlist_truncated_record_fails
 
 test_extension_file_is_scanned
 test_claude_md_is_scanned
