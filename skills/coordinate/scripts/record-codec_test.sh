@@ -214,7 +214,7 @@ entry() { # entry <n> <state> [jq merge]: one Decisions entry
       reason: "", context: "", problem: "", grounds: "", target: "", owed: "",
       asked: "", evidence: "", outcome: "", decided_by: "", updated: "2026-09-27T23:40Z"}' | jq -c ". + ($extra)"
 }
-ESC='{round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip condition did not happen", context: "Option d was approved; a check came back mixed.", problem: "Dropping the feature changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
+ESC='{options: "keep option d and ship -- the flip condition did not happen, so d stands\nswitch to option c -- the per-project installs would pin their versions", round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip condition did not happen", context: "Option d was approved; a check came back mixed.", problem: "Dropping the feature changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
 decisions_record() {
     jq -nc --argjson a "$(entry 1 proposed)" --argjson b "$(entry 2 coordinator-verdict '{verdict: "hold", reason: "waiting on the cache benchmark"}')" \
         --argjson c "$(entry 3 escalated "$ESC")" \
@@ -289,6 +289,12 @@ for c in 'recommendation: "neither"' 'reason: "  "' 'context: ""' 'problem: ""' 
     [ "$(VAL "$(entry 1 escalated "$ESC + {$c}")" "a person" | jq length)" = 1 ] && ok "the validator refuses {$c}" || bad "the validator refuses {$c}"
 done
 [ "$(VAL "$(entry 1 escalated "$ESC")" "coordinator ws" | jq length)" = 1 ] && ok "the validator refuses a target other than the run's" || bad "the validator refuses a target other than the run's"
+[ "$(VAL "$(entry 1 escalated "$ESC + {options: \"keep option d and ship -- d stands\\nswitch to option c\"}")" "a person" | jq -c .)" = '["an option has no explanation"]' ] \
+    && ok "the validator refuses an option without its explanation" || bad "the validator refuses an option without its explanation"
+[ "$(VAL "$(entry 1 escalated "$ESC + {options: \"keep option d and ship --  \\nswitch to option c -- why\"}")" "a person" | jq -c .)" = '["an option has no explanation"]' ] \
+    && ok "the validator refuses a blank explanation" || bad "the validator refuses a blank explanation"
+[ "$(VAL "$(entry 1 escalated "$ESC + {recommendation: \"keep option d and ship -- the flip condition did not happen, so d stands\"}")" "a person" | jq -r '.[0]')" = "the recommendation is not one of the options" ] \
+    && ok "the recommendation names an option, not its explanation" || bad "the recommendation names an option, not its explanation"
 CMP=$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{verdict: "settle", outcome: "ship", decided_by: "a person", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: mixed"}')" 'include "record-codec"; $e | compact_settled')
 [ "$(printf '%s' "$CMP" | jq -r '[.evidence, .options, .verdict] | join("")')" = "" ] && [ "$(printf '%s' "$CMP" | jq -r .outcome)" = ship ] \
     && ok "a settled entry that owes nothing compacts to its identity, question and outcome" || bad "a settled entry that owes nothing compacts" "$CMP"

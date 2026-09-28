@@ -14,7 +14,7 @@ db_init
 
 # The entries every case starts from, as the codec parses them.
 ESC='{"decision":"3","round":"1","question":"Ship the migration before the release?",
-  "options":"ship now\nwait for the release\nsplit it","state":"escalated","source":"self [20260926T080000Z raise 7]",
+  "options":"ship now -- users get the new format this week\nwait for the release -- one upgrade carries both changes\nsplit it -- the reader ships now, the writer on Friday","state":"escalated","source":"self [20260926T080000Z raise 7]",
   "verdict":"escalate","recommendation":"wait for the release","reason":"the release is Friday and the migration rides it",
   "context":"The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade.",
   "problem":"Shipping it now splits users across two formats for a week; waiting holds two other features behind it.",
@@ -72,12 +72,26 @@ Shipping it now splits users across two formats for a week; waiting holds two ot
 
 Ship the migration before the release?
 1. wait for the release (recommended: the release is Friday and the migration rides it)
+   one upgrade carries both changes
 2. ship now
+   users get the new format this week
 3. split it
+   the reader ships now, the writer on Friday
 
 Answer naming decision 3 round 1 and an option, or give another outcome with its reason.
 EOF
-eq "escalation: context, problem, the question with the recommendation first, the answer line" "$(cat "$T/want")" "$BODY"
+eq "escalation: context, problem, the question with the recommendation first, every option explained, the answer line" "$(cat "$T/want")" "$BODY"
+qform() { koto context get "$S" coord/decision_question.json; }
+eq "escalation: the structured form, the recommended option first with every explanation" \
+    'wait for the release:true:one upgrade carries both changes|ship now:false:users get the new format this week|split it:false:the reader ships now, the writer on Friday' \
+    "$(qform | jq -r '[.options[] | "\(.label):\(.recommended):\(.explanation)"] | join("|")')"
+eq "escalation: the structured form carries the question, context, problem and reason" \
+    '3 1|Ship the migration before the release?|the release is Friday and the migration rides it' \
+    "$(qform | jq -r '"\(.decision) \(.round)|\(.question)|\(.reason)"')"
+[ "$(qform | jq -r .context)" = "The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade." ] &&
+    ok "escalation: the structured form's context is the entry's" || bad "escalation: the structured form's context is the entry's" "$(qform)"
+eq "escalation: the structured form checks against its seal" "$(qform)" \
+    "$(bash "$HERE/coord-log.sh" check --session "$S" --state escalate --sealed "$(printf '%s' "$OUT" | tr ' ' '\n' | sed -n 's/^qseal:/sealed:/p')" --key coord/decision_question.json)"
 msg | sed '$d' > "$T/above"
 if command -v sha256sum >/dev/null 2>&1; then D=$(sha256sum < "$T/above" | cut -d' ' -f1); else D=$(shasum -a 256 < "$T/above" | cut -d' ' -f1); fi
 eq "escalation: the last line is the digest of every byte above it" "Digest: $D" "$(msg | tail -1)"
@@ -101,6 +115,8 @@ refused "escalation: a blank reason is refused" "[$(without '.reason = "  "')]" 
 refused "escalation: a blank context is refused" "[$(without '.context = "  "')]" "escalate 3" escalate escalation
 refused "escalation: a blank problem is refused" "[$(without '.problem = " "')]" "escalate 3" escalate escalation
 refused "escalation: a recommendation outside the options is refused" "[$(without '.recommendation = "ship later"')]" "escalate 3" escalate escalation
+refused "escalation: an option without its explanation is refused" \
+    "[$(without '.options = "ship now\nwait for the release -- one upgrade carries both changes"')]" "escalate 3" escalate escalation
 refused "escalation: a target other than the run's is refused" "[$ESC]" "escalate 3" escalate escalation ws
 refused "escalation: an entry that owes no escalation is refused" "[$(without '.owed = ""')]" "escalate 3" escalate escalation
 refused "escalation: a second rendering after the owing cleared is refused" "[$(without '.owed = "" | .asked = "2026-09-26T09:05Z"')]" "escalate 3" escalate escalation

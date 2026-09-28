@@ -193,10 +193,19 @@ def check_dcell($key; $private):
 # escalation_problems($target): what keeps a recorded escalate verdict from
 # being escalated to $target, as a list (empty when it may be). The one
 # validator record-decision.sh and decision-render.sh share.
+#
+# An escalated entry's Options lines each carry an explanation, written
+# `<option> -- <explanation>` so the column's grammar is unchanged; the
+# recommendation names the option part. d_options gives them as
+# {label, explanation}, in the record's order.
+def d_options:
+  (.options // "") | split("\n") | map(select(length > 0)
+    | split(" -- ") as $p | {label: $p[0], explanation: ($p[1:] | join(" -- "))});
 def escalation_problems($target):
   def blank: (. // "") | gsub("^\\s+|\\s+$"; "") | . == "";
   . as $e
-  | [ (if ($e.options // "" | split("\n") | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+  | [ (if ([$e | d_options[].label] | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+      (if any($e | d_options[]; .explanation | blank) then "an option has no explanation" else empty end),
       (if ($e.reason | blank) then "the reason is empty" else empty end),
       (if ($e.context | blank) then "the context is empty" else empty end),
       (if ($e.problem | blank) then "the problem is empty" else empty end),
