@@ -30,8 +30,11 @@ version: "1.0"
 #                               expectation and why it isn't met yet
 #   coord/report.json           report_facts: the unit's holding and pull
 #                               request facts (classify_report's decider input)
-#   coord/board.json            verify_board: board-verdict.sh's full JSON
-#                               (reasons, skipped jobs, the required set)
+#   coord/board.json            verify_board: board-verdict.sh's JSON
+#                               (reasons, skipped jobs, the required set, the
+#                               checks source); when no board was read
+#                               (board-unreadable from the record, unlinked),
+#                               the same fields with only the reason set
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
 #                               predecessor_close: the stage and its facts
@@ -949,6 +952,9 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 75  # unlinked
+      - target: surface
+        when:
+          gates.verify_board_verdict.exit_code: 76  # actions-green
 
   verified_confirm:
     default_action:
@@ -2004,13 +2010,22 @@ not failed. Unverified goes to the failure branch; a board still running goes
 back to waiting, and the worker's next message brings you here again.
 
 When the token can't read checks, the board is judged from the Actions jobs
-instead, and `coord/board.json` names the source it read. A board that couldn't
-be read at all goes back to waiting with the reason in `coord/board.json`, so
-the rest of the run carries on: fix the cause, or put a refused read to the
-human, since the token's permissions are theirs, then bring the worker's report
-back through `wait`. A pull request that is already merged or closed, or whose
-holding is gone from the record, goes to surface: put what happened to it, from
-`coord/board.json`, to the human there.
+instead, and `coord/board.json` names the source it read. Red or running is
+still unverified or pending, but green that way is `actions-green`, never
+verified: without the rollup, a check that only an organisation's rules require
+can't be seen, so the run doesn't land it. It goes to surface, where the person
+is asked one thing: whether every check GitHub requires on that pull request
+passed, which they can see and the token can't. Tell them the Actions jobs at
+the head are green and the board couldn't read the required checks; their
+answer, or a token that can read checks, is what lets it land.
+
+A board that couldn't be read at all (a refusal, a failed read or the deadline)
+is `board-unreadable`: no verdict on the code. It goes back to waiting with the
+reason in `coord/board.json`, so the rest of the run carries on; fix the cause,
+or put a refused read to the human, since the token's permissions are theirs,
+then bring the worker's report back through `wait`. A pull request that is
+already merged or closed, or whose holding is gone from the record, goes to
+surface: put what happened to it, from `coord/board.json`, to the human there.
 
 ## verified_confirm
 

@@ -20,22 +20,30 @@
 # (record-holding.sh --list); --repo overrides it, for tests.
 #
 # Token, sealed to the latest entry into verify_board:
-#   verified <pr> <head>         the board is green at <head>
+#   verified <pr> <head>         the board is green at <head>, read from the
+#                                checks
+#   actions-green <pr> none      the board is green judged from the Actions
+#                                jobs, because the token can't read checks;
+#                                the required set may be short, so it is for
+#                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
 #   board-unreadable <pr> none   the board or the record couldn't be read, or
-#                                the read ran out of time
+#                                the read ran out of time: no verdict on the
+#                                code
 #   not-open <pr> none           the pull request is merged or closed
 #   unlinked <pr> none           no single Holdings row links #<pr> (its
-#                                holding was removed), so its repository is
-#                                unknown
+#                                holding was removed, two rows disagree, or
+#                                the link is malformed), so its repository
+#                                is unknown
 # (`board-unreadable`, not `unreadable`: the verdict table is one word list
 # for every check state.)
-# Only a verified token carries a head, so nothing downstream can land an
-# unverified one. Every token leaves verify_board, so one pull request whose
-# board can't be read doesn't hold the run at this state; the reasons (and
-# for a board read, the skipped jobs, superseded attempts, the source the
-# checks came from and the pull request's state) are in coord/board.json.
+# Only a verified token carries a head, so nothing downstream can land any
+# other. Every token leaves verify_board, so one pull request whose board
+# can't be read doesn't hold the run at this state. coord/board.json has
+# board-verdict.sh's shape either way: its full JSON after a board read, and
+# for board-unreadable or unlinked reached without one, the same fields with
+# only the reason set.
 #
 # --no-seal (tests): print the bare token and write no context key.
 #
@@ -90,10 +98,14 @@ fi
 
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
 trap 'rm -f "$T"' EXIT
-# stopped <word> <code> <detail>: a verdict with no board read behind it.
+# stopped <word> <code> <detail>: a verdict with no board read behind it,
+# written in board-verdict.sh's shape (nothing read: no head, source, state,
+# jobs or required set) so coord/board.json has one shape.
 stopped() {
-    jq -nc --arg v "$1" --argjson pr "$PR" --arg c "$2" --arg d "$3" \
-        '{verdict: $v, pull_request: $pr, head: null, reasons: [{code: $c, detail: $d}]}' > "$T"
+    jq -nc --arg v "$1" --arg c "$2" --arg d "$3" \
+        '{verdict: $v, head: null, source: null, pr_state: null, merge_state: null,
+          reasons: [{code: $c, detail: $d}], skipped: [], superseded: [], required: [],
+          counts: {runs: 0, jobs: 0, jobs_ran: 0, required: 0}, notes: []}' > "$T"
     TOKEN="$1 $PR none"
 }
 
@@ -102,7 +114,9 @@ if [ -z "$REPO" ]; then
     REPO=$(bl_unit_repo "$SESSION" "$PR")
     case $? in
         0) ;;
-        1) stopped unlinked unlinked "no single holding in the record links pull request #$PR, so its repository is unknown" ;;
+        1) stopped unlinked no-holding "no holding in the record links pull request #$PR (it may have been removed), so its repository is unknown" ;;
+        3) stopped unlinked several-holdings "holdings link pull request #$PR in more than one repository, so it can't be told which" ;;
+        4) stopped unlinked bad-link "the holding linking pull request #$PR names a repository that isn't owner/repo" ;;
         *) stopped board-unreadable record-read "the record's holdings could not be read" ;;
     esac
 fi
@@ -114,7 +128,7 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending) TOKEN="$V $PR none" ;;
+        unverified|pending|actions-green) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
         error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;

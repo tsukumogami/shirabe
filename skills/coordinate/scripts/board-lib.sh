@@ -134,9 +134,9 @@ bl_seal() {
 # is #<pr>, from the Holdings row whose Pull request cell links it (read live
 # through record-holding.sh). A token carries only the number, so the record
 # says where it lives; no row, or rows naming #<pr> in two repositories, is a
-# failure rather than a guess. Returns 0 printed; 1 no row, rows in two
-# repositories, or a repository outside owner/repo; 2 the holdings couldn't be
-# read.
+# failure rather than a guess. Returns 0 printed; 1 no row links #<pr>; 3
+# rows link #<pr> in two or more repositories; 4 the one row's repository
+# isn't owner/repo; 2 the holdings couldn't be read.
 bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
@@ -145,11 +145,15 @@ bl_unit_repo() {
         [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     n=$(printf '%s' "$repos" | grep -c . )
-    if [ "$n" -ne 1 ]; then
-        echo "$PROG: $n holdings link pull request #$2; can't tell its repository" >&2
+    if [ "$n" -eq 0 ]; then
+        echo "$PROG: no holding links pull request #$2; can't tell its repository" >&2
         return 1
     fi
-    bl_repo_ok "$repos" || { echo "$PROG: the holding for #$2 links [$repos], not owner/repo" >&2; return 1; }
+    if [ "$n" -gt 1 ]; then
+        echo "$PROG: holdings link pull request #$2 in $n repositories; can't tell which" >&2
+        return 3
+    fi
+    bl_repo_ok "$repos" || { echo "$PROG: the holding for #$2 links [$repos], not owner/repo" >&2; return 4; }
     printf '%s\n' "$repos"
 }
 

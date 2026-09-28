@@ -37,10 +37,15 @@
 # refusal falls back; any other failed read is still an error. With the jobs
 # as checks, a required check that only another app or a commit status
 # reports reads missing: never a pass. The required set is then protection
-# and the branch rules alone, which is where the rollup's isRequired comes
-# from; both must still be readable. A required check with no app pin is
-# matched by name, as GitHub matches it, so an Actions job of the same name
-# answers for it.
+# and the branch rules alone, both still read and still an error when
+# unreadable, but it can be short: the rollup's isRequired also carries rule
+# sources those two reads don't list (an organisation's required workflows),
+# and a check only it names is invisible, not missing. So a board judged from
+# the Actions jobs never prints verified: when it would, it prints
+# actions-green, which a caller must not land on. A red or running board is
+# still unverified or pending. A required check with no app pin is matched by
+# name, as GitHub matches it, so an Actions job of the same name answers for
+# it.
 # With --sha, there is no pull request: the head is the sha, the required set
 # comes from <base>'s protection and rules, and the rollup is the commit's
 # check runs and statuses (repos/R/commits/S/check-runs and .../status); no
@@ -57,12 +62,13 @@
 #    "checks-refused" | "statuses-refused", detail}]}
 # pr_state is the pull request's state (OPEN, MERGED, CLOSED) when the
 # snapshot was read, else null.
-# verdict: verified | pending | unverified | error:board-read |
+# verdict: verified | actions-green | pending | unverified | error:board-read |
 # error:pr-state | error:deadline (and head | error:head-moved with
 # --head-only). Precedence: any read failure or the deadline is an error;
 # else any definite failure is unverified; else anything still running is
-# pending; else verified, which is printed only with no reasons and a 40-hex
-# head. Reason codes (class): board-empty, run-startup-failure,
+# pending; else verified, which is printed only with no reasons, a 40-hex
+# head and the checks source. The same board judged from the Actions jobs is
+# actions-green, never verified. Reason codes (class): board-empty, run-startup-failure,
 # run-conclusion, job-conclusion, job-no-runner, job-no-succeeded-step,
 # merge-state-dirty (unverified); run-pending, job-pending, required-pending,
 # merge-state-unknown, head-moved (pending); required-missing (pending while
@@ -121,7 +127,7 @@ SOURCE=checks
 : > "$TMPD/notes.jsonl"
 checks_refused() {
     SOURCE=actions
-    jq -nc --arg d "$1" '{code: "checks-refused", detail: "\($d) was refused; the checks are the Actions jobs at the head"}' >> "$TMPD/notes.jsonl"
+    jq -nc --arg d "$1" --arg r "$REPO" '{code: "checks-refused", detail: "\($d) in \($r) was refused; the checks are the Actions jobs at the head"}' >> "$TMPD/notes.jsonl"
 }
 # actions_contexts [status contexts]: the check contexts as the Actions jobs
 # read at the head (a job's check run carries the job's name and is GitHub
@@ -130,6 +136,8 @@ checks_refused() {
 # would report reads missing: pending while it runs, unverified once every run
 # is done. A pin to another app (a GitHub Enterprise Server's Actions app has
 # its own id) reads missing too: never a pass.
+# The GitHub Actions app's id on github.com: every check run a workflow job
+# reports comes from it.
 ACTIONS_APP=15368
 actions_contexts() {
     local st=${1:-/dev/null} base=$TMPD/snap.json
@@ -160,7 +168,6 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "read-failed":"e", "required-set-unreadable":"e", "deadline":"e"};
 slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
-| $cnotes as $cnotes
 | $reads as $early
 | (if $mode == "sha" then $sha else ($s.head // null) end) as $H
 # runs
@@ -222,7 +229,10 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
    elif any($allc[]; .cls == "e") then "error:board-read"
    elif any($allc[]; .cls == "u") then "unverified"
    elif any($allc[]; .cls == "p") then "pending"
-   elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then "verified"
+   elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then
+     # Green from the Actions jobs alone isn't verified: the required set
+     # read without the rollup may be short (below, in the header).
+     (if $source == "actions" then "actions-green" else "verified" end)
    else "error:board-read" end) as $verdict
 | [ ($files // [])[] | select(test("^\\.github/(workflows|actions)/")) ] as $wf
 | {verdict: $verdict,
@@ -359,7 +369,7 @@ if [ "$MODE" = pr ]; then
     if [ $rc -eq 3 ]; then
         # The token can't read the check rollup: read the pull request
         # without it, and judge the checks from the Actions jobs instead.
-        echo "$PROG: the check rollup was refused; reading the checks from the Actions runs" >&2
+        echo "$PROG: the check rollup of $REPO#$PR was refused; reading the checks from the Actions runs" >&2
         checks_refused "the pull request's check rollup"
         FULL=0
         snapshot 0 || emit
@@ -479,7 +489,7 @@ if [ "$MODE" = sha ]; then
     fi
     if ! bl_gh "$TMPD/st.raw" api --method GET "repos/$REPO/commits/$SHA/status?per_page=100" --paginate; then
         if [ "$(cat "$TMPD/st.raw.fail")" = refused ]; then
-            jq -nc '{code: "statuses-refused", detail: "the commit statuses were refused; a required status reads missing"}' >> "$TMPD/notes.jsonl"
+            jq -nc --arg r "$REPO" '{code: "statuses-refused", detail: "the commit statuses in \($r) were refused; a required status reads missing"}' >> "$TMPD/notes.jsonl"
             echo '{"total_count": 0, "statuses": []}' > "$TMPD/st.raw"
         else
             read_failed "$TMPD/st.raw" "statuses"; emit

@@ -25,7 +25,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 BV="$PS/board-verdict.sh"
 
-VERDICTS=" verified pending unverified error:board-read error:pr-state error:deadline head error:head-moved "
+VERDICTS=" verified actions-green pending unverified error:board-read error:pr-state error:deadline head error:head-moved "
 CODES=" board-empty run-pending run-startup-failure run-conclusion job-pending job-conclusion job-no-runner job-no-succeeded-step required-missing required-pending required-conclusion merge-state-dirty merge-state-unknown head-moved read-failed required-set-unreadable deadline "
 
 contract() { # contract <label> <output file>

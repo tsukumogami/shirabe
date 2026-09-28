@@ -8,7 +8,8 @@
 # and a permitted land to land_merge; land-merge.sh, run by the agent, merges
 # the verified sha through a stand-in merge-exec.sh, and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
-# wait; a refused check rollup still verifies (from the Actions jobs); an
+# wait; a refused check rollup green from the Actions jobs routes to surface
+# and never to land, even when a check only isRequired names is unseen; an
 # unreadable board routes to wait, which then takes the next event, and a pull
 # request merged outside the run routes to surface, so verify_board never holds
 # the run; a denied posture routes land to surface; `koto next --to verify_board`
@@ -118,6 +119,9 @@ states:
       - target: surface
         when:
           gates.verdict.exit_code: 75
+      - target: surface
+        when:
+          gates.verdict.exit_code: 76
   wait:
     accepts:
       go:
@@ -271,7 +275,11 @@ eq "a denied merge routes land to surface" surface "$(state "$(tick "$S" --with-
 
 echo "== a board that can't be judged leaves verify_board =="
 start coordinate-demo-20260926T150007Z checks-refused
-eq "a refused check rollup verifies from the Actions jobs and reaches land_merge" land_merge "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "a refused check rollup, green from the Actions jobs, routes to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and never reaches land" 1 $?
+start coordinate-demo-20260926T150010Z checks-refused-rollup-only-required
+eq "a check only isRequired names, unseen under the fallback: surface, not land" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and the run doesn't land it" 1 $?
 start coordinate-demo-20260926T150008Z rules-unreadable
 eq "an unreadable board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 eq "and wait takes the next event" verify "$(state "$(tick "$S" --with-data '{"go":"verify"}')")"

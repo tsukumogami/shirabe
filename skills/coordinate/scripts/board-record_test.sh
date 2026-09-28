@@ -6,11 +6,14 @@
 # Covers: a verified board (the token carries the head, sealed to the latest
 # entry into verify_board, and coord/board.json's verdict, head, reasons and
 # skipped match the board read); every unverified fixture prints unverified
-# with no head; a pending board; a refused check rollup verifies with source
-# `actions`; a failed board read or the deadline prints board-unreadable, a merged
-# pull request not-open, and a pull request no single holding links unlinked
-# (nothing read), each sealed with its reason in coord/board.json; an
-# unreadable record prints board-unreadable; a failed context write exits 2; no
+# with no head; a pending board; a refused check rollup reads source
+# `actions` and prints actions-green (never verified, even with a check only
+# isRequired names unseen); a failed board read or the deadline prints
+# board-unreadable, a merged pull request not-open, and a pull request no
+# single holding links (none, two repositories, a bad link) unlinked with a
+# reason for each (nothing read), each sealed with its reason in
+# coord/board.json in board-verdict.sh's shape; an unreadable record prints
+# board-unreadable; a failed context write exits 2; no
 # prediction since the latest arrival at verify exits 2 with
 # nothing read; the pull request from report_facts's REPORT capture (none,
 # stale, unsealed or absent exits 2); --no-seal; the repository from the
@@ -72,8 +75,10 @@ done
 echo "== checks the token can't read =="
 fresh; bt_board checks-refused
 OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
-eq "a refused check rollup still verifies from the Actions jobs" "verified 12 $H" "${OUT% sealed:*}"
+eq "a refused check rollup, green from the Actions jobs: actions-green, no head" "actions-green 12 none" "${OUT% sealed:*}"
 eq "and coord/board.json names the source it read" actions "$(ctx | jq -r .source)"
+fresh; bt_board checks-refused-rollup-only-required
+eq "a check only isRequired names, unseen under the fallback: still actions-green, never verified" "actions-green 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 fresh; bt_board complete-board
 bash "$BR" --session "$S" --pr 12 --repo acme/widgets >/dev/null 2>&1
 eq "a readable rollup is the checks source" checks "$(ctx | jq -r .source)"
@@ -96,12 +101,22 @@ fresh; bt_board complete-board; bt_holdings "[#9](https://github.com/acme/widget
 rm -f "$GH_BOARD_DIR/calls"
 OUT=$(bash "$BR" --session "$S" --pr 12 2>"$T/err"); rc=$?
 eq "no holding links #12 (torn down after it merged): unlinked" "0 unlinked 12 none" "$rc ${OUT% sealed:*}"
-eq "and coord/board.json says why" unlinked "$(ctx | jq -r '.reasons[0].code')"
+eq "and coord/board.json says why" no-holding "$(ctx | jq -r '.reasons[0].code')"
 [ ! -s "$GH_BOARD_DIR/calls" ] && ok "and no board was read without a repository" || bad "and no board was read without a repository" "$(cat "$GH_BOARD_DIR/calls")"
+bash "$PS/board-verdict.sh" --repo acme/widgets --pr 12 > "$T/direct" 2>/dev/null
+eq "in board-verdict.sh's shape" "$(jq -c 'keys' "$T/direct")" "$(ctx | jq -c 'keys')"
 bt_holdings "[#12](https://github.com/acme/widgets/pull/12)" "[#12](https://github.com/acme/gadgets/pull/12)"
-eq "#12 linked in two repositories: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
+fresh
+eq "#12 linked in two repositories: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "naming the two repositories as the reason" several-holdings "$(ctx | jq -r '.reasons[0].code')"
+bt_holdings "[#12](https://github.com/acme/../pull/12)"
+fresh
+eq "#12 linked to a repository that isn't owner/repo: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "naming the bad link as the reason" bad-link "$(ctx | jq -r '.reasons[0].code')"
 echo 2 > "$BT_STATE/holding.rc"
-eq "the holdings can't be read: unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
+fresh
+eq "the holdings can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "in board-verdict.sh's shape too" "$(jq -c 'keys' "$T/direct")" "$(ctx | jq -c 'keys')"
 rm -f "$BT_STATE/holding.rc"
 
 echo "== errors exit 2 =="
