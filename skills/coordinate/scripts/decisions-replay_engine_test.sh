@@ -61,7 +61,7 @@ done
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/testdata/decisions/stand-in-states.yaml"
-STAND_INS="coord-verdict.sh decision-next.sh record-decision.sh"
+STAND_INS="coord-verdict.sh decision-next.sh"
 
 # test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
