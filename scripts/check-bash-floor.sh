@@ -467,7 +467,7 @@ resolve_shirabe_bin() {
     if [ -n "${SHIRABE_BIN:-}" ]; then
         [ -x "$SHIRABE_BIN" ] || die "SHIRABE_BIN is set but not executable: $SHIRABE_BIN"
         # Absolute, because it becomes a --mount source.
-        SHIRABE_FLOOR_BIN="$(cd "$(dirname "$SHIRABE_BIN")" && pwd)/$(basename "$SHIRABE_BIN")"
+        SHIRABE_FLOOR_BIN="$(CDPATH= cd "$(dirname "$SHIRABE_BIN")" && pwd)/$(basename "$SHIRABE_BIN")"
         return 0
     fi
 
@@ -556,6 +556,11 @@ check_docker_daemon() {
 
 build_floor_image() {
     check_docker_daemon
+    # The container's user is the invoking user on either daemon, and git
+    # refuses a repository that user doesn't own. Without the safe.directory
+    # exception that would fail every git call in the suites, or leave a check
+    # silently checking nothing, so it is refused here instead.
+    [ -O "$REPO_ROOT" ] || die "$REPO_ROOT is not owned by the invoking user ($(id -un)); git inside the floor container would refuse it. Run the floor as the checkout's owner"
     # Before the build, so a checkout the container could not resolve is
     # refused before anything is pulled or built.
     resolve_git_mounts
@@ -639,7 +644,7 @@ resolve_git_mounts() {
         /*) ;;
         *) link="$REPO_ROOT/$link" ;;
     esac
-    gitdir=$(cd "$link" 2>/dev/null && pwd) && [ -f "$gitdir/HEAD" ] \
+    gitdir=$(CDPATH= cd "$link" 2>/dev/null && pwd) && [ -f "$gitdir/HEAD" ] \
         || die "$dotgit points at $link, which is not a git directory on this host (a moved or pruned worktree?); run 'git worktree repair' from the main checkout, or run the floor from a checkout whose .git resolves"
 
     common="$gitdir"
@@ -649,7 +654,7 @@ resolve_git_mounts() {
             /*) ;;
             *) link="$gitdir/$link" ;;
         esac
-        common=$(cd "$link" 2>/dev/null && pwd) && [ -d "$common/objects" ] \
+        common=$(CDPATH= cd "$link" 2>/dev/null && pwd) && [ -d "$common/objects" ] \
             || die "$gitdir/commondir points at $link, which is not a git directory on this host; run 'git worktree repair' from the main checkout"
     fi
 
