@@ -67,8 +67,9 @@ c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# Only tools run-tests.sh's restricted PATH carries (mkdir, rm, sleep), and a
-# bounded wait: a lock left behind fails the case rather than hanging the job.
+# Only tools run-tests.sh's restricted PATH carries (mkdir, rm, sleep, mktemp,
+# mv), and a bounded wait: a lock left behind fails the case rather than
+# hanging the job.
 w=0
 until mkdir "$CLOCK.lock" 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
@@ -78,7 +79,7 @@ now=$(cat "$CLOCK")
 # Written whole: a temp file of this writer's own, renamed into place. The pass
 # reads the clock without the lock, and a truncate-then-write would let it read
 # an empty file (#481).
-tmp=$(mktemp "$CLOCK.XXXXXX")
+tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -rf "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
 rm -rf "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
@@ -96,7 +97,12 @@ fi
 sleep 0.2
 # A clock jq can't take, left just before this re-check ends: the pass's next
 # fold of this fact then has a time it can't write.
-[ -f "$STUB_DIR/garble.$sub" ] && { tmp=$(mktemp "$CLOCK.XXXXXX"); echo x > "$tmp" && mv "$tmp" "$CLOCK"; }
+# `0x10` is a number to bash's arithmetic and not to jq, so wherever the pass
+# reads it next, the failure is a jq write the pass must refuse.
+if [ -f "$STUB_DIR/garble.$sub" ]; then
+    tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+    echo 0x10 > "$tmp" && mv "$tmp" "$CLOCK"
+fi
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
 done

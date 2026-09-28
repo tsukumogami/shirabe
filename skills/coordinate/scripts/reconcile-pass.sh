@@ -362,8 +362,11 @@ while :; do
     sleep 0.05
 done
 
-# Anything left is read in a later pass.
-LEFT=$(plan "$(now)" | grep -c . || true)
+# Anything left is read in a later pass. A plan that can't be read must not
+# count as nothing left, or the pass would seal with re-checks unread.
+t=$(now) || exit 1
+plan "$t" > "$T/plan" || die "the plan could not be read"
+LEFT=$(grep -c . "$T/plan" || true)
 if [ "$LEFT" -gt 0 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
     printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
