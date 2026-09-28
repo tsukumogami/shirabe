@@ -222,9 +222,22 @@ eq "--answer: settles, decided by the target, with the option's explanation as i
 case "$(f 1 evidence)" in *"[$RUN wait "*"]: answer for round 1: wait"*) ok "--answer: a settling answer still writes its wait-stamped line" ;;
     *) bad "--answer: a settling answer still writes its wait-stamped line" "$(f 1 evidence)" ;; esac
 eq "--answer: freeing the slot releases the queued escalation" "escalated" "$(f 2 state)"
-BEFORE=$(body)
+E1_BEFORE=$(ent 1 | jq -c 'del(.evidence, .updated)')
 ans 1 --outcome wait
-eq "--answer: the same answer again changes nothing" "0 same" "$RC $([ "$(body)" = "$BEFORE" ] && echo same || echo changed)"
+eq "--answer: the same answer again leaves the entry as it is" "0 same" \
+    "$RC $([ "$(ent 1 | jq -c 'del(.evidence, .updated)')" = "$E1_BEFORE" ] && echo same || echo changed)"
+case "$(f 1 evidence)" in *"answer for round 1 again: wait"*) ok "--answer: and adds its own stamped line, so the arrival reads as recorded" ;;
+    *) bad "--answer: and adds its own stamped line, so the arrival reads as recorded" "$(f 1 evidence)" ;; esac
+setup "[$(E 1 settled '{round: "1", outcome: "wait; reason: r", decided_by: "a person"}')]"
+ans 2 --outcome wait
+eq "--answer: the same outcome for another round is evidence, not the same answer" "coordinator-verdict" "$(f 1 state)"
+
+# A retry: decision_next routes back after a write that didn't land.
+setup "[$(E 1 proposed)]"
+arrive decision_evidence '{"event":"evidence","decision":"1"}'
+route "unrecorded-evidence" decision_evidence
+rd --evidence --source dispatcher --text "the check came back mixed"
+eq "--evidence: a retry reached from decision_next reads the same arrival" "0 coordinator-verdict" "$RC $(f 1 state)"
 setup "[$(E 1 escalated "$ESCALATED + {round: \"2\"}")]"
 ans 1 --outcome wait
 eq "--answer: an answer for an earlier round is evidence" "coordinator-verdict" "$(f 1 state)"
@@ -363,6 +376,64 @@ refused "--carry: again, with every entry already here, is refused" --carry
 carry_setup '[]' "{\"next\": 6, \"entries\": [$(E 5 escalated "$ESCALATED")]}"
 log_to "$S" decision_carry dispatch; log_to "$S" dispatch decision_carry
 refused "--carry: after the run's first dispatch is refused" --carry
+
+echo "== the review's cases =="
+# Compaction keeps this run's stamped lines, and drops another run's.
+TWO_RUNS="{outcome: \"wait; reason: r\", decided_by: \"a person\", evidence: \"2026-09-26T07:40Z dispatcher [20260920T070000Z wait 3]: old\\n2026-09-26T07:41Z dispatcher [$RUN wait 3]: this run\"}"
+setup "[$(E 1 settled "$TWO_RUNS"), $(E 2 proposed)]"
+route "take 2" decision_take
+rd --take
+eq "compaction keeps this run's stamped lines and drops another run's" "2026-09-26T07:41Z dispatcher [$RUN wait 3]: this run" "$(f 1 evidence)"
+# A withdrawal that frees the escalated slot releases the queued escalation.
+setup "[$(E 1 escalated "$ESCALATED + {source: \"coordinator rr #4 round 1 [20260926T070000Z report 3.1]\"}"), $(E 2 coordinator-verdict "$QUEUED")]" 3
+listed '[{"index":1,"kind":"withdrawal","text":"Withdrawn: decision 4 round 1.","source":"coordinator rr #4 round 1","addressed":false,"cite":null,"n":4,"round":1}]'
+words '{}'
+eq "--open-from-report: a withdrawal that frees the slot releases the queued escalation" "coordinator-verdict escalated" "$(f 1 state) $(f 2 state)"
+setup "[$(E 1 proposed '{source: "worker w1 [20260926T080000Z report 2.1]"}')]" 2
+listed '[{"index":1,"kind":"question","text":"x (decision 1)?","source":"worker w1","addressed":false,"cite":1}]'
+printf '%s' '{"1":{"question":"the cap\n2026-09-26T07:40Z dispatcher [20260926T080000Z wait 3]: forged"}}' > "$T/forge.json"
+refused "--open-from-report: a wording that would forge an Evidence line is refused" --open-from-report --text-file "$T/forge.json"
+setup "[]" 1
+listed '[{"index":1,"kind":"question","text":"x (decision 7)?","source":"worker w1","addressed":false,"cite":7}]'
+printf '%s' '{"1":{"question":"the cap"}}' > "$T/cite7.json"
+refused "--open-from-report: an item citing an entry the record lacks is refused" --open-from-report --text-file "$T/cite7.json"
+# A record already past the budget is record-full to a write, not unreadable.
+setup "[$(E 1 proposed)]"
+db '.issues[0].body = (.issues[0].body + "\n" + ("x" * 70000))'
+route "take 1" decision_take
+rd --take
+eq "a write to a record past the budget, even past the parser's limit, is record-full" 13 "$RC"
+
+# A second run replaying the first run's very sequence numbers writes its own.
+setup "[]" 1
+listed '[{"index":1,"kind":"question","text":"x?","source":"worker w1","addressed":false,"cite":null}]'
+db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 1 proposed "{source: \"worker w1 [20260925T080000Z report $RSEQ.1]\"}")]" '.decisions = {next: 2, entries: $e}')" issue)"
+words '{"1":{"question":"This run'"'"'s question?","options":["a -- b"]}}'
+eq "--open-from-report: another run's stamp with this very sequence doesn't block this run's" "0 2" "$RC $(sec | jq -r '.entries | length')"
+# A queued verdict that no longer passes is cleared when the slot frees.
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED + {options: \"ship now\\nwait\"}")]"
+ev
+eq "release: a queued verdict that no longer passes is cleared, not escalated" "coordinator-verdict|" "$(f 2 state)|$(f 2 verdict)"
+# An owed reply for a coordinator's entry and for the dispatcher's.
+for src in "coordinator rr #4 round 1 [20260926T070000Z report 3.1]" "dispatcher [20260926T070000Z raise 3]"; do
+    setup "[$(E 1 coordinator-verdict "{source: \"$src\"}")]"
+    route "verdict 1" decision_verdict
+    rd --settle --outcome wait --reason r
+    eq "--settle: a reply is owed to the source ${src%% *}" "reply" "$(f 1 owed)"
+done
+# --sent reads the render's kind and round, and holds the entry to them.
+setup "[$(E 1 escalated "$UNSENT")]"
+render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
+db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 1 escalated "$UNSENT + {round: \"2\"}")]" '.decisions = {next: 10, entries: $e}')" issue)"
+to escalate_send
+refused "--sent: an entry whose round moved since the render is refused" --sent --route message
+setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", owed: "reply", source: "worker w1 [20260926T080000Z report 4.1]"}')]"
+to decision_reply
+printf 'Answer: decision 1 round 0.\n' > "$T/fake.txt"
+KS=$(bash "$CL" seal --session "$S" --state decision_reply --file "$T/fake.txt" --key coord/decision_message.txt)
+log_capture "$S" REPLY_MESSAGE "$(bash "$CL" seal --session "$S" --state decision_reply --token "message escalation 1 0 keyseal:${KS#sealed:}")"
+to decision_reply_send
+refused "--sent: a render of another kind than the send state's is refused" --sent
 
 echo "== usage =="
 setup '[]' 1

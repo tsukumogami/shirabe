@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # record-decision.sh -- the one reader and writer of the record's Decisions
-# section. Every script that reads the section reads it through --list and
-# --read; the write modes are the only way anything changes it.
+# section. The decision scripts read the section through --list and --read
+# (closeout-read.sh and reconcile read it through the parser, as they read the
+# rest of the record); the write modes are the only way anything changes it.
 #
 # Usage:
 #   record-decision.sh --session S --list        print the section
@@ -63,8 +64,11 @@
 #       On the escalated entry at that round it settles with Decided by the
 #       run's target, followed by ` (final: D)` when a nested coordinator's
 #       reply names a final decider; O is one of the options (its explanation
-#       is the reason) or an outcome with --reason. An identical answer again
-#       changes nothing; any other answer is evidence, as --evidence.
+#       is the reason) or an outcome with --reason. The same answer again (its
+#       round, outcome and decider) leaves the entry as it is and adds only
+#       its own stamped line; any other answer is evidence, as --evidence.
+#       The arrival is the latest of its kind before this visit, so a retry
+#       decision_next routes here after a write that didn't land reads it too.
 #   --sent [--route tool|message]                  a *_send state
 #       Marks the message the matching render state rendered as sent, when
 #       coord/decision_message.txt checks against that render's seal and the
@@ -73,13 +77,27 @@
 #       line. An escalation to a person records its route as an `ask`
 #       Evidence line; --route is required then.
 #
-# Every write carries a stamp naming its run (lib_run_stamp) and the visit
-# that caused it; a second write for the same stamp is refused, so a retry
-# after a failed compare-and-swap never duplicates. Any single item holding a
-# line break is refused. A write that frees the one escalated slot releases
-# the queued escalation with the lowest identifier, or clears its verdict when
-# it no longer passes. Every settled entry that owes nothing, other than the
-# one this write changed, is compacted (the codec's compact_settled). The body
+# The stamps, which decision-next.sh reads to tell whether this run's write
+# landed. Each names the run (lib_run_stamp) and a log sequence:
+#   raise <seq>        --open: the visit to decision_raise
+#   report <seq>.<i>   --open-from-report: the report_questions visit that
+#                      sealed the list, and the item's index
+#   wait <seq>         --evidence, --answer: the arrival's evidence event
+#                      (a wait event, or escalate_send's `answered`)
+#   hold <seq>         --hold: the visit to decision_verdict
+#   ask <seq>          --sent, an escalation to a person: the send visit
+#   redirect <seq>     --sent, a redirect: the report's sequence
+# A second write for a stamp already written is refused (exit 65), so a retry
+# after a failed compare-and-swap never duplicates. The modes that write no
+# stamp (--take, --settle, --escalate, --carry, --sent for a reply or a
+# withdrawal) are held by their state instead: once one lands, the entry is no
+# longer in the state the mode needs, and a repeat is refused. Any single item
+# holding a line break is refused. A write that frees the one escalated slot
+# releases the queued escalation with the lowest identifier, or clears its
+# verdict when it no longer passes. Every settled entry that owes nothing,
+# other than the one this write changed, is compacted (the codec's
+# compact_settled), keeping the Evidence lines stamped by this run for as long
+# as the run lasts. The body
 # is written through record-write-core.sh with the Decisions section opened
 # (DECISIONS_WRITER=1), which re-reads the record, compares its Written: line
 # and checks provenance, visibility and the size budget.
@@ -167,6 +185,13 @@ read_live() {
         gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" 2> "$WD/gh.err" < /dev/null \
             || { lib_scrub < "$WD/gh.err" >&2; echo >&2; lib_die2 "cannot read pull request #$REF"; }
     fi
+    # A write to a record past the write core's budget is record-full before
+    # anything else, even past the parser's own limit, as the core says.
+    case "$MODE" in
+        list|read) ;;
+        *) SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
+           [ "$SIZE" -le 60000 ] || { echo "$PROG: refused: record-full: the record is $SIZE bytes, over the 60000-byte budget; compact settled decisions or prune the record" >&2; exit 13; } ;;
+    esac
     lib_parse "$WD/live.md" "$WD/parsed.json"
     case $? in
         0) ;;
@@ -267,7 +292,19 @@ def release:
 def stamped($kind; $seq): any(.entries[] | d_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
 def stamped_report($seq): any(.entries[] | d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
 def entry($n): .entries[] | select(.decision == $n);
-def compact_except($n): .entries |= map(if .decision == $n then . else compact_settled end);'
+# Compaction keeps every Evidence line stamped by this run: the replay guard
+# (stamped) and the unrecorded-write rules of decision-next.sh read them for as
+# long as the run lasts. A later run compacts them away.
+def compact_except($n):
+  .entries |= map(if .decision == $n then .
+    else . as $e | compact_settled
+      | if .state == "settled" and ($e.owed // "") == "" then
+          ([($e.evidence // "") | split("\n")[] | select(length > 0)
+            | select(test("^[^ ]+ [^\\[]+ \\[" + $run + " [a-z]+ [0-9.]+\\]: ")
+                     or test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))]) as $keep
+          | .evidence = ($keep | join("\n"))
+        else . end
+    end);'
 
 SEC() { jq -c '.decisions // {next: 1, entries: []}' "$WD/parsed.json"; }
 # change <program over the section> [jq args]: the new section, or a refusal
@@ -333,13 +370,17 @@ open-from-report)
       | ([$items[] | select(.kind != "withdrawal") | .index | tostring]) as $need
       | if ($words | keys | sort) != ($need | sort) then
           error("the wording covers items [\($words | keys | sort | join(","))], and the list needs [\($need | sort | join(","))], each once") else . end
+      # No wording may hold a line break: it could forge an Evidence line.
+      | if any($words[] | (.question // ""), (.options // [])[]; test("[\\n\\r]")) then error("a wording holds a line break") else . end
       | reduce $items[] as $i (.;
           "\($run) report \($seq).\($i.index)" as $st
           | ($words[($i.index | tostring)] // {}) as $wd
           | if $i.kind == "withdrawal" then
-              .entries |= map(if (.source | startswith("\($i.source) [")) then evidence($i.source; $st; "withdrawn: decision \($i.n) round \($i.round)") else . end)
+              if any(.entries[]; .source | startswith("\($i.source) [")) | not then error("item \($i.index) withdraws an entry the record lacks") else . end
+              | .entries |= map(if (.source | startswith("\($i.source) [")) then evidence($i.source; $st; "withdrawn: decision \($i.n) round \($i.round)") else . end)
             elif ($i.cite // null) != null then
-              .entries |= map(if .decision == ($i.cite | tostring) then
+              if any(.entries[]; .decision == ($i.cite | tostring)) | not then error("item \($i.index) cites an entry the record lacks") else . end
+              | .entries |= map(if .decision == ($i.cite | tostring) then
                   evidence($i.source; $st; ($wd.question // "") | if blank then error("item \($i.index) has no wording") else . end)
                   | (if $i.addressed then add_ev(ev_line($i.source; $st; d_addressed_mark)) else . end) else . end)
             else
@@ -352,7 +393,7 @@ open-from-report)
                   + (if $i.addressed then {evidence: ev_line($i.source; $st; d_addressed_mark)} else {} end)]
               | .next += 1
             end)
-      | compact_except("")' \
+      | release | compact_except("")' \
         --slurpfile q "$WD/questions.json" --slurpfile w "$TEXTF" --arg seq "$RSEQ"
     write ;;
 take)
@@ -392,14 +433,27 @@ settle|escalate|hold)
     esac
     write ;;
 evidence|answer)
-    FROM=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$CUR_STATE" | cut -d' ' -f2) || lib_die2 "cannot read how the run reached $CUR_STATE"
-    case "$FROM" in wait|escalate_send) ;; *) refuse "$CUR_STATE was reached from $FROM, which names no entry" ;; esac
-    [ "$FROM" = escalate_send ] && [ "$MODE" != answer ] && refuse "only an answer comes from escalate_send"
-    EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state "$FROM" --before "$CUR_SEQ") || lib_die2 "cannot read the $FROM evidence"
+    # The arrival is the latest one of its kind before this visit, whether the
+    # run came here from it or from decision_next retrying a write that didn't
+    # land: an evidence event at wait, or an answer, either a wait answer event
+    # (the message route) or escalate_send's `answered` (the question-tool
+    # route), whichever is later. Its log sequence is the write's stamp.
+    arrival() { # arrival <state> <field=value>: the latest such evidence, {} when none
+        local e
+        e=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state "$1" --where "$2" --before "$CUR_SEQ")
+        case $? in 0) printf '%s' "$e" ;; 1) printf '{}' ;; *) lib_die2 "cannot read the $1 evidence" ;; esac
+    }
+    if [ "$MODE" = evidence ]; then
+        EV=$(arrival wait event=evidence)
+    else
+        EV=$(jq -nc --argjson a "$(arrival wait event=answer)" --argjson b "$(arrival escalate_send sent=answered)" \
+            '[$a, $b] | map(select(.seq != null)) | max_by(.seq) // {}')
+    fi
+    [ "$(printf '%s' "$EV" | jq -r '.seq // ""')" != "" ] || refuse "no $MODE arrived before this visit"
     N=$(printf '%s' "$EV" | jq -r '.fields.decision // ""')
     RND=$(printf '%s' "$EV" | jq -r '.fields.round // ""')
     WSEQ=$(printf '%s' "$EV" | jq -r '.seq')
-    [[ $N =~ ^[1-9][0-9]*$ ]] || refuse "the $FROM evidence names no decision"
+    [[ $N =~ ^[1-9][0-9]*$ ]] || refuse "the $MODE names no decision"
     has_entry "$N" 'true' || refuse "the record has no entry $N"
     if [ "$MODE" = answer ]; then
         [[ $RND =~ ^[1-9][0-9]*$ ]] || refuse "an answer names its round"
@@ -418,11 +472,15 @@ evidence|answer)
                 --arg n "$N" --arg r "$RND" --arg o "$OUTC" --arg why "$REASON" --arg by "$BY" --arg seq "$WSEQ"
             write
         fi
-        # The same answer again, to an entry it already settled, is recorded.
-        if has_entry "$N" '.state == "settled"' && SEC | jq -e --arg n "$N" --arg o "$OUTC" --arg by "$BY" \
+        # The same answer again (the round, outcome and decider that settled
+        # the entry) changes nothing about the entry: it adds only its own
+        # stamped line, so decision-next.sh sees this arrival recorded.
+        if has_entry "$N" ".state == \"settled\" and .round == \"$RND\"" && SEC | jq -e --arg n "$N" --arg o "$OUTC" --arg by "$BY" \
                 '.entries[] | select(.decision == $n) | (.outcome | startswith("\($o); reason: ")) and .decided_by == $by' >/dev/null; then
-            echo "$PROG: entry $N is already settled by this answer; nothing to write" >&2
-            exit 0
+            change 'if stamped("wait"; $seq) then error("this answer is already recorded") else . end
+              | .entries |= map(if .decision == $n then add_ev(ev_line($by; "\($run) wait \($seq)"; "answer for round \($r) again: \($o)")) else . end)
+              | compact_except($n)' --arg n "$N" --arg r "$RND" --arg o "$OUTC" --arg by "$BY" --arg seq "$WSEQ"
+            write
         fi
         SRC_EV=$TARGET TEXT="answer for round $RND: $OUTC"
     else
@@ -465,9 +523,9 @@ sent)
               | .updated = $now else . end) | compact_except($n)' \
             --arg n "$N" --arg r "$R" --arg route "$ROUTE" --arg seq "$CUR_SEQ" ;;
     withdrawal|reply)
-        change 'entry($n) as $e | if $e.owed != $k then error("entry \($n) owes no \($k)") else . end
+        change 'entry($n) as $e | if $e.owed != $k or $e.round != $r then error("entry \($n) owes no \($k) for round \($r)") else . end
           | .entries |= map(if .decision == $n then .owed = "" | .updated = $now else . end) | compact_except($n)' \
-            --arg n "$N" --arg k "$K" ;;
+            --arg n "$N" --arg k "$K" --arg r "$R" ;;
     redirect)
         [[ $RSEQ =~ ^[1-9][0-9]*$ ]] || refuse "the redirect's render names no report"
         change 'if stamped("redirect"; $rs) then error("report \($rs) has had its redirect") else . end

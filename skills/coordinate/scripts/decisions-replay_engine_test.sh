@@ -445,10 +445,10 @@ eq "levels: the person's answer settles W's entry" 'settled|a person' "$(field "
 eq "levels: W's reply names R's entry and round" "reply|Answer: decision 1 round 1." "$(last_sent "$LW" .kind)|$(last_sent "$LW" .text | head -1)"
 back_to_wait "$LW"
 W_SENT=$(wc -l < "$T/$LW.sent")
-W_ENTRY=$(entry "$LW" 1)
+W_ENTRY=$(entry "$LW" 1 | jq -c 'del(.evidence, .updated)')
 arrive_answer "$LW" 1 1 "wait for the release"
-eq "levels: the same answer sent again changes nothing and sends nothing" "same $W_SENT" \
-    "$([ "$(entry "$LW" 1)" = "$W_ENTRY" ] && echo same || echo changed) $(wc -l < "$T/$LW.sent")"
+eq "levels: the same answer sent again leaves the entry as it is and sends nothing" "same $W_SENT" \
+    "$([ "$(entry "$LW" 1 | jq -c 'del(.evidence, .updated)')" = "$W_ENTRY" ] && echo same || echo changed) $(wc -l < "$T/$LW.sent")"
 back_to_wait "$LW"
 
 # R's coordinator relays W's reply as an answer, from the reply's own lines.
