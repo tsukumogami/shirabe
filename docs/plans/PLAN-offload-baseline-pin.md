@@ -48,7 +48,7 @@ delivery preference.
 exercising both against a temporary git repository.
 
 **Acceptance Criteria**:
-- [ ] `count` reads every manifest span with `git show <commit>:<path>`,
+- [ ] `count` reads every manifest span from git objects (`git cat-file blob <commit>:<path>`),
       supports the `file`, `body` and `state:<name>` selectors, and prints
       raw and weighted tokens per profile, each total divided by 4 and
       rounded once.

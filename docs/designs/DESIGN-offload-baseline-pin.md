@@ -122,7 +122,7 @@ file without its YAML frontmatter, or one template state's section) and a
 weight: expected loads per run, taken from the September census's load model.
 Tokens are bytes divided by 4, as in the census. Raw tokens count each
 distinct span once; weighted tokens multiply each row by its weight. The
-script reads every span with `git show <commit>:<path>`, so it never touches
+script reads every span from git objects (`git cat-file blob <commit>:<path>`), so it never touches
 the working tree and gives the same figures at the same commit every time.
 
 *Alternative: re-derive the census row by row.* Rejected. The census's rows
@@ -251,7 +251,7 @@ Profiles, matching the census's run models:
 | `deliver` | /deliver's own files, excluding the /scope and /execute runs it starts |
 
 `count <commit> [--manifest <file>]` resolves the commit, reads each row's
-span with `git show`, and prints per profile the raw and weighted tokens.
+span from git objects, and prints per profile the raw and weighted tokens.
 Raw sums the bytes of each distinct (path, selector) once; weighted sums
 bytes times weight. Each total is divided by 4 and rounded to the nearest
 integer once, at the end, so rounding doesn't accumulate per row. A missing
@@ -307,7 +307,15 @@ alternative it was chosen over.
   agent's reply: to disk, to git, to GitHub, or to koto. Drafts revised
   before that write aren't visible and aren't counted, and each distinct
   output (each PR, each commit, each document) is one opportunity however
-  often it's rewritten later. *Alternative:* one per run; rejected because it hides repeat violations.
+  often it's rewritten later. For a rule that governs an action rather than
+  an output (passing `--no-cleanup` on every root tick, naming a branch,
+  running a check before committing, never skipping hooks with
+  `--no-verify`), an opportunity is one occurrence of the governed action
+  (one tick, one commit, one push), observed from the tool call itself.
+  *Alternative:* one per run; rejected because it hides repeat violations.
+  Leaving action rules out was also considered and rejected: they would all
+  land in `not-checkable`, and they include some of the most frequent slips,
+  branch naming among them.
 - **Violation.** The output breaks the rule as decided by the rule's check: a
   script where one exists, otherwise a grader or a human reading against the
   rule's text. *Alternative:* count only script-detected violations; rejected
@@ -317,7 +325,12 @@ alternative it was chosen over.
   `gh pr create`, the first commit, the first evidence submission), before
   any check, gate retry or reviewer has fed back on it. *Alternative:* the
   final output; rejected because it measures the review loop, not the
-  preloaded rule.
+  preloaded rule. The preloaded rate is defined as one of a pair. Its
+  offloaded counterpart, the rate for a rule withheld from default context,
+  is observed at the first production after the rule's text has been
+  delivered once. The counterpart isn't computed here; naming the pair now
+  keeps a later feature from measuring the two rates at inconsistent
+  points.
 - **Numerator.** Opportunities with at least one violation of the rule.
   *Alternative:* the count of violations; rejected because one output can
   break a rule in many places, and a rate above 1 isn't a rate.
@@ -346,6 +359,15 @@ alternative it was chosen over.
 
 The preloaded rate for rule *r* is numerator over denominator, across the
 population.
+
+Three items are flagged for reconciliation with the later
+measurement-definitions effort that other measurement work shares. They stay
+as written until then:
+
+- the attribute names, including the dotted namespace;
+- `run.id`, and what identifies a run across the records that effort merges;
+- `rule.source`, keyed by source location, against the opaque rule id that
+  koto's gate events will carry.
 
 ### Public-content check
 
