@@ -10,3 +10,4 @@ please decide whether to ship
 Please decide whether to ship with the mixed result.
 The user should decide
 It's the operator's call
+A human should decide
