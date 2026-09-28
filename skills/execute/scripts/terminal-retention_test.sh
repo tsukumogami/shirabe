@@ -625,9 +625,70 @@ if k status execute-payload-dirty | jq -e '.result.status == "failure"' >/dev/nu
 else
     fail "the DIRTY route's result status is not failure"
 fi
+# The deciding tick chains through escalate_dirty_merge_state, where the
+# rationale submitted at ci_monitor doesn't carry, so ci_monitor's reason is
+# the one that must survive to the terminal.
+got=$(k context get execute-payload-dirty failure_reason 2>/dev/null)
+if [ "$got" = "ci_monitor: PR merge state is DIRTY; checks suppressed. src/a.go conflicts" ]; then
+    pass "the DIRTY done_blocked keeps ci_monitor's failure_reason with the rationale"
+else
+    fail "the DIRTY done_blocked failure_reason: [$got]"
+fi
 at_ci_monitor payload-dirty-ctl
 decide execute-payload-dirty-ctl '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' ""
 expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge failure
+
+# The attention route: a child fails, and the gate-routed tick chains
+# spawn_and_await -> escalate -> done_blocked with no evidence submitted, so
+# the reason has to come from the gate, not from escalate's evidence.
+cat > "$WORKDIR/failing-child.md" <<'CHILD_EOF'
+---
+name: failing-child
+version: "1.0"
+description: A child that fails when told to.
+initial_state: start
+states:
+  start:
+    accepts:
+      go:
+        type: enum
+        values: [fail]
+        required: true
+    transitions:
+      - target: done_blocked
+        when:
+          go: fail
+        context_assignments:
+          failure_reason: "failed on purpose"
+  done_blocked:
+    terminal: true
+    failure: true
+---
+
+## start
+Submit go.
+
+## done_blocked
+Terminal.
+CHILD_EOF
+init_orchestrator payload-escalate
+# spawn_and_await reads the SETTLED_BRANCH capture, which only a real run of
+# settled_branch_record's action delivers, so that one state is ticked rather
+# than hopped. The tick stops at drift_facts (this fixture has no origin), and
+# the directed hops go on from there.
+walk execute-payload-escalate settled_branch_record
+k next execute-payload-escalate --no-cleanup >/dev/null 2>&1
+walk execute-payload-escalate worktree_sync spawn_and_await
+k next execute-payload-escalate --with-data "{\"tasks\":[{\"name\":\"c1\",\"template\":\"$WORKDIR/failing-child.md\"}]}" --no-cleanup >/dev/null 2>&1
+k next execute-payload-escalate.c1 --with-data '{"go":"fail"}' --no-cleanup >/dev/null 2>&1
+k next execute-payload-escalate --no-cleanup >/dev/null 2>&1
+expect_payload "the attention-route done_blocked" execute-payload-escalate done_blocked error "execute:escalate" ""
+got=$(k context get execute-payload-escalate failure_reason 2>/dev/null)
+if [ "$got" = "spawn_and_await: 1 failed, 0 skipped, 0 not spawned; batch_final_view names each child and its reason" ]; then
+    pass "the attention-route done_blocked carries the batch counts in failure_reason"
+else
+    fail "the attention-route done_blocked failure_reason: [$got]"
+fi
 
 # A verdict error: a failed check makes the verdict error:execute:ci, and the
 # step reaches the result through the key the record script wrote.

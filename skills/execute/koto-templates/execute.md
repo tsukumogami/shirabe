@@ -546,6 +546,10 @@ states:
           gates.batch_done.all_complete: true
           gates.batch_done.all_success: false
           gates.batch_done.needs_attention: true
+        # This tick submits no evidence and chains through escalate, so the
+        # reason is written here, from the gate, where the counts are.
+        context_assignments:
+          failure_reason: "spawn_and_await: ${gates.batch_done.failed} failed, ${gates.batch_done.skipped} skipped, ${gates.batch_done.spawn_failed} not spawned; batch_final_view names each child and its reason"
 
   pr_finalization:
     accepts:
@@ -723,7 +727,9 @@ states:
         context_assignments:
           outcome: ready-awaiting-merge
           reason: "merge-state:DIRTY"
-          failure_reason: "escalate_dirty_merge_state: ${evidence.rationale}"
+          # No failure_reason: ci_monitor's tick chains through this state and
+          # its rationale doesn't carry, so the reason ci_monitor's edge wrote
+          # is the one that holds it.
 
   plan_completion:
     # The completion cascade runs BEFORE gh pr ready so the chain is
@@ -1064,11 +1070,13 @@ states:
         required: true
         description: Summary of which children failed and why, for the batch view
     transitions:
+      # No failure_reason here: the attention tick chains through this state
+      # with no evidence, so ${evidence.failure_reason} would overwrite the
+      # reason spawn_and_await's edge wrote with an empty one.
       - target: done_blocked
         context_assignments:
           outcome: error
           step: "execute:escalate"
-          failure_reason: "${evidence.failure_reason}"
 
   paused_for_review:
     # D2 (execute-friction): a non-failure terminal reached in interactive mode
@@ -1458,7 +1466,7 @@ When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with 
 
 ## escalate_dirty_merge_state
 
-The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. Submit `rationale` naming the conflict files; the workflow routes to `done_blocked` with the DIRTY-specific failure reason. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
+The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. The `rationale` naming the conflict files is submitted at `ci_monitor` with `ci_outcome: dirty_merge_state`; that tick chains through here to `done_blocked`, and the DIRTY-specific failure reason `ci_monitor` wrote, rationale included, is the one the run ends with. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
 
 ## plan_completion
 
@@ -1535,12 +1543,12 @@ The three cascade values route to `ci_monitor` in the state machine, which waits
 
 One or more children reached `done_blocked` or were skipped due to dependency failure. Inspect `batch_final_view` to understand which children failed and why.
 
-Read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-child data. Summarize:
+The tick that routes here doesn't stop: it chains on to `done_blocked`, and `failure_reason` already holds the gate's counts (failed, skipped, not spawned), written on `spawn_and_await`'s edge. There is nothing to submit.
+
+For the operator summary, read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-child data and report:
 - Which children failed (name + `reason` field)
 - Which children were skipped (name + `skipped_because_chain`)
 - What the user should do to resolve the blockers
-
-Submit `failure_reason` with this summary. The workflow routes to `done_blocked` and the `failure_reason` is written to context for the batch view.
 
 ## merge_readiness
 
