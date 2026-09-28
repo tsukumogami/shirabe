@@ -11,9 +11,9 @@ set -euo pipefail
 # Usage:
 #   bash scripts/check-bash-floor_test.sh
 #
-# Requires a reachable floor: a docker daemon on Linux, or a macOS /bin/bash. Set FLOOR_BACKEND to pin one (docker or system); the default lets
-# the runner choose. The container-shape cases run against a stub docker and
-# need neither.
+# Requires a reachable floor: a docker daemon on Linux, or a macOS /bin/bash.
+# Set FLOOR_BACKEND to pin one (docker or system); the default lets the runner
+# choose. The container-shape cases run against a stub docker and need neither.
 #
 # Exit codes:
 #   0 - All tests passed
@@ -602,7 +602,10 @@ else
     echo "checkout=read-only"
 fi
 PROBE
-    out=$("$FIX_WT/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || rc=$?
+    # Whatever daemon the harness reaches, rootful included: this case is
+    # about the mounts, and strict mode has its own cases above.
+    out=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS \
+        "$FIX_WT/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || rc=$?
     rm -f "$FIX_WT/scripts/bash-floor-canary.sh" "$FIX_WT/floor-write-probe"
     if [ $rc -ne 0 ]; then
         fail "$name" "expected exit 0, got $rc: $out"
@@ -612,7 +615,8 @@ PROBE
         *"not a git repository"*) fail "$name" "git inside the container cannot resolve the worktree: $out"; return ;;
     esac
     case "$out" in
-        *"tracked=1"*) ;;
+        *"tracked=1
+"*|*"tracked=1") ;;
         *) fail "$name" "git ls-files did not see the worktree's one tracked file: $out"; return ;;
     esac
     case "$out" in
