@@ -68,6 +68,12 @@ phrasings_check() {
     return 0
 }
 
+# _ascii: stdin to stdout with every byte but tab, newline and printable ASCII
+# turned into a space. The patterns are ASCII, so nothing they match is lost,
+# line numbers are kept, and no grep's handling of an invalid or non-ASCII
+# byte (BSD grep skips such a line) decides what matches.
+_ascii() { LC_ALL=C tr -c '\11\12\40-\176' ' '; }
+
 phrase_match() {
     local kind="$1" text="$2" f="${3:-$PHRASINGS_LIST}" pats rc
     case "$kind" in
@@ -83,8 +89,8 @@ phrase_match() {
     # on a match, which must not count, and a here-string is no better, since a
     # redirection that can't write its temporary file skips grep and reads as
     # no match.
-    printf '%s\n' "$text" | LC_ALL=C grep -Eiq -e "$pats"
-    rc=${PIPESTATUS[1]}
+    printf '%s\n' "$text" | _ascii | LC_ALL=C grep -Eiq -e "$pats"
+    rc=${PIPESTATUS[2]}
     [ "$rc" -le 1 ] || return 2
     return "$rc"
 }
@@ -101,11 +107,10 @@ phrase_lines() {
     [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
     # One grep over the whole file, so a report's lines are matched in one
     # pass, never one process per line. grep's own status is the one read.
-    # Bytes, not characters (LC_ALL=C, as in phrase_match): the patterns are
-    # ASCII, and a UTF-8 locale makes BSD grep skip a line holding an invalid
-    # byte even with -a.
-    LC_ALL=C grep -aEin -e "$pats" "$file" | cut -d: -f1
-    rc=${PIPESTATUS[0]}
+    # Only printable ASCII reaches grep (see _ascii): the patterns are ASCII,
+    # and BSD grep skips a line holding an invalid byte, -a and LC_ALL=C or not.
+    _ascii < "$file" | LC_ALL=C grep -aEin -e "$pats" | cut -d: -f1
+    rc=${PIPESTATUS[1]}
     [ "$rc" -le 1 ] || return 2
     return 0
 }

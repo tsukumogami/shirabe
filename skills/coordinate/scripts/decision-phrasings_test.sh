@@ -111,8 +111,8 @@ eq "phrase_lines numbers the addressed lines" "2 4" "$(phrase_lines addressed "$
 while IFS= read -r l; do phrase_match decision "$l" && printf '+' || printf '.'; done < "$T/lines.txt" > "$T/one"
 awk 'NR == FNR { h[$1] = 1; next } { printf (h[FNR] ? "+" : ".") }' <(phrase_lines decision "$T/lines.txt") "$T/lines.txt" > "$T/batch"
 eq "phrase_lines agrees with phrase_match line by line" "$(cat "$T/one")" "$(cat "$T/batch")"
-# The readers match bytes (LC_ALL=C) so an invalid byte never hides a line;
-# that holds only while every pattern is ASCII.
+# The readers hand grep only printable ASCII (_ascii), so an invalid byte never
+# hides a line; that loses nothing only while every pattern is ASCII.
 eq "every phrasing pattern is ASCII" "0" "$(LC_ALL=C awk '/[^\t -~]/' "$HERE/../references/decision-phrasings.tsv" | wc -l | tr -d ' ')"
 printf 'a stray \377 byte, then please decide whether to ship\n' > "$T/binary.txt"
 eq "phrase_lines reads a line holding an invalid byte as text" "1" "$(phrase_lines decision "$T/binary.txt")"
