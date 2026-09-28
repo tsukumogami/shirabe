@@ -57,9 +57,11 @@
 #   unreadable  the report can't be read, names no dispatch topic, or is a
 #               coordinator's escalation that doesn't hash to its digest or
 #               has no question or options, or a report from a coordinator
-#               holding that carries a digest line or the fixed answer line
-#               (quoted or not) but isn't an escalation exactly as rendered,
-#               first line to digest. It goes to the human (surface):
+#               holding that carries a digest line, the fixed answer line or
+#               a withdrawal's fixed line anywhere (indented or quoted too)
+#               but isn't that message exactly as rendered. It fails closed:
+#               a coordinator's own report that happens to hold such a line
+#               goes to the human too. It goes to the human (surface):
 #               an escalation altered in transit can be neither trusted nor
 #               bounced back as a worker's rebrief
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
@@ -93,9 +95,11 @@ sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1;
 "$KOTO" context get "$SESSION" worker_report > "$T/report" 2> "$T/koto.err" || { cat "$T/koto.err" >&2; verdict unreadable; }
 [ -s "$T/report" ] || verdict unreadable
 VIA=$("$KOTO" context get "$SESSION" report_source) || lib_die2 "cannot read how the report arrived (report_source)"
-# A leg report is the one line report-source.sh builds, whose only worker
-# text is its reason field: that field alone is read, so a reason ending in
-# `?` is a question although the line ends with the pull request field.
+# A leg report is the one line report-source.sh builds (its format is the
+# contract with that script). Its reason field is where a worker's question
+# goes, so that field alone is read: a reason ending in `?` is a question
+# although the line ends with the pull request field. A line in any other
+# shape is read whole.
 if [ "$VIA" = leg ]; then
     LINE=$(cat "$T/report")
     case "$LINE" in
@@ -118,7 +122,6 @@ esac
 [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the report names no dispatch topic" >&2; verdict unreadable; }
 EP= SECTION='{"next":1,"entries":[]}'
 if [ "$HOLDING" = 1 ]; then
-    [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the holding's topic isn't a topic" >&2; verdict unreadable; }
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$TOPIC" --read) || lib_die2 "cannot read the holding for $TOPIC"
     EP=$(printf '%s' "$ROW" | jq -r '.entry_point // ""')
     SECTION=$(bash "$HERE/record-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
@@ -146,16 +149,22 @@ write_list() {
 
 FIRST=$(head -1 "$T/report" | tr -d '\r')
 if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
-    # A report holding a digest line or the fixed answer line anywhere, quoted
-    # or not, is an escalation whatever else it says. One that isn't exactly as
-    # rendered (a line put before or after it, CRLF line ends, a quoted relay)
-    # is unreadable, never read on as a worker's question with the digest
-    # unchecked. LAST is also the line the escalation branch checks the digest
-    # against, so it is read here, once.
+    # A report holding a digest line or the fixed answer line anywhere, after
+    # any run of spaces, tabs and quote marks (indented, quoted, both), is an
+    # escalation whatever else it says, and one holding a withdrawal's fixed
+    # line anywhere is a withdrawal. One that isn't exactly as rendered (a
+    # line put before or after it, CRLF line ends, a quoted or indented relay)
+    # is unreadable, never read on as a worker's question with its digest
+    # unchecked or its withdrawal lost. LAST is also the line the escalation
+    # branch checks the digest against, so it is read here, once.
     LAST=$(awk 'NF { l = $0 } END { print l }' "$T/report")
-    if grep -qaE '^(> ?)*(Digest: [0-9a-f]{64}|Answer naming decision [1-9][0-9]* round [1-9][0-9]* )' "$T/report"; then
+    PFX='^[[:space:]>]*'
+    if grep -qaE "$PFX(Digest: [0-9a-f]{64}|Answer naming decision [1-9][0-9]* round [1-9][0-9]* )" "$T/report"; then
         [[ $FIRST =~ $RE_ESC ]] && case "$LAST" in Digest:\ *) true ;; *) false ;; esac \
             || { echo "$PROG: the report carries an escalation that isn't as rendered" >&2; verdict unreadable; }
+    elif grep -qaE "${PFX}Withdrawn: decision [1-9][0-9]* round [1-9][0-9]*\\." "$T/report"; then
+        [[ $FIRST =~ $RE_WDR ]] \
+            || { echo "$PROG: the report carries a withdrawal that isn't as rendered" >&2; verdict unreadable; }
     fi
     if [[ $FIRST =~ $RE_ESC ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}

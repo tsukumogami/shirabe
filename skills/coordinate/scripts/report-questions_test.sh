@@ -171,6 +171,10 @@ run "holding none rr" "$(printf 'Hi, relaying this.\n'; escalation 4 1; printf '
 eq "escalation: one with a line before and a line after is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
 run "holding none rr" "$(escalation 4 1 | sed 's/^/> /')" "$COORD"
 eq "escalation: one relayed as a quote is unreadable, not dropped" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(escalation 4 1 | sed 's/^/    /')" "$COORD"
+eq "escalation: one indented as a code block is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(escalation 4 1 | sed 's/^/ > /')" "$COORD"
+eq "escalation: one quoted after a space is unreadable, not dropped" "0 unreadable" "$RC $(word)"
 run "holding none rr" "$(printf 'Done with the first half.\nShould the second half wait for the release?\n')" "$COORD"
 eq "a coordinator's ordinary report, with no digest line, still gives its questions" "question|Should the second half wait for the release?" \
     "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
@@ -182,6 +186,10 @@ eq "withdrawal: an item naming the source it reopens" "withdrawal|coordinator rr
     "$(list | jq -r '.[0] | "\(.kind)|\(.source)|\(.n) \(.round)"')"
 run "holding none rr" "$(printf 'Withdrawn: decision 5 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
 eq "withdrawal: of an entry never opened gives none" "0 none" "$RC $(word)"
+run "holding none rr" "$(printf 'Relaying:\nWithdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
+eq "withdrawal: one with a line put before it is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n' | sed 's/^/> /')" "$COORD" "$OPEN_UP"
+eq "withdrawal: one relayed as a quote is unreadable, not dropped" "0 unreadable" "$RC $(word)"
 run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" \
     "[$(printf '%s' "$OPEN_UP" | jq -c '.[0] | .state = "settled" | .outcome = "wait; reason: r" | .decided_by = "a person" | .owed = "reply" | del(.verdict)')]"
 eq "withdrawal: of a settled entry is an item too, which reopens it" "withdrawal|coordinator rr #4 round 1" \
@@ -209,6 +217,12 @@ eq "escalation: one whose answer line names another entry is unreadable, though 
 
 run "holding none w1" "$(printf 'Keep the cap at 400 (decision 3)?\nQuestions:\n1. Or 1000 (decision 3)\n')" "$WORKER" "[$ENTRY]"
 eq "a citation outside the Questions part is dropped, inside it is kept" "null 3" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+# The brief's own example, the fixture render-brief_test.sh pins to the
+# brief: the shape the brief teaches is the shape this reads.
+run "holding none w1" "$(printf 'Done with the loader.\n\n%s\n' "$(cat "$HERE/testdata/decisions/brief-questions.txt")")" "$WORKER" "[$ENTRY]"
+eq "the brief's Questions example reads as its two questions, the first citing decision 3" \
+    "Should the loader pin v2.1.0 or track main? (decision 3):3|Is the flaky upload test in scope for this unit?:null" \
+    "$(list | jq -r '[.[] | "\(.text):\(.cite | tostring)"] | join("|")')"
 run "holding none w1" "$(printf 'Verdict: done.\n```\nlog line one\nShould it ship?\n')" "$WORKER"
 eq "a fence that never closes hides nothing" "Should it ship?" "$(list | jq -r '[.[].text] | join("|")')"
 VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome blocked; step 3; reason Should the pin track v2.1.0 or main?; pull request ' "$WORKER"
