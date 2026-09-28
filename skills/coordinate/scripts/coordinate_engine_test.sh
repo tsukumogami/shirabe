@@ -377,7 +377,9 @@ J=$(koto template compile "$TPL" 2>/dev/null)
 if [ -n "$J" ] && [ -r "$J" ]; then
     EVENTS=$(jq -r '.states.wait.accepts.event.values[]' "$J")
     [ -n "$EVENTS" ] || bad "9: wait accepts an event enum" "none in the compiled template"
-    n=90
+    # Record numbers from 901 up, one per event, clear of every other case's
+    # record however many events wait accepts.
+    n=900
     for ev in $EVENTS; do
         n=$((n + 1))
         # The expected spoke: the arm for this value, and for a `vars.` guard
