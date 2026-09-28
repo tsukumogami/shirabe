@@ -69,7 +69,7 @@ the number the offload work is supposed to halve, yet nothing defines what
 counts as a violation, what it's divided by, or how a rule is named. And the
 only count of instruction tokens per skill was a census taken in September
 2026 at shirabe commit e592501, recorded outside the repository with a method
-nobody can re-run from shirabe. shirabe has moved 21 commits since, several
+nobody can re-run from shirabe. shirabe has moved more than 20 commits since, several
 of them in these skills.
 
 The completeness, clarity and testability reviewers all passed it; the last two on a second round. The downstream DESIGN owns the approach.
@@ -274,7 +274,7 @@ The completeness, clarity and testability reviewers all passed it; the last two 
 ## Decisions and Trade-offs
 
 - **Pin at current main, not at the census commit.** The census commit is
-  already 21 commits behind, and the work this baseline exists for starts
+  already more than 20 commits behind, and the work this baseline exists for starts
   from main. Pinning the census commit would compare later changes against a
   state nobody runs. The September figures stay as the reference so nothing
   measured then is lost.

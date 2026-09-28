@@ -148,8 +148,12 @@ Weights other than 1:
   the details on arrival), `confirm` 0.5, the failure-only states 0.05, the
   non-success terminals 0.
 - `scope`: `fold` 3 (once per hop edge), the state-machine states koto runs
-  itself (`intake`, `branch_check`, `resume_route`) 0.05, the resume prompts,
-  other exits, publish states and non-success terminals 0;
+  itself (`intake`, `branch_check`, `resume_route`) 0.05; 0 for every state
+  the modelled run (no intent, no resume, a full run) never enters: the resume
+  prompts, `hop_select`, the other exits and their cleanups, the publish,
+  republish and executed-report states, and every terminal but
+  `done_full_run`. `phase-0-setup-freeform.md` 0 (the run enters `/design`
+  with a PRD) and `plan-format.md` 0 (no phase of the modelled run reads it);
   `brief-format.md`, `prd-format.md` and `decision-presentation.md` 2 (read at
   two hops), `writing-style` 6 and `public-content` 4 (re-read at each
   authoring hop).
@@ -203,11 +207,16 @@ instruction rows by hand and, in places, left out rationale prose that told
 the agent nothing to do; it also left template frontmatter out except for the
 field descriptions koto shows. The recount counts whole spans: whole files,
 or whole template state sections including the text koto shows only on
-arrival. So the recount's absolute numbers run higher, most visibly for
-`scope`, where the census excluded about 28k tokens of rationale and history and counted
-only the main context of one run. The two recount columns use the same
-method, so the difference between them is what the 21 commits between
-e592501 and the pinned commit changed. Compare a later change with the
+arrival. So the recount runs higher for every profile but `work-on`, most
+visibly for `scope`, where the census reports setting aside about 28k tokens
+of rationale and history and counted only the main context of one run.
+`work-on` comes out lower because the census also counted text the recount
+can't read from the repository: the workspace-generated
+`work-on.local.md` it treated as resident, and the `expects` field
+descriptions and `default_action` fallbacks koto shows from template
+frontmatter. The two recount columns use the same method, so the difference
+between them is what the 22 commits between e592501 and the pinned commit
+changed. Compare a later change with the
 pinned commit's recount, never with the census.
 
 ## Preloaded rate (provisional)
