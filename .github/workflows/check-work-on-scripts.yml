@@ -151,6 +151,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/record-changed-paths_test.sh
 
+      # has-commits_test.sh runs the has_commits check against real clones of
+      # three shapes (plain, no local main, linked worktree) through a koto
+      # stand-in, so those cases also run on the macOS floor through the
+      # work-on suite. Its engine half drives the shipped template's docs and
+      # scrutiny routes in each shape and skips without koto, so it runs here.
+      - name: Run has_commits tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/has-commits_test.sh
+
       # check-staleness_test.sh runs the ported staleness check against a
       # stubbed gh and a throwaway repository, which needs only jq and git. Its
       # gate cases run the staleness_check gate command extracted from the

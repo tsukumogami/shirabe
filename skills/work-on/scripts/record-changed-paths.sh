@@ -31,8 +31,10 @@
 # `analysis` is behind `impl_base`, so none of them appears here.
 # Limitation: a rebase after `analysis` can leave `impl_base` off HEAD's history; the diff then includes what the rebase pulled in.
 #
-# When `impl_base` is unset (the `analysis` action failed and the agent went on
-# without it), the base is `git merge-base HEAD origin/<default-branch>`, where
+# When `impl_base` is unset -- the `analysis` action failed and the base was
+# never recorded by hand, which analysis's fallback asks for because
+# has-commits.sh fails the docs and scrutiny routes without it -- the base
+# here is `git merge-base HEAD origin/<default-branch>`, where
 # the default branch is what `origin/HEAD` names, or `main` when origin names
 # none. With no usable origin ref at all it falls back to `git merge-base HEAD
 # main`. A shared branch loses its sibling filtering on this path; the file

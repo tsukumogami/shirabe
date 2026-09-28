@@ -121,8 +121,9 @@ summary; if the script succeeds but the AC is not met, the script is wrong.
 
 ## Implementation Review
 
-**Self-review (always):** `git diff main...HEAD`, then re-read acceptance
-criteria and verify each is satisfied.
+**Self-review (always):** `git diff "$(koto context get <WF> impl_base)" HEAD`
+-- this run's changes from the commit `analysis` recorded, which needs no local
+`main` -- then re-read acceptance criteria and verify each is satisfied.
 
 **Agent review (non-trivial implementations):** Launch specialized agents as
 needed: security, performance, testing, architecture. Check for scope shrinkage

@@ -142,10 +142,11 @@ render() { printf '%s\n' "$1" | sed "s|<WF>|$2|g"; }
 
 # --- the repository the command gates read ------------------------------------
 #
-# `scrutiny` gates its passed edge on `git log --oneline main..HEAD`, so the base
-# branch has to be main. A repo initialized with git's own default would leave
-# has_commits failing and every walk stuck at scrutiny, short of the other
-# panels.
+# `scrutiny` gates its passed edge on commits since impl_base, the commit
+# analysis records as the run's start. The `feat: work` commit below stands for
+# the run's own implementation, so each walk records impl_base as the commit
+# before it (see to_implementation); otherwise has_commits would fail and every
+# walk would stick at scrutiny, short of the other panels.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -212,6 +213,9 @@ to_implementation() {
     to_analysis "$1"
     seed "$1" plan.md
     submit "$1" '{"plan_outcome":"plan_ready"}'
+    # analysis recorded HEAD, which already carries the fixture's work commit;
+    # the run's base is the commit before it.
+    git rev-parse HEAD~1 | koto context add "$1" impl_base >/dev/null 2>&1
 }
 
 # A finished implementation crosses changed_paths_record on its own and stops at

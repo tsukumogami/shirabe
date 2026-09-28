@@ -70,7 +70,7 @@ case "$WORD" in
     handed-over) exit 124 ;; closed-unmerged) exit 125 ;;
     # roadmap_close
     ready) exit 130 ;; features-open) exit 131 ;; holdings) exit 132 ;;
-    side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;;
+    side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;; decisions) exit 136 ;;
     # reconcile_pass, the reconcile feature's state (shirabe#406)
     reconciled) exit 140 ;;
     waiting|land-blocked)

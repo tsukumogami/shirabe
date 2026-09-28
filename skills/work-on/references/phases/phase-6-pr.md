@@ -6,14 +6,18 @@ Create the PR and monitor CI until all checks pass.
 
 Rebase on latest main if behind. Resolve conflicts and re-run tests.
 
-Review with `git diff main...HEAD` — no unintended changes.
+Review the diff against the branch you just rebased onto, the remote's default
+branch: `git diff origin/main...HEAD` when it is `main` (`git symbolic-ref
+refs/remotes/origin/HEAD` names it). That is what the PR will show, and it
+needs no local `main`. Diffing from `impl_base` here would also show whatever
+the rebase pulled in. No unintended changes.
 
 ### Design Document Status
 
 Don't update the design diagram here. When the issue body contains
 `Design: \`<path>\``, finalization updated it and `pre_pr.md`'s
 `design_diagram` line names its path. Confirm that path appears in
-`git diff main...HEAD`. If it doesn't, the record and the diff disagree: go
+that diff. If it doesn't, the record and the diff disagree: go
 back through `finalization` rather than updating the diagram at this point.
 
 ## Push Branch

@@ -41,6 +41,7 @@
 #   holdings <n>       Holdings isn't empty
 #   side-effects <n>   Side effects in flight isn't empty
 #   deferrals <n>      a Deferrals row isn't `filed #<n>` or `closed: <text>`
+#   decisions <n>      a Decisions entry isn't settled
 #   ready <n>          all clear
 # <n> is the record's issue number in every roadmap token.
 #
@@ -170,6 +171,11 @@ if [ "$SCOPE" = roadmap ]; then
         | if . == null then null else {deferral, disposition} end' "$T/parsed.json")
     if [ "$BLOCKER" != null ]; then
         REASON="a deferral is not filed or closed"; finish "deferrals $REF"
+    fi
+    BLOCKER=$(jq -c '[(.decisions.entries // [])[] | select(.state != "settled")][0] // null
+        | if . == null then null else {decision, state, question} end' "$T/parsed.json")
+    if [ "$BLOCKER" != null ]; then
+        REASON="a decision is not settled"; finish "decisions $REF"
     fi
     REASON="every feature Done or Dropped and the record is clear"
     finish "ready $REF"

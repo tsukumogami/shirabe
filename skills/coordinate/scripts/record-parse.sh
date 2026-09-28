@@ -4,7 +4,7 @@
 #
 # A body is canonical when rendering what was parsed (with the parsed Written:
 # time) reproduces it byte for byte, after CRLF becomes LF and trailing
-# newlines are trimmed. That comparison is the record's four-section check: a
+# newlines are trimmed. That comparison is the record's section check: a
 # missing or reordered section, an extra column, a hand-edited separator or a
 # note between the tables all fail it, and the first differing line is named.
 #
