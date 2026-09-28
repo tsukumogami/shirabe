@@ -156,12 +156,13 @@ On Linux this runs the suite in a `bash:3.2` container with a GNU userland; on
 macOS it uses `/bin/bash` directly, with a shim first on `PATH` so a nested
 `bash` is 3.2 too. Same command either way, and the same one CI runs.
 
-The container needs a rootless docker daemon: point `DOCKER_HOST` at its
-socket. It sees the checkout read-only, so a suite can't leave anything behind
-in it, and it works from a linked worktree. A rootful daemon is refused unless
-you pass `--allow-rootful-docker` (or set `SHIRABE_FLOOR_ALLOW_ROOTFUL=1`); the
-container then runs as your user. CI's hosted runners only have a rootful
-daemon, so the floor workflow sets the override on its own jobs.
+The container sees the checkout read-only, so a suite can't leave anything
+behind in it, and it works from a linked worktree. It runs on whichever docker
+daemon `DOCKER_HOST` reaches. On a rootful daemon (stock Docker, and CI's
+hosted runners) it runs as your user. A rootless daemon is recommended, since
+it also keeps the daemon's own work off the host's root. On a host where
+containers must be rootless, pass `--require-rootless` (or set
+`SHIRABE_FLOOR_REQUIRE_ROOTLESS=1`) and a rootful daemon is refused.
 
 Every macOS CI leg reaches the floor that way, as
 `scripts/check-bash-floor.sh --backend system <suite>`. On a macOS runner a bare

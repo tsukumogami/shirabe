@@ -22,7 +22,7 @@
 #   --list                         list the suites and what each one runs
 #   --suites                       the CI suite names, one per line
 #   --scripts <suite>              that suite's scripts, one per line
-#   --allow-rootful-docker         let the docker backend use a rootful daemon
+#   --require-rootless             refuse a rootful docker daemon
 #   -h, --help                     this message
 #
 # Backends:
@@ -39,13 +39,15 @@
 #   - resolves a linked worktree: the git directories its .git file points to
 #     are mounted read-only at their host paths too. A .git file whose git
 #     directory the host cannot resolve is refused before anything runs.
-#   - runs on a rootless daemon, where the container's root is the invoking
-#     user. A rootful daemon is refused unless --allow-rootful-docker (or
-#     SHIRABE_FLOOR_ALLOW_ROOTFUL=1) is given; the container then runs as
-#     --user "$(id -u):$(id -g)". Which daemon is used is DOCKER_HOST's choice.
-#     GitHub's hosted runners have only a rootful daemon, so CI passes the
-#     override and exercises the --user path; developers' hosts exercise the
-#     rootless one.
+#   - runs on whatever daemon docker reaches (DOCKER_HOST's choice). On a
+#     rootless daemon the container's root is the invoking user. On a rootful
+#     one the container runs as --user "$(id -u):$(id -g)", which with the
+#     read-only mount keeps a suite from changing the checkout; a notice
+#     recommends a rootless daemon, which also keeps the daemon's own work
+#     off the host's root. --require-rootless refuses a rootful daemon, for
+#     hosts that allow only rootless containers. CI's hosted runners have a
+#     rootful daemon, so CI exercises the --user path; a rootless host
+#     exercises the other.
 #   - has GNU coreutils, grep, sed, findutils, gawk, diffutils and procps next
 #     to bash 3.2, so its userland matches a Linux host's. It still does not
 #     match macOS, whose tools are BSD: a GNU-only flag passes here and fails
@@ -55,7 +57,7 @@
 #   SHIRABE_FLOOR_IMAGE          override the container image tag that gets built
 #   SHIRABE_BIN                  a shirabe binary to inject instead of building
 #                                one (docker backend only; must be static/musl)
-#   SHIRABE_FLOOR_ALLOW_ROOTFUL  1 is the same as --allow-rootful-docker
+#   SHIRABE_FLOOR_REQUIRE_ROOTLESS  1 is the same as --require-rootless
 #
 # Exit codes:
 #   0 - the suite passed on the floor
@@ -80,7 +82,7 @@ INJECT_DIR=/floor
 FLOOR_HOME=/home/floor
 
 BACKEND=auto
-ALLOW_ROOTFUL="${SHIRABE_FLOOR_ALLOW_ROOTFUL:-0}"
+REQUIRE_ROOTLESS="${SHIRABE_FLOOR_REQUIRE_ROOTLESS:-0}"
 # Set by check_docker_daemon: 1 when the daemon is rootless.
 DAEMON_ROOTLESS=""
 TMP_DIRS=""
@@ -464,7 +466,8 @@ resolve_shirabe_bin() {
 
     if [ -n "${SHIRABE_BIN:-}" ]; then
         [ -x "$SHIRABE_BIN" ] || die "SHIRABE_BIN is set but not executable: $SHIRABE_BIN"
-        SHIRABE_FLOOR_BIN="$SHIRABE_BIN"
+        # Absolute, because it becomes a --mount source.
+        SHIRABE_FLOOR_BIN="$(cd "$(dirname "$SHIRABE_BIN")" && pwd)/$(basename "$SHIRABE_BIN")"
         return 0
     fi
 
@@ -523,11 +526,12 @@ FLOOR_PACKAGES="jq git python3 coreutils grep sed findutils gawk diffutils procp
 # rootful daemon everything the daemon does for a container - creating a
 # missing mount point, writing through a mount, the container's own root - is
 # done as the host's root, which is how #413's root-owned files got into a
-# checkout. The read-only mount and --user close the paths known today; a
-# rootless daemon closes the class, since nothing it does can reach past the
-# invoking user. So rootless is the default and rootful is an explicit choice,
-# made where the host is disposable (CI's hosted runners) or where the invoking
-# user has decided the trade-off is theirs.
+# checkout. The read-only mount and --user close the paths #413 names, so a
+# rootful daemon, the one stock Docker installs and CI's hosted runners have,
+# is used by default. A rootless daemon closes the class, since nothing it does
+# can reach past the invoking user, so a rootful run recommends it, and
+# --require-rootless turns the recommendation into a refusal on hosts whose
+# rule is rootless containers only.
 #
 # Which daemon is reached is DOCKER_HOST's (or the docker context's) choice,
 # not this script's.
@@ -535,17 +539,17 @@ check_docker_daemon() {
     local opts
     command -v docker >/dev/null 2>&1 || die "docker is required for the docker backend (on macOS use --backend system: /bin/bash is already 3.2)"
     opts=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null) \
-        || die "cannot reach a docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}); point DOCKER_HOST at a running rootless daemon's socket"
+        || die "cannot reach a docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset})"
     case "$opts" in
         *name=rootless*)
             DAEMON_ROOTLESS=1
             ;;
         *)
             DAEMON_ROOTLESS=0
-            if [ "$ALLOW_ROOTFUL" != 1 ]; then
-                die "refusing a rootful docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}): its containers act as the host's root. Point DOCKER_HOST at a rootless daemon's socket, or pass --allow-rootful-docker (SHIRABE_FLOOR_ALLOW_ROOTFUL=1) to run on this one as $(id -u):$(id -g)"
+            if [ "$REQUIRE_ROOTLESS" = 1 ]; then
+                die "refusing a rootful docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset}): --require-rootless (or SHIRABE_FLOOR_REQUIRE_ROOTLESS=1) is set; point DOCKER_HOST at a rootless daemon's socket"
             fi
-            echo "check-bash-floor: using a rootful docker daemon (allowed by override); the container runs as $(id -u):$(id -g)" >&2
+            echo "check-bash-floor: rootful docker daemon; the container runs as $(id -u):$(id -g) over a read-only checkout (a rootless daemon also keeps the daemon's own work off the host's root)" >&2
             ;;
     esac
 }
@@ -831,8 +835,8 @@ while [ $# -gt 0 ]; do
             BACKEND="${1#--backend=}"
             shift
             ;;
-        --allow-rootful-docker)
-            ALLOW_ROOTFUL=1
+        --require-rootless)
+            REQUIRE_ROOTLESS=1
             shift
             ;;
         -h|--help)

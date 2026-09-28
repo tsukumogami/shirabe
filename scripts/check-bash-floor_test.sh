@@ -11,9 +11,7 @@ set -euo pipefail
 # Usage:
 #   bash scripts/check-bash-floor_test.sh
 #
-# Requires a reachable floor: a rootless docker daemon on Linux (or a rootful
-# one with SHIRABE_FLOOR_ALLOW_ROOTFUL=1 in the environment), or a macOS
-# /bin/bash. Set FLOOR_BACKEND to pin one (docker or system); the default lets
+# Requires a reachable floor: a docker daemon on Linux, or a macOS /bin/bash. Set FLOOR_BACKEND to pin one (docker or system); the default lets
 # the runner choose. The container-shape cases run against a stub docker and
 # need neither.
 #
@@ -338,7 +336,7 @@ run_stubbed() {
     shift 2
     rm -f "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
     STUB_RC=0
-    STUB_OUT=$(env -u SHIRABE_FLOOR_ALLOW_ROOTFUL PATH="$STUB_BIN:$PATH" \
+    STUB_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS PATH="$STUB_BIN:$PATH" \
         STUB_DAEMON="$daemon" STUB_LOG="$STUB_ROOT/log" \
         "$checkout/scripts/check-bash-floor.sh" --backend docker "$@" canary 2>&1) || STUB_RC=$?
 }
@@ -348,47 +346,75 @@ run_has() {
     [ -f "$STUB_ROOT/log.run" ] && grep -qxF -- "$1" "$STUB_ROOT/log.run"
 }
 
-test_rootful_daemon_is_refused() {
-    local name="a rootful daemon is refused with exit 2 and nothing runs"
+# Stock Docker and CI's hosted runners are rootful, so that is the default
+# path: the container runs as the invoking user over the read-only checkout,
+# and one notice line recommends a rootless daemon.
+test_rootful_daemon_runs_as_the_invoking_user() {
+    local name="a rootful daemon runs by default, as the invoking user, with a notice"
 
     run_stubbed "$FIX_MAIN" rootful
-    if [ $STUB_RC -ne 2 ]; then
-        fail "$name" "expected exit 2, got $STUB_RC: $STUB_OUT"
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
         return
     fi
-    if [ -f "$STUB_ROOT/log.run" ] || [ -f "$STUB_ROOT/log.build" ]; then
-        fail "$name" "docker build or run was called against the refused daemon"
+    if ! run_has "--user" || ! run_has "$(id -u):$(id -g)"; then
+        fail "$name" "no --user $(id -u):$(id -g) in: $(cat "$STUB_ROOT/log.run")"
+        return
+    fi
+    if ! run_has "type=bind,source=$FIX_MAIN,target=$FIX_MAIN,readonly"; then
+        fail "$name" "the checkout is not mounted read-only"
         return
     fi
     case "$STUB_OUT" in
-        *"refusing a rootful docker daemon"*"--allow-rootful-docker"*) pass "$name" ;;
-        *) fail "$name" "the refusal does not name itself and its override: $STUB_OUT" ;;
+        *"rootful docker daemon"*"a rootless daemon"*) pass "$name" ;;
+        *) fail "$name" "no notice recommending a rootless daemon: $STUB_OUT" ;;
     esac
 }
 
-test_rootful_override_runs_as_the_invoking_user() {
-    local name="the rootful override runs the container as the invoking user"
+# Strict mode, for hosts whose rule is rootless containers only: a rootful
+# daemon is refused before anything is built or run, by flag or by env.
+test_require_rootless_refuses_a_rootful_daemon() {
+    local name="--require-rootless refuses a rootful daemon with exit 2 and nothing runs"
     local via
 
     for via in flag env; do
         if [ "$via" = flag ]; then
-            run_stubbed "$FIX_MAIN" rootful --allow-rootful-docker
+            run_stubbed "$FIX_MAIN" rootful --require-rootless
         else
-            rm -f "$STUB_ROOT/log.run"
+            rm -f "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
             STUB_RC=0
             STUB_OUT=$(PATH="$STUB_BIN:$PATH" STUB_DAEMON=rootful STUB_LOG="$STUB_ROOT/log" \
-                SHIRABE_FLOOR_ALLOW_ROOTFUL=1 \
+                SHIRABE_FLOOR_REQUIRE_ROOTLESS=1 \
                 "$FIX_MAIN/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || STUB_RC=$?
         fi
-        if [ $STUB_RC -ne 0 ]; then
-            fail "$name" "($via) expected exit 0, got $STUB_RC: $STUB_OUT"
+        if [ $STUB_RC -ne 2 ]; then
+            fail "$name" "($via) expected exit 2, got $STUB_RC: $STUB_OUT"
             return
         fi
-        if ! run_has "--user" || ! run_has "$(id -u):$(id -g)"; then
-            fail "$name" "($via) no --user $(id -u):$(id -g) in: $(cat "$STUB_ROOT/log.run")"
+        if [ -f "$STUB_ROOT/log.run" ] || [ -f "$STUB_ROOT/log.build" ]; then
+            fail "$name" "($via) docker build or run was called against the refused daemon"
             return
         fi
+        case "$STUB_OUT" in
+            *"refusing a rootful docker daemon"*"--require-rootless"*) ;;
+            *) fail "$name" "($via) the refusal does not name itself and its switch: $STUB_OUT"; return ;;
+        esac
     done
+    pass "$name"
+}
+
+test_require_rootless_accepts_a_rootless_daemon() {
+    local name="--require-rootless runs on a rootless daemon, without --user"
+
+    run_stubbed "$FIX_MAIN" rootless --require-rootless
+    if [ $STUB_RC -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STUB_RC: $STUB_OUT"
+        return
+    fi
+    if run_has "--user"; then
+        fail "$name" "--user passed on a rootless daemon"
+        return
+    fi
     pass "$name"
 }
 
@@ -567,6 +593,10 @@ test_image_recipe() {
         fail "$name" "the image does not check its bash version"
         return
     fi
+    if ! grep -q 'is not the GNU one' "$STUB_ROOT/log.build"; then
+        fail "$name" "the image does not check that its tools are the GNU ones"
+        return
+    fi
     pass "$name"
 }
 
@@ -584,8 +614,9 @@ test_no_suite_is_refused
 test_unreachable_floor_is_not_reported_as_a_suite_failure
 test_unknown_backend_is_refused
 test_system_backend_refuses_a_newer_bin_bash
-test_rootful_daemon_is_refused
-test_rootful_override_runs_as_the_invoking_user
+test_rootful_daemon_runs_as_the_invoking_user
+test_require_rootless_refuses_a_rootful_daemon
+test_require_rootless_accepts_a_rootless_daemon
 test_unreachable_daemon_exits_2
 test_rootless_container_shape
 test_linked_worktree_mounts_its_git_directory
