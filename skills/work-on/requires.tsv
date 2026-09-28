@@ -34,9 +34,10 @@
 #                   introspection.md, plan.md); the stdin heredoc form of the
 #                   same subcommand takes no flag
 #   context get     reads plan.md and context.md in Phase 4, impl_base in
-#                   record-changed-paths.sh, and pre_pr.md in
+#                   record-changed-paths.sh and has-commits.sh, and pre_pr.md in
 #                   check-pre-pr-referents.sh (the referent gates), no flag
-#   context exists  record-changed-paths.sh's impl_base test, no flag
+#   context exists  the impl_base test in record-changed-paths.sh and
+#                   has-commits.sh, no flag
 #   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
 #                   no flag
 #   decisions record  --with-data carries the decision object

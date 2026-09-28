@@ -65,9 +65,11 @@ case "$PLUGIN_ROOT" in
         ;;
 esac
 
-# scrutiny gates on commits over main, so the base branch has to be main. The
-# referent gates need real objects: HEAD for a good cleanup_commit, a commit on
-# another branch for a bad one.
+# scrutiny gates on commits since impl_base, the commit analysis records as the
+# run's start. The fixture's `feat: work` commit stands for the run's own
+# implementation, so each walk records impl_base as the commit before it (see
+# to_finalization). The referent gates need real objects: HEAD for a good
+# cleanup_commit, a commit on another branch for a bad one.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -86,6 +88,7 @@ mkdir -p "$REPO"
 ) >/dev/null 2>&1
 cd "$REPO" || exit 1
 HEAD_SHA=$(git rev-parse HEAD)
+BASE_SHA=$(git rev-parse HEAD~1)
 OTHER_SHA=$(git rev-parse other)
 
 NEXT_RESPONSE=""
@@ -110,6 +113,9 @@ to_finalization() {
     submit "$1" '{"staleness_signal":"override"}'
     put "$1" plan.md plan
     submit "$1" '{"plan_outcome":"plan_ready"}'
+    # analysis recorded HEAD, which already carries the fixture's work commit;
+    # the run's base is the commit before it.
+    put "$1" impl_base "$BASE_SHA"
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
     put "$1" scrutiny_results.json '{}'

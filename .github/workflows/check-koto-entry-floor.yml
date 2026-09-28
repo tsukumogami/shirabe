@@ -168,6 +168,7 @@ jobs:
           bash skills/work-on/scripts/finalization-shape_test.sh
           bash skills/work-on/scripts/check-pre-pr-referents_test.sh
           bash skills/work-on/scripts/record-changed-paths_test.sh
+          bash skills/work-on/scripts/has-commits_test.sh
           bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh
