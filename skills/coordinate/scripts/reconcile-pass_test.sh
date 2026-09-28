@@ -65,8 +65,12 @@ ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
 mark="$STUB_DIR/running.$$"; : > "$mark"; trap 'rm -f "$mark"' EXIT TERM
 c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
+# Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
+# without it two stand-ins read the same time and one cost is lost.
+until mkdir "$CLOCK.lock" 2>/dev/null; do sleep 0.05; done
 now=$(cat "$CLOCK")
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
+rmdir "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
