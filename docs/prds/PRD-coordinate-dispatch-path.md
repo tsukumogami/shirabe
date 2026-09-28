@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   The coordinate skill sends work out and takes it back through prose. A
   coordinator composes each worker's brief by hand, runs the dispatch by hand,
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinate-dispatch-path.md
 
 ## Status
 
-In Progress
+Done
 
 ## Problem Statement
 

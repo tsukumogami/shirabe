@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The coordinate skill hands work to other sessions and takes it back through
   prose alone. Each worker brief is written freehand, the dispatch is typed by
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framed for the `/scope` chain. The downstream PRD owns the requirements; the
 DESIGN owns the states, gates and scripts, including two questions this brief

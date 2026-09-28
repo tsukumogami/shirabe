@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-coordinate-dispatch-path.md
 problem: |
   The coordinate skill's dispatch and wait steps are prose. The coordinator
@@ -36,7 +36,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
