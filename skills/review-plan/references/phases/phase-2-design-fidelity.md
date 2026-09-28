@@ -21,7 +21,6 @@ Read the following from Phase 0 context:
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 | `topic` | Returns empty findings immediately — no upstream document to check against |
 
-For `topic` and `roadmap` inputs, skip all checks and return empty findings.
 
 ## Full Design Fidelity Check (design, prd)
 
@@ -83,9 +82,6 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""         # always empty for Category B
 ```
 
-The `correction_hint` field is left empty for all Category B findings — corrections
-require re-running Phase 1 (Analysis) to resolve the upstream contradiction first,
-not changing issue body content.
 
 If no findings: return `critical_findings: []` for this category.
 
@@ -95,6 +91,3 @@ When the upstream design doc is unavailable (wrong path in analysis.md, file mis
 set `confidence: "low"` in the verdict and note the missing doc in the `summary`.
 Return empty findings for this category — do not invent findings without the source.
 
-## Loop-Back Target
-
-Category B findings → `loop_target: 1` (Analysis)

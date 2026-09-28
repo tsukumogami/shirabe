@@ -109,11 +109,6 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""      # always empty for Category A
 ```
 
-The `correction_hint` field is left empty for all Category A findings — corrections
-require re-running Phase 3 (Decomposition), not changing issue body content.
 
 If no findings: return `critical_findings: []` for this category.
 
-## Loop-Back Target
-
-Category A findings → `loop_target: 3` (Decomposition)

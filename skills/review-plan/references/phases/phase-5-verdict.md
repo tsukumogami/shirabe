@@ -26,18 +26,10 @@ according to the mapping below.
 
 Use the deterministic category-to-phase mapping from the schema. Earliest phase wins:
 
-```
-if B findings exist                         → loop_target: 1
-elif A findings or D-structural exist       → loop_target: 3
-elif C findings exist                       → loop_target: 4
-elif D-dependency-ordering findings exist   → loop_target: 5
-```
 
 Read the schema reference for the full table:
 `references/templates/review-result-schema.md`
 
-When a single verdict contains both D-structural and D-dependency findings, the
-D-structural finding (Phase 3) takes precedence over D-dependency (Phase 5).
 
 ## Confidence
 

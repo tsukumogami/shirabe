@@ -88,12 +88,6 @@ Record the selected mode. It determines agent count in phases 1–4:
 
 `input_type` gates category behavior in later phases:
 
-| input_type | Category A | Category B | Category C | Category D |
-|------------|-----------|-----------|-----------|-----------|
-| `design` | Full check | Full check | Full check | Full check |
-| `prd` | Full check | Full check | Full check | Full check |
-| `roadmap` | Issue count vs. roadmap item count only | Returns empty findings | Returns empty findings | Returns empty findings |
-| `topic` | Full check | Returns empty findings (`critical_findings: []`) | Full check | Full check |
 
 Record the `input_type` and the category behavior table entry. Pass both to
 phases 1–4 so they can gate correctly.
