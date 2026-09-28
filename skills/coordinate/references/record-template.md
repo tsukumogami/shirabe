@@ -198,7 +198,7 @@ checks on it:
 
 Rotation from <start> to <end>. Host repository: <owner/repo>. Record: <pull request URL>, kept on coordinate/discipline-<name>.
 
-<the four sections, exactly as in the record>
+<the four sections, and the Decisions section with its unsettled entries when the record has one>
 
 ## Reasoning for the next rotation
 

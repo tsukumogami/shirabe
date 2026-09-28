@@ -175,7 +175,7 @@ def check_dcell($key; $private):
     elif $key == "state" then (if any(d_states[]; . == $v) then . else refuse("decisions.state: not proposed, coordinator-verdict, escalated or settled") end)
     elif $key == "source" then (if test("^(worker [A-Za-z0-9][A-Za-z0-9._-]*|coordinator [A-Za-z0-9][A-Za-z0-9._-]* #[1-9][0-9]* round [1-9][0-9]*|dispatcher|self) " + re_stamp + "$") then . else refuse("decisions.source: not `worker <topic>`, `coordinator <topic> #<n> round <r>`, `dispatcher` or `self`, then a stamp") end)
     elif $key == "verdict" then (if test("^(settle|escalate|hold)$") then . else refuse("decisions.verdict: not settle, escalate or hold") end)
-    elif $key == "grounds" then (if test("^(scope|supplied-decision|reserved-step|outside-scope)(, (scope|supplied-decision|reserved-step|outside-scope))*$") then . else refuse("decisions.grounds: not a comma list of scope, supplied-decision, reserved-step, outside-scope") end)
+    elif $key == "grounds" then (if (split(", ") | all(. as $g | any(d_grounds[]; . == $g))) then . else refuse("decisions.grounds: not a comma list of \(d_grounds | join(", "))") end)
     elif $key == "target" then (if test("^(a person|coordinator [A-Za-z0-9][A-Za-z0-9._-]*)$") then . else refuse("decisions.target: not `a person` or `coordinator <topic>`") end)
     elif $key == "owed" then (if test("^(escalation|withdrawal|reply)$") then . else refuse("decisions.owed: not escalation, withdrawal or reply") end)
     elif ($key == "asked" or $key == "updated") then (if test(re_time_min) then . else refuse("decisions.\($key): not YYYY-MM-DDTHH:MMZ") end)
@@ -240,14 +240,16 @@ def check_decisions($d; $private):
   if $d == null then null
   elif ($d | type) != "object" then refuse("decisions: not an object")
   elif (($d | keys) - ["entries", "next"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next"])[0]): not a field of this section")
-  elif ($d.next | type) != "number" or $d.next < 1 or ($d.next | floor) != $d.next then refuse("decisions.next: not a positive integer")
+  elif ($d.next | type) != "number" or $d.next < 1 or $d.next > 999999 or ($d.next | floor) != $d.next then refuse("decisions.next: not a positive integer below a million")
   elif (($d.entries // []) | type) != "array" then refuse("decisions.entries: not a list")
   else
     ($d.entries // [] | map(check_drow($private))) as $rows
     | ($rows | map(.decision | tonumber)) as $ids
     | if ($ids | unique | length) != ($ids | length) then refuse("decisions: an identifier is used twice")
       elif any($ids[]; . >= $d.next) then refuse("decisions: an identifier at or above Next decision (\($d.next))")
-      else {next: $d.next, entries: $rows} end
+      # floor: a number written 7.0 or 7e0 renders as 7, the one form the
+      # parser reads back.
+      else {next: ($d.next | floor), entries: $rows} end
   end;
 
 def render_decisions($d):

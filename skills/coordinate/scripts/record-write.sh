@@ -95,8 +95,7 @@ else
 fi
 lib_write_guard
 
-# Only record-decision.sh changes the Decisions section; this script never
-# does, whatever the environment says.
-DECISIONS_WRITER=0
+# Sourcing the core closes the Decisions section (DECISIONS_WRITER=0), and this
+# script never opens it: only record-decision.sh does.
 . "$HERE/record-write-core.sh"
 core_write

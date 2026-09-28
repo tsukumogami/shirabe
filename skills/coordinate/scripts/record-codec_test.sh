@@ -259,7 +259,24 @@ refuse "a home-directory path is refused" "$(with "$(entry 1 proposed '{question
 refuse "a token-shaped string is refused" "$(with "$(entry 1 proposed '{question: "use ghp_abcdefghijklmnopqrstuvwxyz0123"}')")" "token-shaped"
 refuse "an unknown Decisions column is refused" "$(with "$(entry 1 proposed '{priority: "high"}')")" "not a column of this section"
 roundtrip "a Decisions column named state takes no recomputable-column refusal" "$(with "$(entry 1 proposed)")"
-roundtrip "Reversals reason and Side effects target keep their own grammars" "$(full_record | jq -c --argjson e "$(entry 1 escalated "$ESC")" '.decisions = {next: 2, entries: [$e]} | .reversals[0].reason = "a person" | .side_effects[0].target = "coordinator x"')"
+# The same free text the Side effects target and Reversals reason accept is
+# refused as a Decisions target, and a Decisions reason left empty on a held
+# entry is refused while Reversals demands its own: each column keeps its
+# section's grammar.
+roundtrip "a Side effects target the Decisions grammar would refuse is accepted there" \
+    "$(full_record | jq -c --argjson e "$(entry 1 escalated "$ESC")" '.decisions = {next: 2, entries: [$e]} | .side_effects[0].target = "pull request 12 on the widgets repo"')"
+refuse "the same text as a Decisions target is refused" "$(with "$(entry 1 escalated "$ESC + {target: \"pull request 12 on the widgets repo\"}")")" "decisions.target"
+refuse "a Reversals reason stays required though a proposed entry's reason may be empty" \
+    "$(full_record | jq -c --argjson e "$(entry 1 proposed)" '.decisions = {next: 2, entries: [$e]} | .reversals[0].reason = ""')" "reason: empty"
+roundtrip "a Next decision written 7.0 renders as 7 and round-trips" "$(full_record | jq -c '.decisions = {next: 7, entries: []}')"
+printf '%s' "$(full_record | jq -c '.decisions = {next: 7, entries: []}' | sed 's/"next":7/"next":7.0/')" > "$T/in.json"
+bash "$R" --written "$W" "$T/in.json" > "$T/n.md" && grep -qx 'Next decision: 7' "$T/n.md" && bash "$P" "$T/n.md" > /dev/null \
+    && ok "a next of 7.0 renders as 7 and parses back" || bad "a next of 7.0 renders as 7 and parses back" "$(grep '^Next' "$T/n.md")"
+refuse "a next over a million is refused" "$(full_record | jq -c '.decisions = {next: 1000000, entries: []}')" "decisions.next"
+printf '%s' "$(with "$(entry 1 proposed '{question: "literal &#64; and <br> in text"}')")" > "$T/in.json"
+bash "$R" --written "$W" "$T/in.json" > "$T/lit.md"
+[ "$(bash "$P" "$T/lit.md" | jq -r '.decisions.entries[0].question')" = "literal &#64; and <br> in text" ] \
+    && ok "a literal &#64; and <br> in a Decisions cell round-trip" || bad "a literal &#64; and <br> in a Decisions cell round-trip"
 printf '%s' "$(with "$(entry 1 proposed '{question: "ask @someone about the pin | now?"}')")" > "$T/in.json"
 bash "$R" --written "$W" "$T/in.json" > "$T/at.md"
 grep -q '&#64;someone' "$T/at.md" && ! grep -q '@someone' "$T/at.md" && [ "$(bash "$P" "$T/at.md" | jq -r '.decisions.entries[0].question')" = "ask @someone about the pin | now?" ] \
@@ -275,7 +292,7 @@ done
 CMP=$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{verdict: "settle", outcome: "ship", decided_by: "a person", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: mixed"}')" 'include "record-codec"; $e | compact_settled')
 [ "$(printf '%s' "$CMP" | jq -r '[.evidence, .options, .verdict] | join("")')" = "" ] && [ "$(printf '%s' "$CMP" | jq -r .outcome)" = ship ] \
     && ok "a settled entry that owes nothing compacts to its identity, question and outcome" || bad "a settled entry that owes nothing compacts" "$CMP"
-[ "$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled "{outcome: \"ship\", decided_by: \"a person\", owed: \"reply\"}")" 'include "record-codec"; $e | compact_settled | .owed')" = '"reply"' ] \
+[ "$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{outcome: "ship", decided_by: "a person", owed: "reply"}')" 'include "record-codec"; $e | compact_settled | .owed')" = '"reply"' ] \
     && ok "a settled entry that still owes a reply is not compacted" || bad "a settled entry that still owes a reply is not compacted"
 
 HD=$(decisions_record | jq -c '.scope = {kind: "discipline", name: "ci-health"} | del(.written) | .rotation = {start: "2026-09-20", end: "2026-09-23", date: "2026-09-23", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"} | .reasoning = "Carry the open decisions."')

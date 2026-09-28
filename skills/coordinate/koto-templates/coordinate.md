@@ -1720,8 +1720,10 @@ Reading the rotation close-out's stage. koto runs `closeout-read.sh` itself.
 <!-- details -->
 
 At rotation end, write `docs/disciplines/<name>.md` fresh: the same four
-sections, and a reasoning section with what this rotation learned that the tables
-can't say, replacing the previous rotation's text, never appending to it. Commit
+sections, the unsettled decisions with the same `Next decision` when the record
+holds any (the handoff renderer carries them), and a reasoning section with what
+this rotation learned that the tables can't say,
+replacing the previous rotation's text, never appending to it. Commit
 it to the record branch, correct the title's end date if the rotation ended on
 another day, then mark the pull request ready and merge it through
 `land-merge.sh --closeout` where the posture permits, or hand it to the human as

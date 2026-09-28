@@ -7,17 +7,22 @@
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists. Two of them live only here:
 #   - the Decisions section may be changed only by a script that sets
-#     DECISIONS_WRITER=1 after sourcing this file; every other writer sets it to
-#     0 itself, so a value in the environment never counts (exit 65);
+#     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
+#     value in the environment never counts (exit 65);
 #   - a rendered body over RECORD_BUDGET bytes is refused before GitHub sees it
 #     (exit 13, record-full), leaving room under GitHub's 65,536-byte limit.
 #
 # The caller has sourced record-common.sh, run lib_facts and lib_write_guard,
-# and set PROG, HERE, SESSION, SCOPE, NAME, REPO, REF, BODY, END, CLOSE and
-# DECISIONS_WRITER.
+# and set PROG, HERE, SESSION, SCOPE, NAME, REPO, REF, BODY, END and CLOSE; a
+# writer that may change the Decisions section sets DECISIONS_WRITER=1 after
+# sourcing this file. record-open.sh writes a new record's first body itself
+# and refuses one carrying a Decisions section.
 
 # RECORD_BUDGET: the largest body core_write sends, in bytes.
 RECORD_BUDGET=60000
+# Closed by default at the moment this file is sourced, so a value in the
+# environment never counts; the decision writer opens it after sourcing.
+DECISIONS_WRITER=0
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -73,10 +78,13 @@ core_write() {
     # The Decisions section changes only through the decision writer, which
     # checks each transition; any other write must carry it as the live record
     # has it.
-    if [ "${DECISIONS_WRITER:-0}" != 1 ] \
-       && [ "$(jq -cS '.decisions // null' "$T/parsed.json")" != "$(jq -cS '.decisions // null' "$T/live.json")" ]; then
-        echo "$PROG: refused: the Decisions section changes only through record-decision.sh; carry it as the live record has it" >&2
-        exit 65
+    if [ "$DECISIONS_WRITER" != 1 ]; then
+        NEW_D=$(jq -cS '.decisions // null' "$T/parsed.json") && LIVE_D=$(jq -cS '.decisions // null' "$T/live.json") \
+            || lib_die2 "cannot compare the Decisions sections"
+        if [ "$NEW_D" != "$LIVE_D" ]; then
+            echo "$PROG: refused: the Decisions section changes only through record-decision.sh; carry it as the live record has it" >&2
+            exit 65
+        fi
     fi
 
     # A public host never names a private repository: not in a Holdings Repo, not
