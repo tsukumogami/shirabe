@@ -68,8 +68,8 @@
 #     directory; a sourced file's `local` bindings stay in its functions.
 #     A variable is charged only at command position: `$VAR`, `"$VAR"`,
 #     `${VAR}` or `"${VAR}"` at the start of the line, after a case arm's
-#     pattern (`a|b)`) that starts the line or follows `in` or `;;`, or
-#     after `;`, `&`, `|`, `(`, `{`, `!`, a
+#     pattern (`a|b)`) that starts the line or follows `in`, `;;`, `;&` or
+#     `;;&`, or after `;`, `&`, `|`, `(`, `{`, `!`, a
 #     backtick, or then/do/else/elif/if/while/until/exec/command/time. A name
 #     held as data (an argument, a message, a directory with a path after
 #     it) is not, and `command -v "$VAR"` falls under the carve-out below.
@@ -375,8 +375,8 @@ EOF
 
 # bind_file_vars FILE -- set VAR_RE to match a reference to any of FILE's
 # tool-holding variables at command position: at the start of the line,
-# after a case arm's pattern (`a|b)`) that starts the line or follows `in` or
-# `;;`, or after an operator or a
+# after a case arm's pattern (`a|b)`) that starts the line or follows `in`,
+# `;;`, `;&` or `;;&`, or after an operator or a
 # keyword that starts a command. A variable holding a
 # tool's name as data -- an argument, a message -- is not at command position
 # and is not charged.
@@ -388,7 +388,7 @@ bind_file_vars() {
     if [ -z "$alt" ]; then alt="$v"; else alt="$alt|$v"; fi
   done
   [ -n "$alt" ] || return 0
-  VAR_RE="(^|(^[[:space:]]*|[[:space:]]in[[:space:]]+|;;[[:space:]]*)\\(?[^()\"\$\`;&[:space:]]+\\)|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt))\"?([^A-Za-z0-9_/\"]|\$)"
+  VAR_RE="(^|(^[[:space:]]*|[[:space:]]in[[:space:]]+|;;&?[[:space:]]*|;&[[:space:]]*)\\(?[^()\"\$\`;&[:space:]]+\\)|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt))\"?([^A-Za-z0-9_/\"]|\$)"
 }
 
 # The files a scan target contributes. Test files are out of scope; a fixture

@@ -487,6 +487,7 @@ shape_case case-arm    'K=koto'                           'a|b) "$K" status 2>/d
 shape_case case-star   'K=koto'                           '*) $K status 2>/dev/null ;;'
 shape_case case-inline 'K=koto'                           'case "$x" in a) "$K" status 2>/dev/null ;; esac'
 shape_case case-after  'K=koto'                           'case "$x" in a) : ;; b) "$K" status 2>/dev/null ;; esac'
+shape_case case-fall   'K=koto'                           'case "$x" in a) : ;& b) "$K" status 2>/dev/null ;;& esac'
 
 new_fixture case-arm-data
 add_requires koto
