@@ -25,6 +25,12 @@
 #     this run, 1 undisposed, 64 usage. It checks the row's form only;
 #     whether a filed issue exists is read by reconcile, from GitHub.
 #
+#   board-lib.sh's bl_merge_compare <repo> <pr> <sha>
+#     Prints merged, unconfirmed or not-merged; returns 2 when a read failed.
+#     The one merge-confirmation rule, shared with merge-confirm.sh and stated
+#     in references/verification-checklist.md, "Confirming a Merge". Reached
+#     through rd_merge_compare below.
+#
 # The checks are always the ones beside this file. There is no environment
 # override: the environment of a tick is the agent's, and a variable that
 # chose which board check runs would let it choose the verdict.
@@ -54,6 +60,23 @@ rd_valid_sha()    { [[ $1 =~ $RE_COORD_SHA ]]; }
 rd_valid_topic()  { [[ $1 =~ $RE_COORD_SLUG ]]; }
 rd_valid_number() { [[ $1 =~ ^[1-9][0-9]{0,9}$ ]]; }
 rd_valid_secs()   { [[ $1 =~ ^[1-9][0-9]{0,3}$ ]]; }
+
+# rd_merge_compare SECS REPO PR SHA -- the record feature's merge check,
+# bl_merge_compare, with its reads stopped by SECS (clipped to 1..24). It runs
+# in a subshell, so board-lib.sh's names stay out of the caller's.
+rd_merge_compare() {
+    local secs=$1
+    shift
+    rd_valid_secs "$secs" || secs=8
+    [ "$secs" -gt 24 ] && secs=24
+    (
+        HERE=$RD_HERE
+        BOARD_DEADLINE_SECS=$secs
+        # shellcheck source=/dev/null
+        . "$RD_HERE/board-lib.sh" || exit 2
+        bl_merge_compare "$@"
+    )
+}
 
 # rd_sha256 -- the sha256 of stdin, as 64 lowercase hex.
 rd_sha256() {
@@ -116,9 +139,13 @@ rd_slug() {
 
 # rd_git ARGS... -- git that reads a worker's clone without running anything
 # the clone's config names and without taking its index lock: no fsmonitor,
-# no hooks, no transport. A caller that needs https (ls-remote) re-allows it.
+# no hooks, no transport. GIT_ALLOW_PROTOCOL holds where `-c protocol.allow`
+# alone doesn't, since a clone's own `protocol.<name>.allow` can widen that,
+# and GIT_NO_LAZY_FETCH stops a partial clone fetching a missing object. A
+# caller that needs https (ls-remote) sets RD_GIT_PROTOCOL=https and re-allows it.
 rd_git() {
-    git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
+    GIT_ALLOW_PROTOCOL=${RD_GIT_PROTOCOL:-none} GIT_NO_LAZY_FETCH=1 \
+        git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
         -c protocol.allow=never "$@"
 }
 

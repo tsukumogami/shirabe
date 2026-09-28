@@ -63,7 +63,6 @@ STATE=reconcile_pass
 CUTOFF=20
 READS_END=24
 PARALLEL=4
-RELISTEN=30
 
 SESSION="" SDIR=""
 while [ $# -gt 0 ]; do

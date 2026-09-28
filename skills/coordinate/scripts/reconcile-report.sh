@@ -107,7 +107,8 @@
 # and "held" is held: verified, with the merge withheld by the human's
 # direction (the record feature writes it from land_merge's `merge: held`).
 # A held holding waits on the human, not on its worker: its next line is
-# "held", listed under "Waiting on a person", unless its pull request has
+# "held", it is in `waiting[]`, and its row in the table is under "Ready to
+# merge", since the merge is the human's to make; unless its pull request has
 # merged or closed since.
 # An empty `phase` falls back to the entry point and mode: the scoping entry
 # point (".../scope"), or a mode carrying `--intent=stop` or `--intent stop`,

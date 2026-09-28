@@ -17,7 +17,7 @@ decision: |
   with `pending:...` until every read is done, including a listing re-read
   30 seconds after a miss. The final pass builds the report from its own
   work file, writes the report as JSON and as rendered text into context, and
-  prints `reconciled sealed:<visit-seq>:<sha256>`, which the engine captures as
+  prints `reconciled <sha256 of report.json> sealed:<visit-seq>:<hash>`, which the engine captures as
   RECONCILE_SEAL. A non-overridable command gate, the shared seal check the
   record feature owns,
   passes only when the stored report hashes to the sealed value and the
@@ -165,7 +165,7 @@ injected clock, which the template's command line never calls.
 
 When every read is done, the pass builds the report from its own work file,
 writes it to context, hashes the exact bytes it wrote, and prints
-`sealed:<visit-seq>:<sha256>`. The engine captures that line as
+`reconciled <sha256 of report.json> sealed:<visit-seq>:<hash>`. The engine captures that line as
 `RECONCILE_SEAL`. The gate, the record feature's shared seal check, passes only when the
 stored report hashes to the sealed value and `<visit-seq>` is the sequence
 number of the latest event that entered the state. The gate is declared
@@ -232,7 +232,7 @@ minutes, surfaces only an exit code, and defeats the action limit's intent.
   report.
 - `reconcile-read.sh` reads the record through the record feature's reader
   (and, at discipline scope, the handoff file) and emits it as JSON, with
-  exit codes for found, none, ambiguous, undeclared and unreadable.
+  exit codes for found, none, unreadable and a failed read.
 - `reconcile-check.sh` has one subcommand per kind of re-check. Each prints
   one JSON fact and routes every external call through a deadline wrapper,
   so a failure becomes a not-verified fact rather than a script failure.
@@ -411,7 +411,7 @@ The re-checks and their sources of truth:
 | A worker with no pull request | instance and session present, matched by topic slug; re-read after 30 s on a miss | the workspace manager's listing and the instance directory | found, or not found on this read |
 | That worker's unique material | unpushed commits, uncommitted changes, file content not on the default branch | git in each clone of the instance; GitHub contents API for default-branch blobs | listed, nothing unique found, or couldn't be taken |
 | A holding bound to a request leg | disposition and result (a result map where the entry point writes one; the engine's terminal status and final state otherwise; a refusal with its reason) | the workflow engine's request store on this host | shown beside the GitHub state, or not verified off-host |
-| A merge in flight | every changed file's content in the pull request's merge commit (a squash merge's single commit) equals its content at the verified head, falling back to the base branch as it is now only when GitHub names no merge commit; a file deleted at the verified head is confirmed only by a not-found there | GitHub contents API at the merge commit (or the base branch) and at the verified head, over the verified head's own diff against the pull request's base | confirmed, or not confirmed with the reason |
+| A merge in flight | the pull request is merged and every file it changed has, on the default branch, the content it had at the verified head; a file the pull request deleted is confirmed only by a not-found there. This is the record feature's `bl_merge_compare`, the rule "Confirming a Merge" in the verification checklist states and the loop's `merge_confirm` uses, so the two can't disagree | the pull request's state and final file list, then the GitHub contents API on the default branch and at the verified head | confirmed, or not confirmed with the reason |
 | A close in flight | target reads closed | GitHub issue or pull request state | confirmed, or not confirmed |
 | A teardown in flight | target absent from two listing reads and from the disk | the workspace manager's listing and the instance directory | confirmed, or not confirmed |
 | Any other side effect | none | none | not re-checked |
@@ -476,7 +476,7 @@ reconcile-pass.sh            (every child's stdout goes to stderr)
     its hash differs from the hash in this state's last engine-logged
       pass output -> discard it, start the visit's reads again
   no record yet -> reconcile-read.sh
-    none | ambiguous | undeclared | unreadable
+    none | unreadable
       -> write reconcile/refusal, print blocked:<case>, exit 0
   queue = one read per claim (table above), minus those done
   launch reads, up to 4 at once, until 20 s have passed,
@@ -487,13 +487,13 @@ reconcile-pass.sh            (every child's stdout goes to stderr)
   queue not empty -> write reconcile/progress,
     print pending:<visit>:<n>:<sha256 of work file>, exit 0
   facts -> reconcile-report.sh -> report.json + report.md (+ reasoning.md)
-  write keys; print reconciled sealed:<visit>:<sha256 of report.json bytes>
+  write keys; print reconciled <sha256 of report.json bytes> sealed:<visit>:<hash>
 ```
 
 The pass prints exactly one line, in one of three grammars built only from
 characters a koto capture admits: `pending:<seq>:<n>:<64 hex>`,
-`blocked:<case>` with `<case>` one of `none`, `ambiguous`, `undeclared`,
-`unreadable`, and `reconciled sealed:<seq>:<64 hex>`, the last in the
+`blocked:<case>` with `<case>` one of `none` and `unreadable`, and
+`reconciled <64 hex> sealed:<seq>:<64 hex>`, the last in the
 shape the record feature's check channel defines for every check state
 (`<verdict> ... sealed:<seq>:<sha256>`). A test feeds each shape through
 koto's capture allowlist. The last seconds of the 30 are kept for building

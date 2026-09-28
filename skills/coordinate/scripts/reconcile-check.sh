@@ -54,9 +54,6 @@ BOARD_DEADLINE=$(clamp_secs "${RECONCILE_BOARD_DEADLINE:-26}" 26)
 # the fact says truncated, and the report doesn't call the holding
 # consistent on a partial list.
 FILES_CAP=300
-# A merge reads the contents API twice per file. Past this many files it
-# reports not confirmed rather than spending that many reads, and says why.
-MERGE_FILE_CAP=100
 # An inventory walks at most this many clones in one instance, and this many
 # files or branch-changed files per clone; past either it says truncated.
 INV_CLONE_CAP=20
@@ -128,18 +125,6 @@ blob_at() {
     if [ "$rc" -eq 0 ] && rd_valid_sha "$out"; then printf '%s' "$out"; return 0; fi
     case "$out" in *"HTTP 404"*) printf 'absent'; return 0 ;; esac
     return 2
-}
-
-# blob_or_refuse PATH SHA WHERE -- blob_at, leaving the answer in $BLOB, or
-# print the not_verified fact and stop.
-blob_or_refuse() {
-    BLOB=$(blob_at "$1" "$2")
-    case $? in
-        0) return 0 ;;
-        3) refuse merge "refused a file path from the pull request" ;;
-        4) refuse merge "contents read $3 timed out after ${DEADLINE}s" ;;
-        *) refuse merge "contents read failed $3" ;;
-    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -480,7 +465,7 @@ inv_clone() {
         inv_item "$REL" unchecked "no github.com origin to compare against"; return
     fi
     # From /, so no repository's config (the caller's included) applies.
-    LIVE=$(rd_deadline "$DEADLINE" rd_git -C / -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
+    LIVE=$(RD_GIT_PROTOCOL=https rd_deadline "$DEADLINE" rd_git -C / -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
         || { inv_item "$REL" unchecked "remote refs could not be read"; return; }
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
@@ -593,80 +578,22 @@ files)
     ;;
 
 merge)
-    # Confirmed only when every file the pull request changed as of the
-    # verified head has, in the pull request's merge commit, the content it
-    # had at the verified head. The merge commit (a squash merge's single
-    # commit) is what the merge wrote; the base branch as it is now is read
-    # only when GitHub names no merge commit, since later work on the base
-    # branch can change those paths without undoing the merge. The file list is the verified head's own diff (the
-    # compare API from the pull request's base commit to the verified head),
-    # not the merged pull request's final file list: a file changed at the
-    # verified head and reverted afterwards is missing from the final list,
-    # and it is exactly the case that must read not confirmed.
+    # The record feature's own merge check, so a restart's reconcile and the
+    # loop's merge_confirm read a side effect by one rule: the pull request is
+    # merged and every file it changed has, on the default branch, the content
+    # it had at the verified head ("Confirming a Merge" in
+    # references/verification-checklist.md).
     need_repo; need_number
     rd_valid_sha "$VHEAD" || refuse merge "invalid verified head in the side-effect row"
-    read_or_fail merge "$DEADLINE" gh api "repos/$REPO/pulls/$NUMBER" \
-        --jq '{state: .state, merged: .merged, base: .base.ref, base_sha: .base.sha, merge_sha: .merge_commit_sha} | tojson'
-    PRJ=$OUT
-    printf '%s' "$PRJ" | jq -e '(.merged | type) == "boolean" and (.state | type) == "string"' >/dev/null 2>&1 \
-        || refuse merge "unreadable pull request response"
-    if [ "$(printf '%s' "$PRJ" | jq -r .merged)" != true ]; then
-        jq -nc --arg s "$(printf '%s' "$PRJ" | jq -r .state)" --arg t "$(rd_now)" \
-            '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("pull request is " + ($s | ascii_downcase) + ", not merged"), read_at: $t}'
-        exit 0
-    fi
-    BASE_BRANCH=$(printf '%s' "$PRJ" | jq -r '.base // empty')
-    BASE_SHA=$(printf '%s' "$PRJ" | jq -r '.base_sha // empty')
-    rd_valid_branch "$BASE_BRANCH" || refuse merge "unreadable base branch"
-    rd_valid_sha "$BASE_SHA" || refuse merge "unreadable base commit"
-    # What the merged content is read from, as a sha, so every contents read
-    # below names a commit that exists: a 404 from a read by sha means the
-    # path is absent there, never that a branch is gone.
-    AGAINST=$(printf '%s' "$PRJ" | jq -r '.merge_sha // empty')
-    WHERE="in the merge commit"
-    if ! rd_valid_sha "$AGAINST"; then
-        read_or_fail merge "$DEADLINE" gh api "repos/$REPO/git/ref/heads/$BASE_BRANCH" --jq .object.sha
-        AGAINST=$OUT
-        WHERE="on the base branch"
-        rd_valid_sha "$AGAINST" || refuse merge "the base branch could not be resolved"
-    fi
-    # One JSON object per line: {s: status, p: path}, with a rename's old
-    # path as its own "removed" entry, since after the merge it must be gone.
-    read_or_fail merge "$DEADLINE" gh api "repos/$REPO/compare/$BASE_SHA...$VHEAD" \
-        --jq '.files[] | (if .status == "renamed" then {s: "removed", p: .previous_filename} else empty end), {s: .status, p: .filename} | tojson'
-    LIST=$OUT
-    COUNT=$(printf '%s\n' "$LIST" | grep -c . || true)
-    [ "$COUNT" -eq 0 ] && refuse merge "the verified head changes no files against the pull request's base"
-    if [ "$COUNT" -gt "$MERGE_FILE_CAP" ]; then
-        jq -nc --arg t "$(rd_now)" --argjson n "$COUNT" --argjson cap "$MERGE_FILE_CAP" \
-            '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($n) changed files, over the \($cap)-file read cap"), read_at: $t}'
-        exit 0
-    fi
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        status=$(printf '%s' "$line" | jq -r '.s' 2>/dev/null) || refuse merge "unreadable file list"
-        # A path holding a control character is refused here, while it is
-        # still JSON, before a shell variable could lose part of it.
-        path=$(printf '%s' "$line" | jq -r 'if (.p | type) == "string" and (.p | test("[\u0000-\u001f\u007f]") | not) then .p else error("bad") end' 2>/dev/null) \
-            || refuse merge "refused a file path from the pull request"
-        want=absent
-        if [ "$status" != removed ]; then
-            blob_or_refuse "$path" "$VHEAD" "at the verified head"
-            want=$BLOB
-            # A file the verified head changed but that isn't there is a read
-            # this script can't interpret, never a match.
-            [ "$want" = absent ] && refuse merge "a changed file is missing at the verified head"
-        fi
-        blob_or_refuse "$path" "$AGAINST" "$WHERE"
-        if [ "$want" != "$BLOB" ]; then
-            jq -nc --arg p "$path" --arg w "$WHERE" --arg t "$(rd_now)" \
-                '{kind: "merge", status: "ok", verdict: "not_confirmed", reason: ("\($p) \($w) differs from the verified head"), read_at: $t}'
-            exit 0
-        fi
-    done <<EOF
-$LIST
-EOF
-    jq -nc --arg t "$(rd_now)" '{kind: "merge", status: "ok", verdict: "confirmed", reason: "", read_at: $t}'
+    R=$(rd_merge_compare "$DEADLINE" "$REPO" "$NUMBER" "$VHEAD") || refuse merge "a merge read failed"
+    case "$R" in
+        merged) verdict=confirmed reason="" ;;
+        unconfirmed) verdict=not_confirmed reason="a file the pull request changed differs on the default branch from the verified head" ;;
+        not-merged) verdict=not_confirmed reason="pull request is not merged" ;;
+        *) refuse merge "unreadable merge verdict" ;;
+    esac
+    jq -nc --arg v "$verdict" --arg r "$reason" --arg t "$(rd_now)" \
+        '{kind: "merge", status: "ok", verdict: $v, reason: $r, read_at: $t}'
     ;;
 
 close)

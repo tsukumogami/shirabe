@@ -31,6 +31,9 @@ trap 'rm -rf "$T"' EXIT
 # stand-in record-feature checks beside reconcile's scripts.
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
 cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$T/tree/skills/coordinate/scripts/"
+# The record feature's merge check and what it sources, which the merge
+# subcommand calls rather than copies.
+cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$T/tree/skills/coordinate/scripts/"
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-check.sh"
 
@@ -50,12 +53,19 @@ if [ "$name" = git ]; then
     done
     [ "$sub" = ls-remote ] || exec "$REAL_GIT" "$@"
 fi
+# board-lib.sh reads with `gh api --method GET <path>`: match on the path.
+if [ "$name" = gh ] && [ "$1" = api ] && [ "${2-}" = --method ]; then
+    shift 3; set -- api "$@"
+fi
 # Contents reads keyed by ref and path, when the case serves them that way.
 if [ "$name" = gh ] && [ "$1" = api ]; then
     case "$2" in */contents/*"?ref="*)
         p=${2#*/contents/}; ref=${p##*\?ref=}; p=${p%%\?ref=*}
         f="$STUB_DIR/contents@$ref@$(printf '%s' "$p" | tr '/' '_')"
-        if [ -f "$f" ]; then jq -r .sha < "$f"; exit 0; fi
+        if [ -f "$f" ]; then
+            case " $* " in *" --jq "*) jq -r .sha < "$f" ;; *) cat "$f" ;; esac
+            exit 0
+        fi
         if ls "$STUB_DIR"/contents@* >/dev/null 2>&1; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
     ;; esac
 fi
@@ -80,6 +90,7 @@ case "$name:$1:$2" in
     gh:api:*/git/trees/*) key=tree ;;
     gh:api:*/git/ref/*) key=git-ref ;;
     gh:api:*/pulls/*) key=api-pull ;;
+    gh:api:repos/*) key=api-repo ;;
     git:*) key=ls-remote ;;
     niwa:list:*) key=niwa-list ;;
     koto:request:get) key=koto-request ;;
@@ -203,98 +214,49 @@ serve api-files 1 "$(jq -nc '[range(1; 302) | {filename: "docs/\(.).md"}]')"
 expect "past 300 paths the list says truncated" '(.paths | length) == 300 and .truncated == true' "$(run files --repo $R --number 7)"
 
 echo "== merge =="
-# cmp FILES-JSON -- a compare response with these files.
-cmp() { printf '{"files":%s}' "$1"; }
-merge_setup() {  # merge_setup <case> <compare-files-json>
+# The merge subcommand is the record feature's bl_merge_compare: the pull
+# request's state and final file list, then each file's blob on the default
+# branch and at the verified head.
+merge_setup() {  # merge_setup <case> <state> <paths-json>
     new_case "$1"
-    serve api-pull 1 "$MERGED_PR"
-    serve git-ref 1 "{\"object\":{\"sha\":\"$BN\"}}"
-    serve compare 1 "$(cmp "$2")"
+    serve pr-view 1 "$(jq -nc --arg s "$2" --argjson p "$3" '{state: $s, files: ($p | map({path: .}))}')"
+    serve api-repo 1 '{"default_branch":"main"}'
 }
-blob() { serve "contents-$1" "$2" "{\"sha\":\"$3\"}"; }
-gone() { fail_with "contents-$1" "$2" 1 "gh: Not Found (HTTP 404)"; }
+# at REF PATH BLOB -- the contents read of PATH at REF answers BLOB.
+at() { printf '{"type":"file","sha":"%s"}' "$3" > "$CASE/contents@$1@$(printf '%s' "$2" | tr '/' '_')"; }
+# A contents read with no file served for its ref and path is GitHub's 404.
 
-merge_setup merge-confirmed '[{"status":"modified","filename":"src/a.go"},{"status":"removed","filename":"src/gone.go"}]'
-blob "$VH" 1 "$BA"; blob "$BN" 1 "$BA"; gone "$BN" 2
-expect "matching files and a deletion absent on the base confirm the merge" '.verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-grep -q "compare/$BS...$VH" "$CASE/log" && ok "the file list is the verified head's own diff" || bad "the file list is the verified head's own diff" "$(cat "$CASE/log")"
-grep -q "ref=main" "$CASE/log" && bad "contents are read by resolved sha, never by branch name" || ok "contents are read by resolved sha, never by branch name"
+merge_setup merge-confirmed MERGED '["src/a.go","src/gone.go"]'
+at main src/a.go "$BA"; at "$VH" src/a.go "$BA"
+expect "matching files and a deletion absent on the default branch confirm the merge" '.kind == "merge" and .status == "ok" and .verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
+grep -q "gh pr view 7 --repo $R --json state,files" "$CASE/log" && ok "the file list is the merged pull request's own" || bad "the file list is the merged pull request's own" "$(cat "$CASE/log")"
+grep -q "contents/src/a.go?ref=$VH" "$CASE/log" && grep -q "contents/src/a.go?ref=main" "$CASE/log" \
+    && ok "each file is read at the verified head and on the default branch" || bad "each file is read at the verified head and on the default branch" "$(cat "$CASE/log")"
+grep -E '^gh api' "$CASE/log" | grep -v -- '--method GET' && bad "every API call is a GET" || ok "every API call is a GET"
 
-# A squash merge commit GitHub names: the merged content is read there, not
-# from the base branch, which has since changed src/a.go again.
-MC=dddddddddddddddddddddddddddddddddddddddd
-new_case merge-commit
-serve api-pull 1 "{\"state\":\"closed\",\"merged\":true,\"merge_commit_sha\":\"$MC\",\"base\":{\"ref\":\"main\",\"sha\":\"$BS\"}}"
-serve compare 1 "$(cmp '[{"status":"modified","filename":"src/a.go"},{"status":"removed","filename":"src/gone.go"}]')"
-blob "$VH" 1 "$BA"; blob "$MC" 1 "$BA"; gone "$MC" 2
-expect "a merge whose squash commit holds the verified head's content is confirmed, whatever the base did since" '.verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-grep -q 'git/ref/heads' "$CASE/log" && bad "the base branch is not read when a merge commit is named" "$(cat "$CASE/log")" || ok "the base branch is not read when a merge commit is named"
-new_case merge-commit-differs
-serve api-pull 1 "{\"state\":\"closed\",\"merged\":true,\"merge_commit_sha\":\"$MC\",\"base\":{\"ref\":\"main\",\"sha\":\"$BS\"}}"
-serve compare 1 "$(cmp '[{"status":"modified","filename":"src/a.go"}]')"
-blob "$VH" 1 "$BA"; blob "$MC" 1 "$BB"
-expect "a merge commit whose content differs from the verified head is not confirmed, and says where" '.verdict == "not_confirmed" and (.reason | test("in the merge commit"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+merge_setup merge-differs MERGED '["src/a.go"]'
+at main src/a.go "$BB"; at "$VH" src/a.go "$BA"
+expect "a file whose default-branch content differs from the verified head is not confirmed" '.verdict == "not_confirmed" and (.reason | test("default branch"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-deletions-later '[{"status":"modified","filename":"src/a.go"},{"status":"removed","filename":"src/x.go"},{"status":"removed","filename":"src/y.go"}]'
-blob "$VH" 1 "$BA"; blob "$BN" 1 "$BA"; gone "$BN" 2; gone "$BN" 3
-expect "deletions after the first entry confirm too" '.verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
+merge_setup merge-deleted-still-there MERGED '["src/gone.go"]'
+at main src/gone.go "$BB"
+expect "a file deleted at the verified head but still on the default branch is not confirmed" '.verdict == "not_confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-moved '[{"status":"modified","filename":"src/a.go"}]'
-blob "$VH" 1 "$BA"; blob "$BN" 1 "$BB"
-out=$(run merge --repo $R --number 7 --verified-head $VH)
-expect "a branch moved past the verified head reads not confirmed though merged" '.verdict == "not_confirmed" and (.reason | test("src/a.go"))' "$out"
-grep -q "ref=$LH" "$CASE/log" && bad "never compares against the branch's current head" || ok "never compares against the branch's current head"
+merge_setup merge-open OPEN '["src/a.go"]'
+expect "an unmerged pull request is not confirmed" '.verdict == "not_confirmed" and (.reason | test("not merged"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+grep -q contents "$CASE/log" && bad "no contents read for an unmerged pull request" || ok "no contents read for an unmerged pull request"
 
-merge_setup merge-reverted '[{"status":"modified","filename":"src/a.go"},{"status":"modified","filename":"src/b.go"}]'
-# src/b.go changed at the verified head and was reverted before the merge, so
-# it isn't in the merged pull request's final diff; the compare list has it.
-blob "$VH" 1 "$BA"; blob "$BN" 1 "$BA"; blob "$VH" 2 "$BA"; blob "$BN" 2 "$BB"
-expect "a file reverted after the verified head reads not confirmed" '.verdict == "not_confirmed" and (.reason | test("src/b.go"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+merge_setup merge-odd-state WEIRD '[]'
+expect "a pull request state it doesn't know is not verified" '.status == "not_verified"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-rename '[{"status":"renamed","filename":"src/new.go","previous_filename":"src/old.go"}]'
-blob "$BN" 1 "$BA"
-expect "a rename's old path still on the base reads not confirmed" '.verdict == "not_confirmed" and (.reason | test("src/old.go"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+new_case merge-read-fails
+fail_with pr-view 1 1 "gh: server error"; fail_with pr-view 2 1 "gh: server error"
+expect "a failed pull request read is not verified, never confirmed" '.status == "not_verified" and .kind == "merge"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-404-both '[{"status":"modified","filename":"src/a.go"}]'
-gone "$VH" 1; gone "$BN" 1
-expect "a changed file missing at both refs is not verified, never a match" '.status == "not_verified"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-
-new_case merge-base-gone
-serve api-pull 1 "$MERGED_PR"
-fail_with git-ref 1 1 "gh: Not Found (HTTP 404)"
-serve compare 1 "$(cmp '[{"status":"removed","filename":"src/x.go"}]')"
-out=$(run merge --repo $R --number 7 --verified-head $VH)
-expect "a deleted base branch is not verified, never confirmed on 404s" '.status == "not_verified"' "$out"
-grep -q contents "$CASE/log" && bad "no contents read without a resolved base" || ok "no contents read without a resolved base"
-
-new_case merge-open
-serve api-pull 1 "{\"state\":\"open\",\"merged\":false,\"base\":{\"ref\":\"main\",\"sha\":\"$BS\"}}"
-expect "an unmerged pull request is not confirmed" '.verdict == "not_confirmed" and (.reason | test("open"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
-new_case merge-malformed
-serve api-pull 1 '{}'
-expect "a malformed pull request read is not verified" '.status == "not_verified"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-
-merge_setup merge-deleted-still-there '[{"status":"removed","filename":"src/gone.go"}]'
-blob "$BN" 1 "$BB"
-expect "a file deleted at the verified head but on the base is not confirmed" '.verdict == "not_confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-
-for bad_path in '../etc/passwd' '/abs/path' 'a//b' 'a/./b' 'x\ny' 'x\ty' 'x\u007fy'; do
-    merge_setup merge-path "[{\"status\":\"modified\",\"filename\":\"$bad_path\"}]"
-    out=$(run merge --repo $R --number 7 --verified-head $VH)
-    if printf '%s' "$out" | jq -e '.status == "not_verified" and (.reason | test("refused a file path"))' >/dev/null \
-       && ! grep -q contents "$CASE/log"; then
-        ok "the path '$bad_path' is refused before any contents read"
-    else bad "the path '$bad_path' is refused before any contents read" "$out | $(cat "$CASE/log")"; fi
-done
-
-merge_setup merge-encode '[{"status":"modified","filename":"docs/a b#c.md"}]'
-blob "$VH" 1 "$BA"; blob "$BN" 1 "$BA"
+merge_setup merge-encode MERGED '["docs/a b#c.md"]'
+at main 'docs/a%20b%23c.md' "$BA"; at "$VH" 'docs/a%20b%23c.md' "$BA"
 run merge --repo $R --number 7 --verified-head $VH >/dev/null
 grep -q 'contents/docs/a%20b%23c.md?ref=' "$CASE/log" && ok "a path is percent-encoded per segment" || bad "a path is percent-encoded per segment" "$(cat "$CASE/log")"
-
-merge_setup merge-late '[{"status":"modified","filename":"src/a.go"}]'
-echo 4 > "$CASE/contents-$VH.sleep.1"
-expect "a late contents read says it timed out" '.status == "not_verified" and (.reason | test("timed out"))' "$(DL=1 run merge --repo $R --number 7 --verified-head $VH)"
 
 echo "== host =="
 # h8 C -- eight C's: the instance names' hex suffixes are built here rather
@@ -777,10 +739,12 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
-grep -qE ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL" && bad "no gh api write flags" "$(grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' "$ALL")" || ok "no gh api write flags anywhere"
+# --method is allowed only as `--method GET`, the merge check's reads.
+WRITES=$(sed 's/ --method GET / /' "$ALL" | grep -E ' (-f|-F|--field|--raw-field|--input|--method|-X) ' || true)
+[ -z "$WRITES" ] && ok "no gh api write flags anywhere" || bad "no gh api write flags" "$WRITES"
 
 echo
 echo "passed=$PASS failed=$FAIL"

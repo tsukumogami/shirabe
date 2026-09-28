@@ -63,10 +63,11 @@ measured, verified by reading, or inferred:
    "gone". A roster read just after an outage can't tell "gone" from "not back
    yet", so only a signal that the worker is gone, such as a message that
    bounces, makes it gone.
-4. **Re-check side effects in flight.** A merge is confirmed when every file
-   the pull request changed at the verified head has that content in the
-   merge commit, as "Confirming a Merge" in
-   `references/verification-checklist.md` describes. A close is confirmed when
+4. **Re-check side effects in flight.** A merge is confirmed when the pull
+   request is merged and every file it changed has, on the default branch,
+   the content it had at the verified head, as "Confirming a Merge" in
+   `references/verification-checklist.md` describes. It is the same check
+   the loop's `merge_confirm` makes, so the two can't disagree. A close is confirmed when
    the target reads closed, and a teardown by two listing reads and the disk.
    Any other side effect is reported as not re-checked.
 5. **Read the deferrals.** List every row for the report, disposed or not,
