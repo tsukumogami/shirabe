@@ -215,7 +215,9 @@ next write to its identifier, round, question, options, state, source, outcome, 
 updated time and any `redirect`-stamped Evidence lines, its other cells blanked (`Next
 decision` is what keeps its identifier from being reused). Options survive because evidence
 can reopen a settled entry, which then needs them to be escalated again; the redirect lines
-survive because a lost one would owe the redirect a second time. And the
+survive because a lost one would owe the redirect a second time. Evidence lines stamped by the
+run that is writing are kept too, for as long as that run lasts: the unrecorded-write rules
+read them to tell whether a write landed, and a later run compacts them away. And the
 write core refuses a body over 60,000 bytes with its own exit code, which `decision-next.sh`
 and the record states report as `record-full`, a stop for the human, rather than letting
 GitHub refuse the edit. The core checks the live body against the same budget before it
@@ -323,9 +325,13 @@ coordinator, which answers them or escalates them with a recommendation; it is m
 an evidence line stamped `redirect` on the first entry the report wrote to.
 
 **What this check holds against.** It holds against the worker. The report reaches it by leg
-or by message, and the message is the normal path: a leg result has fixed fields and no place
-for a question, so questions travel by message, and a message report reaches `worker_report`
-as the text the coordinator relayed when it named the event. A coordinator that drops a
+or by message, and the message is the normal path: a leg result has fixed fields, and its only
+room for a question is its reason field, which is read on its own (a reason ending in `?` is a
+question), so questions travel mostly by message, and a message report reaches `worker_report`
+as the text the coordinator relayed when it named the event. From a coordinator holding, a
+report that carries an escalation's digest or answer line, or a withdrawal's first line,
+anywhere (indented or quoted too) must be that message exactly as rendered, or it is
+unreadable: a relay that altered it is never read on as a worker's question. A coordinator that drops a
 question from its relay isn't caught. So "every report crosses it" holds for every report
 the coordinator admits, not for text it chooses not to relay; that residual is named in
 Security Considerations beside tsukumogami/koto#261. So is a second path no check reads: a
@@ -409,7 +415,7 @@ script that reads the section (`decision-next.sh`, `decision-render.sh`, `report
 | `--escalate` | `decision_verdict` | `coordinator-verdict` | `escalated` with Round up by one and `Owed: escalation`; or the verdict queued when another entry is escalated | the shared escalation validator fails |
 | `--hold` | `decision_verdict` | `coordinator-verdict` | `coordinator-verdict` with Verdict `hold`, Reason what it waits on, and a `hold` stamp in Evidence | reason empty |
 | `--answer` | `decision_answer` | `escalated`, answer naming its current round | `settled`, `Decided by` from the target, `Owed: reply` as for `--settle` | neither an option nor an outcome with its reason |
-| `--answer` | `decision_answer` | `settled` by an identical answer (same round, outcome and decider) | nothing: a re-sent answer is already recorded | none |
+| `--answer` | `decision_answer` | `settled` by an identical answer (same round, outcome and decider) | the same state, with an `answer ... again` line under this arrival's stamp | none |
 | `--answer` | `decision_answer` | any other state, or an earlier round | evidence appended, as `--evidence` | as `--evidence` |
 | `--evidence` | `decision_evidence` | any | `coordinator-verdict`, evidence appended | text or source empty |
 | `--sent` | a `*_send` state | an entry owing the kind that state sends, or a report owing a redirect | `Owed` cleared (and `Asked` stamped for an escalation), or the redirect's evidence line | the message key fails `coord-log.sh check --key` against the latest entry into the matching render state, or the sealed render doesn't name this entry, kind and round |
@@ -593,9 +599,22 @@ Evidence line whose text starts `addressed to a person`, stamped with the report
 it, and a sent redirect by a line stamped `[<run> redirect <seq>]`, where `<seq>` is that
 report's sequence rather than the sending visit's, so the redirect names the report it answers.
 Stamps are read by position (the one ending the Source and the one after each Evidence line's
-source), never from a line's text. An answer that settles an entry still writes an Evidence
-line with its `wait` stamp, so the unrecorded-answer rule sees it recorded, and an identical
-answer sent again counts as recorded when the entry is settled with that outcome and decider.
+source), never from a line's text, so a source or a final decider holding a bracket is refused:
+it could forge the stamp that follows it. The stamp kinds are `raise` (an `--open`), `report`
+(`--open-from-report`, `<seq>.<item>`), `wait` (`--evidence` and `--answer`, the arrival's
+sequence, which is `escalate_send`'s own on the question-tool route), `hold`, `ask` (an
+escalation to a person marked sent, with its route) and `redirect` (the report's sequence). An
+answer that settles an entry still writes an Evidence line with its `wait` stamp, so the
+unrecorded-answer rule sees it recorded, and an identical answer sent again (same round,
+outcome and decider) adds a line of its own, `answer for round <r> again: <outcome>`, with its
+own `wait` stamp: the stamp alone says the arrival was recorded, and an answer line under
+another stamp never stands in for it. A verdict mode needs the entry's Verdict empty, so one
+visit to `decision_verdict` records one verdict.
+
+When a write refuses because the record changed after the route (exit 65), the coordinator
+submits the state's evidence anyway and `decision_next` routes from the record as it now
+stands; a message already sent may go out once more, which the at-least-once guarantee below
+already allows.
 
 #### Alternatives Considered
 
@@ -723,7 +742,10 @@ closed there, reading "decide: re-dispatch or drop" with no recommendation: a ba
 row. That choice is the coordinator's, since it holds the dispatch, so the row moves to
 "Ongoing" reading "with me: re-dispatch or drop", and a coordinator that can't make the call
 raises an entry for it (`decision_raise`), which reaches a person only through a verdict. An
-unconfirmed merge stays in "Blocked on you" as the reserved step it is.
+unconfirmed merge stays in "Blocked on you" as the reserved step it is. The escalated entries
+reach the report through the reconcile facts: `reconcile-read.sh` carries them (question,
+recommendation, reason, target), including a handoff's that the record doesn't carry yet, and
+`reconcile-pass.sh` passes them on.
 
 The `surface` state's blocker path gets the same rules. `surface` gains a `need` field, which
 takes a need kind, and a third answer, `decision`, which goes to `decision_raise`; `blocker`
@@ -895,7 +917,14 @@ still surfaces, now through `surface_check`. The template's description, which s
 spoke that changes the record returns through `record`, gains the decision writes, which
 return through `decision_next` instead. The structure test gains a check that no cycle in the
 template is made of check states only, which is what the close would have been without the
-`roadmap_blocked` route.
+`roadmap_blocked` route. One pair of edges is such a cycle by design and is exempted by name:
+`decision_next`'s `clear` to `pick_facts` and `pick_facts`' `decisions` back. It can't turn
+twice without a write between, because `decision-next.sh --owed pick` fires on exactly the
+rules whose absence is `clear`, read in one pass over the same record.
+
+Each render state's gate has its own name (`escalate_verdict`, `decision_withdraw_verdict`,
+`decision_reply_verdict`, `decision_redirect_verdict`), since a gate name is shared across
+templates and one name must mean one command.
 
 `decision_verdict` declares a decider on `verdict` (`settle`, `escalate`, `hold`), its input
 `coord/decision.json`, every answer shadow, with fixtures in
