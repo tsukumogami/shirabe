@@ -216,14 +216,19 @@ person running `/scope` or `/execute` directly never needs it.
 
 ## koto version
 
-`/scope`, `/execute`, and `/deliver` require koto 0.13.0 or later. shirabe's
-CI runs the newest koto 0.x, plus one job that runs these skills' suites on
-exactly 0.13.0, so both the floor and current releases stay tested. Each skill's `requires.tsv` declares the koto
-surface it calls, including the `koto init` entry flags (`--vars-file`,
-`--attach-live`, `--replace-terminal`, `--koto-leg`) that first shipped in
-v0.13.0; the declaration names flags rather than a version number. On an older
-koto, the preflight that runs when the skill loads names the missing flags and
-the command that installs a new enough koto, before the skill does any work.
+`/scope`, `/execute`, `/deliver`, `/work-on`, and `/coordinate` require koto
+0.14.0 or later.
+shirabe's CI runs the newest koto 0.x, plus one job that runs these skills'
+suites on exactly 0.14.0, so both the minimum and current releases stay tested.
+Each skill's `requires.tsv` declares the koto surface it calls, including the
+`koto init` entry flags (`--vars-file`, `--attach-live`, `--replace-terminal`,
+`--koto-leg`) that first shipped in v0.13.0; the declaration names flags rather
+than a version number. On a koto older than 0.13.0, the preflight that runs
+when the skill loads names the missing flags and the command that installs a
+new enough koto, before the skill does any work. What 0.14.0 added (a failure
+terminal keeps its session, and a child delivers its result under
+`--no-cleanup`) is behaviour with no flag to probe, so on 0.13.0 the preflight
+passes; upgrade with `tsuku install koto@latest`.
 
 Before you upgrade from a koto older than v0.13.0, finish any `/scope` or `/execute` run
 that's still in flight on the old koto, or remove its session with

@@ -1,11 +1,6 @@
 ---
 name: coordinate
 version: "1.0"
-# koto-floor: pinned -- constrained variables, capture_stdout_as, command gates
-# declared overridable: false, deciders, and result maps need koto 0.13.0 or
-# later, the floor skills/coordinate/requires.tsv declares. The v0.12.2 floor
-# check (scripts/check-koto-floor.sh) does not cover this template.
-#
 # The session is a root on every tick (`koto next --no-cleanup`); see
 # references/koto-session-retention.md. Nothing materializes this template as
 # a child.
@@ -1783,8 +1778,9 @@ human merged a pull request you handed over; `retire` to finish with a worker;
 A worker bound to a request leg (its holding's Return path names one) reports
 through the leg; submit `leg` rather than `report` for it. A message from such a
 worker is refused at `take_report`, because only its own session's result can
-stand for it. Until koto wakes a waiting coordinator when a leg resolves
-(koto#250), a leg is read when a message or notification makes you tick.
+stand for it. koto 0.14.0 records a wake when a leg resolves (koto#250), but
+this workflow doesn't watch for it, so a leg is read when a message or
+notification makes you tick.
 ## leg_pick
 
 Picking the request leg to read. koto runs this itself; tick with no evidence
@@ -1846,8 +1842,9 @@ point accepts a koto request leg (`/deliver`, `/work-on`, `/scope` and `/execute
 dispatched with one, reports through that leg: the workflow reads it before
 this state and its result is the report, so there's no leg left to read here.
 Every other worker reports by message only, and a worker on another host always
-does, since koto's request legs are local. koto#250 means a resolved leg wakes
-nobody, so the message is still what makes you tick.
+does, since koto's request legs are local. koto 0.14.0 records a wake when a leg
+resolves (tsukumogami/koto#250, fixed by koto#252), but this workflow doesn't
+watch for it, so the message is still what makes you tick.
 
 ## classify_report
 

@@ -11,8 +11,8 @@
 # merge-exec) appears in any default action or gate; no directive names
 # merge-exec.sh; no check script calls `gh api` without --method GET (GraphQL
 # queries aside) or sends a GraphQL mutation; nothing says the human merges;
-# every reference file is named by a state; the floor marker is present; the
-# two deciders are declared with their inputs gated.
+# every reference file is named by a state; the two deciders are declared
+# with their inputs gated.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -91,7 +91,6 @@ for r in loop.md brief-template.md verification-checklist.md record-template.md;
     n=$(jq -r --arg r "$r" '[.states[] | select(((.directive // "") + (.details // "")) | contains("references/" + $r))] | length' "$J")
     [ "$n" -gt 0 ] && pass "a state names references/$r" || fail "a state names references/$r"
 done
-head -12 "$TPL" | grep -q '^# koto-floor: pinned' && pass "the floor marker is present" || fail "the floor marker is present"
 for d in pick.choice classify_report.classification; do
     st=${d%%.*}; fld=${d#*.}
     jq -e --arg s "$st" --arg f "$fld" '.states[$s].accepts[$f].decider != null' "$J" >/dev/null && pass "$d carries a decider" || fail "$d carries a decider"

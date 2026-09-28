@@ -398,9 +398,10 @@ workflow scratch directory the repository's cleanup rule removes.
   shared across the host, so two workers dispatched on one topic collide: the
   second's session is refused as an origin mismatch. Each dispatch uses a
   topic no live holding uses.
-- **No wake when a leg resolves (koto#250).** The coordinator's session isn't
-  woken when a bound leg resolves; the leg is read on the next tick, which a
-  message or notification triggers. A worker that resolves its leg and sends
+- **Leg wakes aren't watched (koto#250, fixed in koto 0.14.0).** koto records
+  a wake when a bound leg resolves, but the coordinator doesn't watch for it
+  yet; the leg is read on the next tick, which a message or notification
+  triggers. A worker that resolves its leg and sends
   no message is noticed at the coordinator's next quiet-worker check.
 
 ## Decisions and Trade-offs

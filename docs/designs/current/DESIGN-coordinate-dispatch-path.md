@@ -805,8 +805,9 @@ script; a coordinator that launches a worker by hand and writes the row by
 hand passes the gate. The wait path adds three states to the record feature's
 template. A `dispatching` row whose launch never happened sits on the record
 until the script re-runs or reconcile clears it. A `/work-on` worker given a PLAN
-path, and any worker on another host, use the message path. Until koto#250 lands, a resolved leg is read
-only when a message or notification makes the coordinator tick.
+path, and any worker on another host, use the message path. koto 0.14.0 records a wake when a leg
+resolves (koto#250), but the workflow doesn't watch for it yet, so a resolved
+leg is read only when a message or notification makes the coordinator tick.
 
 **Mitigations.** Reconcile, the next feature, checks every holding against
 `niwa list`. The leg table grew by data when #407 fixed #401. The wait directive's
@@ -825,9 +826,10 @@ quiet-worker check bounds how long a resolved leg can go unread.
 - **#401, fixed by #407.** `/deliver` and `/work-on` accept `--koto-leg`, and
   the leg table carries both; `/work-on` answers a leg only for an issue or a
   task, so a PLAN-path `/work-on` worker reports by message.
-- **koto#250, no wake on a resolved leg.** The coordinator reads a resolved
-  leg on its next tick, which a message, a notification, or the quiet-worker
-  check triggers.
+- **koto#250, leg wakes aren't watched.** koto 0.14.0 records a wake when a
+  leg resolves, readable with `koto request watch`; the workflow doesn't watch
+  for it yet, so the coordinator reads a resolved leg on its next tick, which a
+  message, a notification, or the quiet-worker check triggers.
 - **niwa#322, destroy refuses squash-merged branches.** `--force` is needed
   and is passed only after the inventory proves durability.
 - **One topic per worker.** koto session names are machine-wide, so a second

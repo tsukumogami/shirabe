@@ -31,7 +31,8 @@
 #       a token: an empty capture would fail the action instead of letting the
 #       state stop for evidence, which is the wait.
 #
-#       There is no wake on a resolved leg until koto#250 lands; the
+#       koto 0.14.0 records a wake on a resolved leg (koto#250), but this
+#       workflow doesn't watch for it yet; the
 #       coordinator ticks the workflow on each message or notification.
 #
 #   leg --session <s>
