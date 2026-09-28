@@ -377,14 +377,17 @@ test_require_rootless_refuses_a_rootful_daemon() {
     local name="--require-rootless refuses a rootful daemon with exit 2 and nothing runs"
     local via
 
-    for via in flag env; do
+    for via in flag env=1 env=true; do
         if [ "$via" = flag ]; then
             run_stubbed "$FIX_MAIN" rootful --require-rootless
         else
+            # Inline rather than run_stubbed, which unsets this variable so a
+            # caller's setting can't mask the default; here it is the subject.
+            # "true" as well as "1": a policy switch must fail closed.
             rm -f "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
             STUB_RC=0
             STUB_OUT=$(PATH="$STUB_BIN:$PATH" STUB_DAEMON=rootful STUB_LOG="$STUB_ROOT/log" \
-                SHIRABE_FLOOR_REQUIRE_ROOTLESS=1 \
+                SHIRABE_FLOOR_REQUIRE_ROOTLESS="${via#env=}" \
                 "$FIX_MAIN/scripts/check-bash-floor.sh" --backend docker canary 2>&1) || STUB_RC=$?
         fi
         if [ $STUB_RC -ne 2 ]; then
@@ -434,7 +437,8 @@ test_unreachable_daemon_exits_2() {
 
 # On a rootless daemon the container's root already is the invoking user, and a
 # --user would map to a subordinate id. The checkout is read-only at its own
-# path, HOME is scratch, and the root-only safe.directory exception is gone.
+# path and HOME is scratch. No safe.directory exception is passed: the
+# checkout's owner is the container's user, which the runner checks up front.
 test_rootless_container_shape() {
     local name="rootless: read-only checkout at its host path, no --user, scratch HOME"
 
@@ -460,7 +464,7 @@ test_rootless_container_shape() {
         return
     fi
     if grep -q 'safe.directory' "$STUB_ROOT/log.run"; then
-        fail "$name" "the safe.directory exception is still passed"
+        fail "$name" "a safe.directory exception is passed"
         return
     fi
     # A plain checkout's git directory is inside the mount: nothing else is.

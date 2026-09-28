@@ -22,7 +22,7 @@
 #   --list                         list the suites and what each one runs
 #   --suites                       the CI suite names, one per line
 #   --scripts <suite>              that suite's scripts, one per line
-#   --require-rootless             refuse a rootful docker daemon
+#   --require-rootless             docker backend: refuse a rootful daemon
 #   -h, --help                     this message
 #
 # Backends:
@@ -54,10 +54,13 @@
 #     there, which only the system backend on macOS catches.
 #
 # Environment:
-#   SHIRABE_FLOOR_IMAGE          override the container image tag that gets built
-#   SHIRABE_BIN                  a shirabe binary to inject instead of building
-#                                one (docker backend only; must be static/musl)
-#   SHIRABE_FLOOR_REQUIRE_ROOTLESS  1 is the same as --require-rootless
+#   SHIRABE_FLOOR_IMAGE             override the container image tag that gets
+#                                   built
+#   SHIRABE_BIN                     a shirabe binary to inject instead of
+#                                   building one (docker backend only; must be
+#                                   static/musl)
+#   SHIRABE_FLOOR_REQUIRE_ROOTLESS  any value but empty or 0 is the same as
+#                                   --require-rootless (docker backend only)
 #
 # Exit codes:
 #   0 - the suite passed on the floor
@@ -72,18 +75,22 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FLOOR_IMAGE="${SHIRABE_FLOOR_IMAGE:-shirabe-bash-floor:3.2}"
 BASE_IMAGE="bash:3.2"
 
-# Mount points inside the container. The checkout sits at its host path, so
-# the gitdir link in a linked worktree's .git file resolves unchanged; /floor
-# holds what the floor run injects and the checkout must not see; HOME is a
-# tmpfs, since the checkout is read-only and on a rootful daemon the container
-# user has no home of its own.
-WORKDIR="$REPO_ROOT"
+# Mount points inside the container. The checkout is mounted at $REPO_ROOT,
+# its own host path, and must stay there: the gitdir link in a linked
+# worktree's .git file only resolves at that path. /floor holds what the floor
+# run injects and the checkout must not see; HOME is a tmpfs, since the
+# checkout is read-only and on a rootful daemon the container user has no home
+# of its own.
 INJECT_DIR=/floor
 FLOOR_HOME=/home/floor
 
 BACKEND=auto
-REQUIRE_ROOTLESS="${SHIRABE_FLOOR_REQUIRE_ROOTLESS:-0}"
-# Set by check_docker_daemon: 1 when the daemon is rootless.
+# A policy switch fails closed: anything but empty or 0 turns it on.
+case "${SHIRABE_FLOOR_REQUIRE_ROOTLESS:-0}" in
+    ""|0) REQUIRE_ROOTLESS=0 ;;
+    *)    REQUIRE_ROOTLESS=1 ;;
+esac
+# Set by check_docker_daemon: 1 when the daemon is rootless, 0 when rootful.
 DAEMON_ROOTLESS=""
 TMP_DIRS=""
 
@@ -554,12 +561,16 @@ check_docker_daemon() {
     esac
 }
 
+# Besides building the image, this settles what every run_suite_docker call
+# relies on: DAEMON_ROOTLESS (check_docker_daemon) and GIT_MOUNT_DIRS
+# (resolve_git_mounts). A change that skips the build, for a cached image say,
+# must still run these, or the #413 worktree failure comes back silently.
 build_floor_image() {
     check_docker_daemon
     # The container's user is the invoking user on either daemon, and git
-    # refuses a repository that user doesn't own. Without the safe.directory
-    # exception that would fail every git call in the suites, or leave a check
-    # silently checking nothing, so it is refused here instead.
+    # refuses a repository that user doesn't own, which would fail every git
+    # call in the suites or leave a check silently checking nothing. So
+    # ownership is checked here, before anything runs.
     [ -O "$REPO_ROOT" ] || die "$REPO_ROOT is not owned by the invoking user ($(id -un)); git inside the floor container would refuse it. Run the floor as the checkout's owner"
     # Before the build, so a checkout the container could not resolve is
     # refused before anything is pulled or built.
@@ -673,7 +684,7 @@ resolve_git_mounts() {
 }
 
 # bind_ro <source> [<target>]: sets BIND_RO_RESULT to a --mount value binding
-# <source> read-only at <target> (default: the same path). The checkout now
+# <source> read-only at <target> (default: the same path). The checkout
 # sits at its host path, which may hold a colon that -v and --tmpfs would split
 # on; --mount only splits on commas, so a comma is refused rather than
 # misparsed.
@@ -692,6 +703,8 @@ run_suite_docker() {
     # Always non-empty, so `set -u` never meets an empty array expansion -
     # which is itself a bash 3.2 trap, and this script runs on the floor too.
     local args
+
+    [ -n "$DAEMON_ROOTLESS" ] || die "internal: run_suite_docker ran before build_floor_image checked the daemon and the git mounts"
 
     # Read-only: whatever user the container runs as, no suite can change a
     # file in the checkout. They write under /tmp, which is the container's
@@ -736,10 +749,10 @@ EOF
         # writable, docker would create the directory as the daemon's root
         # on the host, leaving a target/ the next `cargo build` cannot write.
         mkdir -p "$REPO_ROOT/target"
-        args=("${args[@]}" --mount "type=tmpfs,target=$WORKDIR/target")
+        args=("${args[@]}" --mount "type=tmpfs,target=$REPO_ROOT/target")
         bind_ro "$shirabe_bin" "$INJECT_DIR/shirabe"
         args=("${args[@]}" --mount "$BIND_RO_RESULT")
-        bind_ro "$shirabe_bin" "$WORKDIR/target/release/shirabe"
+        bind_ro "$shirabe_bin" "$REPO_ROOT/target/release/shirabe"
         args=("${args[@]}" --mount "$BIND_RO_RESULT")
         bind_ro "$stub_dir" "$INJECT_DIR/bin"
         args=("${args[@]}" --mount "$BIND_RO_RESULT")
@@ -747,7 +760,7 @@ EOF
         args=("${args[@]}" -e "PATH=$INJECT_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     fi
 
-    args=("${args[@]}" -w "$WORKDIR" "$FLOOR_IMAGE")
+    args=("${args[@]}" -w "$REPO_ROOT" "$FLOOR_IMAGE")
 
     status=0
     while read -r script; do
