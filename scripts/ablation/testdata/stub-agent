@@ -82,6 +82,10 @@ for step in steps:
         call("cat notes.txt")
         result(step["echo"])
     elif "read_plugin" in step:
+        if not plugin:
+            call(f"cat {step['read_plugin']}")
+            result("cat: no such file")
+            continue
         path = os.path.join(plugin, step["read_plugin"])
         call(f"cat {path}")
         with open(path) as fh:

@@ -75,7 +75,7 @@ def tool_uses(events):
                 yield t, block
 
 
-def tool_results(events):
+def tool_results(events, include_errors=True):
     for t, ev in events:
         if ev.get("type") != "user":
             continue
@@ -84,6 +84,8 @@ def tool_results(events):
             continue
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_result":
+                if block.get("is_error") and not include_errors:
+                    continue
                 yield t, block.get("tool_use_id"), result_text(block.get("content"))
 
 
@@ -144,22 +146,19 @@ def observations(productions, suspect_reason):
     return obs, delivered
 
 
-def detect_leak(events, span_text, span_file, plugin, delivery_t):
+def detect_leak(events, span_text, delivery_t):
+    """Did the withheld text reach the agent before the delivery? Judged on
+    content: any line of the span over 20 characters, whitespace-normalised,
+    in a tool result or user text. Naming the file (a `find` for it, say) is
+    not a leak; reading it anywhere, the checkout or an installed plugin
+    included, is."""
     lines = [norm(l) for l in span_text.splitlines() if len(norm(l)) > 20]
-    base = os.path.basename(span_file)
     for t, text in list((t, x) for t, _, x in tool_results(events)) + list(user_texts(events)):
         if delivery_t is not None and t >= delivery_t:
             continue
         flat = norm(text)
         if any(l in flat for l in lines):
             return True
-    for t, block in tool_uses(events):
-        if delivery_t is not None and t >= delivery_t:
-            continue
-        blob = json.dumps(block.get("input") or {})
-        for m in re.finditer(r"[^\s\"']*" + re.escape(base), blob):
-            if plugin not in m.group(0):
-                return True
     return False
 
 
@@ -218,22 +217,41 @@ def token_figures(events, calls):
     cost = round(float(cost), 6) if isinstance(cost, (int, float)) else None
 
     ticks = [(c["t"], c.get("state")) for c in calls
-             if (c.get("argv") or [])[:1] == ["next"] and isinstance(c.get("t"), int)]
+             if "state" in c and isinstance(c.get("t"), int)]
     per_state = {}
     pre_first = 0
     for mid in order:
         t, u = per_msg[mid]
+        # Input-side only: Claude Code streams each content block with the
+        # usage from the start of the message, so a message's output tokens
+        # are only right in the result event's total.
+        inside = usage_total(u) - int(u.get("output_tokens", 0) or 0)
         later = [s for ts, s in ticks if ts >= t]
         if not ticks or t < ticks[0][0]:
-            pre_first += usage_total(u)
+            pre_first += inside
             continue
         state = later[0] if later else "after-last-tick"
         state = state if isinstance(state, str) and re.match(r"^[a-z0-9_-]{1,64}$", state) else "unknown"
-        per_state[state] = per_state.get(state, 0) + usage_total(u)
+        per_state[state] = per_state.get(state, 0) + inside
     return session, model_usage, cost, per_state, pre_first
 
 
-def observed_instruction(events, plugin, first_tick):
+def skill_body_bytes(plugin, skill):
+    """The bytes the skill's SKILL.md puts in front of the agent when the
+    prompt invokes it: the file after its frontmatter. Claude Code does not
+    echo the expanded skill into stream-json, so it is read from the copy."""
+    path = os.path.join(plugin, "skills", skill, "SKILL.md")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().split("\n")
+    except OSError:
+        return 0
+    if lines and lines[0] == "---" and "---" in lines[1:]:
+        lines = lines[lines.index("---", 1) + 1:]
+    return len("\n".join(lines).encode())
+
+
+def observed_instruction(events, plugin, first_tick, skill_bytes=0):
     ids = {}
     for t, block in tool_uses(events):
         inp = block.get("input") or {}
@@ -242,8 +260,9 @@ def observed_instruction(events, plugin, first_tick):
         if (isinstance(path, str) and path.startswith(plugin + "/")) or \
                 (isinstance(cmd, str) and plugin + "/" in cmd):
             ids[block.get("id")] = t
-    total = pre = 0
-    for t, tid, text in tool_results(events):
+    # The skill body is loaded with the prompt, before any tick.
+    total = pre = skill_bytes
+    for t, tid, text in tool_results(events, include_errors=False):
         if tid in ids:
             n = len(text.encode())
             total += n
@@ -305,7 +324,8 @@ def template_fields(repo_root, plugin, template, run_dir, classify):
                 header = json.loads(fh.readline())
             except ValueError:
                 header = {}
-    fields["template.koto_hash"] = header.get("template_hash")
+    koto_hash = header.get("template_hash")
+    fields["template.koto_hash"] = koto_hash if isinstance(koto_hash, str) and re.match(r"^[0-9a-f]{64}$", koto_hash) else None
     fields["template.fixture"] = classify(header) == "fixture"
     return fields
 
@@ -318,8 +338,7 @@ def derive(raw, repo_root, real_koto, koto_version, classify):
     events = transcript_events(run_dir)
     delivery_t = next((p["t"] for p in productions if p.get("delivered")), None)
 
-    leak = raw["arm"] == "withheld" and detect_leak(events, raw["span"].decode("utf-8", "replace"),
-                                                     raw["span_path"], raw["plugin"], delivery_t)
+    leak = raw["arm"] == "withheld" and detect_leak(events, raw["span"].decode("utf-8", "replace"), delivery_t)
     bypass = detect_bypass(events, calls, real_koto)
     suspect = ("harness-tampered" if raw["tampered"] else
                "wrapper-bypassed" if bypass else
@@ -327,7 +346,7 @@ def derive(raw, repo_root, real_koto, koto_version, classify):
     obs, delivered = observations(productions, suspect)
 
     session, model_usage, cost, per_state, pre_first = token_figures(events, calls)
-    first_tick = next((c["t"] for c in calls if (c.get("argv") or [])[:1] == ["next"]), None)
+    first_tick = next((c["t"] for c in calls if "state" in c), None)
     model = next((ev.get("model") for _, ev in events
                   if ev.get("type") == "system" and ev.get("subtype") == "init"), None)
 
@@ -357,10 +376,13 @@ def derive(raw, repo_root, real_koto, koto_version, classify):
             "model_usage": {k: {kk: vv for kk, vv in v.items() if isinstance(vv, (int, float))}
                             for k, v in model_usage.items() if isinstance(v, dict)
                             and re.match(r"^[A-Za-z0-9.:_-]{1,80}$", k)},
-            "per_state": per_state,
-            "pre_first_state": pre_first,
+            "per_state_input": per_state,
+            "pre_first_state_input": pre_first,
             "instruction_static": static_instruction(repo_root, raw["plugin"], case["profile"], raw["arm"]),
-            "instruction_observed": observed_instruction(events, raw["plugin"], first_tick),
+            "instruction_observed": observed_instruction(
+                events, raw["plugin"], first_tick,
+                skill_body_bytes(raw["plugin"], case["skill"])
+                if raw["arm"] != "without_skill" and case["prompt"]["with_skill"].startswith("/") else 0),
         },
         "cost_usd": cost,
         "audit": {"sample_rate": raw["audit_rate"], "rules": [
@@ -480,13 +502,17 @@ def summarize(records, case, repo_root):
     w("")
     w("## Tokens (means per run)")
     w("")
-    w("arm            session total  delta vs full  static raw  static weighted  observed instr  observed pre-state")
+    w("arm            input     cache read  cache create  output    session total  delta vs full  static raw  static weighted  observed instr  observed pre-state")
     full_total = mean([r["tokens"]["session"].get("total") for r in recs if r["arm"] == "full"])
     for arm in ARMS:
         ar = [r for r in recs if r["arm"] == arm]
         tot = mean([r["tokens"]["session"].get("total") for r in ar])
         delta = None if tot is None or full_total is None else tot - full_total
-        w(f"{arm:<14} {fmt(tot):>13}  {fmt(delta):>13}  "
+        w(f"{arm:<14} {fmt(mean([r['tokens']['session'].get('input') for r in ar])):>8}  "
+          f"{fmt(mean([r['tokens']['session'].get('cache_read') for r in ar])):>10}  "
+          f"{fmt(mean([r['tokens']['session'].get('cache_creation') for r in ar])):>12}  "
+          f"{fmt(mean([r['tokens']['session'].get('output') for r in ar])):>8}  "
+          f"{fmt(tot):>13}  {fmt(delta):>13}  "
           f"{fmt(mean([r['tokens']['instruction_static']['raw'] for r in ar])):>10}  "
           f"{fmt(mean([r['tokens']['instruction_static']['weighted'] for r in ar])):>15}  "
           f"{fmt(mean([r['tokens']['instruction_observed']['total'] for r in ar])):>14}  "

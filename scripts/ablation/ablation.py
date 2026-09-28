@@ -395,6 +395,20 @@ def copy_plugin(dest):
             shutil.copytree(src, os.path.join(dest, part), ignore=ignore, symlinks=True)
 
 
+def copy_koto_only(dest, skill):
+    """What the without_skill arm's koto session needs, and nothing a reader
+    could take instructions from: the skill's koto templates and its scripts
+    (gate commands run them through PLUGIN_ROOT), and the shared scripts/. No
+    SKILL.md and no references, so the arm stays a no-instructions control."""
+    ignore = shutil.ignore_patterns("workspace", "__pycache__", ".git", "ablation")
+    os.makedirs(dest)
+    for rel in (os.path.join("skills", skill, "koto-templates"), os.path.join("skills", skill, "scripts"),
+                "scripts"):
+        src = os.path.join(REPO_ROOT, rel)
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(dest, rel), ignore=ignore, symlinks=True)
+
+
 GH_SHIM = """#!/bin/sh
 # gh stand-in for an ablation run: serves one issue, refuses everything else.
 case "$1 $2" in
@@ -469,7 +483,7 @@ def agent_argv(case, arm, plugin):
     argv = head + ["-p", "--model", case["model"], "--setting-sources", "", "--strict-mcp-config",
                    "--no-session-persistence"]
     if arm != "without_skill":
-        argv += ["--plugin-dir", plugin]
+        argv += ["--plugin-dir", plugin, "--add-dir", plugin]
     argv += ["--permission-mode", "acceptEdits", "--allowedTools", "Bash",
              "--max-turns", str(case["limits"]["max_turns"]),
              "--append-system-prompt", case["stop_instruction"],
@@ -520,7 +534,10 @@ def run_one(case, arm, repetition, arm_order, span, real_koto, keep_dir=None, ba
         for d in ("tmp", "home", "koto", "ghconfig", "bin", "run"):
             os.makedirs(os.path.join(root, d), exist_ok=True)
         plugin = os.path.join(root, "plugin")
-        copy_plugin(plugin)
+        if arm == "without_skill":
+            copy_koto_only(plugin, case["skill"])
+        else:
+            copy_plugin(plugin)
         path, span_bytes = span
         if arm == "withheld":
             cut_span(case["withhold"]["source"], plugin, path, span_bytes)
@@ -644,22 +661,20 @@ def run_case(case, runs, jobs, out_path, keep_dir=None):
     span = resolve_span(case["withhold"]["source"], case["withhold"]["source_commit"])
     baseline = harness_snapshot()
 
-    def repetition(r):
-        order = list(ARMS[(r - 1) % 3:] + ARMS[:(r - 1) % 3])
-        return [run_one(case, arm, r, i + 1, span, real_koto, keep_dir, baseline)
-                for i, arm in enumerate(order)]
-
-    # Each repetition's records are appended as soon as it finishes, so a crash
-    # or an interrupt keeps every repetition already paid for.
+    # Each record is appended as soon as its run finishes, so a crash or an
+    # interrupt keeps every run already paid for.
     lock = threading.Lock()
     if out_path:
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 
     def repetition_and_write(r):
-        recs = repetition(r)
-        if out_path:
-            with lock, open(out_path, "a") as fh:
-                for rec in recs:
+        order = list(ARMS[(r - 1) % 3:] + ARMS[:(r - 1) % 3])
+        recs = []
+        for i, arm in enumerate(order):
+            rec = run_one(case, arm, r, i + 1, span, real_koto, keep_dir, baseline)
+            recs.append(rec)
+            if out_path:
+                with lock, open(out_path, "a") as fh:
                     fh.write(json.dumps(rec, sort_keys=True) + "\n")
         return recs
 
@@ -791,6 +806,10 @@ def summarize_file(path):
     ids = {r.get("case.id") for r in recs}
     if len(ids) != 1:
         raise Refusal(f"{path}: records from more than one case: {sorted(map(str, ids))}")
+    ids_seen = [r.get("run.id") for r in recs]
+    dupes = sorted({i for i in ids_seen if ids_seen.count(i) > 1})
+    if dupes:
+        raise Refusal(f"{path}: the same run.id appears more than once: {dupes[0]} (a rerun appended to old records?)")
     shapes = {r.get("delivery.shape") for r in recs}
     if len(shapes) != 1:
         raise Refusal(f"{path}: records from more than one delivery shape; summarise them separately")

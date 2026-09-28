@@ -468,6 +468,17 @@ class Runs(RunBase):
         self.assertEqual(prompts["full"], prompts["withheld"])
         self.assertNotEqual(prompts["full"], prompts["without_skill"])
 
+    def test_without_skill_copy_has_no_instructions(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        dest = os.path.join(d, "plugin")
+        ablation.copy_koto_only(dest, "work-on")
+        self.assertTrue(os.path.isfile(os.path.join(dest, "skills/work-on/koto-templates/work-on.md")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "skills/work-on/SKILL.md")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "skills/work-on/references")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "references")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "scripts", "ablation")))
+
     def test_withheld_copy_lacks_the_span_only(self):
         self.run_case([{"read_plugin": "skills/work-on/references/phases/phase-2-introspection.md"}],
                       arms=("full", "withheld"))
@@ -632,6 +643,13 @@ class Records(RunBase):
         self.assertEqual(self.obs(rec)["first"]["opportunity.outcome"], "not-checkable")
         self.assertEqual(self.obs(rec)["first"]["reason"], "section-leaked")
 
+    def test_naming_the_file_is_not_a_leak(self):
+        self.run_case([{"echo": "./skills/work-on/references/phases/phase-2-introspection.md"},
+                       self.next_with({"introspection_outcome": "approach_unchanged"})], arms=("withheld",))
+        rec = self.record("withheld")
+        self.assertFalse(rec["leak"])
+        self.assertEqual(self.obs(rec)["first"]["opportunity.outcome"], "complied")
+
     def test_bypass_by_absolute_path(self):
         self.run_case([{"koto_abs": ["next", WF, "--no-cleanup", "--with-data",
                                      ev({"introspection_outcome": "approach_updated"})]}])
@@ -651,14 +669,19 @@ class Records(RunBase):
         self.assertEqual((s["input"], s["output"], s["cache_read"], s["cache_creation"], s["partial"]),
                          (300, 30, 150, 15, False))
         self.assertEqual(s["total"], 495)
-        # Turns before the first tick are pre-first-state; the turn between the
-        # two ticks is spent in introspection.
-        self.assertEqual(full["tokens"]["pre_first_state"], 330)
-        self.assertEqual(full["tokens"]["per_state"], {"introspection": 165})
+        # Input-side tokens: turns before the first tick are pre-first-state,
+        # the turn between the two ticks is spent in introspection.
+        self.assertEqual(full["tokens"]["pre_first_state_input"], 310)
+        self.assertEqual(full["tokens"]["per_state_input"], {"introspection": 155})
         _, span = ablation.resolve_span(KEY, PIN)
         read = len(read_bytes(os.path.join(ablation.REPO_ROOT, "skills/work-on/references/phases/phase-2-introspection.md")))
-        self.assertEqual(full["tokens"]["instruction_observed"]["total"], int(read / 4 + 0.5))
-        self.assertEqual(withheld["tokens"]["instruction_observed"]["total"], int((read - len(span)) / 4 + 0.5))
+        body = records.skill_body_bytes(ablation.REPO_ROOT, "work-on")
+        self.assertGreater(body, 1000)
+        self.assertEqual(full["tokens"]["instruction_observed"]["total"], int((body + read) / 4 + 0.5))
+        self.assertEqual(full["tokens"]["instruction_observed"]["pre_first_state"], int((body + read) / 4 + 0.5))
+        self.assertEqual(withheld["tokens"]["instruction_observed"]["total"],
+                         int((body + read - len(span)) / 4 + 0.5))
+        self.assertEqual(without["tokens"]["instruction_observed"]["total"], 0)
         b = manifest_bytes(ablation.REPO_ROOT, "work-on")
         self.assertEqual(full["tokens"]["instruction_static"]["raw"], int(b / 4 + 0.5))
         self.assertEqual(withheld["tokens"]["instruction_static"]["raw"], int((b - len(span)) / 4 + 0.5))
@@ -682,6 +705,7 @@ def rec(arm, rep, first, second=None, delivered=False, audit=(), leak=False, tot
     second = second or ("not-reached" if not delivered else "not-produced")
     effective = second if delivered else first
     return {"case.id": "work-on-introspection-evidence", "arm": arm, "repetition": rep, "arm_order": 1,
+            "run.id": f"work-on-introspection-evidence/r{rep}/{arm}/{shape}",
             "delivery.shape": shape, "rule.span_bytes": 257, "model": "m", "koto.version": "0.14.1",
             "leak": leak, "wrapper_bypassed": False, "harness_tampered": False, "delivered": delivered,
             "observations": [point("first", first), point("second", second),
@@ -733,6 +757,17 @@ class Summary(unittest.TestCase):
 
     def test_empty_pool(self):
         self.assertIn("no audit rules sampled", self.summary([rec("full", 1, "complied")]))
+
+    def test_duplicate_run_ids_are_refused(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        path = os.path.join(d, "records.jsonl")
+        with open(path, "w") as fh:
+            for r in (rec("full", 1, "complied"), rec("full", 1, "complied")):
+                r["run.id"] = "work-on-introspection-evidence/r1/full"
+                fh.write(json.dumps(r) + "\n")
+        with self.assertRaisesRegex(ablation.Refusal, "more than once"):
+            ablation.summarize_file(path)
 
     def test_shapes_are_never_pooled(self):
         d = tempfile.mkdtemp()
