@@ -933,6 +933,9 @@ states:
       - target: roadmap_blocked
         when:
           gates.roadmap_close_verdict.exit_code: 134  # deferrals
+      - target: roadmap_blocked
+        when:
+          gates.roadmap_close_verdict.exit_code: 136  # decisions
       - target: done
         when:
           gates.roadmap_close_verdict.exit_code: 135  # closed
@@ -1144,7 +1147,7 @@ adopted.
 
 Where this goes next:
 
-- found: the record exists once with its four sections; the run reconciles.
+- found: the record exists once with its four sections (and a Decisions section once it holds one); the run reconciles.
 - none, a stale branch, or a branch with no pull request: `record_open`.
 - a title match without the declaration line, several matches, a body that isn't
   canonical, or an author without write access: `record_conflict`, a stop for the
@@ -1356,7 +1359,7 @@ loop keeps running while you wait.
 ## dispatch_check
 
 Checking the record before a dispatch. koto runs `deferral-check.sh` itself:
-the record must exist once with its four sections, no deferral raised before
+the record must exist once and be canonical, no deferral raised before
 this run started may be undisposed, the topic must not already be held, and the
 cap and parked bound must allow it.
 
@@ -1698,7 +1701,7 @@ examples in `references/loop.md` show which decisions are the human's.
 
 Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: every
 feature Done or Dropped, no holdings, nothing in flight, every deferral filed or
-closed.
+closed, and every decision settled.
 
 ## roadmap_blocked
 

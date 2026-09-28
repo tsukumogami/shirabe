@@ -162,8 +162,9 @@ finds it, checks it, and confirms every change you make to it on GitHub; you
 write it only through the scripts its states name. Its body, written by
 `record-render.sh`, starts with the declaration line (`> This is a
 **coordinator record** for ...`) and the `Written:` line, then the four
-sections; a candidate without the declaration line is never adopted.
-`references/record-template.md` has the shape.
+sections, and a fifth, Decisions, once the record holds a decision; a candidate
+without the declaration line is never adopted. `references/record-template.md`
+has the shape.
 
 A deferral is the successor's to dispose of before its first dispatch: file it
 as an issue, close it, or carry it forward with a reason. A roadmap coordinator

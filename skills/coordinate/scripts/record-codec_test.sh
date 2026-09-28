@@ -8,7 +8,14 @@
 # fence openers, HTML and edge whitespace; every refusal the renderer makes
 # (recomputable columns, worker shapes, structured grammars, private
 # repositories, predecessor reasoning); and the parser's canonical check on
-# hand-damaged bodies, the wrong scope, and an oversized body.
+# hand-damaged bodies, the wrong scope, and an oversized body. The Decisions
+# section: a record with an entry in each state (one held, one compacted)
+# round-trips; a body main's codec wrote (testdata/record/pre-decisions.md)
+# parses to no decisions and renders back byte for byte; a section holding only
+# `Next decision: 1` isn't canonical; each malformed entry is refused; the
+# section's own grammars leave the other sections' same-named columns alone; `@`
+# is encoded; the shared escalation validator and compaction; and the handoff
+# carrying only unsettled entries, a predecessor copy carrying all.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -194,6 +201,93 @@ refuse "a private repository ending a sentence is refused" "$(full_record | jq -
 refuse "a private repository as a .git URL is refused" "$(full_record | jq -c '.side_effects[0].target = "https://github.com/acme/secret.git"')" "isn't public" --private-repos acme/secret
 refuse "a private-repository list with spaces is trimmed" "$(full_record | jq -c '.holdings[0].repo = "acme/secret"')" "isn't public" --private-repos "x/y, acme/secret"
 refuse "a private repository named case-insensitively is refused" "$(full_record | jq -c '.holdings[0].repo = "ACME/Secret"')" "isn't public" --private-repos acme/secret
+
+echo "== decisions =="
+RUN=20260927T233505Z
+entry() { # entry <n> <state> [jq merge]: one Decisions entry
+    local extra=${3-}
+    [ -n "$extra" ] || extra='{}'
+    jq -nc --arg n "$1" --arg s "$2" --arg run "$RUN" '{
+      decision: $n, round: "0", question: "Ship with the mixed check result?",
+      options: "keep option d and ship\nswitch to option c", state: $s,
+      source: "worker ci-pin [\($run) report 40.1]", verdict: "", recommendation: "",
+      reason: "", context: "", problem: "", grounds: "", target: "", owed: "",
+      asked: "", evidence: "", outcome: "", decided_by: "", updated: "2026-09-27T23:40Z"}' | jq -c ". + ($extra)"
+}
+ESC='{round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip condition did not happen", context: "Option d was approved; a check came back mixed.", problem: "Dropping the feature changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
+decisions_record() {
+    jq -nc --argjson a "$(entry 1 proposed)" --argjson b "$(entry 2 coordinator-verdict '{verdict: "hold", reason: "waiting on the cache benchmark"}')" \
+        --argjson c "$(entry 3 escalated "$ESC")" \
+        --argjson d "$(entry 4 settled '{verdict: "settle", outcome: "keep option d: the flip condition did not happen", decided_by: "coordinator plugin-system", owed: "reply", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: the check came back mixed"}')" \
+        --argjson e "$(entry 5 settled '{outcome: "ship it", decided_by: "a person", options: "", source: "self [20260927T233505Z raise 60]"}')" \
+        --argjson r "$(full_record)" '$r + {decisions: {next: 6, entries: [$a, $b, $c, $d, $e]}}'
+}
+roundtrip "a record with an entry in each state, one held and one compacted, round-trips" "$(decisions_record)"
+bash "$R" --written "$W" <(decisions_record) > "$T/d.md"
+grep -qx 'Next decision: 6' "$T/d.md" && grep -q '^## Decisions$' "$T/d.md" && [ "$(sed -n '/^## Decisions$/,$p' "$T/d.md" | grep -c '^| ')" = 6 ] \
+    && ok "the section has its Next decision line, a header and five rows" || bad "the section has its Next decision line, a header and five rows" "$(sed -n '/^## Decisions$/,$p' "$T/d.md" | head -6)"
+[ "$(sed -n '/^## Decisions$/,$p' "$T/d.md" | sed -n '5p' | awk -F' [|] ' '{print NF}')" = 19 ] && ok "the table has nineteen columns" || bad "the table has nineteen columns"
+roundtrip "a section with no entries and a high-water mark round-trips" "$(full_record | jq -c '.decisions = {next: 4, entries: []}')"
+
+cp "$HERE/testdata/record/pre-decisions.md" "$T/pre.md"
+if bash "$P" "$T/pre.md" > "$T/pre.json" && ! jq -e 'has("decisions")' "$T/pre.json" > /dev/null \
+   && jq 'del(.written)' "$T/pre.json" | bash "$R" --written "$(jq -r .written "$T/pre.json")" | cmp -s - "$T/pre.md"; then
+    ok "a body main's codec wrote parses to no decisions and renders back byte for byte"
+else bad "a body main's codec wrote parses to no decisions and renders back byte for byte" "$(cat "$T/pre.json" 2>/dev/null | head -3)"; fi
+{ cat "$T/pre.md"; printf '\n## Decisions\n\nNext decision: 1\n\nNone.\n'; } > "$T/toggle.md"
+bash "$P" "$T/toggle.md" > /dev/null 2>&1; [ $? -eq 3 ] && ok "a Decisions section holding only Next decision: 1 is not canonical" || bad "a Decisions section holding only Next decision: 1 is not canonical"
+bash "$R" --written "$W" <(full_record | jq -c '.decisions = {next: 1, entries: []}') | grep -q '^## Decisions' \
+    && bad "next 1 and no entries renders no section" || ok "next 1 and no entries renders no section"
+
+with() { printf '%s' "$(full_record | jq -c --argjson e "$1" '.decisions = {next: 9, entries: [$e]}')"; }
+refuse "an unknown state is refused" "$(with "$(entry 1 open)")" "decisions.state"
+refuse "a non-integer identifier is refused" "$(with "$(entry x proposed)")" "decisions.decision"
+refuse "an identifier at Next decision is refused" "$(full_record | jq -c --argjson e "$(entry 9 proposed)" '.decisions = {next: 9, entries: [$e]}')" "at or above Next decision"
+refuse "an identifier used twice is refused" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e, $e]}')" "used twice"
+refuse "a ground outside the four is refused" "$(with "$(entry 1 escalated "$ESC + {grounds: \"urgency\"}")")" "decisions.grounds"
+for k in options recommendation reason context problem grounds target; do
+    refuse "an escalated entry missing $k is refused" "$(with "$(entry 1 escalated "$ESC + {$k: \"\"}")")" "$k is empty"
+done
+refuse "a settled entry missing its outcome is refused" "$(with "$(entry 1 settled '{decided_by: "a person"}')")" "outcome is empty"
+refuse "a settled entry missing who decided is refused" "$(with "$(entry 1 settled '{outcome: "ship"}')")" "decided_by is empty"
+refuse "a held entry missing what it waits on is refused" "$(with "$(entry 1 coordinator-verdict '{verdict: "hold"}')")" "reason is empty"
+refuse "a stamp that doesn't parse is refused" "$(with "$(entry 1 proposed '{source: "worker ci-pin [report 40.1]"}')")" "decisions.source"
+refuse "an evidence line without a stamp is refused" "$(with "$(entry 1 coordinator-verdict '{evidence: "2026-09-27T23:41Z dispatcher: mixed"}')")" "decisions.evidence"
+refuse "a line break inside a single item is refused" "$(with "$(entry 1 proposed '{question: "one\ntwo"}')")" "line break inside a single item"
+refuse "a private repository in a Decisions text cell is refused" "$(with "$(entry 1 proposed '{question: "does acme/secret ship?"}')")" "isn't public" --private-repos acme/secret
+refuse "a home-directory path is refused" "$(with "$(entry 1 proposed '{question: "see /home/someone/notes"}')")" "home-directory path"
+refuse "a token-shaped string is refused" "$(with "$(entry 1 proposed '{question: "use ghp_abcdefghijklmnopqrstuvwxyz0123"}')")" "token-shaped"
+refuse "an unknown Decisions column is refused" "$(with "$(entry 1 proposed '{priority: "high"}')")" "not a column of this section"
+roundtrip "a Decisions column named state takes no recomputable-column refusal" "$(with "$(entry 1 proposed)")"
+roundtrip "Reversals reason and Side effects target keep their own grammars" "$(full_record | jq -c --argjson e "$(entry 1 escalated "$ESC")" '.decisions = {next: 2, entries: [$e]} | .reversals[0].reason = "a person" | .side_effects[0].target = "coordinator x"')"
+printf '%s' "$(with "$(entry 1 proposed '{question: "ask @someone about the pin | now?"}')")" > "$T/in.json"
+bash "$R" --written "$W" "$T/in.json" > "$T/at.md"
+grep -q '&#64;someone' "$T/at.md" && ! grep -q '@someone' "$T/at.md" && [ "$(bash "$P" "$T/at.md" | jq -r '.decisions.entries[0].question')" = "ask @someone about the pin | now?" ] \
+    && ok "@ and a pipe in a Decisions cell render encoded and parse back" || bad "@ and a pipe in a Decisions cell render encoded and parse back"
+
+VAL() { jq -n -L "$HERE" --argjson e "$1" --arg t "$2" 'include "record-codec"; $e | escalation_problems($t)'; }
+[ "$(VAL "$(entry 1 escalated "$ESC")" "a person")" = "[]" ] && ok "the validator passes a complete verdict" || bad "the validator passes a complete verdict"
+[ "$(VAL "$(entry 1 escalated "$ESC + {grounds: \"outside-scope\"}")" "a person")" = "[]" ] && ok "outside-scope alone is a ground" || bad "outside-scope alone is a ground"
+for c in 'recommendation: "neither"' 'reason: "  "' 'context: ""' 'problem: ""' 'grounds: ""'; do
+    [ "$(VAL "$(entry 1 escalated "$ESC + {$c}")" "a person" | jq length)" = 1 ] && ok "the validator refuses {$c}" || bad "the validator refuses {$c}"
+done
+[ "$(VAL "$(entry 1 escalated "$ESC")" "coordinator ws" | jq length)" = 1 ] && ok "the validator refuses a target other than the run's" || bad "the validator refuses a target other than the run's"
+CMP=$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{verdict: "settle", outcome: "ship", decided_by: "a person", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: mixed"}')" 'include "record-codec"; $e | compact_settled')
+[ "$(printf '%s' "$CMP" | jq -r '[.evidence, .options, .verdict] | join("")')" = "" ] && [ "$(printf '%s' "$CMP" | jq -r .outcome)" = ship ] \
+    && ok "a settled entry that owes nothing compacts to its identity, question and outcome" || bad "a settled entry that owes nothing compacts" "$CMP"
+[ "$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled "{outcome: \"ship\", decided_by: \"a person\", owed: \"reply\"}")" 'include "record-codec"; $e | compact_settled | .owed')" = '"reply"' ] \
+    && ok "a settled entry that still owes a reply is not compacted" || bad "a settled entry that still owes a reply is not compacted"
+
+HD=$(decisions_record | jq -c '.scope = {kind: "discipline", name: "ci-health"} | del(.written) | .rotation = {start: "2026-09-20", end: "2026-09-23", date: "2026-09-23", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"} | .reasoning = "Carry the open decisions."')
+printf '%s' "$HD" > "$T/hd.json"
+if bash "$R" --format handoff "$T/hd.json" > "$T/hd.md" 2> "$T/err" && bash "$P" --format handoff "$T/hd.md" > "$T/hd.out" 2> "$T/err" \
+   && [ "$(jq -c '[.decisions.next, (.decisions.entries | map(.decision))]' "$T/hd.out")" = '[6,["1","2","3"]]' ] \
+   && [ "$(jq -r .reasoning "$T/hd.out")" = "Carry the open decisions." ]; then
+    ok "a handoff carries only the unsettled entries, with the same Next decision, before the reasoning"
+else bad "a handoff carries only the unsettled entries" "$(cat "$T/err"; jq -c .decisions "$T/hd.out" 2>/dev/null)"; fi
+printf '%s' "$(printf '%s' "$HD" | jq -c 'del(.reasoning) | .predecessor_copy = {written: "2026-09-23T17:00:00Z"}')" > "$T/hp.json"
+bash "$R" --format handoff "$T/hp.json" | bash "$P" --format handoff | jq -e '.decisions.entries | length == 5' > /dev/null \
+    && ok "a predecessor copy keeps the section as it stands, settled entries too" || bad "a predecessor copy keeps the section as it stands"
 
 echo "== usage =="
 bash "$R" --format nope < /dev/null > /dev/null 2>&1; [ $? -eq 64 ] && ok "render usage error exits 64" || bad "render usage error exits 64"
