@@ -1,7 +1,7 @@
 ---
 status: Accepted
 decision: |
-  The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch rather than rebasing, and it pushes without force.
+  The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch, and it pushes without force.
 rationale: |
   The skills disagreed about what happens when a branch falls behind main.
   /work-on's phase-6 reference said to rebase and push with --force-with-lease,
@@ -46,7 +46,7 @@ means the gate judged a tip that no longer ships.
 
 ## Decision
 
-The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch rather than rebasing, and it pushes without force.
+The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch, and it pushes without force.
 
 ## Implementation notes
 

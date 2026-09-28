@@ -1,7 +1,7 @@
 ---
 status: Accepted
 decision: |
-  The policy owner answered: "one cap per step, but replaced by koto when ready". Each looping step has one retry cap, stated once in that step's directive, with the numbers the recommended option gave: one panel cap of 2 blocking retries shared across the three review panels, 3 for analysis, implementation and PR creation, and 3 CI fix pushes before the run stops as unresolvable, never asking the user in an unattended run. Those prose caps are replaced by koto's enforcement once koto supports it.
+  The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
 rationale: |
   The retry loops each stated a limit somewhere, and the limits disagreed: 2,
   2+, 3, 2-3, or none. Nothing in koto counts visits, so the agent had no
@@ -45,16 +45,19 @@ the CI instruction to ask the user can't be followed.
 
 ## Decision
 
-The policy owner answered: "one cap per step, but replaced by koto when ready". Each looping step has one retry cap, stated once in that step's directive, with the numbers the recommended option gave: one panel cap of 2 blocking retries shared across the three review panels, 3 for analysis, implementation and PR creation, and 3 CI fix pushes before the run stops as unresolvable, never asking the user in an unattended run. Those prose caps are replaced by koto's enforcement once koto supports it.
+The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
 
 ## Implementation notes
 
 These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
+- Per the PLAN, taken from the DESIGN's recommended option, analysis,
+  implementation and PR creation are capped at 3.
+- Each cap is stated once, in that step's directive.
 - The caps apply in both /work-on and /execute.
-- When koto enforces the caps from its attempt counts, the replacement keeps
-  the same numbers.
+- The prose caps are replaced by koto's enforcement from its attempt counts
+  when koto supports it, with the same numbers.
 - This is the DESIGN's option 1, state each cap once in the looping state's
   directive, which was the recommendation.
 - "Stop as unresolvable" for CI corresponds to the `failing_unresolvable`
