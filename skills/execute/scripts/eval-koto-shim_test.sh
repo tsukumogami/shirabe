@@ -151,6 +151,15 @@ refused() {
 refused "an unknown field" '{"impact":"informational","status":"override"}' '{"field":"status","reason":"unknown field \"status\""}'
 refused "a missing required field" '{"rationale":"only"}' '{"field":"impact","reason":"required field missing"}'
 refused "an enum value outside its values" '{"impact":"none"}' '{"field":"impact","reason":"value \"none\" is not in allowed values [\"informational\", \"intent-changing\"]"}'
+refused "a non-string enum value" '{"impact":5}' '{"field":"impact","reason":"expected string for enum, got number"}'
+refused "a string field given a number" '{"impact":"informational","rationale":5}' '{"field":"rationale","reason":"expected string, got number"}'
+# Every problem is reported, in koto's order. This is koto 0.14's own answer
+# to the same submission on a state of the same shape.
+resp=$(k "$SC" "$WORK/refuse.log" next "$WF" --with-data '{"impact":"bogus","rationale":5,"x":1}' --no-cleanup)
+want='{"error":{"code":"invalid_submission","details":[{"field":"x","reason":"unknown field \"x\""},{"field":"impact","reason":"value \"bogus\" is not in allowed values [\"informational\", \"intent-changing\"]"},{"field":"rationale","reason":"expected string, got number"}],"message":"evidence validation failed"}}'
+[ "$(printf '%s' "$resp" | jq -c .)" = "$want" ] \
+    && pass "several problems are all reported, in koto's order and words" \
+    || fail "several problems: [$resp]"
 
 # The wrong answer is accepted and routed, as koto would route it, in each
 # scenario -- not refused, which would hand the run a retry real koto doesn't.

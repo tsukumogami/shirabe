@@ -114,22 +114,30 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
   fi
   if [ -n "$data" ] && [ -n "$current" ]; then
     command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
-    detail=$(printf '%s' "$data" | jq -c --slurpfile cur "$current" '
+    # Every problem is reported, in koto's order: unknown fields first, then
+    # each expected field in turn (missing, wrong type, value not allowed).
+    details=$(printf '%s' "$data" | jq -c --slurpfile cur "$current" '
       . as $ev
       | ($cur[0].expects.fields // {}) as $f
-      | ( [ $ev | keys[] | select(. as $k | $f | has($k) | not)
+      | [ $ev | keys_unsorted[] | select(. as $k | $f | has($k) | not)
             | {field: ., reason: ("unknown field \"" + . + "\"")} ]
-        + [ $f | to_entries[] | .key as $k
-            | select(.value.required == true and ($ev | has($k) | not))
-            | {field: $k, reason: "required field missing"} ]
-        + [ $f | to_entries[] | .key as $k | .value.values as $vals
-            | select(.value.type == "enum" and ($ev | has($k)))
-            | select($vals | index($ev[$k]) | not)
-            | {field: $k, reason: ("value \"" + ($ev[$k] | tostring) + "\" is not in allowed values ["
-                + ($vals | map("\"" + . + "\"") | join(", ")) + "]")} ] )
-      | first // empty' 2>/dev/null)
-    if [ -n "$detail" ]; then
-      printf '{"error":{"code":"invalid_submission","details":[%s],"message":"evidence validation failed"}}\n' "$detail"
+        + [ $f | to_entries[] | .key as $k | .value as $spec
+            | if ($ev | has($k) | not) then
+                (if $spec.required == true then {field: $k, reason: "required field missing"} else empty end)
+              elif $spec.type == "enum" then
+                ($ev[$k] | type) as $t
+                | if $t != "string" then {field: $k, reason: ("expected string for enum, got " + $t)}
+                  elif ($spec.values | index($ev[$k])) then empty
+                  else {field: $k, reason: ("value \"" + $ev[$k] + "\" is not in allowed values ["
+                      + ($spec.values | map("\"" + . + "\"") | join(", ")) + "]")}
+                  end
+              elif ($spec.type == "string" or $spec.type == "number" or $spec.type == "boolean") then
+                ($ev[$k] | type) as $t
+                | if $t == $spec.type then empty else {field: $k, reason: ("expected " + $spec.type + ", got " + $t)} end
+              else empty end ]') \
+      || { echo "koto shim: could not validate the evidence against $current" >&2; exit 1; }
+    if [ "$details" != "[]" ]; then
+      printf '{"error":{"code":"invalid_submission","details":%s,"message":"evidence validation failed"}}\n' "$details"
       exit 2
     fi
   fi
