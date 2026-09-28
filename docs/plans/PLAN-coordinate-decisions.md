@@ -169,7 +169,8 @@ request is written.
   features added to `coord-verdict.sh`; the koto floor in `skills/coordinate/requires.tsv`.
 - [ ] The first free verdict-code block on the default branch is recorded in the DESIGN.
 
-**Tests**: none; the outline's output is the corrected DESIGN.
+**Tests**: none; the outline's output is the corrected DESIGN. The DESIGN is on the
+coordination branch, not the default branch, so the correction lands there.
 
 **Dependencies**: None
 
@@ -309,14 +310,27 @@ evidence resets, release, and compaction; add `coord-log.sh current`.
 - [ ] `--carry` copies the handoff's unsettled entries and `Next decision` before the first
   dispatch and refuses after it or when already present.
 - [ ] A settled entry that owes nothing is compacted at the next write.
+- [ ] The free-text refusals accept ordinary prose: "and/or", "n/a" and "CI/CD" in a question
+  make no repository read; `task-runner-integration-tests`, `disk-space-reclamation-policy`
+  and `~/.config` are accepted; a `github.com/<owner>/<repo>` link or `<owner>/<repo>#<n>` to a
+  private repository, a real token shape and a `/home/<user>/` path are still refused.
+- [ ] A live body over the budget, including one past the parser's limit, exits 13.
+- [ ] Only `record-decision.sh` sets `DECISIONS_WRITER=1` (a structure test with a failing
+  fixture); the write core's header states the caller's contract.
+- [ ] Reconcile salvages a non-canonical record and handoff that carry a Decisions section
+  (a `reconcile-read_test.sh` case each, canonical and not).
+- [ ] Exit 13 is in `record-write.sh`'s and `record-holding.sh`'s contracts, and
+  `dispatch-common.sh` reports it as a full record.
 
 **Tests**: new `record-decision_test.sh`; `coord-log_test.sh` gains `current`;
-`coordinate-template-structure_engine_test.sh`'s write-script pattern gains `record-decision`.
+`coordinate-template-structure_engine_test.sh`'s write-script pattern gains `record-decision`;
+`record-codec_test.sh`, `record-write_test.sh`, `reconcile-read_test.sh`,
+`dispatch-common_test.sh`.
 
 **Dependencies**: Blocked by <<ISSUE:5>>, <<ISSUE:6>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/record-decision.sh`, `skills/coordinate/scripts/coord-log.sh`, `skills/coordinate/scripts/record-write-core.sh`
+**Files**: `skills/coordinate/scripts/record-decision.sh`, `skills/coordinate/scripts/coord-log.sh`, `skills/coordinate/scripts/record-write-core.sh`, `skills/coordinate/scripts/record-codec.jq`, `skills/coordinate/scripts/reconcile-salvage.jq`, `skills/coordinate/scripts/record-holding.sh`, `skills/coordinate/scripts/dispatch-common.sh`
 
 ### Issue 8: feat(coordinate): route the decision loop in the template
 
@@ -387,13 +401,16 @@ repeat-unanswered instruction in every brief.
   one.
 - [ ] Every brief `render-brief.sh` renders carries the channel sentence, the `Questions:` shape
   and the repeat-unanswered instruction; its test fails on a brief without them.
+- [ ] The reconcile report puts a holding whose pull request was closed in "Ongoing" reading
+  "with me: re-dispatch or drop", and its "Blocked on you" rows are only escalated entries and
+  reserved steps.
 
-**Tests**: `progress-view_test.sh`, `render-brief_test.sh`.
+**Tests**: `progress-view_test.sh`, `render-brief_test.sh`, `reconcile-report_test.sh`.
 
 **Dependencies**: Blocked by <<ISSUE:8>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/progress-view.sh`, `skills/coordinate/scripts/render-brief.sh`
+**Files**: `skills/coordinate/scripts/progress-view.sh`, `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/reconcile-report.sh`
 
 ### Issue 10: docs(coordinate): skill text, references, rule coverage, and the harness on real scripts
 
@@ -412,7 +429,8 @@ coverage, add an eval, and run the acceptance harness against the real scripts.
   free-text "Waiting on the human" section; they point at the table's "Blocked on you" rows, and
   the reconcile report lists only escalated entries and reserved finishing steps.
 - [ ] `references/loop.md`'s escalation shape points at the rendered form; `record-template.md`
-  shows the Decisions section; the template's description names the decision writes' return
+  shows the Decisions section with a table of the columns each state requires and what each
+  state means; SKILL.md's glossary defines a decision entry; the template's description names the decision writes' return
   through `decision_next`; `testdata/rule-coverage.tsv` carries rows for the new rules and
   `rule-coverage_test.sh` passes.
 - [ ] An eval covers a worker report asking the human to decide and expects the question opened

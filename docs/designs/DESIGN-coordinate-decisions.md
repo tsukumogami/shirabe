@@ -215,7 +215,9 @@ next write to its identifier, question, state, outcome, decided by and updated t
 other cells blanked (`Next decision` is what keeps its identifier from being reused). And the
 write core refuses a body over 60,000 bytes with its own exit code, which `decision-next.sh`
 and the record states report as `record-full`, a stop for the human, rather than letting
-GitHub refuse the edit.
+GitHub refuse the edit. The core checks the live body against the same budget before it
+parses, so a record already past the parser's 65,536-byte limit gets the same exit code and
+the same advice rather than a parse refusal.
 
 **Handoff and close.** The handoff renders the section with only the unsettled entries and
 the same `Next decision`, so a new rotation's record continues the numbering; a predecessor
@@ -497,8 +499,8 @@ questions are recorded and taken up, with its question settled, escalated or hel
 
 Take-over is these same rules at the first dispatch: rules 1, 7 and 8 block it, so a
 successor meets every carried, proposed and unjudged entry before it dispatches anything, on
-every path to `dispatch_check`, including `reconcile` to `posture_ask` to `record` to
-`pick_facts`. `reconcile` needs no edge of its own to `decision_next`; `pick_facts`'
+every path to `dispatch_check`, including `reconcile` straight to `pick_facts` when the merge
+posture is readable, and `reconcile` to `posture_ask` to `record` to `pick_facts` when it isn't. `reconcile` needs no edge of its own to `decision_next`; `pick_facts`'
 `decisions` verdict routes it. Every decision write returns to `decision_next`, so owed work
 never waits on `pick_facts`: the routes back through `rebrief` and `quiet_check` to `wait`
 don't pass `pick_facts`, and don't need to.
@@ -667,9 +669,14 @@ closed kinds) is the gate.
 
 The reports' free-text "Waiting on the human" section is replaced by the progress table's
 "Blocked on you" rows, which the skill text and `references/loop.md` already require at the end
-of every report after the reconcile; the reconcile report, which has no table yet, lists only
-the escalated entries and the reserved finishing steps, rendered from the record and the
-posture.
+of every report after the reconcile. The reconcile report's own table (`reconcile-report.sh`)
+lists in "Blocked on you" only the escalated entries and the reserved finishing steps, rendered
+from the record and the posture. As merged, it also puts a holding whose pull request was
+closed there, reading "decide: re-dispatch or drop" with no recommendation: a bare decision
+row. That choice is the coordinator's, since it holds the dispatch, so the row moves to
+"Ongoing" reading "with me: re-dispatch or drop", and a coordinator that can't make the call
+raises an entry for it (`decision_raise`), which reaches a person only through a verdict. An
+unconfirmed merge stays in "Blocked on you" as the reserved step it is.
 
 The `surface` state's blocker path gets the same rules. `surface` gains a `need` field, which
 takes a need kind, and a third answer, `decision`, which goes to `decision_raise`; `blocker`
@@ -746,13 +753,31 @@ reaches a person.
   top-level keys, and the handoff filter to unsettled entries.
 - `record-write-core.sh` (new): the write core (parse, compare-and-swap, visibility, the
   60,000-byte budget with its own exit code, render, edit), sourced only by the write scripts.
-- `record-common.sh`: keeps its no-write contract; gains the named-repository scan over the
-  Decisions text columns, with home-directory paths and token-shaped strings refused in them,
-  and the stamp helpers.
+- `record-common.sh`: keeps its no-write contract and gains the stamp helpers. As merged, the
+  named-repository scan over the Decisions text columns is in the write core, and the codec
+  refuses home-directory paths and token-shaped strings in them. The three refusals are
+  narrowed so they don't catch ordinary prose.
+  The scan over free text takes only the unambiguous forms of a repository reference, a
+  `github.com/<owner>/<repo>` link and `<owner>/<repo>#<n>`; the bare `<owner>/<repo>` scan
+  stays on the cells that hold nothing else (Holdings Repo, Side effects Target), so "and/or",
+  "n/a" or "CI/CD" in a question are never read as a repository. A token shape must start at
+  the start of the text or after a character that can't be part of a name, so a kebab-case
+  name that contains `sk-` isn't refused. A home-relative path (`~/.config`) names no user and
+  is accepted; a path under `/home/<user>/` or `/Users/<user>/` is refused.
 - `record-write.sh`, `record-holding.sh`: call the write core; `record-write.sh` refuses a body
-  whose Decisions section differs from the live one's.
+  whose Decisions section differs from the live one's. Exit 13 (`record-full`) is in both
+  scripts' exit-code contracts, and `dispatch-common.sh` reports it as a full record rather
+  than a generic write failure.
+- `record-write-core.sh`: its header states what a caller must provide (a `usage` function, no
+  `set -e`, no EXIT trap of its own before the call) and that `core_write` takes over `T` and
+  the EXIT trap and exits on every refusal. A structure test keeps `DECISIONS_WRITER=1` out of
+  every script but `record-decision.sh`.
 - `record-open.sh`: refuses a body that has a Decisions section.
-- `closeout-read.sh`: a `decisions` stage before `ready` at roadmap scope; the handoff check
+- `reconcile-salvage.jq`: the row-by-row reader reconcile falls back to on a non-canonical
+  record takes the fifth section too, so a record or handoff with a Decisions section and one
+  bad row is salvaged rather than read as unreadable.
+- `closeout-read.sh`: a `decisions` stage before `ready` at roadmap scope, blocking on an entry
+  that is unsettled or still owes a message, the same test compaction uses; the handoff check
   expects the filtered section.
 - `predecessor-handoff.sh`: its key list gains `decisions`, and it copies the section as it
   stands.
@@ -774,14 +799,23 @@ reaches a person.
 | `coord-log.sh` (changed) | the scripts | `current`, the state the session is in now |
 | `render-brief.sh` (changed, dispatch path's) | `dispatch-worker.sh` | The fixed channel sentence, the `Questions:` shape and the repeat-unanswered instruction in Reporting |
 
-`coord-verdict.sh` gains codes for the new words (`carry`, `unrecorded-open`,
-`unrecorded-answer`, `unrecorded-evidence`, `unrecorded-raise`, `withdraw`, `reply`,
-`redirect`, `escalate`, `take`, `verdict`, `clear`, `clear-report`, `questions`, `overflow`,
-`unreadable`, `accepted`, `decision-owed`, `decisions`, `message`, `record-full`), taken from
-the first free block on the default branch the work starts from, since the dispatch path adds
-words of its own. `coord-verdict.sh` routes on a token's first word, so each route has its own
-word; `refused` and `none` reuse their existing codes, which the table allows because it is
-global. `rendered` is already `predecessor_handoff`'s 110, and a second label for it in the
+`coord-verdict.sh` gains codes for the new words, taken from the first free block on the
+default branch the work starts from. On that branch the dispatch path added no verdict word,
+reconcile added `reconciled` (140), and the record reader added `decisions` (136), so the first
+free block is 150:
+
+| State | Words and codes |
+|---|---|
+| `dispatch_check` | `decision-owed` 45 |
+| `pick_facts` | `decisions` 136, the code `roadmap_close` already routes |
+| `decision_next` | `carry` 150, `unrecorded-open` 151, `unrecorded-answer` 152, `unrecorded-evidence` 153, `unrecorded-raise` 154, `withdraw` 155, `reply` 156, `redirect` 157, `escalate` 158, `take` 159, `verdict` 160, `clear` 161, `clear-report` 162, `record-full` 163 |
+| `report_questions` | `questions` 170, `overflow` 171, `unreadable` 172, `none` 11 |
+| the render states | `message` 180, `refused` 62 |
+| `surface_check` | `accepted` 190, `refused` 62 |
+
+`coord-verdict.sh` routes on a token's first word, so each route has its own word; `refused`,
+`none` and `decisions` reuse their existing codes, which the table allows because it is
+global and each state has its own arms. `rendered` is already `predecessor_handoff`'s 110, and a second label for it in the
 `case` would never run, so the render states print `message` instead, and
 `coord-verdict-table_test.sh` gains a check that no word appears twice.
 
@@ -836,8 +870,22 @@ decision_next --(clear-report)--> classify_report | --(clear)--> pick_facts
 ## Implementation Approach
 
 Implementation starts from a default branch that contains the dispatch path (shirabe#404)
-and reconcile (shirabe#406), and uses the koto floor shirabe declares then (0.14.0 once
-shirabe#457 has landed). It lands in two pull requests.
+and reconcile (shirabe#406), and uses the koto floor shirabe declares then (0.14.1). It lands
+in two pull requests.
+
+The seams this design names were re-read against that branch before the second pull request
+started. They hold as described, with these differences, which the sections above now carry:
+`reconcile` reaches `pick_facts` directly when the posture is readable; the reconcile report
+puts a closed pull request in "Blocked on you" as a bare decision (Decision 5 moves it); the
+koto floor is 0.14.1; and the first free verdict block is 150. `take_report` gates
+`worker_report` and checks a leg report against the result koto holds; a message report fills
+it with the relayed text and a leg report with a fixed line of the result's fields; both set
+`report_topic`, which is the source when there is no holding. `report_facts` prints `holding`
+(60), `unknown` (61) or `refused` (62). `render-brief.sh`'s Reporting section asks for
+"numbered questions" with no fixed heading, so the `Questions:` shape is new. Its `decisions`
+input key holds decisions already made and passed to a worker, a different thing from the
+record's section of the same name. `coord-log.sh` has every reader the scripts need except
+`current`.
 
 The first carries the record change alone: the phrasing list, the Decisions section in the
 codec, the write core, and the refusals in `record-write.sh` and `record-open.sh`. It writes no
