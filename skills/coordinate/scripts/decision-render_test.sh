@@ -157,6 +157,9 @@ case "$(msg)" in *"go to the coordinator"*"answers each one"*"escalates it with 
 refused "redirect: a report that has had its redirect is refused" \
     "[$(printf '%s' "$REDIRECT" | jq -c --arg a "$ADDRESSED" '.evidence = $a + "\n2026-09-26T09:05Z this coordinator [20260926T080000Z redirect 12]: redirect sent"')]" \
     "redirect 7 12" decision_redirect redirect
+refused "redirect: a report whose redirect is recorded on another of its entries is refused" \
+    "[$REDIRECT, $(printf '%s' "$REDIRECT" | jq -c '.decision = "8" | .source = "worker w1 [20260926T080000Z report 12.2]" | .evidence = "2026-09-26T09:05Z this coordinator [20260926T080000Z redirect 12]: redirect sent"')]" \
+    "redirect 7 12" decision_redirect redirect
 refused "redirect: an entry no report of this run wrote is refused" \
     "[$(printf '%s' "$REDIRECT" | jq -c '.source = "worker w1 [20260925T080000Z report 12.1]" | .evidence = ""')]" "redirect 7 12" decision_redirect redirect
 refused "redirect: a report that addressed no one is refused" \

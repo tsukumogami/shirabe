@@ -28,7 +28,7 @@
 #               its log sequence; entry <n> holds this run's `report <seq>.<i>`
 #               stamp; some entry holds that report's addressed mark (the
 #               codec's d_addressed_mark, an Evidence line record-decision.sh
-#               --open-from-report writes); and entry <n> has no Evidence line
+#               --open-from-report writes); and no entry has an Evidence line
 #               stamped `redirect <seq>`, which --sent writes. Stamps are read by
 #               position (the codec's d_stamps), never from a line's text.
 #
@@ -154,7 +154,7 @@ jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slur
     if any(d_stamps[]; of_report) | not then "entry \(.decision) holds nothing from report \($rep) of this run"
     elif any($sec[0].entries[] | d_stamps[]; of_report and (.text | startswith(d_addressed_mark))) | not
       then "report \($rep) asked no one but the coordinator"
-    elif any(d_stamps[]; .run == $run and .kind == "redirect" and .seq == $rep) then "report \($rep) has had its redirect"
+    elif any($sec[0].entries[] | d_stamps[]; .run == $run and .kind == "redirect" and .seq == $rep) then "report \($rep) has had its redirect"
     else "" end
   end' -L "$HERE" "$T/entry.json" > "$T/why" 2> "$T/jq.err" || { cat "$T/jq.err" >&2; lib_die2 "cannot check entry $N"; }
 [ -s "$T/why" ] && [ "$(cat "$T/why")" != "" ] && refuse "$(cat "$T/why")"
