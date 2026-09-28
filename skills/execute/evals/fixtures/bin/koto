@@ -44,6 +44,89 @@ fi
 # Normalize args for pattern matching
 ARGS="$*"
 
+# Session state, for a scenario whose run has to read back what it did: the
+# context keys the skill added, the context a transition assigned, and the
+# state a tick landed on. It needs KOTO_CALL_LOG (the eval's `env` declares
+# it); the state lives in "$KOTO_CALL_LOG.d" and every call is appended to the
+# log. Without it the shim is stateless, as it always was.
+STATE_DIR=""
+if [ -n "${KOTO_CALL_LOG:-}" ]; then
+  STATE_DIR="$KOTO_CALL_LOG.d"
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$ARGS" >> "$KOTO_CALL_LOG"
+fi
+
+# key_file <session> <key> -- where a stored context key lives.
+key_file() {
+  printf '%s/ctx/%s/%s' "$STATE_DIR" "$1" "$(printf '%s' "$2" | tr '/' '_')"
+}
+
+# An execute session's tick: `next execute-<slug> [--with-data <json|@file>]`.
+# A bare tick answers koto-next-execute.json. A tick with evidence answers
+# koto-next-execute-<field>-<value>.json for the first string field that has
+# one, so the answer follows what the agent submitted. With session state, the
+# tick also records the state it landed on for `status`, and applies the
+# fixture's <name>.context.json: a map of context keys to values in which
+# ${evidence.<field>} stands for the submitted field, as a transition's
+# context_assignments would. A tick with no fixture falls through to the
+# no-match error below.
+if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; then
+  wf=$2
+  data=""
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--with-data" ] && data=$a
+    prev=$a
+  done
+  case "$data" in @*) data=$(cat "${data#@}") ;; esac
+
+  fixture=""
+  if [ -z "$data" ]; then
+    if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ] \
+        && jq -e '.action == "done"' "$STATE_DIR/last/$wf.json" >/dev/null 2>&1; then
+      # A finished session answers every later tick with its terminal.
+      fixture="$STATE_DIR/last/$wf.json"
+    elif [ -f "$SCENARIO_DIR/koto-next-execute.json" ]; then
+      fixture="$SCENARIO_DIR/koto-next-execute.json"
+    fi
+  else
+    command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
+    fields=$(printf '%s' "$data" | jq -r 'to_entries[] | select(.value | type == "string") | "\(.key)=\(.value)"' 2>/dev/null) \
+      || { echo "koto shim: --with-data is not a JSON object: $data" >&2; exit 2; }
+    while IFS= read -r kv; do
+      case "$kv" in
+        *[!A-Za-z0-9._=-]*|"") continue ;;
+      esac
+      f="$SCENARIO_DIR/koto-next-execute-${kv%%=*}-${kv#*=}.json"
+      if [ -f "$f" ]; then fixture=$f; break; fi
+    done <<EOF_FIELDS
+$fields
+EOF_FIELDS
+  fi
+
+  if [ -n "$fixture" ]; then
+    if [ -n "$STATE_DIR" ] && [ "$fixture" != "$STATE_DIR/last/$wf.json" ]; then
+      mkdir -p "$STATE_DIR/last" "$STATE_DIR/status"
+      cp "$fixture" "$STATE_DIR/last/$wf.json"
+      jq -c --arg wf "$wf" '{current_state: .state, is_terminal: (.action == "done"), name: $wf}
+        + (if .result then {result: .result} else {} end)' "$fixture" > "$STATE_DIR/status/$wf.json"
+      assignments="${fixture%.json}.context.json"
+      if [ -f "$assignments" ]; then
+        evidence=$data
+        [ -n "$evidence" ] || evidence='{}'
+        for key in $(jq -r 'keys[]' "$assignments"); do
+          mkdir -p "$STATE_DIR/ctx/$wf"
+          jq -j --arg k "$key" --argjson ev "$evidence" \
+            '.[$k] | gsub("\\$\\{evidence\\.(?<f>[A-Za-z0-9_]+)\\}"; ($ev[.f] // "" | tostring))' \
+            "$assignments" > "$(key_file "$wf" "$key")"
+        done
+      fi
+    fi
+    cat "$fixture"
+    exit 0
+  fi
+fi
+
 case "$ARGS" in
   "version"|*"--version"*)
     echo '{"version":"0.2.1"}'
@@ -84,6 +167,10 @@ case "$ARGS" in
     exit 0
     ;;
   "status"|"status "*)
+    if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/status/${2:-}.json" ]; then
+      cat "$STATE_DIR/status/$2.json"
+      exit 0
+    fi
     if [ -f "$SCENARIO_DIR/koto-status.json" ]; then
       cat "$SCENARIO_DIR/koto-status.json"
       exit 0
@@ -106,12 +193,39 @@ case "$ARGS" in
       exit 0
     fi
     ;;
+  "context add "*)
+    # Stored only with session state; without it this stays unmatched, as it
+    # always was.
+    if [ -n "$STATE_DIR" ] && [ -n "${4:-}" ]; then
+      mkdir -p "$STATE_DIR/ctx/$3"
+      if [ "${5:-}" = "--from-file" ] && [ -n "${6:-}" ]; then
+        cat "$6" > "$(key_file "$3" "$4")"
+      else
+        cat > "$(key_file "$3" "$4")"
+      fi
+      exit 0
+    fi
+    ;;
+  "context exists "*)
+    if [ -n "$STATE_DIR" ] && [ -n "${4:-}" ]; then
+      if [ -f "$(key_file "$3" "$4")" ] \
+          || [ -f "$SCENARIO_DIR/koto-context-$(printf '%s' "$4" | tr '/' '_')" ]; then
+        exit 0
+      fi
+      exit 1
+    fi
+    ;;
   *"context get"*)
     # A key-named fixture wins: koto-context-<key> answers `context get <WF>
     # <key>` for that key alone. The drift check reads two keys koto's own
     # drift_facts action wrote (drift_facts.json, plan_intent.md), and the
     # batch view below would be the wrong answer for either.
     set -- $ARGS                  # context get <WF> <KEY>
+    # A key this run stored, or a transition assigned, wins over any fixture.
+    if [ -n "$STATE_DIR" ] && [ -n "${4:-}" ] && [ -f "$(key_file "$3" "$4")" ]; then
+      cat "$(key_file "$3" "$4")"
+      exit 0
+    fi
     if [ -n "${4:-}" ] && [ -f "$SCENARIO_DIR/koto-context-$(printf '%s' "$4" | tr '/' '_')" ]; then
       cat "$SCENARIO_DIR/koto-context-$(printf '%s' "$4" | tr '/' '_')"
       exit 0

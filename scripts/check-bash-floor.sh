@@ -156,6 +156,8 @@ suite_scripts() {
             echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
             echo "skills/execute/scripts/print-exit_test.sh"
             echo "skills/execute/scripts/eval-gh-shim_test.sh"
+            # The eval koto shim on an execute session; needs only jq.
+            echo "skills/execute/scripts/eval-koto-shim_test.sh"
             # Its own refusals run on a koto stub; its engine cases, like the
             # structure test's compile, skip without koto.
             echo "skills/execute/scripts/execute-open_test.sh"
