@@ -178,7 +178,7 @@ booleans.**
 
 ### Choice form, worst case across both runs
 
-| Criterion | Pass on good | False-fail on good | False-pass on bad | Fail on bad | Pass on adversarial | Input bytes (min/median/max) | Bar met |
+| Criterion | Pass on good | False-fail on good | False-pass on bad | Fail on bad | Pass on adversarial | Input bytes (min/median/max) | Bar met (22 bad of either kind) |
 |-----------|--------------|--------------------|-------------------|-------------|---------------------|------------------------------|---------|
 | `pr_body_summary` | 11/12 (92%) | 0/12 | **5/22 (23%)** | 11/22 | 0/6 | 39/236/2146 | no |
 | `comment_reason` | 10/12 (83%) | 0/12 | 0/22 | 19/22 | 0/6 | 107/277/709 | yes |
@@ -208,6 +208,29 @@ overlap across most of the range, so the bar holds only because Jev hardly
 ever reaches 0.9 on this criterion at all. `hedge_deferral` never passes
 good text (its best good fixture reached 0.77), so it meets the bar by never
 passing anything.
+
+### The bar, read literally
+
+The bar as the strategy states it asks for at least 20 seeded-bad fixtures.
+What this spike measured is at least 20 bad fixtures of either kind: each
+criterion has 22, and some of them are natural (real shirabe text that
+already breaks the rule) rather than seeded. The split per criterion:
+
+| Criterion | Seeded | Natural | Bar met on 22 bad of either kind | 20 or more seeded |
+|-----------|--------|---------|----------------------------------|-------------------|
+| `pr_body_summary` | 19 | 3 | no | no |
+| `comment_reason` | 8 | 14 | yes | no |
+| `ac_binary` | 14 | 8 | yes | no |
+| `doc_altitude` | 19 | 3 | yes | no |
+| `pr_title_type` | 22 | 0 | no | yes |
+| `hedge_deferral` | 13 | 9 | yes | no |
+
+None of the four criteria that meet the bar has 20 seeded-bad fixtures, so
+none of them meets the bar's literal wording. They meet it on 22 bad
+fixtures of either kind, with no false pass among them. Natural bad text is
+arguably the harder test, since nobody wrote it to be caught, but it isn't
+what the bar names. Topping each of the four up to 20 seeded fixtures would
+settle the literal reading.
 
 ### What slipped through
 
@@ -284,8 +307,13 @@ numbers stand for what a koto declaration would see.
 
 ## Recommendation
 
-Declare any criterion that goes forward as a two-value enum with an escape,
-never as a boolean. Per criterion:
+This spike clears criteria for a decider design, not for promotion: a Jev
+pass still has to earn trust from a non-agent oracle, such as review, CI or
+human findings, before it lets a workflow advance. Declare any criterion
+that goes forward as a two-value enum with an escape, never as a boolean.
+The "bar met" verdicts below are on 22 bad fixtures of either kind, and none
+of the criteria that meet it has 20 seeded (see "The bar, read literally").
+Per criterion:
 
 - **`comment_reason`: worth a decider design.** No false passes and no
   adversarial passes in either run, through the direct API or through koto's
