@@ -1,0 +1,30 @@
+#schema	coordinate-entry-points/v1
+#
+# The entry points a coordinator may dispatch a worker into, read by
+# skills/coordinate/scripts/dispatch-common.sh. Five tab-separated fields:
+#
+#   1 skill     the shirabe skill the worker runs, as /shirabe:<skill>
+#   2 leg       the koto request leg the skill answers with --koto-leg, or -
+#               when the skill doesn't accept --koto-leg. A skill answers only
+#               its own leg name, so this is fixed per skill.
+#   3 template  the template file names a leg admits on attach, comma-joined,
+#               or - with no leg
+#   4 pinned    the leg inputs to pin, as VAR=source pairs comma-joined, or -.
+#               Sources: `arg` (the positional argument) and `plan-slug` (the
+#               positional PLAN path's slug, PLAN-<slug>.md).
+#   5 flags     the flags a brief may give the skill, comma-joined, or -. A
+#               trailing `=*` admits any value after the `=`. --koto-leg is in
+#               no row: the dispatch script adds it. --upstream is in no row:
+#               it takes a separate value token the allow-list can't vet.
+#
+# /deliver and /work-on answer legs since shirabe#407. /work-on answers its
+# leg only for an issue or a task, never for a PLAN path, so dispatch-worker.sh
+# opens no leg for a /work-on worker whose argument is one.
+#
+scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*
+execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge
+deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*
+work-on	work-on	work-on.md	-	--auto,--interactive
+explore	-	-	-	--auto,--interactive
+decision	-	-	-	--auto
+coordinate	-	-	-	-

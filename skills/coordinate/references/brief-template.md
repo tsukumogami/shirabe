@@ -1,14 +1,63 @@
 # Worker Brief Template
 
 A brief is the worker's only context: it starts in a fresh session with
-none of yours. Load this file at the dispatch step and fill in every
-section.
+none of yours. A section left out is something a worker starting cold can't
+notice is missing, so a brief isn't written by hand: at the dispatch step
+you assemble one JSON input, and `scripts/render-brief.sh` checks every
+field and renders the brief below from it, section by section, adding the
+lines every brief carries. It refuses an incomplete input and writes
+nothing. Load this file at the dispatch step for what each section needs.
 
 Point at artifacts; don't paste them. Name a pushed document, issue or
 pull request by path, number or URL and let the worker read it. Text you
 copied out of a pull request, a log or another worker's report doesn't go
 in a brief, because the brief carries your words and the worker should read
 the source itself.
+
+## The Input
+
+One JSON object, stored in your koto session as `brief_input.json`. The
+script's header lists every field and its rule; this is the shape:
+
+```json
+{
+  "topic": "plugin-loader",
+  "repo": "acme/widgets",
+  "unit": "Feature 2 of ROADMAP-plugin-system",
+  "entry_point": "deliver",
+  "entry_args": ["plugin-loader"],
+  "run_mode": "--auto",
+  "phase": "executing",
+  "authority": "You are working for the maintainers of acme/widgets to build feature 2 of ROADMAP-plugin-system; open the pull request, report, and stop there.",
+  "goal": "Plugins load from the configured directory at startup.",
+  "checkpoints": [
+    "The scoping pull request is open.",
+    "The pull request is ready with every CI job green, read job by job."
+  ],
+  "acceptance": ["Plugins in the configured directory load at startup."],
+  "dispatcher_session": "<your session name>",
+  "decisions": [{"decision": "Feature 3 waits until the 1.4 release ships.", "by": "the human"}],
+  "read_first": ["docs/roadmaps/ROADMAP-plugin-system.md"],
+  "out_of_scope": ["Feature 3, which a sibling worker holds."],
+  "surfaces": [{"surface": "ci-health", "coordinator": "<its session name>"}],
+  "standing_rules": ["<the workspace's own rules for workers, copied verbatim>"]
+}
+```
+
+The first twelve fields are required; the rest add lines to their
+sections. `entry_args` is the positional argument and any flags the entry
+point allows (`references/entry-points.tsv`), and `run_mode` holds the
+execution flags. `phase` is `scoping-ahead` or `executing`. No checkpoint
+may wait on an approval, and no value may carry a session id.
+`standing_rules` is where the workspace's own rules for workers go, such as
+where to start a koto session; they come from the workspace, and the brief
+carries them verbatim under a Workspace rules heading.
+
+The rendered brief also names both reporting channels (status and blockers
+to your session, the only source of direction; tooling problems to the
+discipline coordinator for the surface), shows the invocation with
+`--koto-leg` when the worker reports through a request leg, and adds the
+settings-file line and the keep-alive note.
 
 ## The Worker's Authority
 
@@ -20,6 +69,13 @@ the brief then carries the task. For example: "You are working for
 the pull request, report, and stop there."
 
 ## The Brief
+
+The block below is illustrative: it shows what each section holds, not the
+rendered text. `render-brief.sh` writes its own wording for each section,
+opens the Goal with the authority and the exact invocation, and adds a
+Workspace rules section (when `standing_rules` has any) and a Keep-alive
+section; `render-brief_test.sh` keeps the section headings here and the
+rendered ones the same.
 
 ```markdown
 # Brief: <unit of work>
@@ -117,7 +173,10 @@ niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.
 ```
 
 Record the holding under the dispatch topic you passed, with
-`record-holding.sh`, before any other action.
+`record-holding.sh`, before any other action. `scripts/dispatch-worker.sh`
+does all of this: it renders the brief to that path, opens the request leg
+when the entry point takes one, writes the holding, runs the dispatch, and
+confirms the holding on the record.
 
 ## What a Brief Leaves Out
 

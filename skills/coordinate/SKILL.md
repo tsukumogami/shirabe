@@ -169,6 +169,35 @@ A deferral is the successor's to dispose of before its first dispatch: file it
 as an issue, close it, or carry it forward with a reason. A roadmap coordinator
 that finishes files or closes every open deferral, because nobody succeeds it.
 
+## Dispatch, Wait and Teardown
+
+Three parts of the loop run through scripts, so the step a check depends on
+happens the same way every time. Each state's guidance names its script; the
+states never ask you to do these steps by hand.
+
+- **Dispatch.** A roadmap feature to be built goes to `/shirabe:deliver`; one
+  scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
+  issue goes to `/shirabe:work-on`. The brief lists the checkpoints the worker
+  reports at and waits on no approval.
+  `scripts/render-brief.sh` renders a worker's brief from one
+  JSON input and refuses an incomplete one; `scripts/dispatch-worker.sh`
+  renders it, writes the holding, runs the workspace manager's dispatch and
+  confirms the holding. The `dispatch` state can't be left until
+  `scripts/holding-recorded.sh` reads the holding on the record as
+  dispatched. The worker's return path is chosen here: a request leg when its
+  entry point accepts `--koto-leg` (`references/entry-points.tsv`), a message
+  otherwise.
+- **Wait.** A message report goes through the hub; a leg-bound worker's result
+  is read from its leg by `scripts/wait-target.sh`, once. Both pass
+  `take_report`, where `scripts/report-source.sh` refuses a message standing
+  in for a leg-bound worker. The report's classification is yours; the
+  workflow's own suggestion is recorded next to it in shadow and never routes.
+- **Teardown.** After the worker's session is stopped,
+  `scripts/teardown-inventory.sh` inventories its instance by content and
+  seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is
+  what the destroy step reads the instance from. Unique material is promoted
+  into an issue or pull request first, and only the one instance is destroyed.
+
 ## Bounds and Authority
 
 **A cap on active workers, kept full.** Run at most `--cap` active workers
@@ -286,11 +315,8 @@ way.
 
 ## What This Version Leaves for Later
 
-Two named features build on this one. The dispatch path compiles a worker's
-brief, records a dispatch automatically, and binds a worker's result back to the
-workflow; until it lands, the dispatch and wait states follow the prose in their
-guidance. Reconcile mechanises the full re-check the reconcile state describes;
-until then it is a procedure the coordinator runs with a local agent.
+Reconcile mechanises the full re-check the reconcile state describes; until
+it lands, it is a procedure the coordinator runs with a local agent.
 
 ## Known Limitations
 
@@ -314,13 +340,16 @@ until then it is a procedure the coordinator runs with a local agent.
   koto 0.14.0 and later record a wake when a leg a session waits on resolves,
   readable with `koto request watch`. This skill
   doesn't watch for it yet, so the coordinator still ticks the workflow on each
-  message or notification. Wakes are local to one machine either way.
+  message or notification, and a resolved leg waits for the next tick, which a
+  message, a notification or the quiet-worker check brings. Wakes are local to
+  one machine either way.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
   0.14.0 and later refuse a directed transition past a failing non-overridable
   gate, so no check can be skipped that way. The seal stays as defence in depth:
   each check's verdict is sealed to the visit that produced it, and every write
   script and later reader scans the session log and refuses after any directed
-  transition.
+  transition. The teardown inventory is sealed the same way, and the destroy
+  step's reader refuses after a directed entry.
 - **Checks run in the coordinator's own environment (koto#261).** koto runs
   every action and gate with the environment of the `koto next` call that
   triggered it. A `PATH` entry can stand in for `gh`, `jq` or `git`, and so can an
@@ -329,9 +358,6 @@ until then it is a procedure the coordinator runs with a local agent.
   checks hold against a wrong submitted value or a skipped step. They don't hold
   against a coordinator that rewrites its own tools, or its files, which no fix
   to the environment covers.
-- **A leg isn't bound at dispatch (shirabe#401, fixed by shirabe#407).** All four
-  entry points now accept `--koto-leg`, but binding a leg at dispatch is the
-  dispatch path's work, so until it lands a dispatched worker reports by message.
 - **One machine and one HOME (no tracking issue: a property of koto's per-user store).** koto's request and session stores
   are per-user and machine-wide under the koto home, so a coordinator and the
   workers that answer its legs share one machine and one HOME, and a worker on
@@ -339,9 +365,25 @@ until then it is a procedure the coordinator runs with a local agent.
   live worker on a topic already held collides with the first (koto refuses the
   attach as `origin_mismatch` and records nothing on a leg already bound), so the
   dispatch check refuses a topic a Holdings row already names.
-- **The workspace manager isn't checked at load.** The coordinator runs the
-  workspace manager's dispatch and list commands, which the load-time preflight
-  can't check. Declaring it is the dispatch path's item.
+- **One topic per worker.** A unit dispatched again after a failure takes a new
+  topic: the dispatch script refuses a topic whose session is still live.
+- **A worker launched outside the dispatch script can't be adopted.** The
+  dispatch script refuses a topic whose session is already live, so a worker
+  started by hand never gets a holding through it. Stop that worker's session
+  and dispatch the unit again through the script, under a new topic.
+- **Session names aren't predictable (niwa#325).** niwa appends a random token to
+  the name it's given and doesn't report the launched session in a
+  machine-readable form, so the dispatch script reads the name from the dispatch
+  output or `niwa list --json` and matches it by its whole shape. The name is
+  used to message the worker and is never recorded.
+- **No workspace root from niwa (niwa#326).** The scripts find the workspace root
+  by walking up from the working directory, guarded against a repository's own
+  workspace configuration; a coordinator started outside the workspace can't
+  dispatch.
+- **Destroy refuses squash-merged branches (niwa#322).** `niwa destroy` treats a
+  branch whose pull request was squash-merged as unmerged, so the destroy step
+  needs `--force`, passed only after the sealed inventory proved every
+  repository durable.
 
 ## Changing This Skill
 

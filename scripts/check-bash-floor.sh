@@ -363,6 +363,13 @@ suite_scripts() {
             echo "skills/coordinate/scripts/skill-hygiene_test.sh"
             echo "skills/coordinate/scripts/progress-view_test.sh"
             echo "skills/coordinate/scripts/coord-verdict-table_test.sh"
+            # The dispatch path's scripts: test-local niwa, koto, gh and record
+            # stand-ins, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/dispatch-common_test.sh"
+            echo "skills/coordinate/scripts/render-brief_test.sh"
+            echo "skills/coordinate/scripts/dispatch-worker_test.sh"
+            echo "skills/coordinate/scripts/wait-target_test.sh"
+            echo "skills/coordinate/scripts/teardown-inventory_test.sh"
             ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the
