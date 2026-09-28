@@ -1,9 +1,8 @@
 ---
 name: coordinate
 version: "1.0"
-# The session is a root on every tick (`koto next --no-cleanup`); see
-# references/koto-session-retention.md. Nothing materializes this template as
-# a child.
+# Every `koto next` on this session carries --no-cleanup; see
+# references/koto-session-retention.md.
 #
 # Every check-state arm carries its verdict word as a comment
 # (`exit_code: 14  # foreign`); the word-to-code table is

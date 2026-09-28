@@ -73,7 +73,7 @@
 # in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 #
-# The koto floor. /work-on needs koto 0.14.0, shirabe's koto minimum
+# The koto floor. /work-on needs koto 0.14.1, shirabe's koto minimum
 # (scripts/assert-koto-floor.sh). 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no

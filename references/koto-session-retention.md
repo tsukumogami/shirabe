@@ -14,7 +14,7 @@ property of koto's session disposal, not of any one skill. Five skills drive
 koto; an argument copied into each drifts, and shirabe#360 demonstrated the
 drift before the copies were consolidated.
 
-It describes koto 0.14.0 and later, shirabe's koto minimum
+It describes koto 0.14.0 and later. shirabe's koto minimum is 0.14.1
 (`scripts/assert-koto-floor.sh`).
 
 ## What koto does
@@ -45,7 +45,8 @@ reports its state (`current_state`, `is_terminal`), and `koto context get <name>
 <key>` reads any context key, including the `failure_reason` a blocked edge
 writes. For a kept child, the parent's `retry_failed` and `koto rewind` still
 act on it. Kept children are removed along with their parent, and `koto
-workspace prune` and `koto session cleanup <name>` reclaim any kept session.
+workspace prune --root <name>` (which reclaims that session and its children)
+and `koto session cleanup <name>` reclaim any kept session.
 
 ## The rule
 

@@ -21,7 +21,10 @@
 # ONE VALUE
 #
 # The minimum is the FLOOR line of scripts/assert-koto-floor.sh, read from the
-# plugin root the entry point validated -- never $PWD, and never KOTO_FLOOR from
+# plugin root the entry point validated with builtins rather than through
+# `assert-koto-floor.sh --print-floor`, which every other reader uses, because
+# the satisfied load path forks nothing but `koto version`. The consistency
+# test holds the two reads equal. Never $PWD, and never KOTO_FLOOR from
 # the environment, which only the CI script honours. That line's shape is a
 # runtime contract; assert-koto-floor.sh's header says so. requires.tsv still
 # carries no version.

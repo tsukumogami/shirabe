@@ -8,9 +8,9 @@
 # and at `merged`, `ready_awaiting_merge` or `done` otherwise; each loses its
 # context without `koto next --no-cleanup` (#360). The pause is the worst loss
 # -- it is solicited, and what dies with it is what a resume reads. From koto
-# 0.14.0, shirabe's koto minimum, `done_blocked` is a failure terminal koto
-# keeps either way, so its cases assert the record survives with and without
-# the flag.
+# 0.14.0 on, `done_blocked` is a failure terminal koto keeps either way, so its
+# cases assert the record survives with and without the flag. The suite assumes
+# a koto at shirabe's minimum (scripts/assert-koto-floor.sh).
 #
 # `/execute` passes the flag on every tick, as every shirabe skill does. Case
 # groups, in execution order -- deliberately not numbered, because a numbered
@@ -284,15 +284,16 @@ k() { (cd "$FIXREPO" && koto "$@"); }
 
 # --- the plugin root ------------------------------------------------------------
 #
-# koto validates a variable's value against ^[a-zA-Z0-9._/:@ \-]*$, and a
-# checkout under a directory with a `+` in it fails that. The actions these cases
+# koto validates a variable's value against ^[a-zA-Z0-9._/:@+ \-]*$, and a
+# checkout under a directory whose name carries a character outside it (a
+# quote, a `$`, a comma; a `+` before koto 0.14.1) fails that. The actions these cases
 # run (the write set, the verdict, the confirm read) live in the plugin, so the
 # plugin root has to be real: this checkout's path when it is clean, a symlink in
 # the temp tree when that is clean, and otherwise -- a temp tree that is itself
 # under such a directory -- a copy of the template with this checkout's path
 # written where {{PLUGIN_ROOT}} stood, under a stand-in PLUGIN_ROOT. The copy is
 # the one departure from "the shipped template", and the note says so.
-KOTO_ALLOW='^[a-zA-Z0-9._/:@ -]*$'
+KOTO_ALLOW='^[a-zA-Z0-9._/:@+ -]*$'
 TPL="$TEMPLATE"
 if [[ $REPO_ROOT =~ $KOTO_ALLOW ]]; then
     PLUGIN_ROOT_VAR="$REPO_ROOT"
