@@ -1,8 +1,7 @@
 ---
 status: Accepted
 decision: |
-  execute-open.sh refuses a multi-pr plan, listed with its other refusals,
-  and names /work-on as the entry point.
+  The policy owner picked "Refuse, point to /work-on". execute-open.sh refuses a multi-pr PLAN and names /work-on as the entry point.
 rationale: |
   /execute's SKILL.md says multi-pr PLANs are out of scope and belong to
   /work-on, and /deliver and /scope route them there, but execute-open.sh ran
@@ -34,17 +33,17 @@ multi-pr PLANs to /work-on. What runs:
 
 ## Decision
 
-execute-open.sh refuses a multi-pr plan, listed with its other refusals, and
-names /work-on as the entry point.
+The policy owner picked "Refuse, point to /work-on". execute-open.sh refuses a multi-pr PLAN and names /work-on as the entry point.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
 - This is the DESIGN's option 1, which was the recommendation.
-- The refusal joins the listed pre-init refusals in `skills/execute/SKILL.md`
-  and gets a test in `execute-open.sh`'s suite. It lands in the execute pull
-  request of the contradiction-settlement PLAN.
+- The refusal is listed with /execute's other pre-init refusals in
+  `skills/execute/SKILL.md` and gets a test in `execute-open.sh`'s suite. It
+  lands in the execute pull request of the contradiction-settlement PLAN.
 
 ## Options Considered
 

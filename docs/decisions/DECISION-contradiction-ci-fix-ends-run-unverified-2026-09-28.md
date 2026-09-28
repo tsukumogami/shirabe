@@ -1,8 +1,7 @@
 ---
 status: Accepted
 decision: |
-  failing_fixed loops back to ci_monitor; the fallback goes to done_blocked.
-  Bounded by the retry-caps decision's CI cap.
+  The policy owner picked "Loop back to CI". The failing_fixed outcome loops back to ci_monitor, and the fallback edge goes to done_blocked.
 rationale: |
   /work-on promises a pull request with passing CI, and callers rely on that
   promise. Today a CI fix ends the run without CI being checked again, so a
@@ -39,15 +38,15 @@ unfinished CI.
 
 ## Decision
 
-failing_fixed loops back to ci_monitor; the fallback goes to done_blocked.
-Bounded by the retry-caps decision's CI cap.
+The policy owner picked "Loop back to CI". The failing_fixed outcome loops back to ci_monitor, and the fallback edge goes to done_blocked.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
 - This is the DESIGN's option 1, which was the recommendation.
-- The CI cap is the one in
+- The loop is bounded by the retry-caps decision's CI cap, the one in
   `DECISION-contradiction-retry-caps-2026-09-28.md`: 3 fix pushes, then stop
   as unresolvable.
 - The routing change lands in /work-on's template in the work-on pull request

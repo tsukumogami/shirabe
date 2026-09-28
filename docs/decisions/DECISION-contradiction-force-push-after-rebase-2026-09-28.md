@@ -1,13 +1,7 @@
 ---
 status: Accepted
 decision: |
-  When behind main, catch up by merging origin/main into the branch, never
-  rebasing, and push without force, in both work-on and execute. Every place
-  the inventory names as rebase text becomes merge text, including
-  worktree-discipline.md and scope's phase-2 rebase section. Any gate that
-  means 'rebased' (execute's worktree_sync, rebased_on_main) must test ancestry
-  (origin/main is an ancestor of HEAD); any gate or script asserting linear
-  history or no merge commits changes in the same item.
+  The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch rather than rebasing, and it pushes without force.
 rationale: |
   The skills disagreed about what happens when a branch falls behind main.
   /work-on's phase-6 reference said to rebase and push with --force-with-lease,
@@ -52,18 +46,19 @@ means the gate judged a tip that no longer ships.
 
 ## Decision
 
-When behind main, catch up by merging origin/main into the branch, never
-rebasing, and push without force, in both work-on and execute. Every place
-the inventory names as rebase text becomes merge text, including
-worktree-discipline.md and scope's phase-2 rebase section. Any gate that
-means 'rebased' (execute's worktree_sync, rebased_on_main) must test ancestry
-(origin/main is an ancestor of HEAD); any gate or script asserting linear
-history or no merge commits changes in the same item.
+The policy owner answered: "Merge main in, no force". When a branch falls behind main, it catches up by merging main into the branch rather than rebasing, and it pushes without force.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
+- Merge text replaces rebase text everywhere the inventory names it,
+  including `references/worktree-discipline.md` and /scope's Phase 2 rebase
+  section.
+- Gates that mean "rebased" (execute's `worktree_sync`, `rebased_on_main`)
+  test ancestry: origin/main is an ancestor of HEAD. Any gate or script
+  asserting linear history or no merge commits changes in the same item.
 - This is a new option. The DESIGN listed three: never rebase at PR time and
   never force-push (option 1), rebase if behind before verification with a
   plain push only (option 2, the recommendation), and allow

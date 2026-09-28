@@ -1,11 +1,7 @@
 ---
 status: Accepted
 decision: |
-  Wire it into the koto workflow itself; drop current-context.md; earlier
-  children's summaries become readable through koto calls. First check
-  whether a child session can read the parent's koto context today. If that
-  needs a koto capability, report it before building anything, and make no
-  koto change under this feature.
+  The policy owner answered: "wire it into the koto workflow itself, ditch the file, make it readable through koto calls".
 rationale: |
   /execute advertises carrying earlier children's summaries forward to later
   ones, and its evals assert it, but the file it builds has no reader: koto
@@ -42,16 +38,17 @@ effect and a stray file in the work tree.
 
 ## Decision
 
-Wire it into the koto workflow itself; drop current-context.md; earlier
-children's summaries become readable through koto calls. First check whether
-a child session can read the parent's koto context today. If that needs a
-koto capability, report it before building anything, and make no koto change
-under this feature.
+The policy owner answered: "wire it into the koto workflow itself, ditch the file, make it readable through koto calls".
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
+- Drop `current-context.md`.
+- First check whether a child session can read the parent's koto context
+  today. If that needs a koto capability, report it before building
+  anything, and make no koto change under this feature.
 - Checked on koto 0.14.1: `koto context get <session> <key>` reads another
   session's context from a different worktree, and sessions record their
   parent workflow, so no koto capability is needed.

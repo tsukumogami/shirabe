@@ -1,10 +1,7 @@
 ---
 status: Accepted
 decision: |
-  Children keep their own verdict and status transition (an unattended run
-  takes the recommended approve and says so) but skip push, PR, branch
-  creation, cleanup commit and routing prompts under the parent sentinel;
-  rewrite the dispatch reference to match.
+  The policy owner picked "Children skip push/PR". Under a parent skill, a child keeps its own verdict and status transition but skips its push, pull request, cleanup commit, branch creation and routing prompts; the dispatch reference is rewritten to match.
 rationale: |
   /scope promises one push and one pull request at exit and a closed set of
   write targets, but the child skills it runs each push, open pull requests
@@ -52,15 +49,14 @@ under a parent describes a flow that would stall the chain.
 
 ## Decision
 
-Children keep their own verdict and status transition (an unattended run
-takes the recommended approve and says so) but skip push, PR, branch
-creation, cleanup commit and routing prompts under the parent sentinel;
-rewrite the dispatch reference to match.
+The policy owner picked "Children skip push/PR". Under a parent skill, a child keeps its own verdict and status transition but skips its push, pull request, cleanup commit, branch creation and routing prompts; the dispatch reference is rewritten to match.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
+- An unattended run takes the recommended approval and says so.
 - This is the DESIGN's option 1, which was the recommendation.
 - The statements live in /brief, /prd, /design, /plan, /scope and the
   dispatch reference, so the change lands in each of those skills' pull

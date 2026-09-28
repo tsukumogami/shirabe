@@ -1,7 +1,7 @@
 ---
 status: Accepted
 decision: |
-  An abandoned run writes no PLAN, only the upstream documents.
+  The policy owner picked "No plan on abandon". An abandoned run writes no PLAN, only the upstream documents.
 rationale: |
   An abandonment exit triggered during /plan wrote a Draft PLAN, which the
   same reference, /plan's rules and the lifecycle check all treat as a
@@ -32,11 +32,12 @@ branch fails the lifecycle check.
 
 ## Decision
 
-An abandoned run writes no PLAN, only the upstream documents.
+The policy owner picked "No plan on abandon". An abandoned run writes no PLAN, only the upstream documents.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
 - This is the DESIGN's option 2, which was the recommendation.
 - A partial PLAN's content is lost unless the upstream drafts carry it.

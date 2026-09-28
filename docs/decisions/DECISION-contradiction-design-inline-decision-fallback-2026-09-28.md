@@ -1,8 +1,7 @@
 ---
 status: Accepted
 decision: |
-  Under a parent skill, standard-tier questions resolve inline and critical
-  ones go to /decision, each recording its provenance field.
+  The policy owner picked "Checkable tiers". Under a parent skill, standard-tier questions resolve inline and critical ones go to /decision, and the provenance field is added to the format reference.
 rationale: |
   The dispatch reference let /design resolve decisions inline when a parent
   routes decisions back to itself, while /design's own Phase 2 always spawns
@@ -37,16 +36,14 @@ or validator, although a /scope test fixture carries
 
 ## Decision
 
-Under a parent skill, standard-tier questions resolve inline and critical
-ones go to /decision, each recording its provenance field.
+The policy owner picked "Checkable tiers". Under a parent skill, standard-tier questions resolve inline and critical ones go to /decision, and the provenance field is added to the format reference.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
-- This is the DESIGN's option 2, which was the recommendation. That option
-  also proposed adding the provenance field to the format reference, which is
-  where a recorded field would be defined.
+- This is the DESIGN's option 2, which was the recommendation.
 - /design's Phase 2 and format reference change in the design pull request of
   the contradiction-settlement PLAN; the dispatch reference and the /scope
   fixture change in the scope pull request.

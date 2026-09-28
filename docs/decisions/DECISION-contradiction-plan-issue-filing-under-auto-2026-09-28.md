@@ -1,12 +1,7 @@
 ---
 status: Accepted
 decision: |
-  Require approval on every filing path; in an unattended run file only when
-  the repo's CLAUDE.md declares a tracking level, otherwise write outlines
-  without filing. Enforce it as a koto workflow gate (approval recorded plus
-  the repo's opt-in) in the koto-templated callers that run /plan (scope's
-  plan hop, coordinated execute), since /plan has no koto template; /plan's
-  prose restates the rule for direct runs.
+  The policy owner picked "Approval, repo opt-in", and added: "this is a koto workflow fix". Every path that files issues requires approval; an unattended run files only when the repository's CLAUDE.md declares a tracking level, and otherwise writes outlines without filing. The rule is enforced in the koto workflow rather than stated in prose alone.
 rationale: |
   /plan's own rule says filing issues needs human approval, yet its multi-pr
   path and its single-pr path with tracking file issues and a milestone with
@@ -43,25 +38,22 @@ can create GitHub issues and a milestone that nobody approved.
 
 ## Decision
 
-Require approval on every filing path; in an unattended run file only when
-the repo's CLAUDE.md declares a tracking level, otherwise write outlines
-without filing. Enforce it as a koto workflow gate (approval recorded plus the
-repo's opt-in) in the koto-templated callers that run /plan (scope's plan
-hop, coordinated execute), since /plan has no koto template; /plan's prose
-restates the rule for direct runs.
+The policy owner picked "Approval, repo opt-in", and added: "this is a koto workflow fix". Every path that files issues requires approval; an unattended run files only when the repository's CLAUDE.md declares a tracking level, and otherwise writes outlines without filing. The rule is enforced in the koto workflow rather than stated in prose alone.
 
 ## Implementation notes
 
-These notes are not part of the decision.
+These notes are execution guidance for the items that apply this decision,
+not the policy owner's words.
 
 - The gate uses only gate types koto 0.14.1 already has: `context-exists` or
   `context-matches` over a recorded approval, plus a command gate reading the
   repo's CLAUDE.md for the tracking level.
-- No coordinated /execute state runs /plan today, so the gate lands in
-  /scope's plan hop only.
+- /plan has no koto template, so the gate lives in the koto-templated caller
+  that runs it, /scope's plan hop. No coordinated /execute state runs /plan
+  today. /plan's prose restates the rule for direct runs.
 - This is the DESIGN's option 1, approval on every filing path and filing
   under `--auto` only when CLAUDE.md declares a tracking level, which was the
-  recommendation. The answer adds enforcement as a koto gate in the callers.
+  recommendation. The answer adds enforcement in the koto workflow.
 - /plan's prose changes land in the plan pull request of the
   contradiction-settlement PLAN; the gate and /scope's list of `gh` writes
   land in the scope pull request.
