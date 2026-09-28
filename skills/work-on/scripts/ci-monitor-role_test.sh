@@ -19,8 +19,11 @@
 # and routes to done long before ci_monitor, for reasons that have nothing to do
 # with session_role.
 #
-# The discriminator itself — that `root` and `child` are read from koto's
-# parent_workflow — is covered by terminal-retention_test.sh, not here.
+# The discriminator itself — scripts/session-role.sh, which reads `root` and
+# `child` from koto's parent_workflow — is covered at the end of this file. Its
+# cases describe BEHAVIOUR ("a child classifies as child"), never the mechanism
+# session-role.sh uses to decide, so they survive a change in how koto records
+# parentage.
 #
 # Usage: ci-monitor-role_test.sh
 # Exit codes: 0 all pass, 1 any failed, 0 with a skip notice when koto is absent.
@@ -30,6 +33,7 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
+ROLE_SH="$SCRIPT_DIR/session-role.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -60,9 +64,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Engine-free, so it runs on the bash 3.2 floor too: the discriminator refuses a
+# call it cannot answer, printing nothing a caller could mistake for a role.
+ROLE_OUT=$(bash "$ROLE_SH" 2>/dev/null)
+ROLE_RC=$?
+if [[ "$ROLE_RC" -eq 2 && -z "$ROLE_OUT" ]]; then
+    pass "the discriminator rejects a missing session name with exit 2 and prints nothing"
+else
+    fail "the discriminator did not exit 2 silently on a missing session name (rc=$ROLE_RC, out=[$ROLE_OUT])"
+fi
+
 if ! command -v koto >/dev/null 2>&1; then
     skip "koto not on PATH; the role branch cannot be driven without the engine"
-    exit 0
+    [[ "$FAIL_COUNT" -eq 0 ]]
+    exit $?
 fi
 [[ -f "$TEMPLATE" ]] || { echo "template not found: $TEMPLATE"; exit 2; }
 
@@ -319,6 +334,104 @@ if [[ "$CASCADE_COUNT" -eq 1 ]]; then
     pass "a plan run of one root and three children reaches the cascade exactly once (count: $CASCADE_COUNT)"
 else
     fail "R13: expected exactly 1 cascade across one root and three children, counted $CASCADE_COUNT"
+fi
+
+# ---------------------------------------------------------------------------
+# The discriminator — the session_role every case above takes as given.
+#
+# Sessions live in their own HOME, so nothing here reaches the developer's
+# ~/.koto. An unresolvable session must answer `child`: a child that wrongly
+# stops at done leaves the chain for the run that owns it, while a child that
+# wrongly cascades deletes a PLAN its siblings are still working from.
+# ---------------------------------------------------------------------------
+if command -v jq >/dev/null 2>&1; then
+    RD=$(mktemp -d); TMPS+=("$RD")
+    mkdir -p "$RD/home"
+    rk() { (cd "$RD" && HOME="$RD/home" koto "$@"); }
+    role_of() { (cd "$RD" && HOME="$RD/home" bash "$ROLE_SH" "$1" 2>/dev/null); }
+    cat > "$RD/child.md" <<'ROLE_CHILD'
+---
+name: role-probe-child
+version: "1.0"
+description: Minimal child.
+initial_state: work
+states:
+  work:
+    accepts:
+      status:
+        type: enum
+        values: [ok]
+        required: true
+    transitions:
+      - target: done
+        when:
+          status: ok
+  done:
+    terminal: true
+---
+
+## work
+
+Submit status.
+
+## done
+
+Terminal.
+ROLE_CHILD
+    cat > "$RD/parent.md" <<'ROLE_PARENT'
+---
+name: role-probe-parent
+version: "1.0"
+description: Minimal parent that materializes one child.
+initial_state: spawn
+states:
+  spawn:
+    gates:
+      batch_done:
+        type: children-complete
+    accepts:
+      tasks:
+        type: tasks
+        required: true
+    materialize_children:
+      from_field: tasks
+      failure_policy: skip_dependents
+      default_template: ./child.md
+    transitions:
+      - target: finished
+  finished:
+    terminal: true
+---
+
+## spawn
+
+Submit tasks.
+
+## finished
+
+Terminal.
+ROLE_PARENT
+    rk init role_root --template "$RD/child.md" >/dev/null 2>&1
+    rk init role_parent --template "$RD/parent.md" >/dev/null 2>&1
+    rk next role_parent --with-data '{"tasks":[{"name":"leaf","description":"leaf task"}]}' >/dev/null 2>&1
+    if ! rk status role_root >/dev/null 2>&1 || ! rk status role_parent.leaf >/dev/null 2>&1; then
+        fail "the discriminator fixture sessions were not created -- the role cases below cannot run"
+    else
+        got=$(role_of role_root)
+        [[ "$got" == root ]] && pass "a directly-initialized session classifies as root" \
+            || fail "a directly-initialized session classified as '$got', expected root"
+        got=$(role_of role_parent.leaf)
+        [[ "$got" == child ]] && pass "a materialized child classifies as child" \
+            || fail "a materialized child classified as '$got', expected child"
+        got=$(role_of role_parent)
+        [[ "$got" == root ]] && pass "the parent of a materialized child still classifies as root" \
+            || fail "the parent classified as '$got', expected root"
+    fi
+    got=$(role_of no-such-session-anywhere)
+    [[ "$got" == child ]] && pass "an unresolvable session classifies as child, which skips the cascade" \
+        || fail "an unresolvable session classified as '$got', expected child"
+else
+    skip "jq not on PATH; the discriminator cases need it"
 fi
 
 echo

@@ -283,18 +283,12 @@ advances `pr_finalization` → `plan_completion`.
 koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
 ```
 
-Without it, the tick that reaches a terminal disposes of the session and its
-`ctx/`. That costs the record of why at `done_blocked`, and at
-`paused_for_review` it costs what a resume reads — the worse loss, since the
-pause is solicited. The rule and its reasoning are in
-[`references/koto-session-retention.md`](../../references/koto-session-retention.md).
-
-Unconditional here, unlike `/work-on`, because an orchestrator session is always
-a root: nothing names `execute.md` as a child template.
-`scripts/terminal-retention_test.sh` asserts that rather than trusting it, and
-goes red if a future change makes `/execute` spawnable — at which point this rule
-must route through `skills/work-on/scripts/session-role.sh` the way `/work-on`'s
-does.
+Without it, the tick that reaches a success terminal disposes of the session
+and every context key it holds. At `paused_for_review` that costs what a resume reads, which is
+the worst loss, since the pause is solicited; at `merged`,
+`ready_awaiting_merge` and `done` it costs the run's record. koto keeps
+`done_blocked`, a failure terminal, either way. The rule and its reasoning are
+in [`references/koto-session-retention.md`](../../references/koto-session-retention.md).
 
 **Including the two ticks in `spawn_and_await`, which look non-terminal and are
 not.** A tick does not stop at the state it routes to; a state halts the chain
@@ -302,19 +296,16 @@ only if it declares at least one conditional transition, and `escalate` declares
 required evidence but exits unconditionally to `done_blocked`. So when the
 `batch_done` gate takes its attention route (a child failed or was skipped, so
 `needs_attention` is true), the tick chains through `escalate` to that terminal
-in one invocation, and bare it destroys the record of the batch that failed.
+in one invocation. Which terminal a tick lands on can't be read off the
+response, so the rule doesn't try: every tick carries the flag.
 
-**This does not extend to the children.** A per-issue `/work-on` child must not
-carry the flag — on a child it also suppresses the `request_store.result` and
-`ChildCompleted` events that carry the child's result to this skill's
-`children-complete` gate. `spawn_and_await`'s transitions key on the gate's
-`all_complete`, so the batch would still advance, but without that child's
-outcome in what it received. `/work-on` decides that per run with
-`skills/work-on/scripts/session-role.sh`. The consequence to be honest about is
-that a child which ends at `done_blocked` still loses its context, so the
-per-child record a `needs_attention` batch would most want to read is the one
-still being destroyed. koto#240 is where that gets fixed; no change on this side
-can do it.
+**The per-issue `/work-on` children carry it too.** `/work-on`'s own rule is
+every tick, root or child. On a child the flag only keeps the session: its
+result still reaches this skill's `children-complete` gate on the tick that
+arrives at its terminal. A child that ends at `done_blocked` is kept whether or
+not it carried the flag, so the per-child record a `needs_attention` batch most
+wants is readable afterwards: `koto status <child>` for where it stopped, and
+`koto context get <child> failure_reason` for why.
 
 In autonomous mode, drive this loop continuously per the **Autonomy** section below —
 do not stop between issues to advise a checkpoint. The mandate is bound at the loop

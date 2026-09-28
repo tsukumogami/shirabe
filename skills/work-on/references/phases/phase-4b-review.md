@@ -35,7 +35,7 @@ After all three return:
 koto context add <WF> review_results.json < /dev/stdin <<EOF
 {"passed": true, "round": 1, "blocking_count": 0}
 EOF
-koto next <WF> --with-data '{"review_outcome": "passed"}'
+koto next <WF> --with-data '{"review_outcome": "passed"}' --no-cleanup
 ```
 
 ## Retry Loop
@@ -55,7 +55,7 @@ for KEY in scrutiny_results.json review_results.json qa_results.json summary.md;
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
 ```
 
 The `review_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.

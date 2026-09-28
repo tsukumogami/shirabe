@@ -65,7 +65,8 @@ some of them resist a coordinator that wants to skip a step:
 So the design has to put each check where the agent can't pre-empt it, keep every GitHub
 write agent-run (opening, rewriting and closing the record; merges), and still carry a loop
 that runs for days, is driven by cross-session messages rather than engine wakes (koto's
-leg waker is a stub, koto#250), and hands most workers no koto leg at all (when this was written only `/scope`
+leg waker was a stub when this was written, koto#250; koto 0.14.0 delivers wakes, which the
+skill doesn't watch yet), and hands most workers no koto leg at all (when this was written only `/scope`
 and `/execute` accepted `--koto-leg`, shirabe#401; shirabe#407 has since added it to `/deliver`
 and `/work-on`).
 

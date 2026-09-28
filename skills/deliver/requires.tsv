@@ -17,6 +17,11 @@
 # `--koto-leg=<request-id>:deliver` deliver-open.sh passes it to that same
 # `koto init` so the deliver-<topic> session answers a caller's leg, which is
 # why the record is `always` rather than tied to a mode.
+# The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
+# 0.14.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# keeps its session, and a child's result is delivered under --no-cleanup) is
+# behaviour with no flag to declare, so a koto that has the entry flags passes
+# preflight whatever its version; the README states the minimum and CI tests it.
 #
 # The request verbs are /deliver's one write of its own, the per-run koto
 # request, and the reads of it. deliver-open-request.sh (open_request's
