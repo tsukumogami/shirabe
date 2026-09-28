@@ -485,12 +485,15 @@ shape_case override    'K=${KOTO_BIN:-koto}'              '"$KOTO_BIN" status 2>
 # `a) koto status 2>/dev/null ;;` is charged, so the held form must be too.
 shape_case case-arm    'K=koto'                           'a|b) "$K" status 2>/dev/null ;;'
 shape_case case-star   'K=koto'                           '*) $K status 2>/dev/null ;;'
+shape_case case-inline 'K=koto'                           'case "$x" in a) "$K" status 2>/dev/null ;; esac'
+shape_case case-after  'K=koto'                           'case "$x" in a) : ;; b) "$K" status 2>/dev/null ;; esac'
 
 new_fixture case-arm-data
 add_requires koto
 add_file 'probe.sh' '#!/usr/bin/env bash' 'K=koto' 'case "$1" in' \
   '  a) echo "$K" 2>/dev/null ;;' \
-  '  b) [ -x "$K" ] 2>/dev/null ;;' 'esac'
+  '  b) [ -x "$K" ] 2>/dev/null ;;' 'esac' \
+  'case "$1" in a) echo "$K" 2>/dev/null ;; b) printf %s "$K" 2>/dev/null ;; esac'
 enum_open; enum_close
 assert_accepts "a case arm using the variable as data is not charged"
 
