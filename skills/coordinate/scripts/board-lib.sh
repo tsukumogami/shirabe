@@ -134,8 +134,9 @@ bl_seal() {
 # is #<pr>, from the Holdings row whose Pull request cell links it (read live
 # through record-holding.sh). A token carries only the number, so the record
 # says where it lives; no row, or rows naming #<pr> in two repositories, is a
-# failure rather than a guess. Returns 0 printed; 1 no row, or rows in two
-# repositories; 2 the holdings couldn't be read.
+# failure rather than a guess. Returns 0 printed; 1 no row, rows in two
+# repositories, or a repository outside owner/repo; 2 the holdings couldn't be
+# read.
 bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
@@ -148,7 +149,7 @@ bl_unit_repo() {
         echo "$PROG: $n holdings link pull request #$2; can't tell its repository" >&2
         return 1
     fi
-    bl_repo_ok "$repos" || return 2
+    bl_repo_ok "$repos" || { echo "$PROG: the holding for #$2 links [$repos], not owner/repo" >&2; return 1; }
     printf '%s\n' "$repos"
 }
 

@@ -20,14 +20,17 @@
 # (record-holding.sh --list); --repo overrides it, for tests.
 #
 # Token, sealed to the latest entry into verify_board:
-#   verified <pr> <head>   the board is green at <head>
-#   unverified <pr> none   the board failed
-#   pending <pr> none      the board is still running
-#   unreadable <pr> none   the board or the record couldn't be read, or the
-#                          read ran out of time
-#   not-open <pr> none     the pull request is merged or closed
-#   unlinked <pr> none     no single Holdings row links #<pr> (its holding
-#                          was removed), so its repository is unknown
+#   verified <pr> <head>         the board is green at <head>
+#   unverified <pr> none         the board failed
+#   pending <pr> none            the board is still running
+#   board-unreadable <pr> none   the board or the record couldn't be read, or
+#                                the read ran out of time
+#   not-open <pr> none           the pull request is merged or closed
+#   unlinked <pr> none           no single Holdings row links #<pr> (its
+#                                holding was removed), so its repository is
+#                                unknown
+# (`board-unreadable`, not `unreadable`: the verdict table is one word list
+# for every check state.)
 # Only a verified token carries a head, so nothing downstream can land an
 # unverified one. Every token leaves verify_board, so one pull request whose
 # board can't be read doesn't hold the run at this state; the reasons (and
@@ -100,7 +103,7 @@ if [ -z "$REPO" ]; then
     case $? in
         0) ;;
         1) stopped unlinked unlinked "no single holding in the record links pull request #$PR, so its repository is unknown" ;;
-        *) stopped unreadable record-read "the record's holdings could not be read" ;;
+        *) stopped board-unreadable record-read "the record's holdings could not be read" ;;
     esac
 fi
 
@@ -113,7 +116,7 @@ if [ -z "$TOKEN" ]; then
                   TOKEN="verified $PR $H" ;;
         unverified|pending) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
-        error:board-read|error:deadline) TOKEN="unreadable $PR none" ;;
+        error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi

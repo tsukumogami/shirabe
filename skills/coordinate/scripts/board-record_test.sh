@@ -7,10 +7,10 @@
 # entry into verify_board, and coord/board.json's verdict, head, reasons and
 # skipped match the board read); every unverified fixture prints unverified
 # with no head; a pending board; a refused check rollup verifies with source
-# `actions`; a failed board read or the deadline prints unreadable, a merged
+# `actions`; a failed board read or the deadline prints board-unreadable, a merged
 # pull request not-open, and a pull request no single holding links unlinked
 # (nothing read), each sealed with its reason in coord/board.json; an
-# unreadable record prints unreadable; a failed context write exits 2; no
+# unreadable record prints board-unreadable; a failed context write exits 2; no
 # prediction since the latest arrival at verify exits 2 with
 # nothing read; the pull request from report_facts's REPORT capture (none,
 # stale, unsealed or absent exits 2); --no-seal; the repository from the
@@ -82,12 +82,12 @@ echo "== a board that can't be judged still leaves verify_board =="
 fresh; bt_board rules-unreadable
 OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
 eq "a board read that fails exits 0" 0 $rc
-eq "with unreadable" "unreadable 12 none" "${OUT% sealed:*}"
+eq "with unreadable" "board-unreadable 12 none" "${OUT% sealed:*}"
 bash "$CL" check --session "$S" --state verify_board --sealed "$OUT" && ok "sealed to the latest entry into verify_board" || bad "sealed to the latest entry into verify_board"
 eq "and coord/board.json keeps the reason" required-set-unreadable "$(ctx | jq -r '.reasons[0].code')"
 grep -q 'required-set-unreadable' "$T/err" && ok "naming the reason on stderr" || bad "naming the reason on stderr" "$(cat "$T/err")"
 fresh; bt_board deadline
-eq "a read past the deadline: unreadable" "unreadable 12 none" "$(BOARD_DEADLINE_SECS=2 bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+eq "a read past the deadline: unreadable" "board-unreadable 12 none" "$(BOARD_DEADLINE_SECS=2 bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 fresh; bt_board pr-merged
 OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
 eq "a merged pull request: not-open" "0 not-open 12 none" "$rc ${OUT% sealed:*}"
@@ -101,7 +101,7 @@ eq "and coord/board.json says why" unlinked "$(ctx | jq -r '.reasons[0].code')"
 bt_holdings "[#12](https://github.com/acme/widgets/pull/12)" "[#12](https://github.com/acme/gadgets/pull/12)"
 eq "#12 linked in two repositories: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
 echo 2 > "$BT_STATE/holding.rc"
-eq "the holdings can't be read: unreadable" "unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
+eq "the holdings can't be read: unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
 rm -f "$BT_STATE/holding.rc"
 
 echo "== errors exit 2 =="

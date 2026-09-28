@@ -36,7 +36,11 @@
 # `actions`), and a `checks-refused` note says what was refused. Only a
 # refusal falls back; any other failed read is still an error. With the jobs
 # as checks, a required check that only another app or a commit status
-# reports reads missing: never a pass.
+# reports reads missing: never a pass. The required set is then protection
+# and the branch rules alone, which is where the rollup's isRequired comes
+# from; both must still be readable. A required check with no app pin is
+# matched by name, as GitHub matches it, so an Actions job of the same name
+# answers for it.
 # With --sha, there is no pull request: the head is the sha, the required set
 # comes from <base>'s protection and rules, and the rollup is the commit's
 # check runs and statuses (repos/R/commits/S/check-runs and .../status); no

@@ -942,7 +942,7 @@ states:
           gates.verify_board_verdict.exit_code: 72  # pending
       - target: wait
         when:
-          gates.verify_board_verdict.exit_code: 73  # unreadable
+          gates.verify_board_verdict.exit_code: 73  # board-unreadable
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 74  # not-open
@@ -2009,7 +2009,8 @@ be read at all goes back to waiting with the reason in `coord/board.json`, so
 the rest of the run carries on: fix the cause, or put a refused read to the
 human, since the token's permissions are theirs, then bring the worker's report
 back through `wait`. A pull request that is already merged or closed, or whose
-holding is gone from the record, goes to surface with the reason.
+holding is gone from the record, goes to surface: put what happened to it, from
+`coord/board.json`, to the human there.
 
 ## verified_confirm
 
@@ -2098,10 +2099,9 @@ until it merges.
 
 Put it in front of the human, once: for a merge the workspace reserves, the
 merge-order table from `references/verification-checklist.md` with the reason for
-the order (`surfaced: merge_table`); for a blocked worker, or a pull request the
-board read found merged, closed or no longer held (`coord/board.json` says which),
-the decision with one recommendation (`surfaced: blocker`). Pull requests are
-links, workers are inline code, and no commit hash is shown.
+the order (`surfaced: merge_table`); for a blocked worker, the decision with one
+recommendation (`surfaced: blocker`). Pull requests are links, workers are inline
+code, and no commit hash is shown.
 
 <!-- details -->
 
