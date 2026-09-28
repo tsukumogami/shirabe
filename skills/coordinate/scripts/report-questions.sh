@@ -55,7 +55,9 @@
 #               coordinator and isn't held to it); nothing stored
 #   unreadable  the report can't be read, names no dispatch topic, or is a
 #               coordinator's escalation that doesn't hash to its digest or
-#               has no question or options. It goes to the human (surface):
+#               has no question or options, or a report from a coordinator
+#               holding that ends in a digest line but doesn't start with the
+#               fixed line as rendered. It goes to the human (surface):
 #               an escalation altered in transit can be neither trusted nor
 #               bounced back as a worker's rebrief
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
@@ -88,6 +90,18 @@ sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1;
 # The report and its holding.
 "$KOTO" context get "$SESSION" worker_report > "$T/report" 2> "$T/koto.err" || { cat "$T/koto.err" >&2; verdict unreadable; }
 [ -s "$T/report" ] || verdict unreadable
+VIA=$("$KOTO" context get "$SESSION" report_source) || lib_die2 "cannot read how the report arrived (report_source)"
+# A leg report is the one line report-source.sh builds, whose only worker
+# text is its reason field: that field alone is read, so a reason ending in
+# `?` is a question although the line ends with the pull request field.
+if [ "$VIA" = leg ]; then
+    LINE=$(cat "$T/report")
+    case "$LINE" in
+        "leg result: "*"; reason "*"; pull request "*)
+            LINE=${LINE#*; reason }
+            printf '%s\n' "${LINE%; pull request *}" > "$T/report" ;;
+    esac
+fi
 REPORT=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name REPORT --state report_facts)
 case $? in 0) ;; 1) echo "$PROG: no sealed report_facts verdict from its latest visit" >&2; verdict unreadable ;; *) lib_die2 "cannot read the report_facts capture" ;; esac
 set -f; set -- $REPORT; set +f
@@ -128,13 +142,21 @@ write_list() {
 
 # --- a coordinator's fixed first line ---------------------------------------------------
 
-FIRST=$(head -1 "$T/report")
+FIRST=$(head -1 "$T/report" | tr -d '\r')
 if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
+    # A report that ends in a digest line is an escalation whatever its first
+    # line says. One whose fixed first line was lost or rewritten on the way
+    # (a greeting prepended, CRLF line ends) is unreadable, never read on as
+    # a worker's question with the digest unchecked.
+    LAST=$(awk 'NF { l = $0 } END { print l }' "$T/report")
+    case "$LAST" in
+        Digest:\ *) [[ $FIRST =~ $RE_ESC ]] && [[ $LAST != *$'\r' ]] \
+            || { echo "$PROG: the report ends in a digest but isn't an escalation as rendered" >&2; verdict unreadable; } ;;
+    esac
     if [[ $FIRST =~ $RE_ESC ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}
         SRC="coordinator $TOPIC #$N round $R"
         # The digest covers every byte above the last line, which must be it.
-        LAST=$(awk 'NF { l = $0 } END { print l }' "$T/report")
         case "$LAST" in Digest:\ *) ;; *) echo "$PROG: the escalation has no digest line" >&2; verdict unreadable ;; esac
         awk -v last="$LAST" '{ lines[NR] = $0 } END { for (i = NR; i > 0 && lines[i] != last; i--); for (j = 1; j < i; j++) print lines[j] }' \
             "$T/report" > "$T/above"
@@ -246,7 +268,6 @@ N_ITEMS=$(wc -l < "$T/all" | tr -d ' ')
 # on some systems and stop at a tab.
 if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || jq -R -s -e --argjson m "$MAX_LEN" \
         'split("\n") | map(select(length > 0) | split("\t")[2:] | join("\t")) | any(length > $m)' "$T/all" > /dev/null; then
-    VIA=$("$KOTO" context get "$SESSION" report_source) || lib_die2 "cannot read how the report arrived (report_source)"
     [ "$VIA" = leg ] && { echo "$PROG: a leg report over the cap can't be rebriefed" >&2; verdict unreadable; }
     verdict overflow
 fi

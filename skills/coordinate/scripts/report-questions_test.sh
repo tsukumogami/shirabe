@@ -163,6 +163,10 @@ run "holding none w1" "$(escalation 4 1)" "$WORKER"
 eq "escalation: from a worker holding the first line is ordinary text" "question|Merge before the release?" "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
 run "unknown rr" "$(escalation 4 1)" ""
 eq "escalation: with no holding the first line is ordinary text" "question" "$(list | jq -r '[.[].kind] | unique | join(" ")')"
+run "holding none rr" "$(escalation 4 1 | sed 's/$/\r/')" "$COORD"
+eq "escalation: one relayed with CRLF line ends is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(printf 'Hi, relaying this.\n'; escalation 4 1)" "$COORD"
+eq "escalation: one with a line put before its first is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
 
 OPEN_UP='[{"decision":"2","round":"1","question":"Merge before the release?","options":"wait\nmerge now","state":"escalated","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]",
   "verdict":"escalate","recommendation":"wait","reason":"r","context":"c","problem":"p","grounds":"scope","target":"a person","updated":"2026-09-26T09:00Z"}]'
@@ -200,6 +204,10 @@ run "holding none w1" "$(printf 'Keep the cap at 400 (decision 3)?\nQuestions:\n
 eq "a citation outside the Questions part is dropped, inside it is kept" "null 3" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 run "holding none w1" "$(printf 'Verdict: done.\n```\nlog line one\nShould it ship?\n')" "$WORKER"
 eq "a fence that never closes hides nothing" "Should it ship?" "$(list | jq -r '[.[].text] | join("|")')"
+VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome blocked; step 3; reason Should the pin track v2.1.0 or main?; pull request ' "$WORKER"
+eq "a leg result's reason is read on its own, so its question is found" "question|Should the pin track v2.1.0 or main?" "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
+VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome ready; step ; reason ; pull request https://github.com/acme/widgets/pull/9' "$WORKER"
+eq "a leg result with no reason gives none" "0 none" "$RC $(word)"
 VIA=leg run "holding none w1" "$(for i in 1 2 3 4 5 6 7 8 9 10 11; do echo "Question $i?"; done)" "$WORKER"
 eq "a leg report over the cap goes to the human, since its worker can't be rebriefed by message" "0 unreadable" "$RC $(word)"
 run "holding none w1" "$(printf 'Is %s?' "$(printf '%396s' '' | tr ' ' x)")" "$WORKER"
