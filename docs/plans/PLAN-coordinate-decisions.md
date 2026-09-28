@@ -1,12 +1,20 @@
 ---
 schema: plan/v1
 status: Active
-execution_mode: single-pr
+execution_mode: coordinated
+split_mode_source: intent
+split_rationale: |
+  Incremental Value. The first pull request, the record reader, is useful alone: the
+  parser on the default branch refuses a fifth record section outright, so a coordinator
+  still on an older plugin, restarted against a record a newer one has written, stops at
+  record_conflict. Releasing a reader of the five-section record before any release writes
+  one closes that window, and the codec and write path it changes are reviewable with the
+  existing suite unchanged. The second pull request, the decision flow and its gates,
+  writes entries and needs the first merged.
 tracking_level: none
-split_mode_source: none
 upstream: docs/designs/DESIGN-coordinate-decisions.md
 milestone: "Coordinate decisions"
-issue_count: 8
+issue_count: 10
 ---
 
 # PLAN: coordinate-decisions
@@ -17,315 +25,442 @@ Active
 
 Authored at Active because this PLAN files no issues. Implementation starts only from a
 default branch that already holds the dispatch path (shirabe#404) and reconcile
-(shirabe#406): the fourth, sixth and seventh outlines extend states and scripts those features
-add (`take_report`, `worker_report`, `render-brief.sh`, the reconcile pass), and the sixth and
-eighth edit the template and the rule-coverage fixture they also change.
+(shirabe#406): the second pull request extends states and scripts those features add
+(`take_report`, `worker_report`, `report_facts`' arms, `render-brief.sh`, the reconcile
+report), and both change the template, the verdict table and the rule-coverage fixture this
+work also changes.
 
 ## Scope Summary
 
 Implement decisions and escalation in the `coordinate` skill as designed in
-`docs/designs/DESIGN-coordinate-decisions.md`: the Decisions record section, the one write
-script that changes it, the renderer, the question extractor, the routing check and the
-template states that use them, the progress table's decision rows, the brief's channel
-sentence, the skill text, and the niwa#330 replay, in one pull request.
+`docs/designs/DESIGN-coordinate-decisions.md`, in two pull requests in one repository. The
+first, group `record-reader`, carries the record reader: the phrasing list, the Decisions
+section in the codec, the separate write core, and the refusals that keep any writer but the
+decision script from changing the section; it writes no entry. The second, group
+`decision-flow`, carries the decision flow and every gate on it: the seam re-check, the
+acceptance harness, the renderer, the question extractor, the one writer of entries, the
+routing check and template states, the progress table and brief, and the skill text. The
+second waits for the first to merge.
 
 ## Decomposition Strategy
 
-**Horizontal, in one pull request.** The DESIGN fixes each script's interface (its modes,
+**Horizontal, in two pull requests.** The DESIGN fixes each script's interface (its modes,
 arguments, exit codes, verdict words and the detail keys it writes), so each is built and
-tested on its own before the template states that call it. The order follows what calls
-what: the phrasing list is read by three scripts; every entry is written through the codec
-and the shared write core; the renderer and the extractor are called by the write script's
-`--sent` and `--open-from-report`; the template states can only be written against scripts
-that exist; the progress table reads what `pick-facts.sh` adds; and the skill text and the
-replays describe and exercise the finished flow.
-
-One pull request, under the repository's default `consolidated` delivery preference. No
-split branch fires: no piece lands anything useful alone (a record section nothing writes, a
-renderer no state calls), and nothing forces an order across pull requests. The dependency on
-the two sibling features is on work outside this PLAN; it gates when this pull request starts,
-not how it's split.
+tested on its own before the states that call it. The split follows the one seam where a
+piece is useful alone: the record reader protects coordinators on an older plugin before any
+entry exists, and nothing in it writes an entry. Inside the second pull request the order is
+what calls what, except that the acceptance harness comes first: the niwa#330 replay and the
+three-level round trip are written against stand-ins at the start, so every later outline is
+measured against them, and the last outline runs them against the real scripts.
 
 ## Issue Outlines
 
 ### Issue 1: feat(coordinate): the decision-phrasing list
 
+**Repo**: tsukumogami/shirabe
+
+**Group**: record-reader
+
 **Goal**: Add `skills/coordinate/references/decision-phrasings.tsv` and its fixtures, the one
 closed list of decision phrasings and person-addressing patterns that `progress-view.sh`,
-`report-questions.sh` and `need-check.sh` read.
+`report-questions.sh` and `need-check.sh` read, with its matcher in `record-common.sh`.
 
 **Acceptance Criteria**:
 - [ ] Each row is an extended regular expression with no back-references and a kind,
   `decision` or `addressed`; a test fails when a row uses a back-reference or an unknown kind.
 - [ ] `scripts/testdata/decision-phrasings/` holds at least three refused decision phrasings
-  ("decide whether to ship", "needs your decision", "please decide"), three accepted needs
+  ("decide whether to ship", "needs your decision", "please decide"), three accepted texts
   ("needs an npm token", "run the release", "waiting on the release decision from the
-  vendor"), and at least three addressed questions ("the human should decide", "your call",
-  "up to you"); a shared matcher in `record-common.sh` refuses every refused fixture, accepts
-  every accepted one, and marks every addressed one, matched case-insensitively with
-  `grep -E`.
-- [ ] The matcher's test runs in the repository's script-test CI.
+  vendor"), and three addressed questions ("the human should decide", "your call", "up to
+  you"); the matcher refuses every refused fixture, accepts every accepted one, and marks every
+  addressed one, matched case-insensitively with `grep -E`.
+
+**Tests**: new `decision-phrasings_test.sh`; `run-tests.sh` gains it.
 
 **Dependencies**: None
 
 **Type**: code
 **Files**: `skills/coordinate/references/decision-phrasings.tsv`, `skills/coordinate/scripts/record-common.sh`, `skills/coordinate/scripts/testdata/decision-phrasings/`
 
-### Issue 2: feat(coordinate): the Decisions record section and shared write core
+### Issue 2: feat(coordinate): read and guard the Decisions record section
 
-**Goal**: Add the fifth record section to the codec, rendered only when it holds an entry or
-a `Next decision` above 1, with section-aware cell grammars, per-state required columns, the
-shared escalation validator, and the handoff filter; move the write core into
-`record-common.sh`; make `record-write.sh` refuse any change to the section; add the
-close-out stage and the predecessor copy.
+**Repo**: tsukumogami/shirabe
+
+**Group**: record-reader
+
+**Goal**: Add the fifth record section to the codec (rendered only when it holds an entry or a
+`Next decision` above 1), its stamp grammar, section-aware grammars, per-state required
+columns, compaction and the shared escalation validator; move the write core into
+`record-write-core.sh` with a size budget; make `record-write.sh` refuse any change to the
+section and `record-open.sh` refuse a body carrying one; add the close-out stage and the
+predecessor copy. Nothing in this outline writes an entry.
 
 **Acceptance Criteria**:
-- [ ] A record body written before this feature (four sections, no Decisions) parses to no
-  entries and a next identifier of 1 and renders back byte for byte, and `record-find.sh`
-  adopts it (golden file).
-- [ ] A record with entries in each of the four states renders the section with its
-  `Next decision:` line and nineteen columns and parses back byte for byte.
-- [ ] The codec refuses, as non-canonical, an entry with an unknown state, a non-integer
-  identifier, a repeated identifier, an identifier at or above `Next decision`, a grounds
-  value outside `scope`, `supplied-decision`, `reserved-step`, an `escalated` entry missing
-  recommendation, reason, context, problem, grounds or target, and a `settled` entry missing
-  outcome or decided by; each case has a test.
-- [ ] The Decisions columns named `reason`, `target` and `state` use their own grammars, and
-  the Reversals `reason` and Side effects `target` grammars and the refused
-  GitHub-recomputable column names are unchanged for their own sections (tests for each).
-- [ ] `@` in a Decisions free-text cell renders encoded and parses back to `@`; a cell with a
-  pipe or a line break round-trips.
-- [ ] The shared validator (one jq definition) refuses a recommendation outside the options,
-  a reason, context or problem empty after trimming, no ground, and a target other than the
-  one given; it passes a complete verdict.
+- [ ] A record body written before this feature (four sections) parses to no entries and a
+  next identifier of 1, renders back byte for byte, and `record-find.sh` adopts it (golden
+  file).
+- [ ] A record with entries in each of the four states, one held and one compacted, renders the
+  section with its `Next decision:` line and nineteen columns and parses back byte for byte; a
+  five-section body holding `Next decision: 1` and `None.` is refused, so the shape never
+  toggles back.
+- [ ] The codec refuses, as non-canonical, an unknown state, a non-integer, repeated or
+  out-of-bound identifier, a ground outside `scope`, `supplied-decision`, `reserved-step`,
+  `outside-scope`, a stamp that doesn't parse as `[<run> <kind> <seq>[.<i>]]`, an escalated
+  entry missing recommendation, reason, context, problem, grounds or target, a settled entry
+  missing outcome or decided by, and a held entry missing its reason; each case has a test.
+- [ ] The Decisions `reason` and `target` columns use their own grammars, and the Reversals
+  `reason` and Side effects `target` grammars are unchanged (tests for each).
+- [ ] `@` in a Decisions free-text cell renders encoded and parses back; a cell with a pipe or
+  a line break round-trips.
+- [ ] The shared validator refuses a recommendation outside the options, a reason, context or
+  problem empty after trimming, no ground, and a target other than the one given, and passes a
+  complete verdict, including one whose only ground is `outside-scope`.
 - [ ] The named-repository scan covers the Decisions text columns, and a cell with a home
   directory path or a token-shaped string is refused.
+- [ ] `record-write-core.sh` is sourced only by `record-write.sh` and `record-holding.sh` here;
+  `record-common.sh` still makes no GitHub write, and both headers say where writes live. The
+  core refuses a body over 60,000 bytes with its own exit code.
 - [ ] `record-write.sh` refuses (exit 65) a body whose Decisions section differs from the live
-  one's and accepts one whose section is unchanged; its existing tests still pass through the
-  shared write core.
+  one's and accepts one whose section is unchanged; `record-open.sh` refuses a body with a
+  Decisions section; the existing tests of both still pass.
 - [ ] The handoff renders only unsettled entries with the same `Next decision`, and a
   predecessor copy keeps the section as it stands.
 - [ ] `closeout-read.sh` at roadmap scope reports a `decisions` stage, ahead of `ready`, while
   any entry isn't settled.
 
+**Tests**: `record-codec_test.sh`, `record-write_test.sh`, `record-holding_test.sh`,
+`record-open_test.sh`, `record-find_test.sh`, `closeout-read_test.sh`,
+`predecessor-handoff_test.sh`; new golden files under `scripts/testdata/`.
+
 **Dependencies**: None
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/record-codec.jq`, `skills/coordinate/scripts/record-common.sh`, `skills/coordinate/scripts/record-write.sh`, `skills/coordinate/scripts/closeout-read.sh`, `skills/coordinate/scripts/predecessor-handoff.sh`
+**Files**: `skills/coordinate/scripts/record-codec.jq`, `skills/coordinate/scripts/record-write-core.sh`, `skills/coordinate/scripts/record-common.sh`, `skills/coordinate/scripts/record-write.sh`, `skills/coordinate/scripts/record-holding.sh`, `skills/coordinate/scripts/record-open.sh`, `skills/coordinate/scripts/closeout-read.sh`, `skills/coordinate/scripts/predecessor-handoff.sh`, `skills/coordinate/references/record-template.md`
 
-### Issue 3: feat(coordinate): render decision messages from the entry
+### Gate: record-reader-merged
 
-**Goal**: Add `decision-render.sh`, which renders an escalation, a withdrawal, a reply or a
-redirect from the live entry through the shared validator, and seals the text's digest in its
-verdict.
+**After**: Issue 1, Issue 2
+
+**Before**: Issue 3
+
+**Condition**: the `record-reader` pull request is merged on the default branch, so every
+coordinator that installs the plugin afterwards reads a five-section record before the
+`decision-flow` pull request lets any coordinator write one.
+
+### Issue 3: docs(coordinate): re-check the design's seams against the merged sibling features
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: With shirabe#404 and shirabe#406 on the default branch, re-read each seam the DESIGN
+names and correct the DESIGN where the merged code differs, before any code of this pull
+request is written.
 
 **Acceptance Criteria**:
-- [ ] For a fixture escalated entry, the escalation's first line is
-  `Decision <n> round <r> from <topic>.`, followed by the context paragraph, the problem
-  paragraph, then the question with the recommended option listed first carrying its reason,
-  then the answer line; it carries one decision.
-- [ ] Rendering is refused (verdict `refused`) for each of: empty recommendation, reason,
-  context or problem; a recommendation outside the options; a target other than the run's
-  `REPORTS_TO`; an entry that doesn't owe the kind asked for (including a second rendering
-  after the owing was cleared).
+- [ ] Each of these is confirmed against the merged code, or the DESIGN is corrected in this
+  pull request: `take_report` and the `worker_report` key and how a message report fills it;
+  `report_facts`' three arms and their words; `render-brief.sh`'s Reporting section and its
+  test; the reconcile report's "Blocked on you" rows; the verdict words and codes both
+  features added to `coord-verdict.sh`; the koto floor in `skills/coordinate/requires.tsv`.
+- [ ] The first free verdict-code block on the default branch is recorded in the DESIGN.
+
+**Tests**: none; the outline's output is the corrected DESIGN.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `docs/designs/DESIGN-coordinate-decisions.md`
+
+### Issue 4: test(coordinate): the acceptance harness
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Write the niwa#330 replay and the three-level round trip as engine tests first,
+against stand-ins for the scripts later outlines add, so every later outline is measured
+against them.
+
+**Acceptance Criteria**:
+- [ ] The niwa#330 replay drives: an entry whose source is a worker, settled on option (d); a
+  mixed check result recorded as evidence; the worker's "please decide whether to ship" in a
+  report. It passes when the log shows `decision_verdict` entered before any render state, no
+  escalation rendered, and no progress table in the sequence with a decision row lacking a
+  recommendation.
+- [ ] The same replay against a template variant whose evidence edge goes straight to
+  `escalate` fails.
+- [ ] The three-level test (a person, a workspace coordinator, a roadmap coordinator) shows the
+  roadmap coordinator's escalation opened as a `proposed` entry above with its source, and its
+  settlement rendered back down so the lower entry settles naming the final decider; a
+  withdrawal from below reopens the upper entry, and nothing goes back down after it.
+- [ ] The stand-ins are marked as such and removed by Issue 10, which runs both tests against
+  the real scripts.
+
+**Tests**: new `decisions-replay_engine_test.sh`; `run-tests.sh --engine` gains it.
+
+**Dependencies**: Blocked by <<ISSUE:3>>
+
+**Type**: code
+**Files**: `skills/coordinate/scripts/decisions-replay_engine_test.sh`, `skills/coordinate/scripts/testdata/decisions/`
+
+### Issue 5: feat(coordinate): render decision messages from the entry
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Add `decision-render.sh`, which renders an escalation, a withdrawal, a reply or a
+redirect from the live entry through the shared validator and seals the text with
+`coord-log.sh seal --file --key`.
+
+**Acceptance Criteria**:
+- [ ] A fixture escalation's first line is `Decision <n> round <r>.`, followed by the context
+  paragraph, the problem paragraph, the question with the recommended option listed first
+  carrying its reason, the answer line, and a last line with the SHA-256 digest of the text
+  above; it carries one decision and no sender topic.
+- [ ] Rendering prints `refused` for each of: empty recommendation, reason, context or problem;
+  a recommendation outside the options; a target other than the run's `REPORTS_TO`; an entry
+  that doesn't owe the kind asked for, including a second rendering after the owing cleared.
 - [ ] A withdrawal names the decision and round and says no answer is needed; a reply names the
   decision, round, outcome, reason and who decided; a redirect tells the worker its questions
   go to the coordinator, which answers them or escalates them with a recommendation.
-- [ ] On success the text is written as a detail key and the verdict is
-  `rendered <kind> <n> <round> <sha256>`, sealed through `lib_emit`; the digest matches the
-  key's bytes.
+- [ ] On success the text is in `coord/decision_message.txt`, sealed, and the verdict is
+  `message <kind> <n> <round>`; `coord-log.sh check --key` passes on it and fails after an edit.
 
-**Dependencies**: Blocked by <<ISSUE:2>>
+**Tests**: new `decision-render_test.sh`; `run-tests.sh` gains it.
+
+**Dependencies**: Blocked by <<ISSUE:3>>
 
 **Type**: code
 **Files**: `skills/coordinate/scripts/decision-render.sh`
 
-### Issue 4: feat(coordinate): extract a worker report's questions
+### Issue 6: feat(coordinate): extract a worker report's questions
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
 
 **Goal**: Add `report-questions.sh`, which extracts a report's questions from its Questions
 part, question-shaped lines and phrasing matches, caps them, honors citations and fixed first
-lines only from their own holding, and seals the list's digest.
+lines only from their own holding, checks a coordinator escalation's digest, and seals the list.
 
 **Acceptance Criteria**:
 - [ ] A report with a `Questions:` part yields its numbered items; a `(decision <n>)` citation
-  is kept only when entry `<n>`'s Source is the reporting worker, and dropped (item uncited)
-  otherwise.
-- [ ] A line outside the part ending in `?`, and one matching a `decision` phrasing ("please
-  decide whether to ship"), are each extracted; lines inside fenced code and `>` quotes are not.
-- [ ] Items matching an `addressed` pattern are marked `addressed`.
-- [ ] A report with more than ten questions, or one over 400 characters, gets `overflow` and no
-  list; unreadable input gets `unreadable`; a report with none gets `none`.
-- [ ] A fixed `Decision <n> round <r> from <topic>.` first line is read as one question with a
-  coordinator source only when the reporting holding's entry point is `/shirabe:coordinate` and
-  `<topic>` is its worker topic; from any other holding it is ordinary text. A `Withdrawn:`
-  first line from such a holding is read as evidence on the entry with that source. A second
-  escalation with a topic, entry and round already opened yields no question, and an
-  `Answer:` first line in a report is read as ordinary text.
-- [ ] On `questions` the list is written as `coord/questions.json` and the verdict is
-  `questions <sha256>`, sealed; the digest matches.
+  is kept only when entry `<n>`'s Source is the reporting worker.
+- [ ] A line outside the part ending in `?`, and one matching a `decision` phrasing, are each
+  extracted; lines inside fenced code and `>` quotes are not; addressed items are marked.
+- [ ] More than ten questions, or one over 400 characters, gives `overflow`; unreadable input
+  gives `unreadable`; none gives `none`.
+- [ ] Without a holding, every citation is uncited and no first line is honored.
+- [ ] A `Decision <n> round <r>.` first line is one question with a coordinator source only from
+  a holding whose entry point is `/shirabe:coordinate`, and only when its digest line matches; a
+  second escalation for the same holding, entry and round yields nothing; a `Withdrawn:` line is
+  evidence on the entry with that source; an `Answer:` line is ordinary text.
+- [ ] Contract test: a report written to the exact `Questions:` shape `render-brief.sh` prints
+  parses to its items.
+- [ ] On `questions` the list is in `coord/questions.json`, sealed, and `check --key` passes.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>
+**Tests**: new `report-questions_test.sh`; `render-brief_test.sh` shares the contract fixture.
 
-**Type**: code
-**Files**: `skills/coordinate/scripts/report-questions.sh`
-
-### Issue 5: feat(coordinate): record-decision.sh, the one writer of decisions
-
-**Goal**: Add `record-decision.sh` with every mode of the DESIGN's mode table, bound to the
-workflow state and to the entry the workflow routed, with visit stamps, evidence resets and
-release; add `coord-log.sh current`. Its tests read `REPORTS_TO` and the current state from
-fixture session logs, since the template variable arrives with Issue 6.
-
-**Acceptance Criteria**:
-- [ ] `--open` in `decision_raise` writes a `proposed` entry with Source `self [raise <seq>]`
-  (from `failure` or `surface`) or `dispatcher [raise <seq>]` (from a `wait` raise), the next
-  identifier, and `Next decision` up by one; it refuses an empty question or options.
-- [ ] `--take` moves `proposed` to `coordinator-verdict`. `--settle` moves
-  `coordinator-verdict` to `settled` with Outcome and Decided by set, and `Owed: reply` exactly
-  when the Source is a worker, a coordinator or the dispatcher; it refuses an empty outcome or
-  an empty reason. `--escalate` moves `coordinator-verdict` to `escalated` with Round up by one,
-  `Owed: escalation` and Target equal to the run's `REPORTS_TO` (or `a person`).
-- [ ] Refused with exit 65 and the stored record byte for byte unchanged: `--escalate` or
-  `--settle` on a `proposed`, `escalated` or `settled` entry; `--take` on anything but
-  `proposed`; `--escalate` failing the shared validator (one case per failing part); any mode
-  run in a state other than its own (by `coord-log.sh current`); a mode reached from
-  `decision_next` naming an entry other than the one its sealed capture names; any single item
-  containing a carriage return or line feed.
-- [ ] `--evidence` on an entry in each of the four states leaves it in `coordinator-verdict`
-  with the Verdict column blank and the new line appended after every earlier Evidence line,
-  carrying its time, source and `[wait <seq>]` stamp. On a settled entry the previous outcome
-  and decider are appended first and Outcome, Decided by and an owed reply are cleared; on an
-  escalated entry whose message was sent `Owed` becomes `withdrawal`; on one never sent `Owed`
-  is cleared. No sequence of `--evidence` writes leaves an entry `escalated`.
-- [ ] `--open-from-report` refuses when an item is uncovered or covered twice, when the list's
-  digest doesn't match its sealed capture, and when the report visit was already written; on
-  success it writes one `proposed` entry per uncited item and one evidence line per cited one,
-  each stamped `[report <seq>.<i>]`, `addressed` noted on addressed items, with
-  `{question, options}` from the coordinator's file.
-- [ ] With one entry escalated, `--escalate` on a second leaves it in `coordinator-verdict` with
-  Verdict `escalate`; settling or adding evidence to the escalated entry escalates the queued
-  entry with the lowest identifier in the same write, or blanks its verdict when it no longer
-  validates.
-- [ ] `--answer` on an escalated entry naming its round and an option settles it with Decided by
-  written from the run's target (for an answer relayed from a coordinator above, the target
-  followed by the final decider the reply names), and `Owed: reply` as for `--settle`; for an
-  earlier round, or on a non-escalated entry, it appends evidence as `--evidence` does; an
-  answer identical to the one that settled the entry changes nothing.
-- [ ] `--sent` refuses unless the render capture sealed at the latest entry into the matching
-  render state names this entry, kind and round and its digest matches; on success it clears
-  `Owed` and stamps `Sent`, or writes the `[redirect report <seq>]` line.
-- [ ] `--carry` copies the previous rotation's unsettled entries and `Next decision` before the
-  run's first dispatch and refuses afterwards or when already present.
-- [ ] A second write for the same visit stamp is refused, so a retry after exit 12 never
-  duplicates an entry or an evidence line.
-
-**Dependencies**: Blocked by <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>
+**Dependencies**: Blocked by <<ISSUE:3>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/record-decision.sh`, `skills/coordinate/scripts/coord-log.sh`
+**Files**: `skills/coordinate/scripts/report-questions.sh`, `skills/coordinate/scripts/testdata/report-questions/`
 
-### Issue 6: feat(coordinate): route the decision loop in the template
+### Issue 7: feat(coordinate): record-decision.sh, the one writer of decisions
 
-**Goal**: Add `decision-next.sh`, `need-check.sh`, the `decision-owed` guard in
-`deferral-check.sh`, the `decisions` verdict and unsettled entries in `pick-facts.sh`,
-`REPORTS_TO` and `--reports-to`, the new states and edges, the verdict codes, and the shadow
-decider on `decision_verdict`.
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Add `record-decision.sh` with every mode of the DESIGN's table, its `--list` and
+`--read` readers, bound to the workflow state and the routed entry, with run-qualified stamps,
+evidence resets, release, and compaction; add `coord-log.sh current`.
 
 **Acceptance Criteria**:
-- [ ] `decision-next.sh` prints each of `carry`, `unrecorded-open`, `unrecorded-answer`,
-  `unrecorded-evidence`, `unrecorded-raise`, `withdraw`, `reply` (including an owed redirect),
-  `escalate`, `take`, `verdict`, `clear-report` and `clear` from a fixture record and log. For
-  each adjacent pair of rules, a fixture owing both yields the higher rule, and the test suite
-  fails when run against a copy of the script with two adjacent rules swapped.
-- [ ] A report whose questions were all cited counts as recorded; a stale report after
-  `overflow` yields `clear`, not `clear-report`; the `verdict` arm writes `coord/decision.json`
-  and its `context-exists` gate refuses the arm without it.
-- [ ] `deferral-check.sh` prints `decision-owed` before the run's first dispatch for each thing
-  owed, and after it only for an unrecorded write or an owed message; an entry awaiting a
-  verdict after the first dispatch doesn't block.
-- [ ] `pick-facts.sh` adds unsettled entries to `coord/pick.json` and prints `decisions` when
-  anything in `decision-next.sh`'s rules 1 to 7 is owed, and its usual verdicts otherwise.
-- [ ] `need-check.sh` reads the need from the latest `surface` evidence, refuses a decision
-  phrasing and accepts a non-decision need.
+- [ ] `--open` writes a `proposed` entry with Source `self` or `dispatcher` and a `raise` stamp,
+  the next identifier, and `Next decision` up by one; it refuses an empty question or options.
+- [ ] `--take`, `--settle`, `--escalate` and `--hold` move and annotate entries as the DESIGN's
+  table says, including `Owed: reply` exactly when the source is a worker, a coordinator or the
+  dispatcher and the latest evidence isn't that source's withdrawal, Round up by one and Target
+  equal to the run's `REPORTS_TO` on an escalation, and a `hold` stamp and reason on a hold.
+- [ ] Refused with exit 65 and the record byte for byte unchanged: each transition the table
+  doesn't list; `--settle` with an empty outcome or reason; `--hold` with an empty reason; each
+  failing part of the escalation validator; a mode run outside its state (by `coord-log.sh
+  current`); an entry other than the one the sealed capture names; an item holding a line break.
+- [ ] `--evidence` in each of the four states leaves the entry in `coordinator-verdict` with the
+  Verdict blank (a hold included) and the line appended last with its time, source and `wait`
+  stamp; on a settled entry the old outcome and decider go to Evidence and an owed reply clears;
+  on a sent escalation `Owed` becomes `withdrawal`; on an unsent one it clears.
+- [ ] A queued escalation is released, or its verdict blanked, in the write that frees the slot.
+- [ ] `--open-from-report` refuses an uncovered or doubly covered item, a list that fails
+  `check --key`, and a report this run already wrote; a second run replaying the same sequence
+  numbers against the first run's record writes its own entries.
+- [ ] `--answer` settles an escalated entry naming its round with Decided by from the run's
+  target (and the final decider for a nested reply); an earlier round or a non-escalated entry
+  gets evidence; an identical re-sent answer changes nothing.
+- [ ] `--sent` refuses unless the message key checks against the render's seal and names this
+  entry, kind and round; it stamps `Asked` for an escalation only.
+- [ ] `--carry` copies the handoff's unsettled entries and `Next decision` before the first
+  dispatch and refuses after it or when already present.
+- [ ] A settled entry that owes nothing is compacted at the next write.
+
+**Tests**: new `record-decision_test.sh`; `coord-log_test.sh` gains `current`;
+`coordinate-template-structure_engine_test.sh`'s write-script pattern gains `record-decision`.
+
+**Dependencies**: Blocked by <<ISSUE:5>>, <<ISSUE:6>>
+
+**Type**: code
+**Files**: `skills/coordinate/scripts/record-decision.sh`, `skills/coordinate/scripts/coord-log.sh`, `skills/coordinate/scripts/record-write-core.sh`
+
+### Issue 8: feat(coordinate): route the decision loop in the template
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Add `decision-next.sh` with its `--owed` mode, `need-check.sh`, the `decision-owed`
+guard, the `decisions` verdict and unsettled entries in `pick-facts.sh`, `REPORTS_TO` and
+`--reports-to`, the new states and edges, the verdict codes, and the shadow decider.
+
+**Acceptance Criteria**:
+- [ ] `decision-next.sh` prints each of its words from a fixture record and log; for each
+  adjacent pair of rules a fixture owing both yields the higher, and the suite fails against a
+  copy with two adjacent rules swapped.
+- [ ] Held entries are skipped; an all-cited report counts as recorded; a stale report after
+  `overflow` or a detour through `wait` gives `clear`; only this run's stamps count; the verdict
+  arm's `context-exists` gate refuses without `coord/decision.json`.
+- [ ] `deferral-check.sh` and `pick-facts.sh` call `decision-next.sh --owed` and follow the
+  DESIGN's blocking table row by row (a test per row), with nothing blocking `wait`.
+- [ ] `need-check.sh` refuses a need outside the kinds or whose argument matches the list.
 - [ ] `coordinate-open.sh --reports-to <topic>` sets `REPORTS_TO`; a malformed topic is refused
-  at `koto init`; without the flag it is empty.
-- [ ] The template compiles; every new state and edge in the DESIGN's table exists; every
-  verdict word has a code in `coord-verdict.sh` and an arm, pinned by
-  `coord-verdict-table_test.sh`; `reconcile`, `pick_facts`'s `decisions` and
-  `roadmap_close`'s `decisions` stage reach `decision_next`; `report_facts` reaches
-  `report_questions`; `failure: escalate` reaches `decision_raise`.
-- [ ] An engine test answers an escalated entry with an answer that reverses a decision the
-  dispatcher supplied: the entry settles, the run passes `decision_apply` with
-  `change: reversal`, and the record holds a new Reversals row confirmed by `record`.
-- [ ] `decision_verdict`'s decider on `verdict` is declared shadow in
-  `scripts/decider-declarations.tsv`, with at least one fixture per answer, and flipping its
+  at `koto init`.
+- [ ] The template compiles; every state and edge in the DESIGN's table exists; `roadmap_close`'s
+  `decisions` stage goes to `roadmap_blocked`; `report_facts`' three arms go to
+  `report_questions`; no cycle is made of check states only (a structure test).
+- [ ] Every new verdict word has one code in the first free block and one arm, and
+  `coord-verdict-table_test.sh` fails on a word that appears twice.
+- [ ] An answer that reverses a supplied decision settles the entry and passes `decision_apply`
+  with `change: reversal`, adding a Reversals row that `record` confirms (engine test).
+- [ ] A roadmap close with every feature done and one entry escalated and sent reaches
+  `roadmap_blocked` and then `wait` (engine test).
+- [ ] A restart against a record with an entry in each state takes up the proposed one, routes
+  the unjudged one, leaves a sent escalation and a held entry alone, and renders an unsent
+  escalation once, before the first dispatch (engine test).
+- [ ] `decision_verdict`'s decider is declared shadow with a fixture per answer, and flipping its
   answer changes no transition.
-- [ ] An engine test restarts a run against a record with an entry in each state and shows,
-  before the first dispatch, the proposed entry taken up, the unjudged one routed to a verdict,
-  an escalated entry with `Sent` left alone, and one without `Sent` rendered once.
-- [ ] The skill's declared koto floor (`skills/coordinate/requires.tsv`) is the one shirabe
-  declares on the default branch this work starts from; nothing in the template needs a later
-  koto.
 
-**Dependencies**: Blocked by <<ISSUE:5>>
+**Tests**: new `decision-next_test.sh`, `need-check_test.sh`; `deferral-check_test.sh`,
+`pick-facts_test.sh`, `coordinate-open_engine_test.sh`, `coord-verdict-table_test.sh`,
+`coordinate-template-structure_engine_test.sh` (state set, context-gate pattern, decider list,
+check-only cycles), `coordinate_engine_test.sh`; `coordinate.mermaid.md` regenerated.
+
+**Dependencies**: Blocked by <<ISSUE:7>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/decision-next.sh`, `skills/coordinate/scripts/need-check.sh`, `skills/coordinate/scripts/deferral-check.sh`, `skills/coordinate/scripts/pick-facts.sh`, `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coord-verdict.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.decision_verdict.verdict.decider.jsonl`, `scripts/decider-declarations.tsv`
+**Files**: `skills/coordinate/scripts/decision-next.sh`, `skills/coordinate/scripts/need-check.sh`, `skills/coordinate/scripts/deferral-check.sh`, `skills/coordinate/scripts/pick-facts.sh`, `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coord-verdict.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.mermaid.md`, `skills/coordinate/koto-templates/coordinate.decision_verdict.verdict.decider.jsonl`, `scripts/decider-declarations.tsv`
 
-### Issue 7: feat(coordinate): decision rows in the progress table, and the brief's channel
+### Issue 9: feat(coordinate): decision rows and need kinds in the progress table, and the brief's channel
 
-**Goal**: Render decision rows in the progress table from the entries `pick-facts.sh` adds,
-refuse free-text decision needs, and put the fixed channel sentence and the `Questions:`
-shape in every rendered brief.
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Render decision rows from the entries `pick-facts.sh` adds, take blocked needs only in
+closed kinds, check `--next` text, and put the channel sentence, the `Questions:` shape and the
+repeat-unanswered instruction in every brief.
 
 **Acceptance Criteria**:
 - [ ] An entry escalated to a person renders a "Blocked on you" row with its question, status
-  `decide`, and its recommendation and reason; the renderer refuses the row when either is
-  empty.
-- [ ] An entry escalated to a coordinator renders an "Ongoing" row naming that coordinator and
-  asking nothing; a proposed or coordinator-verdict entry renders "with me for a verdict".
-- [ ] `--blocked <session>=<need>` refuses each refused phrasing fixture, including "decide
-  whether to ship", and accepts each accepted one.
-- [ ] Every brief `render-brief.sh` renders contains the fixed channel sentence and the
-  `Questions:` shape; its test fails on a brief without them.
+  `decide`, recommendation and reason, and is refused when either is empty; an entry escalated
+  to a coordinator renders "with `<topic>` for a decision"; a proposed or unjudged entry "with me
+  for a verdict", a held one with what it waits on.
+- [ ] `--blocked` accepts only `credential <name>`, `reserved-step <kind> <link>` and
+  `access <owner/repo>`, words the cell itself, and refuses anything else, including "decide
+  whether to ship".
+- [ ] `--next` text on any row refuses each refused phrasing fixture and accepts each accepted
+  one.
+- [ ] Every brief `render-brief.sh` renders carries the channel sentence, the `Questions:` shape
+  and the repeat-unanswered instruction; its test fails on a brief without them.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:6>>
+**Tests**: `progress-view_test.sh`, `render-brief_test.sh`.
+
+**Dependencies**: Blocked by <<ISSUE:8>>
 
 **Type**: code
 **Files**: `skills/coordinate/scripts/progress-view.sh`, `skills/coordinate/scripts/render-brief.sh`
 
-### Issue 8: docs(coordinate): skill text, references, rule coverage, and the replays
+### Issue 10: docs(coordinate): skill text, references, rule coverage, and the harness on real scripts
 
-**Goal**: Describe the decision flow in SKILL.md by the template's states and checks, update
-the references and rule coverage, add an eval, and add the three-level round trip and the
-niwa#330 replay as engine tests.
+**Repo**: tsukumogami/shirabe
+
+**Group**: decision-flow
+
+**Goal**: Describe the decision flow in SKILL.md by the template's states and checks, replace the
+free-text "Waiting on the human" section with the table's rows, update the references and rule
+coverage, add an eval, and run the acceptance harness against the real scripts.
 
 **Acceptance Criteria**:
-- [ ] SKILL.md has a decisions section that names only template states and checks, and a check
-  fails when it names a state or check the template doesn't have (with a failing fixture).
+- [ ] SKILL.md has a decisions section naming only template states and checks, and a check fails
+  when it names one the template doesn't have (with a failing fixture).
+- [ ] SKILL.md, `references/loop.md` and the template's `reconcile` guidance no longer ask for a
+  free-text "Waiting on the human" section; they point at the table's "Blocked on you" rows, and
+  the reconcile report lists only escalated entries and reserved finishing steps.
 - [ ] `references/loop.md`'s escalation shape points at the rendered form; `record-template.md`
-  shows the Decisions section; `testdata/rule-coverage.tsv` carries rows for the new rules, and
+  shows the Decisions section; the template's description names the decision writes' return
+  through `decision_next`; `testdata/rule-coverage.tsv` carries rows for the new rules and
   `rule-coverage_test.sh` passes.
-- [ ] An eval covers a worker report asking the human to decide and expects the question
-  opened as an entry, not surfaced.
-- [ ] The three-level engine test (a person, a workspace coordinator, a roadmap coordinator)
-  shows the roadmap coordinator's escalation opened as a `proposed` entry above with its
-  source, and its settlement rendered back down so the lower entry settles naming the final
-  decider; a withdrawal from below reopens the upper entry.
-- [ ] The niwa#330 replay drives: an entry settled on option (d); a mixed check result recorded
-  as evidence; the worker's "please decide whether to ship" in a report. It passes when the
-  log shows `decision_verdict` entered before any render state, no escalation rendered, and no
-  progress table in the sequence with a decision row lacking a recommendation; the same replay
-  against a template variant whose evidence edge goes to `escalate` fails.
-- [ ] Every test the PR adds runs in CI, read job by job.
+- [ ] An eval covers a worker report asking the human to decide and expects the question opened
+  as an entry, not surfaced.
+- [ ] Issue 4's stand-ins are gone, and the niwa#330 replay and the three-level test pass against
+  the real scripts, with the escalate-edge variant still failing.
+- [ ] Every test this pull request adds runs in CI, read job by job.
 
-**Dependencies**: Blocked by <<ISSUE:6>>, <<ISSUE:7>>
+**Tests**: `rule-coverage_test.sh`, `skill-hygiene_test.sh`, `decisions-replay_engine_test.sh`,
+the evals via `scripts/run-evals.sh`.
+
+**Dependencies**: Blocked by <<ISSUE:4>>, <<ISSUE:9>>
 
 **Type**: docs
-**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/record-template.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/evals/evals.json`, `skills/coordinate/scripts/coordinate_engine_test.sh`
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/record-template.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/evals/evals.json`, `skills/coordinate/scripts/decisions-replay_engine_test.sh`
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["1: phrasing list"]
+    I2["2: record reader"]
+    G["gate: record-reader merged"]
+    I3["3: seam re-check"]
+    I4["4: acceptance harness"]
+    I5["5: renderer"]
+    I6["6: question extractor"]
+    I7["7: record-decision.sh"]
+    I8["8: template routing"]
+    I9["9: table and brief"]
+    I10["10: skill text, harness on real scripts"]
+    I1 --> G
+    I2 --> G
+    G --> I3
+    I3 --> I4
+    I3 --> I5
+    I3 --> I6
+    I5 --> I7
+    I6 --> I7
+    I7 --> I8
+    I8 --> I9
+    I4 --> I10
+    I9 --> I10
+```
 
 ## Implementation Sequence
 
-The critical path is 2, 3, 5, 6, 7, 8 (with 4 joining at 5). Issue 1 and Issue 2 start
-together; Issue 3 and Issue 4 can run side by side once 2 is done. Everything lands in one pull request,
-started from a default branch that holds shirabe#404 and shirabe#406.
+Two pull requests in tsukumogami/shirabe, merged in order. The first, group `record-reader`,
+carries Issues 1 and 2: the record reader and the refusals that guard the section. It writes no
+entry and lands on its own. The second, group `decision-flow`, carries Issues 3 to 10: the
+decision flow and every gate on it. It starts only after the first has merged (the
+`record-reader-merged` gate) and after shirabe#404 and shirabe#406 are on the default branch.
+
+Inside the second, Issue 3 comes first, then Issue 4's harness beside Issues 5 and 6; the
+critical path is 3, 5 or 6, 7, 8, 9, 10. The coordination pull request merges last.
