@@ -1,7 +1,12 @@
 decide whether to ship
 needs your decision
+please decide
 please decide which approach to take
 Decide whether to ship with the mixed result
 waiting on the human's decision
 should we ship or drop it?
-choose between option c and option d
+needs your sign-off
+The user should decide
+It's the user's call
+Please confirm whether we ship
+Next: decide which issue to pick up

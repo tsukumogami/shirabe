@@ -494,16 +494,23 @@ lib_phrasings_check() {
         esac
         case "$pat" in
             *\\[1-9]*) echo "decision phrasings: line $n: a back-reference" >&2; return 65 ;;
+            *\\b*|*\\\<*|*\\\>*) echo "decision phrasings: line $n: \\b, \\< or \\> isn't portable; spell the word edge" >&2; return 65 ;;
         esac
     done < "$f"
     return 0
 }
 
 # lib_phrase_match <kind> <text>: exit 0 when the text matches any row of that
-# kind, case-insensitively with grep -E; 1 no match; 2 the list is unreadable
-# or refused, which a caller treats as a failed check, never as no match.
+# kind, case-insensitively with grep -E; 1 no match; 2 an unknown kind, or the
+# list unreadable or refused, which a caller treats as a failed check, never as
+# no match. The list is found through lib_phrasings_file, so the caller has set
+# HERE to the scripts directory, as every caller of this file does.
 lib_phrase_match() {
     local kind="$1" text="$2" f pats
+    case "$kind" in
+        decision|addressed) ;;
+        *) echo "decision phrasings: unknown kind '$kind'" >&2; return 2 ;;
+    esac
     f=$(lib_phrasings_file)
     lib_phrasings_check "$f" || return 2
     pats=$(awk -F'\t' -v k="$kind" '$0 !~ /^#/ && NF >= 2 && $1 == k { sub(/^[^\t]*\t/, ""); print }' "$f")

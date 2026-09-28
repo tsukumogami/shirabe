@@ -1,5 +1,12 @@
 the human should decide whether to ship
+the human
+your call
+up to you
 your call on the flag name
 up to you which one we keep
 You decide: ship or hold?
 I'm asking the operator to pick
+please decide whether to ship
+Please decide whether to ship with the mixed result.
+The user should decide
+It's the operator's call

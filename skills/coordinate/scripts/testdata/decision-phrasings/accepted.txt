@@ -5,3 +5,8 @@ merge 1 of 2
 report at its next checkpoint
 we decided to keep option d
 the decision record is confirmed
+I had to choose between two layouts and went with the table
+I'll pick one of the fixtures
+Your decision record update landed
+your call site changed in the refactor
+the human-readable summary is in the PR
