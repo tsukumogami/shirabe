@@ -61,7 +61,7 @@ done
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/testdata/decisions/stand-in-states.yaml"
-STAND_INS="coord-verdict.sh decision-next.sh report-questions.sh record-decision.sh"
+STAND_INS="coord-verdict.sh decision-next.sh record-decision.sh"
 
 # test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
@@ -417,7 +417,7 @@ verdict_for() {
     esac
 }
 
-arrive_raise "$LR" "Merge the migration before the release?" "merge now" "wait for the release"
+arrive_raise "$LR" "Merge the migration before the release?" "merge now -- the format lands this week" "wait for the release -- one upgrade carries both changes"
 back_to_wait "$LR"
 eq "levels: R escalates its entry to coordinator ws" 'escalated|coordinator ws' "$(field "$LR" 1 state)|$(field "$LR" 1 target)"
 eq "levels: R's escalation is rendered, naming decision 1 round 1" "escalation|Decision 1 round 1." \
@@ -427,7 +427,7 @@ arrive_report "$LW" rr "$(last_sent "$LR" .text)"
 eq "levels: W opens R's escalation as its own entry, with R's entry as its source" \
     'coordinator rr #1 round 1' "$(field "$LW" 1 source | sed 's/ \[.*//')"
 eq "levels: W took it up as a proposed entry" 1 "$(visits "$LW" | grep -c '^decision_take$')"
-eq "levels: W carries R's options, the recommendation first" "wait for the release|merge now" "$(entry "$LW" 1 | jq -r '.options | split("\n") | join("|")')"
+eq "levels: W carries R's options with their explanations, the recommendation first" "wait for the release -- one upgrade carries both changes|merge now -- the format lands this week" "$(entry "$LW" 1 | jq -r '.options | split("\n") | join("|")')"
 eq "levels: W escalates it to a person with a recommendation" 'escalated|a person|wait for the release' \
     "$(field "$LW" 1 state)|$(field "$LW" 1 target)|$(field "$LW" 1 recommendation)"
 back_to_wait "$LW"
@@ -452,7 +452,7 @@ eq "levels: R's entry settles naming the final decider" 'settled|coordinator ws 
 back_to_wait "$LR"
 
 # A withdrawal from below.
-arrive_raise "$LR" "Pin the plugin before the release?" "pin" "don't pin"
+arrive_raise "$LR" "Pin the plugin before the release?" "pin -- freezes a version with a known bug" "don't pin -- lets a breaking release through"
 back_to_wait "$LR"
 arrive_report "$LW" rr "$(last_sent "$LR" .text)"
 back_to_wait "$LW"
