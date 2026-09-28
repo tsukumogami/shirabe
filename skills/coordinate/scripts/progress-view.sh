@@ -11,8 +11,16 @@
 # four kinds of row in this order:
 #   1. Ready to merge   parked holdings (a verified head, the pull request open
 #                       and not a draft), in the merge order --merge-order gives
-#   2. Blocked on you   holdings --blocked names, with what each needs
-#   3. Ongoing          every other holding, its status and what's next
+#   2. Blocked on you   holdings --blocked names, with what each needs; then
+#                       each decision entry escalated to a person: its
+#                       question, status `decide`, and "recommended: <option>,
+#                       because <reason>", refused when either is empty
+#   3. Ongoing          every other holding, its status and what's next; then
+#                       each entry escalated to a coordinator ("with `<topic>`
+#                       for a decision") and each proposed or unjudged entry
+#                       ("with me for a verdict", and when held, what it waits
+#                       on). A decision reaches "Blocked on you" only from an
+#                       escalated entry, never from a flag
 #   4. Waiting to be assigned
 #                       units no holding covers and not done, in the order
 #                       they'll be assigned as the cap frees: pick's order,
@@ -28,9 +36,17 @@
 #                            two or more are ready, and must name each exactly
 #                            once
 #   --blocked T=NEED         a holding blocked on the human and what it needs
-#                            (repeatable; a ready session is not blocked)
+#                            (repeatable; a ready session is not blocked), one
+#                            of: credential <name>, reserved-step
+#                            <merge|release|close|teardown> <pull request or
+#                            issue link>, access <owner/repo>. The cell is
+#                            worded from the kind; anything else is refused
 #   --next KEY=TEXT          what's next for a session or queued unit, keyed
-#                            by session name or unit (repeatable)
+#                            by session name or unit (repeatable); refused
+#                            when it reads as a decision (phrasing-lib.sh)
+#
+# The decision rows come from the facts' `decisions`, the record's unsettled
+# entries that pick-facts.sh adds.
 #
 # Exit codes: 0 the table was printed; 65 refused (nothing is printed; stderr
 # says why); 64 usage.
@@ -57,6 +73,43 @@ done
 
 T=$(mktemp "${TMPDIR:-/tmp}/progress-view.XXXXXX")
 trap 'rm -f "$T"' EXIT
+. "$HERE/phrasing-lib.sh"
+refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
+# not_a_decision <what> <text>: the phrasing list's backstop on free text.
+not_a_decision() {
+    phrase_match decision "$2"
+    case $? in 0) refuse "$1 reads as a decision; raise it as a decision entry instead" ;; 1) ;; *) refuse "the phrasing list can't be read" ;; esac
+}
+# A need is one of the closed kinds, worded here for its cell, so there is
+# no free sentence left to put a decision in.
+RE_NAME='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+RE_LINK='^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(pull|issues)/[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|#[1-9][0-9]*)$'
+WORDED='{}'
+while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    NEED=$(jq -r --arg k "$k" '.[$k]' <<< "$BLOCKED")
+    case "$NEED" in *$'\n'*|*$'\r'*) refuse "$k: a need is one line" ;; esac
+    set -f; set -- $NEED; set +f
+    case "${1-}" in
+        credential) [ $# -eq 2 ] && [[ $2 =~ $RE_NAME ]] || refuse "$k: credential takes one name"
+            CELL="credential: $2" ARG=$2 ;;
+        reserved-step) [ $# -eq 3 ] || refuse "$k: reserved-step takes a step and a link"
+            case "$2" in merge|release|close|teardown) ;; *) refuse "$k: reserved-step is merge, release, close or teardown" ;; esac
+            [[ $3 =~ $RE_LINK ]] || refuse "$k: reserved-step names a pull request or an issue"
+            CELL="$2 $3, reserved for a person" ARG="$2 $3" ;;
+        access) [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] || refuse "$k: access takes one owner/repo"
+            CELL="access to $2" ARG=$2 ;;
+        *) refuse "$k: a need is credential <name>, reserved-step <step> <link> or access <owner/repo>; a decision is raised as an entry" ;;
+    esac
+    not_a_decision "$k's need" "$ARG"
+    WORDED=$(jq -c --arg k "$k" --arg v "$CELL" '. + {($k): $v}' <<< "$WORDED")
+done < <(jq -r 'keys[]' <<< "$BLOCKED")
+BLOCKED=$WORDED
+while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    not_a_decision "--next for $k" "$(jq -r --arg k "$k" '.[$k]' <<< "$NEXT")"
+done < <(jq -r 'keys[]' <<< "$NEXT")
 OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" '
     include "record-codec";
     def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
@@ -78,6 +131,7 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
     if (type != "object") or ((.holdings | type) != "array") or ((.units | type) != "array")
     then error("input: not the pick facts") else . end
     | .holdings as $h
+    | (.decisions // []) as $dec
     | [$h[] | select(.parked == true)] as $ready
     | ($order | if . == "" then [] else split(",") end) as $o
     | (if ($ready | length) > 1 and ($o | length) == 0 then error("two or more pull requests are ready: --merge-order is required")
@@ -98,6 +152,10 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
               ($next[$w] // "merge \($i + 1) of \($mo | length)"))),
       ($h[] | select(.worker as $w | $bk | index($w) != null) | .worker as $w
         | row("Blocked on you"; .unit; code($w); (.pull_request | link($w)); "blocked"; $blocked[$w])),
+      ($dec[] | select(.state == "escalated" and .target == "a person")
+        | if ((.recommendation // "") | test("^\\s*$")) or ((.reason // "") | test("^\\s*$"))
+          then error("decision \(.decision): a decision row needs its recommendation and reason") else . end
+        | row("Blocked on you"; .question; "N/A"; "N/A"; "decide"; "recommended: \(.recommendation), because \(.reason)")),
       ($h[] | select((.parked != true) and (.worker as $w | $bk | index($w) == null)) | .worker as $w
         | row("Ongoing"; .unit; code($w); (.pull_request | link($w));
               ({"dispatching": "dispatching", "dispatch-failed": "dispatch failed"}[.dispatch_status]
@@ -105,6 +163,12 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
               ($next[$w] // (if .dispatch_status == "dispatch-failed" then "redispatch or escalate"
                              elif .phase == "scoping-ahead" then "its execution is sent when its blocker lands"
                              else "report at its next checkpoint" end)))),
+      # Decisions nobody but a coordinator is asked: the reader is asked nothing.
+      ($dec[] | select(.state == "escalated" and .target != "a person")
+        | row("Ongoing"; .question; "N/A"; "N/A"; "with `\(.target | sub("^coordinator "; ""))` for a decision"; "N/A")),
+      ($dec[] | select(.state == "proposed" or .state == "coordinator-verdict")
+        | row("Ongoing"; .question; "N/A"; "N/A";
+              (if .verdict == "hold" then "with me for a verdict, waiting on \(.reason)" else "with me for a verdict" end); "N/A")),
       ($queue | to_entries[] | .key as $i | .value
         | row("Waiting to be assigned"; unitname; "N/A"; "N/A";
               (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))" else "ready to assign" end);
