@@ -119,6 +119,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/eval-gh-shim_test.sh
 
+      # The eval koto shim's execute-session arm: what the drift scenarios'
+      # ticks, status and failure_reason answer.
+      - name: Run eval koto shim tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/eval-koto-shim_test.sh
+
       # The coordinated loop's scripts: the next action, the verdict and its
       # record, the setup record, node branches, node pushes and their head=
       # records, and the merge. Each drives the eval gh shim's repository
