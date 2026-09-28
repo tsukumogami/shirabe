@@ -377,6 +377,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/teardown-inventory_test.sh"
             # The decision-phrasing list's reader: bash, awk and grep only.
             echo "skills/coordinate/scripts/decision-phrasings_test.sh"
+            echo "skills/coordinate/scripts/decision-render_test.sh"
             ;;
         deliver)
             # The report, the probes, the binding check, the mode map, and the
