@@ -46,7 +46,7 @@ die() {
 SESSION="${1:-}"
 [ -n "$SESSION" ] || die 67 "missing session argument"
 
-git rev-parse --git-dir >/dev/null 2>&1 || die 64 "not inside a git repository"
+git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
 git rev-parse --verify -q "HEAD^{commit}" >/dev/null \
     || die 64 "HEAD does not name a commit"
 
