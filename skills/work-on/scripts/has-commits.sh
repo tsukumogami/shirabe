@@ -12,7 +12,15 @@
 #
 # A missing `impl_base` fails the gate rather than guessing a base. The gate
 # guards routes that must not be taken without commits, so "don't know" is a
-# failure; the directive for the state says how to recover.
+# failure. The recovery is to record the commit the run really started from
+# (the parent of its first commit) as `impl_base` and submit again; the
+# issue_type_routing and scrutiny directives say so, and so does the message
+# this script prints. Re-entering `analysis` doesn't help: it would record the
+# current HEAD, which is already past the run's commits.
+#
+# Limitation, shared with record-changed-paths.sh: a rebase after `analysis`
+# can leave `impl_base` off HEAD's history, and the count then includes what
+# the rebase pulled in.
 #
 # Usage: has-commits.sh <koto-session-name>
 #
@@ -41,13 +49,17 @@ git rev-parse --git-dir >/dev/null 2>&1 || die 64 "not inside a git repository"
 git rev-parse --verify -q "HEAD^{commit}" >/dev/null \
     || die 64 "HEAD does not name a commit"
 
+RECOVER="record the commit this run started from and submit again: git rev-parse <commit> | koto context add $SESSION impl_base"
+
 # `koto context exists` exits 1, silently, for an absent key.
 koto context exists "$SESSION" impl_base \
-    || die 64 "impl_base is not recorded for session [$SESSION]; analysis records it on entry"
-stored=$(koto context get "$SESSION" impl_base | tr -d '[:space:]')
-[ -n "$stored" ] || die 64 "impl_base is empty for session [$SESSION]"
+    || die 64 "impl_base is not recorded for session [$SESSION]; $RECOVER"
+stored=$(koto context get "$SESSION" impl_base) \
+    || die 64 "could not read impl_base for session [$SESSION]; submit again"
+stored=$(printf '%s' "$stored" | tr -d '[:space:]')
+[ -n "$stored" ] || die 64 "impl_base is empty for session [$SESSION]; $RECOVER"
 BASE=$(git rev-parse --verify -q "${stored}^{commit}") \
-    || die 64 "impl_base [$stored] is not a commit in this repository"
+    || die 64 "impl_base [$stored] is not a commit in this repository; $RECOVER"
 
 COUNT=$(git rev-list --count "$BASE..HEAD") \
     || die 64 "could not count commits in $BASE..HEAD"

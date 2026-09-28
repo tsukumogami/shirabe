@@ -178,8 +178,8 @@ When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new b
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
 
 **Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. The type is asked exactly once, at the `issue_type_routing` state, after implementation. It is not submitted during `analysis` or `implementation`. When `implementation_status: complete` is submitted, koto records the changed paths itself (`changed_paths_record`, which writes `changed_paths.txt` from the `impl_base` commit `analysis` recorded on entry) and stops at `issue_type_routing`, where the agent confirms or overrides the hint against those paths and submits `issue_type`:
-- `code` — proceeds through scrutiny → review → qa_validation; scrutiny won't pass on a branch with no commits over main
-- `docs` — skips the panels and goes to verification; needs at least one commit over main
+- `code` — proceeds through scrutiny → review → qa_validation; scrutiny won't pass while the run has no commits since `impl_base`
+- `docs` — skips the panels and goes to verification; needs at least one commit since `impl_base`
 - `task` — skips the panels and goes to verification; needs no commits
 
 When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), the hint defaults to `code`; the question at `issue_type_routing` is asked either way.

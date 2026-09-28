@@ -473,9 +473,11 @@ states:
     # earlier commits from the record. On a SHARED_BRANCH, the base is also what
     # keeps the commits siblings made before this run out of it.
     #
-    # The action's failure is not the run's failure. It stops the tick with the
-    # fallback below, and submitting the analysis evidence skips the action;
-    # changed_paths_record then falls back to a merge-base.
+    # The action's failure stops the tick with the fallback below. The run can
+    # go on once impl_base is recorded, by a re-run or by the agent; without it
+    # changed_paths_record falls back to a merge-base, but has_commits fails
+    # (it guards routes that must not be taken without commits), so the
+    # fallback asks for the key before the analysis evidence.
     #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
@@ -489,10 +491,13 @@ states:
         HEAD names no commit or this is not a git repository, 66 when writing
         the context key failed, and 127 or 126 when PLUGIN_ROOT does not reach
         the plugin. Fix the cause and tick again -- the action re-runs on entry
-        and never overwrites a base it already recorded. Or carry on: do the
-        analysis and submit `plan_outcome` as usual, which skips the action.
-        The changed-paths record then diffs from the merge-base with the
-        default branch instead.
+        and never overwrites a base it already recorded. If it can't be fixed,
+        record the base yourself before committing anything:
+        `git rev-parse HEAD | koto context add <session> impl_base`, with
+        this workflow's session name for <session>.
+        Then do the analysis and submit `plan_outcome` as usual, which skips
+        the action. Don't go on without impl_base: the has_commits gate on the
+        docs and scrutiny routes fails until it is recorded.
     gates:
       plan_artifact:
         type: context-exists
@@ -1770,6 +1775,11 @@ a starting point and override it when the changed paths say otherwise.
 - `docs` -- writing or structural documentation changes. Skips the panels and
   goes to verification. Needs at least one commit since `impl_base`:
   submitted with none, the state holds; commit the work, then submit it again.
+  If the work is already committed and the state still holds, `impl_base`
+  is missing or was recorded after the work (compare
+  `koto context get {{SESSION_NAME}} impl_base` with `git log`): record
+  the commit the run started from, the parent of its first commit, with
+  `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 - `task` -- operational work (running scripts or commands) with no reviewable
   change set. Skips the panels, goes to verification, and needs no commits.
 
@@ -1782,7 +1792,7 @@ Evidence schema:
 
 Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
 
-Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, submit `blocking_retry` and commit it in implementation.
+Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, submit `blocking_retry` and commit it in implementation. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 

@@ -177,8 +177,9 @@ check s-prior
 shape s-missing nomain
 commit_file work.txt
 check s-missing
-if [ "$RC" -eq 64 ] && grep -q 'impl_base is not recorded' "$WORKDIR/stderr"; then
-    pass "impl_base unset -> exit 64, even with commits on the branch"
+if [ "$RC" -eq 64 ] && grep -q 'impl_base is not recorded' "$WORKDIR/stderr" \
+    && grep -qF 'git rev-parse <commit> | koto context add s-missing impl_base' "$WORKDIR/stderr"; then
+    pass "impl_base unset -> exit 64, even with commits on the branch, and the message says how to record it"
 else
     fail "impl_base unset exited $RC ($(cat "$WORKDIR/stderr"))"
 fi

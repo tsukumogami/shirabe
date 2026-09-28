@@ -483,14 +483,14 @@ else
     fail "docs with commits reached [$STATE]"
 fi
 
-# code with no commits over main still reaches scrutiny; scrutiny then holds
+# code with no commits since impl_base still reaches scrutiny; scrutiny then holds
 # passed until a commit exists.
 fixture e-code
 to_implementation e-code
 tick e-code '{"implementation_status":"complete"}'
 tick e-code '{"issue_type":"code"}'
 if [ "$STATE" = scrutiny ]; then
-    pass "code reaches scrutiny with no commits over main"
+    pass "code reaches scrutiny with no commits since impl_base"
 else
     fail "code with no commits reached [$STATE]"
 fi

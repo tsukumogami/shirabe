@@ -6,9 +6,11 @@ Create the PR and monitor CI until all checks pass.
 
 Rebase on latest main if behind. Resolve conflicts and re-run tests.
 
-Review with `git diff "$(koto context get <WF> impl_base)" HEAD` — this run's
-changes from the commit `analysis` recorded, with no local `main` needed — no
-unintended changes.
+Review the diff against the branch you just rebased onto, the remote's default
+branch: `git diff origin/main...HEAD` when it is `main` (`git symbolic-ref
+refs/remotes/origin/HEAD` names it). That is what the PR will show, and it
+needs no local `main`. Diffing from `impl_base` here would also show whatever
+the rebase pulled in. No unintended changes.
 
 ### Design Document Status
 
