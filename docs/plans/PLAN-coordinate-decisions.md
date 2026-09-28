@@ -63,11 +63,14 @@ measured against them, and the last outline runs them against the real scripts.
 
 **Goal**: Add `skills/coordinate/references/decision-phrasings.tsv` and its fixtures, the one
 closed list of decision phrasings and person-addressing patterns that `progress-view.sh`,
-`report-questions.sh` and `need-check.sh` read, with its matcher in `record-common.sh`.
+`report-questions.sh` and `need-check.sh` read, with its reader in its own sourced library,
+`phrasing-lib.sh`, so a caller needn't pull in the record library.
 
 **Acceptance Criteria**:
 - [ ] Each row is an extended regular expression with no back-references and a kind,
-  `decision` or `addressed`; a test fails when a row uses a back-reference or an unknown kind.
+  `decision`, `addressed`, or `both` (one row for a phrasing that is both, so the two kinds
+  can't drift apart); a test fails when a row uses a back-reference, an unknown kind, or an
+  escape BSD grep doesn't take, and a failure to read the list is never "no match".
 - [ ] `scripts/testdata/decision-phrasings/` holds at least three refused decision phrasings
   ("decide whether to ship", "needs your decision", "please decide"), three accepted texts
   ("needs an npm token", "run the release", "waiting on the release decision from the
@@ -75,12 +78,13 @@ closed list of decision phrasings and person-addressing patterns that `progress-
   you"); the matcher refuses every refused fixture, accepts every accepted one, and marks every
   addressed one, matched case-insensitively with `grep -E`.
 
-**Tests**: new `decision-phrasings_test.sh`; `run-tests.sh` gains it.
+**Tests**: new `decision-phrasings_test.sh`; `run-tests.sh` picks it up, and the bash 3.2
+floor list in `scripts/check-bash-floor.sh` gains it.
 
 **Dependencies**: None
 
 **Type**: code
-**Files**: `skills/coordinate/references/decision-phrasings.tsv`, `skills/coordinate/scripts/record-common.sh`, `skills/coordinate/scripts/testdata/decision-phrasings/`
+**Files**: `skills/coordinate/references/decision-phrasings.tsv`, `skills/coordinate/scripts/phrasing-lib.sh`, `skills/coordinate/scripts/testdata/decision-phrasings/`, `scripts/check-bash-floor.sh`
 
 ### Issue 2: feat(coordinate): read and guard the Decisions record section
 

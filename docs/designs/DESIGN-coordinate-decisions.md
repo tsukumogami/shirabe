@@ -766,6 +766,7 @@ reaches a person.
 | `decision-render.sh` | the render states' actions | Renders an escalation, withdrawal, reply or redirect from the live entry through the shared validator, refuses when the entry doesn't owe that kind, seals the text with `coord-log.sh seal --file --key` |
 | `report-questions.sh` | `report_questions`'s action | Extracts, caps and classifies a report's questions, honoring citations and first lines only from their own holding and checking a coordinator escalation's digest; seals the list |
 | `need-check.sh` | `surface_check`'s action | Reads the need from the latest `surface` evidence, refuses one outside the need kinds or matching the phrasing list, seals the rest |
+| `phrasing-lib.sh` | sourced by `progress-view.sh`, `report-questions.sh` and `need-check.sh` | The phrasing list's one reader: `phrase_match <decision\|addressed> <text>` exits 0, 1, or 2 for "can't check" (never read as no match); rows of kind `both` count for each |
 | `deferral-check.sh` (changed) | `dispatch_check`'s action | The `decision-owed` verdict, from `decision-next.sh --owed dispatch` |
 | `pick-facts.sh` (changed) | `pick_facts`'s action | Adds unsettled entries to `coord/pick.json`; the `decisions` verdict from `decision-next.sh --owed pick` |
 | `progress-view.sh` (changed) | the coordinator | Decision rows from the record; `--blocked` takes need kinds; `--next` refuses decision phrasings |
