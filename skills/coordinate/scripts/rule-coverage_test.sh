@@ -7,7 +7,8 @@
 # sits in (or -), and a short verbatim phrase from it. For each row it checks
 # the phrase occurs in that file and, when a state is named, inside that
 # `## <state>` section of the template body. It also checks that the rows and
-# the `# lost:` line together name every ID from C1 to C190 exactly once, and
+# the `# lost:` line together name every ID from C1 to C190 exactly once, that
+# the decision flow's rules, D1 onward, each have exactly one row, and
 # that each of the four reference files is named in at least one state
 # section of coordinate.md.
 #
@@ -19,6 +20,8 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 TSV="$HERE/testdata/rule-coverage.tsv"
 TEMPLATE=skills/coordinate/koto-templates/coordinate.md
 TOTAL=190
+# The decision flow's rules, added after the inventory: D1..D$DTOTAL.
+DTOTAL=16
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
@@ -41,7 +44,7 @@ while IFS=$'\t' read -r id file state phrase note; do
     case "$id" in ''|'#'*) continue ;; esac
     echo "$id" >> "$T/ids"
     label="$id $file${state:+ [$state]}"
-    case "$id" in C[0-9]*) ;; *) bad "$label" "malformed ID"; continue ;; esac
+    case "$id" in C[0-9]*|D[0-9]*) ;; *) bad "$label" "malformed ID"; continue ;; esac
     if [ -z "${phrase-}" ]; then bad "$label" "no key phrase"; continue; fi
     len=${#phrase}
     if [ "$len" -lt 8 ] || [ "$len" -gt 60 ]; then
@@ -67,7 +70,7 @@ done < "$TSV"
 # Completeness: rows plus the lost list name C1..C$TOTAL, each once.
 sed -n 's/^# lost://p' "$TSV" | tr ' ' '\n' | grep . > "$T/lost"
 LOST=$(wc -l < "$T/lost" | tr -d ' ')
-cat "$T/ids" "$T/lost" | sort > "$T/named"
+grep -v '^D' "$T/ids" | cat - "$T/lost" | sort > "$T/named"
 i=1
 : > "$T/want"
 while [ "$i" -le "$TOTAL" ]; do echo "C$i" >> "$T/want"; i=$((i + 1)); done
@@ -78,6 +81,15 @@ missing=$(grep -vxF -f "$T/named" "$T/want.s" | tr '\n' ' ')
 extra=$(grep -vxF -f "$T/want.s" "$T/named" | tr '\n' ' ')
 [ -z "$missing" ] && ok "every rule C1..C$TOTAL is named" || bad "every rule C1..C$TOTAL is named" "missing: $missing"
 [ -z "$extra" ] && ok "no rule outside C1..C$TOTAL" || bad "no rule outside C1..C$TOTAL" "extra: $extra"
+
+# The decision flow's own rules, D1..D$DTOTAL, each named once by a row.
+grep '^D' "$T/ids" | sort > "$T/dnamed"
+i=1
+: > "$T/dwant"
+while [ "$i" -le "$DTOTAL" ]; do echo "D$i" >> "$T/dwant"; i=$((i + 1)); done
+sort "$T/dwant" > "$T/dwant.s"
+[ "$(cat "$T/dnamed")" = "$(cat "$T/dwant.s")" ] && ok "every decision rule D1..D$DTOTAL is named once" \
+    || bad "every decision rule D1..D$DTOTAL is named once" "named: $(tr '\n' ' ' < "$T/dnamed")"
 
 # Each reference file is named in at least one state section of the template.
 awk '/^## / { on = 1 } on' "$T/body" > "$T/sections"
