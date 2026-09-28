@@ -1,0 +1,5 @@
+the human should decide whether to ship
+your call on the flag name
+up to you which one we keep
+You decide: ship or hold?
+I'm asking the operator to pick

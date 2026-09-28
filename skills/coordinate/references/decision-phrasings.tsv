@@ -1,0 +1,28 @@
+# decision-phrasings.tsv -- the closed list of phrasings that mark a decision
+# asked of a person, or a question addressed to one. One list, read by
+# progress-view.sh (--next text and needs), report-questions.sh (a worker's
+# report) and need-check.sh (a surfaced need), through record-common.sh's
+# lib_phrase_match. It is a backstop: a decision row comes only from an
+# escalated entry, and rewording evades any list.
+#
+# Columns, tab-separated:
+#   kind     decision   the text asks someone to decide
+#            addressed  the text addresses a person rather than the coordinator
+#   pattern  an extended regular expression, matched case-insensitively by
+#            grep -E; no back-references, so matching time stays linear
+#
+# Adding a row: add a fixture beside it in
+# scripts/testdata/decision-phrasings/ and run decision-phrasings_test.sh.
+decision	(^|[^[:alnum:]])decide (whether|if|between|which|on|to)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])please decide([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])(needs|need|awaiting|waiting (on|for)) (your|a human|the human'?s?|a person'?s?) (decision|call|choice|approval)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])your (decision|call)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])(choose|pick) (between|one of|which)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])which (option|approach|one) (should|do you|would you)([^[:alnum:]]|$)
+decision	(^|[^[:alnum:]])should (we|i) (ship|merge|drop|keep|proceed|go ahead)([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])the human([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])you decide([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])your call([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])up to you([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])(ask|asking) the (user|operator|person|human)([^[:alnum:]]|$)
+addressed	(^|[^[:alnum:]])(for|to) the (user|operator|person) to decide([^[:alnum:]]|$)

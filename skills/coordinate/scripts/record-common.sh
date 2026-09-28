@@ -465,3 +465,48 @@ lib_epoch() {
     local doe=$(( yoe * 365 + yoe / 4 - yoe / 100 + doy ))
     echo $(( (era * 146097 + doe - 719468) * 86400 + H * 3600 + M * 60 + S ))
 }
+
+# lib_phrasings_file: the decision-phrasing list's path, or the one
+# PHRASINGS_FILE names (tests use a temporary list).
+lib_phrasings_file() {
+    printf '%s\n' "${PHRASINGS_FILE:-$HERE/../references/decision-phrasings.tsv}"
+}
+
+# lib_phrasings_check [file]: the list's rows, each `<kind><TAB><pattern>` with
+# kind `decision` or `addressed`, a non-empty pattern and no back-reference.
+# Comment and blank lines are skipped. Exit 0 clean; 65 a row refused (stderr
+# names it); 2 the file is unreadable.
+lib_phrasings_check() {
+    local f="${1:-$(lib_phrasings_file)}" n=0 line kind pat
+    [ -r "$f" ] || { echo "decision phrasings: cannot read $f" >&2; return 2; }
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=$((n + 1))
+        case "$line" in ''|'#'*) continue ;; esac
+        kind=${line%%$'\t'*}
+        pat=${line#*$'\t'}
+        if [ "$kind" = "$line" ] || [ -z "$pat" ]; then
+            echo "decision phrasings: line $n: not <kind><TAB><pattern>" >&2
+            return 65
+        fi
+        case "$kind" in
+            decision|addressed) ;;
+            *) echo "decision phrasings: line $n: unknown kind '$kind'" >&2; return 65 ;;
+        esac
+        case "$pat" in
+            *\\[1-9]*) echo "decision phrasings: line $n: a back-reference" >&2; return 65 ;;
+        esac
+    done < "$f"
+    return 0
+}
+
+# lib_phrase_match <kind> <text>: exit 0 when the text matches any row of that
+# kind, case-insensitively with grep -E; 1 no match; 2 the list is unreadable
+# or refused, which a caller treats as a failed check, never as no match.
+lib_phrase_match() {
+    local kind="$1" text="$2" f pats
+    f=$(lib_phrasings_file)
+    lib_phrasings_check "$f" || return 2
+    pats=$(awk -F'\t' -v k="$kind" '$0 !~ /^#/ && NF >= 2 && $1 == k { sub(/^[^\t]*\t/, ""); print }' "$f")
+    [ -n "$pats" ] || return 1
+    printf '%s\n' "$text" | grep -Eiq -e "$pats"
+}

@@ -1,0 +1,7 @@
+needs an npm token
+run the release
+waiting on the release decision from the vendor
+merge 1 of 2
+report at its next checkpoint
+we decided to keep option d
+the decision record is confirmed
