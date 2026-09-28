@@ -28,8 +28,10 @@ SETTLED_C='{"decision":"5","round":"0","question":"Merge before the release?","o
 WITHDRAW='{"decision":"6","round":"2","question":"Pin the plugin?","options":"pin\ndont pin","state":"coordinator-verdict",
   "source":"self [20260926T080000Z raise 9]","owed":"withdrawal",
   "evidence":"2026-09-26T09:30Z dispatcher [20260926T080000Z wait 20]: the release moved","updated":"2026-09-26T09:30Z"}'
+ADDRESSED="2026-09-26T09:00Z worker w1 [20260926T080000Z report 12.1]: addressed to a person"
 REDIRECT='{"decision":"7","round":"0","question":"Ship it?","options":"ship\nhold","state":"proposed",
-  "source":"worker w1 [20260926T080000Z report 12.1]","updated":"2026-09-26T09:00Z"}'
+  "source":"worker w1 [20260926T080000Z report 12.1]","updated":"2026-09-26T09:00Z",
+  "evidence":"2026-09-26T09:00Z worker w1 [20260926T080000Z report 12.1]: addressed to a person"}'
 
 N=0
 # case_run <entries-json-array> <routed token> <state> <kind> [reports-to] [next]:
@@ -131,14 +133,29 @@ eq "reply to a coordinator: names the source's entry and round" "Answer: decisio
 refused "reply: an outcome without its reason is refused" "[$(printf '%s' "$SETTLED_W" | jq -c '.outcome = "keep it"')]" "reply 4" decision_reply reply
 refused "reply: an entry that owes none is refused" "[$(printf '%s' "$SETTLED_W" | jq -c '.owed = ""')]" "reply 4" decision_reply reply
 
-case_run "[$REDIRECT]" "redirect 7" decision_redirect redirect
-eq "redirect: rendered" "message redirect 7 0" "$(printf '%s' "$OUT" | cut -d' ' -f1-4)"
-case "$(msg)" in *"go to the coordinator"*"escalates it with a recommendation"*) ok "redirect: the questions go to the coordinator, which answers or escalates them" ;;
-    *) bad "redirect: the questions go to the coordinator, which answers or escalates them" "$(msg)" ;; esac
+case_run "[$REDIRECT]" "redirect 7 12" decision_redirect redirect
+eq "redirect: rendered, naming its report" "message redirect 7 0 report:12" "$(printf '%s' "$OUT" | cut -d' ' -f1-5)"
+case "$(msg)" in *"go to the coordinator"*"answers each one"*"escalates it with a recommendation"*"decision 7"*)
+        ok "redirect: the questions go to the coordinator, which answers or escalates them, starting with decision 7" ;;
+    *) bad "redirect: the questions go to the coordinator, which answers or escalates them, starting with decision 7" "$(msg)" ;; esac
 refused "redirect: a report that has had its redirect is refused" \
-    "[$(printf '%s' "$REDIRECT" | jq -c '.evidence = "2026-09-26T09:05Z self [20260926T080000Z redirect 12]: redirect sent"')]" "redirect 7" decision_redirect redirect
+    "[$(printf '%s' "$REDIRECT" | jq -c --arg a "$ADDRESSED" '.evidence = $a + "\n2026-09-26T09:05Z this coordinator [20260926T080000Z redirect 12]: redirect sent"')]" \
+    "redirect 7 12" decision_redirect redirect
 refused "redirect: an entry no report of this run wrote is refused" \
-    "[$(printf '%s' "$REDIRECT" | jq -c '.source = "worker w1 [20260925T080000Z report 12.1]"')]" "redirect 7" decision_redirect redirect
+    "[$(printf '%s' "$REDIRECT" | jq -c '.source = "worker w1 [20260925T080000Z report 12.1]" | .evidence = ""')]" "redirect 7 12" decision_redirect redirect
+refused "redirect: a report that addressed no one is refused" \
+    "[$(printf '%s' "$REDIRECT" | jq -c '.evidence = ""')]" "redirect 7 12" decision_redirect redirect
+refused "redirect: another report's addressed mark doesn't count" \
+    "[$(printf '%s' "$REDIRECT" | jq -c '.evidence = "2026-09-26T09:00Z worker w1 [20260926T080000Z report 15.1]: addressed to a person"')]" \
+    "redirect 7 12" decision_redirect redirect
+refused "redirect: a routed redirect naming no report is refused" "[$REDIRECT]" "redirect 7" decision_redirect redirect
+case_run "[$(printf '%s' "$REDIRECT" | jq -c '.source = "worker w1 [20260926T080000Z report 12.1]"'),
+  $(printf '%s' "$REDIRECT" | jq -c '.decision = "8" | .source = "worker w1 [20260926T080000Z report 12.2]" | .evidence = "2026-09-26T09:00Z worker w1 [20260926T080000Z report 12.2]: addressed to a person"')]" \
+    "redirect 7 12" decision_redirect redirect 2>/dev/null
+eq "redirect: the addressed mark may be on another entry of the same report" "message redirect 7 0" "$(printf '%s' "$OUT" | cut -d' ' -f1-4)"
+case_run "[$(printf '%s' "$REDIRECT" | jq -c --arg a "$ADDRESSED" '.evidence = $a + "\n2026-09-26T09:05Z dispatcher [20260926T080000Z wait 13]: quoting [20260926T080000Z redirect 12] in text"')]" \
+    "redirect 7 12" decision_redirect redirect
+eq "redirect: a stamp inside a line's text isn't a stamp" "message redirect 7 0" "$(printf '%s' "$OUT" | cut -d' ' -f1-4)"
 
 # --- @ is encoded ---------------------------------------------------------------------
 

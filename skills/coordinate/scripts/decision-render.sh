@@ -23,12 +23,18 @@
 #   withdrawal  Owed withdrawal
 #   reply       State settled, Owed reply, and an Outcome cell carrying its
 #               reason (`<outcome>; reason: <reason>`)
-#   redirect    the entry holds this run's `report` stamp, and no Evidence line
-#               stamped `redirect` with that report's sequence
+#   redirect    decision_next routed `redirect <n> <seq>`, naming the report by
+#               its log sequence; entry <n> holds this run's `report <seq>.<i>`
+#               stamp; some entry holds that report's addressed mark (the
+#               codec's d_addressed_mark, an Evidence line record-decision.sh
+#               --open-from-report writes); and entry <n> has no Evidence line
+#               stamped `redirect <seq>`, which --sent writes. Stamps are read by
+#               position (the codec's d_stamps), never from a line's text.
 #
 # On a render it writes the text to the context key coord/decision_message.txt
 # with coord-log.sh seal --file --key and prints
-# `message <kind> <n> <round> keyseal:<seq>:<sha256>`, sealed; keyseal is the
+# `message <kind> <n> <round> [report:<seq>] keyseal:<seq>:<sha256>`, sealed
+# (report:<seq> on a redirect, naming the report it answers); keyseal is the
 # key's own seal, carried in the engine-written capture so a reader can check
 # the key against it (coord-log.sh check --key, with `keyseal:` read as
 # `sealed:`). Free text is rendered with `@` encoded, as in the record, so a
@@ -91,10 +97,16 @@ case $? in
     1) refuse "no sealed decision_next verdict from the latest visit" ;;
     *) lib_die2 "cannot read the decision_next capture" ;;
 esac
+set -f
 set -- $CAP
+set +f
 [ "${1-}" = "$WORD" ] || refuse "decision_next routed \`${1-}\`, not \`$WORD\`"
-N=${2-}
+N=${2-} REP=
 [[ $N =~ ^[1-9][0-9]*$ ]] || refuse "decision_next's verdict names no entry"
+if [ "$KIND" = redirect ]; then
+    REP=${3-}
+    [[ $REP =~ ^[1-9][0-9]*$ ]] || refuse "decision_next's redirect names no report"
+fi
 
 VARS=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
 RT=$(printf '%s' "$VARS" | jq -r '.REPORTS_TO // ""')
@@ -108,11 +120,18 @@ case $? in
     *) cat "$T/read.err" >&2; lib_die2 "cannot read entry $N" ;;
 esac
 
+# A redirect is owed per report, so its check reads the whole section.
+if [ "$KIND" = redirect ]; then
+    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/read.err" \
+        || { cat "$T/read.err" >&2; lib_die2 "cannot read the Decisions section"; }
+else
+    printf '{"next":1,"entries":[]}\n' > "$T/section.json"
+fi
+
 # Whether the entry owes this kind now; stderr says why not.
-jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" '
+jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slurpfile sec "$T/section.json" '
   include "record-codec";
-  . as $e
-  | def stamps: [(.source // ""), ((.evidence // "") | split("\n")[])] | [.[] | scan("\\[([0-9]{8}T[0-9]{6}Z) ([a-z]+) ([0-9.]+)\\]")];
+  def of_report: .run == $run and .kind == "report" and (.seq | split(".")[0]) == $rep;
   if $k == "escalation" then
     if .state != "escalated" then "entry \(.decision) is \(.state), not escalated"
     elif .owed != "escalation" then "entry \(.decision) owes no escalation"
@@ -125,10 +144,11 @@ jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" '
     elif (.outcome | test("; reason: .")) | not then "entry \(.decision)'"'"'s outcome carries no reason"
     else "" end
   else
-    ([stamps[] | select(.[0] == $run and .[1] == "report") | .[2] | split(".")[0]] | last) as $rep
-    | if $rep == null then "entry \(.decision) was written by no report of this run"
-      elif any(stamps[]; .[0] == $run and .[1] == "redirect" and .[2] == $rep) then "the report behind entry \(.decision) has had its redirect"
-      else "" end
+    if any(d_stamps[]; of_report) | not then "entry \(.decision) holds nothing from report \($rep) of this run"
+    elif any($sec[0].entries[] | d_stamps[]; of_report and (.text | startswith(d_addressed_mark))) | not
+      then "report \($rep) asked no one but the coordinator"
+    elif any(d_stamps[]; .run == $run and .kind == "redirect" and .seq == $rep) then "report \($rep) has had its redirect"
+    else "" end
   end' -L "$HERE" "$T/entry.json" > "$T/why" 2> "$T/jq.err" || { cat "$T/jq.err" >&2; lib_die2 "cannot check entry $N"; }
 [ -s "$T/why" ] && [ "$(cat "$T/why")" != "" ] && refuse "$(cat "$T/why")"
 
@@ -165,4 +185,4 @@ case $? in
 esac
 [[ $KEYSEAL =~ ^sealed:[0-9]+:[0-9a-f]{64}$ ]] || lib_die2 "the message's seal is malformed"
 ROUND=$(jq -r '.round' "$T/entry.json")
-seal_token "message $KIND $N $ROUND keyseal:${KEYSEAL#sealed:}"
+seal_token "message $KIND $N $ROUND${REP:+ report:$REP} keyseal:${KEYSEAL#sealed:}"

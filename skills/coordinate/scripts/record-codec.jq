@@ -206,6 +206,20 @@ def escalation_problems($target):
 # compact_settled: a settled entry that owes nothing keeps only its identity,
 # its question, its outcome and who decided. `Next decision` keeps its
 # identifier from being reused.
+# The stamps an entry carries, by position: the one ending its Source, and the
+# one after each Evidence line's source. A stamp-like string inside a line's
+# text is not a stamp. Each is {run, kind, seq, text}; text is the Evidence
+# line's text, "" for the Source's.
+def d_stamps:
+  [ ((.source // "") | capture(" \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]$") | . + {text: ""}),
+    ((.evidence // "") | split("\n")[] | select(length > 0)
+      | capture("^[^ ]+ [^\\[]+ \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]: (?<text>.*)$")) ];
+# The text of the Evidence line that marks an extracted question as addressed
+# to a person, stamped with the report that carried it. A report with one owes
+# its worker a redirect; decision-next.sh routes it, decision-render.sh renders
+# it, and record-decision.sh --open-from-report writes the mark.
+def d_addressed_mark: "addressed to a person";
+
 def compact_settled:
   if .state == "settled" and (.owed // "") == "" then
     . as $e | reduce (decisions_cols[] | .[0]) as $k ({}; .[$k] = "")
