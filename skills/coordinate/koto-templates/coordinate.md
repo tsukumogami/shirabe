@@ -13,7 +13,9 @@ version: "1.0"
 #
 # Context keys. Each check writes one detail key as data, named for what it
 # describes; directives, deciders and the progress table read them, and no gate
-# reads one except as a decider input (pick_input, report_input):
+# reads a check's detail key except as a decider input (pick_input,
+# report_input). The dispatch path's keys, listed after these, are different:
+# some are read by its gates, each named there with what backs it.
 #   coord/record_find.json      record_find: the verdict, the record's ref and
 #                               URL, the candidates, the rotation's dates
 #   record_url                  record_find on `found`: the record's URL, for
@@ -36,6 +38,28 @@ version: "1.0"
 #                               predecessor_close: the stage and its facts
 #   dispatch_topic              pick's edges: the topic chosen, for the
 #                               dispatch path's dispatch-worker.sh
+#
+# The dispatch path's keys, and which gate reads each:
+#   worker_report               the report's text, written on the edges into
+#                               take_report; report_present checks it has
+#                               text, and report_source_ok compares a leg
+#                               report with koto's own record of the leg
+#   report_topic, report_source the reporting worker and path, written on the
+#                               same edges (report_topic by wait-target.sh on
+#                               the leg path); report_source_ok reads both.
+#                               They are writable by the coordinator, unlike
+#                               the log report_facts derives the unit from:
+#                               shirabe#475 moves this gate onto the log too
+#   wait_target, taken_legs,    wait-target.sh's bookkeeping; leg_target
+#   leg_consumed                routes on wait_target, and report_source_ok
+#                               reads it for the leg the wait read. Rewriting
+#                               them can hide or re-offer a leg, never make a
+#                               leg report pass: koto's record is the check
+#   teardown_topic              wait's retire edge; the inventory locates the
+#                               instance by it, and teardown-verdict.sh
+#                               refuses a sealed verdict for any other topic
+#   teardown_verdict            the sealed inventory, read only through the
+#                               seal check
 #
 # Scripts already handle states the dispatch path (shirabe#404) adds:
 # leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
