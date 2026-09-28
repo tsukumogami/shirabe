@@ -232,13 +232,22 @@ redirect from the live entry through the shared validator and seals the text wit
   go to the coordinator, which answers them or escalates them with a recommendation.
 - [ ] On success the text is in `coord/decision_message.txt`, sealed, and the verdict is
   `message <kind> <n> <round>`; `coord-log.sh check --key` passes on it and fails after an edit.
+- [ ] Every option of an escalation is rendered with its explanation (the Options line's
+  `<option> -- <explanation>`), and an option without one is refused by the shared validator.
+- [ ] An escalation also writes the structured form `coord/decision_question.json` (question,
+  context, problem, options as `{label, explanation}` with the recommended one first), sealed
+  beside the text.
+- [ ] A redirect is rendered only for the report it names that addressed a person, and not
+  twice for the same report.
+- [ ] `record-decision.sh --list` and `--read`, which every reader of the section goes through,
+  land here with the renderer, their first reader.
 
 **Tests**: new `decision-render_test.sh`; `run-tests.sh` gains it.
 
 **Dependencies**: Blocked by <<ISSUE:3>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/decision-render.sh`
+**Files**: `skills/coordinate/scripts/decision-render.sh`, `skills/coordinate/scripts/record-decision.sh`, `skills/coordinate/scripts/record-codec.jq`
 
 ### Issue 6: feat(coordinate): extract a worker report's questions
 
@@ -265,8 +274,11 @@ lines only from their own holding, checks a coordinator escalation's digest, and
 - [ ] Contract test: a report written to the exact `Questions:` shape `render-brief.sh` prints
   parses to its items.
 - [ ] On `questions` the list is in `coord/questions.json`, sealed, and `check --key` passes.
+- [ ] A coordinator's escalation keeps each option's explanation, and the acceptance harness
+  runs with this script in place of its stand-in.
 
-**Tests**: new `report-questions_test.sh`; `render-brief_test.sh` shares the contract fixture.
+**Tests**: new `report-questions_test.sh`; `render-brief_test.sh` shares the contract fixture;
+`decisions-replay_engine_test.sh` drops `report-questions.sh` from its stand-ins.
 
 **Dependencies**: Blocked by <<ISSUE:3>>
 
@@ -306,10 +318,17 @@ evidence resets, release, and compaction; add `coord-log.sh current`.
   target (and the final decider for a nested reply); an earlier round or a non-escalated entry
   gets evidence; an identical re-sent answer changes nothing.
 - [ ] `--sent` refuses unless the message key checks against the render's seal and names this
-  entry, kind and round; it stamps `Asked` for an escalation only.
+  entry, kind and round; it stamps `Asked` for an escalation only; `--route tool|message`
+  records the route an escalation to a person took as an Evidence line.
+- [ ] `--escalate` refuses an option without an explanation (`<option> -- <explanation>` in the
+  Options line), through the shared validator.
+- [ ] A settling answer writes an Evidence line with its `wait` stamp; an identical answer sent
+  again changes nothing and counts as recorded.
 - [ ] `--carry` copies the handoff's unsettled entries and `Next decision` before the first
   dispatch and refuses after it or when already present.
-- [ ] A settled entry that owes nothing is compacted at the next write.
+- [ ] A settled entry that owes nothing is compacted at the next write, keeping its Options and
+  its `redirect`-stamped Evidence lines; evidence on a compacted entry can escalate it again.
+- [ ] The acceptance harness runs with this script in place of its stand-in.
 - [ ] The free-text refusals accept ordinary prose: "and/or", "n/a" and "CI/CD" in a question
   make no repository read; `task-runner-integration-tests`, `disk-space-reclamation-policy`
   and `~/.config` are accepted; a `github.com/<owner>/<repo>` link or `<owner>/<repo>#<n>` to a
@@ -367,7 +386,14 @@ guard, the `decisions` verdict and unsettled entries in `pick-facts.sh`, `REPORT
   the unjudged one, leaves a sent escalation and a held entry alone, and renders an unsent
   escalation once, before the first dispatch (engine test).
 - [ ] `decision_verdict`'s decider is declared shadow with a fixture per answer, and flipping its
-  answer changes no transition.
+  answer changes no transition; its directive requires `/shirabe:decision` for a question that
+  isn't obviously answerable.
+- [ ] `escalate_send` for a person target has one switch point between AskUserQuestion and a
+  message, both from `coord/decision_question.json`: the tool only when the turn was started by
+  a message from that person, the message otherwise and whenever the tool is unavailable,
+  refused or times out; `answered` goes to `decision_answer` (engine test for both routes).
+- [ ] The acceptance harness runs with `decision-next.sh` and `coord-verdict.sh` in place of
+  their stand-ins and its states cut from `coordinate.md`.
 
 **Tests**: new `decision-next_test.sh`, `need-check_test.sh`; `deferral-check_test.sh`,
 `pick-facts_test.sh`, `coordinate-open_engine_test.sh`, `coord-verdict-table_test.sh`,
@@ -435,6 +461,11 @@ coverage, add an eval, and run the acceptance harness against the real scripts.
   `rule-coverage_test.sh` passes.
 - [ ] An eval covers a worker report asking the human to decide and expects the question opened
   as an entry, not surfaced.
+- [ ] SKILL.md states how a coordinator reaches a verdict (`/shirabe:decision` for a question
+  that isn't obviously answerable) and the two routes for asking a person, with the reason;
+  evals cover both routes: a person in conversation is asked with AskUserQuestion, recommended
+  option first with every option explained, and a person who isn't gets the same content as a
+  message while the loop goes on.
 - [ ] Issue 4's stand-ins are gone, and the niwa#330 replay and the three-level test pass against
   the real scripts, with the escalate-edge variant still failing.
 - [ ] Every test this pull request adds runs in CI, read job by job.

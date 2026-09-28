@@ -211,8 +211,11 @@ Decisions `state` column needs no exemption.
 
 **Size.** `record-parse.sh` refuses a body over 65,536 bytes, and every write parses first.
 Two rules keep the section inside that. A settled entry that owes nothing is compacted at the
-next write to its identifier, question, state, outcome, decided by and updated time, its
-other cells blanked (`Next decision` is what keeps its identifier from being reused). And the
+next write to its identifier, round, question, options, state, source, outcome, decided by,
+updated time and any `redirect`-stamped Evidence lines, its other cells blanked (`Next
+decision` is what keeps its identifier from being reused). Options survive because evidence
+can reopen a settled entry, which then needs them to be escalated again; the redirect lines
+survive because a lost one would owe the redirect a second time. And the
 write core refuses a body over 60,000 bytes with its own exit code, which `decision-next.sh`
 and the record states report as `record-full`, a stop for the human, rather than letting
 GitHub refuse the edit. The core checks the live body against the same budget before it
@@ -511,13 +514,34 @@ already uses for `land` and `land_merge`. The render state (`escalate`, `decisio
 refuses unless the entry owes the kind it is asked to render (so a second rendering of the same
 owing can't happen), runs the shared validator, writes the text to the detail key
 `coord/decision_message.txt`, seals it with `coord-log.sh seal --file --key`, and prints
-`message <kind> <n> <round>`, or `refused` (routed to `record_conflict`, since only a record
-changed underneath can cause it). The send state (`escalate_send`, `decision_withdraw_send`,
+`message <kind> <n> <round> [report:<seq>] keyseal:<seq>:<hash>`, or `refused` (routed to
+`record_conflict`, since only a record changed underneath can cause it). The key's seal rides
+in the verdict because a reader can check a key only against a seal the engine wrote, and the
+capture is engine-written; `report:<seq>` names the report a redirect answers. The renderer
+takes `--state` besides `--kind`, since it seals to the state it runs in. For an escalation it
+also writes the structured form, `coord/decision_question.json`: the question, the context and
+problem paragraphs, and the options as `{label, explanation}` with the recommended one first,
+sealed the same way. The send state (`escalate_send`, `decision_withdraw_send`,
 `decision_reply_send`, `decision_redirect_send`) shows the text; the coordinator sends exactly
 that, runs `record-decision.sh --sent`, and submits `sent`, which returns to `decision_next`.
 `--sent` refuses unless the key checks against the render's seal and the render names this
 entry, kind and round, so nothing is marked sent that wasn't rendered as it stands, and a
 message is owed until it is marked.
+
+**Asking a person.** `escalate_send` for a person target is the one place with two routes,
+both rendered from the same structured form. The coordinator asks with the AskUserQuestion tool
+only when the person is already in conversation with it in its own session: the turn it is in
+was started by a message from that person, not by a worker's report, a notification or a
+scheduled wake. It prints the context and problem paragraphs in chat, then asks the question
+with the recommended option first and every option's explanation. Otherwise, or when the tool
+is unavailable, refused or times out, it sends the same content as a message and keeps
+coordinating. The reason is the loop: a question asked of a person who isn't there must not
+stop it, and the tool holds the session until it is answered, where a message leaves `wait`
+free to take reports, hold verdicts and dispatch. `--sent --route tool|message` records which
+route was used as an Evidence line on the entry. The answer comes back the same way on both:
+the chosen option goes to `decision_answer`, from `escalate_send` itself on the tool route (it
+submits `answered` with the decision and round) and from `wait` as an `answer` event on the
+message route. A coordinator target is always sent as a message.
 
 What `--sent` can't see is the bytes that went out: a coordinator that sends an edited text and
 then marks it passes. For a coordinator target there is a check on the other end: the message's
@@ -541,16 +565,34 @@ Decision <n> round <r>.
 
 <question>
 1. <recommended option> (recommended: <reason>)
+   <its explanation>
 2. <other option>
+   <its explanation>
 
 Answer naming decision <n> round <r> and an option, or give another outcome with its reason.
-Digest: <sha256 of the text above>
+Digest: <sha256 of every byte above this line>
 ```
+
+Every option carries an explanation once the entry is escalated. It is stored in the Options
+line itself, `<option> -- <explanation>`, so the codec's grammar doesn't change; the
+recommendation names the option part, and the shared validator refuses an option without an
+explanation, so `--escalate` and the renderer refuse the same entries.
 
 A withdrawal names the decision and round and says no answer is needed; a reply names the
 decision, the outcome, its reason and who decided; a redirect tells the worker its questions
 go to the coordinator. Free-text cells are rendered with `@` encoded so a public record or
 message never notifies anyone.
+
+**Forms the scripts share.** An Outcome cell is written `<outcome>; reason: <reason>`, and the
+reply renders both. A Decided by for an answer that came back down from a nested coordinator is
+`coordinator <topic> (final: <decider>)`. A question addressed to a person is marked by an
+Evidence line whose text starts `addressed to a person`, stamped with the report that carried
+it, and a sent redirect by a line stamped `[<run> redirect <seq>]`, where `<seq>` is that
+report's sequence rather than the sending visit's, so the redirect names the report it answers.
+Stamps are read by position (the one ending the Source and the one after each Evidence line's
+source), never from a line's text. An answer that settles an entry still writes an Evidence
+line with its `wait` stamp, so the unrecorded-answer rule sees it recorded, and an identical
+answer sent again counts as recorded when the entry is settled with that outcome and decider.
 
 #### Alternatives Considered
 
@@ -599,8 +641,10 @@ constrained variable `REPORTS_TO` (empty, or the topic grammar), checked at `kot
 every other setting, and read by the scripts from `coord-log.sh vars`. The target is fixed per
 run.
 
-Answers arrive only on the dispatcher's channel, as a message the coordinator names at `wait`
-with `event: answer`, the `decision` and its `round`; a worker's report never produces one, since
+Answers arrive only on the dispatcher's channel: as a message the coordinator names at `wait`
+with `event: answer`, the `decision` and its `round`, or, when the person was asked in
+conversation, as the AskUserQuestion answer `escalate_send` submits as `answered`. A worker's
+report never produces one, since
 `report_questions` turns a worker's text into questions and evidence only. `record-decision.sh
 --answer` writes `Decided by` itself, from the target: `a person`, or `coordinator <topic>`,
 followed by the final decider the reply names when the answer came back down from a nested
@@ -826,9 +870,9 @@ global and each state has its own arms. `rendered` is already `predecessor_hando
 | `decision_next` | check | `decision-next.sh`; `decision_input` on the verdict arm | `decision_carry` on `carry`; `decision_open`, `decision_answer`, `decision_evidence`, `decision_raise` on the four `unrecorded-*` words; `decision_withdraw`, `decision_reply`, `decision_redirect`, `escalate`, `decision_take`, `decision_verdict`; `classify_report` on `clear-report`; `pick_facts` on `clear`; `record_conflict` on `record-full` |
 | `decision_carry` | agent | `record-decision.sh --carry` | `decision_next` on `carried` |
 | `decision_take` | agent | `--take` | `decision_next` on `taken` |
-| `decision_verdict` | agent, shadow decider on `verdict` | `verdict: settle` runs `--settle`, `escalate` runs `--escalate`, `hold` runs `--hold` | `decision_next` on each |
+| `decision_verdict` | agent, shadow decider on `verdict` | For a question that isn't obviously answerable, the directive has the coordinator run `/shirabe:decision` first, to reach one recommendation and the real alternatives; then `verdict: settle` runs `--settle`, `escalate` runs `--escalate`, `hold` runs `--hold` | `decision_next` on each |
 | `escalate`, `decision_withdraw`, `decision_reply`, `decision_redirect` | check | `decision-render.sh --kind escalation`, `withdrawal`, `reply` or `redirect` | the matching `*_send` on `message`; `record_conflict` on `refused` |
-| `escalate_send`, `decision_withdraw_send`, `decision_reply_send`, `decision_redirect_send` | agent | send the rendered text, then `--sent` | `decision_next` on `sent` |
+| `escalate_send`, `decision_withdraw_send`, `decision_reply_send`, `decision_redirect_send` | agent | send the rendered text, then `--sent`; for a person target, `escalate_send` asks with AskUserQuestion when the person is in conversation (see "Asking a person") | `decision_next` on `sent`; `escalate_send` also `decision_answer` on `answered` |
 | `report_questions` | check | `report-questions.sh` | `decision_open` on `questions`; on `none`, `classify_report` after a holding and `wait` otherwise; `rebrief` on `overflow`; `surface` on `unreadable` |
 | `decision_open` | agent | `--open-from-report` | `decision_next` |
 | `decision_raise` | agent | `--open` | `decision_next` |
