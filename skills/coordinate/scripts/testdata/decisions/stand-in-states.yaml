@@ -1,6 +1,6 @@
   # STAND-IN for decisions-replay_engine_test.sh, until the coordinate-decisions
-  # plan's Issue 8 puts these states in coordinate.md; Issue 10 then points the
-  # harness's STATES_FROM there and deletes this file. The decision states
+  # plan's Issue 8 puts these states in coordinate.md and points the harness's
+  # STATES_FROM there; Issue 10 deletes this file. The decision states
   # follow the DESIGN's state table, verdict codes and changed edges. `wait`
   # and `report_facts` are coordinate.md's blocks unchanged except for those
   # edges: wait's answer, evidence and raise events with their decision and

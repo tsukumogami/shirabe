@@ -345,8 +345,9 @@ replay_check() {
 # --- 1 and 2: the niwa#330 replay --------------------------------------------------------
 
 # Entry 1 as an earlier run left it: settled, owing nothing, and so compacted
-# by the codec's compact_settled (options, verdict and evidence blank).
+# by the codec's compact_settled (verdict and evidence blank, options kept).
 SETTLED_D='{"next":2,"entries":[{"decision":"1","round":"0","question":"Which marketplace layout do we ship?",
+  "options":"(c) per-project clones -- each project pins its own marketplace version\n(d) a shared clone -- one clone serves every project",
   "state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",
   "outcome":"(d) a shared clone; reason: the flip condition is a per-project version moving, which is untested",
   "decided_by":"this coordinator","updated":"2026-09-20T08:30Z"}]}'
@@ -361,6 +362,10 @@ replay() { # replay <session> <template> <record-number>
     seed_holding "$3" "replay-$3" "$(holding w1 '{"entry_point":"/shirabe:work-on","pull_request":""}')"
     seed_decisions "$3" "replay-$3" "$SETTLED_D"
     arrive_evidence "$1" 1 dispatcher "check result, mixed: the shared marketplace clone moved, the installed per-project versions held"
+    # Read now: entry 1 settles again, owing only the reply, and once that is
+    # sent a later write may compact its evidence away.
+    E1_AFTER_EVIDENCE=$(field "$1" 1 evidence)
+    E1_STATE_AFTER=$(field "$1" 1 state)
     back_to_wait "$1"
     [ "$(at "$1")" = wait ] || return 0
     arrive_report "$1" w1 "Ran the check the decision named.
@@ -371,11 +376,11 @@ replay coordinate-roadmap-replay-11-20260928T100001Z "$TPL" 11
 R1=coordinate-roadmap-replay-11-20260928T100001Z
 if replay_check "$R1"; then ok "replay: the verdict comes before any render, and nothing is escalated"; else
     bad "replay: the verdict comes before any render, and nothing is escalated" "$(visits "$R1" | tr '\n' ' ')"; fi
-eq "replay: the evidence reopened entry 1, which settled again on (d)" 'settled|(d) a shared clone' \
-    "$(field "$R1" 1 state)|$(field "$R1" 1 outcome | sed 's/; reason:.*//')"
-case "$(field "$R1" 1 evidence)" in
+eq "replay: the evidence reopened entry 1, which settled again on (d)" 'settled|settled|(d) a shared clone' \
+    "$E1_STATE_AFTER|$(field "$R1" 1 state)|$(field "$R1" 1 outcome | sed 's/; reason:.*//')"
+case "$E1_AFTER_EVIDENCE" in
     *"previous outcome"*"check result, mixed"*) ok "replay: the old outcome and the mixed result are kept as evidence" ;;
-    *) bad "replay: the old outcome and the mixed result are kept as evidence" "$(field "$R1" 1 evidence)" ;;
+    *) bad "replay: the old outcome and the mixed result are kept as evidence" "$E1_AFTER_EVIDENCE" ;;
 esac
 eq "replay: the worker's question is entry 2, opened with its source" "worker w1" "$(field "$R1" 2 source | sed 's/ \[.*//')"
 case "$(field "$R1" 2 evidence)" in *"addressed to a person"*) ok "replay: entry 2 is noted as addressed to a person" ;;
