@@ -397,6 +397,40 @@ BAD_SELECTOR="$TEST_DIR/bad-selector.tsv"
 expect_count_fails "count: an unknown selector" "unknown selector 'lines:1-3'" \
     count "$BASE" --manifest "$BAD_SELECTOR"
 
+# -- count --tree -------------------------------------------------------------
+
+# A checkout of BASE on disk, outside the repository: counting the directory
+# must print exactly what counting the commit prints.
+TREE="$TEST_DIR/tree-base"
+mkdir -p "$TREE"
+git_fix archive "$BASE" | tar -x -C "$TREE"
+run count "$BASE" --manifest "$MANIFEST"
+FROM_COMMIT="$OUT"
+run count --tree "$TREE" --manifest "$MANIFEST"
+if [ "$STATUS" -eq 0 ] && [ "$OUT" = "$FROM_COMMIT" ] && [ -n "$OUT" ]; then
+    pass "count --tree: a checkout of a commit gives the commit's figures"
+else
+    fail "count --tree: a checkout of a commit gives the commit's figures" "status $STATUS, got [$OUT], expected [$FROM_COMMIT], stderr: $ERR"
+fi
+
+# Removing a span's bytes from the tree lowers the raw figure by those bytes.
+printf 'extra bytes in the tree only\n' >> "$TREE/skills/work-on/SKILL.md"
+run count --tree "$TREE" --manifest "$MANIFEST"
+if [ "$STATUS" -eq 0 ] && [ "$OUT" != "$FROM_COMMIT" ]; then
+    pass "count --tree: reads the files on disk, not git objects"
+else
+    fail "count --tree: reads the files on disk, not git objects" "status $STATUS, got [$OUT]"
+fi
+
+expect_count_fails "count --tree: a path missing under the tree" "skills/nope/SKILL.md does not exist under" \
+    count --tree "$TREE" --manifest "$MISSING_PATH"
+expect_count_fails "count --tree: with a commit as well" "a commit or --tree, not both" \
+    count "$BASE" --tree "$TREE" --manifest "$MANIFEST"
+expect_count_fails "count --tree: not a directory" "not a directory" \
+    count --tree "$TEST_DIR/no-such-dir" --manifest "$MANIFEST"
+expect_count_fails "count --tree: no value" "--tree requires a directory" \
+    count --tree
+
 BAD_WEIGHT="$TEST_DIR/bad-weight.tsv"
 { printf 'profile\tpath\tselector\tweight\tnote\n'; printf 'p\tskills/work-on/SKILL.md\tfile\tlots\tx\n'; } > "$BAD_WEIGHT"
 expect_count_fails "count: a non-numeric weight" "bad weight 'lots'" \

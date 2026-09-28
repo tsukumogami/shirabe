@@ -1,0 +1,75 @@
+name: Check offload ablation
+
+# The eval harness's ablation mode (scripts/ablation/, reached through
+# `scripts/run-evals.sh --withhold`) measures what withholding an instruction
+# section does, inside scratch copies of the plugin only. Each job here runs
+# one scripted acceptance criterion of that feature, so each can be read on its
+# own. None runs a model session, and none needs a secret. Ubuntu only: the
+# harness is an operator tool that no skill invokes on a user's machine, so it
+# sits with run-evals.sh among the bash-floor exemptions.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ablation/**'
+      - 'scripts/run-evals.sh'
+      - 'scripts/run-evals_test.sh'
+      - 'scripts/offload-baseline.sh'
+      - 'docs/measurement/**'
+      - '.github/workflows/offload-ablation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Nothing a normal run of a shipped skill loads may change: every path the
+  # offload baseline's load manifest lists, and every koto template.
+  normal-runs-unchanged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the check
+        run: bash scripts/ablation/check-normal-runs-unchanged_test.sh
+
+      - name: Compare with the pull request's base
+        run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}"
+
+  # No home-directory path, wip/ path, session or job identifier, private
+  # repository or vendor name, or secret shape in the lines this pull request
+  # adds, or in its body.
+  public-content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the check
+        run: bash scripts/ablation/check-public-content_test.sh
+
+      - name: Check the added lines
+        run: scripts/ablation/check-public-content.sh --diff "${{ github.event.pull_request.base.sha }}"
+
+      # The body arrives through the environment, never interpolated into the
+      # script, so nothing in it can run.
+      - name: Check the pull request body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$PR_BODY" | scripts/ablation/check-public-content.sh -
+
+  # Without --withhold, the eval runner takes exactly the path it took before
+  # this feature.
+  run-evals-unchanged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run run-evals tests
+        run: bash scripts/run-evals_test.sh
