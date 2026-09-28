@@ -1779,8 +1779,13 @@ Decision Drivers section argues at length. That residual is accepted, named here
 so a future reader does not have to rediscover it.
 
 **Not applicable.** The check writes no files, holds no state across runs, opens
-no network connection, and reads no credentials. It never parses or compares a
-version, so there is no version-negotiation surface. Nothing it does is
+no network connection, and reads no credentials. It parses and compares one
+version, koto's, against shirabe's koto minimum
+(`DECISION-preflight-koto-minimum-2026-09-27.md` supersedes the earlier "never"
+for koto only). That surface is one line of `koto version` output, read through
+the same bounded probe as `--help`, matched against a fixed pattern that admits
+digits and dots only, each component capped at six digits; nothing else from
+the binary reaches the comparison or the report. Nothing it does is
 privileged, and nothing it emits is persisted. The memoization store is two shell
 variables for exactly this reason: a temp-file cache would have made the first two
 sentences false.

@@ -250,20 +250,21 @@ Each skill declares the tools it calls in its own `skills/<name>/requires.tsv`,
 and the preflight line checks that declaration when the skill loads. A satisfied
 host sees nothing. An unmet prerequisite gets one plain-prose block naming the
 tool, what is wrong, and the single command that fixes it on this machine.
-Neither `requires.tsv` nor the preflight carries a version: floors go stale
-silently, and a floor nobody rechecks is worse than no floor at all. Where a
-skill's koto floor shows up as surface, it is declared as surface: the `koto
-init` records of `/scope`, `/execute`, and `/deliver` name the four entry flags,
-so the preflight on a koto older than 0.13.0 names the missing flags and the
-install route before the skill does any work. What 0.14.0 added is behaviour
-rather than a flag, so the preflight cannot tell 0.13.0 from 0.14.0; the
-minimum is stated here and rechecked in CI instead. `scripts/assert-koto-floor.sh`
-holds the one copy of it, and every job that installs koto from `.tsuku.toml`
-runs it to assert koto is at least the minimum. `check-koto-entry-floor.yml`
-installs exactly the minimum release and runs every template compile, the
-decider check, and the skills' koto-backed suites on it, so the minimum stays
-tested. `scripts/koto-minimum-consistency_test.sh` (`check-koto-minimum.yml`)
-fails when a document or workflow states a different one.
+`requires.tsv` carries no version: floors go stale silently, and a floor
+nobody rechecks is worse than no floor at all. Where a skill's koto floor shows
+up as surface, it is declared as surface: the `koto init` records of `/scope`,
+`/execute`, and `/deliver` name the four entry flags, so the preflight on a koto
+older than 0.13.0 names the missing flags and the install route before the
+skill does any work. What 0.14.0 added is behaviour rather than a flag, so the
+preflight also compares one version, koto's, against the minimum
+`scripts/assert-koto-floor.sh` defines, and tells you to upgrade koto when it is
+below it. That file holds the one copy of the minimum, and every job that
+installs koto from `.tsuku.toml` runs it to assert koto is at least the minimum.
+`check-koto-entry-floor.yml` installs exactly the minimum release and runs every
+template compile, the decider check, and the skills' koto-backed suites on it,
+so the minimum stays tested. `scripts/koto-minimum-consistency_test.sh`
+(`check-koto-minimum.yml`) fails when a document or workflow states a different
+one.
 
 ### Upgrading from a koto older than 0.13.0
 

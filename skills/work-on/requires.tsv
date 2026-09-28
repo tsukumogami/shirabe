@@ -76,9 +76,9 @@
 # (scripts/assert-koto-floor.sh). 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no
-# record below can declare it and the preflight cannot tell 0.13.0 from 0.14.0;
-# the README states the minimum and check-koto-entry-floor.yml runs these
-# suites on it.
+# record below can declare it. The preflight compares koto's version with the
+# minimum at load instead (scripts/lib/preflight-minimum.sh), and
+# check-koto-entry-floor.yml runs these suites on it.
 #
 # `--koto-leg=<request-id>:work-on` adds koto init entry flags. Under it,
 # scripts/work-on-open.sh opens the session through the shared
