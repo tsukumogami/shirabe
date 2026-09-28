@@ -115,6 +115,8 @@ route "verdict 1" decision_take
 refused "--take: an entry routed for a verdict is refused" --take
 route "take 2" decision_take
 refused "--take: an entry that isn't proposed is refused" --take
+route "take 5" decision_take
+refused "--take: an entry missing from the live record is refused, the section untouched" --take
 
 # --- --settle -----------------------------------------------------------------------------
 
@@ -283,6 +285,12 @@ render_msg decision_reply reply "reply 1" REPLY_MESSAGE
 to decision_reply_send
 rd --sent
 eq "--sent: a reply is no longer owed" "" "$(f 1 owed)"
+# The record edited by hand after the render: entry 1 is gone.
+setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", owed: "reply", source: "worker w1 [20260926T080000Z report 4.1]"}')]"
+render_msg decision_reply reply "reply 1" REPLY_MESSAGE
+db '(.issues[] | select(.number == 7)).body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 3 proposed)]" '.decisions = {next: 10, entries: $e}')" issue)"
+to decision_reply_send
+refused "--sent: an entry gone from the live record is refused, the section untouched" --sent
 setup "[$(E 1 proposed '{source: "worker w1 [20260926T080000Z report 4.1]", evidence: "2026-09-26T07:40Z worker w1 [20260926T080000Z report 4.1]: addressed to a person"}')]"
 render_msg decision_redirect redirect "redirect 1 4" REDIRECT_MESSAGE
 to decision_redirect_send

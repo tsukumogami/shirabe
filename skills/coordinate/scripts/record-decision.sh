@@ -291,7 +291,10 @@ def release:
   end;
 def stamped($kind; $seq): any(.entries[] | d_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
 def stamped_report($seq): any(.entries[] | d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
-def entry($n): .entries[] | select(.decision == $n);
+# A routed entry missing from the live record (edited by hand since the route)
+# is a refusal, never an empty result: an empty program output would be written
+# as no section at all.
+def entry($n): first(.entries[] | select(.decision == $n)) // error("the record has no entry \($n)");
 # Compaction keeps every Evidence line stamped by this run: the replay guard
 # (stamped) and the unrecorded-write rules of decision-next.sh read them for as
 # long as the run lasts. A later run compacts them away.
@@ -313,6 +316,9 @@ change() {
     local p=$1; shift
     SEC | jq -c -L "$HERE" --arg now "$NOW" --arg run "$RUN" --arg t "$TARGET" "$@" "$LIB $p" > "$WD/section.json" 2> "$WD/jq.err" \
         || refuse "$(sed -n 's/^jq: error ([^)]*): //p' "$WD/jq.err" | head -1)"
+    # The backstop for a program that selected nothing: never write an empty section.
+    jq -e 'type == "object" and (.entries | type) == "array"' "$WD/section.json" > /dev/null 2>&1 \
+        || refuse "the write produced no Decisions section"
 }
 # write: the section into the record, through the write core.
 write() {
@@ -528,7 +534,7 @@ sent)
             --arg n "$N" --arg k "$K" --arg r "$R" ;;
     redirect)
         [[ $RSEQ =~ ^[1-9][0-9]*$ ]] || refuse "the redirect's render names no report"
-        change 'if stamped("redirect"; $rs) then error("report \($rs) has had its redirect") else . end
+        change 'entry($n) as $e | if stamped("redirect"; $rs) then error("report \($rs) has had its redirect") else . end
           | .entries |= map(if .decision == $n then add_ev(ev_line("the coordinator"; "\($run) redirect \($rs)"; "redirect sent")) | .updated = $now else . end)
           | compact_except($n)' --arg n "$N" --arg rs "$RSEQ" ;;
     esac
