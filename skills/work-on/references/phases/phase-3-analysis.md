@@ -65,6 +65,6 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_changed_retry\"}" --no-cleanup
 ```
 
-The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out.
+The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 `implementation` reaches this phase by the same gate on a different edge (`scope_expanded_retry`) and clears the same key; see `phase-4-implementation.md`.

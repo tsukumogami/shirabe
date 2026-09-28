@@ -148,7 +148,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}" --no-cleanup
 after a return trip the previous round's line would still satisfy the referent
 gates while naming a commit reviewed before the fixes.
 
-The diagnostic names `deferral_requested` rather than an escalate outcome because `finalization` has no escalate edge. Its exits are `ready_for_pr`, `issues_found`, and `deferral_requested`, and the last is the one that still moves the run forward when the summary cannot be cleared.
+The diagnostic names `deferral_requested` rather than an escalate outcome because `finalization` has no escalate edge. Its exits are `ready_for_pr`, `issues_found`, and `deferral_requested`, and the last is the one that still moves the run forward when the summary cannot be cleared. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 A caveat or hedge ("experimental", "not yet handled", "known limitation") in the
 issue's shipped artifacts is legitimate only where it records a human-approved deferral.
