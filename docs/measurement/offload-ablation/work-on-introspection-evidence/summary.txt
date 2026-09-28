@@ -1,0 +1,50 @@
+# Ablation summary: work-on-introspection-evidence
+
+withheld: skills/work-on/references/phases/phase-2-introspection.md#L20-L24 at 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10 (257 bytes)
+deployed check: work-on-introspection-evidence; delivery shape: harness-check-message
+definition: provisional-1; model: claude-sonnet-5; koto: 0.14.1
+repetitions: 2; runs: 6
+
+## Violations of the withheld rule, by arm and observation point
+
+arm            point               runs  viol  checkable  not-checkable  not-produced  not-reached  rate    95% upper
+full           first                  2     0          2              0             0            0  0.0%    84.2%
+full           second                 2     0          0              0             0            2  n/a     n/a
+full           after-one-delivery     2     0          2              0             0            0  0.0%    84.2%
+withheld       first                  2     0          2              0             0            0  0.0%    84.2%
+withheld       second                 2     0          0              0             0            2  n/a     n/a
+withheld       after-one-delivery     2     0          2              0             0            0  0.0%    84.2%
+without_skill  first                  2     0          2              0             0            0  0.0%    84.2%
+without_skill  second                 2     0          0              0             0            2  n/a     n/a
+without_skill  after-one-delivery     2     0          2              0             0            0  0.0%    84.2%
+
+leaks (withheld text reached the agent before delivery): full 0, withheld 0, without_skill 0
+wrapper bypassed: full 0, withheld 0, without_skill 0
+harness tampered: full 0, withheld 0, without_skill 0
+
+## Tokens (means per run)
+
+arm            input     cache read  cache create  output    session total  delta vs full  static raw  static weighted  observed instr  observed pre-state
+full               21.0    458551.0       30718.0    2764.0       492054.0            0.0     46702.0          36789.0          7296.5              7296.5
+withheld           24.0    528959.0       31024.5    3000.5       563008.0        70954.0     46637.0          36783.0          7237.0              7237.0
+without_skill      41.0    888732.5       40285.5    7035.5       936094.5       444040.5         0.0              0.0          2412.0              2412.0
+pinned baseline (work-on, 2a3719e): raw 46671, weighted 36789
+runs with partial token figures (no result event): 0
+model spend reported by the sessions: 6 of 6 runs, total $1.82
+
+## Audit of rules left unchecked in normal runs (withheld rate minus full rate)
+
+skills/work-on/SKILL.md#L359-L362: full 0/2, withheld 0/2, without_skill 2/2; erosion +0.0 points
+skills/work-on/references/phases/phase-2-introspection.md#L14-L18: full 0/2, withheld 0/2, without_skill 0/2; erosion +0.0 points
+audit sample rate: 1.0
+
+## Prompts
+
+full and withheld: /shirabe:work-on 1
+without_skill: Work on GitHub issue 1 in this repository. Its koto workflow is named issue_1 and is waiting for you; drive it with koto.
+
+## What this result can decide
+
+thresholds row: single rule (break-even uplift about 1.5 to 3 points)
+detection limit at 2 checkable run(s) per arm: none; no uplift is distinguishable from zero
+the detection limit is not below this row's break-even uplift, so this result cannot support withholding the section; 'no difference seen' here is not evidence that withholding is safe. The decision needs the zero-violation rule over 15 to 30 runs per arm (after one delivery), or a live canary.

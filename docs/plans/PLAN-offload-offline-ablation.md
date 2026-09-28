@@ -115,11 +115,11 @@ The repository declares no delivery preference, so the default
 
 ### Issue 5: docs(measurement): run the introspection-evidence demonstration and document the ablation method
 
-**Goal**: Run the demonstration case for 5 repetitions, commit its records and summary, and document the method, case format, check contract and fixture rule.
+**Goal**: Run the demonstration case for 2 repetitions, commit its records and summary with the spend, and document the method, case format, check contract and fixture rule.
 
 **Acceptance Criteria**:
-- [ ] `docs/measurement/offload-ablation/work-on-introspection-evidence/` holds `records.jsonl` with 15 records, every one with `template.fixture: true`, and `summary.txt`, and `ablation.py check-figures` reproduces the summary.
-- [ ] `docs/measurement/offload-ablation/README.md` documents running a case, the case format and the external case corpus, the check contract, the fixture rule, and how to read a summary, including what 5 runs can and can't decide.
+- [ ] `docs/measurement/offload-ablation/work-on-introspection-evidence/` holds `records.jsonl` with 6 records, every one with `template.fixture: true`, and `summary.txt`, and `ablation.py check-figures` reproduces the summary.
+- [ ] `docs/measurement/offload-ablation/README.md` documents running a case, the case format and the external case corpus, the check contract, the fixture rule, and how to read a summary, including what 2 runs can and can't decide.
 - [ ] The offload-baseline README's Population section excludes ablation fixtures by the rule.
 - [ ] Every CI job is green.
 
@@ -134,6 +134,6 @@ The repository declares no delivery preference, so the default
 
 Issue 1 blocks Issue 2; Issue 2 blocks Issues 3 and 4; Issues 3 and 4 both
 block Issue 5. The critical path is 1, 2, 3, 5. Issue 4 can run beside Issue 3 once Issue 2
-lands. The demonstration in Issue 5 runs 15 model sessions and is the only
+lands. The demonstration in Issue 5 runs 6 model sessions and is the only
 step that costs model time; it runs after every scripted check is in place,
 so its records are checked the moment they're committed.

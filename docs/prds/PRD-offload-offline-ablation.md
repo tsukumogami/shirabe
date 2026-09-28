@@ -232,8 +232,9 @@ observation point, numerator, denominator, attribute names) keep its
   introspection state submits). Its scenario starts each arm at the
   `introspection` state of a real `/work-on` koto session against a fixture
   issue whose approach has changed. Its deployed check judges the evidence
-  the run submits to that state. It runs 5 repetitions of the three arms,
-  and commits the records and the summary. A demonstration that happens to
+  the run submits to that state. It runs 2 repetitions of the three arms,
+  the minimum that proves the path end to end on real sessions, and commits
+  the records, the summary and the spend. A demonstration that happens to
   see no violation reports that and still stands; the violation and delivery
   paths are proven by tests with a stub agent.
 - **R13. Check contract.** A deployed check and an audit check share one
@@ -272,7 +273,8 @@ A section takes the row its byte size is nearest: under 1 KB is a single
 rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
 
 - **Section decision rule.** 15 to 30 runs of the `withheld` arm, deciding on
-  zero violations at the second observation point.
+  zero violations after at most one delivery: the second observation point
+  where a delivery happened, the first where none was needed.
 - **Audit bar.** At least 30 runs per workflow; an audit rule whose
   `withheld` rate exceeds its `full` rate by more than 5 points fails the
   withholding.
@@ -330,8 +332,8 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
   no audit rules were sampled.
 - [ ] The regeneration command reproduces every committed demonstration
   figure, and exits non-zero naming the figure after one figure is edited.
-- [ ] The demonstration's records and summary for 5 repetitions of three arms
-  on the introspection-evidence section are committed.
+- [ ] The demonstration's records and summary for 2 repetitions of three arms
+  on the introspection-evidence section are committed, with its spend.
 - [ ] No file in the baseline's load manifest and no koto template differs
   from `main`, and `scripts/run-evals_test.sh` passes unchanged.
 - [ ] A grep of the pull request's diff and body finds no home-directory
@@ -358,10 +360,12 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
 ## Decisions and Trade-offs
 
 - **Demonstration run count.** The brief left open how many runs the
-  demonstration pays for. It runs 5 repetitions: enough to exercise the
-  harness on real sessions and report its own detection limit, which at 5
-  runs rules out nothing short of a very large effect. The feature proves the
-  capability; each withholding feature pays for its own decision-grade count.
+  demonstration pays for. It runs 2 repetitions, the minimum that proves
+  the path end to end on real sessions, because usage had to come down; at 2
+  runs per arm no uplift at all is distinguishable from zero, and the
+  summary says so. Larger counts (15 to 30 runs per arm, 30 per workflow for
+  audits) are what a later withholding feature runs for its own decision,
+  not something this feature runs.
 - **Demonstration section.** The introspection-evidence section is small,
   guards nothing irreversible, and its rule is fully judgeable from the
   structured evidence a run submits to koto, so a script can grade it. koto
@@ -386,6 +390,6 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
   out large effects. Single-rule withholding decisions stay with the
   zero-violation rule or a live canary.
 - Each run is a full model session, so the demonstration's figures carry the
-  variance of a 5-run sample.
+  variance of a 2-run sample.
 - The fixture scenario starts at the introspection state; what a real run
   carries into that state from earlier ones isn't reproduced.

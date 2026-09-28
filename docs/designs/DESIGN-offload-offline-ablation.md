@@ -402,7 +402,7 @@ unchanged. With `--case <file>`, the `--withhold` key must equal that case's
 `scripts/ablation/cases/` for the one case whose `withhold.source` equals the
 key and whose `skill` equals the positional skill; zero or several matches
 refuse. The source commit always comes from the case. `--runs N` (1 to 50,
-default 5) and `--jobs J` (default 1) are the only other options.
+default 2) and `--jobs J` (default 1) are the only other options.
 
 ### Span resolution
 
@@ -500,6 +500,16 @@ The wrapper handles each invocation this way:
 `koto next <wf> --to <state>` out of the target state is logged as leaving it
 without a production.
 
+What the wrapper can stand in for is limited, and later measurements have to
+say which limit applies to them. It sees only koto evidence: a rule whose
+output goes to git or GitHub, or that governs an action, needs an interceptor
+at that point (a pre-action deny or a linter check state). It delivers the
+check's own message, where a real withholding would deliver the rule's short
+text inside koto's failure payload, so the after-delivery rate has to be
+re-measured once real delivery exists. And every record names its
+`delivery.shape` (`harness-check-message` here), so records of different
+shapes are never summarised together.
+
 ### Check contract
 
 Every check is an executable that exits 0 (`complied`), 1 (`violated`) or 2
@@ -549,6 +559,7 @@ One JSON line per run in `records.jsonl`:
   "template.path": "skills/work-on/koto-templates/work-on.md",
   "template.git_blob": "...", "template.pin_blob_match": true,
   "template.koto_hash": "...", "template.fixture": true, "koto.version": "0.14.1",
+  "delivery.shape": "harness-check-message", "rule.span_bytes": 257, "cost_usd": 0.25,
   "observations": [
     {"point": "first", "point.status": "observed", "opportunity.index": 1,
      "opportunity.outcome": "violated", "observed_by": "script", "reason": "rationale-missing"},
@@ -565,8 +576,11 @@ One JSON line per run in `records.jsonl`:
 }
 ```
 
-`opportunity.outcome` keeps the baseline's three values. Whether a point
-happened is `point.status`: `observed`, `not-reached` (no delivery, so no
+Observations are recorded at three points: `first`, `second`, and
+`after-one-delivery`, which is the first point's outcome when nothing was
+delivered and the second's when something was; it is the point the section
+decision rule and the detection limit use. `opportunity.outcome` keeps the
+baseline's three values. Whether a point happened is `point.status`: `observed`, `not-reached` (no delivery, so no
 second point) or `not-produced` (no production at that point), and an
 unobserved point carries no `opportunity.outcome`. `template.git_blob` is the
 copy's blob, with `template.pin_blob_match` saying whether it equals the
@@ -601,7 +615,7 @@ raw and weighted instruction tokens beside the pinned baseline row for the
 profile, read from `docs/measurement/offload-baseline/token-baseline.tsv`; per
 audit rule, the `withheld` rate minus the `full` rate in points, or "no audit
 rules sampled"; the arms' prompts, read from the case file the records name; the thresholds row the
-span's size falls in; and, at the second observation point (the one the
+span's size falls in; and, after at most one delivery (the outcome the
 section decision rule uses), the detection limit at the smaller of the
 `full` and `withheld` checkable counts and the decision sentence: whether the
 limit is below that row's break-even uplift, and when it isn't, that the
@@ -615,8 +629,10 @@ first differing line. It runs no model session.
 
 ### What the demonstration can decide
 
-With 5 runs per arm, the detection limit is 4 of 5 (80 points): against 0 of
-5, 3 violations give a one-sided Fisher p of 0.083 and 4 give 0.024. At 15
+The demonstration runs 2 repetitions, the minimum that proves the path end to
+end, and at 2 runs per arm no uplift is distinguishable from zero. With 5 runs
+per arm, the detection limit is 4 of 5 (80 points): against 0 of 5, 3
+violations give a one-sided Fisher p of 0.083 and 4 give 0.024. At 15
 runs it is 4 of 15 (27 points), at 20 runs 5 of 20 (25 points), and at 30 runs
 5 of 30 (17 points). The introspection section is 257 bytes, the single-rule
 row, whose break-even uplift is 1.5 to 3 points. No offline count this harness
@@ -678,9 +694,9 @@ and each step adds its own job.
    detection, `summarize`, `check-figures`, and their tests over fixture
    records; the `ablation-figures` and `fixture-rule` jobs.
 4. **Runner entry.** The `--withhold` hand-off in `run-evals.sh`.
-5. **Demonstration and docs.** The case and its fixture, 5 repetitions run on
-   demand, committed records and summary, the measurement README, and the
-   baseline README's fixture sentence.
+5. **Demonstration and docs.** The case and its fixture, 2 repetitions run on
+   demand, committed records and summary with the spend, the measurement
+   README, and the baseline README's fixture sentence.
 
 ## Security Considerations
 
@@ -715,8 +731,10 @@ and each step adds its own job.
   the prompt follows `--`, and evidence reaches koto through a file, never a
   shell string. An outside corpus therefore can't bring executables,
   repositories or templates with it. Its prompts still steer an agent that
-  runs shell, so a maintainer should read an outside corpus's prompts before
-  running it, and preferably use an API key with its own spending cap.
+  runs shell, so running an outside corpus needs a person's explicit approval
+  first: a review of its prompts and, preferably, a model key with its own
+  spending cap. This feature runs only in-repository cases; the loader and
+  format are tested against them.
 - **The agent can reach the harness.** It could edit the checkout, including
   the checks. The harness hashes `scripts/ablation/` and records the
   checkout's status before and after each run, and marks a run where either
