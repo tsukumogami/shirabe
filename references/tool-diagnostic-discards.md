@@ -167,8 +167,11 @@ A file also takes the bindings of each file it sources with `.` or `source`,
 recursively. That's how `board-record.sh` gets `KOTO` from `record-common.sh`
 through `board-lib.sh`. The path has to be literal, or start with one `$NAME/`,
 `${NAME}/`, `$(dirname "$0")/` or `$(dirname "${BASH_SOURCE[0]}")/`, which is
-read as the sourcing file's directory. A sourced file's `local` bindings stay
-inside its functions.
+read as the sourcing file's directory, quoted or not. The path ends at the
+first operator after it, so `. "$HERE/lib.sh" || exit 2` is followed. A sourced
+file's `local` bindings stay inside its functions. A sourced file outside the
+scanned tree, a lib under `scripts/` for instance, lends its bindings all the
+same. It is read for them, never reported as a site.
 
 A variable is charged only at command position: `$VAR`, `"$VAR"`, `${VAR}` or
 `"${VAR}"` at the start of the line, after a case arm's pattern that starts
