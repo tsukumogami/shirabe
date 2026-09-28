@@ -5,18 +5,34 @@
 # only reads.
 #
 # core_write re-reads the target and writes the whole body, after the checks
-# record-write.sh's header lists. Two of them live only here:
+# record-write.sh's header lists; every check from the parse on lives here.
+# The two the Decisions section brought:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
-#     value in the environment never counts (exit 65);
-#   - a rendered body over RECORD_BUDGET bytes is refused before GitHub sees it
-#     (exit 13, record-full), leaving room under GitHub's 65,536-byte limit.
+#     value in the environment never counts (exit 65). Only
+#     record-decision.sh sets it; a structure test holds every other script
+#     to that;
+#   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
+#     before GitHub sees it (exit 13, record-full), leaving room under
+#     GitHub's 65,536-byte limit.
 #
-# The caller has sourced record-common.sh, run lib_facts and lib_write_guard,
-# and set PROG, HERE, SESSION, SCOPE, NAME, REPO, REF, BODY, END and CLOSE; a
-# writer that may change the Decisions section sets DECISIONS_WRITER=1 after
-# sourcing this file. record-open.sh writes a new record's first body itself
-# and refuses one carrying a Decisions section.
+# The caller's contract:
+#   - it has sourced record-common.sh, run lib_facts and lib_write_guard, and
+#     set PROG, HERE, SESSION, SCOPE, NAME, REPO, REF, BODY, END and CLOSE; a
+#     writer that may change the Decisions section sets DECISIONS_WRITER=1
+#     after sourcing this file;
+#   - it defines `usage`, which core_write calls on a malformed record number;
+#   - it runs without `set -e`: core_write reads the status of commands that
+#     fail by design;
+#   - core_write takes over the global T (its own temporary directory) and
+#     the EXIT trap, which removes it, so a caller keeps nothing it needs in
+#     $T. A caller with a scratch directory of its own names it in
+#     CORE_CLEANUP, and the trap removes that too; any other EXIT trap the
+#     caller set is replaced;
+#   - core_write exits on every refusal and failure (10, 11, 12, 13, 2, 64,
+#     65) and returns only after a write, having printed the record's URL.
+# record-open.sh writes a new record's first body itself and refuses one
+# carrying a Decisions section.
 
 # RECORD_BUDGET: the largest body core_write sends, in bytes.
 RECORD_BUDGET=60000
@@ -36,8 +52,16 @@ core_write() {
     [[ $REF =~ $RE_NUM ]] || usage
 
     T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX")
-    trap 'rm -rf "$T"' EXIT
+    trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
 
+    # The budget first: a body past it is record-full whatever else is wrong
+    # with it, including one past the parser's own 65,536-byte limit, so a
+    # caller that compacts on 13 sees every over-size body.
+    SIZE=$(wc -c < "$BODY" | tr -d ' ')
+    if [ "$SIZE" -gt "$RECORD_BUDGET" ]; then
+        echo "$PROG: refused: record-full: the body is $SIZE bytes, over the $RECORD_BUDGET-byte budget; compact settled decisions or prune the record" >&2
+        exit 13
+    fi
     lib_parse "$BODY" "$T/parsed.json"
     case $? in
         0) ;;
@@ -97,14 +121,22 @@ core_write() {
     PRIVATE=
     HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
     if [ "$HOST_PRIVATE" = false ]; then
+        # A cell that holds only a repository (Side effects Target) is read for
+        # any owner/repo token. Decisions text is prose, where "and/or" or
+        # "CI/CD" is not a repository, so only its unambiguous forms count
+        # there: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
         jq -r -L "$HERE" 'include "record-codec";
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
+            def links: scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean;
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
-              ((.side_effects[] | (.target // "")),
-               ((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring
-                | ( (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
+              ((.side_effects[] | (.target // "")) | tostring
+                | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
-                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?=#[0-9]|[\\s)\\]>,;:]|$)") | .[0] | clean) )) ]
+                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?=#[0-9]|[\\s)\\]>,;:]|$)") | .[0] | clean) )),
+              (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring
+                | ( links,
+                    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
+                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) )) ]
             | map(select(. != "")) | unique | .[]' "$T/parsed.json" > "$T/named" || lib_die2 "jq failed"
         while IFS= read -r r; do
             [[ $r =~ $RE_REPO ]] || { echo "$PROG: refused: $r is not owner/repo" >&2; exit 65; }
