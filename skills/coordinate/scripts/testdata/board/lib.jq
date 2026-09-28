@@ -29,3 +29,8 @@ def ctx(f): .snapshot.data.repository.pullRequest.commits.nodes[0].commit.status
 def pr(f): .snapshot.data.repository.pullRequest |= f;
 def protection(contexts): {protected: true, protection: {enabled: true, required_status_checks:
   {enforcement_level: "non_admins", contexts: contexts, checks: [contexts[] | {context: ., app_id: null}]}}};
+# The token can't read checks: GitHub refuses the snapshot's rollup query the
+# way gh reports a GraphQL refusal (no HTTP status).
+def refuse_rollup: .__rc.rollup = 1 | .__err.rollup = "gh: Resource not accessible by personal access token";
+# The commit's check runs refused, as REST reports it.
+def refuse_checkruns: .__rc.checkruns = 1 | .__err.checkruns = "gh: Resource not accessible by personal access token (HTTP 403)";
