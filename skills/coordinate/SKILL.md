@@ -271,8 +271,12 @@ entry the workflow routed. The states and checks, all in the template:
 - **The verdict.** At `decision_verdict` you settle it, escalate it or hold it
   with what it waits on. For a question that isn't obviously answerable, run
   `/shirabe:decision` on it first, to reach one recommendation and the real
-  alternatives, each with its explanation. Escalate only on the grounds in
-  Bounds and Authority. One entry is escalated at a time; another escalation
+  alternatives, each with its explanation. Escalate only on one of the four
+  grounds the record takes, each from Bounds and Authority: it changes the
+  effort's scope (`scope`); it reverses or extends a decision the dispatcher
+  supplied (`supplied-decision`); it needs a step reserved for a person
+  (`reserved-step`); or it is outside your scope (`outside-scope`), which you
+  propose rather than act on. One entry is escalated at a time; another escalation
   is recorded and queued. New evidence (`decision_evidence`) clears any verdict,
   so a changed fact always brings the entry back to you.
 - **Messages.** A message is rendered by a check (`escalate`,

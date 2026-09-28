@@ -647,10 +647,10 @@ states:
         description: With a report event, the worker's message as it arrived.
       decision:
         type: string
-        description: With an answer or evidence event, the decision entry it names.
+        description: Required with an answer or evidence event, which does not leave wait without it; the decision entry it names, as a plain number.
       round:
         type: string
-        description: With an answer event, the round it names.
+        description: Required with an answer event, which does not leave wait without it; the round it names, as a plain number.
     transitions:
       # A message report: its text and topic are written on this edge, fresh
       # each time, and take_report checks both before report_facts reads on.
@@ -684,9 +684,12 @@ states:
       - target: decision_answer
         when:
           event: answer
+          evidence.decision: present
+          evidence.round: present
       - target: decision_evidence
         when:
           event: evidence
+          evidence.decision: present
       - target: decision_raise
         when:
           event: raise
@@ -1133,10 +1136,10 @@ states:
         description: sent after sending the rendered text and record-decision.sh --sent; answered when the person answered the question tool, after --sent.
       decision:
         type: string
-        description: With answered, the decision entry the answer names.
+        description: Required with answered, which does not leave escalate_send without it; the decision entry the answer names.
       round:
         type: string
-        description: With answered, the round the answer names.
+        description: Required with answered, which does not leave escalate_send without it; the round the answer names.
     transitions:
       - target: decision_next
         when:
@@ -1144,6 +1147,8 @@ states:
       - target: decision_answer
         when:
           sent: answered
+          evidence.decision: present
+          evidence.round: present
 
   decision_withdraw:
     default_action:
@@ -2599,9 +2604,16 @@ entries now hold them.
 
 ## decision_redirect_send
 
-Send the text in `coord/decision_message.txt` to the worker exactly as rendered,
-run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
-{{SESSION_NAME}} --sent`, then submit `sent: sent`.
+Send the text in `coord/decision_message.txt` to the entry's source exactly as
+rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+--session {{SESSION_NAME}} --sent`, then submit `sent: sent`.
+
+<!-- details -->
+
+The entry is the one `decision_next` named (`redirect <n> <report>`), and its
+Source (`worker <topic>`) is the worker that asked. Don't take the worker from
+`report_topic` or the latest report: a newer report can have arrived since the
+one this redirect answers.
 
 ## classify_report
 

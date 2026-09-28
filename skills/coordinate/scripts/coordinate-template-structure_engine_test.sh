@@ -109,6 +109,25 @@ jq -e '.states.decision_next.gates.decision_input == {type: "context-exists", ke
 jq -e '.states.surface_check.accepts == null and (.states.wait.directive | contains("coord/need.json") and contains("--blocked"))' "$J" >/dev/null \
     && pass "wait's directive says to report an accepted need, since surface_check is passed through" \
     || fail "wait's directive says to report an accepted need, since surface_check is passed through"
+# The arms that reach decision_answer and decision_evidence need the fields
+# record-decision.sh reads: koto has no conditional required, so the arm does.
+jq -e '
+  any(.states.wait.transitions[]; .target == "decision_answer" and .when.event == "answer"
+      and .when["evidence.decision"] == "present" and .when["evidence.round"] == "present")
+  and any(.states.wait.transitions[]; .target == "decision_evidence" and .when.event == "evidence"
+      and .when["evidence.decision"] == "present")
+  and any(.states.escalate_send.transitions[]; .target == "decision_answer" and .when.sent == "answered"
+      and .when["evidence.decision"] == "present" and .when["evidence.round"] == "present")' "$J" >/dev/null \
+    && pass "an answer or evidence arm needs its decision (and round) present" \
+    || fail "an answer or evidence arm needs its decision (and round) present"
+# A reply and a redirect go to the entry's source, never to whatever report
+# arrived last: a newer report can overwrite report_topic first.
+for st in decision_reply_send decision_redirect_send; do
+    jq -e --arg s "$st" '.states[$s].directive | test("to the entry.s source")' "$J" >/dev/null \
+        && pass "$st sends to the entry's source" || fail "$st sends to the entry's source"
+done
+jq -e '.states.decision_redirect_send.details | contains("report_topic")' "$J" >/dev/null \
+    && pass "decision_redirect_send warns off report_topic" || fail "decision_redirect_send warns off report_topic"
 for w in answer evidence raise; do
     jq -e --arg w "$w" '.states.wait.accepts.event.values | index($w)' "$J" >/dev/null && pass "wait takes the $w event" || fail "wait takes the $w event"
 done

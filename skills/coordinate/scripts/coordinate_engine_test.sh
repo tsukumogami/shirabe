@@ -400,7 +400,10 @@ if [ -n "$J" ] && [ -r "$J" ]; then
             bad "9: reach wait for $ev" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"; continue
         fi
         SEQ=$(jq -s 'map(.seq) | max' "$(logf)")
-        R=$(tick --with-data "$(jq -nc --arg e "$ev" '{event: $e, unit: "feat-1"}')")
+        # answer and evidence name their decision (and an answer its round):
+        # wait's arms for them need the fields present.
+        R=$(tick --with-data "$(jq -nc --arg e "$ev" '{event: $e, unit: "feat-1"}
+            + (if $e == "answer" then {decision: "1", round: "1"} elif $e == "evidence" then {decision: "1"} else {} end)')")
         GOT=$(jq -r --argjson q "$SEQ" 'select(.seq > $q and .type == "transitioned" and .payload.from == "wait") | .payload.to' "$(logf)" | head -1)
         TE=$( { printf '%s\n' "$R"; cat "$T/tick.err"; jq -c --argjson q "$SEQ" 'select(.seq > $q)' "$(logf)"; } | grep -c 'template_error')
         if [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] && [ "$TE" = 0 ]; then
@@ -603,11 +606,17 @@ for route in tool message; do
         else
             eq "15 message: sent goes on, and nothing is owed" pick "$(at --with-data '{"sent":"sent"}')"
             eq "15 message: the loop goes on to wait" wait "$(at --with-data '{"choice":"hold"}')"
+            eq "15 message: an answer naming no round doesn't leave wait" wait "$(at --with-data '{"event":"answer","decision":"1"}')"
             eq "15 message: the answer comes back from wait" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
         fi
         write_as_agent record-decision.sh --answer --outcome wait
         eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of "$n" 1 | jq -r '"\(.state) \(.decided_by)"')"
         eq "15 $route: recorded goes back through decision_next to pick" pick "$(at --with-data '{"answered":"recorded"}')"
+        if [ "$route" = message ]; then
+            # A later answer naming nothing isn't carried by the earlier visit's fields.
+            eq "15 message: back at wait" wait "$(at --with-data '{"choice":"hold"}')"
+            eq "15 message: a later answer naming no decision doesn't leave wait" wait "$(at --with-data '{"event":"answer"}')"
+        fi
     else
         bad "15 $route: reach escalate_send" "$(cat "$T/open.err" "$T/tick.err" "$T/w.err" 2>/dev/null)"
     fi

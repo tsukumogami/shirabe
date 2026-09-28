@@ -57,7 +57,7 @@ stateDiagram-v2
     escalate --> escalate_send : gates.escalate_verdict.exit_code: 180
     escalate --> record_conflict : gates.escalate_verdict.exit_code: 62
     escalate_send --> decision_next : sent: sent
-    escalate_send --> decision_answer : sent: answered
+    escalate_send --> decision_answer : evidence.decision: present, evidence.round: present, sent: answered
     failure --> dispatch_check : move: redispatch
     failure --> decision_raise : move: escalate
     land --> land_merge : gates.land_verdict.exit_code: 80
@@ -190,8 +190,8 @@ stateDiagram-v2
     wait --> decision_apply : event: deferral
     wait --> merged_facts : event: merged
     wait --> teardown : event: retire
-    wait --> decision_answer : event: answer
-    wait --> decision_evidence : event: evidence
+    wait --> decision_answer : event: answer, evidence.decision: present, evidence.round: present
+    wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}

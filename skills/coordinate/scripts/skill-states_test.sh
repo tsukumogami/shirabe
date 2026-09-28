@@ -22,8 +22,9 @@ trap 'rm -rf "$T"' EXIT
 
 # The template's states: the `  <state>:` lines of its front matter.
 awk 'NR > 1 && /^---$/ { exit } /^  [a-z_]+:$/ { s = $1; sub(/:$/, "", s); print s }' "$TPL" | sort -u > "$T/states"
-# The entry states of the record's Decisions section, not template states.
-ENTRY_STATES='proposed escalated settled'
+# Words of the record's Decisions section, not template states: the entry
+# states, and the one ground with no hyphen (`scope`).
+ENTRY_STATES='proposed escalated settled scope'
 
 # unknown <file>: every state-shaped inline-code word in its Decisions
 # section that the template doesn't have.
