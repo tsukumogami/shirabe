@@ -15,7 +15,7 @@ decision: |
   version. Surface probing stays the rule for every other tool and for koto's
   own surface, and requires.tsv still carries no version.
 rationale: |
-  With #457 merged, shirabe's skills pass --no-cleanup on every tick,
+  Since #457, shirabe's skills pass --no-cleanup on every tick,
   including on children /execute materializes, and that is correct only from
   koto 0.14.0 on. On an
   older koto the same flag withholds a child's result from its parent, whose
@@ -48,7 +48,7 @@ never parses or compares a version. `docs/prds/PRD-skill-preflight-checks.md`
 R9 says the same as a requirement, and `references/tool-declaration-policy.md`
 repeats it under "No version, ever".
 
-shirabe#439 (PR #457) moves shirabe's koto minimum to 0.14.0. That release
+shirabe#439 (PR #457) moved shirabe's koto minimum to 0.14.0. That release
 keeps a session that reaches a failure terminal, and delivers a child's result
 to its parent whether or not the child's tick carried `--no-cleanup`. shirabe
 relies on both: every `koto next` in `/work-on` carries the flag, root or
@@ -60,20 +60,14 @@ Nothing at load catches that. The commands `/work-on` calls exist on 0.13.0
 with the same flags, so the surface probe passes. The minimum is stated in the
 README and enforced in CI, but a user's machine never runs CI.
 
-This record depends on #457. Four statements in it describe the tree #457
-produces and are true only once it has merged:
-
-1. shirabe's koto minimum is 0.14.0. On `main` before #457 it is 0.13.0.
-2. Every `koto next` in `/work-on` carries `--no-cleanup`, root or child. On
-   `main` before #457, `skills/work-on/scripts/session-role.sh` keeps the flag
-   off a child's ticks for exactly the reason given above, so the hazard is
-   prevented there. #457 is what makes shirabe depend on 0.14.0's behaviour.
-3. The minimum is the release CI installs exactly and runs every koto-backed
-   suite on. On `main` before #457, `/work-on`'s floor job runs koto v0.12.2.
-4. `scripts/koto-minimum-consistency_test.sh` guards the restatements of the
-   minimum. It arrives with #457.
-
-A ruling made before #457 merges is a ruling on that tree.
+Four statements in this record describe the tree #457 produced, and each has
+held on `main` since #457 merged (05d672c): shirabe's koto minimum is 0.14.0;
+every `koto next` in `/work-on` carries `--no-cleanup`, root or child (before
+#457, `skills/work-on/scripts/session-role.sh` kept the flag off a child's
+ticks, so #457 is what makes shirabe depend on 0.14.0's behaviour); the minimum
+is the release CI installs exactly and runs every koto-backed suite on; and
+`scripts/koto-minimum-consistency_test.sh` guards the restatements of the
+minimum.
 
 ## Decision
 

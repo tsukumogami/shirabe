@@ -3,8 +3,8 @@
 # --koto-leg, as preflight reports it.
 # Part of the work-on skill
 #
-# skills/work-on/requires.tsv keeps the v0.12.2 floor for every run without
-# --koto-leg, and declares the koto init entry flags the flag needs
+# skills/work-on/requires.tsv declares no koto init entry flag for a run
+# without --koto-leg, and declares the entry flags the flag needs
 # (--vars-file, --attach-live, --koto-leg) in a `mode:koto-leg` record. Against
 # a stand-in koto whose `init --help` predates those flags, this asserts:
 #
@@ -48,8 +48,8 @@ for f in --vars-file --attach-live --koto-leg; do
 done
 ALWAYS_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "always" { print $3 }' "$REQ")
 case "$ALWAYS_FLAGS" in
-    *--koto-leg*|*--attach-live*|*--vars-file*) bad "the always init record stays at the older floor" "[$ALWAYS_FLAGS]" ;;
-    *) ok "the always init record stays at the older floor" ;;
+    *--koto-leg*|*--attach-live*|*--vars-file*) bad "the always init record declares no entry flag" "[$ALWAYS_FLAGS]" ;;
+    *) ok "the always init record declares no entry flag" ;;
 esac
 DELIVER_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" { print $3 }' "$REPO/skills/deliver/requires.tsv")
 for f in $(printf '%s' "$MODE_FLAGS" | tr ',' ' '); do

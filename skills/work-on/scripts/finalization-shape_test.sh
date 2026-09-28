@@ -3,9 +3,8 @@
 # at finalization instead of ending it at pre_pr_evidence.
 #
 # summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
-# checks their shape and sends a failure to done_blocked. For a child of
-# /execute that terminal also disposes of the child's log (tsukumogami/koto#240), so a shape
-# the agent could have fixed in one edit cost a full re-entry. The same three
+# checks their shape and sends a failure to done_blocked, so a shape the agent
+# could have fixed in one edit cost a full re-entry. The same three
 # shape gates now sit on finalization's ready_for_pr edge and on
 # deferral_approval's approved edge, where a failure matches no edge and the
 # state holds with the failing gate named.

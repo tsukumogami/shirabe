@@ -1,0 +1,13 @@
+{"scope":"roadmap","name":"plugin-system",
+ "units":[
+  {"unit":"Feature 1","number":1,"title":"Plugin manifest","status":"In progress","done":false,"blocked":false,"blocked_by":[],"blocker_landed":false,"holding":{"worker":"plugin-manifest","phase":"executing"}},
+  {"unit":"Feature 2","number":2,"title":"Plugin loader","status":"Planned","done":false,"blocked":true,"blocked_by":[1],"blocker_landed":false,"holding":null},
+  {"unit":"Feature 3","number":3,"title":"Plugin registry","status":"Planned","done":false,"blocked":false,"blocked_by":[],"blocker_landed":false,"holding":null},
+  {"unit":"Feature 4","number":4,"title":"Plugin sandbox","status":"Planned","done":false,"blocked":false,"blocked_by":[],"blocker_landed":false,"holding":{"worker":"plugin-sandbox","phase":"executing"}},
+  {"unit":"Feature 5","number":5,"title":"Docs","status":"Done","done":true,"blocked":false,"blocked_by":[],"blocker_landed":false,"holding":null},
+  {"unit":"Feature 6","number":6,"title":"CLI","status":"Planned","done":false,"blocked":false,"blocked_by":[],"blocker_landed":false,"holding":{"worker":"plugin-cli","phase":"executing"}}],
+ "holdings":[
+  {"worker":"plugin-manifest","unit":"Feature 1: Plugin manifest","phase":"executing","dispatch_status":"dispatched","parked":true,"pull_request":"[#12](https://github.com/acme/widgets/pull/12)"},
+  {"worker":"plugin-sandbox","unit":"Feature 4: Plugin sandbox","phase":"executing","dispatch_status":"dispatched","parked":true,"pull_request":"[#14](https://github.com/acme/widgets/pull/14)"},
+  {"worker":"plugin-cli","unit":"Feature 6: CLI","phase":"executing","dispatch_status":"dispatched","parked":false,"pull_request":""}],
+ "active":1,"parked":2,"cap":5,"parked_bound":3}

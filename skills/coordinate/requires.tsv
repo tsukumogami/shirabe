@@ -1,8 +1,49 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# /coordinate is prose with no shirabe or koto call line. The coordinator
-# runs gh and git itself through the commands its references show, so both
-# are declared tool-only and checked for presence.
+# The koto floor. /coordinate enters its session through
+# skills/coordinate/scripts/coordinate-open.sh and the shared
+# scripts/koto-open.sh, the call site for `koto init --vars-file`. The
+# template's constrained variables, capture_stdout_as, command gates declared
+# overridable: false, deciders and result maps all exist only in koto 0.13.0
+# and later, so this `koto init` record, with the flags /deliver and /execute
+# declare, is the declared floor: the policy allows no version number here, and
+# preflight on an older koto names the missing flags.
+# The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
+# 0.14.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# keeps its session, a child's result is delivered under --no-cleanup, and
+# `koto next --to` is refused past a failing non-overridable gate) is behaviour
+# with no flag to declare, so no record here carries it. The preflight compares
+# koto's version with that minimum at load instead
+# (scripts/lib/preflight-minimum.sh), and CI tests it.
+koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
+# The session: every tick is `koto next --no-cleanup`, with evidence through
+# --with-data; `koto status` re-reads a directive and feeds the report.
+koto	next	--with-data,--no-cleanup	always
+koto	status	-	always
+# coordinate-open.sh cancels (never cleans up) an earlier live run of the
+# same scope; coord-log.sh lists sessions, finds a session's log, compiles the
+# shipped template to check a session's provenance, and every check script
+# stores its detail as data.
+koto	cancel	-	always
+koto	session list	-	always
+koto	session dir	-	always
+koto	template compile	-	always
+koto	context add	--from-file	always
+koto	context get	-	always
+#
+# GitHub and git. Every check script reads GitHub with `gh api --method GET`,
+# `gh pr view/list`, `gh issue list` and GraphQL queries; the agent-run write
+# scripts (record-open.sh, record-write.sh, record-holding.sh,
+# rotation-close.sh, land-merge.sh through /execute's merge-exec.sh) make the
+# only writes. git reads the origin remote for the host at roadmap scope.
 gh	-	-	always
 git	-	-	always
+# The record's codec (record-render.sh, record-parse.sh) and every script
+# that reads or writes the record are jq programs over the rendered tables.
+jq	-	-	always
+#
+# Citations, not calls: SKILL.md and coordinate.md tell the coordinator never
+# to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).
+#not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid it
+#not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
