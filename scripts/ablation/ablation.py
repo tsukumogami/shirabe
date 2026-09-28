@@ -48,7 +48,9 @@ import time
 import importlib.util
 from importlib.machinery import SourceFileLoader
 
-import records
+# The harness runs from the checkout; keep bytecode out of it.
+sys.dont_write_bytecode = True
+import records  # noqa: E402
 
 ABL_DIR = os.path.dirname(os.path.realpath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(ABL_DIR))
