@@ -454,6 +454,8 @@ new_root() {
     cp "$REPO/scripts/lib/preflight-resolve.sh" "$root/scripts/lib/preflight-resolve.sh"
     cp "$REPO/scripts/lib/preflight-probe.sh" "$root/scripts/lib/preflight-probe.sh"
     cp "$REPO/scripts/lib/preflight-report.sh" "$root/scripts/lib/preflight-report.sh"
+    cp "$REPO/scripts/lib/preflight-minimum.sh" "$root/scripts/lib/preflight-minimum.sh"
+    cp "$REPO/scripts/assert-koto-floor.sh" "$root/scripts/assert-koto-floor.sh"
     cp "$REPO/scripts/lib/tool-routes.tsv" "$root/scripts/lib/tool-routes.tsv"
     printf '%s' "$root"
 }
@@ -482,6 +484,7 @@ WORKDIR=$(mktmp)
     printf '#!/bin/bash\n'
     printf 'case "$*" in\n'
     printf '  "--help") printf "Commands:\\n  init  Init\\n  context  Context\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+    printf '  "version") printf "koto 999.0.0 (0000000 2026-01-01T00:00:00Z)\\n" ;;\n'
     printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Retrieve\\n  exists  Check\\n  list  List\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
     printf '  *) printf "error: unrecognized subcommand\\n" >&2; exit 2 ;;\n'
     printf 'esac\n'

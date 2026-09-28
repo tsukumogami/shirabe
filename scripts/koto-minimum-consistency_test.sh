@@ -27,8 +27,9 @@
 #     deliberately not matched. That is also the way out of a false positive:
 #     the failure names each file, line and phrase, and says so.
 #   no workflow installs a literal koto release, the entry-floor job and
-#     check-koto-release.sh read the minimum through --print-floor, and no
-#     script or workflow reads the FLOOR line with a copy of its own
+#     check-koto-release.sh read the minimum through --print-floor, no other
+#     script or workflow reads the FLOOR line itself except the preflight's
+#     load-time reader, and that reader agrees with --print-floor
 #
 # Statements are matched across line breaks and comment markers, so a sentence
 # wrapped in a YAML or shell comment is read as a sentence. docs/designs,
@@ -228,12 +229,36 @@ if grep -qF 'assert-koto-floor.sh" --print-floor' "$REPO/scripts/check-koto-rele
 else
     fail "check-koto-release.sh no longer reads the minimum through --print-floor"
 fi
-COPIES=$(cd "$REPO" && grep -lF 'KOTO_FLOOR:-\(' .github/workflows/*.yml scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh 2>/dev/null | grep -v '^scripts/koto-minimum-consistency_test.sh$')
+# Any file naming the FLOOR line's `KOTO_FLOOR:-` is reading it. Four may:
+# assert-koto-floor.sh defines it; this file plants copies as controls;
+# scripts/lib/preflight-minimum_test.sh writes a fixture FLOOR line into a
+# throwaway root; and scripts/lib/preflight-minimum.sh reads it at skill load
+# with builtins, since a fork on the satisfied load path is what that file
+# avoids. That one second reader is held to --print-floor by the agreement
+# case below.
+COPIES=$(cd "$REPO" && grep -lF 'KOTO_FLOOR:-' .github/workflows/*.yml scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh 2>/dev/null \
+    | grep -v -e '^scripts/assert-koto-floor.sh$' -e '^scripts/koto-minimum-consistency_test.sh$' \
+        -e '^scripts/lib/preflight-minimum.sh$' -e '^scripts/lib/preflight-minimum_test.sh$')
 if [ -z "$COPIES" ]; then
-    pass "no script or workflow reads the FLOOR line with a sed copy of its own"
+    pass "nothing but the preflight's load-time reader reads the FLOOR line itself"
 else
-    fail "these read the FLOOR line with their own sed; call assert-koto-floor.sh --print-floor instead:
+    fail "these read the FLOOR line themselves; call assert-koto-floor.sh --print-floor instead:
 $COPIES"
+fi
+
+# The preflight's load-time read of the FLOOR line agrees with --print-floor.
+LIB="$REPO/scripts/lib/preflight-minimum.sh"
+if [ -r "$LIB" ]; then
+    PREFLIGHT_FLOOR=$(
+        # shellcheck source=/dev/null
+        . "$LIB" >/dev/null 2>&1
+        preflight_minimum_read_floor "$REPO" >/dev/null 2>&1 && printf '%s' "$PREFLIGHT_MINIMUM_FLOOR"
+    )
+    if [ "$PREFLIGHT_FLOOR" = "$MINIMUM" ]; then
+        pass "the preflight's load-time read of the minimum agrees with --print-floor ($MINIMUM)"
+    else
+        fail "the preflight reads the minimum as [$PREFLIGHT_FLOOR], --print-floor as [$MINIMUM]; the FLOOR line's shape and scripts/lib/preflight-minimum.sh have drifted apart"
+    fi
 fi
 
 echo

@@ -31,6 +31,12 @@
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
 #
+# The FLOOR line is also read at skill load. scripts/lib/preflight-minimum.sh
+# reads it from the installed plugin to report a koto below the minimum, so
+# the line's shape -- FLOOR="${KOTO_FLOOR:-MAJOR.MINOR.PATCH}" -- is a runtime
+# contract, not only CI's. KOTO_FLOOR is honoured here only; the preflight
+# ignores it, so the environment can't lower the minimum a user is held to.
+#
 # Usage: scripts/assert-koto-floor.sh
 #        scripts/assert-koto-floor.sh --print-floor
 #

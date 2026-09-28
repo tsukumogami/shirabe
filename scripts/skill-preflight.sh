@@ -63,11 +63,13 @@
 #   lib/preflight-resolve.sh  command -v, the root list, the refusal rule
 #   lib/preflight-probe.sh    surface probing (optional; absent until it lands)
 #   lib/preflight-report.sh   route resolution and block rendering (optional)
+#   lib/preflight-minimum.sh  the koto minimum, once per run (optional)
 #
-# The two optional helpers are picked up when present and hooked through
+# The three optional helpers are picked up when present and hooked through
 # `declare -f`: preflight_check_surface for a resolved tool's advertised
-# surface, and preflight_render_route for the one command an absent-tool block
-# prints. Until they exist the corresponding text says what it does not know
+# surface, preflight_check_minimum for a resolved tool's minimum version (koto
+# only; the helper decides), and preflight_render_route for the one command an
+# absent-tool block prints. Until they exist the corresponding text says what it does not know
 # rather than guessing.
 #
 # Env seams:
@@ -188,6 +190,10 @@ fi
 if [ -r "$PREFLIGHT_LIB/preflight-report.sh" ]; then
     # shellcheck source=/dev/null
     . "$PREFLIGHT_LIB/preflight-report.sh"
+fi
+if [ -r "$PREFLIGHT_LIB/preflight-minimum.sh" ]; then
+    # shellcheck source=/dev/null
+    . "$PREFLIGHT_LIB/preflight-minimum.sh"
 fi
 
 # A sourced file with a syntax error returns non-zero without defining
@@ -398,6 +404,15 @@ preflight_check_surface() {
 }
 fi
 
+# The same posture for a minimum version: without the helper, nothing here
+# reads one. The helper decides which tools have a minimum, checks it once per
+# run, and skips a `--mode` run that load time already covered.
+if ! declare -f preflight_check_minimum >/dev/null 2>&1; then
+preflight_check_minimum() {
+    return 0
+}
+fi
+
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------
@@ -466,6 +481,7 @@ for _preflight_pass in offpath other; do
         case "$PREFLIGHT_STATUS" in
             present)
                 [ "$_preflight_pass" = "other" ] || continue
+                preflight_check_minimum "$PREFLIGHT_SKILL" "$_tool" "$PREFLIGHT_PATH" "$PREFLIGHT_ROOT"
                 preflight_check_surface "$PREFLIGHT_SKILL" "$_tool" "$_sub" "$_flags" "$PREFLIGHT_PATH"
                 ;;
             offpath)

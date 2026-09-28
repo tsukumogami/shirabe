@@ -72,6 +72,11 @@ in the same change, as the call it describes. It can't go stale while the call
 stays correct, because getting the description wrong means getting the call
 wrong too.
 
+The one version the check compares, koto's minimum, is a description in this
+sense and not a prediction: it names the release CI installs and runs every
+koto-backed suite on, written in the change that adopts the behaviour it
+guards. See "No version, except koto's minimum" below.
+
 This repo's own history is the evidence. The one flag anybody labelled
 skew-prone in advance, `--superseded-by`, arrived in the same commit as its
 subcommand and never skewed. The flags that actually accreted after their
@@ -131,15 +136,27 @@ one, at any probe depth. Passing the flag is a mitigation applied by the caller.
 There is no check behind it, and there cannot be one: the surface a check would
 read is identical on both sides of the flip.
 
-## No version, ever
+## No version, except koto's minimum
 
-The check never parses a version string and never compares one. No declaration
-carries a version number or a version floor, and neither does this file.
+The check parses and compares one version: koto's, against shirabe's koto
+minimum. When a skill's in-scope declaration names koto and koto resolves, the
+check runs `koto version` once, through the same bounded probe that reads
+`--help`, and compares it with the minimum it reads from
+`scripts/assert-koto-floor.sh`, the one place that value is defined. Below it,
+the check reports one block telling the reader to upgrade koto before running
+the skill; a `koto version` it can't read is reported as not established. Like
+every block, it reports and does not stop the skill.
 
-That's settled, not open. The authority is
-[`DECISION-skill-preflight-verification-depth-2026-08-14.md`](../docs/decisions/DECISION-skill-preflight-verification-depth-2026-08-14.md),
-which records the argument and the evidence behind it. Don't re-derive it in a
-review thread.
+Nothing else changes. No declaration carries a version number or a version
+floor, and neither does this file. Every other tool, and koto's own surface, is
+verified by probing alone.
+
+The authority for the rule is
+[`DECISION-skill-preflight-verification-depth-2026-08-14.md`](../docs/decisions/DECISION-skill-preflight-verification-depth-2026-08-14.md);
+the koto exception is
+[`DECISION-preflight-koto-minimum-2026-09-27.md`](../docs/decisions/DECISION-preflight-koto-minimum-2026-09-27.md),
+which answers the earlier record's four reasons one by one. Don't re-derive
+either in a review thread. A second exception needs a record of its own.
 
 ## The record format
 

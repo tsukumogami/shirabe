@@ -62,8 +62,9 @@
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
 # 0.14.1 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, and a child's result is delivered under --no-cleanup) is
-# behaviour with no flag to declare, so a koto that has the entry flags passes
-# preflight whatever its version; the README states the minimum and CI tests it.
+# behaviour with no flag to declare, so no record here carries it. The preflight
+# compares koto's version with that minimum at load instead
+# (scripts/lib/preflight-minimum.sh), and CI tests it.
 #
 # The merge step adds calls without new flags. record-merge-verdict.sh clears
 # its keys with `koto context remove` and reads `expected_head` with

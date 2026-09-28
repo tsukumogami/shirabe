@@ -11,6 +11,8 @@
 #   - the load-time preflight (`skill-preflight.sh work-on`) prints nothing
 #     when that koto reports shirabe's koto minimum: a run without the flag is
 #     not refused for lacking the entry flags
+#   - the same koto reporting a version below the minimum gets the upgrade
+#     block at load, from scripts/lib/preflight-minimum.sh
 #   - `skill-preflight.sh work-on --mode koto-leg`, which SKILL.md runs before
 #     the --koto-leg open, names the missing flags
 #   - the mode record's flags are the ones /scope, /execute and /deliver
@@ -59,8 +61,8 @@ done
 
 # A koto from before the entry flags: `init --help` knows only --template and
 # --var; every other subcommand answers with the flags /work-on always needs.
-# Its `version` prints $KOTO_STUB_VERSION, the minimum, so the case is about
-# the entry flags and not about an unsupported koto.
+# Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
+# cases at the minimum and the minimum case below it.
 MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor)
 mkdir -p "$T/bin" "$T/cwd"
 cat >"$T/bin/koto" <<'OLD'
@@ -78,6 +80,11 @@ OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION="$MINIMUM" PATH="$T/bin:$PATH" bash "$PRE
 case "$OUT" in
     *koto*) bad "load-time preflight on a koto without the entry flags is silent about koto" "$OUT" ;;
     *) ok "load-time preflight on a koto without the entry flags is silent about koto" ;;
+esac
+OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION=0.0.1 PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on 2>&1)
+case "$OUT" in
+    *"koto 0.0.1 is installed. shirabe's skills are tested on koto $MINIMUM and"*) ok "load-time preflight on a koto below the minimum names both versions" ;;
+    *) bad "load-time preflight on a koto below the minimum names both versions" "$OUT" ;;
 esac
 OUT=$(cd "$T/cwd" && KOTO_STUB_VERSION="$MINIMUM" PATH="$T/bin:$PATH" bash "$PREFLIGHT" work-on --mode koto-leg 2>&1)
 case "$OUT" in
