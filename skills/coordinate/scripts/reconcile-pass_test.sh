@@ -67,9 +67,9 @@ c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# Only tools run-tests.sh's restricted PATH carries (mkdir, rm, sleep, mktemp,
-# mv), and a bounded wait: a lock left behind fails the case rather than
-# hanging the job.
+# The lock and the clock write use only tools run-tests.sh's restricted PATH
+# carries (mkdir, rm, sleep, mktemp, mv), and the wait is bounded: a lock left
+# behind fails the case rather than hanging the job.
 w=0
 until mkdir "$CLOCK.lock" 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
@@ -97,8 +97,10 @@ fi
 sleep 0.2
 # A clock jq can't take, left just before this re-check ends: the pass's next
 # fold of this fact then has a time it can't write.
-# `0x10` is a number to bash's arithmetic and not to jq, so wherever the pass
-# reads it next, the failure is a jq write the pass must refuse.
+# `0x10` is a number to bash's arithmetic (16) and not to jq, so the pass
+# reads it without complaint and fails at its next jq write that takes the
+# time: the plan read or collect's fact write, both of which must refuse.
+# This write skips the lock; the stand-in is the last to touch the clock.
 if [ -f "$STUB_DIR/garble.$sub" ]; then
     tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
     echo 0x10 > "$tmp" && mv "$tmp" "$CLOCK"
@@ -474,7 +476,8 @@ while writing; do
 done
 wait
 [ ! -s "$CASE/empties" ]; check "a reader never sees the clock empty while four re-checks advance it" $? "$(wc -l < "$CASE/empties") empty reads"
-[ "$(cat "$CASE/clock")" = 1048 ]; check "and no advance is lost" $? "clock $(cat "$CASE/clock"), want 1048"
+WANT=$((1000 + 4 * 12))   # the start, plus four writers' twelve one-second advances
+[ "$(cat "$CASE/clock")" = "$WANT" ]; check "and no advance is lost" $? "clock $(cat "$CASE/clock"), want $WANT"
 ls "$CASE"/clock.* >/dev/null 2>&1 && bad "no clock temp file is left behind" "$(ls "$CASE"/clock.*)" || ok "no clock temp file is left behind"
 
 # An empty read is retried: a clock filled shortly after the pass starts is

@@ -83,7 +83,9 @@ done
 # temp file of the writer's own, renamed into place), and a read that still
 # comes back empty is retried rather than taken for a time: an empty `t`
 # reaches jq as `--argjson t ""`. `now` runs in `$(...)`, where `die` ends only
-# the subshell, so the plain assignments below exit on its status.
+# the subshell, so every caller takes it in a plain assignment that exits on
+# its status, never inside arithmetic, where a failed read turns into a
+# wrong number instead.
 now() {
     [ -n "$CLOCK_FILE" ] || { date +%s; return; }
     local v i=0
@@ -94,6 +96,9 @@ now() {
         sleep 0.02
     done
 }
+# Under the test entry the wait advances the clock without the stand-ins'
+# lock: its one caller waits only when no re-check is running, so nothing
+# else writes the clock meanwhile.
 wait_secs() {
     if [ -n "$CLOCK_FILE" ]; then
         local c tmp
@@ -301,7 +306,7 @@ running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
 launch() {
-    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid
+    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid tl
     id=$(printf '%s' "$spec" | jq -r .id)
     sub=$(printf '%s' "$spec" | jq -r .sub)
     nat=$(printf '%s' "$spec" | jq -r .natural)
@@ -326,7 +331,8 @@ launch() {
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
-    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($(( $(now) + budget + 2 ))); RUN_CLIPPED+=("$clipped")
+    tl=$(now) || exit 1
+    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($((tl + budget + 2))); RUN_CLIPPED+=("$clipped")
 }
 
 while :; do
@@ -345,7 +351,8 @@ while :; do
             continue
         fi
         ready=$((ready + 1))
-        el=$(( $(now) - T0 ))
+        tn=$(now) || exit 1
+        el=$((tn - T0))
         left=$((READS_END - el))
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ]; then
             launch "$spec" "$left"
