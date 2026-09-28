@@ -83,6 +83,15 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     eq "$L: entry prints the seq and the source" "4 wait" "$(bash "$CL" entry --session "$S" --state report_facts)"
     bash "$CL" entry --session "$S" --state report_facts --before 4; eq "$L: entry before the only entry is none" 1 $?
     eq "$L: entry --with-time adds the entry's timestamp" "4 wait 2026-09-26T10:00:00.000Z" "$(bash "$CL" entry --session "$S" --state report_facts --with-time)"
+    bash "$CL" entry --session "$S" --state wait --with-time >/dev/null 2>&1; eq "$L: entry --with-time into a state never entered is none" 1 $?
+    local S2=coordinate-twice-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S2" "$KOTO_STORE/context/$S2"
+    log_new "$S2" "$(roadmap_vars twice)"                                      # seq 1-2
+    log_to "$S2" pick_facts wait 2026-09-26T09:00:00.000Z                     # 3
+    log_to "$S2" wait decision_apply 2026-09-26T09:05:00.000Z                 # 4
+    log_to "$S2" pick_facts wait 2026-09-26T09:10:00.000Z                     # 5
+    eq "$L: entry --with-time into a state entered twice is the latest" "5 pick_facts 2026-09-26T09:10:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --with-time)"
+    eq "$L: entry --with-time --before takes the earlier one" "3 pick_facts 2026-09-26T09:00:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --before 5 --with-time)"
     eq "$L: evidence is the latest in the state" 6 "$(bash "$CL" evidence --session "$S" --state wait | jq .seq)"
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"

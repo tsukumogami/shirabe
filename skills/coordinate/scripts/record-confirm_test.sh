@@ -15,7 +15,9 @@
 # record written after the run reached the hub but before the evidence that
 # leaves the step confirms with no rewrite, and one written before the hub
 # waits. posture_ask asked again mid-run, through record_find after the run
-# had been at the hub, doesn't accept an answer from before this ask. Also: an older
+# had been at the hub, doesn't accept an answer from before this ask.
+# teardown, which writes after its evidence, still compares with the
+# evidence's time. Also: an older
 # Written: time waits even when the rows match; a missing or non-canonical
 # body is a conflict; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail.
@@ -176,15 +178,24 @@ eq "teardown done: no row for the unit confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "teardown done: the unit's row still there waits" waiting "$(confirm)"
 session
-log_to "$S" pick_facts wait 2026-09-26T09:56:00.000Z
-log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:58:00.000Z
-log_to "$S" wait teardown 2026-09-26T09:58:00.000Z
+log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait teardown
 log_evidence "$S" teardown '{"outcome":"kept"}' "$EVT"
 log_to "$S" teardown record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "teardown kept: a newer Written: confirms with the row kept" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
-eq "teardown kept: a Written: from before the hub waits" waiting "$(confirm)"
+eq "teardown kept: an older Written: waits" waiting "$(confirm)"
+# teardown writes the record after its evidence, so it keeps the evidence's
+# time: a body written after the hub but before `kept` doesn't count.
+session
+log_to "$S" pick_facts wait 2026-09-26T09:50:00.000Z
+log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait teardown 2026-09-26T09:50:00.000Z
+log_evidence "$S" teardown '{"outcome":"kept"}' "$EVT"
+log_to "$S" teardown record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
+eq "teardown kept: a body written after the hub but before the evidence still waits" waiting "$(confirm)"
 
 echo "== destroy (the dispatch path's teardown) =="
 destroy_run() { # destroy_run <outcome> <sealed topic>

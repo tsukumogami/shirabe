@@ -7,16 +7,15 @@
 # expects comes from the session log, never from an argument: the source state
 # is the `from` of the latest entry into `record`, and its last evidence (or,
 # for a check state, its own sealed capture) says what should have changed.
-# Every case also needs the record's Written: time to be later than the point
-# the step became due, so an older body that happens to match doesn't count.
-# For a step the coordinator's evidence closes (surface, teardown, destroy,
-# decision_apply, posture_ask) that point is the latest entry, before the
-# step's evidence, into `wait` (the hub) or `record_find` (the run's start or
-# a re-read of its record, on the way to posture_ask), whichever is later; for
-# dispatch, the DISPATCH_CHECK capture; for a check state, its capture. The
-# directives write the record before they submit the evidence that leaves the
-# source, so that evidence's time is never the point. The detail's event_time
-# holds the point used.
+# Every case also needs the record's Written: time to be later than a point in
+# the log, so an older body that happens to match doesn't count. For a step
+# whose directive writes the record before the evidence that closes it, the
+# point is when the step became due (step_start, and the case pattern that
+# calls it is the list): the latest entry, before the step's evidence, into
+# `wait` (the hub) or `record_find` (the run's start or a re-read of its
+# record, on the way to posture_ask), whichever is later. For dispatch it is
+# the DISPATCH_CHECK capture; for any other evidence-closed step, the
+# evidence's own time; for a check state, its capture.
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
@@ -114,6 +113,8 @@ trap 'rm -rf "$T"' EXIT
 
 VERDICT= REASON= SOURCE= EVT= WRITTEN= EXPECT=
 finish() {
+    # event_time is the point Written: was compared with: the step's start for
+    # the steps step_start covers, else the event's own time.
     jq -n --arg v "$VERDICT" --arg r "$REASON" --arg s "$SOURCE" --arg e "$EVT" --arg w "$WRITTEN" --arg x "$EXPECT" \
         --arg ref "$REF" '{verdict: $v, reason: $r, source: $s, event_time: $e, written: $w, expectation: $x, ref: $ref}' > "$T/detail.json"
     lib_emit "$STATE_NAME" "$VERDICT" coord/record_confirm.json "$T/detail.json"
@@ -271,9 +272,12 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask)
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
-    # dispatch keeps its own point (its DISPATCH_CHECK capture, below);
-    # every other step is compared with the moment it became due.
-    [ "$SOURCE" = dispatch ] || step_start "$SOURCE" "$EVSEQ"
+    # The steps whose directives write the record before the closing
+    # evidence are compared with the moment they became due (step_start);
+    # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
+    # capture (below), and teardown and destroy, which write after it, keep
+    # the evidence's own time.
+    case "$SOURCE" in surface|decision_apply|posture_ask) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
