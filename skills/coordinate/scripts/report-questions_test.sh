@@ -167,6 +167,9 @@ run "holding none rr" "$(escalation 4 1 | sed 's/$/\r/')" "$COORD"
 eq "escalation: one relayed with CRLF line ends is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
 run "holding none rr" "$(printf 'Hi, relaying this.\n'; escalation 4 1)" "$COORD"
 eq "escalation: one with a line put before its first is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(printf 'Done with the first half.\nShould the second half wait for the release?\n')" "$COORD"
+eq "a coordinator's ordinary report, with no digest line, still gives its questions" "question|Should the second half wait for the release?" \
+    "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
 
 OPEN_UP='[{"decision":"2","round":"1","question":"Merge before the release?","options":"wait\nmerge now","state":"escalated","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]",
   "verdict":"escalate","recommendation":"wait","reason":"r","context":"c","problem":"p","grounds":"scope","target":"a person","updated":"2026-09-26T09:00Z"}]'
@@ -206,6 +209,8 @@ run "holding none w1" "$(printf 'Verdict: done.\n```\nlog line one\nShould it sh
 eq "a fence that never closes hides nothing" "Should it ship?" "$(list | jq -r '[.[].text] | join("|")')"
 VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome blocked; step 3; reason Should the pin track v2.1.0 or main?; pull request ' "$WORKER"
 eq "a leg result's reason is read on its own, so its question is found" "question|Should the pin track v2.1.0 or main?" "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
+VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome blocked; step 3; reason Keep the text; pull request here or split it?; pull request ' "$WORKER"
+eq "a reason holding '; pull request ' is cut at the last one, the real field" "Keep the text; pull request here or split it?" "$(list | jq -r '.[0].text')"
 VIA=leg run "holding none w1" 'leg result: status success; final state done; outcome ready; step ; reason ; pull request https://github.com/acme/widgets/pull/9' "$WORKER"
 eq "a leg result with no reason gives none" "0 none" "$RC $(word)"
 VIA=leg run "holding none w1" "$(for i in 1 2 3 4 5 6 7 8 9 10 11; do echo "Question $i?"; done)" "$WORKER"
