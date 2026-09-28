@@ -2,12 +2,15 @@
 # report-questions_test.sh -- report-questions.sh against the gh and koto
 # stand-ins: the Questions part and its citations, question-shaped and
 # phrasing-matched lines, fenced and quoted lines skipped, the caps, a report
-# with no holding, a coordinator's escalation and withdrawal first lines with
-# the digest checked, and the sealed list.
+# with no holding, a coordinator's escalation (its digest checked) and
+# withdrawal (its whole rendered shape checked), each round-tripped through
+# decision-render.sh, and the sealed list.
 #
 # testdata/report-questions/questions-shape.txt is the contract fixture: a
 # report written to the exact Questions: shape a worker's report is asked to
 # use (a `Questions:` line, then one numbered item per line).
+# testdata/decisions/brief-questions.txt is the brief's own example, which
+# render-brief_test.sh pins to the rendered brief.
 #
 # Usage: bash skills/coordinate/scripts/report-questions_test.sh
 set -uo pipefail

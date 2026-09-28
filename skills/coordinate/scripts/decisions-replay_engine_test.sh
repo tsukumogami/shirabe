@@ -8,9 +8,7 @@
 # Every state they route to that isn't under test is a terminal, or a
 # pass-through (take_report, pick_facts, classify_report) so one run can take
 # several arrivals. The states are cut from the shipped coordinate.md, and
-# every script is the shipped one, copied from this directory; STAND_INS,
-# empty now, names any script to take from testdata/decisions/stand-ins/
-# instead. The driver, the arrivals, the fixtures and the assertions use only
+# every script is the shipped one, copied from this directory. The driver, the arrivals, the fixtures and the assertions use only
 # what the shipped scripts own: record-decision.sh's modes and flags, the sealed captures and context
 # keys (coord/decision_message.txt, coord/questions.json), and records
 # rendered by the codec, with the forms the DESIGN records under "Forms the
@@ -48,7 +46,6 @@ done
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/../koto-templates/coordinate.md"
-STAND_INS=""
 
 # test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
@@ -75,8 +72,6 @@ S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/koto-templates"
 cp "$HERE"/*.sh "$HERE"/*.jq "$S/"
 cp -R "$HERE/../references" "$PR/skills/coordinate/"
-case " $STAND_INS " in *" coord-verdict.sh "*) mv "$S/coord-verdict.sh" "$S/coord-verdict-shipped.sh" ;; esac
-for f in $STAND_INS; do cp "$HERE/testdata/decisions/stand-ins/$f" "$S/$f"; done
 chmod +x "$S"/*.sh
 
 # --- the skeleton template ---------------------------------------------------------------
