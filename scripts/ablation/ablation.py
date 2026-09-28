@@ -232,12 +232,12 @@ def select_case(case_file=None, case_id=None, withhold=None, skill=None):
         if len(cases) != 1:
             raise Refusal(f"{case_file}: expected one case, found {len(cases)} (use --case-id)")
         case = validate_case(cases[0])
-        if withhold and withhold != case["withhold"]["source"]:
+        if withhold is not None and withhold != case["withhold"]["source"]:
             raise Refusal(f"{withhold}: --withhold does not match the case's withhold.source")
         if skill and skill != case["skill"]:
             raise Refusal(f"{skill}: skill does not match the case's skill")
         return case
-    if not withhold:
+    if withhold is None:
         raise Refusal("give --case, or --withhold and a skill")
     found = []
     for name in sorted(os.listdir(CASES_DIR)) if os.path.isdir(CASES_DIR) else []:
@@ -770,6 +770,10 @@ def main(argv=None):
                 raise Refusal("--runs must be from 1 to 50")
             if args.keep_runs and os.environ.get("ABLATION_TEST") != "1":
                 raise Refusal("--keep-runs is honoured only with ABLATION_TEST=1")
+            if args.withhold is not None:
+                # An empty or malformed key is refused outright; it never
+                # stands for "no key given".
+                validate_key(args.withhold, "--withhold")
             case = select_case(args.case, args.case_id, args.withhold, args.skill)
             for rec in run_case(case, args.runs, args.jobs, args.out, args.keep_runs):
                 if not args.out:

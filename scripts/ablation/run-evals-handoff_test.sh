@@ -43,6 +43,13 @@ case "$RC:$OUT" in
     *) fail "--withhold=<key> reaches the harness (rc=$RC): $OUT" ;;
 esac
 
+# An empty key is refused, never read as "no key given", with or without a case.
+run "$RUNNER" "--withhold=" --case "$CASE" work-on
+case "$RC:$OUT" in
+    2:*"malformed rule key"*) pass "an empty --withhold= is refused" ;;
+    *) fail "an empty --withhold= is refused (rc=$RC): $OUT" ;;
+esac
+
 # No --case: exactly one committed case must match the key and the skill.
 run "$RUNNER" --withhold "$KEY" deliver
 case "$RC:$OUT" in

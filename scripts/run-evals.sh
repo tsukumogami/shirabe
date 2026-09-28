@@ -145,7 +145,9 @@ CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
 # ---------------------------------------------------------------------------
 for arg in "$@"; do
   case "$arg" in
-    --withhold|--withhold=*) exec python3 "$SCRIPT_DIR/ablation/ablation.py" run "$@" ;;
+    --withhold|--withhold=*)
+      command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
+      exec python3 "$SCRIPT_DIR/ablation/ablation.py" run "$@" ;;
   esac
 done
 
@@ -199,6 +201,7 @@ command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3;
 
 usage() {
   echo "Usage: $0 [--scenario <name>] [--runs <N>] <skill-name>"
+  echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
   echo "       $0 --all | --list | --validate <skill> | --prep-only <skill>"
   echo ""
   echo "  <skill-name>       Run evals for a specific skill (prep + execute + validate)"
