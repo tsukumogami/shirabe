@@ -54,7 +54,7 @@ COORD=$(holding rr '{"entry_point":"/shirabe:coordinate"}')
 # --- the Questions part -------------------------------------------------------------
 
 run "holding none w1" "$(cat "$HERE/testdata/report-questions/questions-shape.txt")" "$WORKER" "[$ENTRY]"
-eq "contract: the brief's Questions shape parses" "0 questions 2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+eq "contract: a report in the Questions shape parses" "0 questions 2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
 eq "contract: its items, in order" "Should the extractor also read questions from the pull request body?|Keep the 400-character cap for one question (decision 3)" \
     "$(list | jq -r '[.[].text] | join("|")')"
 eq "contract: a citation of the worker's own entry is kept" "null 3" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
@@ -207,8 +207,8 @@ eq "a question of exactly 400 characters is within the cap" "questions 1" "$(pri
 # 380 characters, 760 bytes: the cap counts characters.
 run "holding none w1" "$(printf 'Is %s?' "$(printf '%378s' '' | sed 's/ /é/g')")" "$WORKER"
 eq "the cap counts characters, not bytes" "questions 1" "$(printf '%s' "$OUT" | cut -d' ' -f1-2)"
-run "holding none w1" "$(printf 'Is\t%s?' "$(printf '%420s' '' | tr ' ' x)")" "$WORKER"
-eq "a question with a tab in it is measured whole" "0 overflow" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1)"
+VIA=leg run "holding none w1" "$(printf 'Is\t%s?' "$(printf '%420s' '' | tr ' ' x)")" "$WORKER"
+eq "a question with a tab in it is measured whole, as a leg report over the cap shows" "0 unreadable" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1)"
 run "holding none rr" "$(escalation 4 1)" "$COORD" \
     '[{"decision":"2","round":"0","question":"Merge before the release?","options":"wait\nmerge now","state":"settled","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]","outcome":"wait; reason: r","decided_by":"a person","updated":"2026-09-26T09:00Z"}]'
 eq "escalation: a re-sent one whose entry has settled still opens nothing" "0 none" "$RC $(word)"
