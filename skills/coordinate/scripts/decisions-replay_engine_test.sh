@@ -228,7 +228,7 @@ field() { entry "$1" "$2" | jq -r --arg f "$3" '.[$f] // ""'; }
 routed() { bash "$S/coord-log.sh" capture --session "$1" --name DECISION_NEXT --state decision_next | cut -d' ' -f2; }
 rd() { # rd <session> <mode args...>: record-decision.sh as the coordinator runs it
     local s=$1; shift
-    bash "$S/record-decision.sh" --session "$s" "$@" 2>"$T/rd.err" || bad "record-decision.sh $1 for $s" "$(cat "$T/rd.err")"
+    bash "$S/record-decision.sh" --session "$s" "$@" >/dev/null 2>"$T/rd.err" || { RD_FAILED=1; bad "record-decision.sh $1 for $s" "$(cat "$T/rd.err")"; }
 }
 # visits <session>: the states entered, in order, one per line.
 visits() {
@@ -250,6 +250,7 @@ verdict_for() { echo "settle|default|default"; }
 # What an arrival carries into the agent state it lands on.
 PEND_SRC="" PEND_TEXT="" PEND_Q="" PEND_OUT="" PEND_REASON="" PEND_FINAL=""
 PEND_OPTS=()
+RD_FAILED=0
 
 # drive <session>: answer each agent state as the coordinator does, until the
 # run is back at a hub or a terminal. Every message sent goes to the session's
@@ -258,6 +259,8 @@ drive() {
     local s=$1 st i=0 n v a b c d e cn rs o
     while [ $i -lt 60 ]; do
         i=$((i + 1))
+        # A refused write stops the drive: ticking on would only repeat it.
+        [ "$RD_FAILED" = 0 ] || { RD_FAILED=0; return 0; }
         table_check "$s"
         st=$(at "$s")
         case "$st" in
@@ -301,7 +304,12 @@ EOF
                 koto context get "$s" coord/decision_message.txt > "$T/message.txt"
                 bash "$S/coord-log.sh" capture --session "$s" --name "$cn" --state "$rs" |
                     jq -Rc --rawfile t "$T/message.txt" 'split(" ") | {kind: .[1], n: .[2], text: $t}' >> "$T/$s.sent"
-                rd "$s" --sent; tick "$s" --with-data '{"sent":"sent"}' ;;
+                # Nobody is in conversation with a harness coordinator, so a person
+                # is asked by message.
+                if [ "$st" = escalate_send ] && [ -z "$(bash "$S/coord-log.sh" vars --session "$s" | jq -r ".REPORTS_TO // \"\"")" ]; then
+                    rd "$s" --sent --route message
+                else rd "$s" --sent; fi
+                tick "$s" --with-data '{"sent":"sent"}' ;;
             *) tick "$s" ;;
         esac
     done

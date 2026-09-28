@@ -54,6 +54,7 @@ while [ $# -gt 0 ]; do
         --problem) PROB=$2; shift 2 ;;
         --grounds) GROUNDS=$2; shift 2 ;;
         --final) FINAL=$2; shift 2 ;;
+        --route) shift 2 ;;
         *) echo "$PROG: unknown argument $1" >&2; exit 64 ;;
     esac
 done
