@@ -36,7 +36,10 @@
 #       escalation opens nothing.
 #   `Withdrawn: decision <n> round <r>.`  one withdrawal, when an entry was
 #       opened from that source, settled or not: it becomes evidence there,
-#       which reopens the entry; with no such entry, `none`.
+#       which reopens the entry; with no such entry, `none`. The whole report
+#       must be the withdrawal as rendered (that line, a blank, the question,
+#       a blank, the fixed closing sentence, then only blank lines), or it is
+#       unreadable, so nothing sent with it is lost.
 #   `Answer: ...` is ordinary text.
 # Without a holding every citation is dropped and no first line is honored;
 # the source is the topic the report named.
@@ -85,7 +88,9 @@ MAX_ITEMS=10 MAX_LEN=400
 # The patterns live in variables: bash 3.2 and later read an escaped pattern
 # written inline in [[ =~ ]] differently.
 RE_ESC='^Decision ([1-9][0-9]*) round ([1-9][0-9]*)\.$'
-RE_WDR='^Withdrawn: decision ([1-9][0-9]*) round ([1-9][0-9]*)\.'
+# A withdrawal's closing sentence, as decision-render.sh writes it.
+WDR_CLOSING='New evidence reopened this decision, so the escalation is withdrawn. No answer is needed.'
+RE_WDR='^Withdrawn: decision ([1-9][0-9]*) round ([1-9][0-9]*)\.$'
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-questions.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
@@ -163,7 +168,13 @@ if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
         [[ $FIRST =~ $RE_ESC ]] && case "$LAST" in Digest:\ *) true ;; *) false ;; esac \
             || { echo "$PROG: the report carries an escalation that isn't as rendered" >&2; verdict unreadable; }
     elif grep -qaE "${PFX}Withdrawn: decision [1-9][0-9]* round [1-9][0-9]*\\." "$T/report"; then
-        [[ $FIRST =~ $RE_WDR ]] \
+        # As decision-render.sh renders it: the fixed first line, a blank, the
+        # question, a blank, the fixed closing sentence, and nothing after but
+        # blank lines, with no CR anywhere.
+        { [[ $FIRST =~ $RE_WDR ]] && ! grep -q $'\r' "$T/report" \
+            && awk -v closing="$WDR_CLOSING" '
+                { L[NR] = $0 } NF { last = NR }
+                END { exit !(last == 5 && L[2] == "" && L[3] != "" && L[4] == "" && L[5] == closing) }' "$T/report"; } \
             || { echo "$PROG: the report carries a withdrawal that isn't as rendered" >&2; verdict unreadable; }
     fi
     if [[ $FIRST =~ $RE_ESC ]]; then

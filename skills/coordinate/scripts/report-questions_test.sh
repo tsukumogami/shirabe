@@ -179,18 +179,47 @@ run "holding none rr" "$(printf 'Done with the first half.\nShould the second ha
 eq "a coordinator's ordinary report, with no digest line, still gives its questions" "question|Should the second half wait for the release?" \
     "$(list | jq -r '[.[] | "\(.kind)|\(.text)"] | join(" ")')"
 
+withdrawal() { # withdrawal <n> <round>: a withdrawal as decision-render.sh renders it
+    printf 'Withdrawn: decision %s round %s.\n\nMerge before the release?\n\nNew evidence reopened this decision, so the escalation is withdrawn. No answer is needed.\n' "$1" "$2"
+}
 OPEN_UP='[{"decision":"2","round":"1","question":"Merge before the release?","options":"wait\nmerge now","state":"escalated","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]",
   "verdict":"escalate","recommendation":"wait","reason":"r","context":"c","problem":"p","grounds":"scope","target":"a person","updated":"2026-09-26T09:00Z"}]'
-run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
+run "holding none rr" "$(withdrawal 4 1)" "$COORD" "$OPEN_UP"
 eq "withdrawal: an item naming the source it reopens" "withdrawal|coordinator rr #4 round 1|4 1" \
     "$(list | jq -r '.[0] | "\(.kind)|\(.source)|\(.n) \(.round)"')"
-run "holding none rr" "$(printf 'Withdrawn: decision 5 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
+run "holding none rr" "$(withdrawal 5 1)" "$COORD" "$OPEN_UP"
 eq "withdrawal: of an entry never opened gives none" "0 none" "$RC $(word)"
-run "holding none rr" "$(printf 'Relaying:\nWithdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" "$OPEN_UP"
+run "holding none rr" "$(printf 'Relaying:\n'; withdrawal 4 1)" "$COORD" "$OPEN_UP"
 eq "withdrawal: one with a line put before it is unreadable, not a worker's question" "0 unreadable" "$RC $(word)"
-run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n' | sed 's/^/> /')" "$COORD" "$OPEN_UP"
+run "holding none rr" "$(withdrawal 4 1 | sed 's/^/> /')" "$COORD" "$OPEN_UP"
 eq "withdrawal: one relayed as a quote is unreadable, not dropped" "0 unreadable" "$RC $(word)"
-run "holding none rr" "$(printf 'Withdrawn: decision 4 round 1.\n\nNo answer is needed.\n')" "$COORD" \
+# The contract with decision-render.sh: a withdrawal it renders reads back
+# as a withdrawal, so the exact-shape check can't drift from the renderer.
+RENDERED_WDR=$(printf '%s' "$RENDERED_ESC" | jq -c '.state = "coordinator-verdict" | .owed = "withdrawal" | .asked = "2026-09-26T09:05Z" | del(.verdict)')
+db '.issues = [] | .issues += [{repo: "acme/widgets", number: 298, title: "Coordinator record: ROADMAP-wdr",
+    body: $b, state: "open", author: "coord", editor: null}]' \
+    --arg b "$(render "$(record_json roadmap wdr | jq -c --argjson e "[$RENDERED_WDR]" '.decisions = {next: 5, entries: $e}')" issue)"
+WDR="coordinate-roadmap-wdr-$RUNSTAMP"
+found_session "$WDR" "$(roadmap_vars wdr | jq -c '.REPORTS_TO = "ws"')" 298
+log_to "$WDR" reconcile decision_next
+log_capture "$WDR" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$WDR" --state decision_next --token "withdraw 4")"
+log_to "$WDR" decision_next decision_withdraw
+bash "$HERE/decision-render.sh" --session "$WDR" --state decision_withdraw --kind withdrawal > /dev/null 2> "$T/render.err" ||
+    bad "the round trip renders a withdrawal" "$(cat "$T/render.err")"
+run "holding none rr" "$(koto context get "$WDR" coord/decision_message.txt)" "$COORD" "$OPEN_UP"
+eq "round trip: decision-render.sh's withdrawal reads back as a withdrawal of that source" "0 withdrawal|coordinator rr #4 round 1" \
+    "$RC $(list | jq -r '.[0] | "\(.kind)|\(.source)"')"
+run "holding none rr" "$(withdrawal 4 1; printf 'Should the second half wait for the release?\n')" "$COORD" "$OPEN_UP"
+eq "withdrawal: one with the sender's own question after it is unreadable, never the question dropped" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(withdrawal 4 1; printf '\n'; withdrawal 5 1)" "$COORD" "$OPEN_UP"
+eq "withdrawal: two relayed together are unreadable, never the second lost" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(withdrawal 4 1 | sed 's/$/\r/')" "$COORD" "$OPEN_UP"
+eq "withdrawal: one with CRLF line ends is unreadable" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(withdrawal 4 1 | sed '1s/round 1\./round 1.5 extra/')" "$COORD" "$OPEN_UP"
+eq "withdrawal: a first line with more after it is unreadable, not read as round 1" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(withdrawal 4 1 | sed 's/No answer is needed\./Answer anyway./')" "$COORD" "$OPEN_UP"
+eq "withdrawal: an altered closing sentence is unreadable" "0 unreadable" "$RC $(word)"
+run "holding none rr" "$(withdrawal 4 1)" "$COORD" \
     "[$(printf '%s' "$OPEN_UP" | jq -c '.[0] | .state = "settled" | .outcome = "wait; reason: r" | .decided_by = "a person" | .owed = "reply" | del(.verdict)')]"
 eq "withdrawal: of a settled entry is an item too, which reopens it" "withdrawal|coordinator rr #4 round 1" \
     "$(list | jq -r '.[0] | "\(.kind)|\(.source)"')"
