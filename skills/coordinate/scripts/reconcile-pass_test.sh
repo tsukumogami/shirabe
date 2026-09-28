@@ -67,15 +67,20 @@ c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# Only tools run-tests.sh's restricted PATH carries (mkdir, rm, sleep), and a
-# bounded wait: a lock left behind fails the case rather than hanging the job.
+# The lock and the clock write use only tools run-tests.sh's restricted PATH
+# carries (mkdir, rm, sleep, mktemp, mv), and the wait is bounded: a lock left
+# behind fails the case rather than hanging the job.
 w=0
 until mkdir "$CLOCK.lock" 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
     sleep 0.05
 done
 now=$(cat "$CLOCK")
-echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
+# Written whole: a temp file of this writer's own, renamed into place. The pass
+# reads the clock without the lock, and a truncate-then-write would let it read
+# an empty file (#481).
+tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -rf "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
+echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
 rm -rf "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
@@ -90,6 +95,16 @@ fi
 [ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
 [ -f "$STUB_DIR/plant-on.$sub" ] && sh "$STUB_DIR/plant"
 sleep 0.2
+# A clock jq can't take, left just before this re-check ends: the pass's next
+# fold of this fact then has a time it can't write.
+# `0x10` is a number to bash's arithmetic (16) and not to jq, so the pass
+# reads it without complaint and fails at its next jq write that takes the
+# time: the plan read or collect's fact write, both of which must refuse.
+# This write skips the lock; the stand-in is the last to touch the clock.
+if [ -f "$STUB_DIR/garble.$sub" ]; then
+    tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+    echo 0x10 > "$tmp" && mv "$tmp" "$CLOCK"
+fi
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
 done
@@ -441,6 +456,60 @@ get --check; [ $? = 1 ]; check "a pending capture is no report" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
+
+echo "== the clock =="
+# #481: the stand-ins advance the clock while the pass reads it. Four writers
+# running the real stand-in re-check, against a reader that must never see
+# the file empty.
+new_case clock-hammer
+: > "$CASE/empties"
+WRITERS=""
+for w in 1 2 3 4; do
+    ( i=0; while [ "$i" -lt 12 ]; do
+        STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$CASE/none" bash "$SC/reconcile-check.sh" pr --repo o/r >/dev/null 2>&1
+        i=$((i + 1)); done ) &
+    WRITERS="$WRITERS $!"
+done
+writing() { local p; for p in $WRITERS; do kill -0 "$p" 2>/dev/null && return 0; done; return 1; }
+while writing; do
+    [ -n "$(cat "$CASE/clock")" ] || echo empty >> "$CASE/empties"
+done
+wait
+[ ! -s "$CASE/empties" ]; check "a reader never sees the clock empty while four re-checks advance it" $? "$(wc -l < "$CASE/empties") empty reads"
+WANT=$((1000 + 4 * 12))   # the start, plus four writers' twelve one-second advances
+[ "$(cat "$CASE/clock")" = "$WANT" ]; check "and no advance is lost" $? "clock $(cat "$CASE/clock"), want $WANT"
+ls "$CASE"/clock.* >/dev/null 2>&1 && bad "no clock temp file is left behind" "$(ls "$CASE"/clock.*)" || ok "no clock temp file is left behind"
+
+# An empty read is retried: a clock filled shortly after the pass starts is
+# read, not taken for a time.
+new_case clock-late
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/clock"
+( sleep 0.3; echo 1000 > "$CASE/clock.late" && mv "$CASE/clock.late" "$CASE/clock" ) &
+pass
+wait
+[ "$RC" = 0 ] && lines_ok "$LINE"; check "a clock that reads empty at first is read again, and the pass goes on" $? "$RC $LINE $(cat "$CASE/stderr")"
+grep -q 'argjson' "$CASE/stderr" && bad "and no empty time reaches jq" "$(cat "$CASE/stderr")" || ok "and no empty time reaches jq"
+
+# A clock that stays empty ends the pass, naming the clock.
+new_case clock-empty
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/clock"
+pass
+[ "$RC" != 0 ] && [ -z "$LINE" ] && grep -q 'test clock .* read empty' "$CASE/stderr"; check "a clock that stays empty ends the pass with its own message" $? "$RC $LINE $(cat "$CASE/stderr")"
+[ ! -e "$SDIR/coordinate-reconcile/visit.json" ]; check "and writes no work file" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
+
+# A jq write that fails never replaces the work file: a time jq can't take
+# ends the pass, and the work file keeps the visit it held.
+new_case clock-garbled
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/garble.pr"
+pass
+[ "$RC" != 0 ] && [ -z "$LINE" ]; check "a fact whose write fails ends the pass" $? "$RC $LINE $(cat "$CASE/stderr")"
+jq -e '.visit == "7" and (.facts | type) == "object"' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
+check "and the work file still holds the visit" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
+grep -q 'could not be written\|the plan could not be read' "$CASE/stderr"; check "and the pass says which write failed" $? "$(cat "$CASE/stderr")"
+grep -v '^[[:space:]]*#' "$P" | grep -n 'save "\$(' && bad "every save takes a document whose jq status was checked" || ok "every save takes a document whose jq status was checked"
 
 echo "== the token =="
 SECRET=s3cr3t-token-value-for-the-test
