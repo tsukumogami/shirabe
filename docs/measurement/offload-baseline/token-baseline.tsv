@@ -1,0 +1,21 @@
+# Instruction-token baseline per skill profile. Tokens are bytes / 4.
+# source=recount: scripts/offload-baseline.sh count <commit> with load-manifest.tsv;
+#   CI re-runs these rows and fails on any difference.
+# source=census: the September 2026 census figures, measured at e592501 by a
+#   different method (instruction rows, not whole spans); a reference, not re-run.
+commit	profile	raw	weighted	source	note
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	work-on	46671	36789	recount	pinned commit
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	execute-single-pr	41083	37300	recount	pinned commit
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	execute-coordinated	24844	24004	recount	pinned commit
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	deliver	6181	5303	recount	pinned commit
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	scope	226407	192499	recount	pinned commit
+e5925017d38aa592613b2a809937e530cf2118f9	work-on	45776	35761	recount	census commit
+e5925017d38aa592613b2a809937e530cf2118f9	execute-single-pr	41065	37283	recount	census commit
+e5925017d38aa592613b2a809937e530cf2118f9	execute-coordinated	24987	24148	recount	census commit
+e5925017d38aa592613b2a809937e530cf2118f9	deliver	6203	5325	recount	census commit
+e5925017d38aa592613b2a809937e530cf2118f9	scope	226437	192549	recount	census commit
+census-2026-09	work-on	48000	37800	census	297 instruction rows; weighted per complete issue-backed code run
+census-2026-09	execute-single-pr	37157	33497	census	execute's own load in a single-pr run, children excluded
+census-2026-09	execute-coordinated	21967	21512	census	execute's own load in a coordinated run
+census-2026-09	deliver	5873	4996	census	deliver's own files
+census-2026-09	scope	181000	140000	census	1,817 rows; weighted is the midpoint of 135k to 145k reaching the main context
