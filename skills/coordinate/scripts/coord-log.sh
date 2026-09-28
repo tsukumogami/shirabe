@@ -57,9 +57,10 @@
 #   coord-log.sh entered --session S --state ST
 #       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
 #       failure. Write scripts ask it whether the run has dispatched yet.
-#   coord-log.sh entry --session S --state ST [--before SEQ]
+#   coord-log.sh entry --session S --state ST [--before SEQ] [--with-time]
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
-#       directed or rewound), before SEQ when given. Exit 0; 1 none; 2 read failure.
+#       directed or rewound), before SEQ when given; --with-time adds the
+#       entry's timestamp as a third word. Exit 0; 1 none; 2 read failure.
 #   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
 #                         [--where FIELD=VALUE]... [--has FIELD]
 #       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
@@ -130,7 +131,7 @@ seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
 SCOPE= EVENT= HAS=
 WHERE='[]'
-ANY=0 ALL=0
+ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
 [ -n "$CMD" ] || usage
 shift
@@ -158,6 +159,7 @@ while [ $# -gt 0 ]; do
             shift 2 ;;
         --any-visit) ANY=1; shift ;;
         --all) ALL=1; shift ;;
+        --with-time) WITH_TIME=1; shift ;;
         *) usage ;;
     esac
 done
@@ -320,7 +322,8 @@ entry|evidence|captures)
     case "$CMD" in
     entry)
         OUT=$(jq -r --arg s "$STATE" --arg b "$B" 'select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
-            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber))) | "\(.seq) \(.payload.from // "")"' "$LOG" | tail -1) || die "cannot read $LOG"
+            and .payload.to == $s and ($b == "" or .seq < ($b | tonumber)))
+            | "\(.seq) \(.payload.from // "")" + (if $t == 1 then " \(.timestamp)" else "" end)' --argjson t "$WITH_TIME" "$LOG" | tail -1) || die "cannot read $LOG"
         ;;
     evidence)
         OUT=$(jq -c --arg s "$STATE" --argjson a "$A" --arg b "$B" --argjson w "$WHERE" --arg h "$HAS" '

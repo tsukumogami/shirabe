@@ -7,8 +7,15 @@
 # expects comes from the session log, never from an argument: the source state
 # is the `from` of the latest entry into `record`, and its last evidence (or,
 # for a check state, its own sealed capture) says what should have changed.
-# Every case also needs the record's Written: time to be later than that
-# event's time, so an older body that happens to match doesn't count.
+# Every case also needs the record's Written: time to be later than a point in
+# the log, so an older body that happens to match doesn't count. For a step
+# whose directive writes the record before the evidence that closes it, the
+# point is when the step became due (step_start, and the case pattern that
+# calls it is the list): the latest entry, before the step's evidence, into
+# `wait` (the hub) or `record_find` (the run's start or a re-read of its
+# record, on the way to posture_ask), whichever is later. For dispatch it is
+# the DISPATCH_CHECK capture; for any other evidence-closed step, the
+# evidence's own time; for a check state, its capture.
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
@@ -35,9 +42,9 @@
 #                   the sealed teardown inventory (TEARDOWN_SEAL, key
 #                   teardown_verdict, its `topic <t>` line), never from a
 #                   context key.
-#   decision_apply  `reversal`: a Reversals row dated at or after the event;
+#   decision_apply  `reversal`: a Reversals row dated at or after that point;
 #                   `deferral`: a Deferrals row raised at or after it
-#   posture_ask     a Reversals row at or after the event, From `the human`,
+#   posture_ask     a Reversals row at or after that point, From `the human`,
 #                   whose Reversed or Now mentions posture
 #
 # With --verified (state verified_confirm): the VERIFIED capture
@@ -106,6 +113,8 @@ trap 'rm -rf "$T"' EXIT
 
 VERDICT= REASON= SOURCE= EVT= WRITTEN= EXPECT=
 finish() {
+    # event_time is the point Written: was compared with: the step's start for
+    # the steps step_start covers, else the event's own time.
     jq -n --arg v "$VERDICT" --arg r "$REASON" --arg s "$SOURCE" --arg e "$EVT" --arg w "$WRITTEN" --arg x "$EXPECT" \
         --arg ref "$REF" '{verdict: $v, reason: $r, source: $s, event_time: $e, written: $w, expectation: $x, ref: $ref}' > "$T/detail.json"
     lib_emit "$STATE_NAME" "$VERDICT" coord/record_confirm.json "$T/detail.json"
@@ -156,6 +165,30 @@ entry() {
     ENT_SEQ= ENT_FROM=
     [ -n "$e" ] || return 0
     ENT_SEQ=${e%% *} ENT_FROM=${e#* }
+}
+# step_start <source> <before-seq>: sets EVT to the moment the step became
+# due: the latest entry, before <before-seq>, into one of the two states a
+# step's chain starts from, `wait` (the hub) or `record_find` (where the run
+# starts, and where it goes back to re-read its record, on the way to
+# posture_ask), whichever came later; with neither, the entry into <source>.
+# Not the evidence that leaves <source>: the directives write the record
+# before they submit that evidence (a merge-order table's Verified head is
+# written at verified_confirm, a decision is recorded before it's even ticked
+# at the hub), so a gate on the evidence's time can only be passed by
+# rewriting the record with no change. Anything written since the step became
+# due belongs to it; a body from before that doesn't count.
+step_start() {
+    local st e best= bseq=-1
+    for st in wait record_find "$1"; do
+        # The source's own entry counts only when neither start is in the log.
+        [ "$st" = "$1" ] && [ -n "$best" ] && break
+        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$st" --before "$2" --with-time 2> /dev/null)
+        [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+        [ -n "$e" ] || continue
+        if [ "${e%% *}" -gt "$bseq" ]; then bseq=${e%% *}; best=$e; fi
+    done
+    [ -n "$best" ] || { VERDICT=conflict; REASON="the log has no entry into wait, record_find or $1 before its evidence"; finish; }
+    EVT=${best##* }
 }
 has_value() { # has_value <word>: some evidence field's value is exactly <word>
     printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null
@@ -239,6 +272,12 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask)
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
+    # The steps whose directives write the record before the closing
+    # evidence are compared with the moment they became due (step_start);
+    # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
+    # capture (below), and teardown and destroy, which write after it, keep
+    # the evidence's own time.
+    case "$SOURCE" in surface|decision_apply|posture_ask) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
