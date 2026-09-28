@@ -66,7 +66,9 @@ enforced in the record.
 
 ## What this table does not claim
 
-The routing is real: a failing gate sends the run to a distinct terminal edge.
+The routing is real: at `pre_pr_evidence` a failing gate sends the run to a
+distinct terminal edge (the early copies at `finalization` and
+`deferral_approval` hold in place instead).
 Each edge's `context_assignments` writes a human-readable `failure_reason` into
 the session's context, which says which rung fired. It does not say why the
 gate failed. koto keeps a failed command gate's exit status

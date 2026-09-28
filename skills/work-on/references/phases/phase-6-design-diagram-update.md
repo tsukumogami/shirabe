@@ -77,3 +77,7 @@ I(\d+).*-->.*I(\d+)
 - Diagram section not found: Log warning, skip update (old format design)
 - Node for issue not found: Log warning, skip update
 - Syntax validation fails: Log error, abort diagram update, continue PR without it
+
+When the update is skipped or aborted, `pre_pr.md` records
+`design_diagram: not-applicable: <why>` (for example, "no diagram section in the
+design"), not the design doc's path, since nothing in it was updated.

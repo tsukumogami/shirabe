@@ -872,7 +872,9 @@ states:
       # design_diagram path to name a file in HEAD's tree. A pattern alone passed
       # any hex string (shirabe#422). The script answers 0 or 1 only, and the
       # test -x guard turns an empty or wrong PLUGIN_ROOT into 1 rather than
-      # 127, so a gate that cannot run fails closed on the edges below. koto
+      # 127. Here any failure holds; the contract matters at pre_pr_evidence,
+      # whose ladder names exactly 0 and 1, so a gate that cannot run stops the
+      # run at done_blocked instead of matching no edge. koto
       # discards a failed gate's output, so the directive tells the agent to
       # run the script itself for the reason.
       summary_shape:
@@ -977,7 +979,7 @@ states:
     # an obligation unenforced in substance while looking enforced in the record
     # (PRD R7a). So the judgment calls are enums, which are closed sets a
     # placeholder cannot satisfy, and the concrete referents live in a context
-    # artifact whose shape a gate checks.
+    # artifact whose referents a gate checks exist.
     gates:
       # The summary exists by the time this state is reached -- both edges into
       # it require it -- so this checks its SHAPE, not its presence. Both edges
@@ -1955,8 +1957,10 @@ history, run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
 before submitting, and on a failure rewrite `pre_pr.md` with the reviewed
 commit's new sha, keeping its `design_diagram` line (`koto context add`
-replaces the whole key).
-Its two lines are the referents:
+replaces the whole key). If the check can't run at all, stop and report it, as
+the `finalization` section says, rather than submitting.
+
+The two lines of `pre_pr.md` are the referents:
 
 `cleanup_commit` is the commit whose diff you reviewed for debug statements,
 commented-out code, addressed TODOs and unused imports. `design_diagram` is the

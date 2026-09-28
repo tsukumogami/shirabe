@@ -166,6 +166,7 @@ jobs:
           bash skills/work-on/scripts/cascade-chaining_test.sh
           bash skills/work-on/scripts/pre-pr-evidence_test.sh
           bash skills/work-on/scripts/finalization-shape_test.sh
+          bash skills/work-on/scripts/check-pre-pr-referents_test.sh
           bash skills/work-on/scripts/record-changed-paths_test.sh
           bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
