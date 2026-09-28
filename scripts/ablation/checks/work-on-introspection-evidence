@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Deployed check for /work-on's introspection-evidence section.
+
+The section (skills/work-on/references/phases/phase-2-introspection.md#L20-L24
+at 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10) is the only statement of what the
+introspection state submits:
+
+    - `introspection_outcome: approach_unchanged` - original approach still valid
+    - `introspection_outcome: approach_updated` - adjustments needed (describe in rationale)
+    - `introspection_outcome: issue_superseded` - issue no longer relevant
+
+koto already refuses an outcome outside those three values, so this check
+leaves that to koto and grades what only the section says: an
+`approach_updated` verdict describes its adjustments in `rationale`.
+
+Contract (docs/measurement/offload-ablation/README.md): called with the path of
+a production file holding {"workflow", "state", "evidence"}. Exits 0
+(complied), 1 (violated) or 2 (not-checkable); prints a reason code first and,
+on violated, the failure message to deliver. The evidence is read as data.
+
+Reason codes: ok, rationale-missing, enum-left-to-koto, unreadable.
+"""
+
+import json
+import sys
+
+OUTCOMES = ("approach_unchanged", "approach_updated", "issue_superseded")
+
+SECTION = """Evidence for the introspection state:
+- `introspection_outcome: approach_unchanged` - original approach still valid
+- `introspection_outcome: approach_updated` - adjustments needed (describe in rationale)
+- `introspection_outcome: issue_superseded` - issue no longer relevant"""
+
+
+def main():
+    try:
+        with open(sys.argv[1]) as fh:
+            evidence = json.load(fh).get("evidence")
+    except (IndexError, OSError, ValueError, AttributeError):
+        print("unreadable")
+        return 2
+    if not isinstance(evidence, dict):
+        print("unreadable")
+        return 2
+    outcome = evidence.get("introspection_outcome")
+    if outcome not in OUTCOMES:
+        print("enum-left-to-koto")
+        return 2
+    rationale = evidence.get("rationale")
+    if outcome == "approach_updated" and not (isinstance(rationale, str) and rationale.strip()):
+        print("rationale-missing")
+        print("introspection_outcome approach_updated needs the adjustments described in "
+              "`rationale`. The rule for this state:")
+        print(SECTION)
+        return 1
+    print("ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

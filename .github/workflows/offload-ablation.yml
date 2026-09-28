@@ -60,6 +60,62 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: printf '%s\n' "$PR_BODY" | scripts/ablation/check-public-content.sh -
 
+  # The harness itself: case validation, span resolution and its refusals, the
+  # checks' reason codes, audit sampling, and stub-agent runs that drive the
+  # real koto through the wrapper (delivery, no delivery, no second production,
+  # check errors and timeouts, the allowlisted environment, tampering, the
+  # wall-clock limit). The stub stands in for the model, so nothing is billed.
+  ablation-tests:
+    runs-on: ubuntu-latest
+    env:
+      # `tsuku install` calls the GitHub API; the token keeps shared runners
+      # from hitting the unauthenticated rate limit. The job itself has no
+      # secret and runs no model session.
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The span tests read the case's source commit from history.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      # The koto the offload baseline pins: the fixture's template hash is only
+      # comparable with the pin under that release.
+      - name: Install the pinned koto
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: |
+          set -euo pipefail
+          want=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
+          tsuku install -y "tsukumogami/koto@$want"
+          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          [ "$got" = "$want" ] || { echo "koto is ${got:-unknown}, expected $want" >&2; exit 1; }
+
+      - name: Run the harness tests
+        run: python3 -W error::ResourceWarning scripts/ablation/ablation_test.py -v
+
+  # An ablation run's koto sessions are recognised as fixtures by their
+  # template source directory alone, including a session whose template hash
+  # equals a pinned one; a session from an installed plugin is not.
+  fixture-rule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Classify synthetic session headers
+        run: python3 -m unittest -v ablation_test.FixtureRule
+        working-directory: scripts/ablation
+
   # Without --withhold, the eval runner takes exactly the path it took before
   # this feature.
   run-evals-unchanged:
