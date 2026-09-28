@@ -1083,3 +1083,24 @@ The second carries everything else, in this order, each step what the next one c
   addition with a test; needs come only in closed kinds.
 - The round in every message's first line makes a duplicate recognizable to whoever receives
   it.
+
+### Known follow-ups
+
+Review of the implementation left these open, each judged minor or failing closed, and each
+tracked in shirabe#539:
+
+- A relayed escalation prefixed with `- `, `| ` or a non-breaking space is still read as a
+  worker's question with its digest unchecked (shirabe#539).
+- A withdrawal's question line is only checked non-empty, so a relay that rewrites it is
+  honored (shirabe#539).
+- A zero-padded decision number in a withdrawal isn't recognized as one (shirabe#539).
+- `--carry` matches handoff entries by number alone, so a clash is skipped silently and can
+  leave two entries escalated (shirabe#539).
+- Compaction is split between the codec and the writer, with dead code in the codec's part
+  (shirabe#539).
+- The 60,000-byte budget is hard-coded in the writer's live read, apart from the write core's
+  (shirabe#539).
+- A few exits misname their cause: a failed evidence read reports a refusal, and a record past
+  the parser's limit exits 10 rather than `record-full` (shirabe#539).
+- The compare-and-swap reads only the `Written:` line, so a hand edit that leaves it unchanged
+  is overwritten by the next write (shirabe#539).

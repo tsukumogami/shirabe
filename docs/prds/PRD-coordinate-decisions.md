@@ -312,8 +312,8 @@ and a failing test.
 - **R21. Engine limits and dependencies.** The design names what checks running in the
   caller's environment (koto#261) leaves open. Implementation starts from a default branch
   that contains the dispatch path (shirabe#404) and reconcile (shirabe#406), and targets
-  the koto floor shirabe declares at that point (0.14.0 once shirabe#457 has landed); it
-  doesn't wait on shirabe#457 itself.
+  the koto floor shirabe declares at that point (0.14.1, as it stood when implementation
+  began, above the 0.14.0 shirabe#457 set); it doesn't wait on shirabe#457 itself.
 
 ### Tests
 
