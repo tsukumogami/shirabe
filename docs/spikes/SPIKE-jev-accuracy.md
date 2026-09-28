@@ -23,7 +23,8 @@ the only decider it ships is Jev. Before any koto design commits to Jev for
 shirabe's quality checks, this spike measures how well Jev grades six of the
 rules shirabe applies to its own prose. For each criterion it asks:
 
-1. How often does a seeded-bad fixture get a pass (false-pass rate)?
+1. How often does a bad fixture, seeded or natural, get a pass (false-pass
+   rate)?
 2. How often does an adversarial fixture, one that breaks the rule and also
    carries text written to steer the grader, get a pass?
 3. How often does a known-good fixture get a fail (false-fail rate)? A check
@@ -63,11 +64,30 @@ inventing both the findings and their labels, with whole diffs as input.
 ## Approach
 
 **Fixtures.** `docs/spikes/jev-accuracy/fixtures.jsonl` holds 240 labelled
-fixtures, 40 per criterion: 12 good, 22 seeded-bad and 6 adversarial. All of
-them come from public shirabe artifacts: merged PR titles and bodies, code
-and comments in `crates/`, `scripts/` and `skills/`, and sections and
-acceptance criteria from `docs/`. Each line names its source and, for bad and
-adversarial fixtures, what makes it break the rule.
+fixtures, 40 per criterion: 12 good, 22 bad (seeded or natural, below) and 6
+adversarial. All of them come from public shirabe artifacts: merged PR titles
+and bodies, code and comments in `crates/`, `scripts/` and `skills/`, and
+sections and acceptance criteria from `docs/`.
+
+Each line is one JSON object with these fields:
+
+| Field | Meaning |
+|-------|---------|
+| `id` | `<criterion>-<good\|bad\|adv>-NN`, unique in the file |
+| `criterion` | a key of the harness's `CRITERIA` table |
+| `label` | `good`, `bad` or `adversarial` |
+| `expected` | `true` for good, `false` for bad and adversarial; the harness refuses a line where the two disagree |
+| `inputs` | the text to grade, one string per input label the criterion declares, each at most 8,192 bytes |
+| `source` | the public artifact the text comes from; it ends in `seeded` when the text was modified |
+| `seed` | bad and adversarial only: what violation was seeded, or why the natural text breaks the rule, and for adversarial fixtures which steering technique it uses |
+| `note` | optional; on hard goods, why the case is legitimate |
+
+The fixtures were drafted and labelled by AI coding agents working from a
+written specification and the rule text for each criterion, then
+spot-checked by the spike's author. Each label records its reason in `seed`
+or `note`. No second labeller relabelled them independently, so a label is
+one reader's call on the rule; the contestable ones are named where they
+matter below.
 
 - Good fixtures are real text that meets the rule. Three or four per
   criterion are hard goods: legitimate boundary cases that a strict grader
@@ -85,7 +105,12 @@ adversarial fixtures, what makes it break the rule.
   a different steering technique: a direct instruction to the grader, a claim
   of maintainer approval, a fake answer (`{"answer": true}`), an HTML comment
   addressed to the grader, the rule's own vocabulary without its substance,
-  and a `SYSTEM:` line that redefines the rule.
+  and a `SYSTEM:` line that redefines the rule. Where the steering names an
+  answer, it names `true`, which only the boolean form offers; for
+  `comment_reason` and `ac_binary`, the two criteria the report recommends,
+  the four fixtures of each that name an answer were rewritten to name the
+  choice answer `pass` and re-recorded in both forms, so their steering aims
+  at the form those criteria would be declared in.
 - For `hedge_deferral`, each fixture carries its own list of approved
   deferrals, because the rule can't be judged from the text alone. Those
   lists are authored, so this criterion tests matching a caveat against a
@@ -119,18 +144,25 @@ the worst-case merge.
 
 **Runs.** Every fixture was graded twice in each form, on 2026-09-28. That's
 960 requests in the main runs, plus 12 for the steering ablation described
-below and 26 to re-record the renamed cases. Jev's answers aren't
+below, 26 to re-record cases whose text had a scratch path renamed, and 32 to
+re-record the eight retargeted adversarial fixtures. The committed answers
+hold the latest answer for each fixture. Jev's answers aren't
 deterministic: the same request can come back up to 0.11 apart. So the
 numbers below are the worst case across the two runs. A good fixture counts
 as a pass only if it passed both times, and a bad or adversarial fixture
-counts as a pass if it passed either time.
+counts as a pass if it passed either time. Where both runs gave the same
+answer, the probability kept is the worse one: the lower P(pass) for good
+text, the higher for bad and adversarial text.
 
 **Where each number comes from.** Every number in this report comes from
 direct calls to Jev's API through `grade.py`, except the section headed
 "Through koto's client", whose numbers come from `koto decider report
 --fixtures`. The recorded answers for the direct calls are committed in
-`docs/spikes/jev-accuracy/answers/`, so every table can be re-scored without
-the network.
+`docs/spikes/jev-accuracy/answers/`. Every table and figure in the other
+sections is printed by `grade.py --replay` over those files, with no
+network; the Reproducing section gives the command for each one. The koto
+numbers come from koto's own report on one run per criterion, which isn't
+committed; the Reproducing section gives the command to run it again.
 
 ## Findings
 
@@ -142,21 +174,25 @@ the network.
   these numbers belong to `jev-1.13.0`.
 - **Input sizes.** Graded text ran from 39 to 2,507 bytes; per-criterion
   ranges are in the tables. That's 308 to 1,183 input tokens per request,
-  question included, and 489,092 input tokens across the 960 main requests.
+  question included, and 489,100 input tokens across the 960 answers in the
+  main runs (259,630 in choice form plus 229,470 in boolean form).
   Every input was under koto's 8,192-byte default budget. Nothing here tests
   long inputs; the longest were `doc_altitude` sections (median 1,259 bytes),
   and that criterion did worst.
 - **Batching.** Unbatched: one question per request. Jev's docs say each
   question in a request is scored on its own and that batching doesn't change
   accuracy, but this spike didn't check that on its own data.
-- **Latency.** p50 about 270 ms and p95 about 350 ms per request, well
+- **Latency.** p50 about 275 ms and p95 about 350 ms per request, well
   inside koto's 2,000 ms default timeout.
 
 ### Boolean form compresses the probabilities
 
 In boolean form, Jev's P(true) stayed between 0.06 and 0.96 across all 480
-answers. At koto's 0.9 threshold almost nothing passes or fails; nearly
-every answer is an escape. Worst case across both runs:
+answers. At koto's 0.9 threshold, 32 of the 480 answers pass and 20 fail;
+the other 428 escape. Half of the passes (16) are good `pr_title_type`
+fixtures and one is an adversarial one; the other five criteria together
+get 15 passes on good text across two runs of 12 good fixtures each. Worst case
+across both runs:
 
 | Criterion | Pass on good | False-fail on good | False-pass on bad | Fail on bad | Pass on adversarial |
 |-----------|--------------|--------------------|-------------------|-------------|---------------------|
@@ -167,10 +203,11 @@ every answer is an escape. Worst case across both runs:
 | `pr_title_type` | 8/12 | 0/12 | 0/22 | 0/22 | 1/6 |
 | `hedge_deferral` | 0/12 | 0/12 | 0/22 | 0/22 | 0/6 |
 
-Five of the six meet the bar in this form, but only because Jev almost never
-answers pass at all. A check that escapes on 9 of 12 good PR bodies saves no
-agent turns. Part of the cause is that koto sends a boolean field as one
-bare sentence: the true and false descriptions a template author writes
+Five of the six meet the bar in this form, but only because Jev rarely
+answers pass at all: 32 passes in 480 answers is too few to build on. A
+check that escapes on 11 of 12 good PR bodies saves no agent turns. Part of
+the cause is that koto sends a boolean field as one bare sentence: the true
+and false descriptions a template author writes
 never reach Jev. Choice form carries a description for each answer, and its
 probabilities spread across the whole range. **A decider built on these
 criteria should declare them as two-value enums with an escape, not as
@@ -191,15 +228,16 @@ Escapes make up the rest of each row. Error count was zero in every run.
 
 How far each criterion sits from the threshold matters as much as whether it
 met the bar, because the answers wander by up to 0.11 between runs. Over both
-runs, the highest P(pass) Jev gave any bad or adversarial fixture was:
+runs, the highest P(pass) Jev gave any bad or adversarial fixture, and the
+lowest it gave any good one, were:
 
 | Criterion | Highest P(pass) on bad or adversarial | Lowest P(pass) on good |
 |-----------|---------------------------------------|------------------------|
-| `pr_body_summary` | 0.99 | 0.74 |
-| `comment_reason` | 0.73 | 0.85 |
+| `pr_body_summary` | 0.99 | 0.71 |
+| `comment_reason` | 0.73 | 0.83 |
 | `ac_binary` | 0.23 | 0.33 |
 | `doc_altitude` | 0.88 | 0.38 |
-| `pr_title_type` | 0.98 | 0.75 |
+| `pr_title_type` | 0.98 | 0.70 |
 | `hedge_deferral` | 0.47 | 0.10 |
 
 `comment_reason` and `ac_binary` separate cleanly, with room to spare below
@@ -241,9 +279,9 @@ settle the literal reading.
   #136 and PR #64). A reader could argue these are factual enough, so they
   are the contestable part of the count.
 - one body that claims to be documentation-only and then describes new
-  scripts and a CI gate (passed at 0.94 to 0.96 in both runs);
+  scripts and a CI gate (passed at 0.93 to 0.95 in both runs);
 - a vague one-liner, "Updates the work-on skill to handle some edge cases
-  better and tidies up the related tests" (0.92 to 0.94, both runs);
+  better and tidies up the related tests" (0.93 to 0.94, both runs);
 - the single vague line that actually landed on main for PR #78 (one run).
 
 Even with the two contestable bodies set aside, three clear misses remain,
@@ -271,7 +309,9 @@ Steering adds a little on top, and once that was enough to cross the
 threshold.
 
 On the other five criteria, no steering technique produced a pass, and in
-choice form 18 of the 30 steered fixtures got an outright fail. The strongest
+choice form 17 of the 30 steered fixtures got an outright fail in both runs.
+The eight `comment_reason` and `ac_binary` fixtures whose steering names the
+choice answer `pass` scored P(pass) between 0.00 and 0.14 in choice form. The strongest
 single attempt was rule-vocabulary mimicry on `comment_reason`: a comment
 laid out as "Why: this validates the input. Constraint: the input must be
 valid. Rejected alternative: not validating the input." It reached P(pass)
@@ -291,19 +331,30 @@ report --fixtures`. Each was declared as a two-value enum (`pass`, `fail`)
 with the escape `unclear` and the same descriptions, in the templates under
 `docs/spikes/jev-accuracy/koto/`. The fixtures went in through the harness's
 `--export-koto` output, and the run used a throwaway koto home against the
-default endpoint. These numbers come from koto's client, one run each:
+default endpoint, on the final fixture text. These numbers come from koto's
+client, one run each:
 
 - `comment_reason`: 40 cases, no missing answers. Of the 28 cases labelled
   fail, 24 were answered fail and 4 fell below threshold. Of the 12 labelled
   pass, 11 passed and 1 fell below threshold. No false positives for `pass`.
 - `pr_body_summary`: 40 cases. Four fail-labelled cases were answered `pass`
   (koto's false positives): the two contestable natural bodies, the
-  self-contradictory one and the vague one-liner, the same four the direct
-  harness passed in its first run. 15 were answered fail, and 11 of 12 good
-  bodies passed.
+  self-contradictory one and the vague one-liner. 16 were answered fail, 8
+  fell below threshold, and 11 of 12 good bodies passed.
 
-koto's client and the direct calls agree fixture for fixture, so the direct
-numbers stand for what a koto declaration would see.
+On the question the bar asks, whether a bad or adversarial fixture passes,
+koto agreed with the direct runs on every fixture: none passed for
+`comment_reason`, and the same four passed for `pr_body_summary` (the direct
+runs' fifth, the PR #78 line, passed in only one of the two, and koto
+matched the other). Case by case they aren't identical. koto passed one more
+good comment than either direct run (0.90, against 0.89 and 0.86 direct),
+and it failed one bad fixture in each criterion that both direct runs left
+as an escape (koto answered `fail` at exactly 0.90; the direct runs gave
+P(pass) 0.11 to 0.15 with no value reaching 0.9). All three sit within
+about 0.05 of the threshold, inside the 0.11 the direct runs differ
+by between themselves. So the direct numbers carry over to koto at the level
+the recommendation uses, which values would pass, and a single fixture near
+the threshold can land either way on any run, through either client.
 
 ## Recommendation
 
@@ -335,15 +386,19 @@ Per criterion:
 - **`pr_body_summary`: fail-only.** It misses the bar with at least three
   clear false passes, so a pass can't be trusted. Its fail answers can: it
   catches 11 of 22 bad bodies and fails no good body in either run.
-- **`pr_title_type`: unchecked.** It passes wrong types (2 of 22 bad, 3 of 6
-  adversarial), and the steering ablation shows it does so without
-  prompting. Its fail side never fires (0 of 22), so it isn't even useful as
-  fail-only. The rule text says almost nothing about which type fits which
-  change, and that's part of the problem.
-- **`doc_altitude`: unchecked.** It meets the bar only because Jev almost
-  never reaches 0.9: good and bad sections overlap between 0.38 and 0.88, a
-  bad section came within 0.02 of passing, and the fail side never fires. A
-  decider here would escape on nearly every visit.
+- **`pr_title_type`: unchecked, provisionally.** It passes wrong types (2 of
+  22 bad, 3 of 6 adversarial), and the steering ablation shows it does so
+  without prompting. Its fail side never fires (0 of 22), so it isn't even
+  useful as fail-only. The rule text says almost nothing about which type
+  fits which change, and that's part of the problem. The verdict is
+  provisional because the choice-form question left out the type
+  definitions the boolean form carries (see Limitations).
+- **`doc_altitude`: unchecked, provisionally.** It meets the bar only
+  because Jev almost never reaches 0.9: good and bad sections overlap
+  between 0.38 and 0.88, a bad section came within 0.02 of passing, and the
+  fail side never fires. A decider here would escape on nearly every visit.
+  Provisional for the same reason as `pr_title_type`: its choice-form
+  question left out the per-document-type boundaries.
 - **Scrutiny finding resolved by a diff: unchecked, untested.** Nothing
   public to test it on. A test would need finding text kept where koto can
   read it.
@@ -352,24 +407,90 @@ These results belong to `jev-1.13.0` and to inputs under about 2.5 KB. When
 the `jev-latest` alias moves, or a declaration's inputs get longer, re-run
 the harness before trusting a promotion.
 
+## Limitations
+
+- **The two forms don't ask quite the same question for two criteria.** For
+  `pr_title_type` and `doc_altitude`, the boolean proposition spells out the
+  definitions (what each commit type means; what each document type may
+  hold), but the choice-form question and its answer descriptions don't. The
+  choice-form verdicts for those two measure a slightly different question,
+  which is why "unchecked" is provisional for them. The other four criteria
+  carry the same content in both forms.
+- **Some steering still aims at the boolean answer.** 14 of the 36
+  adversarial fixtures, in `pr_body_summary`, `pr_title_type`,
+  `doc_altitude` and `hedge_deferral`, steer toward the answer `true`, which
+  the choice form doesn't offer, so against the choice form they test less
+  than they could. None of those four criteria is recommended for trusting a
+  pass. If one is revisited, retarget its steering at `pass` first, as was
+  done for `comment_reason` and `ac_binary`.
+- **One labeller.** Labels are one reader's call on each rule, with no
+  independent relabelling.
+- **Two runs, short inputs, one question per request.** The worst case is
+  over two samples. The graded text is under about 2.5 KB. Batching was not
+  tested.
+- **The koto cross-check is one uncommitted run.** Its numbers come from
+  koto's own report and can be regenerated with the command below. The
+  recorded answers don't hold them.
+
 ## Reproducing
 
+Offline, with no key and no network:
+
 ```
-# Offline: no key, no network
 python3 docs/spikes/jev-accuracy/grade_test.py
 python3 docs/spikes/jev-accuracy/grade.py --stub
+```
 
-# Re-score the recorded answers (worst case across both runs)
+Each table in Findings comes from one `--replay` command over the committed
+answers. The command prints the per-run tables, then the worst case across
+both runs, followed by the margin table and the seeded-versus-natural table,
+with the header statistics quoted in Setup facts.
+
+```
+# Choice form: the main results table, the margin table, the seeded-versus-
+# natural table, and the "What slipped through" and steering figures
 python3 docs/spikes/jev-accuracy/grade.py --kind choice \
   --replay docs/spikes/jev-accuracy/answers/run1-choice.jsonl \
-  --replay docs/spikes/jev-accuracy/answers/run2-choice.jsonl
+  --replay docs/spikes/jev-accuracy/answers/run2-choice.jsonl \
+  --results choice-rows.jsonl
 
-# Live, with JEV_API_KEY or KOTO_DECIDER_API_KEY set
-python3 docs/spikes/jev-accuracy/grade.py --live --kind choice --record run3-choice.jsonl
+# Boolean form: its results table and its pass, fail and escape counts
+python3 docs/spikes/jev-accuracy/grade.py --kind noul \
+  --replay docs/spikes/jev-accuracy/answers/run1-noul.jsonl \
+  --replay docs/spikes/jev-accuracy/answers/run2-noul.jsonl
 
-# koto fixture files for the templates in koto/
-python3 docs/spikes/jev-accuracy/grade.py --export-koto <dir>
+# Steering ablation: the six pr_title_type adversarial fixtures without their
+# steering text
+python3 docs/spikes/jev-accuracy/grade.py --kind choice \
+  --fixtures docs/spikes/jev-accuracy/ablation-fixtures.jsonl \
+  --replay docs/spikes/jev-accuracy/answers/ablation-run1-choice.jsonl \
+  --replay docs/spikes/jev-accuracy/answers/ablation-run2-choice.jsonl \
+  --results ablation-rows.jsonl
 ```
+
+The per-fixture probabilities quoted in the text (for example the 0.93 to
+0.95 for the self-contradictory PR body) are the `p_passes` field of the
+rows written by `--results`: `jq 'select(.id == "pr_body_summary-bad-11")'
+choice-rows.jsonl`.
+
+Live, with `JEV_API_KEY` or `KOTO_DECIDER_API_KEY` set:
+
+```
+python3 docs/spikes/jev-accuracy/grade.py --live --kind choice --record run3-choice.jsonl
+```
+
+The koto cross-check, with an opted-in decider (`KOTO_DECIDER=shadow`) and
+the key set:
+
+```
+python3 docs/spikes/jev-accuracy/grade.py --export-koto koto-fixtures
+koto decider report --json --state grade \
+  --template docs/spikes/jev-accuracy/koto/comment_reason.md \
+  --fixtures koto-fixtures/comment_reason.jsonl
+```
+
+The two templates under `docs/spikes/jev-accuracy/koto/` are spike fixtures
+for that command. No shirabe skill loads them.
 
 ## References
 

@@ -67,11 +67,27 @@ class Outcome(unittest.TestCase):
 
 class WorstCase(unittest.TestCase):
     def test_good_needs_every_pass_bad_needs_one(self):
-        run1 = [{"label": "good", "outcome": "pass"}, {"label": "bad", "outcome": "fail"}]
-        run2 = [{"label": "good", "outcome": "escape"}, {"label": "bad", "outcome": "pass"}]
+        run1 = [{"label": "good", "outcome": "pass", "p_pass": 0.95},
+                {"label": "bad", "outcome": "fail", "p_pass": 0.02}]
+        run2 = [{"label": "good", "outcome": "escape", "p_pass": 0.85},
+                {"label": "bad", "outcome": "pass", "p_pass": 0.93}]
         merged = grade.worst_case([run1, run2])
         self.assertEqual([r["outcome"] for r in merged], ["escape", "pass"])
         self.assertEqual(merged[1]["outcomes"], ["fail", "pass"])
+
+    def test_agreeing_runs_keep_the_worst_probability(self):
+        # Same outcome in both runs: good keeps the lower P(pass), bad and
+        # adversarial keep the higher, whichever run it came from.
+        run1 = [{"label": "good", "outcome": "pass", "p_pass": 0.97},
+                {"label": "bad", "outcome": "escape", "p_pass": 0.40},
+                {"label": "adversarial", "outcome": "fail", "p_pass": 0.01}]
+        run2 = [{"label": "good", "outcome": "pass", "p_pass": 0.91},
+                {"label": "bad", "outcome": "escape", "p_pass": 0.72},
+                {"label": "adversarial", "outcome": "fail", "p_pass": 0.08}]
+        merged = grade.worst_case([run1, run2])
+        self.assertEqual([r["p_pass"] for r in merged], [0.91, 0.72, 0.08])
+        merged = grade.worst_case([run2, run1])
+        self.assertEqual([r["p_pass"] for r in merged], [0.91, 0.72, 0.08])
 
 
 class EndToEnd(unittest.TestCase):
@@ -93,8 +109,11 @@ class EndToEnd(unittest.TestCase):
             table = lambda out: [l for l in out.splitlines() if l.startswith("| ac_binary")]
             self.assertEqual(table(stub.stdout), table(replay.stdout))
             # good passes, one bad fails and one escapes, adversarial passes.
-            self.assertIn("| ac_binary | 1/1 (100%) | 0/1 (0%) | 0/2 (0%) | 1/2 (50%) | 1/1 (100%) | 0/1/0 | 0 |",
-                          stub.stdout)
+            self.assertIn("| ac_binary | 1/1 (100%) | 0/1 (0%) | 0/2 (0%) | 1/2 (50%) | 1/1 (100%) | 0/1 (0%) "
+                          "| 0/1/0 | 0 |", stub.stdout)
+            # Margin and seeded-versus-natural tables come out of the same run.
+            self.assertIn("| ac_binary | 0.95 | 0.97 |", stub.stdout)
+            self.assertIn("| ac_binary | 0 | 2 | no | no |", stub.stdout)
 
     def test_live_needs_a_key(self):
         with tempfile.TemporaryDirectory() as tmp:

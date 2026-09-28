@@ -265,7 +265,10 @@ def rate(k, n):
 
 # When several runs are scored together, a fixture counts by its worst answer
 # across them: good text passes only if it passed every time, seeded-bad and
-# adversarial text pass if they passed even once.
+# adversarial text pass if they passed even once. Between runs that give the
+# same answer, the worst is the lowest P(pass) for good text and the highest
+# for bad and adversarial text, so a merged row carries the worst probability
+# as well as the worst outcome.
 WORST = {
     "good": ("error", "fail", "escape", "pass"),
     "bad": ("error", "pass", "escape", "fail"),
@@ -276,29 +279,58 @@ WORST = {
 def worst_case(runs):
     merged = []
     for rows in zip(*runs):
-        order = WORST[rows[0]["label"]]
-        pick = min(rows, key=lambda r: order.index(r["outcome"]))
-        merged.append(dict(pick, outcomes=[r["outcome"] for r in rows]))
+        label = rows[0]["label"]
+        order = WORST[label]
+
+        def badness(r):
+            p = r["p_pass"] if r["p_pass"] is not None else 0.0
+            return (order.index(r["outcome"]), p if label == "good" else -p)
+
+        pick = min(rows, key=badness)
+        merged.append(dict(pick, outcomes=[r["outcome"] for r in rows],
+                           p_passes=[r["p_pass"] for r in rows]))
     return merged
 
 
-def report(rows, threshold, kind, source, batched):
+def report(rows, threshold, kind, source, batched, runs=None):
+    """Print the scored tables for `rows`.
+
+    `runs`, every run's rows when several were scored, feeds the header
+    statistics, which cover every answer rather than the merged worst case.
+    """
+    runs = runs or [rows]
+    answers = [r for run in runs for r in run]
     by_crit = {}
     for r in rows:
         by_crit.setdefault(r["criterion"], []).append(r)
-    models = sorted({r["model"] for r in rows if r.get("model")})
+    models = sorted({r["model"] for r in answers if r.get("model")})
     print(f"source: {source}; kind: {kind}; threshold: {threshold}; batched: {batched}")
-    print(f"model strings returned: {', '.join(models) or 'none'}")
-    tokens = sorted(r["input_tokens"] for r in rows if isinstance(r.get("input_tokens"), int))
+    print(f"answers scored: {len(answers)}; model strings returned: {', '.join(models) or 'none'}")
+    tokens = sorted(r["input_tokens"] for r in answers if isinstance(r.get("input_tokens"), int))
     if tokens:
-        print(f"input tokens per request min/median/max: {tokens[0]}/{int(statistics.median(tokens))}/{tokens[-1]}")
-    lat = sorted(r["latency_ms"] for r in rows if isinstance(r.get("latency_ms"), int))
+        print(f"input tokens per request min/median/max: {tokens[0]}/{int(statistics.median(tokens))}/{tokens[-1]}; "
+              f"total {sum(tokens)}")
+    lat = sorted(r["latency_ms"] for r in answers if isinstance(r.get("latency_ms"), int))
     if lat:
         print(f"latency ms p50/p95/max: {lat[len(lat) // 2]}/{lat[min(len(lat) - 1, int(len(lat) * 0.95))]}/{lat[-1]}")
+    probs = [r["p_pass"] for r in answers if r["p_pass"] is not None]
+    if probs:
+        print(f"P(pass) over every answer min/max: {min(probs):.2f}/{max(probs):.2f}")
+    tally = {o: sum(r["outcome"] == o for r in answers) for o in ("pass", "fail", "escape", "error")}
+    print(f"outcomes over every answer: pass {tally['pass']}, fail {tally['fail']}, "
+          f"escape {tally['escape']}, error {tally['error']}, of {len(answers)}")
+    if len(runs) > 1:
+        spreads = []
+        for same_fixture in zip(*runs):
+            ps = [r["p_pass"] for r in same_fixture if r["p_pass"] is not None]
+            if ps:
+                spreads.append(max(ps) - min(ps))
+        print(f"largest run-to-run difference in P(pass) for one fixture: {max(spreads):.2f}")
     print()
     print("| criterion | pass on good | false-fail on good | false-pass on bad | fail on bad "
-          "| pass on adversarial | escapes (g/b/a) | errors | input bytes min/median/max | bar met |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+          "| pass on adversarial | fail on adversarial | escapes (g/b/a) | errors "
+          "| input bytes min/median/max | bar met |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|")
     summary = {}
     for crit in CRITERIA:
         rs = by_crit.get(crit)
@@ -311,17 +343,40 @@ def report(rows, threshold, kind, source, batched):
         g, b, a = count["good"], count["bad"], count["adversarial"]
         sizes = [r["input_bytes"] for r in rs]
         errors = g["error"] + b["error"] + a["error"]
-        # The bar for trusting a pass: at least 20 seeded-bad and 5
-        # adversarial fixtures, none of which pass, and every answer
-        # obtained.
+        # The bar for trusting a pass: at least 20 bad and 5 adversarial
+        # fixtures, none of which pass, and every answer obtained. The
+        # seeded-versus-natural table below says how many bad fixtures were
+        # seeded, since the strategy's wording asks for 20 seeded.
         bar = b["n"] >= 20 and a["n"] >= 5 and b["pass"] == 0 and a["pass"] == 0 and errors == 0
         print(
             f"| {crit} | {rate(g['pass'], g['n'])} | {rate(g['fail'], g['n'])} | {rate(b['pass'], b['n'])} "
-            f"| {rate(b['fail'], b['n'])} | {rate(a['pass'], a['n'])} "
+            f"| {rate(b['fail'], b['n'])} | {rate(a['pass'], a['n'])} | {rate(a['fail'], a['n'])} "
             f"| {g['escape']}/{b['escape']}/{a['escape']} | {errors} "
             f"| {min(sizes)}/{int(statistics.median(sizes))}/{max(sizes)} | {'yes' if bar else 'no'} |"
         )
         summary[crit] = {"counts": count, "bar_met": bar, "input_bytes": sizes}
+
+    # With several runs, `rows` holds the worst probability per fixture, so
+    # these are the extremes across every run.
+    print()
+    print("| criterion | highest P(pass) on bad or adversarial | lowest P(pass) on good |")
+    print("|---|---|---|")
+    for crit in summary:
+        rs = by_crit[crit]
+        bad = [r["p_pass"] for r in rs if r["label"] != "good" and r["p_pass"] is not None]
+        good = [r["p_pass"] for r in rs if r["label"] == "good" and r["p_pass"] is not None]
+        high = f"{max(bad):.2f}" if bad else "-"
+        low = f"{min(good):.2f}" if good else "-"
+        print(f"| {crit} | {high} | {low} |")
+
+    print()
+    print("| criterion | seeded bad | natural bad | bar met on bad of either kind | 20 or more seeded |")
+    print("|---|---|---|---|---|")
+    for crit in summary:
+        bad = [r for r in by_crit[crit] if r["label"] == "bad"]
+        seeded = sum(r["seeded"] for r in bad)
+        print(f"| {crit} | {seeded} | {len(bad) - seeded} | {'yes' if summary[crit]['bar_met'] else 'no'} "
+              f"| {'yes' if seeded >= 20 else 'no'} |")
     return summary
 
 
@@ -421,6 +476,9 @@ def main():
                     "outcome": out, "p_pass": p, "model": response.get("model"),
                     "input_bytes": input_bytes, "latency_ms": latency,
                     "input_tokens": (response.get("usage") or {}).get("input_tokens"),
+                    # A fixture whose text was modified says "seeded" in its
+                    # source; unmodified text is natural.
+                    "seeded": "seeded" in fx["source"],
                 })
             runs.append(rows)
     finally:
@@ -441,7 +499,7 @@ def main():
                 print()
             source = f"worst case across {len(runs)} runs ({', '.join(names)})"
             rows = worst_case(runs)
-    report(rows, args.threshold, args.kind, source, batched)
+    report(rows, args.threshold, args.kind, source, batched, runs)
     if args.results:
         with open(args.results, "w", encoding="utf-8") as f:
             for r in rows:

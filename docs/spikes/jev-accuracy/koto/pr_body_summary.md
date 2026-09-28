@@ -1,7 +1,7 @@
 ---
 name: jev-spike-pr-body-summary
 version: "1.0"
-description: One criterion from the jev-accuracy spike as a two-value enum with an escape.
+description: Spike fixture, not a workflow; no shirabe skill loads it. One jev-accuracy criterion as a two-value enum with an escape, for koto decider report --fixtures.
 initial_state: load
 states:
   load:
