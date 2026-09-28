@@ -30,6 +30,13 @@ jobs:
       matrix:
         suite: [templates, template-consistency]
     runs-on: ubuntu-latest
+    # GitHub's hosted ubuntu runners have only a rootful docker daemon, which
+    # check-bash-floor.sh refuses by default. The runner is ephemeral and the
+    # container runs as the runner's own user there, so the override is safe
+    # on this job; it is set per job, never repository-wide, so no developer's
+    # host inherits it.
+    env:
+      SHIRABE_FLOOR_ALLOW_ROOTFUL: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +50,13 @@ jobs:
   # floor would report green for every suite above; this is what catches that.
   runner:
     runs-on: ubuntu-latest
+    # GitHub's hosted ubuntu runners have only a rootful docker daemon, which
+    # check-bash-floor.sh refuses by default. The runner is ephemeral and the
+    # container runs as the runner's own user there, so the override is safe
+    # on this job; it is set per job, never repository-wide, so no developer's
+    # host inherits it.
+    env:
+      SHIRABE_FLOOR_ALLOW_ROOTFUL: "1"
     steps:
       - uses: actions/checkout@v4
 
