@@ -172,13 +172,15 @@ new_session() {
 
 seed() { printf 'round-1 artifact\n' | koto context add "$1" "$2" >/dev/null 2>&1; }
 
-# The two artifacts finalization writes, in the shape its gates require. The
-# summary_exists cases below need everything else about the edge satisfied, so
-# a hold is down to the key under test and an advance is not refused for shape.
+# The two artifacts finalization writes, in the form its gates require: the
+# cleanup_commit is this repository's real HEAD, since the referent gate checks
+# it names a commit. The summary_exists cases below need everything else about
+# the edge satisfied, so a hold is down to the key under test and an advance is
+# not refused on the record.
 seed_finishing() {
     printf '# Summary\n\n## Changes Made\n- f.txt\n' | koto context add "$1" summary.md >/dev/null 2>&1
-    printf 'cleanup_commit: 4f2a91c\ndesign_diagram: not-applicable: no design document\n' \
-        | koto context add "$1" pre_pr.md >/dev/null 2>&1
+    printf 'cleanup_commit: %s\ndesign_diagram: not-applicable: no design document\n' \
+        "$(git rev-parse HEAD)" | koto context add "$1" pre_pr.md >/dev/null 2>&1
 }
 
 # `koto next` reports the resulting state in its JSON response and keeps

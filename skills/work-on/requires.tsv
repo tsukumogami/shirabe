@@ -33,8 +33,9 @@
 #   context add     --from-file for the file-backed keys (context.md,
 #                   introspection.md, plan.md); the stdin heredoc form of the
 #                   same subcommand takes no flag
-#   context get     reads plan.md and context.md in Phase 4, and impl_base in
-#                   record-changed-paths.sh, no flag
+#   context get     reads plan.md and context.md in Phase 4, impl_base in
+#                   record-changed-paths.sh, and pre_pr.md in
+#                   check-pre-pr-referents.sh (the referent gates), no flag
 #   context exists  record-changed-paths.sh's impl_base test, no flag
 #   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
 #                   no flag

@@ -204,6 +204,9 @@ suite_scripts() {
             echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
             # Drives real koto sessions, and skips cleanly without them.
             echo "skills/work-on/scripts/finalization-shape_test.sh"
+            # Holds pre_pr.md in a real koto session, and skips cleanly
+            # without one.
+            echo "skills/work-on/scripts/check-pre-pr-referents_test.sh"
             # Its rule-text cases need no engine; its engine cases skip without
             # koto.
             echo "skills/work-on/scripts/terminal-retention_test.sh"
