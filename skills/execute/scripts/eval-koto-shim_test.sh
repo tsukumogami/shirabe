@@ -136,9 +136,53 @@ got=$(k "$SC" "$LOG2" context get "$WF" failure_reason)
     && pass "inline evidence fills \${evidence.rationale}" \
     || fail "inline failure_reason: [$got]"
 
-k "$SC" "$WORK/nomatch.log" next "$WF" --with-data '{"impact":"informational"}' --no-cleanup >/dev/null 2>&1
-[ $? -eq 1 ] && pass "evidence with no fixture fails as no match" \
-    || fail "evidence with no fixture did not fail"
+# Evidence the current state doesn't take is refused as koto refuses it, with
+# the same error, before any fixture is looked up.
+refused() {
+    # $1 label, $2 evidence, $3 expected .error.details[0] as compact JSON
+    local resp rc
+    resp=$(k "$SC" "$WORK/refuse.log" next "$WF" --with-data "$2" --no-cleanup); rc=$?
+    if [ "$rc" -eq 2 ] && [ "$(printf '%s' "$resp" | jq -c '[.error.code, .error.details[0]]')" = "[\"invalid_submission\",$3]" ]; then
+        pass "$1 is refused as invalid_submission (exit 2)"
+    else
+        fail "$1: rc $rc, [$resp]"
+    fi
+}
+refused "an unknown field" '{"impact":"informational","status":"override"}' '{"field":"status","reason":"unknown field \"status\""}'
+refused "a missing required field" '{"rationale":"only"}' '{"field":"impact","reason":"required field missing"}'
+refused "an enum value outside its values" '{"impact":"none"}' '{"field":"impact","reason":"value \"none\" is not in allowed values [\"informational\", \"intent-changing\"]"}'
+
+# The wrong answer is accepted and routed, as koto would route it, in each
+# scenario -- not refused, which would hand the run a retry real koto doesn't.
+LOG6="$WORK/wrong/koto-calls.log"
+mkdir -p "$WORK/wrong"
+k drift-intent-changing "$LOG6" next "$WF" --no-cleanup >/dev/null
+got=$(k drift-intent-changing "$LOG6" next "$WF" --with-data '{"impact":"informational"}' --no-cleanup | jq -r .state)
+[ "$got" = spawn_and_await ] \
+    && pass "drift-intent-changing: impact informational routes to spawn_and_await" \
+    || fail "drift-intent-changing informational answered [$got]"
+got=$(k drift-intent-changing "$LOG6" next "$WF" --no-cleanup | jq -r .state)
+[ "$got" = spawn_and_await ] \
+    && pass "a bare tick answers where the last tick left the session (spawn_and_await)" \
+    || fail "bare tick after informational answered [$got]"
+resp=$(k drift-intent-changing "$LOG6" next "$WF" --with-data '{"impact":"intent-changing","rationale":"too late"}' --no-cleanup); rc=$?
+if [ "$rc" -eq 2 ] && [ "$(printf '%s' "$resp" | jq -r '.error.details[0].field')" = impact ]; then
+    pass "a second drift answer at spawn_and_await is refused: that state takes only tasks"
+else
+    fail "second drift answer at spawn_and_await: rc $rc, [$resp]"
+fi
+k drift-informational "$LOG6" next "$WF" --no-cleanup >/dev/null
+got=$(k drift-informational "$LOG6" next "$WF" --with-data '{"impact":"intent-changing","rationale":"r"}' --no-cleanup | jq -r .state)
+[ "$got" = done_blocked ] \
+    && pass "drift-informational: impact intent-changing ends at done_blocked" \
+    || fail "drift-informational intent-changing answered [$got]"
+
+k "$SC" "$WORK/nomatch.log" next "$WF" --with-data '{"impact":"intent-changing"}' --no-cleanup >/dev/null 2>&1
+k drift-informational "$WORK/nomatch.log" next "$WF" --no-cleanup >/dev/null 2>&1
+k drift-informational "$WORK/nomatch.log" next "$WF" --with-data '{"impact":"informational"}' --no-cleanup >/dev/null 2>&1
+k drift-informational "$WORK/nomatch.log" next "$WF" --with-data '{"tasks":[]}' --no-cleanup >/dev/null 2>&1
+[ $? -eq 1 ] && pass "valid evidence with no fixture fails as no match" \
+    || fail "valid evidence with no fixture did not fail"
 
 # --- context add / exists ----------------------------------------------------
 

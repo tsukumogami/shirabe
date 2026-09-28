@@ -101,11 +101,44 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
     exit 2
   fi
 
+  # Evidence is checked against the fields the session's current state
+  # expects -- where the last tick left it, or the first tick's answer -- and
+  # refused as koto refuses it: an unknown field, a required field missing,
+  # or an enum value outside its values. So an answer the state doesn't take
+  # can't reach a fixture keyed on it.
+  current=""
+  if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ]; then
+    current="$STATE_DIR/last/$wf.json"
+  elif [ -f "$SCENARIO_DIR/koto-next-execute.json" ]; then
+    current="$SCENARIO_DIR/koto-next-execute.json"
+  fi
+  if [ -n "$data" ] && [ -n "$current" ]; then
+    command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
+    detail=$(printf '%s' "$data" | jq -c --slurpfile cur "$current" '
+      . as $ev
+      | ($cur[0].expects.fields // {}) as $f
+      | ( [ $ev | keys[] | select(. as $k | $f | has($k) | not)
+            | {field: ., reason: ("unknown field \"" + . + "\"")} ]
+        + [ $f | to_entries[] | .key as $k
+            | select(.value.required == true and ($ev | has($k) | not))
+            | {field: $k, reason: "required field missing"} ]
+        + [ $f | to_entries[] | .key as $k | .value.values as $vals
+            | select(.value.type == "enum" and ($ev | has($k)))
+            | select($vals | index($ev[$k]) | not)
+            | {field: $k, reason: ("value \"" + ($ev[$k] | tostring) + "\" is not in allowed values ["
+                + ($vals | map("\"" + . + "\"") | join(", ")) + "]")} ] )
+      | first // empty' 2>/dev/null)
+    if [ -n "$detail" ]; then
+      printf '{"error":{"code":"invalid_submission","details":[%s],"message":"evidence validation failed"}}\n' "$detail"
+      exit 2
+    fi
+  fi
+
   fixture=""
   if [ -z "$data" ]; then
-    if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ] \
-        && jq -e '.action == "done"' "$STATE_DIR/last/$wf.json" >/dev/null 2>&1; then
-      # A finished session answers every later tick with its terminal.
+    if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ]; then
+      # A bare tick doesn't move the session: it answers where the last tick
+      # left it, a terminal included.
       fixture="$STATE_DIR/last/$wf.json"
     elif [ -f "$SCENARIO_DIR/koto-next-execute.json" ]; then
       fixture="$SCENARIO_DIR/koto-next-execute.json"
