@@ -157,8 +157,10 @@ VAR=${OTHER:-tool}            VAR=${OTHER:-$(command -v tool)}
 VAR=/any/path/tool            VAR="$DIR/tool"
 ```
 
-The `:=`, `-` and `=` expansions count like `:-`, and `OTHER` is charged along
-with `VAR`, since it's the override for the same tool. A value that only
+`$(which tool)`, the backtick spellings and a probe with its own `2>/dev/null`
+count like `$(command -v tool)`. The `:=`, `-` and `=` expansions count like
+`:-`, and `OTHER` is charged along with `VAR`, since it's the override for the
+same tool. A value that only
 contains the name, such as `koto-open.sh` or `"koto failed"`, isn't a binding.
 
 A file also takes the bindings of each file it sources with `.` or `source`,
@@ -169,18 +171,28 @@ read as the sourcing file's directory. A sourced file's `local` bindings stay
 inside its functions.
 
 A variable is charged only at command position: `$VAR`, `"$VAR"`, `${VAR}` or
-`"${VAR}"` at the start of the line, or after `;`, `&`, `|`, `(`, `{`, `!`, a
-backtick, or one of `then`, `do`, `else`, `elif`, `if`, `while`, `until`,
-`exec`, `command` and `time`. A variable holding the name as data, in an
-argument or a message, isn't charged. `command -v "$VAR"` falls under the
-carve-out below.
+`"${VAR}"` at the start of the line, after a one-line case arm's pattern
+(`a|b) "$VAR" ...`), or after `;`, `&`, `|`, `(`, `{`, `!`, a backtick, or one
+of `then`, `do`, `else`, `elif`, `if`, `while`, `until`, `exec`, `command` and
+`time`. A variable holding the name as data isn't charged: an argument, a
+message, or a directory with a path after it (`"$CACHE"/run.sh`).
+`command -v "$VAR"` falls under the carve-out below.
 
-These aren't traced: a copy (`A=$B`), an array element, indirect expansion,
-`eval`, an assignment that isn't the line's first word
-(`[ -n "$X" ] || K=koto`), a variable set only by a caller or the environment,
-a call behind an env prefix (`FOO=1 "$VAR" ...`), and a source path spelled any
-other way. When the scan landed, no discard in `skills/` called a declared tool
-through any of these. A probe that charged every variable at command position
+These aren't traced:
+
+- a copy (`A=$B`), an array element, indirect expansion, `eval`, or a nested
+  default
+- an assignment that isn't the line's first word, such as
+  `[ -n "$X" ] || K=koto` or `local a K=koto`
+- a variable set only by a caller or the environment
+- a call behind an env prefix (`FOO=1 "$VAR" ...`) or a runner such as
+  `timeout`, `xargs`, `env`, `nohup` or `sudo`
+- a tool wrapped in a shell function
+- a case arm whose pattern is quoted or expands a variable
+- a source path spelled any other way
+
+When the scan landed, no discard in `skills/` called a declared tool through
+any of these. A probe that charged every variable at command position
 on a discard line found only sites the trace already covers. A site that needs
 one of these shapes is enumerated by hand, with a comment line in the record
 block naming the shape. Any traced assignment charges its variable, even when
@@ -189,6 +201,11 @@ another assignment in the same file gives it a different value.
 Like a literal call, a variable-held call is judged on the line holding the
 redirect. A command continued with `\` whose redirect sits on a later line
 than the tool isn't seen, whether the tool is named or held.
+
+The trace applies wherever the scan runs, and by default that's `skills/`.
+Scripts under `scripts/`, such as `scripts/assert-koto-floor.sh`, are outside
+the default scan for literal and held calls alike. Pointing the scan at them
+brings their variable-held calls in too.
 
 ### The `command -v` carve-out
 
@@ -352,9 +369,6 @@ skills/coordinate/scripts/reconcile-report-get.sh	jq -e '.schema == "coordinate-
 skills/coordinate/scripts/reconcile-report-get.sh	koto context get "$SESSION" "$KEY" > "$T/report.json" 2>/dev/null || fail 2 "context key $KEY can't be read"	1	non-zero,124	A failed or late read of GitHub, the host or koto becomes a not_verified fact, a refusal or a stop carrying its own reason; the tool text is replaced by that reason and never taken as a result.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
 skills/coordinate/scripts/reconcile-report.sh	SCHEMA=$(printf '%s' "$INPUT" | jq -r '.schema? // empty' 2>/dev/null)	1	2,4,5	Reading the schema field of the input document: unparseable input leaves it empty, and the script then refuses the input with exit 65 as not a facts document.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
 skills/coordinate/scripts/reconcile-report.sh	if ! printf '%s' "$INPUT" | jq -e '(.header | type) == "object" and ([.changes, .holdings, .waiting, .nowhere_else, .side_effects, .deferrals, .not_verified] | all(type == "array"))' >/dev/null 2>&1; then	1	1,2,4,5	The jq test is the validation of untrusted JSON: a false result or a parse error is the expected not-this-shape outcome, handled by the branch it guards.	DESIGN-coordinate-reconcile.md (a read that fails or runs late is not verified)
-# shirabe#418 -- tools held in a variable. Seven of the eight sites the
-# variable trace found were fixed to keep their stderr; this one keeps its discard.
-skills/coordinate/scripts/coord-log.sh	st=$("$KOTO" status "$id" 2>/dev/null) || continue	1	2	The live-session scan reads each coordinate run koto has just listed, and a run removed between the list and this read is skipped, since a session koto can't read isn't live; one such race must not print into, or stop, the scan for the others.	shirabe#418
 ```
 
 ## Running the scan
