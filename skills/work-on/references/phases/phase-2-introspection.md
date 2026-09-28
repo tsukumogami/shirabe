@@ -11,14 +11,11 @@ Check for:
 - New constraints or dependencies introduced since filing
 - Whether the issue has been superseded
 
-Write findings to a local file, then store in koto context:
-
-```bash
-koto context add <WF> introspection.md --from-file <introspection-file>
-```
+Store the findings in koto context under `introspection.md`, by stdin pipe or a
+`mktemp` file deleted after ingestion (see `../koto-context-conventions.md`).
 
 ## Evidence
 
-- `introspection_outcome: approach_unchanged` — original approach still valid
-- `introspection_outcome: approach_updated` — adjustments needed (describe in rationale)
-- `introspection_outcome: issue_superseded` — issue no longer relevant
+- `approach_unchanged` — original approach still valid
+- `approach_updated` — adjustments needed
+- `issue_superseded` — issue no longer relevant

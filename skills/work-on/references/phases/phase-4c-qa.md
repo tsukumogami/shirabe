@@ -12,16 +12,18 @@ Spawn the tester agent using the Task tool. The tester:
 
 ## Evidence Format
 
-The tester writes full results to `wip/research/work-on_qa_<WF>.md` and returns:
+The tester writes full results to a `mktemp`-produced file outside the repository and returns:
 
 ```json
 {
   "scenarios_run": 3,
   "scenarios_passed": 3,
   "scenarios_failed": 0,
-  "detail_file": "wip/research/work-on_qa_<WF>.md"
+  "detail_file": "<the tester's mktemp path>"
 }
 ```
+
+Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
 ## Aggregation
 
@@ -32,10 +34,12 @@ After the tester returns:
 
 ```bash
 koto context add <WF> qa_results.json < /dev/stdin <<EOF
-{"passed": true, "scenarios_run": 3, "scenarios_passed": 3}
+{"passed": true, "round": <N>, "scenarios_run": 3, "scenarios_passed": 3}
 EOF
 koto next <WF> --with-data '{"qa_outcome": "passed"}' --no-cleanup
 ```
+
+`<N>` is the number of the QA round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
 
 ## Retry Loop
 
@@ -60,12 +64,6 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
 All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. `summary.md` goes too, since the traversal continues through `verification` into `finalization`.
-
-The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
-
-That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
-
-The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
 ## Escalation
 
