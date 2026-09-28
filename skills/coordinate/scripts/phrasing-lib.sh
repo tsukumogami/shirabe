@@ -13,6 +13,10 @@
 #       with grep -E; 1 no match; 2 cannot check: an unknown kind, a list that
 #       is unreadable or has a refused row, or a kind with no patterns. <kind>
 #       is `decision` or `addressed`; a row of kind `both` counts for each.
+#   phrase_lines <kind> <file> [list]
+#       Prints the 1-based number of every line of <file> that matches a
+#       pattern of that kind, one per line, in one grep pass. Exit 0 (none
+#       printed is no match); 2 cannot check, as phrase_match.
 #   phrasings_check [list]
 #       Exit 0 when every row is well formed and its pattern compiles under
 #       grep -E; 65 a refused row (stderr names it); 2 the list is unreadable.
@@ -83,4 +87,22 @@ phrase_match() {
     rc=${PIPESTATUS[1]}
     [ "$rc" -le 1 ] || return 2
     return "$rc"
+}
+
+phrase_lines() {
+    local kind="$1" file="$2" f="${3:-$PHRASINGS_LIST}" pats rc
+    case "$kind" in
+        decision|addressed) ;;
+        *) echo "decision phrasings: unknown kind '$kind'" >&2; return 2 ;;
+    esac
+    [ -r "$f" ] || { echo "decision phrasings: cannot read $f" >&2; return 2; }
+    [ -r "$file" ] || { echo "decision phrasings: cannot read $file" >&2; return 2; }
+    pats=$(_phrasings_read "$kind" "$f"); rc=$?
+    [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
+    # One grep over the whole file, so a report's lines are matched in one
+    # pass, never one process per line. grep's own status is the one read.
+    grep -Ein -e "$pats" "$file" | cut -d: -f1
+    rc=${PIPESTATUS[0]}
+    [ "$rc" -le 1 ] || return 2
+    return 0
 }

@@ -37,6 +37,8 @@ run() {
     log_to "$S" wait take_report
     printf '%s' "$2" > "$T/report"
     koto context add "$S" worker_report --from-file "$T/report"
+    printf '%s' "${VIA:-message}" > "$T/via"
+    koto context add "$S" report_source --from-file "$T/via"
     log_to "$S" take_report report_facts
     log_capture "$S" REPORT "$(bash "$HERE/coord-log.sh" seal --session "$S" --state report_facts --token "$1")"
     log_to "$S" report_facts report_questions
@@ -179,6 +181,43 @@ run "holding none rr" "$(escalation 4 1 "Merge $(printf '%420s' '' | tr ' ' x) b
 eq "a coordinator's escalation isn't held to the 400-character cap" "0 questions 1" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
 run "holding none rr" "$(printf 'Answer: decision 4 round 1.\n\nOutcome: wait\n')" "$COORD" "$OPEN_UP"
 eq "an Answer: first line is ordinary text" "0 none" "$RC $(word)"
+
+# --- robustness ------------------------------------------------------------------------
+
+# A context or problem line that starts like an option: the options are read
+# upward from the answer line, so it is never taken for one.
+printf 'Decision 4 round 1.\n\n1. The first half of the context reads like an option.\n\nThe problem.\n\nMerge before the release?\n1. wait (recommended: the release is Friday)\n   one upgrade carries both\n2. merge now\n   the format lands this week\n\nAnswer naming decision 4 round 1 and an option, or give another outcome with its reason.\n' > "$T/esc2"
+printf 'Digest: %s\n' "$(sha < "$T/esc2")" >> "$T/esc2"
+run "holding none rr" "$(cat "$T/esc2")" "$COORD"
+eq "escalation: a context line starting with 1. isn't an option" "Merge before the release?|wait -- one upgrade carries both,merge now -- the format lands this week" \
+    "$(list | jq -r '.[0] | "\(.text)|\(.options | join(","))"')"
+escalation 4 1 | sed '$d' | sed 's/^Answer naming decision 4 round 1 /Answer naming decision 5 round 1 /' > "$T/esc3"
+printf 'Digest: %s\n' "$(sha < "$T/esc3")" >> "$T/esc3"
+run "holding none rr" "$(cat "$T/esc3")" "$COORD"
+eq "escalation: one whose answer line names another entry is unreadable, though its digest holds" "0 unreadable" "$RC $(word)"
+
+run "holding none w1" "$(printf 'Keep the cap at 400 (decision 3)?\nQuestions:\n1. Or 1000 (decision 3)\n')" "$WORKER" "[$ENTRY]"
+eq "a citation outside the Questions part is dropped, inside it is kept" "null 3" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+run "holding none w1" "$(printf 'Verdict: done.\n```\nlog line one\nShould it ship?\n')" "$WORKER"
+eq "a fence that never closes hides nothing" "Should it ship?" "$(list | jq -r '[.[].text] | join("|")')"
+VIA=leg run "holding none w1" "$(for i in 1 2 3 4 5 6 7 8 9 10 11; do echo "Question $i?"; done)" "$WORKER"
+eq "a leg report over the cap goes to the human, since its worker can't be rebriefed by message" "0 unreadable" "$RC $(word)"
+run "holding none w1" "$(printf 'Is %s?' "$(printf '%396s' '' | tr ' ' x)")" "$WORKER"
+eq "a question of exactly 400 characters is within the cap" "questions 1" "$(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+run "holding none rr" "$(escalation 4 1)" "$COORD" \
+    '[{"decision":"2","round":"0","question":"Merge before the release?","options":"wait\nmerge now","state":"settled","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]","outcome":"wait; reason: r","decided_by":"a person","updated":"2026-09-26T09:00Z"}]'
+eq "escalation: a re-sent one whose entry has settled still opens nothing" "0 none" "$RC $(word)"
+
+# Linear in the report: a long fenced log with a question after it.
+{ echo 'Verdict: the build log is below.'; echo '```'
+  i=0; while [ $i -lt 8000 ]; do echo "log line $i: please decide whether to ship?"; i=$((i + 1)); done
+  echo '```'; echo 'Should the cache be cleared?'; } > "$T/big"
+START=$SECONDS
+run "holding none w1" "$(cat "$T/big")" "$WORKER"
+ELAPSED=$((SECONDS - START))
+eq "an 8000-line fenced log is skipped, the question after it kept" "Should the cache be cleared?" "$(list | jq -r '[.[].text] | join("|")')"
+[ "$ELAPSED" -lt 15 ] && ok "an 8000-line report is read in ${ELAPSED}s, well inside koto's action timeout" ||
+    bad "an 8000-line report is read inside koto's action timeout" "${ELAPSED}s"
 
 tokens_ok report-questions
 done_tests report-questions

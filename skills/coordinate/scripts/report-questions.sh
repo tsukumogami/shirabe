@@ -80,8 +80,6 @@ MAX_ITEMS=10 MAX_LEN=400
 # written inline in [[ =~ ]] differently.
 RE_ESC='^Decision ([1-9][0-9]*) round ([1-9][0-9]*)\.$'
 RE_WDR='^Withdrawn: decision ([1-9][0-9]*) round ([1-9][0-9]*)\.'
-RE_CITE='\(decision ([1-9][0-9]*)\)'
-RE_ITEM='^[1-9][0-9]*[.)] +(.+)$'
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-questions.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
@@ -92,7 +90,7 @@ sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1;
 [ -s "$T/report" ] || verdict unreadable
 REPORT=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name REPORT --state report_facts)
 case $? in 0) ;; 1) echo "$PROG: no sealed report_facts verdict from its latest visit" >&2; verdict unreadable ;; *) lib_die2 "cannot read the report_facts capture" ;; esac
-set -- $REPORT
+set -f; set -- $REPORT; set +f
 HOLDING=0
 case "${1-}" in
     holding) HOLDING=1 TOPIC=${3-} ;;
@@ -142,23 +140,38 @@ if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
             "$T/report" > "$T/above"
         [ "$(sha < "$T/above")" = "${LAST#Digest: }" ] || { echo "$PROG: the escalation doesn't hash to its digest" >&2; verdict unreadable; }
         opened_from "$SRC" && verdict none
-        awk '/^1\. /{ print prev; exit } { prev = $0 }' "$T/above" > "$T/question"
-        # Each numbered line is an option, the indented lines under it its
-        # explanation; written back as `<option> -- <explanation>`, the form
-        # the record keeps. The recommended option's note is dropped from it
-        # and its option noted apart.
+        # The options are read upward from the fixed answer line: the block
+        # of numbered lines and their indented explanations just above it,
+        # and the question the line above that block. Reading from the anchor
+        # means a context or problem line that happens to start with `1. `
+        # is never taken for an option. Each option is written back as
+        # `<option> -- <explanation>`, the form the record keeps; the
+        # recommended option's note is dropped and its option noted apart.
         : > "$T/recommended"
-        awk -v recf="$T/recommended" '
+        awk -v n="$N" -v r="$R" -v qf="$T/question" -v recf="$T/recommended" '
+            { L[NR] = $0 }
+            END {
+                for (a = NR; a > 0; a--) if (index(L[a], "Answer naming decision " n " round " r " ") == 1) break
+                if (a == 0) exit 3
+                for (i = a - 1; i > 0 && L[i] == ""; i--);
+                for (s = i; s > 0 && (L[s] ~ /^[1-9][0-9]*\. / || L[s] ~ /^   [^ ]/); s--);
+                s++
+                if (s > i || L[s] !~ /^1\. / || s < 2 || L[s - 1] == "") exit 3
+                print L[s - 1] > qf
+                cur = ""; why = ""
+                for (j = s; j <= i; j++) {
+                    if (L[j] ~ /^[1-9][0-9]*\. /) { flush(); cur = L[j]; sub(/^[1-9][0-9]*\. /, "", cur) }
+                    else { w = L[j]; sub(/^   /, "", w); why = (why == "" ? w : why " " w) }
+                }
+                flush()
+            }
             function flush() {
                 if (cur == "") return
                 if (match(cur, / \(recommended: .*\)$/)) { cur = substr(cur, 1, RSTART - 1); print cur > recf }
                 print cur (why != "" ? " -- " why : "")
                 cur = ""; why = ""
-            }
-            /^[1-9][0-9]*\. / { flush(); sub(/^[1-9][0-9]*\. /, ""); cur = $0; next }
-            cur != "" && /^   [^ ]/ { w = $0; sub(/^   /, "", w); why = (why == "" ? w : why " " w); next }
-            { flush() }
-            END { flush() }' "$T/above" > "$T/options"
+            }' "$T/above" > "$T/options" \
+            || { echo "$PROG: the escalation has no question and options above its answer line" >&2; verdict unreadable; }
         [ -s "$T/question" ] && [ -s "$T/options" ] || { echo "$PROG: the escalation has no question or options" >&2; verdict unreadable; }
         jq -nc --rawfile q "$T/question" --rawfile o "$T/options" --rawfile rec "$T/recommended" --arg s "$SRC" --argjson n "$N" --argjson r "$R" '
             {kind: "escalation", text: ($q | rtrimstr("\n")), source: $s, addressed: false, cite: null, n: $n, round: $r,
@@ -178,41 +191,76 @@ fi
 
 # --- a worker's questions ---------------------------------------------------------------
 
-: > "$T/items"
-item() { # item <text>: one question, its citation checked, `addressed` marked
-    local text=$1 cite=null a=false
-    if [[ $text =~ $RE_CITE ]]; then
-        if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e --arg n "${BASH_REMATCH[1]}" --arg p "worker $TOPIC [" \
-                'any(.entries[]; .decision == $n and (.source | startswith($p)))' >/dev/null; then
-            cite=${BASH_REMATCH[1]}
-        fi
-    fi
-    phrase_match addressed "$text"
-    case $? in 0) a=true ;; 1) ;; *) lib_die2 "the phrasing list can't be read" ;; esac
-    jq -nc --arg t "$text" --arg s "worker $TOPIC" --argjson a "$a" --argjson c "$cite" \
-        '{kind: "question", text: $t, source: $s, addressed: $a, cite: $c}' >> "$T/items"
-}
-fence= inpart=0
-while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%$'\r'}
-    trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-    case "$trimmed" in
-        '```'*|'~~~'*)
-            mark=${trimmed:0:3}
-            if [ -z "$fence" ]; then fence=$mark; elif [ "$fence" = "$mark" ]; then fence=; fi
-            inpart=0; continue ;;
-    esac
-    [ -z "$fence" ] || continue
-    case "$trimmed" in '>'*) inpart=0; continue ;; esac
-    if [ "$trimmed" = "Questions:" ]; then inpart=1; continue; fi
-    if [ "$inpart" = 1 ]; then
-        if [[ $trimmed =~ $RE_ITEM ]]; then item "${BASH_REMATCH[1]}"; continue; fi
-        [ -z "$trimmed" ] && continue
-        inpart=0
-    fi
-    [ -n "$trimmed" ] || continue
-    case "$trimmed" in *'?') item "$trimmed"; continue ;; esac
-    phrase_match decision "$trimmed"
-    case $? in 0) item "$trimmed" ;; 1) ;; *) lib_die2 "the phrasing list can't be read" ;; esac
-done < "$T/report"
+# One awk pass classifies every line, so the cost is linear in the report and
+# a long fenced log costs no more than reading it. Each line comes out as
+# <line number><TAB><class><TAB><text, trimmed>:
+#   item  a numbered item of the Questions part (its number dropped)
+#   q     any other line ending in `?`
+#   line  any other non-blank line, a candidate for the phrasing list
+# Lines inside a fence (``` or ~~~, closed by the same mark) and quoted lines
+# are left out. A fence that never closes hides nothing: its opener is read as
+# text and so is everything after it.
+awk '
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    { sub(/\r$/, ""); L[NR] = $0 }
+    END {
+        open = 0
+        for (i = 1; i <= NR; i++) {
+            t = trim(L[i])
+            if (t !~ /^(```|~~~)/) continue
+            m = substr(t, 1, 3)
+            if (!open) { open = i; mark = m }
+            else if (m == mark) { for (j = open; j <= i; j++) F[j] = 1; open = 0 }
+        }
+        inpart = 0
+        for (i = 1; i <= NR; i++) {
+            if (F[i]) { inpart = 0; continue }
+            t = trim(L[i])
+            if (t ~ /^>/) { inpart = 0; continue }
+            if (t == "Questions:") { inpart = 1; continue }
+            if (inpart) {
+                if (t ~ /^[1-9][0-9]*[.)] +[^ ]/) { sub(/^[1-9][0-9]*[.)] +/, "", t); print i "\titem\t" t; continue }
+                if (t == "") continue
+                inpart = 0
+            }
+            if (t == "") continue
+            if (t ~ /\?$/) print i "\tq\t" t
+            else print i "\tline\t" t
+        }
+    }' "$T/report" > "$T/classified" || lib_die2 "cannot read the report's lines"
+
+# The candidates for the phrasing list, matched in one grep pass.
+awk -F'\t' '$2 == "line"' "$T/classified" > "$T/cand"
+cut -f3- "$T/cand" > "$T/cand.txt"
+phrase_lines decision "$T/cand.txt" > "$T/cand.hit" || lib_die2 "the phrasing list can't be read"
+{ awk -F'\t' '$2 != "line"' "$T/classified"
+  awk 'NR == FNR { hit[$1] = 1; next } hit[FNR]' "$T/cand.hit" "$T/cand"
+} | sort -n > "$T/all"
+
+# Over the cap is decided before anything else is read. A leg report can't be
+# rebriefed by message (its worker answers only through the leg), so one over
+# the cap goes to the human instead.
+N_ITEMS=$(wc -l < "$T/all" | tr -d ' ')
+if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || awk -F'\t' -v m="$MAX_LEN" 'length($3) > m { found = 1 } END { exit !found }' "$T/all"; then
+    VIA=$("$KOTO" context get "$SESSION" report_source || true)
+    [ "$VIA" = leg ] && { echo "$PROG: a leg report over the cap can't be rebriefed" >&2; verdict unreadable; }
+    verdict overflow
+fi
+[ "$N_ITEMS" -gt 0 ] || verdict none
+
+cut -f3- "$T/all" > "$T/all.txt"
+phrase_lines addressed "$T/all.txt" > "$T/addressed" || lib_die2 "the phrasing list can't be read"
+# A citation is honored only on an item of the Questions part, and only for
+# the reporting worker's own entry.
+jq -R -s -c --rawfile addr "$T/addressed" --argjson sec "$SECTION" --arg topic "$TOPIC" --argjson holding "$HOLDING" '
+    ($addr | split("\n") | map(select(length > 0) | tonumber)) as $a
+    | split("\n") | map(select(length > 0)) | to_entries
+    | map(.key as $k | (.value | split("\t")) as $f | ($f[2:] | join("\t")) as $text
+        | ([$text | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n] | first) as $c
+        | {kind: "question", text: $text, source: "worker \($topic)",
+           addressed: ($a | index($k + 1) != null),
+           cite: (if $f[1] == "item" and $holding == 1 and $c != null
+                     and any($sec.entries[]; .decision == $c and (.source | startswith("worker \($topic) [")))
+                  then ($c | tonumber) else null end)})
+    | .[]' "$T/all" > "$T/items" || lib_die2 "cannot build the list"
 write_list "$T/items"

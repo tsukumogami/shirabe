@@ -104,4 +104,17 @@ phrase_match addressed "please decide" "$T/list.tsv" 2>/dev/null; eq "a kind wit
 phrase_match decision "please decide" "$T/missing.tsv" 2>/dev/null; eq "an unreadable list can't be checked" 2 "$?"
 phrase_match question "please decide" 2>/dev/null; eq "an unknown kind asked of the matcher can't be checked" 2 "$?"
 
+# phrase_lines: the same list, every line of a file in one pass.
+printf 'Nothing here.\nPlease decide whether to ship.\nwaiting on the release decision from the vendor\nyour call on the pin\n' > "$T/lines.txt"
+eq "phrase_lines numbers the decision lines, a both row among them" "2 4" "$(phrase_lines decision "$T/lines.txt" | tr '\n' ' ' | sed 's/ $//')"
+eq "phrase_lines numbers the addressed lines" "2 4" "$(phrase_lines addressed "$T/lines.txt" | tr '\n' ' ' | sed 's/ $//')"
+while IFS= read -r l; do phrase_match decision "$l" && printf '+' || printf '.'; done < "$T/lines.txt" > "$T/one"
+awk 'NR == FNR { h[$1] = 1; next } { printf (h[FNR] ? "+" : ".") }' <(phrase_lines decision "$T/lines.txt") "$T/lines.txt" > "$T/batch"
+eq "phrase_lines agrees with phrase_match line by line" "$(cat "$T/one")" "$(cat "$T/batch")"
+printf 'nothing\n' > "$T/none.txt"
+phrase_lines decision "$T/none.txt" > "$T/out"; eq "no match prints nothing and exits 0" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+phrase_lines decision "$T/lines.txt" "$T/missing.tsv" >/dev/null 2>&1; eq "phrase_lines on an unreadable list can't check" 2 "$?"
+phrase_lines decision "$T/absent.txt" >/dev/null 2>&1; eq "phrase_lines on an unreadable file can't check" 2 "$?"
+phrase_lines question "$T/lines.txt" >/dev/null 2>&1; eq "phrase_lines on an unknown kind can't check" 2 "$?"
+
 done_tests decision-phrasings
