@@ -62,7 +62,7 @@ not the policy owner's words.
 
 ## Options Considered
 
-- **Option 1: Approval on every filing path; under `--auto`, file only when
+- **Option 1 (chosen): Approval on every filing path; under `--auto`, file only when
   CLAUDE.md declares a tracking level, else emit an issueless PLAN with
   outlines.** Makes the stated rule true and reuses the rule the coordinated
   path already follows.

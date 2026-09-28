@@ -47,7 +47,7 @@ not the policy owner's words.
 
 ## Options Considered
 
-- **Option 1: Refuse multi-pr in `execute-open.sh`, and add it to the listed
+- **Option 1 (chosen): Refuse multi-pr in `execute-open.sh`, and add it to the listed
   refusals.** Matches /deliver's and /scope's routing and the meaning of
   multi-pr.
 - **Option 2: Correct SKILL.md to say /execute runs multi-pr PLANs on the

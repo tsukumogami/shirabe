@@ -31,10 +31,11 @@ checks pass, the `done` directive in `work-on.md` assumes green CI, and
 `ci_passing` gate. The `ci_monitor` directive tells the agent to fix what it
 can and submit `failing_fixed` when the gate fails.
 
-What runs: in `skills/work-on/koto-templates/work-on.md`, `failing_fixed`
-routes to `done` with no gate, and the fallback edge (`ci_monitor:
-unresolvable`) also reaches `done`. A run can end reporting success on red or
-unfinished CI.
+What runs: in `skills/work-on/koto-templates/work-on.md`, the `ci_monitor`
+state's `ci_outcome: failing_fixed` evidence routes to the `done` state with
+no gate, and the state's unconditional fallback edge also reaches `done`.
+Only `ci_outcome: failing_unresolvable` reaches the `done_blocked` state. A
+run can end reporting success on red or unfinished CI.
 
 ## Decision
 
@@ -47,25 +48,26 @@ not the policy owner's words.
 
 - This is the DESIGN's option 1, which was the recommendation.
 - The loop is bounded by the retry-caps decision's CI cap, the one in
-  `DECISION-contradiction-retry-caps-2026-09-28.md`: 3 fix pushes, then stop
-  as unresolvable.
+  `DECISION-contradiction-retry-caps-2026-09-28.md`: after 3 fix pushes the
+  agent submits `ci_outcome: failing_unresolvable`, which routes to the
+  `done_blocked` state.
 - The routing change lands in /work-on's template in the work-on pull request
   of the contradiction-settlement PLAN.
 
 ## Options Considered
 
-- **Option 1: `failing_fixed` loops back to `ci_monitor` and the fallback goes
-  to `done_blocked`.** Enforces the skill's own contract at the cost of one
-  more poll per fix.
+- **Option 1 (chosen): `failing_fixed` loops back to `ci_monitor` and the
+  fallback goes to `done_blocked`.** Enforces the skill's own contract at
+  the cost of one more poll per fix.
 - **Option 2: Keep the routing and correct the prose to say CI is not
   re-checked.** No behavior change, but the output contract gets weaker.
 
 ## Consequences
 
 Until this record merges, the statements it governs stay as they are. After
-it merges, a run that pushes a CI fix polls CI again before it can reach
-`done`, and a run that can't get CI green ends at `done_blocked` instead of
-`done`.
+it merges, a run that pushes a CI fix polls CI again in `ci_monitor` before
+it can reach the `done` state, and a run that can't get CI green ends at the
+`done_blocked` state instead of `done`.
 
 ## References
 

@@ -49,7 +49,7 @@ not the policy owner's words.
 
 - **Option 1: The validator skips a PLAN carrying the abandonment marker.**
   Keeps the partial PLAN; adds an exemption to the validator.
-- **Option 2: Abandonment never writes a PLAN, only the upstream artifacts.**
+- **Option 2 (chosen): Abandonment never writes a PLAN, only the upstream artifacts.**
   No exemption; the partial PLAN's content is lost unless the upstream drafts
   carry it.
 

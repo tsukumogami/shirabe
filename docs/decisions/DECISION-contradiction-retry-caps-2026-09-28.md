@@ -1,7 +1,7 @@
 ---
 status: Accepted
 decision: |
-  The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
+  The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap, stated once in its step's directive: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
 rationale: |
   The retry loops each stated a limit somewhere, and the limits disagreed: 2,
   2+, 3, 2-3, or none. Nothing in koto counts visits, so the agent had no
@@ -45,30 +45,32 @@ the CI instruction to ask the user can't be followed.
 
 ## Decision
 
-The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
+The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap, stated once in its step's directive: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
 
 ## Implementation notes
 
 These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
-- Per the PLAN, taken from the DESIGN's recommended option, analysis,
-  implementation and PR creation are capped at 3.
-- Each cap is stated once, in that step's directive.
+- The third cap, 3 for analysis, implementation and pull request creation,
+  was never put to the policy owner. It comes from the DESIGN's recommended
+  option by way of the PLAN, and it stands as the PLAN's default until
+  someone rules on it.
 - The caps apply in both /work-on and /execute.
 - The prose caps are replaced by koto's enforcement from its attempt counts
   when koto supports it, with the same numbers.
 - This is the DESIGN's option 1, state each cap once in the looping state's
   directive, which was the recommendation.
-- "Stop as unresolvable" for CI corresponds to the `failing_unresolvable`
-  outcome.
+- "Stops as unresolvable" for CI means the agent submits
+  `ci_outcome: failing_unresolvable` in the `ci_monitor` state, which routes
+  to the `done_blocked` state in both templates.
 - The caps land in /work-on's template and phase files, and in /execute's
   `ci_monitor` directive, in the work-on and execute pull requests of the
   contradiction-settlement PLAN.
 
 ## Options Considered
 
-- **Option 1: State each cap once, in the looping state's directive.** The
+- **Option 1 (chosen): State each cap once, in the looping state's directive.** The
   directive is what the agent reads when it decides.
 - **Option 2: Have koto count visits and enforce the caps.** Enforced rather
   than stated, but needs koto support that does not exist for this yet. The

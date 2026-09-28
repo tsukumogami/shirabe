@@ -28,7 +28,7 @@ fallback under a parent.
 resolves decisions inline and records `decision_provenance`. /design's own
 Phase 2 (`skills/design/references/phases/phase-2-execution.md`) always
 spawns one /decision agent per question, and `skills/design/SKILL.md` says
-Phase 2 delegates each question to the decision skill. Nothing defines when
+Phase 2 delegates each question to /decision. Nothing defines when
 the fallback applies, and the provenance field appears in no format reference
 or validator, although a /scope test fixture carries
 `decision_provenance: inline-resolved`. Whether a /scope run bypasses
@@ -44,6 +44,9 @@ These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
 - This is the DESIGN's option 2, which was the recommendation.
+- Escalation is also described in
+  `DECISION-contradiction-child-steps-under-scope-2026-09-28.md` and
+  `DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`.
 - /design's Phase 2 and format reference change in the design pull request of
   the contradiction-settlement PLAN; the dispatch reference and the /scope
   fixture change in the scope pull request.
@@ -52,7 +55,7 @@ not the policy owner's words.
 
 - **Option 1: Delete the fallback.** Every run spawns /decision agents; most
   expensive.
-- **Option 2: Under the sentinel, standard-tier questions resolve inline and
+- **Option 2 (chosen): Under the sentinel, standard-tier questions resolve inline and
   critical ones go to /decision; add the field to the format reference.** A
   condition the agent can check, and irreversible questions still get the
   full treatment.

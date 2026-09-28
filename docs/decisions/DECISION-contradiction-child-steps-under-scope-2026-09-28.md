@@ -57,6 +57,9 @@ These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
 - An unattended run takes the recommended approval and says so.
+- Escalation is also described in
+  `DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md` and
+  `DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`.
 - This is the DESIGN's option 1, which was the recommendation.
 - The statements live in /brief, /prd, /design, /plan, /scope and the
   dispatch reference, so the change lands in each of those skills' pull
@@ -65,7 +68,7 @@ not the policy owner's words.
 
 ## Options Considered
 
-- **Option 1: Children keep their verdict and status transition but skip
+- **Option 1 (chosen): Children keep their verdict and status transition but skip
   push, PR, cleanup commit, branch creation and routing prompts under the
   sentinel.** The smallest change that makes every stated promise true.
 - **Option 2: Parent-delegated approval as the dispatch reference

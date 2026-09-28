@@ -56,8 +56,8 @@ not the policy owner's words.
 - Merge text replaces rebase text everywhere the inventory names it,
   including `references/worktree-discipline.md` and /scope's Phase 2 rebase
   section.
-- Gates that mean "rebased" (execute's `worktree_sync`, `rebased_on_main`)
-  test ancestry: origin/main is an ancestor of HEAD. Any gate or script
+- Gates that mean "rebased" (the `rebased_on_main` gate in /execute's
+  `worktree_sync` state) test ancestry: origin/main is an ancestor of HEAD. Any gate or script
   asserting linear history or no merge commits changes in the same item.
 - This is a new option. The DESIGN listed three: never rebase at PR time and
   never force-push (option 1), rebase if behind before verification with a
@@ -82,7 +82,7 @@ not the policy owner's words.
 - **Option 3: Allow `--force-with-lease` inside `push-and-record.sh`, leased on
   `expected_head`.** Keeps rebase-then-push working but rewrites history on a
   branch several children commit to.
-- **Chosen: merge origin/main in, never rebase, plain push.**
+- **New option (chosen): Merge main in, never rebase, plain push.**
 
 ## Consequences
 

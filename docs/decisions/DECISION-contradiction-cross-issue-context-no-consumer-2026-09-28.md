@@ -68,7 +68,8 @@ not the policy owner's words.
   skills.
 - **Option 3: Leave it.** No work, but the instruction keeps claiming an
   effect it does not have.
-- **Chosen: wire the carry-forward through koto calls, with no file.**
+- **New option (chosen): Wire the carry-forward through koto calls, with no
+  file.**
 
 ## Consequences
 

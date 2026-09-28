@@ -1,7 +1,7 @@
 ---
 status: Accepted
 decision: |
-  The policy owner answered: "Agent decides, escalates -- note two things: 1) these skills aren't to be used only when developing tsukumogami itself. They are general purpose and built to be used by any devs. 2) a session operating a shirabe workflow is not different than a developer working on their own branch: obviously upstream will change over time, and they will have to rebase/merge and reconcile things, it's part of the job. The decision of that should be with whoever holds deciding power over the work, which locally is the agent, then its coordinator (and any coordinator of its coordinators) all the way to the user. At each step, shirabe:decision should be used to try to minimize churn and decide as close to the problem as possible, avoiding unnecessary communication between layers."
+  The policy owner answered: "Agent decides, escalates -- note two things: 1) these skills aren't to be used only when developing tsukumogami itself. They are general purpose and built to be used by any devs. 2) a session operating a shirabe workflow is not different than a developer working on their own branch: obviously upstream will change over time, and they will have to rebase/merge and reconcile things, it's part of the job. The decision of that should be with whoever holds deciding power over the work, which locally is the agent, then its coordinator (and any coordinator of its coordinators) all the way to the user. At each step, shirabe:decision should be used to try to minimize churn and decide as close to the problem as possible, avoiding unnecessary communication between layers." (one spelling corrected)
 rationale: |
   /scope's SKILL.md sent every intent-changing upstream change to the author,
   while its Phase 2 reference let the running agent settle it in place, and
@@ -37,18 +37,22 @@ code enforces either side.
 
 ## Decision
 
-The policy owner answered: "Agent decides, escalates -- note two things: 1) these skills aren't to be used only when developing tsukumogami itself. They are general purpose and built to be used by any devs. 2) a session operating a shirabe workflow is not different than a developer working on their own branch: obviously upstream will change over time, and they will have to rebase/merge and reconcile things, it's part of the job. The decision of that should be with whoever holds deciding power over the work, which locally is the agent, then its coordinator (and any coordinator of its coordinators) all the way to the user. At each step, shirabe:decision should be used to try to minimize churn and decide as close to the problem as possible, avoiding unnecessary communication between layers."
+The policy owner answered: "Agent decides, escalates -- note two things: 1) these skills aren't to be used only when developing tsukumogami itself. They are general purpose and built to be used by any devs. 2) a session operating a shirabe workflow is not different than a developer working on their own branch: obviously upstream will change over time, and they will have to rebase/merge and reconcile things, it's part of the job. The decision of that should be with whoever holds deciding power over the work, which locally is the agent, then its coordinator (and any coordinator of its coordinators) all the way to the user. At each step, shirabe:decision should be used to try to minimize churn and decide as close to the problem as possible, avoiding unnecessary communication between layers." (one spelling corrected)
 
 ## Implementation notes
 
 These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
-- Record each such decision (shirabe:decision or `koto decisions record`)
+- The answer's shirabe:decision is the /decision skill.
+- Record each such decision (/decision or `koto decisions record`)
   with its classification and reason.
 - Make the escalation path concrete in the skills' text: under a
   coordinator, the coordinator; running solo, the user; under `--auto` with
   no coordinator, an escalation stops the run.
+- Escalation is also described in
+  `DECISION-contradiction-child-steps-under-scope-2026-09-28.md` and
+  `DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`.
 - This departs from the DESIGN's recommendation, option 1, which put every
   intent-changing rebase to the author. It is closest to option 2, the
   running agent resolves in place and escalates otherwise, and extends it
@@ -66,7 +70,7 @@ not the policy owner's words.
 - **Option 2: The running agent resolves in place when it judges intent
   unchanged, and escalates otherwise.** Fewer stops, but the agent judging
   the change is the one whose work it would invalidate.
-- **Chosen: the running agent reconciles and records; escalation climbs the
+- **New option (chosen): The running agent reconciles and records; escalation climbs the
   chain of authority.**
 
 ## Consequences
