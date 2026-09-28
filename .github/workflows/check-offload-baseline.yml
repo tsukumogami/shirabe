@@ -1,0 +1,100 @@
+name: Check offload baseline
+
+# The instruction-offload baseline (docs/measurement/offload-baseline/) is a
+# template pin and a set of token figures that later changes are measured
+# against. This keeps both honest: the script's own suite, on Linux and on the
+# bash 3.2 floor, and a check that the committed pin still verifies and that
+# re-running the count at each recorded commit reproduces the recorded
+# figures exactly.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/offload-baseline.sh'
+      - 'scripts/offload-baseline_test.sh'
+      - 'docs/measurement/offload-baseline/**'
+      - '.github/workflows/check-offload-baseline.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+
+permissions:
+  contents: read
+
+env:
+  # `tsuku install` calls the GitHub API; the token keeps shared runners from
+  # hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  test-offload-baseline-script:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      # The suite needs bash, git and jq, and a koto stand-in it builds
+      # itself. This step runs it under Linux's own bash 5; the macOS leg runs
+      # it on the floor in the next step, through the `offload-baseline`
+      # suite.
+      - name: Run the suite (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/offload-baseline_test.sh
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2 (shirabe#416), and the runner is the one way onto it.
+      - name: Run the suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system offload-baseline
+
+  # Re-derives the committed baseline from shirabe's own history: the pin
+  # against its pinned commit (koto hashes included, when the installed koto
+  # is the pinned version), and the count at every commit the figures record.
+  check-recorded-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      # Exactly the koto the pin's hashes were computed under, not the newest
+      # 0.x .tsuku.toml resolves to: with any other koto, verify-pin skips the
+      # hash comparison, and this job would pass having compared nothing.
+      - name: Install the pinned koto
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: |
+          set -euo pipefail
+          want=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
+          echo "KOTO_PINNED=$want" >> "$GITHUB_ENV"
+          tsuku install -y "tsukumogami/koto@$want"
+
+      - name: Assert koto is exactly the pinned release
+        run: |
+          set -euo pipefail
+          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          if [ "$got" != "$KOTO_PINNED" ]; then
+            echo "koto on PATH is ${got:-unknown}, expected exactly $KOTO_PINNED" >&2
+            exit 1
+          fi
+
+      - name: Verify the template pin
+        run: scripts/offload-baseline.sh verify-pin
+
+      # Re-runs the count at every commit the recorded figures name and checks
+      # the README's table against them. It fails when there are no recount
+      # rows, so an emptied file can't pass.
+      - name: Reproduce the recorded figures
+        run: scripts/offload-baseline.sh check-figures

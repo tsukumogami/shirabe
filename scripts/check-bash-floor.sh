@@ -160,7 +160,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline"
 
 suite_scripts() {
     case "$1" in
@@ -415,6 +415,12 @@ suite_scripts() {
             echo "skills/scope/scripts/publish-scoping-pr_test.sh"
             echo "skills/scope/scripts/print-scope-exit_test.sh"
             ;;
+        offload-baseline)
+            # The instruction-offload baseline's pin check and token count.
+            # Its suite builds a throwaway repository and a koto stand-in and
+            # needs only bash, git and jq, so every case runs on 3.2.
+            echo "scripts/offload-baseline_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -449,6 +455,7 @@ suite_workflow() {
         scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
         coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
         coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
+        offload-baseline)     echo ".github/workflows/check-offload-baseline.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

@@ -108,7 +108,7 @@ sha256() {
 # know, so the log is refused rather than misread.
 session_log() {
     local dir f v
-    dir=$("$KOTO" session dir "$1" 2>/dev/null) || return 1
+    dir=$("$KOTO" session dir "$1") || return 1
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
     v=$(head -1 "$f" | jq -c '.schema_version') || v=unreadable
@@ -208,7 +208,7 @@ check)
         [ -z "$BODY" ] || usage
         T=$(mktemp "${TMPDIR:-/tmp}/coord-log.XXXXXX")
         trap 'rm -f "$T"' EXIT
-        "$KOTO" context get "$SESSION" "$KEY" > "$T" 2>/dev/null || die "cannot read context key $KEY"
+        "$KOTO" context get "$SESSION" "$KEY" > "$T" || die "cannot read context key $KEY"
         DIGEST=$(sha256 < "$T")
         [ "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$DIGEST")" = "$HASH" ] || { echo "coord-log: $KEY does not match its seal" >&2; exit 1; }
         cat "$T"
@@ -269,7 +269,7 @@ provenance)
     MINE=$(cd "$HERE/../../.." && pwd -P)
     [ -n "$ROOT" ] && [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$MINE" ] || { echo "coord-log: PLUGIN_ROOT is not this plugin" >&2; exit 1; }
     [ -n "$TEMPLATE" ] || TEMPLATE="$MINE/skills/coordinate/koto-templates/coordinate.md"
-    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null) || die "cannot compile $TEMPLATE"
+    COMPILED=$("$KOTO" template compile "$TEMPLATE") || die "cannot compile $TEMPLATE"
     WANT=$(basename "$COMPILED" .json)
     [ -n "$HASH" ] && [ "$HASH" = "$WANT" ] || { echo "coord-log: the session was not created from $TEMPLATE" >&2; exit 1; }
     ;;
@@ -281,7 +281,7 @@ live-session)
     # A run's name is coordinate-<slug>-<UTC stamp>; matching the stamp keeps a
     # longer slug (a -v2 roadmap) from reading as this scope's run.
     for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
-        st=$("$KOTO" status "$id" 2>/dev/null) || continue
+        st=$("$KOTO" status "$id") || continue
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
         jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue

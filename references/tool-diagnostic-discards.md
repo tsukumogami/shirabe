@@ -138,6 +138,83 @@ must itself cover `koto-templates/`, that false-positive class is guaranteed to
 recur, and the test suite asserts that exact line is not charged to `koto`
 while a real `koto` call in the same directory still is.
 
+### Tools held in a variable
+
+A script that has to locate a tool usually resolves it first and calls it
+through a variable: `KOTO=${KOTO_BIN:-koto}`, then
+`"$KOTO" status "$id" 2>/dev/null`. That call has no literal name for the tool
+test to find, so the scan reads each file's assignments (never running them)
+and charges a variable to the declared tool its value resolves to. Both arms
+see it.
+
+Traced, on a line whose first word is the assignment, with an optional
+`export`, `readonly`, `local`, `declare` or `typeset` and optional quotes around
+the value:
+
+```text
+VAR=tool                      VAR=$(command -v tool)
+VAR=${OTHER:-tool}            VAR=${OTHER:-$(command -v tool)}
+VAR=/any/path/tool            VAR="$DIR/tool"
+```
+
+`$(which tool)`, the backtick spellings and a probe with its own `2>/dev/null`
+count like `$(command -v tool)`. The `:=`, `-` and `=` expansions count like
+`:-`, and `OTHER` is charged along with `VAR`, since it's the override for the
+same tool. A value that only
+contains the name, such as `koto-open.sh` or `"koto failed"`, isn't a binding.
+
+A file also takes the bindings of each file it sources with `.` or `source`,
+recursively. That's how `board-record.sh` gets `KOTO` from `record-common.sh`
+through `board-lib.sh`. The path has to be literal, or start with one `$NAME/`,
+`${NAME}/`, `$(dirname "$0")/` or `$(dirname "${BASH_SOURCE[0]}")/`, which is
+read as the sourcing file's directory, quoted or not. The path ends at the
+first operator after it, so `. "$HERE/lib.sh" || exit 2` is followed. A sourced
+file's `local` bindings stay inside its functions. A sourced file outside the
+scanned tree, a lib under `scripts/` for instance, lends its bindings all the
+same. It is read for them, never reported as a site.
+
+A variable is charged only at command position: `$VAR`, `"$VAR"`, `${VAR}` or
+`"${VAR}"` at the start of the line, after a case arm's pattern that starts
+the line or follows `in`, `;;`, `;&` or `;;&`
+(`case "$x" in a|b) "$VAR" ...`), or after `;`, `&`, `|`, `(`, `{`, `!`, a
+backtick, or one of `then`, `do`, `else`, `elif`, `if`, `while`, `until`,
+`exec`, `command` and `time`. A variable holding the name as data isn't
+charged: an argument, a message, or a directory with a path after it
+(`"$CACHE"/run.sh`).
+`command -v "$VAR"` falls under the carve-out below.
+
+These aren't traced:
+
+- a copy (`A=$B`), an array element, indirect expansion, `eval`, or a nested
+  default
+- an assignment that isn't the line's first word, such as
+  `[ -n "$X" ] || K=koto` or `local a K=koto`
+- a variable set only by a caller or the environment
+- a call behind an env prefix (`FOO=1 "$VAR" ...`) or a runner such as
+  `timeout`, `xargs`, `env`, `nohup` or `sudo`
+- a tool wrapped in a shell function
+- a case arm whose pattern is quoted or expands a variable
+- a source path spelled any other way
+
+When the scan landed, no discard in `skills/` called a declared tool through
+any of these. A probe that charged every variable at command position
+on a discard line found only sites the trace already covers. A site that needs
+one of these shapes is enumerated by hand, with a comment line in the record
+block naming the shape. Any traced assignment charges its variable, even when
+another assignment in the same file gives it a different value. Command
+position is judged without tracking quotes, so a separator inside a string
+(`echo "a; $K"`) can charge a name held as data. That errs toward a finding,
+which a record or a rewrite settles, never toward a miss.
+
+Like a literal call, a variable-held call is judged on the line holding the
+redirect. A command continued with `\` whose redirect sits on a later line
+than the tool isn't seen, whether the tool is named or held.
+
+The trace applies wherever the scan runs, and by default that's `skills/`.
+Scripts under `scripts/`, such as `scripts/assert-koto-floor.sh`, are outside
+the default scan for literal and held calls alike. Pointing the scan at them
+brings their variable-held calls in too.
+
 ### The `command -v` carve-out
 
 `command -v <tool>` is carved out, measured rather than assumed:

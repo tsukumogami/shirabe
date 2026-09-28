@@ -122,7 +122,7 @@ LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/
 case $? in 0|1) ;; *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;; esac
 for id in $LIVE; do
     [ "$id" = "$SESSION" ] && continue
-    "$KOTO" cancel "$id" </dev/null >/dev/null 2>&1 || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
+    "$KOTO" cancel "$id" </dev/null >/dev/null || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
     echo "cancelled=$id"
 done
 printf 'session=%s\n' "$SESSION"

@@ -78,9 +78,33 @@ done
 [[ $SESSION =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]] || { echo "reconcile-pass: invalid session name" >&2; exit 64; }
 [ -d "$SDIR" ] && [ "$(basename "$SDIR")" = "$SESSION" ] || { echo "reconcile-pass: the session directory does not name this session" >&2; exit 64; }
 
-now() { if [ -n "$CLOCK_FILE" ]; then cat "$CLOCK_FILE"; else date +%s; fi; }
+# The test entry's clock file is shared with the test's stand-in re-checks,
+# which advance it while this pass reads it. Both sides write it whole (a
+# temp file of the writer's own, renamed into place), and a read that still
+# comes back empty is retried rather than taken for a time: an empty `t`
+# reaches jq as `--argjson t ""`. `now` runs in `$(...)`, where `die` ends only
+# the subshell, so every caller takes it in a plain assignment that exits on
+# its status, never inside arithmetic, where a failed read turns into a
+# wrong number instead.
+now() {
+    [ -n "$CLOCK_FILE" ] || { date +%s; return; }
+    local v i=0
+    while :; do
+        v=$(cat "$CLOCK_FILE" 2>/dev/null)
+        [ -n "$v" ] && { printf '%s\n' "$v"; return; }
+        i=$((i + 1)); [ "$i" -ge 50 ] && die "the test clock $CLOCK_FILE read empty"
+        sleep 0.02
+    done
+}
+# Under the test entry the wait advances the clock without the stand-ins'
+# lock: its one caller waits only when no re-check is running, so nothing
+# else writes the clock meanwhile.
 wait_secs() {
-    if [ -n "$CLOCK_FILE" ]; then echo $(( $(cat "$CLOCK_FILE") + $1 )) > "$CLOCK_FILE"
+    if [ -n "$CLOCK_FILE" ]; then
+        local c tmp
+        c=$(now) || exit 1
+        tmp=$(mktemp "$CLOCK_FILE.XXXXXX") || die "can't write the test clock"
+        echo $(( c + $1 )) > "$tmp" && mv "$tmp" "$CLOCK_FILE" || die "can't write the test clock"
     else sleep "$1"; fi
 }
 iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -91,7 +115,7 @@ ctx_put() { koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die 
 ctx_rm() { koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true; }
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
 
-T0=$(now)
+T0=$(now) || exit 1
 W="$SDIR/coordinate-reconcile"
 WORK="$W/visit.json"
 mkdir -p "$W" || die "can't create the work directory"
@@ -119,7 +143,13 @@ discard() { rm -rf "$WORK" "$W/report.json" "$W/report.md" "$W/reasoning.md" "$W
 # overwritten rather than trusted.
 WJ=""
 # save JSON -- keep JSON as the work document and replace the file atomically.
-save() { WJ=$1; printf '%s\n' "$WJ" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"; }
+# Callers build JSON in `$(jq ...)` and check jq's status before calling this:
+# `save "$(jq ...)"` would lose it and store jq's empty output as the work
+# file. An empty document is refused here as well.
+save() {
+    [ -n "$1" ] || die "refusing to write an empty work file"
+    WJ=$1; printf '%s\n' "$WJ" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"
+}
 wj() { printf '%s\n' "$WJ" | jq "$@"; }
 
 if [ -f "$WORK" ]; then
@@ -172,9 +202,10 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    save "$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, plugin_root: $place, facts: {}, done: false}')" \
+    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --argjson place "$PLACE" \
+        '{visit: $v, record: $rec, run_start: $rs, plugin_root: $place, facts: {}, done: false}') \
         || die "the record could not be stored"
+    save "$NEW"
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
@@ -236,11 +267,11 @@ RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=()
 
 # collect -- fold every finished read into the work file.
 collect() {
-    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t
+    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new
     i=0
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
-        t=$(now)
+        t=$(now) || exit 1
         # A result counts only once its own read has ended.
         if [ -f "$R/$id.rc" ] && ! kill -0 "${RUN_PIDS[$i]}" 2>/dev/null; then
             fact=$(jq -c '.' "$R/$id.out" 2>/dev/null | head -1)
@@ -251,7 +282,9 @@ collect() {
             if [ "$clipped" = 1 ] && printf '%s' "$fact" | jq -e '.status != "ok" and ((.reason // "") | test("timed out"))' >/dev/null 2>&1; then
                 :   # cut short by this pass's budget, not by its own deadline: read again next pass
             else
-                save "$(wj -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})')"
+                new=$(wj -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})') \
+                    || die "the fact for $id could not be written"
+                save "$new"
             fi
             rm -f "$R/$id".*
         elif [ "$t" -ge "${RUN_END[$i]}" ]; then
@@ -273,7 +306,7 @@ running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
 launch() {
-    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid
+    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid tl
     id=$(printf '%s' "$spec" | jq -r .id)
     sub=$(printf '%s' "$spec" | jq -r .sub)
     nat=$(printf '%s' "$spec" | jq -r .natural)
@@ -298,12 +331,13 @@ launch() {
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
-    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($(( $(now) + budget + 2 ))); RUN_CLIPPED+=("$clipped")
+    tl=$(now) || exit 1
+    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($((tl + budget + 2))); RUN_CLIPPED+=("$clipped")
 }
 
 while :; do
     collect
-    t=$(now)
+    t=$(now) || exit 1
     el=$((t - T0))
     plan "$t" > "$T/plan" || die "the plan could not be read"
     ready=0 wait_until=0
@@ -317,7 +351,8 @@ while :; do
             continue
         fi
         ready=$((ready + 1))
-        el=$(( $(now) - T0 ))
+        tn=$(now) || exit 1
+        el=$((tn - T0))
         left=$((READS_END - el))
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ]; then
             launch "$spec" "$left"
@@ -334,8 +369,11 @@ while :; do
     sleep 0.05
 done
 
-# Anything left is read in a later pass.
-LEFT=$(plan "$(now)" | grep -c . || true)
+# Anything left is read in a later pass. A plan that can't be read must not
+# count as nothing left, or the pass would seal with re-checks unread.
+t=$(now) || exit 1
+plan "$t" > "$T/plan" || die "the plan could not be read"
+LEFT=$(grep -c . "$T/plan" || true)
 if [ "$LEFT" -gt 0 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
     printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
@@ -388,7 +426,8 @@ else
 fi
 koto context get "$SESSION" reconcile/report.json > "$T/back.json" 2>/dev/null || die "the stored report can't be read back"
 [ "$(rd_sha256 < "$T/back.json")" = "$DIGEST" ] || die "the stored report differs from the one written"
-save "$(wj -c '.done = true')"
+NEW=$(wj -c '.done = true') || die "the work file could not be marked done"
+save "$NEW"
 LINE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
     || die "the report could not be sealed"
 # The facts are this visit's: a seal for a later entry into the state would

@@ -1,0 +1,46 @@
+{
+  "pinned_commit": "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10",
+  "koto_version": "0.14.1",
+  "templates": [
+    {
+      "skill": "work-on",
+      "path": "skills/work-on/koto-templates/work-on.md",
+      "declared_name": "work-on",
+      "declared_version": "1.0",
+      "git_blob": "2fc5f25631e0916a112dfc20af923a7c16e364d3",
+      "koto_template_hash": "d149614dd7047376910069298b0d668abab4271d734d9fdaf1be327862f5519b"
+    },
+    {
+      "skill": "execute",
+      "path": "skills/execute/koto-templates/execute-coordinated.md",
+      "declared_name": "execute-coordinated",
+      "declared_version": "1.0",
+      "git_blob": "1a6ef5fc31d2efb1169554c562fc958ae8fbc46c",
+      "koto_template_hash": "4495434e1ce42de2750edc523f0c5bd767d46a86d46cd7c73dfd46f90b242653"
+    },
+    {
+      "skill": "execute",
+      "path": "skills/execute/koto-templates/execute.md",
+      "declared_name": "execute",
+      "declared_version": "1.0",
+      "git_blob": "ac8c4b133e93392297f02e9c0a7e3dd6ee5a8d32",
+      "koto_template_hash": "f4bbde3c7d2950ce9eef23591119800c384da2d6397d60fe4bebfa602baa6f01"
+    },
+    {
+      "skill": "scope",
+      "path": "skills/scope/koto-templates/scope.md",
+      "declared_name": "scope",
+      "declared_version": "1.0",
+      "git_blob": "4bdf006a23ca1a810099018bbd9b3d3910a91c0b",
+      "koto_template_hash": "0caf21f81e007fad889f2b6adb089db6701e02f35d615f6e8d81a55edf1fe55c"
+    },
+    {
+      "skill": "deliver",
+      "path": "skills/deliver/koto-templates/deliver.md",
+      "declared_name": "deliver",
+      "declared_version": "1.0",
+      "git_blob": "1b549500f0c2358f370307a35ecc425186bf3b63",
+      "koto_template_hash": "f305c947c62d05179c542ef3f262d82f52dc242cdd6d4550021c29cdaff321ad"
+    }
+  ]
+}
