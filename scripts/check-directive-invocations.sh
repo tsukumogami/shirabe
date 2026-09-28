@@ -5,7 +5,9 @@ set -euo pipefail
 # worktree-isolated session refuses, or names a script that cannot run by path.
 #
 # A directive is text the agent reads and acts on: a SKILL.md, a koto template,
-# a reference or phase file under skills/ or references/. When one says to run
+# a reference or phase file under skills/ or references/, a
+# .claude/shirabe-extensions/*.md file every SKILL.md pulls in with `@`, and
+# the repository's CLAUDE.md and AGENTS.md. When one says to run
 # `bash {{PLUGIN_ROOT}}/skills/x/scripts/y.sh args`, a Claude Code session
 # isolated in a worktree refuses the command line: it cannot show what a script
 # handed to `bash` does with git, so it will not let the call through. The same
@@ -38,8 +40,16 @@ set -euo pipefail
 #                     recorded with mode 100755 in git's index (`git ls-files
 #                     -s`), which in CI is the committed mode. Fix:
 #                     `git update-index --chmod=+x <path>`.
-#   shebang           The same script's first line is not a `#!` line. Fix:
-#                     start it with `#!/usr/bin/env bash`.
+#   shebang           The same script's first line is not a `#!` line, or it
+#                     carries a carriage return. Fix: start it with
+#                     `#!/usr/bin/env bash`, with LF line endings. The CR half
+#                     fails silently otherwise: run by path, a CRLF script asks
+#                     the kernel for an interpreter named `bash\r`, the call
+#                     exits 127, and a SKILL.md preflight line guarded with
+#                     `2>&1 || true` swallows that, so the skill loads with no
+#                     preflight and nothing says so. `.gitattributes` pins
+#                     `*.sh` to LF, which keeps a CRLF host from introducing
+#                     one; this rule catches a file that arrives some other way.
 #   unresolved        A root-anchored path names no file in the tree. The other
 #                     two rules cannot be enforced on a file the check cannot
 #                     find, and passing it would overstate what was checked.
@@ -91,8 +101,9 @@ set -euo pipefail
 #
 #   scripts/check-directive-invocations.sh
 #
-# Scans every tracked `.md` under skills/ and references/ in the repository,
-# outside skills/*/evals/.
+# Scans every tracked `.md` under skills/, references/ and
+# .claude/shirabe-extensions/ in the repository, outside skills/*/evals/, plus
+# the root CLAUDE.md and AGENTS.md.
 #
 # Environment:
 #   DIRECTIVE_INVOCATIONS_ROOT        the git work tree to scan (tests use it)
@@ -107,9 +118,9 @@ ROOT="${DIRECTIVE_INVOCATIONS_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 ALLOWLIST="${DIRECTIVE_INVOCATIONS_ALLOWLIST:-$SCRIPT_DIR/check-directive-invocations.allow}"
 
 TAB=$(printf '\t')
+CR=$(printf '\r')
 
 errors=0
-allow_records=""
 reported=""
 
 RULE_BASH="bash-invocation"
@@ -119,69 +130,10 @@ RULE_UNRESOLVED="unresolved"
 
 # -- allowlist ---------------------------------------------------------------
 
-# Records are "<rule>\t<file>\t<subject>\t<issue>\t<reason>". The file path is
-# repository-relative; the subject is the script path exactly as the directive
-# writes it.
-load_allowlist() {
-    [ -f "$ALLOWLIST" ] || return 0
-
-    local line rule file subject issue rest lineno=0
-    while IFS= read -r line || [ -n "$line" ]; do
-        lineno=$((lineno + 1))
-        case "$line" in
-            ''|'#'*) continue ;;
-        esac
-
-        rule="${line%%"$TAB"*}"; rest="${line#*"$TAB"}"
-        file="${rest%%"$TAB"*}"; rest="${rest#*"$TAB"}"
-        subject="${rest%%"$TAB"*}"; rest="${rest#*"$TAB"}"
-        issue="${rest%%"$TAB"*}"
-
-        if [ "$rule" = "$line" ] || [ -z "$file" ] || [ -z "$subject" ]; then
-            echo "FAIL: $ALLOWLIST:$lineno is not a tab-separated record"
-            echo "  expected: <rule><TAB><file><TAB><subject><TAB><issue><TAB><reason>"
-            errors=$((errors + 1))
-            continue
-        fi
-
-        case "$rule" in
-            "$RULE_BASH"|"$RULE_EXEC"|"$RULE_SHEBANG"|"$RULE_UNRESOLVED") ;;
-            *)
-                echo "FAIL: $ALLOWLIST:$lineno names an unknown rule '$rule'"
-                echo "  known rules: $RULE_BASH, $RULE_EXEC, $RULE_SHEBANG, $RULE_UNRESOLVED"
-                errors=$((errors + 1))
-                continue
-                ;;
-        esac
-
-        # An allowlist entry is a deferral, and a deferral needs somewhere to be
-        # chased. Without a ticket it is just a suppression nobody revisits.
-        case "$issue" in
-            *[A-Za-z0-9]'#'[0-9]*) ;;
-            *)
-                echo "FAIL: $ALLOWLIST:$lineno has no issue reference"
-                echo "  field 4 must carry one, in the form owner/repo#N"
-                echo "  record: $line"
-                errors=$((errors + 1))
-                continue
-                ;;
-        esac
-
-        allow_records="${allow_records}${rule}|${file}|${subject}
-"
-    done < "$ALLOWLIST"
-}
-
-# is_allowed <rule> <file> <subject>
-is_allowed() {
-    case "
-$allow_records" in
-        *"
-$1|$2|$3
-"*) return 0 ;;
-    esac
-    return 1
-}
+# The loader is shared with check-template-directives.sh. Here a record's
+# location is the repository-relative directive file, and its subject the
+# script path exactly as the directive writes it.
+. "$SCRIPT_DIR/lib/allowlist.sh"
 
 # first_report <rule> <file> <subject> -- true the first time a key is seen.
 first_report() {
@@ -290,7 +242,7 @@ resolve_ref() {
 report() {
     local rule="$1" file="$2" lineno="$3" subject="$4"
     shift 4
-    is_allowed "$rule" "$file" "$subject" && return 0
+    allowlist_has "$rule" "$file" "$subject" && return 0
     first_report "$rule" "$file" "$subject" || return 0
     echo "FAIL: $file:$lineno [$rule] $subject"
     local m
@@ -346,6 +298,13 @@ check_file() {
                         "Fix: git update-index --chmod=+x $rel"
                 fi
                 case "$(head -n 1 "$ROOT/$rel")" in
+                    *"$CR"*)
+                        report "$RULE_SHEBANG" "$file" "$lineno" "$token" \
+                            "$rel has a carriage return on its #! line (CRLF line endings)." \
+                            "Run by path, the kernel looks for an interpreter whose name ends" \
+                            "in a CR, finds none, and the call exits 127." \
+                            "Fix: convert it to LF line endings (.gitattributes pins *.sh to LF)."
+                        ;;
                     '#!'*) ;;
                     *)
                         report "$RULE_SHEBANG" "$file" "$lineno" "$token" \
@@ -362,9 +321,11 @@ EOF
 
 # -- main --------------------------------------------------------------------
 
-load_allowlist
+allowlist_load "$ALLOWLIST" file \
+    "$RULE_BASH" "$RULE_EXEC" "$RULE_SHEBANG" "$RULE_UNRESOLVED"
 
-FILES=$(git -C "$ROOT" ls-files -- skills references \
+FILES=$(git -C "$ROOT" ls-files -- skills references .claude/shirabe-extensions \
+        CLAUDE.md AGENTS.md \
     | grep -E '\.md$' \
     | grep -vE '^skills/[^/]+/evals/' || true)
 
