@@ -255,9 +255,14 @@ frontmatter_scalar() {
 # Lists the koto templates of the pinned skills at <sha>, one path per line.
 templates_at() {
     local sha="$1" skill
+    # --full-tree: paths are from the repository root even when the caller
+    # runs from a subdirectory. The greps end with `|| true` so an empty
+    # listing is an empty set, which the comparison below reports, rather
+    # than a pipefail exit with nothing said.
     for skill in $PINNED_SKILLS; do
-        git ls-tree --name-only "$sha" -- "skills/$skill/koto-templates/" 2>/dev/null
-    done | grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' | grep -v '\.mermaid\.md$' | LC_ALL=C sort
+        git ls-tree --full-tree --name-only "$sha" -- "skills/$skill/koto-templates/" 2>/dev/null || true
+    done | { grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' || true; } \
+         | { grep -v '\.mermaid\.md$' || true; } | LC_ALL=C sort
 }
 
 cmd_verify_pin() {
@@ -285,7 +290,7 @@ cmd_verify_pin() {
     commit=$(jq -r '.pinned_commit // empty | strings' "$pin")
     koto_pinned=$(jq -r '.koto_version // empty | strings' "$pin")
     [ -n "$commit" ] || { echo "$PROG: pin has no pinned_commit" >&2; exit 1; }
-    [ -n "$koto_pinned" ] || mismatch "pin has no koto_version"
+    [ -n "$koto_pinned" ] || { mismatch "pin has no koto_version"; koto_pinned="(none)"; }
     jq -e '.templates | type == "array"' "$pin" >/dev/null 2>&1 \
         || { echo "$PROG: pin has no templates array" >&2; exit 1; }
 

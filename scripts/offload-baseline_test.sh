@@ -196,6 +196,21 @@ else
     fail "verify-pin: a correct pin passes" "status $STATUS, stderr: $ERR"
 fi
 
+# From a subdirectory: paths in the pin are from the repository root.
+STATUS=0
+ERR=$(cd "$FIX/skills/work-on" && PATH="$STUB_BIN:$PATH" STUB_KOTO_VERSION=1.2.3 "$SUT" verify-pin --pin "$GOOD_PIN" 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    0:*"pin verified"*) pass "verify-pin: works from a subdirectory of the repository" ;;
+    *) fail "verify-pin: works from a subdirectory of the repository" "status $STATUS, stderr: $ERR" ;;
+esac
+STATUS=0
+ERR=$(cd "$FIX/skills/work-on" && PATH="$STUB_BIN:$PATH" STUB_KOTO_VERSION=1.2.3 "$SUT" verify-pin --pin "$(pin_with 'del(.templates[4])')" 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    1:*"missing entry for skills/work-on/koto-templates/work-on.md"*)
+        pass "verify-pin: names a missing entry from a subdirectory" ;;
+    *) fail "verify-pin: names a missing entry from a subdirectory" "status $STATUS, stderr: $ERR" ;;
+esac
+
 KV=0.0.1 run verify-pin --pin "$GOOD_PIN"
 case "$STATUS:$ERR" in
     0:*"koto hash comparison skipped: installed koto 0.0.1, pinned 1.2.3"*)
