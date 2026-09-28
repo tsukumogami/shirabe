@@ -190,9 +190,11 @@ EOF
             failed=1
             continue
         fi
-        case "$weight" in
-            *[!0-9.]*|""|.) echo "$PROG: bad weight '$weight' for $path" >&2; failed=1; continue ;;
-        esac
+        if ! printf '%s\n' "$weight" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+            echo "$PROG: bad weight '$weight' for $path" >&2
+            failed=1
+            continue
+        fi
         if bytes=$(span_bytes "$sha" "$path" "$selector"); then
             printf '%s\t%s\t%s\t%s\n' "$profile" "$path|$selector" "$bytes" "$weight" >> "$rows"
         else
@@ -294,6 +296,19 @@ cmd_verify_pin() {
 
     TMP_DIR=$(mktemp -d)
 
+    # koto compiles a template together with the child templates it names by
+    # relative path (execute.md names ../../work-on/koto-templates/work-on.md),
+    # so every pinned skill's koto-templates/ directory is extracted with its
+    # layout intact. The compiled hash does not depend on where the tree sits.
+    if [ "$compare_koto" -eq 1 ]; then
+        mkdir -p "$TMP_DIR/tree"
+        local kt
+        for kt in $(templates_at "$sha"); do
+            mkdir -p "$TMP_DIR/tree/$(dirname "$kt")"
+            blob "$sha" "$kt" > "$TMP_DIR/tree/$kt"
+        done
+    fi
+
     # The set of paths must equal the set of templates at the commit.
     templates_at "$sha" > "$TMP_DIR/expected"
     jq -r '.templates[] | (.path // "") | strings' "$pin" | LC_ALL=C sort > "$TMP_DIR/actual"
@@ -353,8 +368,7 @@ EOF
             || mismatch "entry $path: declared_version '$declared_version', but the template says '$actual_version'"
 
         if [ "$compare_koto" -eq 1 ]; then
-            blob "$sha" "$path" > "$TMP_DIR/template.md"
-            if compiled=$(koto template compile "$TMP_DIR/template.md" 2>/dev/null); then
+            if compiled=$(koto template compile "$TMP_DIR/tree/$path" 2>/dev/null); then
                 actual_hash=$(basename "$compiled" .json)
                 [ "$actual_hash" = "$koto_hash" ] \
                     || mismatch "entry $path: koto_template_hash $koto_hash, but koto $koto_installed compiles $actual_hash"

@@ -59,13 +59,20 @@ mkdir -p "$FIX" "$STUB_BIN"
 
 # A koto stand-in: `koto version` reports $STUB_KOTO_VERSION, and
 # `koto template compile <file>` prints a cache path named by the file's
-# sha256.
+# sha256. Like the real koto, it refuses a template whose default_template
+# names a child that does not exist relative to the template's own directory,
+# which is what execute.md does with work-on.md.
 cat > "$STUB_BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
     version) echo "koto ${STUB_KOTO_VERSION:-9.9.9} (stub)" ;;
     template)
         [ "$2" = compile ] || exit 2
+        child=$(sed -n 's/^default_template: *//p' "$3" | head -n 1)
+        if [ -n "$child" ] && [ ! -f "$(dirname "$3")/$child" ]; then
+            echo "child template not found: $child" >&2
+            exit 1
+        fi
         if command -v sha256sum >/dev/null 2>&1; then
             h=$(sha256sum "$3" | awk '{ print $1 }')
         else
@@ -103,7 +110,11 @@ for s in work-on scope deliver; do
     template "$s" 1.0 alpha beta > "$FIX/skills/$s/koto-templates/$s.md"
 done
 mkdir -p "$FIX/skills/execute/koto-templates" "$FIX/skills/other/koto-templates"
-template execute 1.0 alpha beta > "$FIX/skills/execute/koto-templates/execute.md"
+# execute.md names its child by a relative path, as the shipped one does, so
+# verify-pin has to compile it with the other templates beside it.
+template execute 1.0 alpha beta \
+    | awk '{ print } $0 == "description: fixture" { print "default_template: ../../work-on/koto-templates/work-on.md" }' \
+    > "$FIX/skills/execute/koto-templates/execute.md"
 template execute-coordinated 1.0 gamma > "$FIX/skills/execute/koto-templates/execute-coordinated.md"
 printf 'graph TD\n' > "$FIX/skills/execute/koto-templates/execute.mermaid.md"
 template other 1.0 alpha > "$FIX/skills/other/koto-templates/other.md"
