@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The koto-templated skills (/work-on, /execute, /scope, /deliver), the
   references they load, and the references /scope's hops load through /brief,
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-contradiction-settlement](docs/briefs/BRIEF-contradiction-settlement.md); carried in Absorbed Brief.
 
@@ -103,8 +103,9 @@ disagreements today, so that work has nothing to depend on.
   do something. A script or template gate enforcing the same rule is not a
   statement, because the agent does not read it before acting.
 - **Recorded decision.** A file
-  `docs/decisions/DECISION-contradiction-<identifier>-<YYYY-MM-DD>.md` naming
-  the chosen option, merged to `main`.
+  `docs/decisions/DECISION-contradiction-<identifier>-<YYYY-MM-DD>.md` that
+  carries the policy owner's answer and names the chosen option, merged to
+  `main` by a person. An agent may draft the file; no agent merges it.
 
 ## Goals
 
@@ -191,9 +192,10 @@ disagreements today, so that work has nothing to depend on.
   An R2 item is in scope even when both statements sit in one file.
 - **R3. Locations.** Each item names every side as a repository-relative path
   plus a line range (`<path>#L<start>-L<end>`) or a heading
-  (`<path>#<heading>`), plus a verbatim excerpt from the span that occurs
-  exactly once in that file at the inventory commit, so a work item can find
-  it. All locations are at the inventory commit, named
+  (`<path>#<heading>`), plus a verbatim excerpt that occurs exactly once in
+  that file at the inventory commit, so a work item can find it. The excerpt
+  comes from the span, or, when the span is a verbatim copy of other text in
+  the same file, from the nearest unique line above it, marked as such. All locations are at the inventory commit, named
   once at the top of the inventory.
 - **R4. Identifier.** Each item has a kebab-case identifier, unique within the
   inventory, that does not change when line numbers do. Later documents cite
@@ -263,9 +265,9 @@ disagreements today, so that work has nothing to depend on.
   named survivor; and no `policy` item's statements changed before its
   recorded decision merged.
 - **R17. Policy items after their decision.** The maintainer who owns
-  workflow policy answers each `policy` item, and whoever drives execution
-  writes the recorded decision, which names the file that will carry the
-  rule. A work item for that item then makes that file's statement the
+  workflow policy answers each `policy` item. The recorded decision carries
+  that answer, names the file that will carry the rule, and is merged by a
+  person; an agent may draft it but never merges it. A work item for that item then makes that file's statement the
   winner, writing it there when the chosen option was stated nowhere, and
   R16's result check applies to it as to a `mechanical` item. A `policy` item with no recorded decision keeps its statements
   unchanged.
@@ -287,7 +289,9 @@ disagreements today, so that work has nothing to depend on.
 
 - **R20. Public content.** Nothing committed, and no pull request body, names
   a repository outside the public ones this project publishes, contains an
-  absolute home path, a `wip/` path in a committed document, a session or
+  absolute home path, a `wip/` path naming a concrete file (a pattern with a
+  placeholder such as `<topic>`, quoted from a skill's convention, is not a
+  reference), a session or
   instance name, or a job identifier.
 
 ## Acceptance Criteria
@@ -323,7 +327,7 @@ Scoping pull request:
 - [ ] `git diff --name-only main...HEAD` on the scoping pull request lists
       only paths under `docs/` (R10, R14).
 - [ ] A search of the committed files and the pull request body for
-      `/home/`, `/Users/`, `wip/` (outside `wip/` itself), repository names
+      `/home/`, `/Users/`, concrete `wip/` file paths, repository names
       outside the project's public set, session URLs and job identifiers
       finds nothing (R20).
 - [ ] The scoping pull request is open against `main` with every CI job
