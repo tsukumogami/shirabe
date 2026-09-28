@@ -11,7 +11,11 @@
 #   with KOTO_CALL_LOG set, the tick's state reaches `koto status`, the
 #     fixture's context assignments reach `koto context get` with
 #     ${evidence.<field>} filled in, a finished session answers later ticks
-#     with its terminal, and every call is logged
+#     with its terminal, refuses further evidence as koto's terminal_state,
+#     and every call is logged
+#   state is per scenario, and `init --replace-terminal` on a finished
+#     session starts it fresh, so runs sharing a clone don't leak into each
+#     other
 #   `context add` / `context exists` round-trip with session state, and stay
 #     unmatched without it
 #   evidence no fixture answers fails as no match
@@ -94,6 +98,14 @@ got=$(k "$SC" "$LOG" next "$WF" --no-cleanup | jq -r '"\(.action) \(.state)"')
 [ "$got" = "done done_blocked" ] \
     && pass "a later bare tick on the finished session answers its terminal" \
     || fail "a later bare tick answered [$got]"
+
+resp=$(k "$SC" "$LOG" next "$WF" --with-data '{"impact":"intent-changing","rationale":"a second try"}' --no-cleanup); rc=$?
+if [ "$rc" -eq 2 ] && [ "$(printf '%s' "$resp" | jq -r .error.code)" = terminal_state ] \
+    && [ "$(k "$SC" "$LOG" context get "$WF" failure_reason)" = "worktree_discipline_check: upstream-drift detected (intent-changing): main deleted the PLAN doc" ]; then
+    pass "evidence on the finished session is refused as terminal_state (exit 2) and the context is untouched"
+else
+    fail "evidence on a finished session: rc $rc, [$resp]"
+fi
 
 if grep -qx "next $WF --with-data @$EVIDENCE --no-cleanup" "$LOG" \
     && grep -qx "context get $WF failure_reason" "$LOG"; then
@@ -178,6 +190,35 @@ fi
 [ "$(k drift-informational "$LOG4" status "$WF" | jq -r .current_state)" = spawn_and_await ] \
     && pass "drift-informational: status reports spawn_and_await" \
     || fail "drift-informational status: [$(k drift-informational "$LOG4" status "$WF")]"
+
+# --- one clone, several runs -------------------------------------------------
+#
+# The drift evals share a clone, a call log and a session name, so a finished
+# run must not answer for the next scenario, or for a run that enters afresh.
+
+LOG5="$WORK/shared/koto-calls.log"
+mkdir -p "$WORK/shared"
+k drift-intent-changing "$LOG5" next "$WF" --no-cleanup >/dev/null
+k drift-intent-changing "$LOG5" next "$WF" --with-data '{"impact":"intent-changing","rationale":"r"}' --no-cleanup >/dev/null
+got=$(k drift-informational "$LOG5" next "$WF" --no-cleanup | jq -r .state)
+[ "$got" = worktree_discipline_check ] \
+    && pass "another scenario on the same log and session starts from its own first tick" \
+    || fail "drift-informational after drift-intent-changing answered [$got]"
+
+k drift-intent-changing "$LOG5" init "$WF" --template x --attach-live --replace-terminal >/dev/null
+got=$(k drift-intent-changing "$LOG5" status "$WF" | jq -r .current_state)
+k drift-intent-changing "$LOG5" context exists "$WF" failure_reason; rc=$?
+if [ "$got" = unknown ] && [ "$rc" -eq 1 ] \
+    && [ "$(k drift-intent-changing "$LOG5" next "$WF" --no-cleanup | jq -r .state)" = worktree_discipline_check ]; then
+    pass "init --replace-terminal on a finished session starts it fresh, as koto does"
+else
+    fail "after init --replace-terminal: status [$got], failure_reason exists rc $rc"
+fi
+
+k drift-intent-changing "$LOG5" init "$WF" --template x --attach-live --replace-terminal >/dev/null
+[ "$(k drift-intent-changing "$LOG5" status "$WF" | jq -r .current_state)" = worktree_discipline_check ] \
+    && pass "init --attach-live on a live session keeps it" \
+    || fail "init on a live session dropped its state"
 
 # --- the older work-on arm ---------------------------------------------------
 

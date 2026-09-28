@@ -1316,7 +1316,7 @@ Submit `impact` as one of:
 
 ## escalate_upstream_drift
 
-A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The terminal state routes to `done_blocked` carrying the `failure_reason` for batch-view visibility.
+A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The tick that submitted `intent-changing` chains through this state to `done_blocked`, which keeps the `failure_reason` `worktree_discipline_check` wrote, rationale included.
 
 ## spawn_and_await
 

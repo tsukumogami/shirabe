@@ -49,9 +49,15 @@ ARGS="$*"
 # state a tick landed on. It needs KOTO_CALL_LOG (the eval's `env` declares
 # it); the state lives in "$KOTO_CALL_LOG.d" and every call is appended to the
 # log. Without it the shim is stateless, as it always was.
+#
+# The state is keyed by scenario as well as by session, because scenarios
+# share a clone and a session name (execute-diamond-test). And `init` with
+# --replace-terminal on a finished session starts it fresh, as koto does: that
+# is how /execute enters, so a later run in the same clone doesn't inherit an
+# earlier run's terminal.
 STATE_DIR=""
 if [ -n "${KOTO_CALL_LOG:-}" ]; then
-  STATE_DIR="$KOTO_CALL_LOG.d"
+  STATE_DIR="$KOTO_CALL_LOG.d/$EVAL_SCENARIO"
   mkdir -p "$STATE_DIR"
   printf '%s\n' "$ARGS" >> "$KOTO_CALL_LOG"
 fi
@@ -60,6 +66,13 @@ fi
 key_file() {
   printf '%s/ctx/%s/%s' "$STATE_DIR" "$1" "$(printf '%s' "$2" | tr '/' '_')"
 }
+
+if [ -n "$STATE_DIR" ] && [ "${1:-}" = init ] && [ -n "${2:-}" ] \
+    && case " $ARGS " in *" --replace-terminal "*) true ;; *) false ;; esac \
+    && [ -f "$STATE_DIR/status/$2.json" ] \
+    && jq -e '.is_terminal == true' "$STATE_DIR/status/$2.json" >/dev/null 2>&1; then
+  rm -rf "$STATE_DIR/ctx/$2" "$STATE_DIR/last/$2.json" "$STATE_DIR/status/$2.json"
+fi
 
 # An execute session's tick: `next execute-<slug> [--with-data <json|@file>]`.
 # A bare tick answers koto-next-execute.json. A tick with evidence answers
@@ -79,6 +92,14 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
     prev=$a
   done
   case "$data" in @*) data=$(cat "${data#@}") ;; esac
+
+  # A finished session refuses evidence and keeps its context, as koto does.
+  if [ -n "$data" ] && [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ] \
+      && jq -e '.action == "done"' "$STATE_DIR/last/$wf.json" >/dev/null 2>&1; then
+    printf '{"error":{"code":"terminal_state","details":[],"message":"cannot submit evidence: state '"'"'%s'"'"' is terminal"}}\n' \
+      "$(jq -r .state "$STATE_DIR/last/$wf.json")"
+    exit 2
+  fi
 
   fixture=""
   if [ -z "$data" ]; then
