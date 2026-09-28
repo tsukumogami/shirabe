@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-contradiction-settlement.md
 problem: |
   The koto-templated skills and the references they and /scope's hops load
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -1124,7 +1124,7 @@ Rationale and descriptions of what a script or gate does, inside directives; the
 
 ##### `dp-scope-history`
 
-Profiles: `scope`. Size: 10194 bytes (about 2548 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 7140 bytes (about 1785 tokens). Only statement of a rule in force: no.
 
 Prose that narrates an earlier revision of the skill.
 
@@ -1142,16 +1142,30 @@ Prose that narrates an earlier revision of the skill.
 - `skills/scope/references/state-schema.md#L188-L201`, 789 bytes, excerpt `` `stage:` names where the verdict settled: ``
 - `skills/scope/references/phases/phase-3-exit-finalization.md#L403-L406`, 239 bytes, excerpt `is a restatement for readers working in this`
 - `skills/scope/koto-templates/scope.md#L2198-L2203`, 456 bytes, excerpt `**The branch check ran before this state.**`
+
+##### `dp-brief-history`
+
+Profiles: `scope`. Size: 2632 bytes (about 658 tokens). Only statement of a rule in force: no.
+
+Prose that narrates an earlier revision of the skill.
+
 - `skills/brief/SKILL.md#L273-L279`, 410 bytes, excerpt `- **Always produces a brief:** there is no`
 - `skills/brief/references/phases/phase-0-setup.md#L20-L21`, 158 bytes, excerpt `` - Record the artifact decision as `produce`. ``
 - `skills/brief/references/phases/phase-0-setup.md#L162-L167`, 415 bytes, excerpt `**This check carries more weight than it`
 - `skills/brief/references/phases/phase-0-setup.md#L299-L319`, 1358 bytes, excerpt `**What changed and why.** An earlier revision`
 - `skills/writing-style/SKILL.md#L29-L32`, 291 bytes, excerpt `This file does not restate that list. It`
+
+##### `dp-plan-history`
+
+Profiles: `scope`. Size: 422 bytes (about 105 tokens). Only statement of a rule in force: no.
+
+Prose that narrates an earlier revision of the skill.
+
 - `skills/plan/references/phases/phase-7-creation.md#L557-L562`, 422 bytes, excerpt `A single earlier bash pre-flight used to`
 
 ##### `dp-scope-rationale`
 
-Profiles: `scope`. Size: 19245 bytes (about 4811 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 14507 bytes (about 3626 tokens). Only statement of a rule in force: no.
 
 - `skills/scope/SKILL.md#L26-L52`, 1608 bytes, excerpt `` `/scope` is the second parent skill in the ``
 - `skills/scope/SKILL.md#L61-L80`, 1299 bytes, excerpt `Two properties are what the workflow buys,`
@@ -1170,12 +1184,22 @@ Profiles: `scope`. Size: 19245 bytes (about 4811 tokens). Only statement of a ru
 - `skills/scope/references/phases/phase-2-chain-orchestration.md#L880-L888`, 459 bytes, excerpt `### Manual-fallback boundary`
 - `skills/scope/koto-templates/scope.md#L2272-L2277`, 426 bytes, excerpt `The ordering above is in the directive, and`
 - `references/fixes/sub-agent-dispatch.md#L8-L11`, 246 bytes, excerpt `This file is dereferenced on-demand by each`
+
+##### `dp-plan-rationale`
+
+Profiles: `scope`. Size: 4141 bytes (about 1035 tokens). Only statement of a rule in force: no.
+
 - `skills/plan/SKILL.md#L86-L116`, 1656 bytes, excerpt `PLANs are ephemeral: when the work completes,`
 - `skills/plan/references/phases/phase-7-creation.md#L249-L256`, 576 bytes, excerpt `A plan whose strategy section only points`
 - `skills/plan/references/phases/phase-7-creation.md#L538-L543`, 427 bytes, excerpt `` `shirabe validate` is the reader here rather ``
 - `skills/plan/references/phases/phase-7-creation.md#L596-L603`, 551 bytes, excerpt `**Worked example (the failure mode this step`
 - `skills/plan/references/phases/phase-1-analysis.md#L72-L81`, 612 bytes, excerpt `This is the symmetric three-skill contract:`
 - `skills/plan/references/quality/plan-doc-structure.md#L374-L380`, 319 bytes, excerpt `## Section Placement (Legacy Context)`
+
+##### `dp-design-rationale`
+
+Profiles: `scope`. Size: 597 bytes (about 149 tokens). Only statement of a rule in force: no.
+
 - `skills/design/SKILL.md#L39`, 316 bytes, excerpt `DESIGN is durable because the architectural`
 - `skills/design/references/phases/phase-0-setup-prd.md#L54-L58`, 281 bytes, excerpt `then proceed past the hard-stop check. The`
 
@@ -1224,7 +1248,7 @@ Per-state mechanics, pause, merge, owned-PR takeover, coordinated states, outcom
 
 ##### `dp-scope-duplicates`
 
-Profiles: `scope`. Size: 18072 bytes (about 4518 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 14772 bytes (about 3693 tokens). Only statement of a rule in force: no.
 
 - `skills/scope/references/phases/phase-3-exit-finalization.md#L397-L510`, 5374 bytes, excerpt `## Closed Write-Target Set`; survivor `skills/scope/SKILL.md#L606-L711`
 - `skills/scope/references/phases/phase-4-cleanup.md#L88-L163`, 3885 bytes, excerpt `## Read-Back of Phase 3's Closed Write-Target`; survivor `skills/scope/SKILL.md#L606-L711`
@@ -1233,12 +1257,22 @@ Profiles: `scope`. Size: 18072 bytes (about 4518 tokens). Only statement of a ru
 - `skills/scope/koto-templates/scope.md#L2208-L2213`, 396 bytes, excerpt `Ignore koto's discovery warnings about sessions`; survivor `skills/scope/SKILL.md#L442-L444`
 - `skills/scope/SKILL.md#L333-L352`, 1094 bytes, excerpt `## Topic-Slug Constraint`; survivor `skills/scope/references/phases/phase-0-setup.md#L187-L212`
 - `skills/scope/SKILL.md#L275-L295`, 1197 bytes, excerpt `## Upstream Flag`; survivor `skills/scope/references/phases/phase-0-setup.md#L256-L355`
+
+##### `dp-plan-duplicates`
+
+Profiles: `scope`. Size: 2793 bytes (about 698 tokens). Only statement of a rule in force: no.
+
 - `skills/plan/SKILL.md#L492-L496`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/plan/SKILL.md#L480-L481`
 - `skills/plan/SKILL.md#L503-L508`, 378 bytes, excerpt `For roadmap input, populating the roadmap's`; survivor `skills/plan/references/phases/phase-7-creation.md#L35-L44`
 - `skills/plan/SKILL.md#L611-L618`, 482 bytes, excerpt `**multi-pr mode (roadmap input):**`; survivor `skills/plan/references/phases/phase-7-creation.md#L35-L44`
 - `skills/plan/references/phases/phase-7-creation.md#L7-L22`, 1021 bytes, excerpt `When the input is a roadmap, **do not** re-drive`; survivor `skills/plan/references/phases/phase-7-creation.md#L35-L44`
 - `skills/plan/references/phases/phase-7-creation.md#L207-L208`, 127 bytes, excerpt `Write the PLAN artifact. (This phase no longer`; survivor `skills/plan/references/phases/phase-7-creation.md#L35-L44`
 - `skills/plan/references/phases/phase-7-creation.md#L350-L361`, 479 bytes, excerpt `above: upstream: <design-doc-path>`; survivor `skills/plan/references/phases/phase-7-creation.md#L230-L241`
+
+##### `dp-design-duplicates`
+
+Profiles: `scope`. Size: 507 bytes (about 126 tokens). Only statement of a rule in force: no.
+
 - `skills/design/SKILL.md#L200-L204`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/design/SKILL.md#L187-L188`
 - `skills/design/references/phases/phase-0-setup-prd.md#L40-L42`, 201 bytes, excerpt `` (glob pattern, not a hardcoded `wip/scope_<topic>_state.md` ``; survivor `skills/plan/references/phases/phase-1-analysis.md#L46-L48`
 
@@ -1331,7 +1365,7 @@ Profiles: `deliver`. Size: 6901 bytes (about 1725 tokens). Surviving statement: 
 
 ##### `dp-scope-koto-restated`
 
-Profiles: `scope`. Size: 8061 bytes (about 2015 tokens). Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
+Profiles: `scope`. Size: 7255 bytes (about 1813 tokens). Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
 
 - `skills/scope/SKILL.md#L127-L129`, 235 bytes, excerpt `The declarator is prose per the pattern's`
 - `skills/scope/references/phases/phase-0-setup.md#L12-L19`, 508 bytes, excerpt `Argument checking is not a prose step here`
@@ -1340,6 +1374,11 @@ Profiles: `scope`. Size: 8061 bytes (about 2015 tokens). Surviving statement: sk
 - `skills/scope/SKILL.md#L446-L500`, 2905 bytes, excerpt `## Resume Logic`
 - `skills/scope/koto-templates/scope.md#L2181-L2190`, 684 bytes, excerpt `**The argument checks ran before this state.**`
 - `skills/scope/references/phases/phase-2-chain-orchestration.md#L212-L221`, 660 bytes, excerpt `` The `plan_mode_consistent` gate on `hop_plan`'s ``
+
+##### `dp-plan-koto-restated`
+
+Profiles: `scope`. Size: 806 bytes (about 201 tokens). Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
+
 - `skills/plan/references/phases/phase-7-creation.md#L545-L555`, 806 bytes, excerpt `What the two invocations check between them:`
 
 ### Per-profile totals
@@ -1399,8 +1438,9 @@ the maintainers, not a work item here.
    `references/`, `scripts/` or `crates/` starts before pull request #488
    merges.
 2. **Mechanical work items, one per skill.** `/work-on`, `/execute`,
-   `/deliver`, `/scope`, and the child skills `/brief` with `/prd`, and
-   `/plan` with `/design`. Each re-finds its spans by excerpt, stops and
+   `/deliver`, `/scope`, `/brief`, `/prd`, `/plan` and `/design`. A
+   mechanical item whose losing statement sits inside a policy statement
+   moves into that policy item. Each re-finds its spans by excerpt, stops and
    reports an identifier whose excerpt is missing or found twice, applies the
    winners and the dead-prose deletions it owns, and runs the skill's tests
    and evals where the repository has them.
