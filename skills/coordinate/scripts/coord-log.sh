@@ -276,7 +276,7 @@ live-session)
     # A run's name is coordinate-<slug>-<UTC stamp>; matching the stamp keeps a
     # longer slug (a -v2 roadmap) from reading as this scope's run.
     for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
-        st=$("$KOTO" status "$id" 2>/dev/null) || continue
+        st=$("$KOTO" status "$id") || continue
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
         jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue

@@ -56,26 +56,32 @@
 #         VAR=tool                      VAR=$(command -v tool)
 #         VAR=${OTHER:-tool}            VAR=${OTHER:-$(command -v tool)}
 #         VAR=/any/path/tool            VAR="$DIR/tool"
-#     The `:=`, `-` and `=` expansions count like `:-`, and OTHER is charged
-#     with VAR, since it is the override for the same tool. A value that only
-#     contains the name (`koto-open.sh`, `"koto failed"`) is not a binding.
+#     `$(which tool)`, the backtick spellings and a probe carrying its own
+#     `2>/dev/null` count like `$(command -v tool)`. The `:=`, `-` and `=`
+#     expansions count like `:-`, and OTHER is charged with VAR, since it is
+#     the override for the same tool. A value that only contains the name
+#     (`koto-open.sh`, `"koto failed"`) is not a binding.
 #     A file also takes the bindings of every file it sources with `.` or
 #     `source`, recursively, where the path is literal or starts with one
 #     `$NAME/`, `${NAME}/`, `$(dirname "$0")/` or
 #     `$(dirname "${BASH_SOURCE[0]}")/` read as the sourcing file's
 #     directory; a sourced file's `local` bindings stay in its functions.
 #     A variable is charged only at command position: `$VAR`, `"$VAR"`,
-#     `${VAR}` or `"${VAR}"` at the start of the line or after `;`, `&`, `|`,
-#     `(`, `{`, `!`, a backtick, or then/do/else/elif/if/while/until/exec/
-#     command/time. A name held as data (an argument, a message) is not, and
-#     `command -v "$VAR"` falls under the carve-out below.
+#     `${VAR}` or `"${VAR}"` at the start of the line, after a one-line case
+#     arm's pattern (`a|b)`), or after `;`, `&`, `|`, `(`, `{`, `!`, a
+#     backtick, or then/do/else/elif/if/while/until/exec/command/time. A name
+#     held as data (an argument, a message, a directory with a path after
+#     it) is not, and `command -v "$VAR"` falls under the carve-out below.
 #     NOT traced, and enumerated by hand if a site ever depends on one: a
-#     copy (`A=$B`), an array element, indirect expansion, eval, an
-#     assignment that is not the line's first word (`[ -n "$X" ] || K=koto`),
-#     a variable set only by a caller or the environment, a call behind an
-#     env prefix (`FOO=1 "$VAR" ...`), and a source path spelled any other
-#     way. Any traced assignment charges the variable, even if another
-#     assignment in the file gives it a different value.
+#     copy (`A=$B`), an array element, indirect expansion, eval, a nested
+#     default, an assignment that is not the line's first word
+#     (`[ -n "$X" ] || K=koto`, `local a K=koto`), a variable set only by a
+#     caller or the environment, a call behind an env prefix
+#     (`FOO=1 "$VAR" ...`) or a runner (timeout, xargs, env, nohup, sudo), a
+#     tool wrapped in a shell function, a case arm whose pattern is quoted or
+#     expands a variable, and a source path spelled any other way. Any traced
+#     assignment charges the variable, even if another assignment in the
+#     file gives it a different value.
 #   - Like a literal call, a call is judged on the line holding the redirect.
 #     A command continued with `\` whose redirect sits on a later line than
 #     the tool is not seen, whether the tool is named or held.
@@ -241,8 +247,14 @@ own_bindings() {
     }
     # The declared tool a value resolves to, or "".
     function resolve(v,   w, n, parts) {
-      if (v ~ /^\$\(command -v [^ ()]+\)$/) {
-        w = unq(substr(v, 14, length(v) - 14))
+      # $(command -v tool), $(which tool) and the backtick spellings, with or
+      # without a 2>/dev/null of their own.
+      if (v ~ /^\$\(.*\)$/ || v ~ /^`.*`$/) {
+        w = (substr(v, 1, 1) == "`") ? substr(v, 2, length(v) - 2) : substr(v, 3, length(v) - 3)
+        sub(/[ \t]+2>\/dev\/null$/, "", w)
+        if (!sub(/^(command -v|which)[ \t]+/, "", w)) return ""
+        if (w ~ /[ \t]/) return ""
+        w = unq(w)
         return istool(w) ? w : ""
       }
       if (istool(v)) return v
@@ -253,8 +265,8 @@ own_bindings() {
       return ""
     }
     # The value token of an assignment: up to the closing quote or `)` of a
-    # quoted, `${...}` or `$(...)` value, else up to the first blank or
-    # operator.
+    # quoted, `${...}`, `$(...)` or backtick value, else up to the first
+    # blank or operator.
     function token(v,   i, c, q) {
       if (substr(v, 1, 3) == "\"$(") {
         i = index(v, ")\""); return i ? substr(v, 1, i + 1) : v
@@ -264,6 +276,9 @@ own_bindings() {
       }
       if (substr(v, 1, 2) == "${") {
         i = index(v, "}"); return i ? substr(v, 1, i) : v
+      }
+      if (substr(v, 1, 1) == "`") {
+        i = index(substr(v, 2), "`"); return i ? substr(v, 1, i + 1) : v
       }
       if (substr(v, 1, 2) == "$(") {
         i = index(v, ")"); return i ? substr(v, 1, i) : v
@@ -358,8 +373,9 @@ EOF
 }
 
 # bind_file_vars FILE -- set VAR_RE to match a reference to any of FILE's
-# tool-holding variables at command position: at the start of the line, or
-# after an operator or a keyword that starts a command. A variable holding a
+# tool-holding variables at command position: at the start of the line,
+# after a one-line case arm's pattern (`a|b)`), or after an operator or a
+# keyword that starts a command. A variable holding a
 # tool's name as data -- an argument, a message -- is not at command position
 # and is not charged.
 VAR_RE=""
@@ -370,7 +386,7 @@ bind_file_vars() {
     if [ -z "$alt" ]; then alt="$v"; else alt="$alt|$v"; fi
   done
   [ -n "$alt" ] || return 0
-  VAR_RE="(^|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt)([^A-Za-z0-9_]|\$))"
+  VAR_RE="(^|^[[:space:]]*\\(?[^()\"\$\`;&[:space:]]+\\)|[;&|({!\`]|(^|[^A-Za-z0-9_])(then|do|else|elif|if|while|until|exec|command|time))[[:space:]]*\"?\\\$(\\{($alt)\\}|($alt))\"?([^A-Za-z0-9_/\"]|\$)"
 }
 
 # The files a scan target contributes. Test files are out of scope; a fixture

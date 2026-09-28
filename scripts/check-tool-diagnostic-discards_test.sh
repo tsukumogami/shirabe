@@ -465,6 +465,9 @@ shape_case plain       'K=koto'                           '"$K" status 2>/dev/nu
 shape_case quoted      'K="koto"'                         '$K status 2>/dev/null'
 shape_case command-v   'K=$(command -v koto)'             '"$K" status 2>/dev/null'
 shape_case command-vq  'K="$(command -v koto)"'           '"${K}" status 2>/dev/null'
+shape_case command-vr  'K=$(command -v koto 2>/dev/null)' '"$K" status 2>/dev/null'
+shape_case which       'K=$(which koto)'                  '"$K" status 2>/dev/null'
+shape_case backtick    'K=`command -v koto`'              '"$K" status 2>/dev/null'
 shape_case default     'K="${KOTO_BIN:-koto}"'            'x=$("$K" status 2>/dev/null)'
 shape_case default-eq  'K=${KOTO_BIN:=koto}'              'true && "$K" status 2>/dev/null'
 shape_case default-cv  'K=${KOTO_BIN:-$(command -v koto)}' '"$K" status 2>/dev/null'
@@ -478,6 +481,19 @@ shape_case declare     'declare -r K=koto'                '"$K" status 2>/dev/nu
 # The override variable in `${OTHER:-tool}` holds the same tool.
 shape_case override    'K=${KOTO_BIN:-koto}'              '"$KOTO_BIN" status 2>/dev/null'
 
+# A one-line case arm runs its command right after the pattern. The literal
+# `a) koto status 2>/dev/null ;;` is charged, so the held form must be too.
+shape_case case-arm    'K=koto'                           'a|b) "$K" status 2>/dev/null ;;'
+shape_case case-star   'K=koto'                           '*) $K status 2>/dev/null ;;'
+
+new_fixture case-arm-data
+add_requires koto
+add_file 'probe.sh' '#!/usr/bin/env bash' 'K=koto' 'case "$1" in' \
+  '  a) echo "$K" 2>/dev/null ;;' \
+  '  b) [ -x "$K" ] 2>/dev/null ;;' 'esac'
+enum_open; enum_close
+assert_accepts "a case arm using the variable as data is not charged"
+
 # --- Case 31: a value that only contains a tool's name is not a binding -----
 # `koto-open.sh` is not `koto`, and a path whose last segment is something else
 # is not a call of the tool its directory is named after.
@@ -489,7 +505,10 @@ add_file 'probe.sh' '#!/usr/bin/env bash' \
   'D=/opt/koto/bin' \
   '"$D" status 2>/dev/null || true' \
   'M="koto status"' \
-  '$M 2>/dev/null || true'
+  '$M 2>/dev/null || true' \
+  'CACHE=/var/cache/koto' \
+  '"$CACHE"/run.sh 2>/dev/null || true' \
+  '${CACHE}/run.sh 2>/dev/null || true'
 enum_open; enum_close
 assert_accepts "a value merely containing a tool's name is not a binding"
 
