@@ -1,9 +1,16 @@
-  # STAND-IN: the decision states as the DESIGN's state table describes them,
-  # for decisions-replay_engine_test.sh until coordinate.md carries them.
-  # Issue 10 deletes this file and cuts the same states from coordinate.md.
-  # Each state is a block from its `  <state>:` line to the next; the harness
-  # cuts them the same way it will cut coordinate.md.
+  # STAND-IN for decisions-replay_engine_test.sh, until the coordinate-decisions
+  # plan's Issue 8 puts these states in coordinate.md; Issue 10 then points the
+  # harness's STATES_FROM there and deletes this file. The decision states
+  # follow the DESIGN's state table, verdict codes and changed edges. `wait`
+  # and `report_facts` are coordinate.md's blocks unchanged except for those
+  # edges: wait's answer, evidence and raise events with their decision and
+  # round fields, and report_facts' three arms going to report_questions.
+  # decision_verdict carries no shadow decider here; Issue 8 declares it with
+  # its fixtures. Each state is a block from its `  <state>:` line to the
+  # next, which the harness cuts the same way it will cut coordinate.md.
   wait:
+    # The hub. No action, no gate and no details: an idle tick appends nothing,
+    # and every edge lands on a state that starts with a read.
     accepts:
       event:
         type: enum
@@ -23,6 +30,8 @@
         type: string
         description: With an answer event, the round it names.
     transitions:
+      # A message report: its text and topic are written on this edge, fresh
+      # each time, and take_report checks both before report_facts reads on.
       - target: take_report
         when:
           event: report
@@ -48,6 +57,8 @@
       - target: teardown
         when:
           event: retire
+        context_assignments:
+          teardown_topic: "${evidence.unit}"
       - target: decision_answer
         when:
           event: answer
@@ -67,21 +78,29 @@
           event: end
           vars.DISCIPLINE:
             is_set: false
+        context_assignments:
+          outcome: stopped
 
   report_facts:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/report-facts.sh" --session "{{SESSION_NAME}}"'
       capture_stdout_as: REPORT
-      fallback: The read failed; tick again.
+      fallback: >-
+        The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
     gates:
       report_facts_verdict:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state report_facts --capture "{{REPORT}}"'
         overridable: false
+      report_input:
+        type: context-exists
+        key: coord/report.json
+        overridable: false
     transitions:
       - target: report_questions
         when:
           gates.report_facts_verdict.exit_code: 60  # holding
+          gates.report_input.exists: true
       - target: report_questions
         when:
           gates.report_facts_verdict.exit_code: 61  # unknown

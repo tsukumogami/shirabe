@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# coord-verdict.sh -- STAND-IN for decisions-replay_engine_test.sh.
+# coord-verdict.sh -- STAND-IN for decisions-replay_engine_test.sh, until the
+# coordinate-decisions plan's Issue 8 gives the shipped coord-verdict.sh the
+# decision words; Issue 8 removes it from the harness's STAND_INS.
 #
-# The shipped verdict gate (coord-verdict-shipped.sh beside it) plus the codes
-# the DESIGN gives the decision words, until coord-verdict.sh carries them.
-# The seal is checked by the shipped script's own reader first. Issue 10 of
-# the coordinate-decisions plan removes this and runs the shipped script.
+# A word the shipped gate already knows goes to it (coord-verdict-shipped.sh
+# beside this file) unchanged. A decision word gets the code the DESIGN's
+# verdict table gives it, after the same seal check the shipped gate makes,
+# through the same reader (coord-log.sh check).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 CAPTURE=

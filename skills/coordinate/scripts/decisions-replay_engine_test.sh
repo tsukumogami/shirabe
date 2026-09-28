@@ -1,35 +1,46 @@
 #!/usr/bin/env bash
 # decisions-replay_engine_test.sh -- the decision flow's acceptance tests, in
-# real koto.
+# real koto, against records in the testdata/gh stand-in.
 #
 # The skeleton template holds the decision states and the states whose edges
-# they change (`wait`, `report_facts`), cut from STATES_FROM; every state they
-# route to that isn't under test is a terminal stand-in, or a pass-through
-# (take_report, pick_facts, classify_report) so one run can take several
-# arrivals. coord-log.sh, phrasing-lib.sh and koto are real.
+# they change (wait, report_facts), cut from STATES_FROM, and a record_find
+# state that seals `found <ref>` so the run has a record as a real run does.
+# Every state they route to that isn't under test is a terminal, or a
+# pass-through (take_report, pick_facts, classify_report) so one run can take
+# several arrivals. Every script is the shipped one, copied from this
+# directory, except those named in STAND_INS, which come from
+# testdata/decisions/stand-ins/.
 #
-# STAND-INS. Until the coordinate-decisions plan's Issue 10, STATES_FROM is
-# testdata/decisions/stand-in-states.yaml and the scripts in STAND_INS come
-# from testdata/decisions/stand-ins/, which model the Decisions section by the
-# DESIGN's rules. Issue 10 points STATES_FROM at coordinate.md, empties
-# STAND_INS, deletes both, and the cases below run against the real scripts.
+# What moves as the coordinate-decisions plan lands: each issue that ships a
+# script removes it from STAND_INS (Issue 6 report-questions.sh, Issue 7
+# record-decision.sh, Issue 8 decision-next.sh and coord-verdict.sh), and
+# Issue 8, which puts the states in coordinate.md, points STATES_FROM there.
+# Issue 10 deletes stand-in-states.yaml and every stand-in but
+# report-facts.sh, whose shipped script reads a pull request and board this
+# harness doesn't stand in for. The driver, the arrivals, the fixtures and
+# the assertions don't change: they use record-decision.sh's own interface,
+# the sealed captures and context keys the real scripts write, and records
+# rendered by the real codec.
 #
 # Proves:
 #   1. the niwa#330 replay: a settled entry whose source is the worker, the
 #      dispatcher's mixed check result recorded as evidence on it, and the
-#      worker's "please decide whether to ship" in a report. decision_verdict
-#      is entered before any escalation, withdrawal or reply is rendered, no
-#      escalation is rendered, and no table read during the run holds a
-#      decision row without a recommendation and a reason. (The redirect is
-#      rendered before the take by rule, asks no one anything, and is outside
-#      the first check.)
+#      worker's "please decide whether to ship" in a report.
+#      decision_verdict is entered before any escalation, withdrawal or reply
+#      is rendered; no escalation is rendered; and no read of the section
+#      during the run shows an entry escalated to a person without its
+#      recommendation and reason. The redirect is outside the first check:
+#      the DESIGN owes it per report, before the take (rule 5 before rule 7),
+#      and it asks no one anything.
 #   2. the same replay against a template whose wait evidence edge goes
 #      straight to escalate fails that check;
 #   3. three levels (a person, a workspace coordinator W, a roadmap
 #      coordinator R reporting to W): R's escalation opens a proposed entry at
 #      W with R's entry as its source; the person's answer settles W's entry,
-#      W's reply settles R's naming the final decider; a withdrawal from R
-#      reopens W's entry, and when W settles it nothing goes back down.
+#      and W's rendered reply, relayed down as R's answer, settles R's naming
+#      the final decider; a withdrawal from R reopens W's escalated entry,
+#      W withdraws it from the person, and when W settles it nothing goes back
+#      down.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -40,38 +51,39 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/testdata/decisions/stand-in-states.yaml"
-STAND_INS="coord-verdict.sh decision-next.sh decision-render.sh report-questions.sh record-decision.sh report-facts.sh model-lib.sh"
+STAND_INS="coord-verdict.sh decision-next.sh report-questions.sh record-decision.sh report-facts.sh"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/decisions-replay.XXXXXX")
+# test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
+# It also puts testdata/ (the koto stand-in too) first on PATH; this suite
+# needs the real koto, so only the gh stand-in goes in front.
+. "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P)
-if [ -n "${KEEP_T-}" ]; then echo "keeping $T"; else trap 'rm -rf "$T"' EXIT; fi
-export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
-mkdir -p "$HOME"
-W="$T/ws"
-mkdir -p "$W"
-cd "$W" || exit 1
-
-PASS=0
-FAIL=0
-pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
-eq()   { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]"; fi; }
-finish() { echo; echo "decisions-replay: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit $?; }
+# KEEP_T=1 keeps the scratch directory for a look after a failure.
+if [ -n "${KEEP_T-}" ]; then trap - EXIT; echo "keeping $T"; fi
+unset KOTO_STORE KOTO_COMPILED_HASH
+mkdir -p "$T/bin"
+printf '#!/usr/bin/env bash\nexec "%s/testdata/gh" "$@"\n' "$HERE" > "$T/bin/gh"
+chmod +x "$T/bin/gh"
+PATH="$T/bin:$ORIG_PATH"
+export PATH HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
+mkdir -p "$HOME" "$T/ws"
+cd "$T/ws" || exit 1
+db_init
+finish() { done_tests decisions-replay; exit $?; }
 
 # --- the plugin tree ---------------------------------------------------------------------
 
 PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
-mkdir -p "$S" "$PR/skills/coordinate/references" "$PR/skills/coordinate/koto-templates"
-cp "$HERE/coord-log.sh" "$HERE/phrasing-lib.sh" "$S/"
-cp "$HERE/coord-verdict.sh" "$S/coord-verdict-shipped.sh"
-cp "$HERE/../references/decision-phrasings.tsv" "$PR/skills/coordinate/references/"
+mkdir -p "$S" "$PR/skills/coordinate/koto-templates"
+cp "$HERE"/*.sh "$HERE"/*.jq "$S/"
+cp -R "$HERE/../references" "$PR/skills/coordinate/"
+case " $STAND_INS " in *" coord-verdict.sh "*) mv "$S/coord-verdict.sh" "$S/coord-verdict-shipped.sh" ;; esac
 for f in $STAND_INS; do cp "$HERE/testdata/decisions/stand-ins/$f" "$S/$f"; done
 chmod +x "$S"/*.sh
-export DEC_ST="$T/dec"
-mkdir -p "$DEC_ST"
 
 # --- the skeleton template ---------------------------------------------------------------
 
@@ -103,12 +115,24 @@ variables:
   PLUGIN_ROOT:
     description: plugin root
     required: true
+  SCOPE:
+    description: scope
+    default: roadmap
+  ROADMAP:
+    description: the roadmap's path
+    default: ""
   DISCIPLINE:
     description: discipline
     default: ""
+  HOST_REPO:
+    description: host
+    default: acme/widgets
   REPORTS_TO:
     description: the coordinator this run reports to; empty for a person
     default: ""
+  RECORD_REF:
+    description: the record this run found
+    required: true
 states:
   entry:
     accepts:
@@ -117,9 +141,23 @@ states:
         values: [wait]
         required: true
     transitions:
-      - target: wait
+      - target: record_find
         when:
           go: wait
+  record_find:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found {{RECORD_REF}}"'
+      capture_stdout_as: RECORD_FIND
+      fallback: The seal failed.
+    gates:
+      record_find_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state record_find --capture "{{RECORD_FIND}}"'
+        overridable: false
+    transitions:
+      - target: wait
+        when:
+          gates.record_find_verdict.exit_code: 10  # found
 EOF
         for st in $UNDER; do
             if [ "$st" = wait ] && [ -n "${2-}" ]; then block wait | sed "$2"; else block "$st"; fi
@@ -132,61 +170,85 @@ EOF
         done
         for st in $TERMINAL; do printf '  %s:\n    terminal: true\n\n' "$st"; done
         echo '---'
-        for st in entry $UNDER $PASSTHROUGH $TERMINAL; do printf '## %s\nStand-in.\n\n' "$st"; done
+        for st in entry record_find $UNDER $PASSTHROUGH $TERMINAL; do printf '## %s\nStand-in.\n\n' "$st"; done
     } > "$1"
 }
 TPL="$PR/skills/coordinate/koto-templates/coordinate.md"
 skeleton "$TPL"
-koto template compile "$TPL" >"$T/compile.err" 2>&1 || { fail "the skeleton compiles" "$(cat "$T/compile.err")"; finish; }
-pass "the skeleton compiles"
+koto template compile "$TPL" >"$T/compile.err" 2>&1 || { bad "the skeleton compiles" "$(cat "$T/compile.err")"; finish; }
+ok "the skeleton compiles"
 # The variant: wait's evidence edge goes straight to escalate.
 VAR="$T/variant/coordinate.md"
 mkdir -p "$T/variant"
 skeleton "$VAR" '/^      - target: decision_evidence$/s/decision_evidence/escalate/'
-awk '/^  wait:$/,/^  report_facts:$/' "$VAR" | grep -q 'target: decision_evidence' && fail "the variant rewires the evidence edge" "still routes to decision_evidence"
-koto template compile "$VAR" >"$T/compile.err" 2>&1 || { fail "the variant compiles" "$(cat "$T/compile.err")"; finish; }
-pass "the variant compiles, its evidence edge going to escalate"
+awk '/^  wait:$/,/^  report_facts:$/' "$VAR" | grep -q 'target: decision_evidence' &&
+    bad "the variant rewires wait's evidence edge" "wait still routes evidence to decision_evidence"
+koto template compile "$VAR" >"$T/compile.err" 2>&1 || { bad "the variant compiles" "$(cat "$T/compile.err")"; finish; }
+ok "the variant compiles, wait's evidence edge going to escalate"
+
+# --- the fixtures: records in the gh stand-in --------------------------------------------
+
+# new_run <session> <template> <roadmap-name> <record-number> [reports-to]:
+# an empty record for the roadmap and a session that has found it, at wait.
+new_run() {
+    db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
+        state: "open", author: "coord", editor: null}]' --argjson k "$4" --arg n "$3" \
+        --arg b "$(render "$(record_json roadmap "$3")" issue)"
+    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
+        --var RECORD_REF="$4" --var REPORTS_TO="${5-}" >/dev/null 2>"$T/init.err" ||
+        { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
+    koto next "$1" --no-cleanup --with-data '{"go":"wait"}' > "$T/next.json" 2>&1
+    [ "$(at "$1")" = wait ] || { bad "session $1 reaches wait" "$(cat "$T/next.json")"; return 1; }
+}
+# edit_record <record-number> <roadmap-name> <jq program over the parsed record> [jq args]
+edit_record() {
+    local k=$1 n=$2 p=$3; shift 3
+    jq -r --argjson k "$k" '.issues[] | select(.number == $k) | .body' "$GH_DB" > "$T/body.md"
+    bash "$S/record-parse.sh" --container issue --expect-scope "roadmap:$n" "$T/body.md" > "$T/parsed.json" || return 1
+    jq -c "$@" "$p" "$T/parsed.json" > "$T/next.json" || return 1
+    db '(.issues[] | select(.number == $k) | .body) = $b' --argjson k "$k" --arg b "$(render "$(cat "$T/next.json")" issue)"
+}
+seed_holding() { edit_record "$1" "$2" '.holdings += [$h]' --argjson h "$3"; }   # <ref> <name> <holding-json>
+seed_decisions() { edit_record "$1" "$2" '.decisions = $d' --argjson d "$3"; }    # <ref> <name> <section-json>
 
 # --- the driver --------------------------------------------------------------------------
 
-# start <session> <template> [reports-to]: a fresh session at wait.
-start() {
-    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PR" --var REPORTS_TO="${3-}" >/dev/null 2>"$T/init.err" ||
-        { fail "session $1 starts" "$(cat "$T/init.err")"; return 1; }
-    koto next "$1" --no-cleanup --with-data '{"go":"wait"}' >/dev/null 2>&1
-}
 tick() { local s=$1; shift; koto next "$s" --no-cleanup "$@" > "$T/next.json" 2>&1; }
-at() { koto status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
-model() { jq -c "$2" "$DEC_ST/$1.json"; }
-seed() { printf '%s\n' "$2" > "$DEC_ST/$1.json"; }
-cur() { jq -r '.current' "$DEC_ST/$1.json"; }
-rd() { local s=$1; shift; bash "$S/record-decision.sh" --session "$s" "$@"; }
+at() { koto status "$1" | jq -r '.current_state // "gone"'; }
+section() { bash "$S/record-decision.sh" --session "$1" --list; }
+entry() { section "$1" | jq -c --arg n "$2" '.entries[] | select(.decision == $n)'; }
+field() { entry "$1" "$2" | jq -r --arg f "$3" '.[$f] // ""'; }
+routed() { bash "$S/coord-log.sh" capture --session "$1" --name DECISION_NEXT --state decision_next | cut -d' ' -f2; }
+rd() { # rd <session> <mode args...>: record-decision.sh as the coordinator runs it
+    local s=$1; shift
+    bash "$S/record-decision.sh" --session "$s" "$@" 2>"$T/rd.err" || bad "record-decision.sh $1 for $s" "$(cat "$T/rd.err")"
+}
 # visits <session>: the states entered, in order, one per line.
 visits() {
     jq -r 'select(.type == "transitioned" or .type == "directed_transition") | .payload.to' \
         "$(koto session dir "$1")/koto-$1.state.jsonl"
 }
-
-# The table a person would read, from the model: every entry escalated to a
-# person is a decision row, which needs its recommendation and reason. The
-# driver reads it after every step; one bad read marks the session.
+# The decision a person would be asked to make: every entry escalated to a
+# person needs its recommendation and reason. Read after every step; one bad
+# read marks the session.
 table_check() {
-    jq -e 'all(.entries[] | select(.state == "escalated" and .target == "a person"); .rec != "" and .reason != "")' \
-        "$DEC_ST/$1.json" >/dev/null 2>&1 || : > "$DEC_ST/$1.bad-table"
+    section "$1" | jq -e 'all(.entries[] | select(.state == "escalated" and .target == "a person");
+        (.recommendation | test("\\S")) and (.reason | test("\\S")))' >/dev/null 2>&1 || : > "$T/$1.bad-table"
 }
+# verdict_for <session> <n>: the scenario's coordinator's verdict, one of
+#   settle|<outcome>|<reason>
+#   escalate|<recommendation>|<reason>|<context>|<problem>|<grounds>
+verdict_for() { echo "settle|default|default"; }
 
-# verdict_for <session> <n>: the verdict the scenario's coordinator makes, as
-# `settle <outcome>` or `escalate <rec>|<reason>`. Each scenario defines it.
-verdict_for() { echo "settle default"; }
-
-# PEND_*: what an arrival carries into the agent state it lands on.
-PEND_N="" PEND_SRC="" PEND_TEXT="" PEND_ROUND="" PEND_FINAL="" PEND_Q="" PEND_OPTS=""
+# What an arrival carries into the agent state it lands on.
+PEND_SRC="" PEND_TEXT="" PEND_Q="" PEND_OUT="" PEND_REASON="" PEND_FINAL=""
+PEND_OPTS=()
 
 # drive <session>: answer each agent state as the coordinator does, until the
-# run is back at a hub or a terminal. Rendered messages are kept in the
-# session's outbox, "$DEC_ST/<session>.sent", one JSON line each.
+# run is back at a hub or a terminal. Every message sent goes to the session's
+# outbox, "$T/<session>.sent", one JSON line {kind, n, text}.
 drive() {
-    local s=$1 st i=0 n v
+    local s=$1 st i=0 n v a b c d e cn rs o
     while [ $i -lt 60 ]; do
         i=$((i + 1))
         table_check "$s"
@@ -195,161 +257,207 @@ drive() {
             wait|pick_facts|classify_report|gone) return 0 ;;
             record_conflict|rebrief|surface|decision_apply|leg_pick|quiet_check|merged_facts|teardown|rotation_close|done_stopped) return 0 ;;
             take_report) tick "$s" --with-data '{"go":"go"}' ;;
-            decision_take) rd "$s" --take "$(cur "$s")"; tick "$s" --with-data '{"taken":"taken"}' ;;
+            decision_take) rd "$s" --take; tick "$s" --with-data '{"taken":"taken"}' ;;
             decision_verdict)
-                n=$(cur "$s"); v=$(verdict_for "$s" "$n")
+                n=$(routed "$s")
+                IFS='|' read -r v a b c d e <<EOF
+$(verdict_for "$s" "$n")
+EOF
                 case "$v" in
-                    settle\ *) rd "$s" --settle "$n" "${v#settle }"; tick "$s" --with-data '{"verdict":"settle"}' ;;
-                    escalate\ *) v=${v#escalate }; rd "$s" --escalate "$n" "${v%%|*}" "${v#*|}"; tick "$s" --with-data '{"verdict":"escalate"}' ;;
+                    settle) rd "$s" --settle --outcome "$a" --reason "$b"; tick "$s" --with-data '{"verdict":"settle"}' ;;
+                    escalate) rd "$s" --escalate --recommendation "$a" --reason "$b" --context "$c" --problem "$d" --grounds "$e"
+                              tick "$s" --with-data '{"verdict":"escalate"}' ;;
                 esac ;;
-            decision_open) rd "$s" --open-from-report; tick "$s" --with-data '{"opened":"opened"}' ;;
-            decision_raise) rd "$s" --open "$PEND_Q" $PEND_OPTS; tick "$s" --with-data '{"raised":"raised"}' ;;
-            decision_evidence) rd "$s" --evidence "$PEND_N" "$PEND_SRC" "$PEND_TEXT"; tick "$s" --with-data '{"recorded":"recorded"}' ;;
-            decision_answer) rd "$s" --answer "$PEND_N" "$PEND_ROUND" "$PEND_TEXT" ${PEND_FINAL:+"$PEND_FINAL"}; tick "$s" --with-data '{"answered":"recorded"}' ;;
+            decision_open)
+                # The coordinator words each extracted question for the record.
+                koto context get "$s" coord/questions.json |
+                    jq '[.[] | select(.kind != "withdrawal") | {key: (.index | tostring), value: {question: .text, options: (.options // ["ship", "hold"])}}] | from_entries' \
+                    > "$T/words.json"
+                rd "$s" --open-from-report --text-file "$T/words.json"; tick "$s" --with-data '{"opened":"opened"}' ;;
+            decision_raise)
+                set --
+                for o in "${PEND_OPTS[@]}"; do set -- "$@" --option "$o"; done
+                rd "$s" --open --question "$PEND_Q" "$@"; tick "$s" --with-data '{"raised":"raised"}' ;;
+            decision_evidence) rd "$s" --evidence --source "$PEND_SRC" --text "$PEND_TEXT"; tick "$s" --with-data '{"recorded":"recorded"}' ;;
+            decision_answer)
+                set -- --outcome "$PEND_OUT"
+                [ -n "$PEND_REASON" ] && set -- "$@" --reason "$PEND_REASON"
+                [ -n "$PEND_FINAL" ] && set -- "$@" --final "$PEND_FINAL"
+                rd "$s" --answer "$@"; tick "$s" --with-data '{"answered":"recorded"}' ;;
             escalate_send|decision_withdraw_send|decision_reply_send|decision_redirect_send)
-                jq -c --rawfile t "$DEC_ST/$s.message" '. + {text: $t}' "$DEC_ST/$s.message.json" >> "$DEC_ST/$s.sent"
-                rd "$s" --sent "$(jq -r .kind "$DEC_ST/$s.message.json")" "$(jq -r .n "$DEC_ST/$s.message.json")"
-                tick "$s" --with-data '{"sent":"sent"}' ;;
+                case "$st" in
+                    escalate_send) rs=escalate cn=ESCALATE_MESSAGE ;;
+                    decision_withdraw_send) rs=decision_withdraw cn=WITHDRAW_MESSAGE ;;
+                    decision_reply_send) rs=decision_reply cn=REPLY_MESSAGE ;;
+                    *) rs=decision_redirect cn=REDIRECT_MESSAGE ;;
+                esac
+                koto context get "$s" coord/decision_message.txt > "$T/message.txt"
+                bash "$S/coord-log.sh" capture --session "$s" --name "$cn" --state "$rs" |
+                    jq -Rc --rawfile t "$T/message.txt" 'split(" ") | {kind: .[1], n: .[2], text: $t}' >> "$T/$s.sent"
+                rd "$s" --sent; tick "$s" --with-data '{"sent":"sent"}' ;;
             *) tick "$s" ;;
         esac
     done
-    fail "drive $s reaches a hub" "still at $(at "$s") after $i steps"
+    bad "drive $s reaches a hub" "still at $(at "$s") after $i steps"
 }
 # The arrivals, each named at wait the way the coordinator names them.
-arrive_report() { # arrive_report <session> <holding or ""> <text>
-    printf '%s' "$2" > "$DEC_ST/$1.holding"
-    tick "$1" --with-data "$(jq -nc --arg r "$3" '{event: "report", unit: "w1", report: $r}')"
+arrive_report() { # arrive_report <session> <topic> <text>
+    tick "$1" --with-data "$(jq -nc --arg u "$2" --arg r "$3" '{event: "report", unit: $u, report: $r}')"
     drive "$1"
 }
 arrive_evidence() { # arrive_evidence <session> <n> <source> <text>
-    PEND_N=$2 PEND_SRC=$3 PEND_TEXT=$4
+    PEND_SRC=$3 PEND_TEXT=$4
     tick "$1" --with-data "$(jq -nc --arg n "$2" '{event: "evidence", decision: $n}')"
     drive "$1"
 }
-arrive_answer() { # arrive_answer <session> <n> <round> <outcome> [final decider]
-    PEND_N=$2 PEND_ROUND=$3 PEND_TEXT=$4 PEND_FINAL=${5-}
+arrive_answer() { # arrive_answer <session> <n> <round> <outcome> [reason] [final decider]
+    PEND_OUT=$4 PEND_REASON=${5-} PEND_FINAL=${6-}
     tick "$1" --with-data "$(jq -nc --arg n "$2" --arg r "$3" '{event: "answer", decision: $n, round: $r}')"
     drive "$1"
 }
 arrive_raise() { # arrive_raise <session> <question> <option>...
-    local s=$1; PEND_Q=$2; shift 2; PEND_OPTS="$*"
+    local s=$1; PEND_Q=$2; shift 2; PEND_OPTS=("$@")
     tick "$s" --with-data '{"event":"raise"}'
     drive "$s"
 }
 back_to_wait() { case "$(at "$1")" in pick_facts|classify_report) tick "$1" --with-data '{"go":"go"}' ;; esac; }
+last_sent() { tail -1 "$T/$1.sent" | jq -r "$2"; }
 
 # replay_check <session>: the niwa#330 replay's pass condition.
 replay_check() {
     local order first_verdict first_render
-    order=$(visits "$1" | grep -n . )
+    order=$(visits "$1" | grep -n .)
     first_verdict=$(printf '%s\n' "$order" | grep ':decision_verdict$' | head -1 | cut -d: -f1)
     first_render=$(printf '%s\n' "$order" | grep -E ':(escalate|decision_withdraw|decision_reply)$' | head -1 | cut -d: -f1)
     [ -n "$first_verdict" ] || return 1
     [ -z "$first_render" ] || [ "$first_verdict" -lt "$first_render" ] || return 1
     ! printf '%s\n' "$order" | grep -q ':escalate$' || return 1
-    [ ! -e "$DEC_ST/$1.bad-table" ]
+    [ ! -e "$T/$1.bad-table" ]
 }
 
 # --- 1 and 2: the niwa#330 replay --------------------------------------------------------
 
-SETTLED_D='{"next":2,"current":null,"entries":[{"id":1,"round":0,"question":"Which marketplace layout do we ship?",
-  "options":["(c) per-project clones","(d) a shared clone"],"state":"settled","source":"worker w1","verdict":"settle",
-  "rec":"","reason":"","target":"","owed":"","redirect":false,"evidence":[],
-  "outcome":"(d) a shared clone: the flip condition is a per-project version moving","decided_by":"coordinator"}]}'
+SETTLED_D='{"next":2,"entries":[{"decision":"1","round":"0","question":"Which marketplace layout do we ship?",
+  "options":"(c) per-project clones\n(d) a shared clone","state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",
+  "verdict":"settle","outcome":"(d) a shared clone; reason: the flip condition is a per-project version moving, which is untested",
+  "decided_by":"this coordinator","updated":"2026-09-20T08:30Z"}]}'
 verdict_for() {
     case "$2" in
-        1) echo "settle (d) a shared clone: the per-project installs held, so the flip condition didn't happen, and the record already accepts the shared clone moving" ;;
-        *) echo "settle ship: the check the worker ran supports (d) and nothing in it is a reason to hold" ;;
+        1) echo "settle|(d) a shared clone|the per-project installs held, so the flip condition didn't happen, and the record already accepts the shared clone moving" ;;
+        *) echo "settle|ship|the check the worker ran supports (d), and nothing in it is a reason to hold" ;;
     esac
 }
-replay() { # replay <session>
-    seed "$1" "$SETTLED_D"
+replay() { # replay <session> <template> <record-number>
+    new_run "$1" "$2" "replay-$3" "$3" || return 1
+    seed_holding "$3" "replay-$3" "$(holding w1 '{"entry_point":"/shirabe:work-on"}')"
+    seed_decisions "$3" "replay-$3" "$SETTLED_D"
     arrive_evidence "$1" 1 dispatcher "check result, mixed: the shared marketplace clone moved, the installed per-project versions held"
     back_to_wait "$1"
     [ "$(at "$1")" = wait ] || return 0
-    arrive_report "$1" "worker w1" "Ran the check the decision named.
+    arrive_report "$1" w1 "Ran the check the decision named.
 Please decide whether to ship."
 }
 
-start replay-1 "$TPL" || finish
-replay replay-1
-if replay_check replay-1; then pass "replay: the verdict comes before any render, and nothing is escalated"; else
-    fail "replay: the verdict comes before any render, and nothing is escalated" "$(visits replay-1 | tr '\n' ' ')"; fi
-eq "replay: the evidence reopened entry 1 and it settled again on (d)" \
-    'settled|(d)' "$(model replay-1 '.entries[0] | "\(.state)|\(.outcome[0:3])"' | tr -d '"')"
-eq "replay: the old outcome is kept as evidence" true \
-    "$(model replay-1 'any(.entries[0].evidence[]; .src == "previous outcome")')"
-eq "replay: the worker's question is entry 2, opened as addressed and settled" 'settled|true' \
-    "$(model replay-1 '.entries[1] | "\(.state)|\(.addressed)"' | tr -d '"')"
-eq "replay: the messages rendered are the replies and one redirect, and none goes to a person" \
-    'reply redirect reply' "$(jq -r .kind "$DEC_ST/replay-1.sent" | tr '\n' ' ' | sed 's/ $//')"
-eq "replay: the run ends back at the report's classification" classify_report "$(at replay-1)"
+replay coordinate-roadmap-replay-11-20260928T100001Z "$TPL" 11
+R1=coordinate-roadmap-replay-11-20260928T100001Z
+if replay_check "$R1"; then ok "replay: the verdict comes before any render, and nothing is escalated"; else
+    bad "replay: the verdict comes before any render, and nothing is escalated" "$(visits "$R1" | tr '\n' ' ')"; fi
+eq "replay: the evidence reopened entry 1, which settled again on (d)" 'settled|(d) a shared clone' \
+    "$(field "$R1" 1 state)|$(field "$R1" 1 outcome | sed 's/; reason:.*//')"
+case "$(field "$R1" 1 evidence)" in
+    *"previous outcome"*"check result, mixed"*) ok "replay: the old outcome and the mixed result are kept as evidence" ;;
+    *) bad "replay: the old outcome and the mixed result are kept as evidence" "$(field "$R1" 1 evidence)" ;;
+esac
+eq "replay: the worker's question is entry 2, opened with its source" "worker w1" "$(field "$R1" 2 source | sed 's/ \[.*//')"
+case "$(field "$R1" 2 evidence)" in *"addressed to a person"*) ok "replay: entry 2 is noted as addressed to a person" ;;
+    *) bad "replay: entry 2 is noted as addressed to a person" "$(field "$R1" 2 evidence)" ;; esac
+eq "replay: entry 2 was taken up and settled" "settled" "$(field "$R1" 2 state)"
+eq "replay: the messages sent are the reply, the redirect and the reply, none to a person" 'reply redirect reply' \
+    "$(jq -r .kind "$T/$R1.sent" | tr '\n' ' ' | sed 's/ $//')"
+eq "replay: the run ends at the report's classification" classify_report "$(at "$R1")"
 
-start variant-1 "$VAR" || finish
-replay variant-1
-if replay_check variant-1; then fail "variant: the replay's check fails when evidence goes straight to escalate" "it passed: $(visits variant-1 | tr '\n' ' ')"; else
-    pass "variant: the replay's check fails when evidence goes straight to escalate"; fi
-eq "variant: the render finds nothing owed and the run stops at record_conflict" record_conflict "$(at variant-1)"
+V1=coordinate-roadmap-replay-12-20260928T100002Z
+replay "$V1" "$VAR" 12
+if replay_check "$V1"; then bad "variant: the replay's check fails when evidence goes straight to escalate" "it passed: $(visits "$V1" | tr '\n' ' ')"; else
+    ok "variant: the replay's check fails when evidence goes straight to escalate"; fi
+eq "variant: escalate is entered with no verdict before it" "wait escalate" "$(visits "$V1" | sed -n '3,4p' | tr '\n' ' ' | sed 's/ $//')"
+eq "variant: the render finds nothing routed and the run stops at record_conflict" record_conflict "$(at "$V1")"
 
 # --- 3: three levels ---------------------------------------------------------------------
 
-# W reports to a person; R reports to W, whose dispatch topic is `ws`.
-start lvl-w "$TPL" || finish
-start lvl-r "$TPL" ws || finish
-seed lvl-w '{"next":1,"entries":[],"current":null}'
-seed lvl-r '{"next":1,"entries":[],"current":null}'
-verdict_for() { echo "escalate wait for the release|the release is Friday and the merge can ride it"; }
-last_sent() { tail -1 "$DEC_ST/$1.sent"; }
+# W reports to a person and holds R, a coordinator, under the topic rr. R reports to W,
+# whose dispatch topic is ws.
+LW=coordinate-roadmap-ws-20260928T100003Z
+LR=coordinate-roadmap-rr-20260928T100004Z
+new_run "$LW" "$TPL" ws 21 || finish
+new_run "$LR" "$TPL" rr 22 ws || finish
+seed_holding 21 ws "$(holding rr '{"entry_point":"/shirabe:coordinate"}')"
+CTX_M="The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade."
+PROB_M="Shipping it now splits users across two formats for a week; waiting holds two other features behind it."
+CTX_P="The plugin floats to its latest version, and the release pins what users get for a quarter."
+PROB_P="Pinning now freezes a version with a known bug; not pinning lets a breaking release through."
+verdict_for() {
+    case "$1:$2:$(field "$1" "$2" question)" in
+        *:Merge*) echo "escalate|wait for the release|the release is Friday and the migration rides it|$CTX_M|$PROB_M|scope" ;;
+        "$LR":*:Pin*) if field "$LR" "$2" evidence | grep -q "release moved"; then
+                          echo "settle|don't pin|the release moved, so the question is moot"
+                      else echo "escalate|don't pin|the bug fix lands next week|$CTX_P|$PROB_P|scope"; fi ;;
+        "$LW":*:Pin*) if field "$LW" "$2" evidence | grep -q "withdrawn:"; then
+                          echo "settle|don't pin|the question was withdrawn below"
+                      else echo "escalate|don't pin|the bug fix lands next week|$CTX_P|$PROB_P|scope"; fi ;;
+    esac
+}
 
-arrive_raise lvl-r "Merge the migration before the release?" "merge now" "wait for the release"
-back_to_wait lvl-r
-eq "levels: R escalates its entry to coordinator ws" 'escalated|coordinator ws' \
-    "$(model lvl-r '.entries[0] | "\(.state)|\(.target)"' | tr -d '"')"
-eq "levels: R's rendered escalation names decision 1 round 1" "Decision 1 round 1." \
-    "$(last_sent lvl-r | jq -r .text | head -1)"
+arrive_raise "$LR" "Merge the migration before the release?" "merge now" "wait for the release"
+back_to_wait "$LR"
+eq "levels: R escalates its entry to coordinator ws" 'escalated|coordinator ws' "$(field "$LR" 1 state)|$(field "$LR" 1 target)"
+eq "levels: R's escalation is rendered, naming decision 1 round 1" "escalation|Decision 1 round 1." \
+    "$(last_sent "$LR" .kind)|$(last_sent "$LR" .text | head -1)"
 
-arrive_report lvl-w "coordinator roadmap-r" "$(last_sent lvl-r | jq -r .text)"
-eq "levels: W opens R's escalation as its own entry, with R's entry as the source" \
-    'coordinator roadmap-r #1 round 1' "$(model lvl-w '.entries[0].source' | tr -d '"')"
+arrive_report "$LW" rr "$(last_sent "$LR" .text)"
+eq "levels: W opens R's escalation as its own entry, with R's entry as its source" \
+    'coordinator rr #1 round 1' "$(field "$LW" 1 source | sed 's/ \[.*//')"
+eq "levels: W took it up as a proposed entry" 1 "$(visits "$LW" | grep -c '^decision_take$')"
+eq "levels: W carries R's options, the recommendation first" "wait for the release|merge now" "$(entry "$LW" 1 | jq -r '.options | split("\n") | join("|")')"
 eq "levels: W escalates it to a person with a recommendation" 'escalated|a person|wait for the release' \
-    "$(model lvl-w '.entries[0] | "\(.state)|\(.target)|\(.rec)"' | tr -d '"')"
-back_to_wait lvl-w
+    "$(field "$LW" 1 state)|$(field "$LW" 1 target)|$(field "$LW" 1 recommendation)"
+back_to_wait "$LW"
 
-arrive_answer lvl-w 1 1 "wait for the release"
-eq "levels: the person's answer settles W's entry" 'settled|a person' \
-    "$(model lvl-w '.entries[0] | "\(.state)|\(.decided_by)"' | tr -d '"')"
-eq "levels: W renders a reply naming R's entry and round" \
-    "Answer: decision 1 round 1: wait for the release. Decided by a person." "$(last_sent lvl-w | jq -r .text)"
-back_to_wait lvl-w
+arrive_answer "$LW" 1 1 "wait for the release"
+eq "levels: the person's answer settles W's entry" 'settled|a person' "$(field "$LW" 1 state)|$(field "$LW" 1 decided_by)"
+eq "levels: W's reply names R's entry and round" "reply|Answer: decision 1 round 1." "$(last_sent "$LW" .kind)|$(last_sent "$LW" .text | head -1)"
+back_to_wait "$LW"
 
-arrive_answer lvl-r 1 1 "wait for the release" "a person"
+# R's coordinator relays W's reply as an answer, from the reply's own lines.
+REPLY=$(last_sent "$LW" .text)
+arrive_answer "$LR" 1 1 "$(printf '%s\n' "$REPLY" | sed -n 's/^Outcome: //p')" \
+    "$(printf '%s\n' "$REPLY" | sed -n 's/^Reason: //p')" "$(printf '%s\n' "$REPLY" | sed -n 's/^Decided by: //p')"
 eq "levels: R's entry settles naming the final decider" 'settled|coordinator ws (final: a person)' \
-    "$(model lvl-r '.entries[0] | "\(.state)|\(.decided_by)"' | tr -d '"')"
-back_to_wait lvl-r
+    "$(field "$LR" 1 state)|$(field "$LR" 1 decided_by)"
+back_to_wait "$LR"
 
 # A withdrawal from below.
-arrive_raise lvl-r "Pin the plugin before the release?" "pin" "don't pin"
-back_to_wait lvl-r
-arrive_report lvl-w "coordinator roadmap-r" "$(last_sent lvl-r | jq -r .text)"
-back_to_wait lvl-w
-eq "levels: W has R's second entry escalated to a person" 'escalated|coordinator roadmap-r #2 round 1' \
-    "$(model lvl-w '.entries[1] | "\(.state)|\(.source)"' | tr -d '"')"
-verdict_for() { echo "settle don't pin: the release moved, so the question is moot"; }
-arrive_evidence lvl-r 2 dispatcher "the release moved a week"
-back_to_wait lvl-r
-eq "levels: evidence on R's sent escalation renders one withdrawal" 1 \
-    "$(jq -r .kind "$DEC_ST/lvl-r.sent" | grep -c '^withdrawal$')"
-R_SENT=$(wc -l < "$DEC_ST/lvl-r.sent")
-W_BEFORE=$(wc -l < "$DEC_ST/lvl-w.sent")
-arrive_report lvl-w "coordinator roadmap-r" "$(jq -rs '[.[] | select(.kind == "withdrawal")] | last | .text' "$DEC_ST/lvl-r.sent")"
-eq "levels: the withdrawal reopens W's entry, which settles on a new verdict" "settled" \
-    "$(model lvl-w '.entries[1].state' | tr -d '"')"
-eq "levels: W withdraws its own escalation from the person" "withdrawal" \
-    "$(sed -n "$((W_BEFORE + 1))p" "$DEC_ST/lvl-w.sent" | jq -r .kind)"
-eq "levels: nothing goes back down to R after the withdrawal" "0" \
-    "$(tail -n +"$((W_BEFORE + 1))" "$DEC_ST/lvl-w.sent" | jq -r 'select(.kind == "reply") | .kind' | wc -l | tr -d ' ')"
-eq "levels: R sent nothing more" "$R_SENT" "$(wc -l < "$DEC_ST/lvl-r.sent")"
-[ ! -e "$DEC_ST/lvl-w.bad-table" ] && pass "levels: every table W showed a person had a recommendation and a reason" ||
-    fail "levels: every table W showed a person had a recommendation and a reason"
+arrive_raise "$LR" "Pin the plugin before the release?" "pin" "don't pin"
+back_to_wait "$LR"
+arrive_report "$LW" rr "$(last_sent "$LR" .text)"
+back_to_wait "$LW"
+eq "levels: W has R's second entry escalated to a person" 'escalated|coordinator rr #2 round 1' \
+    "$(field "$LW" 2 state)|$(field "$LW" 2 source | sed 's/ \[.*//')"
+R_BEFORE=$(wc -l < "$T/$LR.sent")
+arrive_evidence "$LR" 2 dispatcher "the release moved a week"
+back_to_wait "$LR"
+eq "levels: evidence on R's sent escalation renders a withdrawal" "withdrawal|Withdrawn: decision 2 round 1." \
+    "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .kind)|$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text | head -1)"
+eq "levels: R settles it itself afterwards, owing nothing" 'settled|' "$(field "$LR" 2 state)|$(field "$LR" 2 owed)"
+W_BEFORE=$(wc -l < "$T/$LW.sent")
+arrive_report "$LW" rr "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text)"
+case "$(field "$LW" 2 evidence)" in *"withdrawn: decision 2 round 1"*) ok "levels: the withdrawal is evidence on W's entry" ;;
+    *) bad "levels: the withdrawal is evidence on W's entry" "$(field "$LW" 2 evidence)" ;; esac
+eq "levels: W withdraws its own escalation from the person" "withdrawal" "$(sed -n "$((W_BEFORE + 1))p" "$T/$LW.sent" | jq -r .kind)"
+eq "levels: W's entry settles on a new verdict and owes nothing" 'settled|' "$(field "$LW" 2 state)|$(field "$LW" 2 owed)"
+eq "levels: nothing goes back down to R after the withdrawal" "withdrawal" \
+    "$(tail -n +"$((W_BEFORE + 1))" "$T/$LW.sent" | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
+[ ! -e "$T/$LW.bad-table" ] && ok "levels: no read of W's section showed a person an escalation without its reasons" ||
+    bad "levels: no read of W's section showed a person an escalation without its reasons"
 
 finish
