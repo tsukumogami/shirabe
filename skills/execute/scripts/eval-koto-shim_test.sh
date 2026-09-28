@@ -114,14 +114,24 @@ else
     fail "the call log is missing calls: $(tr '\n' '|' < "$LOG")"
 fi
 
-# The assignment the fixture makes is the one execute.md makes.
+# The assignments the fixtures make are the ones execute.md makes: the reason
+# on worktree_discipline_check's intent-changing edge, and the outcome and
+# step on escalate_upstream_drift's edge to done_blocked. Both drift
+# scenarios carry the fixture, so both are checked.
 want=$(grep -F 'failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"' "$TEMPLATE" | wc -l | tr -d ' ')
-fixture=$(jq -r .failure_reason "$FIXTURES/scenarios/$SC/koto-next-execute-impact-intent-changing.context.json")
-if [ "$want" = 1 ] && [ "$fixture" = 'worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}' ]; then
-    pass "the fixture's failure_reason assignment matches execute.md's worktree_discipline_check edge"
-else
-    fail "fixture assignment [$fixture], template matches [$want]"
-fi
+escalate=$(awk '/^  escalate_upstream_drift:$/ { on = 1; next } on && /^  [a-z_]+:$/ { exit } on' "$TEMPLATE")
+tpl_outcome=$(printf '%s\n' "$escalate" | sed -n 's/^ *outcome: *//p')
+tpl_step=$(printf '%s\n' "$escalate" | sed -n 's/^ *step: *"\(.*\)"$/\1/p')
+for sc in drift-intent-changing drift-informational; do
+    got=$(jq -c '[.failure_reason, .outcome, .step]' "$FIXTURES/scenarios/$sc/koto-next-execute-impact-intent-changing.context.json")
+    exp=$(jq -cn --arg o "$tpl_outcome" --arg s "$tpl_step" \
+        '["worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}", $o, $s]')
+    if [ "$want" = 1 ] && [ -n "$tpl_outcome" ] && [ -n "$tpl_step" ] && [ "$got" = "$exp" ]; then
+        pass "$sc: the fixture's assignments match execute.md (failure_reason, outcome $tpl_outcome, step $tpl_step)"
+    else
+        fail "$sc: fixture assignments $got, template gives $exp (failure_reason lines: $want)"
+    fi
+done
 
 # --- inline evidence, and evidence no fixture answers -----------------------
 
@@ -186,12 +196,16 @@ got=$(k drift-informational "$LOG6" next "$WF" --with-data '{"impact":"intent-ch
     && pass "drift-informational: impact intent-changing ends at done_blocked" \
     || fail "drift-informational intent-changing answered [$got]"
 
-k "$SC" "$WORK/nomatch.log" next "$WF" --with-data '{"impact":"intent-changing"}' --no-cleanup >/dev/null 2>&1
 k drift-informational "$WORK/nomatch.log" next "$WF" --no-cleanup >/dev/null 2>&1
 k drift-informational "$WORK/nomatch.log" next "$WF" --with-data '{"impact":"informational"}' --no-cleanup >/dev/null 2>&1
 k drift-informational "$WORK/nomatch.log" next "$WF" --with-data '{"tasks":[]}' --no-cleanup >/dev/null 2>&1
 [ $? -eq 1 ] && pass "valid evidence with no fixture fails as no match" \
     || fail "valid evidence with no fixture did not fail"
+# Words the generic arms match on ("transition", "init ") inside inline
+# evidence must not reach them.
+k drift-informational "$WORK/nomatch.log" next "$WF" --with-data '{"tasks":[{"name":"transition","description":"init the thing"}]}' --no-cleanup >/dev/null 2>&1
+[ $? -eq 1 ] && pass "evidence with no fixture never falls through to the generic arms" \
+    || fail "evidence mentioning transition/init was answered by a generic arm"
 
 # --- context add / exists ----------------------------------------------------
 
@@ -270,7 +284,7 @@ fi
 
 k drift-intent-changing "$LOG5" init "$WF" --template x --attach-live --replace-terminal >/dev/null
 [ "$(k drift-intent-changing "$LOG5" status "$WF" | jq -r .current_state)" = worktree_discipline_check ] \
-    && pass "init --attach-live on a live session keeps it" \
+    && pass "init --replace-terminal on a live session keeps it" \
     || fail "init on a live session dropped its state"
 
 # --- the older work-on arm ---------------------------------------------------

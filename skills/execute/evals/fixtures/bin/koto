@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # koto shim for eval scenarios
-# Reads EVAL_SCENARIO env var and returns canned data from fixtures/scenarios/<scenario>/
+# Reads EVAL_SCENARIO env var and returns canned data from fixtures/scenarios/<scenario>/.
+# Stateless unless the eval declares KOTO_CALL_LOG; see the session-state block
+# below for what it keeps then.
 
 FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCENARIO_DIR="$FIXTURES_DIR/scenarios/${EVAL_SCENARIO:-}"
@@ -81,8 +83,7 @@ fi
 # tick also records the state it landed on for `status`, and applies the
 # fixture's <name>.context.json: a map of context keys to values in which
 # ${evidence.<field>} stands for the submitted field, as a transition's
-# context_assignments would. A tick with no fixture falls through to the
-# no-match error below.
+# context_assignments would. A tick with no fixture fails as no match.
 if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; then
   wf=$2
   data=""
@@ -92,6 +93,9 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
     prev=$a
   done
   case "$data" in @*) data=$(cat "${data#@}") ;; esac
+  if [ -n "$data" ]; then
+    command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
+  fi
 
   # A finished session refuses evidence and keeps its context, as koto does.
   if [ -n "$data" ] && [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/last/$wf.json" ] \
@@ -113,7 +117,6 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
     current="$SCENARIO_DIR/koto-next-execute.json"
   fi
   if [ -n "$data" ] && [ -n "$current" ]; then
-    command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
     # Every problem is reported, in koto's order: unknown fields first, then
     # each expected field in turn (missing, wrong type, value not allowed).
     details=$(printf '%s' "$data" | jq -c --slurpfile cur "$current" '
@@ -152,7 +155,6 @@ if [ "${1:-}" = next ] && case "${2:-}" in execute-*) true ;; *) false ;; esac; 
       fixture="$SCENARIO_DIR/koto-next-execute.json"
     fi
   else
-    command -v jq >/dev/null 2>&1 || { echo "koto shim: evidence needs jq" >&2; exit 1; }
     fields=$(printf '%s' "$data" | jq -r 'to_entries[] | select(.value | type == "string") | "\(.key)=\(.value)"' 2>/dev/null) \
       || { echo "koto shim: --with-data is not a JSON object: $data" >&2; exit 2; }
     while IFS= read -r kv; do
@@ -187,6 +189,11 @@ EOF_FIELDS
     cat "$fixture"
     exit 0
   fi
+  # No fixture answers this tick. Stop here: the arms below match substrings
+  # of the whole argument string, inline evidence included, and a word like
+  # "transition" in it would pick up a canned success.
+  echo "koto shim: no match for args: $ARGS" >&2
+  exit 1
 fi
 
 case "$ARGS" in
@@ -283,7 +290,8 @@ case "$ARGS" in
     # drift_facts action wrote (drift_facts.json, plan_intent.md), and the
     # batch view below would be the wrong answer for either.
     set -- $ARGS                  # context get <WF> <KEY>
-    # A key this run stored, or a transition assigned, wins over any fixture.
+    # Order: a key this run stored or a transition assigned, then a key-named
+    # fixture, then the batch view.
     if [ -n "$STATE_DIR" ] && [ -n "${4:-}" ] && [ -f "$(key_file "$3" "$4")" ]; then
       cat "$(key_file "$3" "$4")"
       exit 0

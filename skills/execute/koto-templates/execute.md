@@ -504,6 +504,9 @@ states:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
 
   escalate_upstream_drift:
+    # The accepts block is vestigial: every tick that reaches this state chains
+    # through it, so nothing here is ever submitted. It stays until its removal
+    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
     accepts:
       rationale:
         type: string
@@ -715,6 +718,9 @@ states:
           failure_reason: "ci_monitor: the PR lookup read failed"
 
   escalate_dirty_merge_state:
+    # The accepts block is vestigial: every tick that reaches this state chains
+    # through it, so nothing here is ever submitted. It stays until its removal
+    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
     accepts:
       rationale:
         type: string
@@ -1065,6 +1071,9 @@ states:
           reason: merge-not-observed
 
   escalate:
+    # The accepts block is vestigial: every tick that reaches this state chains
+    # through it, so nothing here is ever submitted. It stays until its removal
+    # is taken up (scripts/check-template-directives.allow, tsukumogami/koto#202).
     accepts:
       failure_reason:
         type: string
