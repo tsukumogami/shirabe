@@ -106,8 +106,8 @@ tokens_ok() { # tokens_ok <script>: every token seen fits a koto capture
 # session's header and init event as koto records a session opened from that
 # template: the source path in the header, and a compiled copy in the stand-in's
 # cache, named by its sha256, which becomes the header's template_hash. Pair it
-# with a KOTO_COMPILED_HASH other than that hash to model the plugin rewritten
-# in place since the run opened.
+# with a KOTO_COMPILED_HASH other than that hash (any value that differs) to
+# model the plugin rewritten in place since the run opened.
 opened_from() {
     local f="$KOTO_STORE/sessions/$1/koto-$1.state.jsonl" c h
     mkdir -p "$KOTO_STORE/cache"

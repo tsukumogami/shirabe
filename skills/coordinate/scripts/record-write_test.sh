@@ -211,6 +211,7 @@ KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SW" --body-file "$T/new.md" >/
 log_end "$SW"
 SF=coordinate-roadmap-plugin-system-20260926T130000Z
 found_session "$SF" "$(roadmap_vars plugin-system)" 7
+mkdir -p "$T/elsewhere"; cp "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" "$T/elsewhere/coordinate.md"
 opened_from "$SF" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
 seed_rm; reset_calls
 KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SF" --body-file "$T/new.md" >/dev/null 2>&1; eq "a session opened from another template is still refused" 10 $?

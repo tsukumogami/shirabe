@@ -81,13 +81,25 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}' >/dev/null
     printf 'edited' > "$KOTO_STORE/cache/$H5.json"
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5" 2>/dev/null; eq "$L: provenance fails when the run's compiled copy no longer matches its hash" 1 $?
-    # A foreign session: opened from a template at another path.
+    # A reinstall that left the shipped template uncompilable.
+    opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}' >/dev/null
+    KOTO_COMPILE_FAIL=1 bash "$CL" provenance --session "$S5"; eq "$L: provenance passes when the rewritten template doesn't compile" 0 $?
+    # koto opened the run through a symlink to the shipped directory.
+    rm -rf "$T/linked"; ln -s "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates" "$T/linked"
+    opened_from "$S5" "$T/linked/coordinate.md" '{"compiled":"as opened"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes for a source directory reached through a symlink" 0 $?
+    # A foreign session: opened from a real copy of the template at another path.
     local S6=coordinate-foreign-20260926T080000Z
     rm -rf "$KOTO_STORE/sessions/$S6"; found_session "$S6" "$(roadmap_vars foreign)" 7
+    mkdir -p "$T/elsewhere"; cp "$SHIPPED" "$T/elsewhere/coordinate.md"
     opened_from "$S6" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for a session opened from another template path" 1 $?
     opened_from "$S6" "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/other.md" '{"compiled":"foreign"}' >/dev/null
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for another template beside the shipped one" 1 $?
+    # A relative source directory names no fixed place, so it never matches,
+    # even one that would resolve to the shipped directory from here.
+    opened_from "$S6" "skills/coordinate/koto-templates/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+    (cd "$PLUGIN_ROOT_REAL" && KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null); eq "$L: provenance fails for a relative source directory" 1 $?
     bash "$CL" frobnicate 2>/dev/null; eq "$L: an unknown subcommand is a usage error" 64 $?
     event_reads "$L"
 }

@@ -12,7 +12,8 @@
 # and `run-facts` read engine-written captures; `koto next --to` leaves a
 # directed_transition that `directed-since 0` reports; `provenance` passes for
 # the template the session was created from, still passes after that template
-# is rewritten in place (the run advancing from the copy koto compiled at init),
+# is rewritten in place, even with text that doesn't compile (the run advancing
+# from the copy koto compiled at init),
 # and fails for an edited copy elsewhere or once koto's compiled copy is gone;
 # `live-session` finds the live run and drops it once it ends.
 #
@@ -206,13 +207,22 @@ start "$S5" "$T/swap/coordinate.md" "found 1" && tick "$S5" >/dev/null
 cp "$T/edited.md" "$T/swap/coordinate.md"
 bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" && pass "provenance passes after the template is rewritten in place" || fail "provenance passes after the template is rewritten in place"
 bash "$CL" provenance --session "$S4" --template "$TPL" 2>/dev/null; eq "a session from an edited copy elsewhere still fails" 1 $?
+# A rewrite koto can't even compile: provenance still passes, and the run
+# advances through record_find again from the copy koto compiled at init.
+printf 'not a template\n' > "$T/swap/coordinate.md"
+bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" && pass "provenance passes when the rewritten template doesn't compile" || fail "provenance passes when the rewritten template doesn't compile"
+BEFORE=$(bash "$CL" entry --session "$S5" --state record_find | cut -d' ' -f1)
 tick "$S5" --with-data '{"go":"again"}' >/dev/null
-eq "the run still advances after the rewrite" hold "$(koto status "$S5" | jq -r '.current_state // .state // empty')"
+AFTER=$(bash "$CL" entry --session "$S5" --state record_find | cut -d' ' -f1)
+[ -n "$AFTER" ] && [ "$AFTER" -gt "${BEFORE:-0}" ] && pass "the run still advances after the rewrite" || fail "the run still advances after the rewrite" "record_find entry $BEFORE, then $AFTER"
+eq "and returns to hold" hold "$(koto status "$S5" | jq -r '.current_state // .state // empty')"
 eq "live-session finds the one live run" "$S3" "$(bash "$CL" live-session --scope-slug demo)"
 tick "$S3" --with-data '{"go":"finish"}' >/dev/null
 bash "$CL" live-session --scope-slug demo >/dev/null 2>&1; eq "no live run once it ends" 1 $?
-RAN=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path' "$(koto session dir "$S5")/koto-$S5.state.jsonl")
-rm -f "$RAN"
+# Last, since it breaks S5 for koto itself (and live-session with it): the
+# compiled copy the run executes, removed.
+RUN_COPY=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path' "$(koto session dir "$S5")/koto-$S5.state.jsonl")
+rm -f "$RUN_COPY"
 bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" 2>/dev/null; eq "provenance fails once koto's compiled copy is gone" 1 $?
 
 echo
