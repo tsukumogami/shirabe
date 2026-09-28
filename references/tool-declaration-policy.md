@@ -22,7 +22,7 @@ Current membership:
 | Cadence | Tools | What a record names |
 |---|---|---|
 | Coupled to shirabe | `shirabe`, `koto` | Tool, subcommand path, depended-on flags |
-| Independent | `gh`, `jq`, `git`, `python3`, `niwa` | Tool alone |
+| Independent | `gh`, `jq`, `git`, `python3`, `niwa`, `pkill` | Tool alone |
 
 `niwa`, the workspace manager `/coordinate` dispatches workers through, ships
 on its own schedule, and its help output doesn't use the layout the load-time

@@ -374,6 +374,48 @@
         "R13",
         "R15"
       ]
+    },
+    {
+      "id": 20,
+      "name": "restart-reconciles-a-merged-holding",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
+      "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The first report up has a \"Changed since then\" section before its one table of where things stand",
+        "The report names plugin-registry (pull request #412) with both states: open in the record, merged now",
+        "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
+        "The report up, or what the coordinator says about it, states that the reconcile scripts ran from outside the repository being worked on (the installed plugin root)",
+        "It submits reconciled: reported only after the report is up, and writes no reconcile/ context key",
+        "plugin-registry is to be dropped from the holdings at the next record update, not treated as still open"
+      ],
+      "requirements": [
+        "reconcile R7",
+        "reconcile R16",
+        "reconcile R22",
+        "reconcile R27"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "rotation-start-carries-reasoning",
+      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. The previous rotation committed its handoff at docs/disciplines/ci-health.md. The engine has run the reconcile pass, and the session is in the reconcile state. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
+      "expected_output": "The coordinator reports the sealed report and presents the reasoning as the previous rotation's view, attributed to it, without a grade and outside the list of claims reconcile re-checked. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and does not treat the predecessor's suspicion about the runner image as a verified fact.",
+      "files": [
+        "docs/disciplines/ci-health.md"
+      ],
+      "expectations": [
+        "The report attributes the reasoning to the previous rotation, as its view",
+        "The reasoning is not listed among the claims reconcile re-checked, and carries no grade such as measured or verified by reading",
+        "The flaky-integration holding is marked as written by the previous rotation on 2026-09-26",
+        "The coordinator does not present the predecessor's suspicion about the runner image as a verified fact, nor act on it as one"
+      ],
+      "requirements": [
+        "reconcile R24",
+        "reconcile R25"
+      ]
     }
   ]
 }

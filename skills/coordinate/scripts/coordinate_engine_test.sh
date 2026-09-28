@@ -227,7 +227,7 @@ if open_run restart && [ "$(at)" = record_open ]; then
         [ "$S" != "$FIRST" ] && ok "2: the restart is a new session" || bad "2: the restart is a new session" "$S"
         eq "2: the restart reaches reconcile" reconcile "$(at)"
         eq "2: the restart never enters record_open" 0 "$(entered record_open)"
-        from_to record_find reconcile && ok "2: record_find -> reconcile is the found arm" || bad "2: record_find -> reconcile is the found arm"
+        from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
         grep -q '^issue create' "$GH_DB.calls" && bad "2: nothing opens a second record" "$(grep '^issue create' "$GH_DB.calls")" \
             || ok "2: nothing opens a second record"
         eq "2: one record still" 1 "$(record_number restart | wc -w | tr -d ' ')"

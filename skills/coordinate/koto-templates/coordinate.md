@@ -197,7 +197,7 @@ states:
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state record_find --capture "{{RECORD_FIND}}"'
         overridable: false
     transitions:
-      - target: reconcile
+      - target: reconcile_pass
         when:
           gates.record_find_verdict.exit_code: 10  # found
       - target: record_open
@@ -339,11 +339,31 @@ states:
         when:
           recheck: recheck
 
+  reconcile_pass:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-pass.sh" --session "{{SESSION_NAME}}" --session-dir "{{SESSION_DIR}}"'
+      capture_stdout_as: RECONCILE_SEAL
+      fallback: >-
+        The reconcile pass failed; its own output above says why. Fix the cause and tick again with no evidence: the pass re-runs on entry and resumes the visit's reads. There is no evidence to submit here and no override, and no reconcile/ context key is ever yours to write.
+    gates:
+      reconcile_pass_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state reconcile_pass --capture "{{RECONCILE_SEAL}}"'
+        overridable: false
+    transitions:
+      - target: reconcile
+        when:
+          gates.reconcile_pass_verdict.exit_code: 140  # reconciled
+
   reconcile:
     gates:
       reconcile_posture:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state start_posture --capture "{{POSTURE}}"'
+        overridable: false
+      reconcile_report:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
         overridable: false
     accepts:
       reconciled:
@@ -356,10 +376,12 @@ states:
         when:
           reconciled: reported
           gates.reconcile_posture.exit_code: 25
+          gates.reconcile_report.exit_code: 0
       - target: posture_ask
         when:
           reconciled: reported
           gates.reconcile_posture.exit_code: 26
+          gates.reconcile_report.exit_code: 0
 
   posture_ask:
     accepts:
@@ -1551,31 +1573,67 @@ The predecessor's record merged. Delete its branch with
 The predecessor's merge is with the human. Your record can't open on a branch the
 predecessor still holds; submit `recheck: recheck` once it has merged or closed.
 
-## reconcile
+## reconcile_pass
 
-Run a full reconcile against the record ({{RECORD_FIND}}), report it up, and
-submit `reconciled: reported`. Load `references/loop.md`, "A Full Reconcile, in
-Order"; hand the reads to a local agent when there are more than a few holdings.
+The reconcile pass is running against the record: tick again with no evidence
+until this state lets you through. While reads remain, `reconcile/progress`
+says how many; each tick runs one bounded pass and resumes where the last one
+stopped. If `reconcile/refusal` is set, the record couldn't be read. When its
+reason is a read that failed or timed out, tick again once; otherwise, or when
+it happens again, say what it names up to the human and stop. Never write a
+`reconcile/` context key.
 
 <!-- details -->
 
-Treat every claim in the record as a snapshot dated by its `Written:` time.
-Re-check each against GitHub (pull request state and head sha, whether the branch
-exists, issue state, CI results) and against the host (whether each worker's
-session or instance still exists, and what unique material it holds). Where the
-record and GitHub disagree, GitHub wins: act on the read, rewrite the row at the
-next update, and put the difference in the report as a change. Never average the
-two, and never keep a row "until it's confirmed". Record a session missing from
-the roster as "not seen", never "dead".
+The pass (`scripts/reconcile-pass.sh`, run by the engine, not by you) reads the
+record once per visit to this state and does the reads a full reconcile has
+always meant, at most four at a time.
+Treat every claim in the record as a snapshot dated by its `Written:` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
+exists, CI results, a merge or close in flight) and against the host (whether
+each worker's instance still exists, and what unique material it holds): the
+pass does both. Where the record and GitHub disagree, GitHub wins, and the
+report says what changed. Record a session missing from the workspace
+manager's listing as "not found on this read", never "dead": the pass reads the
+listing again 30 seconds later, so a pass can end pending with that re-read
+still due; ticking again after the wait finishes it. There is no need to hand the reads to a local agent when there are more than a few holdings: the
+engine runs them. When every re-check is done the pass writes
+`reconcile/report.json` and `reconcile/report.md` (and, at discipline scope,
+`reconcile/reasoning.md` with the previous rotation's reasoning) and seals the
+report to this visit. The gate lets you through only on that seal.
 
-Report three things: what changed since the record was written, what you hold,
-and every open deferral, with the reconcile report's shape from
-`references/loop.md`. Grade every claim as measured, verified by reading, or
-inferred. Include a "Waiting on the human" section; it is derived at each report
-and never stored.
+## reconcile
 
-This full reconcile runs once per run, on this path. Later turns re-check only
-the holdings they are about to act on, which each spoke's read already does.
+Print the report the reconcile pass sealed, checked against its seal, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
+and report it up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
+Reconcile, in Order", for how to present it.
+
+<!-- details -->
+
+Report three things: what changed since the record was written, what you
+hold, and every open deferral, as the report's own sections give them, in its
+order, each claim with its grade (measured, verified by reading, or inferred).
+What you hold is the report's one table, "Where things stand": ready to merge,
+blocked on you, ongoing, then waiting to be assigned, which you fill from the
+scope read that follows. Keep that one table, its order and its form (pull
+requests as links, sessions as code, no commit hash) when you report it up;
+its "Blocked on you" rows are what waits on the human, derived at this
+report and never stored. Pass the report's own words on for its header and
+its section names: its opening lines as written, including where the reconcile
+scripts ran, and each section under the name the report gives it, such as
+"Changed since then". The report is the reads: don't re-run them. Never average the
+report with the record, and never keep a row "until it's confirmed". Where it
+says a worker was not found on this read, say that, never "gone" or "dead".
+At discipline scope, `reconcile/reasoning.md` is the previous rotation's
+reasoning as it wrote it: its view, not re-checked. Attribute it to the
+previous rotation and give it no grade; it isn't a claim the report measured,
+verified or inferred, and it doesn't go among the re-checked claims.
+
+This state's gate re-checks that `reconcile/report.json` is the report the pass
+sealed in this visit; a report written or changed by anyone else holds the
+workflow here. This full reconcile runs once per run, on this path. Later turns
+re-check only the holdings they are about to act on, which each spoke's read
+already does.
 
 ## posture_ask
 

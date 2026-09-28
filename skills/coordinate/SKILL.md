@@ -315,8 +315,9 @@ way.
 
 ## What This Version Leaves for Later
 
-Reconcile mechanises the full re-check the reconcile state describes; until
-it lands, it is a procedure the coordinator runs with a local agent.
+Both features this version named as later work have landed: the dispatch
+path runs dispatch, wait and teardown through scripts, and reconcile's
+re-check is the `reconcile_pass` state. What is still open is below.
 
 ## Known Limitations
 
@@ -326,7 +327,10 @@ it lands, it is a procedure the coordinator runs with a local agent.
   run and looks up only its own; `/scope`'s pull requests and ones opened before
   that fix still fall back to author login and branch name, and every worker a
   coordinator dispatches shares one login. The coordinator's own reads go by pull
-  request number and dispatch topic.
+  request number and dispatch topic. For reconcile, a pull request that
+  appeared on a holding's branch since the record is reported as appeared, not
+  adopted, so a sibling's pull request on a shared branch name shows up as one
+  to look at rather than as the holding's.
 - **The coordinator's record has no merge order (shirabe#396, fixed by shirabe#412).** When a worker runs a
   coordinated PLAN, `/execute` renders that PLAN's merge order into its
   coordination pull request's merge-order block from the `waits_on` graph, so
@@ -335,14 +339,17 @@ it lands, it is a procedure the coordinator runs with a local agent.
   the human still comes from its reading of dependencies.
 - **Pull request bodies that aren't scoped (shirabe#398).** A worker's pull request body
   can describe more than the pull request carries. The verify step's file-list
-  read is the defence, at one more read per report.
+  read is the defence, at one more read per report. Reconcile makes the same
+  file-list read only for a holding marked scoping ahead, to flag one whose
+  pull request changes paths outside `docs/`.
 - **Leg wakes aren't watched (tsukumogami/koto#250, fixed in koto 0.14.0).**
   koto 0.14.0 and later record a wake when a leg a session waits on resolves,
   readable with `koto request watch`. This skill
   doesn't watch for it yet, so the coordinator still ticks the workflow on each
   message or notification, and a resolved leg waits for the next tick, which a
-  message, a notification or the quiet-worker check brings. Wakes are local to
-  one machine either way.
+  message, a notification or the quiet-worker check brings. A reconcile pass
+  left pending (a worker's listing re-read still 30 seconds away) waits for
+  that next tick the same way. Wakes are local to one machine either way.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
   0.14.0 and later refuse a directed transition past a failing non-overridable
   gate, so no check can be skipped that way. The seal stays as defence in depth:
@@ -384,6 +391,16 @@ it lands, it is a procedure the coordinator runs with a local agent.
   branch whose pull request was squash-merged as unmerged, so the destroy step
   needs `--force`, passed only after the sealed inventory proved every
   repository durable.
+- **Where the next checks attach.** Three checks reconcile doesn't make yet
+  have a place to go. Liveness (whether a found worker is still making
+  progress, not only present) belongs in the host re-check, beside the listing
+  read, as a second fact on the same holding. The double-held check (one pull
+  request, branch or worker claimed by two holdings, or by another
+  coordinator's record) belongs where the pass assembles facts from the parsed
+  record, before the report, so it lands under "Changed since then". Moving the
+  reads off the coordinator's host (externalised load) belongs at the pass's
+  single launch point for a re-check, which already runs each read as its own
+  process with its own deadline.
 
 ## Changing This Skill
 
