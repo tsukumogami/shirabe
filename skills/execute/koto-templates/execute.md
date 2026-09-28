@@ -510,11 +510,15 @@ states:
         description: Why the upstream change invalidates the chain's intent
     transitions:
       # The upstream-must-change boundary: the run's re-evaluation exit.
+      # No failure_reason here: the intent-changing tick chains through this
+      # state without stopping, and the evidence submitted at
+      # worktree_discipline_check doesn't carry into it, so an assignment from
+      # ${evidence.rationale} would overwrite the reason that state wrote with
+      # an empty one.
       - target: done_blocked
         context_assignments:
           outcome: error
           step: "execute:re-evaluation"
-          failure_reason: "escalate_upstream_drift: ${evidence.rationale}"
 
   spawn_and_await:
     gates:
