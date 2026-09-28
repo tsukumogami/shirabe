@@ -6,11 +6,11 @@
 # a starting point before anything changes what the koto-templated skills
 # (work-on, execute, scope, deliver) load. This script is the only tooling it
 # needs: one subcommand proves the template pin still describes the commit it
-# names, the other re-runs the per-skill instruction-token count at any commit.
-# The method, the figures and the provisional definitions are in that
-# directory's README.md.
+# names, another re-runs the per-skill instruction-token count at any commit,
+# and the third re-derives every figure the baseline records. The method, the
+# figures and the provisional definitions are in that directory's README.md.
 #
-# Both subcommands read the measured files from git objects at the commit, not
+# The subcommands read the measured files from git objects at the commit, not
 # from the working tree, so they give the same answer at the same commit from
 # any checkout and leave the tree as they found it. The pin and the manifest
 # themselves are ordinary files: by default the ones committed beside this
@@ -24,6 +24,14 @@
 # Usage:
 #   scripts/offload-baseline.sh verify-pin [--pin <file>]
 #   scripts/offload-baseline.sh count <commit> [--manifest <file>]
+#   scripts/offload-baseline.sh check-figures [--dir <baseline dir>]
+#
+# check-figures
+#   Re-runs count at every commit token-baseline.tsv records recount rows for,
+#   compares the output with those rows, and checks the README's figures table
+#   against them. The rows quoted from the September census are reference
+#   values from another method and are not recomputed. Exits 1 on any
+#   difference, or when there are no recount rows to check.
 #
 # verify-pin
 #   Checks every entry of the template pin against its pinned commit: the set
@@ -86,6 +94,7 @@ usage() {
 Usage:
   scripts/offload-baseline.sh verify-pin [--pin <file>]
   scripts/offload-baseline.sh count <commit> [--manifest <file>]
+  scripts/offload-baseline.sh check-figures [--dir <baseline dir>]
 EOF
     exit 0
 }
@@ -417,15 +426,88 @@ EOF
     echo "$PROG: pin verified against $commit ($count templates)" >&2
 }
 
+# Re-derives every recorded figure: re-runs `count` at each commit that
+# token-baseline.tsv has recount rows for (with load-manifest-<commit>.tsv when
+# one exists, else load-manifest.tsv) and compares the output with those rows,
+# then checks the README's figures table against the same rows. The census
+# rows are quoted from the September census, not computed, and are not checked.
+cmd_check_figures() {
+    local dir="$BASELINE_DIR"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --dir)
+                [ "$#" -ge 2 ] || die "--dir requires a value"
+                dir="$2"; shift ;;
+            -h|--help) usage ;;
+            *) die "unexpected argument: $1" ;;
+        esac
+        shift
+    done
+    local tsv="$dir/token-baseline.tsv" readme="$dir/README.md"
+    [ -f "$tsv" ] || die "figures not found: $tsv"
+
+    TMP_DIR=$(mktemp -d)
+    awk -F '\t' '!/^#/ && $5 == "recount" { print $1 }' "$tsv" | LC_ALL=C sort -u > "$TMP_DIR/commits"
+    [ -s "$TMP_DIR/commits" ] || { echo "$PROG: $tsv has no recount rows to check" >&2; exit 1; }
+
+    local errors=0 commit manifest
+    while IFS= read -r commit; do
+        manifest="$dir/load-manifest.tsv"
+        [ -f "$dir/load-manifest-$commit.tsv" ] && manifest="$dir/load-manifest-$commit.tsv"
+        awk -F '\t' -v c="$commit" '!/^#/ && $1 == c && $5 == "recount" { print $2 "\t" $3 "\t" $4 }' \
+            "$tsv" > "$TMP_DIR/expected"
+        if ! "$0" count "$commit" --manifest "$manifest" > "$TMP_DIR/actual"; then
+            echo "$PROG: count failed at $commit" >&2
+            errors=$((errors + 1))
+        elif ! diff -u "$TMP_DIR/expected" "$TMP_DIR/actual" >&2; then
+            echo "$PROG: figures at $commit differ from $tsv" >&2
+            errors=$((errors + 1))
+        else
+            echo "$PROG: figures at $commit reproduce" >&2
+        fi
+    done < "$TMP_DIR/commits"
+
+    # The README's table repeats the recount rows: column 2 is the pinned
+    # commit's rows, column 3 the census commit's, as the TSV's note column
+    # labels them. Thousands separators are ignored.
+    if [ -f "$readme" ]; then
+        awk -F '\t' '!/^#/ && $5 == "recount" && $6 == "pinned commit" { print $2 "\t" $3 "\t" $4 "\tpinned" }
+                     !/^#/ && $5 == "recount" && $6 == "census commit" { print $2 "\t" $3 "\t" $4 "\tcensus" }' \
+            "$tsv" | LC_ALL=C sort > "$TMP_DIR/tsv-rows"
+        awk -F '|' '
+            /^\| `[a-z0-9-]+` \|/ {
+                p = $2; gsub(/[ `]/, "", p)
+                for (c = 3; c <= 4; c++) {
+                    v = $c; gsub(/[ ,]/, "", v)
+                    n = split(v, part, "/")
+                    if (n == 2 && part[1] ~ /^[0-9]+$/ && part[2] ~ /^[0-9]+$/)
+                        print p "\t" part[1] "\t" part[2] "\t" (c == 3 ? "pinned" : "census")
+                }
+            }' "$readme" | LC_ALL=C sort > "$TMP_DIR/readme-rows"
+        if [ ! -s "$TMP_DIR/readme-rows" ]; then
+            echo "$PROG: no figures table found in $readme" >&2
+            errors=$((errors + 1))
+        elif ! diff -u "$TMP_DIR/tsv-rows" "$TMP_DIR/readme-rows" >&2; then
+            echo "$PROG: the figures table in $readme differs from $tsv" >&2
+            errors=$((errors + 1))
+        else
+            echo "$PROG: the figures table in $readme matches" >&2
+        fi
+    fi
+
+    [ "$errors" -eq 0 ] || { echo "$PROG: check-figures found $errors problem(s)" >&2; exit 1; }
+}
+
 need git
 need jq
 
-[ "$#" -ge 1 ] || die "a subcommand is required: verify-pin or count (--help for usage)"
+[ "$#" -ge 1 ] || die "a subcommand is required: verify-pin, count or check-figures (--help for usage)"
 sub="$1"
 shift
 case "$sub" in
     verify-pin) cmd_verify_pin "$@" ;;
     count) cmd_count "$@" ;;
+    check-figures) cmd_check_figures "$@" ;;
     -h|--help) usage ;;
     *) die "unknown subcommand: $sub" ;;
 esac

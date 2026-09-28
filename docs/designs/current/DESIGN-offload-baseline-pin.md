@@ -279,13 +279,15 @@ carries 1 and says so. The README lists every weight that isn't 1.
 
 `token-baseline.tsv` has one row per (commit, profile) with `raw` and
 `weighted`, for the pinned commit and for e592501, plus rows with commit
-`census-2026-09` carrying the September figures as published: work-on 48.0k
-raw and 37.8k weighted; execute single-pr 37.2k raw and 33.5k weighted;
-execute coordinated 22.0k raw and 21.5k weighted; deliver's own files 5.9k
-raw and 5.0k weighted; scope 181k raw across its files and 135k to 145k in a
-typical run's main context. The README states why the September figures and
-the recount at e592501 differ: the census counted instruction rows and left
-out rationale prose in places, while the recount counts whole spans.
+`census-2026-09` and source `census-quoted` carrying the September figures
+as the census published them. Those are quoted reference values, not
+measurements: the census counted hand-split instruction rows at e592501, bytes
+divided by 4, weighted by expected loads per run. `scripts/offload-baseline.sh
+check-figures` regenerates every recount row and checks the README's figures
+table against them; the quoted rows are the one exception, and the e592501
+recount beside them makes the gap checkable. The README states why the two
+differ: the census counted instruction rows and left out rationale prose in
+places, while the recount counts whole spans.
 
 ### Preloaded rate (provisional)
 

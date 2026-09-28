@@ -402,6 +402,57 @@ BAD_WEIGHT="$TEST_DIR/bad-weight.tsv"
 expect_count_fails "count: a non-numeric weight" "bad weight 'lots'" \
     count "$BASE" --manifest "$BAD_WEIGHT"
 
+# -- check-figures --------------------------------------------------------------
+
+# A baseline directory for the fixture: the manifest above, figures for $BASE
+# as `count` computes them, and a README table repeating them.
+FIG_DIR="$TEST_DIR/figures"
+mkdir -p "$FIG_DIR"
+cp "$MANIFEST" "$FIG_DIR/load-manifest.tsv"
+run count "$BASE" --manifest "$MANIFEST"
+BASE_FIGS="$OUT"
+write_figures() {
+    {
+        printf 'commit\tprofile\traw\tweighted\tsource\tnote\n'
+        printf '%s\n' "$BASE_FIGS" | awk -F '\t' -v c="$BASE" '{ print c "\t" $1 "\t" $2 "\t" $3 "\trecount\tpinned commit" }'
+        printf 'census-2026-09\tp1\t1\t1\tcensus-quoted\tquoted\n'
+    } > "$FIG_DIR/token-baseline.tsv"
+    {
+        printf '| Profile | Pinned | Census commit |\n|---|---|---|\n'
+        printf '%s\n' "$BASE_FIGS" | awk -F '\t' '{ printf "| `%s` | %s / %s | n/a |\n", $1, $2, $3 }'
+    } > "$FIG_DIR/README.md"
+}
+
+write_figures
+run check-figures --dir "$FIG_DIR"
+case "$STATUS:$ERR" in
+    0:*"reproduce"*"matches"*) pass "check-figures: recorded figures and the README table reproduce" ;;
+    *) fail "check-figures: recorded figures and the README table reproduce" "status $STATUS, stderr: $ERR" ;;
+esac
+
+awk -F '\t' 'BEGIN { OFS = "\t" } $5 == "recount" && $2 == "p2" { $3 = $3 + 1 } { print }' \
+    "$FIG_DIR/token-baseline.tsv" > "$FIG_DIR/t" && mv "$FIG_DIR/t" "$FIG_DIR/token-baseline.tsv"
+run check-figures --dir "$FIG_DIR"
+case "$STATUS:$ERR" in
+    1:*"differ from"*) pass "check-figures: a recorded figure that doesn't reproduce fails" ;;
+    *) fail "check-figures: a recorded figure that doesn't reproduce fails" "status $STATUS, stderr: $ERR" ;;
+esac
+
+write_figures
+sed 's/^| `p1` | \([0-9]*\) /| `p1` | 9\1 /' "$FIG_DIR/README.md" > "$FIG_DIR/r" && mv "$FIG_DIR/r" "$FIG_DIR/README.md"
+run check-figures --dir "$FIG_DIR"
+case "$STATUS:$ERR" in
+    1:*"figures table"*"differs"*) pass "check-figures: a README figure that disagrees fails" ;;
+    *) fail "check-figures: a README figure that disagrees fails" "status $STATUS, stderr: $ERR" ;;
+esac
+
+printf 'commit\tprofile\traw\tweighted\tsource\tnote\n' > "$FIG_DIR/token-baseline.tsv"
+run check-figures --dir "$FIG_DIR"
+case "$STATUS:$ERR" in
+    1:*"no recount rows"*) pass "check-figures: no recount rows fails rather than passing vacuously" ;;
+    *) fail "check-figures: no recount rows fails" "status $STATUS, stderr: $ERR" ;;
+esac
+
 # -- the committed baseline -----------------------------------------------------
 
 # Public-content scan of the committed baseline directory. Repository
