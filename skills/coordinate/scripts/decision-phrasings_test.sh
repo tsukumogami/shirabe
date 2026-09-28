@@ -85,6 +85,13 @@ refused "a \\b word edge" 'decision	\bdecide\b'
 refused "a \\< word edge" 'decision	\<decide\>'
 refused "a \\w class" 'decision	decide\w+'
 refused "a \\s class" 'decision	please\sdecide'
+refused "a \\d class" 'decision	option \d'
+list 'decision	please decide\.'
+phrasings_check "$T/list.tsv"; eq "an escaped punctuation mark is fine" 0 "$?"
+long=
+i=0
+while [ "$i" -lt 3000 ]; do long="$long please decide whether to ship"; i=$((i + 1)); done
+( set -o pipefail; phrase_match decision "$long" ); eq "a long matching text under pipefail still matches" 0 "$?"
 refused "an unknown kind" 'question	decide'
 refused "a row with no pattern" 'decision'
 refused "a carriage return" $'decision\tplease decide\r'

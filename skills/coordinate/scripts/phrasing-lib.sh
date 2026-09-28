@@ -22,9 +22,10 @@
 #
 # A row is `<kind><TAB><pattern>`, kind `decision`, `addressed` or `both`, the
 # pattern a non-empty extended regular expression. Refused: a carriage return
-# (a CRLF file would never match), a back-reference (\1..\9), and \b \B \< \>
-# \w \W \s \S, which GNU grep takes and BSD grep doesn't. Comment (#) and blank
-# lines are skipped.
+# (a CRLF file would never match), a back-reference (\1..\9), and a backslash
+# before a letter, <, >, ` or ' (\b \w \s \d and the like), which GNU grep
+# takes and BSD grep doesn't; escape punctuation such as \. is fine. Comment
+# (#) and blank lines are skipped.
 #
 # Requires: bash 3.2+, awk, grep.
 
@@ -42,7 +43,7 @@ _phrasings_read() {
             if ($1 != "decision" && $1 != "addressed" && $1 != "both") { printf "decision phrasings: line %d: unknown kind %s\n", NR, $1 > "/dev/stderr"; bad = 1; exit }
             pat = $0; sub(/^[^\t]*\t/, "", pat)
             if (pat ~ /\\[1-9]/) { printf "decision phrasings: line %d: a back-reference\n", NR > "/dev/stderr"; bad = 1; exit }
-            if (pat ~ /\\[bB<>wWsS]/) { printf "decision phrasings: line %d: an escape BSD grep does not take; spell it out\n", NR > "/dev/stderr"; bad = 1; exit }
+            if (pat ~ /\\[A-Za-z<>`'"'"']/) { printf "decision phrasings: line %d: an escape BSD grep does not take; spell it out\n", NR > "/dev/stderr"; bad = 1; exit }
             if (want != "" && ($1 == want || $1 == "both")) { print pat; n++ }
         }
         END { if (bad) exit 65; if (want != "" && n == 0) exit 3 }
@@ -65,8 +66,10 @@ phrase_match() {
     pats=$(_phrasings_read "$kind" "$f"); rc=$?
     [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
     # One -e argument holding newline-separated patterns is a POSIX grep
-    # pattern list: a line matches when any pattern does.
-    printf '%s\n' "$text" | grep -Eiq -e "$pats"
+    # pattern list: a line matches when any pattern does. A here-string rather
+    # than a pipe, so grep quitting early on a match can't raise SIGPIPE in a
+    # caller running under pipefail.
+    grep -Eiq -e "$pats" <<< "$text"
     rc=$?
     [ "$rc" -le 1 ] || return 2
     return "$rc"
