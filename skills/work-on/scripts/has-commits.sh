@@ -13,10 +13,11 @@
 # A missing `impl_base` fails the gate rather than guessing a base. The gate
 # guards routes that must not be taken without commits, so "don't know" is a
 # failure. The recovery is to record the commit the run really started from
-# (the parent of its first commit) as `impl_base` and submit again; the
-# issue_type_routing and scrutiny directives say so, and so does the message
-# this script prints. Re-entering `analysis` doesn't help: it would record the
-# current HEAD, which is already past the run's commits.
+# (the parent of its first commit) as `impl_base` and submit again. The
+# issue_type_routing and scrutiny directives say so; koto doesn't pass a gate's
+# stderr to the agent, so the message below is for someone running this by
+# hand. Re-entering `analysis` doesn't help: it would record the current HEAD,
+# which is already past the run's commits.
 #
 # Limitation, shared with record-changed-paths.sh: a rebase after `analysis`
 # can leave `impl_base` off HEAD's history, and the count then includes what
