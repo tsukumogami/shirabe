@@ -82,7 +82,9 @@
 #     tool wrapped in a shell function, a case arm whose pattern is quoted or
 #     expands a variable, and a source path spelled any other way. Any traced
 #     assignment charges the variable, even if another assignment in the
-#     file gives it a different value.
+#     file gives it a different value. Command position is judged without
+#     tracking quotes, so a separator inside a string (`echo "a; $K"`) can
+#     charge a name held as data; that errs toward a finding, never a miss.
 #   - Like a literal call, a call is judged on the line holding the redirect.
 #     A command continued with `\` whose redirect sits on a later line than
 #     the tool is not seen, whether the tool is named or held.
