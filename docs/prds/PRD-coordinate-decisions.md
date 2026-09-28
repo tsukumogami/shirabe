@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Under `/coordinate`, a worker can put a choice straight to the human, evidence that arrives
   after a decision goes back to the human as a bare "decide", and a coordinator can list a
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-coordinate-decisions](docs/briefs/BRIEF-coordinate-decisions.md); carried in Absorbed Brief.
 

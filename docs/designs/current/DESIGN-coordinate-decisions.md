@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   `/coordinate` has no structure for decisions. A worker's question passes to the human as it
   stands, evidence after a decision goes back to the human as a bare "decide", the progress
@@ -40,7 +40,7 @@ upstream: docs/prds/PRD-coordinate-decisions.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
