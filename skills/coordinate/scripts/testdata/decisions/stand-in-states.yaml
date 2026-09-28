@@ -1,0 +1,403 @@
+  # STAND-IN: the decision states as the DESIGN's state table describes them,
+  # for decisions-replay_engine_test.sh until coordinate.md carries them.
+  # Issue 10 deletes this file and cuts the same states from coordinate.md.
+  # Each state is a block from its `  <state>:` line to the next; the harness
+  # cuts them the same way it will cut coordinate.md.
+  wait:
+    accepts:
+      event:
+        type: enum
+        values: [report, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise]
+        required: true
+        description: What arrived, or what is due.
+      unit:
+        type: string
+        description: The dispatch topic the event is about, when it is about one.
+      report:
+        type: string
+        description: With a report event, the worker's message as it arrived.
+      decision:
+        type: string
+        description: With an answer or evidence event, the entry it names.
+      round:
+        type: string
+        description: With an answer event, the round it names.
+    transitions:
+      - target: take_report
+        when:
+          event: report
+        context_assignments:
+          worker_report: "${evidence.report}"
+          report_topic: "${evidence.unit}"
+          report_source: message
+      - target: leg_pick
+        when:
+          event: leg
+      - target: quiet_check
+        when:
+          event: quiet
+      - target: decision_apply
+        when:
+          event: decision
+      - target: decision_apply
+        when:
+          event: deferral
+      - target: merged_facts
+        when:
+          event: merged
+      - target: teardown
+        when:
+          event: retire
+      - target: decision_answer
+        when:
+          event: answer
+      - target: decision_evidence
+        when:
+          event: evidence
+      - target: decision_raise
+        when:
+          event: raise
+      - target: rotation_close
+        when:
+          event: end
+          vars.DISCIPLINE:
+            is_set: true
+      - target: done_stopped
+        when:
+          event: end
+          vars.DISCIPLINE:
+            is_set: false
+
+  report_facts:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/report-facts.sh" --session "{{SESSION_NAME}}"'
+      capture_stdout_as: REPORT
+      fallback: The read failed; tick again.
+    gates:
+      report_facts_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state report_facts --capture "{{REPORT}}"'
+        overridable: false
+    transitions:
+      - target: report_questions
+        when:
+          gates.report_facts_verdict.exit_code: 60  # holding
+      - target: report_questions
+        when:
+          gates.report_facts_verdict.exit_code: 61  # unknown
+      - target: report_questions
+        when:
+          gates.report_facts_verdict.exit_code: 62  # refused
+
+  report_questions:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/report-questions.sh" --session "{{SESSION_NAME}}"'
+      capture_stdout_as: QUESTIONS
+      fallback: The read failed; tick again.
+    gates:
+      report_questions_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state report_questions --capture "{{QUESTIONS}}"'
+        overridable: false
+      report_holding:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state report_facts --capture "{{REPORT}}"'
+        overridable: false
+    transitions:
+      - target: decision_open
+        when:
+          gates.report_questions_verdict.exit_code: 170  # questions
+      - target: classify_report
+        when:
+          gates.report_questions_verdict.exit_code: 11  # none
+          gates.report_holding.exit_code: 60
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 11  # none
+          gates.report_holding.exit_code: 61
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 11  # none
+          gates.report_holding.exit_code: 62
+      - target: rebrief
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+      - target: surface
+        when:
+          gates.report_questions_verdict.exit_code: 172  # unreadable
+
+  decision_next:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/decision-next.sh" --session "{{SESSION_NAME}}"'
+      capture_stdout_as: DECISION_NEXT
+      fallback: The read failed; tick again.
+    gates:
+      decision_next_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_next --capture "{{DECISION_NEXT}}"'
+        overridable: false
+      decision_input:
+        type: context-exists
+        key: coord/decision.json
+        overridable: false
+    transitions:
+      - target: decision_carry
+        when:
+          gates.decision_next_verdict.exit_code: 150  # carry
+      - target: decision_open
+        when:
+          gates.decision_next_verdict.exit_code: 151  # unrecorded-open
+      - target: decision_answer
+        when:
+          gates.decision_next_verdict.exit_code: 152  # unrecorded-answer
+      - target: decision_evidence
+        when:
+          gates.decision_next_verdict.exit_code: 153  # unrecorded-evidence
+      - target: decision_raise
+        when:
+          gates.decision_next_verdict.exit_code: 154  # unrecorded-raise
+      - target: decision_withdraw
+        when:
+          gates.decision_next_verdict.exit_code: 155  # withdraw
+      - target: decision_reply
+        when:
+          gates.decision_next_verdict.exit_code: 156  # reply
+      - target: decision_redirect
+        when:
+          gates.decision_next_verdict.exit_code: 157  # redirect
+      - target: escalate
+        when:
+          gates.decision_next_verdict.exit_code: 158  # escalate
+      - target: decision_take
+        when:
+          gates.decision_next_verdict.exit_code: 159  # take
+      - target: decision_verdict
+        when:
+          gates.decision_next_verdict.exit_code: 160  # verdict
+          gates.decision_input.exists: true
+      - target: pick_facts
+        when:
+          gates.decision_next_verdict.exit_code: 161  # clear
+      - target: classify_report
+        when:
+          gates.decision_next_verdict.exit_code: 162  # clear-report
+      - target: record_conflict
+        when:
+          gates.decision_next_verdict.exit_code: 163  # record-full
+
+  decision_carry:
+    accepts:
+      carried:
+        type: enum
+        values: [carried]
+        required: true
+        description: carried after record-decision.sh --carry.
+    transitions:
+      - target: decision_next
+        when:
+          carried: carried
+
+  decision_take:
+    accepts:
+      taken:
+        type: enum
+        values: [taken]
+        required: true
+        description: taken after record-decision.sh --take.
+    transitions:
+      - target: decision_next
+        when:
+          taken: taken
+
+  decision_verdict:
+    accepts:
+      verdict:
+        type: enum
+        values: [settle, escalate, hold]
+        required: true
+        description: The verdict record-decision.sh recorded.
+      rationale:
+        type: string
+        description: What decided it.
+    transitions:
+      - target: decision_next
+        when:
+          verdict: settle
+      - target: decision_next
+        when:
+          verdict: escalate
+      - target: decision_next
+        when:
+          verdict: hold
+
+  decision_open:
+    accepts:
+      opened:
+        type: enum
+        values: [opened]
+        required: true
+        description: opened after record-decision.sh --open-from-report.
+    transitions:
+      - target: decision_next
+        when:
+          opened: opened
+
+  decision_raise:
+    accepts:
+      raised:
+        type: enum
+        values: [raised]
+        required: true
+        description: raised after record-decision.sh --open.
+    transitions:
+      - target: decision_next
+        when:
+          raised: raised
+
+  decision_answer:
+    accepts:
+      answered:
+        type: enum
+        values: [recorded, reversal]
+        required: true
+        description: recorded after record-decision.sh --answer; reversal when the answer reverses a supplied decision.
+    transitions:
+      - target: decision_next
+        when:
+          answered: recorded
+      - target: decision_apply
+        when:
+          answered: reversal
+
+  decision_evidence:
+    accepts:
+      recorded:
+        type: enum
+        values: [recorded]
+        required: true
+        description: recorded after record-decision.sh --evidence.
+    transitions:
+      - target: decision_next
+        when:
+          recorded: recorded
+
+  escalate:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/decision-render.sh" --session "{{SESSION_NAME}}" --state escalate --kind escalation'
+      capture_stdout_as: ESCALATE_MESSAGE
+      fallback: The render failed; tick again.
+    gates:
+      render_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state escalate --capture "{{ESCALATE_MESSAGE}}"'
+        overridable: false
+    transitions:
+      - target: escalate_send
+        when:
+          gates.render_verdict.exit_code: 180  # message
+      - target: record_conflict
+        when:
+          gates.render_verdict.exit_code: 62  # refused
+
+  escalate_send:
+    accepts:
+      sent:
+        type: enum
+        values: [sent]
+        required: true
+        description: sent after sending the rendered text and record-decision.sh --sent.
+    transitions:
+      - target: decision_next
+        when:
+          sent: sent
+
+  decision_withdraw:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/decision-render.sh" --session "{{SESSION_NAME}}" --state decision_withdraw --kind withdrawal'
+      capture_stdout_as: WITHDRAW_MESSAGE
+      fallback: The render failed; tick again.
+    gates:
+      render_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_withdraw --capture "{{WITHDRAW_MESSAGE}}"'
+        overridable: false
+    transitions:
+      - target: decision_withdraw_send
+        when:
+          gates.render_verdict.exit_code: 180  # message
+      - target: record_conflict
+        when:
+          gates.render_verdict.exit_code: 62  # refused
+
+  decision_withdraw_send:
+    accepts:
+      sent:
+        type: enum
+        values: [sent]
+        required: true
+        description: sent after sending the rendered text and record-decision.sh --sent.
+    transitions:
+      - target: decision_next
+        when:
+          sent: sent
+
+  decision_reply:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/decision-render.sh" --session "{{SESSION_NAME}}" --state decision_reply --kind reply'
+      capture_stdout_as: REPLY_MESSAGE
+      fallback: The render failed; tick again.
+    gates:
+      render_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_reply --capture "{{REPLY_MESSAGE}}"'
+        overridable: false
+    transitions:
+      - target: decision_reply_send
+        when:
+          gates.render_verdict.exit_code: 180  # message
+      - target: record_conflict
+        when:
+          gates.render_verdict.exit_code: 62  # refused
+
+  decision_reply_send:
+    accepts:
+      sent:
+        type: enum
+        values: [sent]
+        required: true
+        description: sent after sending the rendered text and record-decision.sh --sent.
+    transitions:
+      - target: decision_next
+        when:
+          sent: sent
+
+  decision_redirect:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/decision-render.sh" --session "{{SESSION_NAME}}" --state decision_redirect --kind redirect'
+      capture_stdout_as: REDIRECT_MESSAGE
+      fallback: The render failed; tick again.
+    gates:
+      render_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state decision_redirect --capture "{{REDIRECT_MESSAGE}}"'
+        overridable: false
+    transitions:
+      - target: decision_redirect_send
+        when:
+          gates.render_verdict.exit_code: 180  # message
+      - target: record_conflict
+        when:
+          gates.render_verdict.exit_code: 62  # refused
+
+  decision_redirect_send:
+    accepts:
+      sent:
+        type: enum
+        values: [sent]
+        required: true
+        description: sent after sending the rendered text and record-decision.sh --sent.
+    transitions:
+      - target: decision_next
+        when:
+          sent: sent
+
