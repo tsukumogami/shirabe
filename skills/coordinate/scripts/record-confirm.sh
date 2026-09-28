@@ -9,12 +9,14 @@
 # for a check state, its own sealed capture) says what should have changed.
 # Every case also needs the record's Written: time to be later than the point
 # the step became due, so an older body that happens to match doesn't count.
-# For a step that starts at the hub (surface, teardown, destroy,
-# decision_apply) that point is the run's latest arrival at `wait` before the
-# step's evidence; before the run has reached the hub (posture_ask), the entry
-# into the source state; for dispatch, the DISPATCH_CHECK capture; for a check
-# state, its capture. The directives write the record before they submit the
-# evidence that leaves the source, so that evidence's time is never the point.
+# For a step the coordinator's evidence closes (surface, teardown, destroy,
+# decision_apply, posture_ask) that point is the latest entry, before the
+# step's evidence, into `wait` (the hub) or `record_find` (the run's start or
+# a re-read of its record, on the way to posture_ask), whichever is later; for
+# dispatch, the DISPATCH_CHECK capture; for a check state, its capture. The
+# directives write the record before they submit the evidence that leaves the
+# source, so that evidence's time is never the point. The detail's event_time
+# holds the point used.
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
@@ -164,24 +166,28 @@ entry() {
     ENT_SEQ=${e%% *} ENT_FROM=${e#* }
 }
 # step_start <source> <before-seq>: sets EVT to the moment the step became
-# due: the run's latest arrival at the hub (an entry into `wait`) before
-# <before-seq>, or, when the run hasn't reached the hub yet, the entry into
-# <source>. Not the evidence that leaves <source>: the directives write the
-# record before they submit that evidence (a merge-order table's Verified head
-# is written at verified_confirm, a decision is recorded before it's even
-# ticked at the hub), so a gate on the evidence's time can only be passed by
+# due: the latest entry, before <before-seq>, into one of the two states a
+# step's chain starts from, `wait` (the hub) or `record_find` (where the run
+# starts, and where it goes back to re-read its record, on the way to
+# posture_ask), whichever came later; with neither, the entry into <source>.
+# Not the evidence that leaves <source>: the directives write the record
+# before they submit that evidence (a merge-order table's Verified head is
+# written at verified_confirm, a decision is recorded before it's even ticked
+# at the hub), so a gate on the evidence's time can only be passed by
 # rewriting the record with no change. Anything written since the step became
 # due belongs to it; a body from before that doesn't count.
 step_start() {
-    local e
-    e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state wait --before "$2" --with-time 2> /dev/null)
-    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
-    if [ -z "$e" ]; then
-        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$1" --before "$2" --with-time 2> /dev/null)
+    local st e best= bseq=-1
+    for st in wait record_find "$1"; do
+        # The source's own entry counts only when neither start is in the log.
+        [ "$st" = "$1" ] && [ -n "$best" ] && break
+        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$st" --before "$2" --with-time 2> /dev/null)
         [ $? -eq 2 ] && lib_die2 "cannot read the session log"
-    fi
-    [ -n "$e" ] || { VERDICT=conflict; REASON="the log has no entry into wait or $1 before its evidence"; finish; }
-    EVT=${e##* }
+        [ -n "$e" ] || continue
+        if [ "${e%% *}" -gt "$bseq" ]; then bseq=${e%% *}; best=$e; fi
+    done
+    [ -n "$best" ] || { VERDICT=conflict; REASON="the log has no entry into wait, record_find or $1 before its evidence"; finish; }
+    EVT=${best##* }
 }
 has_value() { # has_value <word>: some evidence field's value is exactly <word>
     printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null

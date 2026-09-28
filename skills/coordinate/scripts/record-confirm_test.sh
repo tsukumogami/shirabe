@@ -14,7 +14,8 @@
 # for decision_apply (reversal and deferral) and surface(merge_table), a
 # record written after the run reached the hub but before the evidence that
 # leaves the step confirms with no rewrite, and one written before the hub
-# waits. Also: an older
+# waits. posture_ask asked again mid-run, through record_find after the run
+# had been at the hub, doesn't accept an answer from before this ask. Also: an older
 # Written: time waits even when the rows match; a missing or non-canonical
 # body is a conflict; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail.
@@ -175,14 +176,15 @@ eq "teardown done: no row for the unit confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "teardown done: the unit's row still there waits" waiting "$(confirm)"
 session
-log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
-log_to "$S" wait teardown
+log_to "$S" pick_facts wait 2026-09-26T09:56:00.000Z
+log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:58:00.000Z
+log_to "$S" wait teardown 2026-09-26T09:58:00.000Z
 log_evidence "$S" teardown '{"outcome":"kept"}' "$EVT"
 log_to "$S" teardown record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "teardown kept: a newer Written: confirms with the row kept" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
-eq "teardown kept: an older Written: waits" waiting "$(confirm)"
+eq "teardown kept: a Written: from before the hub waits" waiting "$(confirm)"
 
 echo "== destroy (the dispatch path's teardown) =="
 destroy_run() { # destroy_run <outcome> <sealed topic>
@@ -274,6 +276,22 @@ body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD
 eq "surface: a body written before the run reached the hub waits" waiting "$(confirm)"
 bash "$C" --session "$S" > /dev/null 2>&1
 eq "and the detail names the hub arrival as the point" "2026-09-26T09:50:00.000Z" "$(jq -r .event_time "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+
+# posture_ask asked again mid-run: dispatch_check found the record changed, the
+# run went back through record_find (09:05) to posture_ask (09:06) after it had
+# been at the hub (09:00). A posture answer from before this ask doesn't count.
+PREV_OLD='{"date":"2026-09-26T09:03Z","reversed":"posture unread","now":"coordinator holds merge","reason":"asked once","from":"the human"}'
+session
+log_to "$S" pick_facts wait 2026-09-26T09:00:00.000Z
+log_to "$S" dispatch_check record_find 2026-09-26T09:05:00.000Z
+log_to "$S" record_find reconcile_pass 2026-09-26T09:05:10.000Z; log_to "$S" reconcile_pass reconcile 2026-09-26T09:05:20.000Z
+log_to "$S" reconcile posture_ask 2026-09-26T09:06:00.000Z
+log_evidence "$S" posture_ask '{"merge":"permitted","close":"reserved","teardown":"reserved"}' "$EVT"
+log_to "$S" posture_ask record "$EVT"
+body "$(rec | jq -c --argjson r "$PREV_OLD" '.reversals = [$r]')" 2026-09-26T09:07:00Z
+eq "posture_ask mid-run: an answer dated before this ask's record_find waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$PREV_OLD" '.reversals = [$r | .date = "2026-09-26T09:08Z"]')" 2026-09-26T09:08:30Z
+eq "posture_ask mid-run: the answer to this ask confirms" confirmed "$(confirm)"
 
 echo "== posture_ask =="
 session

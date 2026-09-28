@@ -2212,7 +2212,8 @@ A new decision takes effect at the start of the next turn of the loop. The worke
 examples in `references/loop.md` show which decisions are the human's. Record it
 as soon as it arrives, even before you tick `decision` at the hub: the record
 step counts anything written since the run last reached `wait`, so a row written
-first needs no second write.
+first needs no second write. Tick `decision` next; handling another event first
+brings the run back to `wait`, and the row then has to be written again.
 
 ## roadmap_close
 
