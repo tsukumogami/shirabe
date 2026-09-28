@@ -83,7 +83,7 @@ phrase_match() {
     # on a match, which must not count, and a here-string is no better, since a
     # redirection that can't write its temporary file skips grep and reads as
     # no match.
-    printf '%s\n' "$text" | grep -Eiq -e "$pats"
+    printf '%s\n' "$text" | LC_ALL=C grep -Eiq -e "$pats"
     rc=${PIPESTATUS[1]}
     [ "$rc" -le 1 ] || return 2
     return "$rc"
@@ -101,7 +101,10 @@ phrase_lines() {
     [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
     # One grep over the whole file, so a report's lines are matched in one
     # pass, never one process per line. grep's own status is the one read.
-    grep -aEin -e "$pats" "$file" | cut -d: -f1
+    # Bytes, not characters (LC_ALL=C, as in phrase_match): the patterns are
+    # ASCII, and a UTF-8 locale makes BSD grep skip a line holding an invalid
+    # byte even with -a.
+    LC_ALL=C grep -aEin -e "$pats" "$file" | cut -d: -f1
     rc=${PIPESTATUS[0]}
     [ "$rc" -le 1 ] || return 2
     return 0
