@@ -190,9 +190,11 @@ observation point, numerator, denominator, attribute names) keep its
   skill's profile (raw and weighted; 0 for `without_skill`, which loads no
   plugin); observed instruction tokens, the bytes of plugin files the session
   actually read plus the skill body it was given, divided by 4; the observed
-  instruction tokens loaded before the first koto directive; and total tokens
-  per koto state, attributing each model turn to the state the last
-  `koto next` returned.
+  instruction tokens loaded before the first koto directive; and input-side
+  tokens (input, cache-read and cache-creation) per koto state, attributing
+  each model turn to the state the last `koto next` returned. Output tokens
+  are counted only in the session total, because the stream reports each
+  turn's output usage before the turn ends.
 - **R7. Audit sampling.** Each run evaluates audit rules drawn from the
   scenario's audit pool at the sampling rate the design states, using the
   same sample for all three arms of a repetition. Audit outcomes are recorded
@@ -337,8 +339,11 @@ rule, 1 KB to 8 KB the 4 KB row, over 8 KB the 16 KB row.
 - [ ] No file in the baseline's load manifest and no koto template differs
   from `main`, and `scripts/run-evals_test.sh` passes unchanged.
 - [ ] A grep of the pull request's diff and body finds no home-directory
-  path, session, instance or job identifier, `wip/` path, private repository
-  name or telemetry vendor name.
+  path, session, instance or job identifier, `wip/` path or secret shape.
+  Private repository and vendor names are checked against a list read from
+  outside the repository at run time, when a maintainer supplies one; the
+  repository holds no such list in any form, and the check says plainly when
+  it ran without one.
 - [ ] The pull request is open against `main` with every CI job green.
 
 ## Out of Scope

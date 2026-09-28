@@ -137,8 +137,11 @@ and per observation `opportunity.index`, `opportunity.outcome` and
 - `leak`, `wrapper_bypassed`, `harness_tampered`: a run in which the withheld
   text reached the agent before delivery, a submission went around the
   wrapper, or the checkout or harness changed is recorded `not-checkable`;
-- `tokens`: the session's usage and model-by-model usage, tokens per koto
-  state and before the first tick, static instruction tokens (the baseline's
+- `tokens`: the session's usage and model-by-model usage; input-side tokens
+  (input, cache-read and cache-creation, not output) per koto state and before
+  the first tick, since the stream reports each turn's output usage before
+  the turn ends and only the session total has it right; static instruction
+  tokens (the baseline's
   `count` over what the arm loads; 0 for `without_skill`) and observed
   instruction tokens (plugin files the session actually read, and the skill
   body, divided by 4);
@@ -217,6 +220,20 @@ koto's own evidence schema already shows every arm the three outcome values
 and a one-line description of `rationale`, so part of this section reaches the
 `withheld` arm anyway; a null result here says little about sections koto
 doesn't echo.
+
+## The public-content check
+
+`scripts/ablation/check-public-content.sh` refuses home-directory paths,
+`wip/` file paths, session and job identifiers, hosted-session URLs and secret
+shapes in the lines a pull request adds and in its body. Names that must not
+appear, such as private repositories or vendors, are checked only against a
+list read at run time from outside the checkout, with `--denylist <file>` or
+`ABLATION_DENYLIST`; a path inside the checkout is refused. The repository
+holds no such list in any form, because a list kept in a public repository,
+even hashed, publishes what it lists. Without a list the check says plainly
+that the denylisted-term check did not run and what it did check;
+`--require-denylist` makes a missing list an error. A maintainer can supply
+the list in CI from a repository secret; the workflow runs without one today.
 
 ## Regenerating the figures
 

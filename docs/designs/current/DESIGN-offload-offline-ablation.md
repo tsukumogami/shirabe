@@ -212,7 +212,10 @@ skill's `evals.json` to run.
   monotonic clock as it reads it, and the wrapper stamps each koto call with
   the same clock. Each deduplicated assistant message is attributed to the
   state the most recent `koto next` returned before it; messages before the
-  first `koto next` are the pre-first-state bucket.
+  first `koto next` are the pre-first-state bucket. These figures are
+  input-side (input, cache-read and cache-creation tokens): Claude Code
+  streams each message's usage before the message ends, so its output tokens
+  are only right in the session total.
 - *Instruction tokens*: static, from a new `scripts/offload-baseline.sh count
   --tree <dir>` that runs the baseline's own count over the arm's copy for
   the case's profile, so the `withheld` figure is `round((B - S) / 4)` by
@@ -315,7 +318,7 @@ fixture, and case files with stable ids let outside cases run unchanged
 | `scripts/run-evals.sh` | Gains a `--withhold` check at the top that `exec`s the harness; nothing else changes |
 | `scripts/ablation/ablation.py` | `run`, `smoke`, `summarize`, `check-figures`, `resolve-span` and `validate-case` subcommands |
 | `scripts/ablation/check-normal-runs-unchanged.sh` | Fails when a load-manifest path or a koto template differs from a base ref |
-| `scripts/ablation/check-public-content.sh` | The public-content grep, with its denylist in a committed file |
+| `scripts/ablation/check-public-content.sh` | The public-content grep; names that must not appear come from a list read at run time from outside the checkout, never from the repository |
 | `scripts/ablation/koto-intercept` | The `koto` wrapper placed first on PATH as `koto` |
 | `scripts/ablation/is-fixture-session` | The fixture rule over a koto state file |
 | `scripts/ablation/checks/` | Deployed and audit checks, one executable each |
@@ -568,7 +571,7 @@ One JSON line per run in `records.jsonl`:
   ],
   "delivered": true, "leak": false, "wrapper_bypassed": false,
   "tokens": {"session": {"input": 0, "cache_read": 0, "cache_creation": 0, "output": 0, "partial": false},
-             "model_usage": {...}, "per_state": {...}, "pre_first_state": 0,
+             "model_usage": {...}, "per_state_input": {...}, "pre_first_state_input": 0,
              "instruction_static": {"raw": 0, "weighted": 0},
              "instruction_observed": {"total": 0, "pre_first_state": 0}},
   "audit": {"sample_rate": 1.0,
@@ -608,8 +611,9 @@ calls with `koto-calls.jsonl`. A submission the wrapper didn't log sets
 ### Summary and regeneration
 
 `ablation.py summarize <records.jsonl>` prints, per arm and point: runs,
-violations, checkable denominator, `not-checkable`, `not-produced`, leaks,
-rate and the Clopper-Pearson bound (`n/a` with no checkable run); mean
+violations, checkable denominator, `not-checkable`, `not-produced`,
+`not-reached`, rate and the Clopper-Pearson bound (`n/a` with no checkable
+run); per arm, the leak, wrapper-bypass and tamper counts; mean
 session tokens in each category and their difference from `full`; mean static
 raw and weighted instruction tokens beside the pinned baseline row for the
 profile, read from `docs/measurement/offload-baseline/token-baseline.tsv`; per
@@ -669,7 +673,7 @@ each is read on its own:
 | `ablation-figures` | `ablation.py check-figures` | regeneration |
 | `normal-runs-unchanged` | `scripts/ablation/check-normal-runs-unchanged.sh <base>`: every path in the load manifest and every koto template identical to the base | normal runs unchanged |
 | `fixture-rule` | `is-fixture-session` over committed synthetic fixture and non-fixture headers, including a non-fixture with a pinned template hash | fixture marking |
-| `public-content` | a grep of the diff against the base, and of the pull request body, for home-directory paths, `wip/` paths, session and job identifier shapes, and common secret shapes | public content |
+| `public-content` | a grep of the diff against the base, and of the pull request body, for home-directory paths, `wip/` paths, session and job identifier shapes, and common secret shapes; it runs without a denylist and says so, since the repository holds none | public content |
 | `run-evals-unchanged` | `scripts/run-evals_test.sh` plus a test that `run-evals.sh` without `--withhold` never reaches the harness | existing evals unchanged |
 
 ## Implementation Approach
@@ -724,7 +728,14 @@ and each step adds its own job.
   transcript persists. Records hold counts, outcomes and reason codes from a
   fixed pattern, never free text, so nothing the agent wrote reaches a
   committed file. The public-content CI job greps the diff and the pull
-  request body for secret shapes as well as paths and identifiers.
+  request body for secret shapes as well as paths and identifiers. Names that
+  must not appear (private repositories, vendors) are checked only against a
+  list read at run time from outside the checkout (`--denylist` or
+  `ABLATION_DENYLIST`; a path inside the checkout is refused), because a list
+  kept in a public repository, even hashed, publishes what it lists: a hash of
+  a short name is recovered by hashing guesses. Without a list the check says
+  it did not run that part, and `--require-denylist` makes a missing list an
+  error. A maintainer can supply the list in CI from a repository secret.
 - **Case files are data.** A case names checks, fixtures and a shipped
   template only from the repository's reviewed directories, every field is
   pattern-checked before use, the commit reaches git only after a hex check,
