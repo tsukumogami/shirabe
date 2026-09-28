@@ -547,7 +547,9 @@ status runs clean and process filters, so a worker's filter can make a change
 vanish from it, and recurses into submodules with their own config; a fetch
 runs the clone's URL rewrites, transports and credential helpers. It reads
 plumbing (`ls-files`, `ls-tree`, `rev-list`, `cat-file`, `merge-base`,
-`diff-tree`) with fsmonitor, hooks and every transport off, hashes the
+`diff-tree`, `reflog`) with fsmonitor, hooks, the pager, signature
+verification (which runs the clone's `gpg.program`) and every transport off,
+hashes the
 working tree's files itself with `hash-object --no-filters --stdin-paths`,
 reads origin's live refs with `ls-remote` against the github.com URL under
 the coordinator's own git config, and reads the trees it compares against

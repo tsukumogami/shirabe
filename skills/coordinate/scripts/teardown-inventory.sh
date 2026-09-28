@@ -23,8 +23,9 @@
 # process filters (a worker's filter can make a change vanish from it) and
 # recurses into submodules with their own config, and a fetch runs the
 # clone's URL rewrites, transports and credential helpers. It reads plumbing
-# (ls-files, ls-tree, rev-list, cat-file, merge-base, diff-tree) with
-# fsmonitor, hooks and every transport off, and hashes working-tree files
+# (ls-files, ls-tree, rev-list, cat-file, merge-base, diff-tree, reflog) with
+# fsmonitor, hooks, the pager, signature verification (which runs the
+# clone's gpg.program) and every transport off, and hashes working-tree files
 # itself with `hash-object --no-filters`. The remote's refs come from
 # `ls-remote` against the github.com URL under the coordinator's own git
 # config, and the trees it compares against from GitHub, one read per commit.
@@ -184,9 +185,11 @@ ig() {
     # GIT_ALLOW_PROTOCOL and GIT_NO_LAZY_FETCH, unlike -c protocol.allow,
     # can't be widened by a protocol.<name>.allow in the clone's own config:
     # a partial clone's lazy fetch of a missing object is a transport too.
+    # log.showSignature makes reflog show (and log) verify a signed commit by
+    # running the clone's gpg.program; --no-pager keeps its core.pager out.
     GIT_ALLOW_PROTOCOL=none GIT_NO_LAZY_FETCH=1 \
-        git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
-        -c protocol.allow=never -C "$d" "$@"
+        git --no-pager --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
+        -c protocol.allow=never -c log.showSignature=false -C "$d" "$@"
 }
 
 # github_repo <url>: owner/repo for a github.com remote URL, or nothing.

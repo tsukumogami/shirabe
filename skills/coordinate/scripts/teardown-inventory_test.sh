@@ -418,6 +418,40 @@ has "a commit only a stale remote-tracking ref holds: unique" "$OUT12" "unique l
 has "a squash-merged branch's stale remote-tracking ref: durable" "$OUT12" "durable landed (vs "
 has "that ref is judged against its merge commit" "$OUT12" "merge $MERGE12)"
 
+# A clone that asks for signatures to be shown, with a signing program that
+# leaves a marker: `git reflog show` would verify the signed commit a pushed,
+# now-gone branch's tracking ref holds, running the clone's program. The
+# inventory must read that ref's log without running it.
+I13="$T/inst13"
+mkdir -p "$I13"
+git clone -q "$GHURL" "$I13/signed"
+SIGD="$I13/signed"
+PARENT13=$(git -C "$SIGD" rev-parse HEAD)
+# The signed commit's tree: HEAD's, with c.txt changed.
+git -C "$SIGD" checkout -q -b tmp13
+printf 'signed change\n' >"$SIGD/c.txt"
+git -C "$SIGD" commit -q -am tmp13
+TREE13=$(git -C "$SIGD" rev-parse 'HEAD^{tree}')
+git -C "$SIGD" checkout -q main
+git -C "$SIGD" branch -q -D tmp13
+printf 'tree %s\nparent %s\nauthor t <t@example.invalid> 1700000000 +0000\ncommitter t <t@example.invalid> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdFiEE\n -----END PGP SIGNATURE-----\n\nsigned work\n' \
+    "$TREE13" "$PARENT13" >"$T/signed-commit.txt"
+SIGNED=$(git -C "$SIGD" hash-object -t commit -w "$T/signed-commit.txt")
+git -C "$SIGD" branch -q sigb "$SIGNED"
+git -C "$SIGD" push -q origin sigb
+git -C "$SIGD" branch -q -D sigb
+git --git-dir="$O" update-ref -d refs/heads/sigb
+printf '#!/bin/sh\ntouch %s/gpg-ran\nexit 1\n' "$T" >"$T/fake-gpg"
+chmod +x "$T/fake-gpg"
+git -C "$SIGD" config log.showSignature true
+git -C "$SIGD" config gpg.program "$T/fake-gpg"
+git -C "$SIGD" config gpg.ssh.program "$T/fake-gpg"
+git -C "$SIGD" config gpg.x509.program "$T/fake-gpg"
+rm -f "$T/gpg-ran"
+OUT13=$(bash "$S" --topic plugin-api --instance "$I13" 2>&1)
+if [ -e "$T/gpg-ran" ]; then bad "the clone's signature program never runs" ""; else ok "the clone's signature program never runs"; fi
+has "a signed commit a gone tracking ref holds: still unique" "$OUT13" "unique signed: remote-tracking origin/sigb"
+
 # --- what it calls ------------------------------------------------------------------------------
 #
 # Every niwa, gh, koto and git call is logged by a stand-in in front of the

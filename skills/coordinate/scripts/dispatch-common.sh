@@ -92,7 +92,7 @@
 #       Adds or replaces the topic's holding row whole. Returns the writer's
 #       code: 0 written, 10 refused, 65 row refused, 2 otherwise. The
 #       writer's 12 (the record changed under it) is retried up to
-#       DC_RECORD_RETRIES times (3), then reads as a failed write.
+#       three times, then reads as a failed write.
 #
 #   The record's scripts belong to the record feature: record-holding.sh
 #   ships with it, beside these scripts (it is not holding-recorded.sh, the
@@ -342,7 +342,7 @@ dc_record_write() {
         rc=$?
         [ "$rc" = 12 ] || break
         tries=$((tries + 1))
-        [ "$tries" -lt "${DC_RECORD_RETRIES:-3}" ] || break
+        [ "$tries" -lt 3 ] || break
     done
     case "$rc" in
         0 | 10 | 65) return "$rc" ;;

@@ -70,6 +70,13 @@ the pull request, report, and stop there."
 
 ## The Brief
 
+The block below is illustrative: it shows what each section holds, not the
+rendered text. `render-brief.sh` writes its own wording for each section,
+opens the Goal with the authority and the exact invocation, and adds a
+Workspace rules section (when `standing_rules` has any) and a Keep-alive
+section; `render-brief_test.sh` keeps the section headings here and the
+rendered ones the same.
+
 ```markdown
 # Brief: <unit of work>
 
