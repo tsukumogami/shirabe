@@ -1,7 +1,8 @@
 ---
 # Terminal-tick retention (#360). EVERY `koto next` in this template carries
 # --no-cleanup, including the two in spawn_and_await. Without it, the tick that
-# reaches a terminal disposes of the session and its ctx/.
+# reaches a success terminal disposes of the session and every context key it
+# holds.
 #
 # Do not restore a carve-out for a tick that looks non-terminal. An earlier
 # version of this note had one, reasoning that spawn_and_await routes only to

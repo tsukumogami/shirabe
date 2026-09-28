@@ -141,12 +141,12 @@ failure it came to read. Name it without braces in that state; brace it only in
 states every path reaches through the producer.
 
 **A `--var` value must satisfy koto's allowlist,
-`^[a-zA-Z0-9._/:@ \-]*$`, and a filesystem path need not.** A `+` in a
-directory name is legal on disk and outside the pattern, so a plugin root
-containing one is refused at `koto init` with a message naming the variable.
-The refusal is loud and lands before any work, which is the right failure; it is
-worth knowing about because a canonical install under `~/.claude/plugins/cache/`
-is clean and a developer's checkout may not be.
+`^[a-zA-Z0-9._/:@+ \-]*$`, and a filesystem path need not.** koto 0.14.1
+(tsukumogami/koto#266) added `+` to the allowlist, so a plugin root or checkout
+under a directory whose name carries `+` works; before it, such a value was
+refused at `koto init` with a message naming the variable. Other characters a
+path may legally carry (a quote, a `$`, a comma) are still outside the pattern
+and refused the same way: loudly, before any work.
 
 ## Routing on a script's output
 

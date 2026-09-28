@@ -10,7 +10,10 @@ stateDiagram-v2
     decision_apply --> record : change: deferral
     decision_apply --> pick_facts : change: none
     deferral_dispose --> dispatch_check : rewritten: rewritten
-    dispatch --> record : dispatched: sent
+    destroy --> record : destroyed: destroyed
+    destroy --> record : destroyed: handed_over
+    destroy --> surface : destroyed: refused
+    dispatch --> record : dispatched: sent, gates.holding_recorded.exit_code: 0
     dispatch --> failure : dispatched: failed
     dispatch_check --> dispatch : gates.dispatch_check_verdict.exit_code: 40
     dispatch_check --> deferral_dispose : gates.dispatch_check_verdict.exit_code: 41
@@ -27,6 +30,8 @@ stateDiagram-v2
     land_merge --> merge_confirm : merge: attempted
     land_merge --> failure : merge: failed
     land_merge --> surface : merge: held
+    leg_pick --> wait_leg : gates.leg_target.matches: true
+    leg_pick --> wait : gates.leg_target.matches: false
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 90
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 91
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 90
@@ -52,10 +57,13 @@ stateDiagram-v2
     predecessor_handoff --> record_conflict : gates.predecessor_handoff_verdict.exit_code: 111
     predecessor_step --> predecessor_close : step_result: done
     predecessor_step --> predecessor_handed_over : step_result: handed_over
+    promote --> teardown_inventory : promoted: promoted
+    promote --> surface : promoted: escalate
     quiet_check --> wait : gates.quiet_check_verdict.exit_code: 100
     quiet_check --> status_message : gates.quiet_check_verdict.exit_code: 101
     quiet_check --> failure : gates.quiet_check_verdict.exit_code: 102
     rebrief --> wait : sent: sent
+    rebrief --> pick_facts : sent: worker_gone
     reconcile --> pick_facts : gates.reconcile_posture.exit_code: 25, gates.reconcile_report.exit_code: 0, reconciled: reported
     reconcile --> posture_ask : gates.reconcile_posture.exit_code: 26, gates.reconcile_report.exit_code: 0, reconciled: reported
     reconcile_pass --> reconcile : gates.reconcile_pass_verdict.exit_code: 140
@@ -102,8 +110,18 @@ stateDiagram-v2
     status_message --> wait : sent: sent
     surface --> record : surfaced: merge_table
     surface --> wait : surfaced: blocker
-    teardown --> record : teardown: done
+    take_report --> report_facts : gates.report_present.matches: true, gates.report_source_ok.exit_code: 0
+    take_report --> wait : gates.report_source_ok.exit_code: 1
+    take_report --> wait : gates.report_present.matches: false, gates.report_source_ok.exit_code: 0, withdrawn: withdrawn
+    take_report --> surface : gates.report_source_ok.exit_code: 3
+    take_report --> wait : gates.report_source_ok.exit_code: 2, withdrawn: withdrawn
+    take_report --> surface : gates.report_source_ok.exit_code: 2, withdrawn: unreadable
+    teardown --> teardown_inventory : teardown: stopped
     teardown --> record : teardown: kept
+    teardown_inventory --> destroy : gates.inventory_durable.exit_code: 0
+    teardown_inventory --> promote : gates.inventory_durable.exit_code: 1
+    teardown_inventory --> surface : gates.inventory_durable.exit_code: 2
+    teardown_inventory --> surface : gates.inventory_durable.exit_code: 3
     verified_confirm --> land : gates.verified_confirm_verdict.exit_code: 50
     verified_confirm --> record_conflict : gates.verified_confirm_verdict.exit_code: 52
     verified_confirm --> verify : gates.verified_confirm_verdict.exit_code: 53
@@ -112,7 +130,8 @@ stateDiagram-v2
     verify_board --> verified_confirm : gates.verify_board_verdict.exit_code: 70
     verify_board --> failure : gates.verify_board_verdict.exit_code: 71
     verify_board --> wait : gates.verify_board_verdict.exit_code: 72
-    wait --> report_facts : event: report
+    wait --> take_report : event: report
+    wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet
     wait --> decision_apply : event: decision
     wait --> decision_apply : event: deferral
@@ -120,15 +139,28 @@ stateDiagram-v2
     wait --> teardown : event: retire
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
+    wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted
+    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
+    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: refused
+    wait_leg --> surface : gates.leg_result.disposition: abandoned
+    wait_leg --> surface : gates.leg_result.disposition: missing
+    wait_leg --> leg_pick : gates.leg_result.disposition: open, watch: rescan
+    wait_leg --> wait : gates.leg_result.disposition: open, watch: back
     done --> [*]
     done_handed_over --> [*]
     done_not_active --> [*]
     done_stopped --> [*]
+    note left of dispatch
+        gate: holding_recorded
+    end note
     note left of dispatch_check
         gate: dispatch_check_verdict
     end note
     note left of land
         gate: land_verdict
+    end note
+    note left of leg_pick
+        gate: leg_target
     end note
     note left of merge_confirm
         gate: merge_confirm_verdict
@@ -184,10 +216,22 @@ stateDiagram-v2
     note left of start_posture
         gate: start_posture_verdict
     end note
+    note left of take_report
+        gate: report_present
+    end note
+    note left of take_report
+        gate: report_source_ok
+    end note
+    note left of teardown_inventory
+        gate: inventory_durable
+    end note
     note left of verified_confirm
         gate: verified_confirm_verdict
     end note
     note left of verify_board
         gate: verify_board_verdict
+    end note
+    note left of wait_leg
+        gate: leg_result
     end note
 ```

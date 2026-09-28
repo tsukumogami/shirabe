@@ -21,7 +21,12 @@
 # or not its tick carried --no-cleanup, which is what lets every skill pass the
 # flag on every tick (references/koto-session-retention.md); it also has the
 # koto init entry flags /scope, /execute and /deliver enter through, which
-# shipped in 0.13.0. Raise it in the pull request that adopts a feature from a
+# shipped in 0.13.0. 0.14.1 is the release that accepts `+` in --var values
+# (tsukumogami/koto#266), so a plugin root or checkout under a directory whose
+# name carries `+` works; a session whose recorded variables hold `+` fails
+# every tick on an older koto, because each tick re-checks recorded values. It
+# also records a batch's final view when the completing tick leaves the
+# batching state (tsukumogami/koto#263). Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
@@ -33,20 +38,33 @@
 # ignores it, so the environment can't lower the minimum a user is held to.
 #
 # Usage: scripts/assert-koto-floor.sh
+#        scripts/assert-koto-floor.sh --print-floor
+#
+# --print-floor prints the floor defined below and exits, ignoring KOTO_FLOOR
+# and checking no koto. It is how everything else reads the minimum
+# (check-koto-entry-floor.yml, check-koto-release.sh and its test, the
+# consistency test), so the value has one definition and one reader.
 #
 # Environment:
 #   KOTO_BIN     the koto binary to check (default: `koto` from PATH)
-#   KOTO_FLOOR   override the floor (used by the tests)
+#   KOTO_FLOOR   override the floor (used by the tests; ignored by --print-floor)
 #
 # Exit codes:
-#   0 -- koto is present and at or above the floor
-#   1 -- koto is missing, its version is unreadable, or it is below the floor
+#   0 -- koto is present and at or above the floor, or --print-floor printed it
+#   1 -- koto is missing, its version is unreadable, or it is below the floor,
+#        or the defined floor is not MAJOR.MINOR.PATCH
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile, no sort -V.
 
 set -uo pipefail
 
-FLOOR="${KOTO_FLOOR:-0.14.0}"
+PRINT_FLOOR=0
+if [ "${1-}" = "--print-floor" ]; then
+    PRINT_FLOOR=1
+    unset KOTO_FLOOR
+fi
+
+FLOOR="${KOTO_FLOOR:-0.14.1}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically
@@ -70,6 +88,11 @@ FLOOR="${FLOOR#v}"
 if ! printf '%s' "$FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     echo "assert-koto-floor: the floor \"$FLOOR\" is not a MAJOR.MINOR.PATCH version" >&2
     exit 1
+fi
+
+if [ "$PRINT_FLOOR" -eq 1 ]; then
+    printf '%s\n' "$FLOOR"
+    exit 0
 fi
 
 if ! command -v "$KOTO" >/dev/null 2>&1; then

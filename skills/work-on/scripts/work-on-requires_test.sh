@@ -63,7 +63,7 @@ done
 # --var; every other subcommand answers with the flags /work-on always needs.
 # Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
 # cases at the minimum and the minimum case below it.
-MINIMUM=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$REPO/scripts/assert-koto-floor.sh" | head -1)
+MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor)
 mkdir -p "$T/bin" "$T/cwd"
 cat >"$T/bin/koto" <<'OLD'
 #!/usr/bin/env bash

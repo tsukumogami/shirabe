@@ -12,7 +12,9 @@
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
-#                   another topic is a conflict
+#                   another topic is a conflict. Written: is compared with
+#                   the DISPATCH_CHECK capture, not the evidence, since the
+#                   dispatch path writes the holding before `sent`
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the one the run's latest arrival before the source
 #                   names (below).
@@ -272,6 +274,15 @@ dispatch)
     fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
+    # The dispatch path writes the holding before `sent` (dispatch's
+    # holding_recorded gate requires it), so the row is fresh for this
+    # dispatch when it was written after dispatch_check passed the topic, not
+    # after the evidence: that capture is the point the Written: time is
+    # compared against.
+    CAP=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name DISPATCH_CHECK --before "$ESEQ" 2> /dev/null)
+    [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+    CAP=$(printf '%s' "$CAP" | tail -1)
+    [ -n "$CAP" ] && EVT=$(printf '%s' "$CAP" | jq -r .timestamp)
     ;;
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }

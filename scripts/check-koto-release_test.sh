@@ -20,7 +20,9 @@
 #
 # Exit codes:
 #   0 -- all cases pass, or yq (mikefarah v4) is absent and the run skipped
-#   1 -- one or more cases failed
+#   1 -- one or more cases failed, or yq is absent and
+#        CHECK_KOTO_RELEASE_REQUIRE_YQ=1 says it must not be (the Linux CI leg
+#        sets it, so a runner image that drops yq fails rather than skipping)
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -39,12 +41,16 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 case "$(yq --version 2>&1)" in
     *mikefarah/yq*' version v4.'* | *mikefarah/yq*' version 4.'*) ;;
     *)
+        if [ "${CHECK_KOTO_RELEASE_REQUIRE_YQ-}" = 1 ]; then
+            echo "FAIL: mikefarah yq v4 not on PATH, and CHECK_KOTO_RELEASE_REQUIRE_YQ=1 requires it"
+            exit 1
+        fi
         echo "SKIP: mikefarah yq v4 not on PATH -- check-koto-release.sh cannot run"
         exit 0
         ;;
 esac
 
-MINIMUM=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$SCRIPT_DIR/assert-koto-floor.sh" | head -1)
+MINIMUM=$("$BASH_BIN" "$SCRIPT_DIR/assert-koto-floor.sh" --print-floor 2>/dev/null)
 if [ -z "$MINIMUM" ]; then
     echo "FAIL: cannot read the koto minimum from scripts/assert-koto-floor.sh" >&2
     exit 1

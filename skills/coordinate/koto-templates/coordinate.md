@@ -1,9 +1,8 @@
 ---
 name: coordinate
 version: "1.0"
-# The session is a root on every tick (`koto next --no-cleanup`); see
-# references/koto-session-retention.md. Nothing materializes this template as
-# a child.
+# Every `koto next` on this session carries --no-cleanup; see
+# references/koto-session-retention.md.
 #
 # Every check-state arm carries its verdict word as a comment
 # (`exit_code: 14  # foreign`); the word-to-code table is
@@ -13,7 +12,9 @@ version: "1.0"
 #
 # Context keys. Each check writes one detail key as data, named for what it
 # describes; directives, deciders and the progress table read them, and no gate
-# reads one except as a decider input (pick_input, report_input):
+# reads a check's detail key except as a decider input (pick_input,
+# report_input). The dispatch path's keys, listed after these, are different:
+# some are read by its gates, each named there with what backs it.
 #   coord/record_find.json      record_find: the verdict, the record's ref and
 #                               URL, the candidates, the rotation's dates
 #   record_url                  record_find on `found`: the record's URL, for
@@ -36,6 +37,28 @@ version: "1.0"
 #                               predecessor_close: the stage and its facts
 #   dispatch_topic              pick's edges: the topic chosen, for the
 #                               dispatch path's dispatch-worker.sh
+#
+# The dispatch path's keys, and which gate reads each:
+#   worker_report               the report's text, written on the edges into
+#                               take_report; report_present checks it has
+#                               text, and report_source_ok compares a leg
+#                               report with koto's own record of the leg
+#   report_topic, report_source the reporting worker and path, written on the
+#                               same edges (report_topic by wait-target.sh on
+#                               the leg path); report_source_ok reads both.
+#                               They are writable by the coordinator, unlike
+#                               the log report_facts derives the unit from:
+#                               shirabe#475 moves this gate onto the log too
+#   wait_target, taken_legs,    wait-target.sh's bookkeeping; leg_target
+#   leg_consumed                routes on wait_target, and report_source_ok
+#                               reads it for the leg the wait read. Rewriting
+#                               them can hide or re-offer a leg, never make a
+#                               leg report pass: koto's record is the check
+#   teardown_topic              wait's retire edge; the inventory locates the
+#                               instance by it, and teardown-verdict.sh
+#                               refuses a sealed verdict for any other topic
+#   teardown_verdict            the sealed inventory, read only through the
+#                               seal check
 #
 # Scripts already handle states the dispatch path (shirabe#404) adds:
 # leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
@@ -524,12 +547,22 @@ states:
           rewritten: rewritten
 
   dispatch:
+    # The coordinator runs dispatch-worker.sh, which writes the holding before
+    # it launches the worker and confirms it after; `sent` leaves only when the
+    # record shows the holding dispatched. The gate reads the record through
+    # record-holding.sh, never a value the coordinator submits: 0 dispatched,
+    # 1 no holding, 2 unreadable or refused, 3 dispatch-failed, 4 dispatching.
+    gates:
+      holding_recorded:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/holding-recorded.sh" --session "{{SESSION_NAME}}"'
+        overridable: false
     accepts:
       dispatched:
         type: enum
         values: [sent, failed]
         required: true
-        description: sent once the worker was dispatched and its holding written; failed when the dispatch did not start.
+        description: sent once dispatch-worker.sh dispatched the worker and wrote its holding; failed when the dispatch did not start.
       topic:
         type: string
         required: true
@@ -538,6 +571,7 @@ states:
       - target: record
         when:
           dispatched: sent
+          gates.holding_recorded.exit_code: 0
       - target: failure
         when:
           dispatched: failed
@@ -570,16 +604,28 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, quiet, decision, deferral, merged, retire, end]
+        values: [report, leg, quiet, decision, deferral, merged, retire, end]
         required: true
         description: What arrived, or what is due.
       unit:
         type: string
         description: The dispatch topic the event is about, when it is about one.
+      report:
+        type: string
+        description: With a report event, the worker's message as it arrived.
     transitions:
-      - target: report_facts
+      # A message report: its text and topic are written on this edge, fresh
+      # each time, and take_report checks both before report_facts reads on.
+      - target: take_report
         when:
           event: report
+        context_assignments:
+          worker_report: "${evidence.report}"
+          report_topic: "${evidence.unit}"
+          report_source: message
+      - target: leg_pick
+        when:
+          event: leg
       - target: quiet_check
         when:
           event: quiet
@@ -595,6 +641,8 @@ states:
       - target: teardown
         when:
           event: retire
+        context_assignments:
+          teardown_topic: "${evidence.unit}"
       - target: rotation_close
         when:
           event: end
@@ -607,6 +655,172 @@ states:
             is_set: false
         context_assignments:
           outcome: stopped
+
+  leg_pick:
+    # Which worker's request leg to watch: wait-target.sh reads every
+    # dispatched, leg-bound holding from the record and the legs from koto,
+    # skips legs already taken, and picks one with a result waiting, else the
+    # oldest open one. It writes wait_target and prints the request id, or
+    # `none`, which the engine captures.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/wait-target.sh" select --session "{{SESSION_NAME}}"'
+      capture_stdout_as: WAIT_REQ
+      fallback: >-
+        The read failed; the action's own output above says why. Fix the cause (a koto or gh error, the record refusing the read) and tick again with no evidence: the action re-runs on entry.
+    gates:
+      leg_target:
+        type: context-matches
+        key: wait_target
+        pattern: '"path":"leg"'
+        overridable: false
+    transitions:
+      - target: wait_leg
+        when:
+          gates.leg_target.matches: true
+      - target: wait
+        when:
+          gates.leg_target.matches: false
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+
+  wait_leg:
+    # One leg, read through a request-leg gate. wait-target.sh leg names it
+    # (a capture carries one value, so the request id came from leg_pick),
+    # writes report_topic, and marks the leg taken once it is no longer open.
+    # Only a result the worker's own session promoted reaches take_report; an
+    # explicit or refused result, or an abandoned or missing leg, means the
+    # worker recorded no result, which goes to the human.
+    # Every edge that consumes the leg sets leg_consumed, and leg_pick marks
+    # the leg taken from it: an evidence tick here doesn't run the action, so
+    # the action alone can't mark a leg that resolved between two ticks.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/wait-target.sh" leg --session "{{SESSION_NAME}}"'
+      capture_stdout_as: WAIT_LEG
+      fallback: >-
+        The read failed; the action's own output above says why. Fix the cause and tick again with no evidence: the action re-runs on entry.
+    gates:
+      leg_result:
+        type: request-leg
+        request: "{{WAIT_REQ}}"
+        leg: "{{WAIT_LEG}}"
+        overridable: false
+    accepts:
+      watch:
+        type: enum
+        values: [rescan, back]
+        description: While the leg is open, rescan to pick again (another leg may have resolved), or back to return to the hub.
+    transitions:
+      - target: take_report
+        when:
+          gates.leg_result.disposition: resolved
+          gates.leg_result.source: promoted
+        # report-source.sh rebuilds this exact text from koto's record of the
+        # leg to check it; change one and the other in the same commit.
+        context_assignments:
+          worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.payload.outcome}; step ${gates.leg_result.payload.step}; reason ${gates.leg_result.payload.reason}; pull request ${gates.leg_result.payload.pr}"
+          report_source: leg
+          leg_consumed: "yes"
+      - target: surface
+        when:
+          gates.leg_result.disposition: resolved
+          gates.leg_result.source: explicit
+        context_assignments:
+          leg_consumed: "yes"
+      - target: surface
+        when:
+          gates.leg_result.disposition: resolved
+          gates.leg_result.source: refused
+        context_assignments:
+          leg_consumed: "yes"
+      - target: surface
+        when:
+          gates.leg_result.disposition: abandoned
+        context_assignments:
+          leg_consumed: "yes"
+      - target: surface
+        when:
+          gates.leg_result.disposition: missing
+        context_assignments:
+          leg_consumed: "yes"
+      - target: leg_pick
+        when:
+          gates.leg_result.disposition: open
+          watch: rescan
+      - target: wait
+        when:
+          gates.leg_result.disposition: open
+          watch: back
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+
+  take_report:
+    # Both return paths meet here. report_present needs the report's text in
+    # worker_report (the decider's second input, gated here where it is
+    # written); report_source_ok reads the reporting topic's holding from the
+    # record, so a message never stands in for a leg-bound worker's result and
+    # a leg report must come from the leg the record names.
+    gates:
+      report_present:
+        type: context-matches
+        key: worker_report
+        pattern: '\S'
+        overridable: false
+      report_source_ok:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/report-source.sh" --session "{{SESSION_NAME}}"'
+        overridable: false
+    accepts:
+      withdrawn:
+        type: enum
+        values: [withdrawn, unreadable]
+        description: withdrawn to go back to the hub and submit the report again (it arrived with no text, or a message named no worker); unreadable when a leg report can never be checked, which goes to the human.
+    transitions:
+      - target: report_facts
+        when:
+          gates.report_source_ok.exit_code: 0
+          gates.report_present.matches: true
+      - target: wait
+        when:
+          gates.report_source_ok.exit_code: 1
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      - target: wait
+        when:
+          gates.report_source_ok.exit_code: 0
+          gates.report_present.matches: false
+          withdrawn: withdrawn
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      # A refused leg report (no holding for the topic, a leg other than the
+      # recorded one, or text that isn't the result koto holds for the leg):
+      # the leg is spent, so the hub would never see it again; the human does.
+      # worker_report is cleared, since it isn't what the leg holds;
+      # report_topic stays, so the surface step can name the worker.
+      - target: surface
+        when:
+          gates.report_source_ok.exit_code: 3
+        context_assignments:
+          worker_report: ""
+      - target: wait
+        when:
+          gates.report_source_ok.exit_code: 2
+          withdrawn: withdrawn
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      # A leg report that can never be checked (koto can't read its request,
+      # or the record keeps refusing the read) goes to the human the same way
+      # a refused one does, naming the worker.
+      - target: surface
+        when:
+          gates.report_source_ok.exit_code: 2
+          withdrawn: unreadable
+        context_assignments:
+          worker_report: ""
 
   report_facts:
     default_action:
@@ -638,8 +852,9 @@ states:
   classify_report:
     # classification carries a decider in shadow mode, recorded beside the
     # coordinator's answer and never acted on. Its input is coord/report.json,
-    # written and gated (report_input) by report_facts; the dispatch path adds
-    # the worker's report text as a second input, gated where it writes it.
+    # written and gated (report_input) by report_facts, and worker_report, the
+    # worker's own report (or its leg's result), written on the edges into
+    # take_report and gated there (report_present).
     # Fixtures: coordinate.classify_report.classification.decider.jsonl.
     accepts:
       classification:
@@ -655,6 +870,7 @@ states:
           escape: {value: unclear, description: "The report is missing, truncated, or ambiguous."}
           inputs:
             - {context: coord/report.json, label: report_facts, max_bytes: 12000}
+            - {context: worker_report, label: worker_report, max_bytes: 8192}
       rationale:
         type: string
         description: What in the report decided it.
@@ -673,13 +889,19 @@ states:
     accepts:
       sent:
         type: enum
-        values: [sent]
+        values: [sent, worker_gone]
         required: true
-        description: Submit after the worker was sent what was learned.
+        description: sent after dispatch-worker.sh --rebrief rewrote the brief and the worker was messaged; worker_gone when its session no longer exists and the unit goes back through pick.
     transitions:
       - target: wait
         when:
           sent: sent
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      - target: pick_facts
+        when:
+          sent: worker_gone
 
   verify:
     accepts:
@@ -847,19 +1069,105 @@ states:
           surfaced: blocker
 
   teardown:
+    # teardown_topic is written by wait's retire edge and cleared on every
+    # edge that leaves the teardown states, so a later entry can't inventory
+    # or destroy a worker an earlier retire named.
+    # The finish check and the two questions to the worker come first; then
+    # the worker's session is stopped, so nothing writes to its instance
+    # between the inventory and the destroy. A gate runs when its state is
+    # entered, which is why the stop is its own state, before the inventory's.
     accepts:
       teardown:
         type: enum
-        values: [done, kept]
+        values: [stopped, kept]
         required: true
-        description: done after the teardown the posture permits and the record rewrite; kept when the worker stays.
+        description: stopped after the worker's session was stopped by its id; kept when the worker stays.
     transitions:
-      - target: record
+      - target: teardown_inventory
         when:
-          teardown: done
+          teardown: stopped
       - target: record
         when:
           teardown: kept
+        context_assignments:
+          teardown_topic: ""
+
+  teardown_inventory:
+    # teardown-inventory.sh --seal reads teardown_topic, inventories every
+    # repository in that worker's instance by content, and seals the verdict,
+    # with its topic and instance, through coord-log.sh; it prints the bare
+    # token `sealed:<seq>:<sha256>`. The gate reads the seal
+    # from the log and the verdict through the seal check, and refuses a
+    # verdict whose topic is no longer teardown_topic: 0 durable, 1 unique,
+    # 2 error, 3 the seal doesn't hold.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-inventory.sh" --seal --session "{{SESSION_NAME}}"'
+      capture_stdout_as: TEARDOWN_SEAL
+      fallback: >-
+        The inventory could not be sealed; the action's own output above says why. Fix the cause and tick again with no evidence: the action re-runs on entry.
+    gates:
+      inventory_durable:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh" gate --session "{{SESSION_NAME}}"'
+        overridable: false
+    transitions:
+      - target: destroy
+        when:
+          gates.inventory_durable.exit_code: 0
+      - target: promote
+        when:
+          gates.inventory_durable.exit_code: 1
+      - target: surface
+        when:
+          gates.inventory_durable.exit_code: 2
+        context_assignments:
+          teardown_topic: ""
+      - target: surface
+        when:
+          gates.inventory_durable.exit_code: 3
+        context_assignments:
+          teardown_topic: ""
+
+  promote:
+    accepts:
+      promoted:
+        type: enum
+        values: [promoted, escalate]
+        required: true
+        description: promoted after everything unique was moved into an issue comment or a pull request; escalate when it can't be.
+    transitions:
+      - target: teardown_inventory
+        when:
+          promoted: promoted
+      - target: surface
+        when:
+          promoted: escalate
+        context_assignments:
+          teardown_topic: ""
+
+  destroy:
+    accepts:
+      destroyed:
+        type: enum
+        values: [destroyed, handed_over, refused]
+        required: true
+        description: destroyed after the one inventoried instance was destroyed; handed_over when the posture reserves it for a person; refused when teardown-verdict.sh read refused, and nothing was destroyed.
+    transitions:
+      - target: record
+        when:
+          destroyed: destroyed
+        context_assignments:
+          teardown_topic: ""
+      - target: record
+        when:
+          destroyed: handed_over
+        context_assignments:
+          teardown_topic: ""
+      - target: surface
+        when:
+          destroyed: refused
+        context_assignments:
+          teardown_topic: ""
 
   quiet_check:
     default_action:
@@ -1447,34 +1755,61 @@ that finishes files or closes every open deferral, because nobody succeeds it.
 
 ## dispatch
 
-Write the worker's brief from `references/brief-template.md` and dispatch it;
-record the dispatch as a holding with `record-holding.sh` before any other
-action; then submit `dispatched: sent` and the `topic`. The topic is the one
+Put the brief input in context (`koto context add {{SESSION_NAME}}
+brief_input.json --from-file <file>`, then delete the file), run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
+"{{SESSION_NAME}}"`, and submit `dispatched: sent`, or `dispatched: failed`
+when it exits 3 or 4, with the `topic` either way. The topic is the one
 `dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
-the record step refuses a dispatch under any other. The brief lists the
+the record step refuses a dispatch under any other. The input names the entry
+point: `/shirabe:deliver` for a roadmap feature to be built, `/shirabe:scope`
+for one scoped ahead, with its execution sent later. The brief lists the
 checkpoints the worker reports at, and tells it to report and continue at each
 one: it waits on no approval.
 
 <!-- details -->
 
+Write the worker's brief from `references/brief-template.md` as that input:
+`render-brief.sh` renders the template's sections from it, so no section is
+left out. `dispatch-worker.sh` is how you
+record the dispatch as a holding with `record-holding.sh`, before any other
+action and before the worker launches. A worker's goal is the next checkpoint,
+not "done": it pauses to report at each checkpoint and never waits on an
+approval.
+Name the discipline coordinators for each surface the work touches when you
+know them.
+
+`brief_input.json` is one JSON object; `render-brief.sh`'s header lists every
+field. Its `topic` must be the `dispatch_topic` pick chose. It carries the
+unit, the repository, the entry point with its positional argument and flags
+as a token array, the run mode (`--auto` unless the human's decisions say
+otherwise), the phase (`scoping-ahead` or `executing`), the authority sentence
+in the voice of whoever the work is for, the goal, the checkpoints (the last is
+where the worker stops; none may wait on an approval), the acceptance
+criteria, your session name, the decisions the worker can't see anywhere it
+will read, pointers to pushed artifacts, the discipline coordinator for each
+surface the work touches when you know them, and the workspace's standing
+rules for workers, copied verbatim.
+
+The script renders the brief to the workspace manager's brief directory, opens
+a request leg when the entry point accepts `--koto-leg`, writes the holding
+(dispatching) before it runs `niwa dispatch --name <topic> --detach`, and
+rewrites it dispatched, or dispatch-failed when the worker didn't start. It
+prints the worker's session name, which you use to message it and never
+record. It is safe to run again: a dispatched topic prints
+`already-dispatched`, and a `dispatching` row an interrupted run left is
+settled from `niwa list` without a second launch.
+
+`sent` leaves this state only when the record shows the holding dispatched
+(the `holding_recorded` gate reads it). Its exit codes: 1 no holding (run the
+script), 4 still dispatching (run the script again to settle it), 3
+dispatch-failed (submit `failed`; the unit is dispatched again under a new
+topic), 2 the record couldn't be read. The script's own exit codes are in its
+header; 5 means a live session already uses the topic, 8 the record refused the
+write.
+
 The worker's dispatch topic is its name everywhere, in the record and in every
-pull request: never a session id, instance path or job id. A worker's goal is the
-next checkpoint, not "done": it pauses to report at each checkpoint and never
-waits on an approval. Name the discipline coordinators for each surface the work
-touches when you know them.
-
-A koto session binds to the directory it starts in, so it has to start where the
-work will happen. That holds for this coordinator's own session and for every
-worker: the brief says to enter the worker's worktree before its first
-`koto init`.
-
-The holding row (`record-holding.sh --session "{{SESSION_NAME}}" --topic <topic>
---row-file <row.json>`) carries the unit, entry point, mode, Phase
-(`scoping-ahead` or `executing`), Dispatch status, Return path (`message`, or
-`leg <request-id>:<leg>`), the worker's topic, repository, branch (blank until
-known), and the date. The next state confirms the row is on GitHub before the
-loop goes on. Submit `failed` when the dispatch didn't start.
-
+pull request: never a session id, instance path or job id.
 ## record
 
 Confirming the last change on GitHub. koto runs `record-confirm.sh` itself; it
@@ -1512,10 +1847,67 @@ A `koto next --to` anywhere in this run sends it to the human.
 ## wait
 
 Tick on each message or notification and name the `event`, with the `unit` it is
-about; never poll. `report` for a worker's report, `quiet` when a worker has been
-silent, `decision` or `deferral` for a new decision, `merged` when the human
-merged a pull request you handed over, `retire` to finish with a worker, `end`
-when the rotation or the scope ends.
+about; never poll. `report` for a worker's message, with the message itself as
+`report`; `leg` when a notification says a worker's request leg may have
+resolved, or when a leg-bound worker has been quiet; `quiet` when a worker has
+been silent; `decision` or `deferral` for a new decision; `merged` when the
+human merged a pull request you handed over; `retire` to finish with a worker;
+`end` when the rotation or the scope ends.
+
+<!-- details -->
+
+A worker bound to a request leg (its holding's Return path names one) reports
+through the leg; submit `leg` rather than `report` for it. A message from such a
+worker is refused at `take_report`, because only its own session's result can
+stand for it. koto 0.14.0 records a wake when a leg resolves (koto#250), but
+this workflow doesn't watch for it, so a leg is read when a message or
+notification makes you tick.
+## leg_pick
+
+Picking the request leg to read. koto runs this itself; tick with no evidence
+if you are shown it.
+
+## wait_leg
+
+Reading the picked worker's request leg. While it is open, submit `watch:
+rescan` on a later notification to pick again, since another leg may have
+resolved, or `watch: back` to return to the hub.
+
+<!-- details -->
+
+A promoted result moves on to `take_report` with the leg's status, final
+state, outcome, step, reason and pull request as the report. An explicit or
+refused result, or an abandoned or missing leg, means the worker's session
+recorded no result; it goes to the human as a blocker. A leg is read once:
+`wait-target.sh` marks it taken, so a report routed to a fix or to the human
+doesn't bring the same result back.
+
+## take_report
+
+Checking the report before anything reads it. When it stops here with the
+report empty, go back with `withdrawn: withdrawn` and submit the report
+event again, with the message as `report`. When it stops because the record
+couldn't be read, tick again with no evidence once the record reads. A message
+report that named no worker never reads: withdraw it and submit it again with
+its `unit`. Don't withdraw a leg's result, which nothing would bring back.
+When it can never be checked (koto can't read the leg's request at all, or the
+record keeps refusing the read, as it does for the rest of a run after a
+directed transition), submit `withdrawn: unreadable`: it goes to the human,
+naming the worker.
+
+<!-- details -->
+
+A report is admitted only when it has text and when it may stand for its
+worker: a message for a worker on the message path, or a leg result for the leg
+the record names. A message for a leg-bound worker goes back to the hub; read
+that worker's leg instead. A leg report must be exactly the result koto holds
+for that leg, promoted by the worker's own session; the gate reads the leg
+from koto rather than trusting the report's text. One that isn't goes to the
+human with the report cleared: name the worker in `report_topic`, and the
+request and leg in `wait_target` when it names one (otherwise the worker's
+holding names its leg; when there's no holding either, say so, since that is
+what refused it), and have the result read from koto with `koto request get`,
+since the leg is spent and won't come back to the hub.
 
 ## report_facts
 
@@ -1528,7 +1920,8 @@ differs from the holding's Branch.
 
 Workers report by message, plus what they pushed. A same-host worker whose entry
 point accepts a koto request leg (`/deliver`, `/work-on`, `/scope` and `/execute`),
-dispatched with one, also has its result on that leg; read it before classifying.
+dispatched with one, reports through that leg: the workflow reads it before
+this state and its result is the report, so there's no leg left to read here.
 Every other worker reports by message only, and a worker on another host always
 does, since koto's request legs are local. koto 0.14.0 records a wake when a leg
 resolves (tsukumogami/koto#250, fixed by koto#252), but this workflow doesn't
@@ -1538,7 +1931,8 @@ watch for it, so the message is still what makes you tick.
 
 Classify the worker's report and submit `classification`: `done` when its pull
 request is ready to verify, `blocked` when it needs a decision or a step that
-isn't its own, `needs_fix` when the work has a problem it can fix.
+isn't its own, `needs_fix` when the work has a problem it can fix. The report is
+in `worker_report` and the facts about it in `coord/report.json`.
 
 <!-- details -->
 
@@ -1555,8 +1949,22 @@ an agent error goes back to the worker with what was learned.
 
 ## rebrief
 
-Send the worker what was learned, by message, and submit `sent: sent`.
+Update the brief input with what was learned (`koto context add
+{{SESSION_NAME}} brief_input.json --from-file <file>`), run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
+"{{SESSION_NAME}}" --rebrief`, send the worker a message pointing at the brief
+it printed, and submit `sent: sent`; submit `sent: worker_gone` when the
+worker's session no longer exists.
 
+<!-- details -->
+
+The re-brief is for the worker in `report_topic`. Its repository, entry point
+and flags come from its holding, never from the report or the brief input,
+since a report is text the worker wrote. A leg carries one result and the fix
+comes after it, so a leg-bound worker reports by message from here: the
+script moves its holding to the message path and abandons the spent request.
+A worker that's gone goes back through pick, dispatched under a new topic with
+what it pushed as what was learned.
 ## verify
 
 Before the board is read, write down which reds you would report and which you
@@ -1684,8 +2092,9 @@ back to unverified until you read it again.
 
 ## teardown
 
-Finish with a worker, and submit `teardown: done` after the teardown and the
-record rewrite, or `kept` when it stays.
+Finish with a worker: once its work is finished and you have asked it what
+exists only in its head, stop its session by its id and submit `teardown:
+stopped`; submit `kept` when it stays.
 
 <!-- details -->
 
@@ -1697,13 +2106,59 @@ that belongs to no issue and no pull request, before the worker is retired, to
 the discipline coordinator that owns the surface, or file it as an issue; a
 deferral row is not a home for it.
 
-Don't tear down what you haven't inventoried: list the unique material held by
-the session or instance being torn down (`references/loop.md`), act only on what
-you listed, never across the whole workspace, and use the workspace manager's
+Don't tear down what you haven't inventoried: the next state lists the unique
+material the worker's instance holds, and you act only on that one instance,
+never across the whole workspace, with the workspace manager's
 form that names one instance or session; a command that takes no target is a
-sweep, even when it looks like it would only catch the one you listed. Take the
-teardown only as far as the posture allows.
+sweep, even when it
+looks like it would only catch the one you listed.
 
+Stop the worker's session with the harness's stop form that takes its id and
+keeps its job directory, never a form that deletes it. The next state
+inventories the worker's instance and seals the verdict, and the stop comes
+first so nothing writes to the instance in between. Take the teardown only as
+far as the posture allows; where the posture reserves it, hand it to the human.
+
+## teardown_inventory
+
+Inventorying the worker's instance. koto runs this itself; tick with no
+evidence if you are shown it.
+
+<!-- details -->
+
+`teardown-inventory.sh` lists, for every repository and worktree in the
+instance of the worker in `teardown_topic`, what exists nowhere else: changes,
+stash entries, and branches whose content isn't on origin, judged against the
+squash merge commit of the branch's merged pull request (never by ancestry).
+It seals the verdict with the topic and instance. Durable goes on to `destroy`;
+unique to `promote`; an error, or a seal that doesn't hold, to the human.
+
+## promote
+
+Move everything the inventory listed as unique into an issue comment or a
+pull request, then submit `promoted: promoted`, which inventories again;
+submit `escalate` when something can't be moved.
+
+## destroy
+
+Read the verdict with `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh"
+read --session "{{SESSION_NAME}}"` and destroy only the instance its `instance`
+line names, with `niwa destroy <instance>`, one instance, never `niwa reap` or
+any form that takes no target; then submit `destroyed: destroyed`, or
+`handed_over` when the posture reserves the destroy for a person. When the
+reader refuses, destroy nothing and submit `destroyed: refused`, which takes
+it to the human.
+
+<!-- details -->
+
+The reader refuses (exit 4) when the run was moved by a directed transition
+since the inventory (koto#251), and refuses a verdict edited after sealing or
+taken for another worker; don't destroy then. `niwa destroy` refuses an
+instance whose branches were squash-merged (niwa#322); pass `--force` only
+because the sealed inventory just proved every repository durable. Then remove
+the worker's holding from the record. When the destroy is handed to a person,
+also add a Side effects row whose target is `instance of <topic>`: the record
+names a worker by its dispatch topic, never by its instance path.
 ## quiet_check
 
 Sweeping for quiet workers. koto runs `quiet-check.sh` itself; it counts each

@@ -3,9 +3,10 @@
 # at finalization instead of ending it at pre_pr_evidence.
 #
 # summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
-# checks their shape and sends a failure to done_blocked, so a shape the agent
-# could have fixed in one edit cost a full re-entry. The same three
-# shape gates now sit on finalization's ready_for_pr edge and on
+# checks them and sends a failure to done_blocked, so a record the agent could
+# have fixed in one edit cost a full re-entry. The same three gates
+# (summary_shape and the two referent checks) now sit on finalization's
+# ready_for_pr edge and on
 # deferral_approval's approved edge, where a failure matches no edge and the
 # state holds with the failing gate named.
 #
@@ -15,13 +16,16 @@
 #   a correct record advances to pre_pr_evidence            (case 1)
 #   a missing heading holds, names summary_shape, and a fix in place advances
 #                                                           (case 2)
-#   a wrong pre_pr.md key form, or none, holds and names its gate (cases 3, 4)
+#   a wrong pre_pr.md key form, a referent naming nothing (a commit from
+#   another branch, a diagram path never written), or no pre_pr.md, holds and
+#   names its gate                                          (cases 3, 4)
 #   an approved deferral holds on a bad shape; the escape edges stay open
 #                                                           (cases 5, 6)
-#   the early gates carry the backstop's patterns, and the backstop still
-#   routes a shape failure to done_blocked                  (cases 7, 8)
+#   the early gates are identical to the backstop's, every copy of a referent
+#   gate runs the existence check, and the backstop still routes a failure to
+#   done_blocked                                            (cases 7, 8)
 #
-# pre-pr-evidence_test.sh drives the backstop itself and is unchanged.
+# pre-pr-evidence_test.sh drives the backstop itself.
 #
 # Usage: finalization-shape_test.sh
 # Exit codes: 0 all pass, or koto/git/jq absent and the run skipped; 1 any failed.
@@ -61,7 +65,9 @@ case "$PLUGIN_ROOT" in
         ;;
 esac
 
-# scrutiny gates on commits over main, so the base branch has to be main.
+# scrutiny gates on commits over main, so the base branch has to be main. The
+# referent gates need real objects: HEAD for a good cleanup_commit, a commit on
+# another branch for a bad one.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -70,12 +76,17 @@ mkdir -p "$REPO"
     git config user.email t@example.com
     git config user.name t
     git commit -q --allow-empty -m init
+    git checkout -q -b other
+    git commit -q --allow-empty -m "side work"
+    git checkout -q main
     git checkout -q -b impl/finalization-shape
     echo work > f.txt
     git add f.txt
     git commit -q -m "feat: work"
 ) >/dev/null 2>&1
 cd "$REPO" || exit 1
+HEAD_SHA=$(git rev-parse HEAD)
+OTHER_SHA=$(git rev-parse other)
 
 NEXT_RESPONSE=""
 NEXT_STATE=""
@@ -125,8 +136,8 @@ A thing, and a list of files under a heading the gate does not read.
 
 ## Changes
 - `f.txt`: added'
-GOOD_PREPR='cleanup_commit: 4f2a91c8d3b6e5a7f0c1d2e3a4b5c6d7e8f9a0b1
-design_diagram: not-applicable: no design document is touched'
+GOOD_PREPR="cleanup_commit: $HEAD_SHA
+design_diagram: not-applicable: no design document is touched"
 
 echo "--- Case 1: a correct record advances"
 if to_finalization ok; then
@@ -169,8 +180,8 @@ echo "--- Case 3/4: a wrong pre_pr.md key form holds"
 # what a run writes into pre_pr.md by mistake.
 if to_finalization diagram; then
     put diagram summary.md "$GOOD_SUMMARY"
-    put diagram pre_pr.md 'cleanup_commit: 4f2a91c8d3b6e5a7f0c1d2e3a4b5c6d7e8f9a0b1
-design_diagram: not_applicable'
+    put diagram pre_pr.md "cleanup_commit: $HEAD_SHA
+design_diagram: not_applicable"
     submit diagram '{"finalization_status":"ready_for_pr"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate diagram_referent; then
         pass "design_diagram: not_applicable holds at finalization, naming diagram_referent"
@@ -190,8 +201,40 @@ design_diagram: not-applicable: no design document is touched'
     fi
 fi
 
-# The run #411 was filed from: a good summary and no pre_pr.md at all. A
-# context-matches gate on an absent key reports matches: false, so this holds.
+# shirabe#422: shaped right, naming nothing. A sha from another branch, and a
+# docs/ path that was never written, hold here with the gate named.
+if to_finalization offbranch; then
+    put offbranch summary.md "$GOOD_SUMMARY"
+    put offbranch pre_pr.md "cleanup_commit: $OTHER_SHA
+design_diagram: not-applicable: no design document is touched"
+    submit offbranch '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = finalization ] && names_gate cleanup_referent; then
+        pass "a cleanup_commit from another branch holds at finalization, naming cleanup_referent"
+    else
+        fail "off-branch cleanup_commit: expected a hold naming cleanup_referent, got [$NEXT_STATE]"
+    fi
+    put offbranch pre_pr.md "$GOOD_PREPR"
+    submit offbranch '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
+        pass "after HEAD is recorded in place, the same submission advances"
+    else
+        fail "off-branch fix in place: expected pre_pr_evidence, got [$NEXT_STATE]"
+    fi
+fi
+if to_finalization nodoc; then
+    put nodoc summary.md "$GOOD_SUMMARY"
+    put nodoc pre_pr.md "cleanup_commit: $HEAD_SHA
+design_diagram: docs/designs/DESIGN-missing.md"
+    submit nodoc '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = finalization ] && names_gate diagram_referent; then
+        pass "a design_diagram path that does not exist holds at finalization, naming diagram_referent"
+    else
+        fail "missing diagram path: expected a hold naming diagram_referent, got [$NEXT_STATE]"
+    fi
+fi
+
+# The run #411 was filed from: a good summary and no pre_pr.md at all. The
+# referent gates fail closed on an absent key, so this holds.
 if to_finalization absent; then
     put absent summary.md "$GOOD_SUMMARY"
     submit absent '{"finalization_status":"ready_for_pr"}'
@@ -238,7 +281,7 @@ if to_finalization reject; then
     fi
 fi
 
-echo "--- Case 7/8: the early gates match the backstop, which is unchanged"
+echo "--- Case 7/8: the early gates match the backstop, which still routes to done_blocked"
 COMPILED=$(koto template compile "$TEMPLATE" 2>/dev/null)
 if [ -z "$COMPILED" ] || [ ! -f "$COMPILED" ]; then
     fail "could not compile $TEMPLATE"
@@ -256,15 +299,31 @@ else
     done
     # The backstop: pre_pr_evidence still routes each copied gate's failure to
     # done_blocked.
-    for g in summary_shape cleanup_referent diagram_referent; do
-        n=$(jq --arg k "gates.$g.matches" '[.states.pre_pr_evidence.transitions[]
+    # summary_shape is a context-matches gate and fails as matches: false; the
+    # referent gates are command gates and fail as exit_code: 1.
+    for spec in "summary_shape matches false" "cleanup_referent exit_code 1" "diagram_referent exit_code 1"; do
+        set -- $spec
+        n=$(jq --arg k "gates.$1.$2" --argjson v "$3" '[.states.pre_pr_evidence.transitions[]
                   | select(.target == "done_blocked")
-                  | select(.when[$k] == false)] | length' "$COMPILED")
+                  | select(.when[$k] == $v)] | length' "$COMPILED")
         if [ "$n" = 1 ]; then
-            pass "pre_pr_evidence still sends $g false to done_blocked"
+            pass "pre_pr_evidence still sends $1 $2: $3 to done_blocked"
         else
-            fail "pre_pr_evidence's $g backstop edge changed (found $n)"
+            fail "pre_pr_evidence's $1 backstop edge changed (found $n)"
         fi
+    done
+    # shirabe#422: no copy of a referent gate may fall back to a shape check.
+    # Each of the three states runs the existence check.
+    for s in finalization deferral_approval pre_pr_evidence; do
+        for g in cleanup_referent diagram_referent; do
+            ok=$(jq -r --arg g "$g" --arg s "$s" '.states[$s].gates[$g]
+                  | (.type == "command") and ((.command // "") | test("check-pre-pr-referents[.]sh"))' "$COMPILED")
+            if [ "$ok" = true ]; then
+                pass "$s.$g runs check-pre-pr-referents.sh"
+            else
+                fail "$s.$g does not run check-pre-pr-referents.sh as a command gate"
+            fi
+        done
     done
 fi
 

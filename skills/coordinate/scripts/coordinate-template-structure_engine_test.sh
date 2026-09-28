@@ -27,11 +27,19 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX"); trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_apply deferral_dispose dispatch dispatch_check done done_handed_over done_not_active done_stopped failure land land_merge merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface teardown verified_confirm verify verify_board wait"
+WANT="ask_up classify_report decision_apply deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped failure land land_merge leg_pick merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface take_report teardown teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
-BADCHECK=$(jq -r '.states | to_entries[] | select(.value.default_action != null) | .key as $s | .value as $v
+# The dispatch path's three action states keep their own contract, checked in
+# DISPATCH below: leg_pick routes on a context-matches gate over the
+# wait_target its own action writes; wait_leg reads one leg through a
+# request-leg gate and accepts rescan or back while the leg is open, so the
+# hub is never held by one worker; teardown_inventory's verdict is sealed as a
+# file through coord-log.sh seal --file --key and read by teardown-verdict.sh,
+# which coord-verdict.sh's token form can't carry.
+DISPATCH_STATES='["leg_pick","wait_leg","teardown_inventory"]'
+BADCHECK=$(jq -r --argjson skip "$DISPATCH_STATES" '.states | to_entries[] | select(.value.default_action != null) | select(.key as $k | ($skip | index($k)) | not) | .key as $s | .value as $v
   | [ (if $v.accepts != null then "\($s): has accepts" else empty end),
       (if ($v.default_action.polling // null) != null then "\($s): polls" else empty end),
       (if ($v.default_action.requires_confirmation // false) then "\($s): requires confirmation" else empty end),
@@ -43,6 +51,21 @@ BADCHECK=$(jq -r '.states | to_entries[] | select(.value.default_action != null)
           elif .value.type == "context-exists" and ((.value.key | test("^coord/(pick|report)\\.json$")) | not) then "\($s).\(.key): a context gate that is not a decider input"
           else empty end) ] | .[]' "$J")
 [ -z "$BADCHECK" ] && pass "every check state keeps the contract" || fail "every check state keeps the contract" "$BADCHECK"
+
+# The dispatch path's action states: no polling or confirmation, every gate
+# overridable: false, and each gate the one the design names.
+DISPATCH=$(jq -r '.states as $st
+  | [ (if ($st.leg_pick.gates.leg_target.type != "context-matches" or $st.leg_pick.gates.leg_target.key != "wait_target") then "leg_pick: not leg_target over wait_target" else empty end),
+      (if $st.leg_pick.accepts != null then "leg_pick: has accepts" else empty end),
+      (if $st.wait_leg.gates.leg_result.type != "request-leg" then "wait_leg: not a request-leg gate" else empty end),
+      (if (($st.wait_leg.accepts // {}) | keys) != ["watch"] then "wait_leg: accepts more than watch" else empty end),
+      (if ($st.teardown_inventory.gates.inventory_durable.command | test("teardown-verdict\\.sh\" gate --session") | not) then "teardown_inventory: not teardown-verdict.sh gate" else empty end),
+      (if $st.teardown_inventory.accepts != null then "teardown_inventory: has accepts" else empty end),
+      ($st | to_entries[] | select(.key == "leg_pick" or .key == "wait_leg" or .key == "teardown_inventory") | .key as $s | .value
+        | (if (.default_action.polling // null) != null then "\($s): polls" else empty end),
+          (if (.default_action.requires_confirmation // false) then "\($s): requires confirmation" else empty end),
+          ((.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key): overridable")) ] | .[]' "$J")
+[ -z "$DISPATCH" ] && pass "the dispatch path's action states keep theirs" || fail "the dispatch path's action states keep theirs" "$DISPATCH"
 
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"

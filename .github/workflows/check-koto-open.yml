@@ -70,6 +70,10 @@ jobs:
 
       - name: Run the decider check's tests (Linux)
         if: runner.os == 'Linux'
+        env:
+          # ubuntu-latest ships mikefarah yq v4; a skip here would be a runner
+          # image that stopped shipping it, which should fail, not pass.
+          CHECK_KOTO_RELEASE_REQUIRE_YQ: "1"
         run: bash scripts/check-koto-release_test.sh
 
       - name: Run koto-open suite on the bash 3.2 floor (macOS, system bash)

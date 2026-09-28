@@ -33,8 +33,9 @@
 #   context add     --from-file for the file-backed keys (context.md,
 #                   introspection.md, plan.md); the stdin heredoc form of the
 #                   same subcommand takes no flag
-#   context get     reads plan.md and context.md in Phase 4, and impl_base in
-#                   record-changed-paths.sh, no flag
+#   context get     reads plan.md and context.md in Phase 4, impl_base in
+#                   record-changed-paths.sh, and pre_pr.md in
+#                   check-pre-pr-referents.sh (the referent gates), no flag
 #   context exists  record-changed-paths.sh's impl_base test, no flag
 #   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
 #                   no flag
@@ -72,7 +73,7 @@
 # in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 #
-# The koto floor. /work-on needs koto 0.14.0, shirabe's koto minimum
+# The koto floor. /work-on needs koto 0.14.1, shirabe's koto minimum
 # (scripts/assert-koto-floor.sh). 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no

@@ -788,7 +788,30 @@ states:
 EOF
     local rel="${TEST_DIR}/skills/demo/koto-templates/demo.md"
     printf 'no-such-rule\t%s\tgather\towner/repo#7\treason\n' "$rel" > "$TEST_DIR/allow"
-    assert_fails "$name" "names an unknown rule" "$rel"
+    assert_fails "$name" "known rules: unguarded-evidence, state-file-read" "$rel"
+    teardown
+}
+
+# The loader is shared with check-directive-invocations.sh (scripts/lib/
+# allowlist.sh); this check's records still name a template in field 2, and the
+# error says so.
+test_allowlist_untabbed_record_fails() {
+    local name="an allowlist record that is not tab-separated is an error naming the template field"
+    setup
+    demo_template <<'EOF'
+---
+name: demo
+version: "1.0"
+initial_state: done
+
+states:
+  done:
+    terminal: true
+---
+EOF
+    local rel="${TEST_DIR}/skills/demo/koto-templates/demo.md"
+    printf 'unguarded-evidence %s gather owner/repo#7 spaces, not tabs\n' "$rel" > "$TEST_DIR/allow"
+    assert_fails "$name" "expected: <rule><TAB><template><TAB><subject>" "$rel"
     teardown
 }
 
@@ -876,6 +899,7 @@ test_unresolvable_invoked_script_fails
 test_allowlist_suppresses_named_state
 test_allowlist_record_without_issue_fails
 test_allowlist_unknown_rule_fails
+test_allowlist_untabbed_record_fails
 
 test_shipped_templates_pass
 test_shipped_templates_have_four_known_violations

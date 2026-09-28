@@ -51,7 +51,7 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-REAL_MINIMUM=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\([0-9.]*\)}"$/\1/p' "$REPO/scripts/assert-koto-floor.sh" | head -1)
+REAL_MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor 2>/dev/null)
 case "$REAL_MINIMUM" in
     [0-9]*.[0-9]*.[0-9]*) ;;
     *) echo "FAIL: cannot read the koto minimum from scripts/assert-koto-floor.sh" >&2; exit 1 ;;
