@@ -596,7 +596,7 @@ for route in tool message; do
     if [ "$REACHED" = escalate_send ]; then
         write_as_agent record-decision.sh --sent --route "$route"
         case "$(entry_of "$n" 1 | jq -r .evidence)" in
-            *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(entry_of "$n" 1)" ;;
+            *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of "$n" 1)" ;;
         esac
         if [ "$route" = tool ]; then
             eq "15 tool: the answer comes back from escalate_send" decision_answer "$(at --with-data '{"sent":"answered","decision":"1","round":"1"}')"

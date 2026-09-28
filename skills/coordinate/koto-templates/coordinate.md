@@ -2370,6 +2370,12 @@ classification, and anything else to `pick_facts`. A held entry is skipped: its
 verdict waits on the fact its hold names, which comes back through `wait` as
 evidence. A record too full for the next write goes to `record_conflict`.
 
+When a `record-decision.sh` write in any decision state refuses (exit 65), the
+record changed after this state was routed. Don't retry it by hand and don't
+send a message again: submit the state's evidence as the directive says, and
+`decision_next` routes from the record as it now stands. A message already
+sent may then go out once more (sending is at least once).
+
 ## decision_carry
 
 Run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
