@@ -45,13 +45,18 @@ def emit(obj):
     sys.stdout.flush()
 
 
-def turn(command, output):
+def call(command):
+    """The assistant turn that asks for a tool call. A real session emits it
+    before the tool runs, which is what per-state attribution relies on."""
     global n
     n += 1
     emit({"type": "assistant", "message": {"id": f"msg_{n}", "usage": {
         "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 50,
         "cache_creation_input_tokens": 5},
         "content": [{"type": "tool_use", "id": f"tu_{n}", "name": "Bash", "input": {"command": command}}]}})
+
+
+def result(output):
     emit({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": f"tu_{n}", "content": output}]}})
 
@@ -65,22 +70,27 @@ for step in steps:
         env = dict(os.environ)
         if "koto_abs" in step:
             env["HOME"] = os.environ["ABLATION_KOTO_HOME"]
+        call(" ".join([exe] + args))
         out = subprocess.run([exe] + args, capture_output=True, text=True, env=env)
-        turn(" ".join([exe] + args), out.stdout + out.stderr)
+        result(out.stdout + out.stderr)
     elif "context" in step:
         wf, key, text = step["context"]
+        call(f"koto context add {wf} {key}")
         out = subprocess.run(["koto", "context", "add", wf, key], input=text, capture_output=True, text=True)
-        turn(f"koto context add {wf} {key}", out.stdout + out.stderr)
+        result(out.stdout + out.stderr)
     elif "echo" in step:
-        turn("cat notes.txt", step["echo"])
+        call("cat notes.txt")
+        result(step["echo"])
     elif "read_plugin" in step:
         path = os.path.join(plugin, step["read_plugin"])
+        call(f"cat {path}")
         with open(path) as fh:
-            turn(f"cat {path}", fh.read())
+            result(fh.read())
     elif "touch" in step:
+        call(f"touch {step['touch']}")
         with open(step["touch"], "w") as fh:
             fh.write("tampered\n")
-        turn(f"touch {step['touch']}", "")
+        result("")
     elif "sleep" in step:
         time.sleep(step["sleep"])
     elif step.get("no_result"):

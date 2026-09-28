@@ -45,6 +45,10 @@ import sys
 import tempfile
 import threading
 import time
+import importlib.util
+from importlib.machinery import SourceFileLoader
+
+import records
 
 ABL_DIR = os.path.dirname(os.path.realpath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(ABL_DIR))
@@ -591,20 +595,45 @@ def run_one(case, arm, repetition, arm_order, span, real_koto, keep_dir=None, ba
         raw = {"case": case, "arm": arm, "repetition": repetition, "arm_order": arm_order,
                "root": root, "plugin": plugin, "run_dir": run_dir, "span_path": path,
                "span": span_bytes, "agent": agent, "audits": audits, "tampered": tampered,
-               "audit_rate": rate}
+               "audit_rate": rate, "real_koto": real_koto, "delivery_shape": DELIVERY_SHAPE}
         if keep_dir:
             dest = os.path.join(keep_dir, f"r{repetition}-{arm}")
             shutil.copytree(run_dir, dest)
             with open(os.path.join(dest, "raw.json"), "w") as fh:
                 json.dump({k: v for k, v in raw.items() if k not in ("case", "span")}, fh, indent=2)
-        return finish_run(raw)
+        record = finish_run(raw)
+        if keep_dir:
+            with open(os.path.join(keep_dir, f"r{repetition}-{arm}", "record.json"), "w") as fh:
+                json.dump(record, fh, indent=2, sort_keys=True)
+        return record
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
 
+_FIXTURE_RULE = None
+
+
+def classify_session(header):
+    """The fixture rule, from is-fixture-session itself so there is one copy."""
+    global _FIXTURE_RULE
+    if _FIXTURE_RULE is None:
+        loader = SourceFileLoader("is_fixture_session", os.path.join(ABL_DIR, "is-fixture-session"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        _FIXTURE_RULE = importlib.util.module_from_spec(spec)
+        loader.exec_module(_FIXTURE_RULE)
+    return _FIXTURE_RULE.classify(header)
+
+
+def koto_version(real_koto):
+    out = subprocess.run([real_koto, "version"], capture_output=True, text=True)
+    m = re.search(r"([0-9]+\.[0-9]+\.[0-9]+)", out.stdout)
+    return m.group(1) if m else None
+
+
 def finish_run(raw):
-    """Turn a run's raw outputs into its record. Filled in by the record layer."""
-    return {"case.id": raw["case"]["id"], "arm": raw["arm"], "repetition": raw["repetition"]}
+    """Turn a run's raw outputs into its record (scripts/ablation/records.py)."""
+    return records.derive(raw, REPO_ROOT, raw["real_koto"], koto_version(raw["real_koto"]),
+                          classify_session)
 
 
 def run_case(case, runs, jobs, out_path, keep_dir=None):
@@ -620,17 +649,26 @@ def run_case(case, runs, jobs, out_path, keep_dir=None):
         return [run_one(case, arm, r, i + 1, span, real_koto, keep_dir, baseline)
                 for i, arm in enumerate(order)]
 
-    records = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        for recs in pool.map(repetition, range(1, runs + 1)):
-            records.extend(recs)
-    records.sort(key=lambda rec: (rec["repetition"], ARMS.index(rec["arm"])))
+    # Each repetition's records are appended as soon as it finishes, so a crash
+    # or an interrupt keeps every repetition already paid for.
+    lock = threading.Lock()
     if out_path:
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-        with open(out_path, "a") as fh:
-            for rec in records:
-                fh.write(json.dumps(rec, sort_keys=True) + "\n")
-    return records
+
+    def repetition_and_write(r):
+        recs = repetition(r)
+        if out_path:
+            with lock, open(out_path, "a") as fh:
+                for rec in recs:
+                    fh.write(json.dumps(rec, sort_keys=True) + "\n")
+        return recs
+
+    collected = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        for recs in pool.map(repetition_and_write, range(1, runs + 1)):
+            collected.extend(recs)
+    collected.sort(key=lambda rec: (rec["repetition"], ARMS.index(rec["arm"])))
+    return collected
 
 
 def smoke(case, real_koto):
@@ -737,12 +775,59 @@ def main(argv=None):
     return 0
 
 
+def case_by_id(case_id):
+    for name in sorted(os.listdir(CASES_DIR)):
+        if name.endswith(".json"):
+            for c in load_cases(os.path.join(CASES_DIR, name)):
+                if isinstance(c, dict) and c.get("id") == case_id:
+                    return validate_case(c)
+    raise Refusal(f"{case_id}: no case with this id under scripts/ablation/cases/")
+
+
 def summarize_file(path):
-    raise Refusal("summarize is not available yet")
+    recs = records.read_jsonl(path)
+    if not recs:
+        raise Refusal(f"{path}: no records")
+    ids = {r.get("case.id") for r in recs}
+    if len(ids) != 1:
+        raise Refusal(f"{path}: records from more than one case: {sorted(map(str, ids))}")
+    shapes = {r.get("delivery.shape") for r in recs}
+    if len(shapes) != 1:
+        raise Refusal(f"{path}: records from more than one delivery shape; summarise them separately")
+    return records.summarize(recs, case_by_id(ids.pop()), REPO_ROOT)
 
 
 def check_figures(directory):
-    raise Refusal("check-figures is not available yet")
+    """Regenerate every committed summary from its committed records."""
+    found = 0
+    failed = 0
+    for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
+        rec_path = os.path.join(directory, name, "records.jsonl")
+        sum_path = os.path.join(directory, name, "summary.txt")
+        if not os.path.isfile(rec_path):
+            continue
+        found += 1
+        want = summarize_file(rec_path)
+        try:
+            with open(sum_path) as fh:
+                have = fh.read()
+        except OSError:
+            print(f"check-figures: {name}: summary.txt is missing", file=sys.stderr)
+            failed += 1
+            continue
+        if want == have:
+            print(f"check-figures: {name}: every figure reproduces")
+            continue
+        failed += 1
+        for i, (a, b) in enumerate(zip(want.splitlines() + [""] * 999, have.splitlines() + [""] * 999)):
+            if a != b:
+                print(f"check-figures: {name}: summary.txt line {i + 1} differs\n"
+                      f"  committed:   {b}\n  regenerated: {a}", file=sys.stderr)
+                break
+    if found == 0:
+        print(f"check-figures: no records under {directory}", file=sys.stderr)
+        return 1
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

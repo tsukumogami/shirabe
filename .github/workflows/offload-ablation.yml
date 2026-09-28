@@ -98,6 +98,21 @@ jobs:
       - name: Run the harness tests
         run: python3 -W error::ResourceWarning scripts/ablation/ablation_test.py -v
 
+  # Every figure a committed ablation summary reports, regenerated from the
+  # committed records alone, with no model session; a changed figure fails
+  # the job naming the line.
+  ablation-figures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Regenerate the committed figures
+        run: python3 scripts/ablation/ablation.py check-figures
+
   # An ablation run's koto sessions are recognised as fixtures by their
   # template source directory alone, including a session whose template hash
   # equals a pinned one; a session from an installed plugin is not.

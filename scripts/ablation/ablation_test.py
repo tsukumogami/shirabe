@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 import ablation  # noqa: E402
+import records  # noqa: E402
 
 CASE_FILE = os.path.join(HERE, "cases", "work-on-introspection-evidence.json")
 STUB = os.path.join(HERE, "testdata", "stub-agent")
@@ -312,7 +313,7 @@ class Sampling(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("koto"), "koto not on PATH")
-class Runs(unittest.TestCase):
+class RunBase(unittest.TestCase):
     """Stub-agent runs against the real koto and the fixture."""
 
     def setUp(self):
@@ -351,6 +352,7 @@ class Runs(unittest.TestCase):
     def next_with(self, evidence, *extra):
         return {"koto": ["next", WF, "--no-cleanup", "--with-data", ev(evidence)] + list(extra)}
 
+class Runs(RunBase):
     def test_violated_then_complied(self):
         self.run_case([
             self.next_with({"introspection_outcome": "approach_updated"}),
@@ -521,6 +523,245 @@ class Runs(unittest.TestCase):
         with Env(ABLATION_TEST=None, ABLATION_AGENT_CMD=STUB):
             with self.assertRaisesRegex(ablation.Refusal, "ABLATION_TEST=1"):
                 ablation.agent_argv(case, "full", "/x")
+
+
+BASELINE_ATTRS = ("definition.version", "rule.source", "rule.source_commit", "skill", "template.path",
+                  "template.git_blob", "template.koto_hash", "state", "run.id")
+
+
+def manifest_bytes(tree, profile):
+    """An oracle for the static count, independent of offload-baseline.sh: the
+    raw bytes of every distinct span the manifest lists for the profile."""
+    seen = set()
+    total = 0
+    path = os.path.join(ablation.REPO_ROOT, "docs", "measurement", "offload-baseline", "load-manifest.tsv")
+    rows = [l.rstrip("\n").split("\t") for l in read_text(path).splitlines()
+            if l.strip() and not l.startswith("#")][1:]
+    for prof, rel, selector, _weight, *_ in rows:
+        if prof != profile or (rel, selector) in seen:
+            continue
+        seen.add((rel, selector))
+        text = read_bytes(os.path.join(tree, rel))
+        if selector == "file":
+            total += len(text)
+            continue
+        lines = text.decode().split("\n")
+        body = lines
+        if lines and lines[0] == "---":
+            end = lines.index("---", 1)
+            body = lines[end + 1:]
+        if selector == "body":
+            total += len(("\n".join(body)).encode())
+            continue
+        want = "## " + selector[len("state:"):]
+        out, on = [], False
+        for line in body:
+            if line == want:
+                on = True
+                out.append(line)
+                continue
+            if on and line.startswith("## "):
+                break
+            if on:
+                out.append(line)
+        while out and out[-1] == "":
+            out.pop()
+        total += len(("\n".join(out) + "\n").encode())
+    return total
+
+
+class Records(RunBase):
+    """Records derived from stub runs against the real koto."""
+
+    def record(self, arm="full"):
+        return self.out(arm, "record.json")
+
+    def obs(self, rec):
+        return {o["point"]: o for o in rec["observations"]}
+
+    def test_violated_then_complied_record(self):
+        self.run_case([
+            self.next_with({"introspection_outcome": "approach_updated"}),
+            {"context": [WF, "introspection.md", "findings"]},
+            self.next_with({"introspection_outcome": "approach_updated", "rationale": "landed"}),
+        ])
+        rec = self.record()
+        for attr in BASELINE_ATTRS:
+            self.assertIn(attr, rec)
+        self.assertEqual(rec["definition.version"], "provisional-1")
+        self.assertEqual(rec["delivery.shape"], "harness-check-message")
+        self.assertTrue(rec["template.fixture"])
+        self.assertTrue(rec["delivered"])
+        o = self.obs(rec)
+        self.assertEqual((o["first"]["point.status"], o["first"]["opportunity.outcome"],
+                          o["first"]["reason"], o["first"]["observed_by"]),
+                         ("observed", "violated", "rationale-missing", "script"))
+        self.assertEqual(o["second"]["opportunity.outcome"], "complied")
+        self.assertEqual(o["after-one-delivery"]["opportunity.outcome"], "complied")
+        self.assertEqual({a["opportunity.outcome"] for a in rec["audit"]["rules"]}, {"complied"})
+        text = json.dumps(rec)
+        for leak in (self.home, tempfile.gettempdir() + "/", os.environ.get("HOME", "/nonexistent") + "/"):
+            self.assertNotIn(leak, text)
+
+    def test_complied_first_second_not_reached(self):
+        self.run_case([self.next_with({"introspection_outcome": "approach_unchanged"})])
+        o = self.obs(self.record())
+        self.assertEqual(o["second"]["point.status"], "not-reached")
+        self.assertNotIn("opportunity.outcome", o["second"])
+        self.assertEqual(o["after-one-delivery"]["opportunity.outcome"], "complied")
+
+    def test_stop_after_refusal_second_not_produced(self):
+        self.run_case([self.next_with({"introspection_outcome": "approach_updated"})])
+        o = self.obs(self.record())
+        self.assertEqual(o["second"]["point.status"], "not-produced")
+        self.assertEqual(o["after-one-delivery"]["point.status"], "not-produced")
+
+    def test_no_production_at_all(self):
+        self.run_case([{"koto": ["status", WF]}])
+        o = self.obs(self.record())
+        self.assertEqual((o["first"]["point.status"], o["second"]["point.status"]),
+                         ("not-produced", "not-produced"))
+
+    def test_leak_before_delivery_makes_the_run_not_checkable(self):
+        _, span = ablation.resolve_span(KEY, PIN)
+        line = [l for l in span.decode().splitlines() if "approach_updated" in l][0]
+        self.run_case([{"echo": "grep hit: " + line}, self.next_with({"introspection_outcome": "approach_unchanged"})],
+                      arms=("withheld",))
+        rec = self.record("withheld")
+        self.assertTrue(rec["leak"])
+        self.assertEqual(self.obs(rec)["first"]["opportunity.outcome"], "not-checkable")
+        self.assertEqual(self.obs(rec)["first"]["reason"], "section-leaked")
+
+    def test_bypass_by_absolute_path(self):
+        self.run_case([{"koto_abs": ["next", WF, "--no-cleanup", "--with-data",
+                                     ev({"introspection_outcome": "approach_updated"})]}])
+        rec = self.record()
+        self.assertTrue(rec["wrapper_bypassed"])
+
+    def test_tokens(self):
+        self.run_case([
+            {"read_plugin": "skills/work-on/references/phases/phase-2-introspection.md"},
+            self.next_with({"introspection_outcome": "approach_unchanged"}),
+            # No introspection.md in context, so the gate holds the session in
+            # introspection; the turn before this second tick is spent there.
+            self.next_with({"introspection_outcome": "approach_unchanged"}),
+        ], arms=("full", "withheld", "without_skill"))
+        full, withheld, without = self.record("full"), self.record("withheld"), self.record("without_skill")
+        s = full["tokens"]["session"]
+        self.assertEqual((s["input"], s["output"], s["cache_read"], s["cache_creation"], s["partial"]),
+                         (300, 30, 150, 15, False))
+        self.assertEqual(s["total"], 495)
+        # Turns before the first tick are pre-first-state; the turn between the
+        # two ticks is spent in introspection.
+        self.assertEqual(full["tokens"]["pre_first_state"], 330)
+        self.assertEqual(full["tokens"]["per_state"], {"introspection": 165})
+        _, span = ablation.resolve_span(KEY, PIN)
+        read = len(read_bytes(os.path.join(ablation.REPO_ROOT, "skills/work-on/references/phases/phase-2-introspection.md")))
+        self.assertEqual(full["tokens"]["instruction_observed"]["total"], int(read / 4 + 0.5))
+        self.assertEqual(withheld["tokens"]["instruction_observed"]["total"], int((read - len(span)) / 4 + 0.5))
+        b = manifest_bytes(ablation.REPO_ROOT, "work-on")
+        self.assertEqual(full["tokens"]["instruction_static"]["raw"], int(b / 4 + 0.5))
+        self.assertEqual(withheld["tokens"]["instruction_static"]["raw"], int((b - len(span)) / 4 + 0.5))
+        self.assertEqual(without["tokens"]["instruction_static"], {"raw": 0, "weighted": 0})
+        self.assertEqual(full["cost_usd"], 0.003)
+
+    def test_partial_tokens_without_a_result_event(self):
+        self.run_case([self.next_with({"introspection_outcome": "approach_unchanged"}), {"no_result": True}])
+        s = self.record()["tokens"]["session"]
+        self.assertTrue(s["partial"])
+        self.assertEqual((s["input"], s["output"]), (100, 10))
+
+
+def rec(arm, rep, first, second=None, delivered=False, audit=(), leak=False, total=1000, cost=0.25,
+        shape="harness-check-message"):
+    def point(name, value):
+        if value in ("not-reached", "not-produced"):
+            return {"point": name, "point.status": value, "observed_by": "script"}
+        return {"point": name, "point.status": "observed", "opportunity.outcome": value,
+                "reason": "ok", "observed_by": "script"}
+    second = second or ("not-reached" if not delivered else "not-produced")
+    effective = second if delivered else first
+    return {"case.id": "work-on-introspection-evidence", "arm": arm, "repetition": rep, "arm_order": 1,
+            "delivery.shape": shape, "rule.span_bytes": 257, "model": "m", "koto.version": "0.14.1",
+            "leak": leak, "wrapper_bypassed": False, "harness_tampered": False, "delivered": delivered,
+            "observations": [point("first", first), point("second", second),
+                             point("after-one-delivery", effective)],
+            "tokens": {"session": {"total": total, "partial": False},
+                       "instruction_static": {"raw": 10, "weighted": 5},
+                       "instruction_observed": {"total": 3, "pre_first_state": 1}},
+            "cost_usd": cost,
+            "audit": {"sample_rate": 1.0, "rules": [{"rule.source": r, "opportunity.outcome": o}
+                                                    for r, o in audit]}}
+
+
+class Summary(unittest.TestCase):
+    def test_statistics(self):
+        self.assertAlmostEqual(records.clopper_pearson_upper(0, 5), 1 - 0.025 ** (1 / 5), places=6)
+        self.assertAlmostEqual(records.clopper_pearson_upper(1, 4), 0.8059, places=4)
+        self.assertEqual(records.clopper_pearson_upper(3, 3), 1.0)
+        self.assertIsNone(records.clopper_pearson_upper(0, 0))
+        self.assertEqual(records.detection_limit(5), (4, 0.8))
+        self.assertEqual(records.detection_limit(30)[0], 5)
+        self.assertEqual(records.detection_limit(15)[0], 4)
+
+    def summary(self, recs):
+        return records.summarize(recs, ablation.case_by_id("work-on-introspection-evidence"), ablation.REPO_ROOT)
+
+    def test_known_counts(self):
+        rule = "skills/work-on/SKILL.md#L359-L362"
+        recs = [
+            rec("full", 1, "complied", audit=[(rule, "complied")], total=1000),
+            rec("withheld", 1, "violated", "complied", delivered=True, audit=[(rule, "violated")], total=900),
+            rec("without_skill", 1, "not-produced", audit=[(rule, "violated")], total=500),
+            rec("full", 2, "complied", audit=[(rule, "complied")], total=1000),
+            rec("withheld", 2, "complied", audit=[(rule, "complied")], total=800),
+            rec("without_skill", 2, "not-produced", audit=[(rule, "violated")], total=500),
+        ]
+        out = self.summary(recs)
+        self.assertIn("withheld       first                  2     1          2", out)
+        self.assertIn("50.0%   98.7%", out)
+        self.assertIn("without_skill  first                  2     0          0              0             2", out)
+        self.assertIn("n/a     n/a", out)
+        self.assertIn("-150.0", out)
+        self.assertIn("raw 46671, weighted 36789", out)
+        self.assertIn(f"{rule}: full 0/2, withheld 1/2, without_skill 2/2; erosion +50.0 points", out)
+        self.assertIn("thresholds row: single rule (break-even uplift about 1.5 to 3 points)", out)
+        self.assertIn("detection limit at 2 checkable run(s) per arm: none", out)
+        self.assertIn("cannot support withholding the section", out)
+        self.assertIn("model spend reported by the sessions: 6 of 6 runs, total $1.50", out)
+        self.assertIn("/shirabe:work-on 1", out)
+
+    def test_empty_pool(self):
+        self.assertIn("no audit rules sampled", self.summary([rec("full", 1, "complied")]))
+
+    def test_shapes_are_never_pooled(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        path = os.path.join(d, "records.jsonl")
+        with open(path, "w") as fh:
+            for r in (rec("full", 1, "complied"), rec("full", 2, "complied", shape="koto-payload")):
+                fh.write(json.dumps(r) + "\n")
+        with self.assertRaisesRegex(ablation.Refusal, "delivery shape"):
+            ablation.summarize_file(path)
+
+    def test_check_figures(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        case_dir = os.path.join(d, "work-on-introspection-evidence")
+        os.makedirs(case_dir)
+        path = os.path.join(case_dir, "records.jsonl")
+        with open(path, "w") as fh:
+            for r in (rec("full", 1, "complied"), rec("withheld", 1, "violated", "complied", delivered=True)):
+                fh.write(json.dumps(r) + "\n")
+        with open(os.path.join(case_dir, "summary.txt"), "w") as fh:
+            fh.write(ablation.summarize_file(path))
+        self.assertEqual(ablation.check_figures(d), 0)
+        text = read_text(os.path.join(case_dir, "summary.txt")).replace("runs: 2", "runs: 3", 1)
+        self.assertIn("runs: 3", text)
+        with open(os.path.join(case_dir, "summary.txt"), "w") as fh:
+            fh.write(text)
+        self.assertEqual(ablation.check_figures(d), 1)
+        self.assertEqual(ablation.check_figures(os.path.join(d, "empty")), 1)
 
 
 if __name__ == "__main__":
