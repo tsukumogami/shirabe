@@ -28,10 +28,12 @@ import time
 
 argv = sys.argv[1:]
 run_dir = os.environ["ABLATION_RUN_DIR"]
-with open(os.path.join(run_dir, "stub-dump.json"), "w") as fh:
-    json.dump({"argv": argv, "env": sorted(os.environ)}, fh)
-
 plugin = argv[argv.index("--plugin-dir") + 1] if "--plugin-dir" in argv else None
+parts = sorted(os.listdir(plugin)) if plugin else []
+harness_copied = bool(plugin) and os.path.exists(os.path.join(plugin, "scripts", "ablation"))
+with open(os.path.join(run_dir, "stub-dump.json"), "w") as fh:
+    json.dump({"argv": argv, "env": sorted(os.environ), "plugin_parts": parts,
+               "harness_copied": harness_copied}, fh)
 with open(os.environ["ABLATION_STUB_SCRIPT"]) as fh:
     steps = json.load(fh)
 

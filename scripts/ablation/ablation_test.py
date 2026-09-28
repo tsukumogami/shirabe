@@ -156,6 +156,8 @@ class Spans(unittest.TestCase):
         self.assertEqual(span, b"## Part\nbody\n```\n## inside fence\n```\nmore\n")
         with self.assertRaisesRegex(ablation.Refusal, "heading not found"):
             ablation.span_from_bytes("x.md#Not a heading", content)
+        with self.assertRaisesRegex(ablation.Refusal, "appears 2 times"):
+            ablation.span_from_bytes("x.md#Part", content + b"## Part\nagain\n")
 
     def test_refusals_name_the_key_and_reason(self):
         tree = tempfile.mkdtemp()
@@ -317,21 +319,10 @@ class Runs(unittest.TestCase):
         self.keep = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.keep)
         self.script = os.path.join(self.keep, "script.json")
-        home = os.environ.get("HOME", "")
-        self.real_koto_home = os.path.join(home, ".koto")
-        self.koto_home_before = self.listing(self.real_koto_home)
-
-    @staticmethod
-    def listing(path):
-        out = []
-        for dirpath, dirnames, filenames in os.walk(path):
-            for name in filenames:
-                full = os.path.join(dirpath, name)
-                try:
-                    out.append((full, os.stat(full).st_mtime_ns))
-                except OSError:
-                    pass
-        return sorted(out)
+        # A HOME of the test's own, so "koto never writes under the user's
+        # home" is checked on a directory nothing else on the host touches.
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home)
 
     def run_case(self, steps, arms=("full",), case=None, **env):
         with open(self.script, "w") as fh:
@@ -339,11 +330,16 @@ class Runs(unittest.TestCase):
         case = case or ablation.validate_case(load_case())
         span = ablation.resolve_span(case["withhold"]["source"], case["withhold"]["source_commit"])
         real = os.path.realpath(shutil.which("koto"))
-        with Env(ABLATION_TEST="1", ABLATION_AGENT_CMD=STUB, ABLATION_STUB_SCRIPT=self.script, **env):
+        baseline = ablation.harness_snapshot()
+        with Env(ABLATION_TEST="1", ABLATION_AGENT_CMD=STUB, ABLATION_STUB_SCRIPT=self.script,
+                 HOME=self.home, **env):
             for i, arm in enumerate(arms):
-                ablation.run_one(case, arm, 1, i + 1, span, real, self.keep)
-        self.assertEqual(self.listing(self.real_koto_home), self.koto_home_before,
-                         "a run touched the real home's koto directory")
+                ablation.run_one(case, arm, 1, i + 1, span, real, self.keep, baseline)
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".koto")),
+                         "a run wrote koto state under the user's home")
+        status = subprocess.run(["git", "status", "--porcelain", "--", "skills", "references"],
+                                cwd=ablation.REPO_ROOT, capture_output=True, text=True).stdout
+        self.assertEqual(status, "", "a run changed files under skills/ or references/")
 
     def out(self, arm, name):
         path = os.path.join(self.keep, f"r1-{arm}", name)
@@ -446,8 +442,8 @@ class Runs(unittest.TestCase):
     def test_arms_get_their_own_copy_and_the_allowlisted_env(self):
         with Env(GH_TOKEN="planted", SSH_AUTH_SOCK="/planted"):
             self.run_case([], arms=("full", "withheld", "without_skill"))
-        _, span = ablation.resolve_span(KEY, PIN)
         prompts = {}
+        plugins = set()
         for arm in ("full", "withheld", "without_skill"):
             dump = self.out(arm, "stub-dump.json")
             argv = dump["argv"]
@@ -459,6 +455,14 @@ class Runs(unittest.TestCase):
             prompts[arm] = argv[-1]
             if arm == "without_skill":
                 self.assertNotIn("--plugin-dir", argv)
+            else:
+                plugin = argv[argv.index("--plugin-dir") + 1]
+                self.assertIn(os.path.basename(os.path.dirname(plugin))[:len(ablation.SCRATCH_PREFIX)],
+                              ablation.SCRATCH_PREFIX)
+                plugins.add(plugin)
+                self.assertEqual(dump["plugin_parts"], sorted(ablation.PLUGIN_PARTS))
+                self.assertFalse(dump["harness_copied"], "scripts/ablation/ must stay out of the copy")
+        self.assertEqual(len(plugins), 2, "full and withheld must each load their own copy")
         self.assertEqual(prompts["full"], prompts["withheld"])
         self.assertNotEqual(prompts["full"], prompts["without_skill"])
 
@@ -474,20 +478,43 @@ class Runs(unittest.TestCase):
         self.assertNotIn(span.decode(), read["withheld"])
         self.assertEqual(read["full"].replace(span.decode(), ""), read["withheld"])
 
-    def test_tampering_is_detected_and_run_root_removed(self):
+    def test_tampering_taints_the_run_and_every_later_one(self):
         marker = os.path.join(HERE, "testdata", "tamper-marker")
         self.addCleanup(lambda: os.path.exists(marker) and os.remove(marker))
-        roots_before = set(os.listdir(tempfile.gettempdir()))
-        self.run_case([{"touch": marker}])
+        self.run_case([{"touch": marker}], arms=("full", "withheld"))
         self.assertTrue(self.out("full", "raw.json")["tampered"])
-        leftover = {n for n in os.listdir(tempfile.gettempdir()) if n.startswith("shirabe-ablation.")} - roots_before
-        self.assertEqual(leftover, set())
+        self.assertTrue(self.out("withheld", "raw.json")["tampered"])
 
-    def test_wall_clock_limit_kills_the_session(self):
+    def roots(self):
+        return {n for n in os.listdir(tempfile.gettempdir()) if n.startswith(ablation.SCRATCH_PREFIX)}
+
+    def test_wall_clock_limit_kills_the_session_and_removes_the_root(self):
         case = load_case()
         case["limits"]["session_seconds"] = 2
+        before = self.roots()
         self.run_case([{"sleep": 30}], case=ablation.validate_case(case))
         self.assertTrue(self.out("full", "raw.json")["agent"]["killed"])
+        self.assertEqual(self.roots() - before, set())
+
+    def test_only_the_target_state_is_graded(self):
+        self.run_case([
+            self.next_with({"introspection_outcome": "approach_unchanged"}),
+            {"context": [WF, "introspection.md", "findings"]},
+            self.next_with({"introspection_outcome": "approach_unchanged"}),
+            self.next_with({"plan_outcome": "blocked_missing_context"}),
+        ])
+        prods = self.out("full", "productions.jsonl")
+        calls = self.out("full", "koto-calls.jsonl")
+        self.assertEqual([c["state"] for c in calls if c["argv"][0] == "next"],
+                         ["introspection", "introspection", "analysis"])
+        self.assertEqual([(p["point"], p.get("graded")) for p in prods], [("first", True), (None, False)])
+
+    def test_options_before_the_workflow_name_are_still_graded(self):
+        self.run_case([{"koto": ["next", "--no-cleanup", "--with-data",
+                                 ev({"introspection_outcome": "approach_updated"}), WF]}])
+        prods = self.out("full", "productions.jsonl")
+        self.assertEqual((prods[0]["point"], prods[0]["outcome"], prods[0]["delivered"]),
+                         ("first", "violated", True))
 
     def test_agent_cmd_needs_test_mode(self):
         case = ablation.validate_case(load_case())

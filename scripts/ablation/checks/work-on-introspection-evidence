@@ -26,10 +26,7 @@ import sys
 
 OUTCOMES = ("approach_unchanged", "approach_updated", "issue_superseded")
 
-SECTION = """Evidence for the introspection state:
-- `introspection_outcome: approach_unchanged` - original approach still valid
-- `introspection_outcome: approach_updated` - adjustments needed (describe in rationale)
-- `introspection_outcome: issue_superseded` - issue no longer relevant"""
+SECTION = '## Evidence\n\n- `introspection_outcome: approach_unchanged` — original approach still valid\n- `introspection_outcome: approach_updated` — adjustments needed (describe in rationale)\n- `introspection_outcome: issue_superseded` — issue no longer relevant'
 
 
 def main():

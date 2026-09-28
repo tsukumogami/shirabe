@@ -285,7 +285,8 @@ def span_from_bytes(key, content, where="the file"):
         return b"".join(lines[start - 1:end])
     want = m.group("heading").encode()
     fenced = False
-    begin = level = None
+    begin = level = end = None
+    matches = 0
     for i, line in enumerate(lines):
         if line.lstrip().startswith(b"```"):
             fenced = not fenced
@@ -295,14 +296,20 @@ def span_from_bytes(key, content, where="the file"):
         h = HEADING_RE.match(line.rstrip(b"\r\n"))
         if not h:
             continue
-        if begin is None:
-            if h.group(2) == want:
+        if h.group(2) == want and begin is not None and end is None:
+            end = i
+        if h.group(2) == want:
+            matches += 1
+            if begin is None:
                 begin, level = i, len(h.group(1))
-        elif len(h.group(1)) <= level:
-            return b"".join(lines[begin:i])
+            continue
+        if begin is not None and end is None and len(h.group(1)) <= level:
+            end = i
     if begin is None:
         raise Refusal(f"{key}: heading not found at {commit}")
-    return b"".join(lines[begin:])
+    if matches > 1:
+        raise Refusal(f"{key}: heading appears {matches} times at {commit}")
+    return b"".join(lines[begin:end])
 
 
 def locate_once(key, content, span):
@@ -352,8 +359,12 @@ def sampled(case_id, repetition, rule, rate):
 
 
 def harness_snapshot():
+    """The checkout's HEAD and status and every harness file, hashed. Taken once
+    before a case runs, so a run that changes any of them taints every run
+    after it too."""
+    head = git(["rev-parse", "HEAD"], check=False).stdout
     status = git(["status", "--porcelain"], check=False).stdout
-    h = hashlib.sha256(status)
+    h = hashlib.sha256(head + status)
     for dirpath, dirnames, filenames in sorted(os.walk(ABL_DIR)):
         dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
         for name in sorted(filenames):
@@ -365,7 +376,14 @@ def harness_snapshot():
 
 
 def copy_plugin(dest):
-    ignore = shutil.ignore_patterns("workspace", "__pycache__", ".git")
+    """Copy the plugin tree. scripts/ablation/ stays out: it holds the deployed
+    checks, which quote the withheld section, and the arm must not find it."""
+    def ignore(directory, names):
+        skip = {n for n in names if n in ("workspace", "__pycache__", ".git")}
+        if os.path.realpath(directory) == os.path.join(REPO_ROOT, "scripts"):
+            skip.add("ablation")
+        return skip
+
     os.makedirs(dest)
     for part in PLUGIN_PARTS:
         src = os.path.join(REPO_ROOT, part)
@@ -404,6 +422,7 @@ def base_env(root, bin_dir):
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": "/bin/false",
+        "GIT_CONFIG_NOSYSTEM": "1",
     }
     env.update(FIXTURE_IDENTITY)
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -472,11 +491,15 @@ def run_agent(argv, env, cwd, seconds, transcript_path):
         proc.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
         killed = True
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
-        proc.wait()
+    finally:
+        # A timeout, or an interrupt of the harness itself: never leave the
+        # session running once its run root is about to go.
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            proc.wait()
     th.join(timeout=10)
     proc.stdout.close()
     with open(transcript_path, "w") as fh:
@@ -485,7 +508,7 @@ def run_agent(argv, env, cwd, seconds, transcript_path):
     return {"exit": proc.returncode, "killed": killed}
 
 
-def run_one(case, arm, repetition, arm_order, span, real_koto, keep_dir=None):
+def run_one(case, arm, repetition, arm_order, span, real_koto, keep_dir=None, baseline=None):
     """Run one arm of one repetition. Returns the run's raw outputs as a dict."""
     tmp_base = os.environ.get("ABLATION_TMPDIR") or tempfile.gettempdir()
     root = tempfile.mkdtemp(prefix=SCRATCH_PREFIX, dir=tmp_base)
@@ -533,7 +556,7 @@ def run_one(case, arm, repetition, arm_order, span, real_koto, keep_dir=None):
         if state != case["target_state"]:
             raise Refusal(f"{case['id']}: setup reached {state!r}, not {case['target_state']!r}")
 
-        before = harness_snapshot()
+        before = baseline or harness_snapshot()
         agent_env = dict(env)
         agent_env.update({
             "ABLATION_REAL_KOTO": real_koto,
@@ -590,10 +613,12 @@ def run_case(case, runs, jobs, out_path, keep_dir=None):
         die("koto not found", 3)
     real_koto = os.path.realpath(real_koto)
     span = resolve_span(case["withhold"]["source"], case["withhold"]["source_commit"])
+    baseline = harness_snapshot()
 
     def repetition(r):
         order = list(ARMS[(r - 1) % 3:] + ARMS[:(r - 1) % 3])
-        return [run_one(case, arm, r, i + 1, span, real_koto, keep_dir) for i, arm in enumerate(order)]
+        return [run_one(case, arm, r, i + 1, span, real_koto, keep_dir, baseline)
+                for i, arm in enumerate(order)]
 
     records = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
@@ -619,19 +644,38 @@ def smoke(case, real_koto):
     keep = tempfile.mkdtemp(prefix="ablation-smoke-")
     try:
         run_one(probe, "full", 0, 1, span, real_koto, keep)
-        text = ""
+        with open(os.path.join(keep, "r0-full", "raw.json")) as fh:
+            wrapper = os.path.join(json.load(fh)["root"], "bin", "koto")
+        outputs = []
         with open(os.path.join(keep, "r0-full", "transcript.jsonl")) as fh:
             for entry in fh:
-                text += json.loads(entry)["line"]
-        hits = text.count("/bin/koto")
-        return hits >= 3, hits
+                try:
+                    ev = json.loads(json.loads(entry)["line"])
+                except (ValueError, KeyError):
+                    continue
+                content = (ev.get("message") or {}).get("content") if ev.get("type") == "user" else None
+                for block in content if isinstance(content, list) else []:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        c = block.get("content")
+                        outputs.append(c if isinstance(c, str) else json.dumps(c))
+        found = re.findall(r"(/[^\s'\"]*/koto)\b", "\n".join(outputs))
+        hits = sum(1 for p in found if p == wrapper)
+        others = sorted({p for p in found if p != wrapper and not p.endswith("/bin/koto-intercept")})
+        return hits >= 2 and not others, hits, others
     finally:
         shutil.rmtree(keep, ignore_errors=True)
 
 
 # -- CLI ------------------------------------------------------------------------
 
+def on_term(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
+    # SIGTERM unwinds like Ctrl-C, so every run root is removed and every
+    # session killed on the way out.
+    signal.signal(signal.SIGTERM, on_term)
     ap = argparse.ArgumentParser(prog="ablation")
     sub = ap.add_subparsers(dest="cmd", required=True)
     v = sub.add_parser("validate-case")
@@ -680,8 +724,9 @@ def main(argv=None):
             real_koto = shutil.which("koto")
             if not real_koto:
                 die("koto not found", 3)
-            ok, hits = smoke(case, os.path.realpath(real_koto))
-            print(f"smoke: {'ok' if ok else 'FAILED'}: the wrapper was named {hits} time(s), at least 3 expected")
+            ok, hits, others = smoke(case, os.path.realpath(real_koto))
+            print(f"smoke: {'ok' if ok else 'FAILED'}: the run's wrapper was named {hits} time(s) "
+                  f"(at least 2 expected); other koto paths seen: {len(others)}")
             return 0 if ok else 2
         elif args.cmd == "summarize":
             print(summarize_file(args.records), end="")

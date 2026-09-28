@@ -38,6 +38,9 @@ import sys
 import time
 
 REASON_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+# `koto next` options that take a value; everything else starting with -- is a switch.
+VALUE_FLAGS = {"--with-data", "--to", "--rationale", "--redelegation-cap", "--dispatch-epoch",
+               "--koto-leg"}
 
 
 def die(msg):
@@ -75,6 +78,22 @@ def exec_real(argv):
 def append(path, obj):
     with open(path, "a") as fh:
         fh.write(json.dumps(obj, sort_keys=True) + "\n")
+
+
+def workflow_of(argv):
+    """The first positional argument after `next`, skipping options and their values."""
+    skip = False
+    for arg in argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if arg in VALUE_FLAGS:
+            skip = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return None
 
 
 def evidence_of(argv):
@@ -131,12 +150,12 @@ def main():
     run_dir = env("ABLATION_RUN_DIR")
     calls = os.path.join(run_dir, "koto-calls.jsonl")
     t = time.monotonic_ns()
-    if len(argv) < 2 or argv[0] != "next":
+    wf = workflow_of(argv) if argv[:1] == ["next"] else None
+    if wf is None:
         append(calls, {"t": t, "argv": argv})
         exec_real(argv)
     # For `koto next`, the state the session is in when the call arrives: the
     # record attributes the tokens spent before a tick to that state.
-    wf = argv[1]
     state = current_state(wf)
     append(calls, {"t": t, "argv": argv, "state": state})
     evidence = evidence_of(argv)
@@ -159,7 +178,7 @@ def main():
     elif delivered and not graded_second:
         point = "second"
 
-    record = {"t": time.monotonic_ns(), "index": len(history) + 1, "point": point,
+    record = {"t": time.monotonic_ns(), "call_t": t, "index": len(history) + 1, "point": point,
               "delivered": False}
     if point is None:
         record.update({"graded": False})
