@@ -433,6 +433,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/reconcile-check_test.sh"
             echo "skills/coordinate/scripts/reconcile-read_test.sh"
             echo "skills/coordinate/scripts/reconcile-pass_test.sh"
+            echo "skills/coordinate/scripts/reconcile-settle_test.sh"
             ;;
         *)
             return 1

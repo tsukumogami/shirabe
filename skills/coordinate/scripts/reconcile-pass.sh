@@ -25,6 +25,14 @@
 # predecessor left reasoning). progress and refusal are cleared at the start
 # of every pass; a new visit removes the rest.
 #
+# The pass writes the record in one case only: a holding left `dispatching`
+# whose worker the listing finds (and whose leg, when it has one, is bound or
+# resolved) is rewritten `dispatched` by reconcile-settle.sh, launched like a
+# re-check once those facts are in, and reported under "Changed since then".
+# A deferral's carry is judged against the chain start (coord-log.sh
+# chain-start), so a restart doesn't re-decide what the run it replaced
+# carried.
+#
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output
 # named; otherwise (edited, or left by a killed pass) the visit's reads start
@@ -195,6 +203,8 @@ if [ -z "$WJ" ]; then
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
+    # A deferral carried by a run this one restarted counts as disposed.
+    CHAIN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" chain-start --session "$SESSION") || die "the run's chain start can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -202,8 +212,8 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, plugin_root: $place, facts: {}, done: false}') \
+    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg cs "$CHAIN_START" --argjson place "$PLACE" \
+        '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
         || die "the record could not be stored"
     save "$NEW"
 fi
@@ -212,7 +222,7 @@ fi
 # {id, sub, args, natural, due}. natural is the read's own deadline; a read
 # with due later than NOW waits.
 plan() {
-    wj -c --argjson now "$1" --arg w "$R" '
+    wj -c --argjson now "$1" --arg w "$R" --arg session "$SESSION" '
         . as $work | .facts as $f | .record as $rec
         | def okf($id): (($f[$id].status // "") == "ok");
           def prnum: [(. // "") | capture("^\\[#(?<n>[0-9]+)\\]") | .n][0];
@@ -239,7 +249,14 @@ plan() {
                        {id: "\($p).host2", sub: "host", args: ["--topic", $h.worker], natural: 8, due: ($f["\($p).host1"].t + 30)}
                      else empty end),
                     ([$f["\($p).host1"], $f["\($p).host2"]] | map(select(. != null and .status == "ok" and .state == "found")) | .[0]) as $found
-                    | (if $found != null then {id: "\($p).inv", sub: "inventory", args: ["--path", $found.path], natural: 20} else empty end)
+                    | (if $found != null then {id: "\($p).inv", sub: "inventory", args: ["--path", $found.path], natural: 20} else empty end),
+                      # A row left dispatching with its worker live (and its
+                      # leg, when it has one, bound or resolved) is settled.
+                      (if $found != null and ($h.dispatch_status // "") == "dispatching"
+                          and ((($h.return_path // "") | startswith("leg ") | not)
+                               or (okf("\($p).leg") and ($f["\($p).leg"].disposition | IN("bound", "resolved")))) then
+                         {id: "\($p).settle", sub: "settle", args: ["--session", $session, "--topic", $h.worker, "--return-path", ($h.return_path // "")], natural: 20}
+                       else empty end)
                   else empty end)
                end),
               (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end)),
@@ -257,7 +274,7 @@ plan() {
                  (if ($f[$p].verdict // "") == "confirmed" then {id: "\($p).2", sub: "teardown", args: ["--topic", ($s.target // "")], natural: 8, due: ($f[$p].t + 30)} else empty end)
                else empty end)),
           ($rec.deferrals | to_entries[] | "d\(.key)" as $p
-            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start], natural: 8})
+            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start, "--chain-start", ($work.chain_start // $work.run_start)], natural: 8})
         ]
         | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
@@ -326,8 +343,14 @@ launch() {
         exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
-        RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
-            "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        # The settle is the pass's one write, in a script of its own; every
+        # other read is a re-check.
+        if [ "$sub" = settle ]; then
+            RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-settle.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        else
+            RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
+                "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        fi
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
@@ -393,7 +416,7 @@ jq -c --arg at "$(iso)" '
           elif $f["\($p).host1"] != null then ($f["\($p).host1"] | strip) else null end) as $host
        | {source: .value.source, row: .value.row, refused: null,
           facts: ([get("\($p).pr"), get("\($p).board.v"), get("\($p).board.l"), get("\($p).branch"),
-                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg")]
+                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle")]
                   + (if $host == null then [] else [$host | del(.path)] end)
                   + (if $f["\($p).inv"] != null then [get("\($p).inv")]
                      elif $host != null and $host.status == "ok" and $host.state == "missed" then

@@ -25,7 +25,7 @@
 #   reconcile-check.sh files    --repo R --number N
 #   reconcile-check.sh merge    --repo R --number N --verified-head S
 #   reconcile-check.sh close    --repo R --kind issue|pr --number N
-#   reconcile-check.sh deferral --repo R --row-file F --run-start T
+#   reconcile-check.sh deferral --repo R --row-file F --run-start T [--chain-start T]
 #   reconcile-check.sh host      --topic T
 #   reconcile-check.sh teardown  --topic T
 #   reconcile-check.sh leg       --return-path "leg <request>:<leg>"
@@ -71,7 +71,7 @@ usage() {
 [ $# -ge 1 ] || usage
 SUB=$1
 shift
-REPO="" NUMBER="" SHA="" BASE="" BRANCH="" KIND="" VHEAD="" ROWFILE="" RUNSTART=""
+REPO="" NUMBER="" SHA="" BASE="" BRANCH="" KIND="" VHEAD="" ROWFILE="" RUNSTART="" CHAINSTART=""
 TOPIC="" RETURN_PATH="" IPATH=""
 while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
@@ -85,6 +85,7 @@ while [ $# -gt 0 ]; do
         --verified-head) VHEAD=$2 ;;
         --row-file) ROWFILE=$2 ;;
         --run-start) RUNSTART=$2 ;;
+        --chain-start) CHAINSTART=$2 ;;
         --topic) TOPIC=$2 ;;
         --return-path) RETURN_PATH=$2 ;;
         --path) IPATH=$2 ;;
@@ -613,8 +614,12 @@ close)
 deferral)
     need_repo
     [ -f "$ROWFILE" ] || usage
-    [[ $RUNSTART =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || usage
-    RAW=$(rd_deadline "$DEADLINE" "$RD_DEFERRAL_CHECK" --row-file "$ROWFILE" --run-start "$RUNSTART" 2>/dev/null)
+    # koto's created_at carries milliseconds; both forms are a time.
+    RE_START='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$'
+    [[ $RUNSTART =~ $RE_START ]] || usage
+    CHAIN=()
+    if [ -n "$CHAINSTART" ]; then [[ $CHAINSTART =~ $RE_START ]] || usage; CHAIN=(--chain-start "$CHAINSTART"); fi
+    RAW=$(rd_deadline "$DEADLINE" "$RD_DEFERRAL_CHECK" --row-file "$ROWFILE" --run-start "$RUNSTART" ${CHAIN[@]+"${CHAIN[@]}"} 2>/dev/null)
     rc=$?
     [ "$rc" -eq 124 ] && refuse deferral "disposal check timed out after ${DEADLINE}s"
     # The check prints one line; anything else is an answer this script

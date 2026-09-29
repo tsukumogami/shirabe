@@ -61,6 +61,11 @@
 #                  open leg with a child attached), result: a short
 #                  token -- a result map's outcome, or the engine's own
 #                  terminal status and final state, or "refused:<reason>"
+#       settle     settled (bool), reason: the pass's one write, a row left
+#                  `dispatching` whose worker was found live (and its leg,
+#                  if any, bound or resolved) rewritten `dispatched`
+#                  (reconcile-settle.sh); a settled row is reported under
+#                  changes, a failed settle under not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
@@ -243,8 +248,11 @@ def next_text:
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
-  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap
+  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
   | [
+      (if ok($st) and $st.settled == true then
+        {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
+       else empty end),
       (if ok($pr) and $pr.state != "OPEN" then
         {topic: $t, what: "pull request", recorded: "open", live: ($pr.state | ascii_downcase), written: $written, grade: "measured"}
        else empty end),
@@ -421,6 +429,7 @@ def code: "`" + . + "`";
 section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
+       elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)

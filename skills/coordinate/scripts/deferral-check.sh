@@ -9,7 +9,9 @@
 #                         this scope, or the run has no found record
 #   deferral-open <count> <count> deferrals are open: a row raised before the
 #                         run start (coord-log.sh run-start) that isn't
-#                         disposed (row mode below), a `filed #<n>` naming no
+#                         disposed (row mode below, with the chain start from
+#                         coord-log.sh chain-start, so a carry made by a run
+#                         this one restarted still counts), a `filed #<n>` naming no
 #                         issue in the host repository, and, at discipline
 #                         scope until a DISPATCH_CHECK capture in this run read
 #                         `ok`, a deferral of the handoff file
@@ -45,17 +47,25 @@
 # raised, disposition) against a run start, and prints one of:
 #   disposed filed <n> | disposed closed | disposed carried <time>
 #   undisposed empty | undisposed malformed | undisposed carried-before-run-start
+#   undisposed decide-by-passed   (a carry whose `until` time has passed)
 #   undisposed raised-this-run    (undisposed, but raised at or after the run
 #                                 start, so not a predecessor's; exit 0)
-# A carry time counts when it is at or after the run start, compared to the
-# minute (the Disposition's resolution). Row mode reads nothing from GitHub, so
-# it can't tell whether a filed issue exists; check mode does.
+# A carry is `carried <time>: <reason>` or, with a decide-by,
+# `carried <time> until <time>: <reason>`. Its time counts when it is at or
+# after the chain start (--chain-start, default the run start): the start of
+# the earliest run in the unbroken chain of restarts that led to this one, so
+# a restart doesn't re-decide what the run it replaced carried, while a
+# successor still does. A carry whose until time is before now is open again,
+# chain or not. Times compare to the minute (the Disposition's resolution).
+# Row mode reads nothing from GitHub, so it can't tell whether a filed issue
+# exists; check mode does.
 #
 # Usage:
 #   deferral-check.sh --session S
 #   deferral-check.sh --session S --scope roadmap|discipline --name N --repo O/R
 #                     --ref N [--no-seal]                            (tests)
 #   deferral-check.sh --row-file F --run-start YYYY-MM-DDTHH:MM[:SS[.fff]]Z
+#                     [--chain-start YYYY-MM-DDTHH:MM[:SS[.fff]]Z]
 #
 # Exit codes, check mode: 0 a verdict was printed; 2 a read failed; 64 usage.
 # Row mode: 0 disposed or raised-this-run; 1 undisposed; 64 usage.
@@ -69,7 +79,7 @@ set -uo pipefail
 
 PROG=deferral-check
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= ROWFILE= RUNSTART=
+SESSION= SCOPE= NAME= REPO= REF= ROWFILE= RUNSTART= CHAINSTART=
 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes,/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -82,6 +92,7 @@ while [ $# -gt 0 ]; do
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --row-file) [ $# -ge 2 ] || usage; ROWFILE=$2; shift 2 ;;
         --run-start) [ $# -ge 2 ] || usage; RUNSTART=$2; shift 2 ;;
+        --chain-start) [ $# -ge 2 ] || usage; CHAINSTART=$2; shift 2 ;;
         --no-seal) NO_SEAL=1; shift ;;
         *) usage ;;
     esac
@@ -91,20 +102,23 @@ done
 # minute <time>: YYYY-MM-DDTHH:MM of a valid time, else empty.
 minute() { lib_epoch "$1" > /dev/null 2>&1 && printf '%s' "${1:0:16}"; }
 
-# judge_row <row-json> <run-start-minute>: sets ROW_VERDICT; returns 0 when
+# judge_row <row-json> <chain-start-minute>: sets ROW_VERDICT; returns 0 when
 # disposed, 1 when not. The raised-this-run exemption is the caller's.
 judge_row() {
-    local d re_filed='^filed #([1-9][0-9]*)$' re_carried='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z): (.+)$' t
+    local d re_filed='^filed #([1-9][0-9]*)$' t u why
+    local re_carried='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
     d=$(printf '%s' "$1" | jq -r '.disposition // "" | tostring')
     ROW_FILED=
     if [ -z "$d" ]; then ROW_VERDICT="undisposed empty"; return 1; fi
     if [[ $d =~ $re_filed ]]; then ROW_FILED=${BASH_REMATCH[1]}; ROW_VERDICT="disposed filed $ROW_FILED"; return 0; fi
     case "$d" in "closed: "?*) ROW_VERDICT="disposed closed"; return 0 ;; esac
     if [[ $d =~ $re_carried ]]; then
-        t=${BASH_REMATCH[1]}
+        t=${BASH_REMATCH[1]} u=${BASH_REMATCH[3]} why=${BASH_REMATCH[4]}
         [ -n "$(minute "$t")" ] || { ROW_VERDICT="undisposed malformed"; return 1; }
-        case "${BASH_REMATCH[2]}" in *[![:space:]]*) ;; *) ROW_VERDICT="undisposed malformed"; return 1 ;; esac
+        [ -z "$u" ] || [ -n "$(minute "$u")" ] || { ROW_VERDICT="undisposed malformed"; return 1; }
+        case "$why" in *[![:space:]]*) ;; *) ROW_VERDICT="undisposed malformed"; return 1 ;; esac
         if [ "$(minute "$t")" \< "$2" ]; then ROW_VERDICT="undisposed carried-before-run-start"; return 1; fi
+        if [ -n "$u" ] && [ "$(minute "$u")" \< "$(date -u +%Y-%m-%dT%H:%M)" ]; then ROW_VERDICT="undisposed decide-by-passed"; return 1; fi
         ROW_VERDICT="disposed carried $t"; return 0
     fi
     ROW_VERDICT="undisposed malformed"
@@ -121,13 +135,15 @@ raised_this_run() {
 }
 
 # ---- row mode ----------------------------------------------------------------
-if [ -n "$ROWFILE$RUNSTART" ]; then
+if [ -n "$ROWFILE$RUNSTART$CHAINSTART" ]; then
     [ -n "$ROWFILE" ] && [ -n "$RUNSTART" ] && [ -z "$SESSION$SCOPE$NAME$REPO$REF" ] && [ "$NO_SEAL" = 0 ] || usage
     [ -r "$ROWFILE" ] || usage
     RS=$(minute "$RUNSTART"); [ -n "$RS" ] || usage
+    CS=$RS
+    if [ -n "$CHAINSTART" ]; then CS=$(minute "$CHAINSTART"); [ -n "$CS" ] || usage; fi
     ROW=$(jq -c 'select(type == "object")' "$ROWFILE")
     [ -n "$ROW" ] || { echo "undisposed malformed"; exit 1; }
-    if judge_row "$ROW" "$RS"; then echo "$ROW_VERDICT"; exit 0; fi
+    if judge_row "$ROW" "$CS"; then echo "$ROW_VERDICT"; exit 0; fi
     if raised_this_run "$ROW" "$RS"; then echo "undisposed raised-this-run"; exit 0; fi
     echo "$ROW_VERDICT"
     exit 1
@@ -228,6 +244,8 @@ esac
 # Deferrals raised before the run start.
 START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
 RS=$(minute "$START"); [ -n "$RS" ] || lib_die2 "the run start $START is not a time"
+CHAIN=$(bash "$HERE/coord-log.sh" chain-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the chain start"
+CS=$(minute "$CHAIN"); [ -n "$CS" ] || lib_die2 "the chain start $CHAIN is not a time"
 : > "$T/open.jsonl"
 open_row() { # open_row <deferral-text> <why>
     jq -nc --arg d "$1" --arg w "$2" '{deferral: ($d | .[0:200]), why: $w}' >> "$T/open.jsonl"
@@ -238,7 +256,7 @@ while [ "$i" -lt "$N" ]; do
     ROW=$(jq -c --argjson i "$i" '.deferrals[$i]' "$T/parsed.json")
     TEXT=$(printf '%s' "$ROW" | jq -r .deferral)
     i=$((i + 1))
-    if judge_row "$ROW" "$RS"; then
+    if judge_row "$ROW" "$CS"; then
         if [ -n "$ROW_FILED" ]; then
             if gh api --method GET "repos/$REPO/issues/$ROW_FILED" > "$T/filed.json" 2> "$T/filed.err" < /dev/null; then
                 jq -e 'has("pull_request") | not' "$T/filed.json" > /dev/null || open_row "$TEXT" "filed #$ROW_FILED is a pull request, not an issue"
@@ -280,7 +298,7 @@ if [ "$SCOPE" = discipline ]; then
                         MINE=$(jq -c --arg d "$TEXT" '[.deferrals[] | select(.deferral == $d)][0] // empty' "$T/parsed.json")
                         if [ -z "$MINE" ]; then open_row "$TEXT" "in the previous rotation's handoff, missing from the record"; continue; fi
                         # The record's copy needs a disposition however recently it was raised.
-                        judge_row "$MINE" "$RS" || open_row "$TEXT" "the previous rotation's deferral is ${ROW_VERDICT#undisposed }"
+                        judge_row "$MINE" "$CS" || open_row "$TEXT" "the previous rotation's deferral is ${ROW_VERDICT#undisposed }"
                     done
                 else
                     open_row "docs/disciplines/$NAME.md" "the handoff file on $DEFAULT_BRANCH does not parse"
