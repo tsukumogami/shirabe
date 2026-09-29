@@ -49,6 +49,8 @@ COORD_SELF_DIR=$(cd "$RD_HERE/../../execute/scripts" && pwd)
 
 RD_BOARD_CHECK=$RD_HERE/board-verdict.sh
 RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh
+# The one read of a repository's live refs, shared with teardown-inventory.sh.
+RD_GITHUB_REFS=$RD_HERE/github-refs.sh
 # The record's reader: record-parse.sh (the one codec, also for the discipline
 # handoff) and coord-log.sh (the run's facts: scope, name, host, record).
 RD_RECORD_PARSE=$RD_HERE/record-parse.sh
@@ -141,10 +143,10 @@ rd_slug() {
 # the clone's config names and without taking its index lock: no fsmonitor,
 # no hooks, no transport. GIT_ALLOW_PROTOCOL holds where `-c protocol.allow`
 # alone doesn't, since a clone's own `protocol.<name>.allow` can widen that,
-# and GIT_NO_LAZY_FETCH stops a partial clone fetching a missing object. A
-# caller that needs https (ls-remote) sets RD_GIT_PROTOCOL=https and re-allows it.
+# and GIT_NO_LAZY_FETCH stops a partial clone fetching a missing object. The
+# remote's refs are read by github-refs.sh (RD_GITHUB_REFS), never through here.
 rd_git() {
-    GIT_ALLOW_PROTOCOL=${RD_GIT_PROTOCOL:-none} GIT_NO_LAZY_FETCH=1 \
+    GIT_ALLOW_PROTOCOL=none GIT_NO_LAZY_FETCH=1 \
         git --no-optional-locks -c core.fsmonitor= -c core.hooksPath=/dev/null \
         -c protocol.allow=never "$@"
 }
