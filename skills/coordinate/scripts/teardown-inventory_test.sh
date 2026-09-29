@@ -325,7 +325,13 @@ eq  "private: exit 0, read through the gh login" 0 "$RC"
 has "private: a clean private clone is durable" "$OUT11" "durable private"
 OUT12=$(GH_AUTH_FAIL=1 PATH="$PRIVBIN:$PATH" bash "$S" --topic plugin-api --instance "$I11" 2>&1); RC=$?
 eq  "private, gh can't read it: exit 2" 2 "$RC"
-has "private, gh can't read it: an error saying the read failed and why" "$OUT12" "error private: origin's refs could not be read: fatal: could not read Username"
+# git's own reason, whose wording varies by version.
+case "$OUT12" in
+    *"error private: origin's refs could not be read: fatal: could not read Username"* | \
+    *"error private: origin's refs could not be read: fatal: unable to get password"*)
+        ok "private, gh can't read it: an error saying the read failed and why" ;;
+    *) bad "private, gh can't read it: an error saying the read failed and why" "$OUT12" ;;
+esac
 case "$OUT12" in *"durable private"*) bad "private, gh can't read it: never durable" "$OUT12" ;; *) ok "private, gh can't read it: never durable" ;; esac
 if [ -e "$T/clone-helper-ran" ]; then bad "private: the clone's own credential helper never runs" ""; else ok "private: the clone's own credential helper never runs"; fi
 START=$(date +%s)

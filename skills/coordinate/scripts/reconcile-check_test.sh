@@ -432,7 +432,7 @@ inv_case inventory-private-denied
 git -C "$RP" config credential.helper "!f() { touch '$CASE/clone-helper-ran'; echo password=gh-login-token; }; f"
 out=$(run inventory --path "$I")
 git -C "$RP" config --unset credential.helper
-expect "a private clone the gh login can't read is unchecked, saying why" '.items | any(.kind == "unchecked" and .clone == "repo" and (.path | test("^remote refs could not be read: .*could not read Username")))' "$out"
+expect "a private clone the gh login can't read is unchecked, saying why" '.items | any(.kind == "unchecked" and .clone == "repo" and (.path | test("^remote refs could not be read: fatal: (could not read Username|unable to get password)")))' "$out"
 expect "an unread private clone lists no verdict on its commits" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
 [ -e "$CASE/clone-helper-ran" ] && bad "the clone's own credential helper never runs" || ok "the clone's own credential helper never runs"
 
