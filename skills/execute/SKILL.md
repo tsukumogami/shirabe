@@ -350,14 +350,15 @@ line by `print-exit.sh`:
   skip-dependents. The run ends at `done_blocked`, whose `failure_reason` is the
   record. `/execute` gives the operator-facing forced-stop summary (PRD R13): what
   completed, what remains, and why it stopped.
-- **`re-evaluation`** — an **upstream-must-change boundary**: execution halts where an
-  upstream artifact (PRD or DESIGN) must change before the plan can proceed, and
-  **does NOT re-execute** — the run stops at the boundary (`escalate_upstream_drift`
-  to `done_blocked`, with the rationale in `failure_reason`) rather than driving
-  issues against an upstream that must move first.
+- **`re-evaluation`** — an **upstream-must-change boundary** found by the drift
+  check before any child is dispatched: `worktree_discipline_check` judges main's
+  change `intent-changing`, and the run stops there (`escalate_upstream_drift` to
+  `done_blocked`, with the rationale in `failure_reason`) and **does NOT
+  re-execute**. A child that finds an upstream must change fails, and the batch
+  ends through `escalate` as `abandonment-forced`.
 
 These bindings follow the blocker handling in `spawn_and_await`'s autonomy directive: an
-upstream-must-change boundary routes to `re-evaluation`; the other genuine blockers
+intent-changing drift before dispatch routes to `re-evaluation`; the other genuine blockers
 (failed/blocked child needing human judgment, merge conflict, dirty or destructive
 state) route to `abandonment-forced` with the forced-stop summary; reaching the
 `merged` or `ready_awaiting_merge` terminal routes to `full-run`.

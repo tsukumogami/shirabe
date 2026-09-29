@@ -449,13 +449,13 @@
       "name": "execute-re-evaluation-exit",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a child surfaces that an upstream DESIGN must change before the plan can proceed (an upstream-must-change boundary)",
-      "expected_output": "Agent recognizes an upstream-must-change boundary: an upstream artifact (PRD or DESIGN) must change before the plan can proceed. Per R2/R19 this is a genuine blocker that routes to the re-evaluation exit, not full-run and not abandonment-forced. The run stops at the boundary (escalate_upstream_drift to done_blocked, with the rationale in failure_reason) and does NOT re-execute -- it does not drive issues against an upstream that must move first. It writes no Decision Record: failure_reason is the record.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- before any child runs, main has changed a DESIGN the PLAN depends on, so the PLAN no longer holds (an upstream-must-change boundary). Where does the run stop, and what exit is it?",
+      "expected_output": "Agent recognizes an upstream-must-change boundary found by the drift check before dispatch: at worktree_discipline_check it judges main's change intent-changing and submits impact: intent-changing with a rationale. The tick chains through escalate_upstream_drift to done_blocked, carrying the rationale in failure_reason. This is the re-evaluation exit, not full-run and not abandonment-forced. No child is dispatched and the run does NOT re-execute. It writes no Decision Record: failure_reason is the record.",
       "files": [],
       "expectations": [
         "Agent classifies the upstream-must-change boundary as the re-evaluation exit (not full-run, not abandonment-forced)",
-        "Agent stops at the boundary through escalate_upstream_drift to done_blocked, with the rationale carried in failure_reason",
-        "Agent does NOT re-execute or drive further issues against the upstream that must change first",
+        "Agent submits impact: intent-changing with a rationale at worktree_discipline_check, and the run stops through escalate_upstream_drift at done_blocked with the rationale in failure_reason",
+        "Agent does NOT dispatch children or re-execute against the upstream that must change first",
         "Agent does NOT write a Decision Record under docs/decisions/"
       ]
     },
