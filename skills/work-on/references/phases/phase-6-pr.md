@@ -59,7 +59,7 @@ If checks fail:
 
 A check you cannot fix, or one still red when `ci_monitor`'s retry cap is
 spent, ends the run as `failing_unresolvable`; the state's directive carries
-the cap.
+the cap. An unattended run never asks the user instead.
 
 ## Evidence (pr_creation)
 

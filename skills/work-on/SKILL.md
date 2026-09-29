@@ -382,7 +382,8 @@ then CLAUDE.md `## Execution Mode:` header (default: `interactive`). In --auto
 mode, follow `references/decision-protocol.md` at decision points W1 (handling a
 `needs-triage` issue) and W2 (clarifying an ambiguity during introspection). Safety
 gates W3 (CI failure guidance) and W4 (accepting a red check) remain blocking in both
-modes. Use
+modes: blocking means the run ends at `done_blocked` through `failing_unresolvable`,
+and an unattended run never asks the user instead. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an

@@ -1706,7 +1706,7 @@ artifact already exists in koto context, the gate auto-advances.
 Read `references/phases/phase-3-analysis.md` for plan structure and agent
 delegation patterns. Output: koto context key `plan.md`. A child of `/execute`
 first reads its earlier siblings' `summary.md` through `koto context get`, once
-per sibling; that file's first section says how.
+per sibling; its "Earlier Children's Summaries" section says how.
 
 **Already-complete detection**: during analysis, check whether the issue goal is
 already fully satisfied by current code. If all acceptance criteria are already met,
@@ -1794,7 +1794,7 @@ Note on gate discoverability: The gate name is `scrutiny_results`; the context k
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## review
 
@@ -1804,7 +1804,7 @@ Note on gate discoverability: The gate name is `review_results`; the context key
 
 Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## qa_validation
 
@@ -1814,7 +1814,7 @@ Note on gate discoverability: The gate name is `qa_results`; the context key is 
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## verification
 
@@ -2054,8 +2054,8 @@ If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 
 Retry cap: 3 fix pushes. When CI is still failing after the third, submit
 `ci_outcome: failing_unresolvable` with rationale, which ends the run at
-`done_blocked`. Don't ask the user instead: an unattended run has nobody to
-answer. The cap lives here until koto enforces it from its attempt counts, with
+`done_blocked`. In an unattended run, don't ask the user instead: nobody is
+there to answer. The cap lives here until koto enforces it from its attempt counts, with
 the same number.
 
 ## cascade_entry

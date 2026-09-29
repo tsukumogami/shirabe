@@ -18,6 +18,20 @@
 #   worktree-discipline-vs-drift-state, no-cleanup-on-child-ticks -- phase 2.5
 #     drops its pointer to the worktree reference and its retention exception.
 #
+# Each section names the record behind it
+# (docs/decisions/DECISION-contradiction-<slug>-2026-09-28.md for the policy
+# items; the last section's two are mechanical inventory items), and a failure
+# prints that record with the remedy: restore the settled statement, or amend
+# the record first.
+#
+# The numbers and phrases are written here, not read from the records. A
+# record is prose for people and has no machine-readable field to parse; what
+# this test guards is the shipped statement an agent acts on. Changing a cap
+# means amending its record and then this test, in the same change.
+#
+# The rebase check matches the literal command. Prose that forbids a rebase
+# must say so without writing that command, or this check will flag it.
+#
 # Usage: settled-policy_test.sh
 # Exit codes: 0 all pass, 1 any failed.
 
@@ -30,7 +44,13 @@ ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 PASS_COUNT=0
 FAIL_COUNT=0
 pass() { echo "PASS: $*"; PASS_COUNT=$((PASS_COUNT+1)); }
-fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
+# RECORD is set per section; a failure names it and says what to do.
+RECORD=""
+fail() {
+    echo "FAIL: $*"
+    [ -n "$RECORD" ] && echo "      settled by $RECORD: restore the settled statement, or amend that record first"
+    FAIL_COUNT=$((FAIL_COUNT+1))
+}
 
 # The files a case searches: /work-on's own prose and templates, and the shared
 # worktree reference its PR carries. Test files are left out, since they name
@@ -48,7 +68,13 @@ absent() {
     hits=$(policy_files | while IFS= read -r f; do
         grep -nE -- "$pattern" "$f" 2>/dev/null | sed "s|^|${f#"$ROOT"/}:|"
     done)
-    if [ -z "$hits" ]; then pass "$label"; else fail "$label"; echo "$hits"; fi
+    if [ -z "$hits" ]; then
+        pass "$label"
+    else
+        fail "$label"
+        echo "      lines that state the superseded form:"
+        printf '%s\n' "$hits" | sed 's/^/        /'
+    fi
 }
 
 # present <label> <file> <fixed-string>: the file states the settled form.
@@ -58,6 +84,7 @@ present() {
 }
 
 # --- force-push-after-rebase ------------------------------------------------
+RECORD=docs/decisions/DECISION-contradiction-force-push-after-rebase-2026-09-28.md
 
 absent "no force push anywhere in /work-on" \
     'force-with-lease|push[^|;&]*[[:space:]](--force|-f)([[:space:]]|$)'
@@ -71,6 +98,7 @@ present "worktree discipline catches up by merging" \
     references/worktree-discipline.md 'git merge origin/<tracking-branch>'
 
 # --- retry-caps --------------------------------------------------------------
+RECORD=docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md
 # Each loop's cap is stated once, in its state's directive, and nothing else in
 # /work-on restates a number or tells an unattended run to ask the user.
 
@@ -119,6 +147,7 @@ absent "no /work-on file tells the run to ask the user about CI" \
     '[Ii]f (stuck|a check).*ask the user'
 
 # --- ci-fix-ends-run-unverified ----------------------------------------------
+RECORD=docs/decisions/DECISION-contradiction-ci-fix-ends-run-unverified-2026-09-28.md
 # A CI fix goes back to ci_monitor, and the state's fallback edge fails the run;
 # ci-monitor-role_test.sh drives that routing through koto. The same change
 # unloads finishing-obligations.md: no directive sends the agent to it, since
@@ -132,6 +161,7 @@ else
 fi
 
 # --- cross-issue-context-no-consumer (/work-on's reader) ----------------------
+RECORD=docs/decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md
 # A child reads its earlier siblings' summary.md through koto, once each, at
 # analysis; nothing builds or reads a current-context.md file.
 
@@ -155,7 +185,10 @@ absent "no /work-on file builds or reads current-context.md" 'current-context\.m
 # --- worktree-discipline-vs-drift-state, no-cleanup-on-child-ticks ----------
 # Phase 2.5, which /execute's orchestrator reads, no longer loads the worktree
 # discipline reference, and states the retention rule the way the retention
-# reference does: every tick, root or child.
+# reference does: every tick, root or child. These two are mechanical items,
+# settled by the contradiction-settlement DESIGN's winners rather than by a
+# decision record; the retention reference is the normative rule.
+RECORD=references/koto-session-retention.md
 
 PHASE25=skills/work-on/references/phases/phase-2.5-worktree-discipline.md
 # The pointer was a path to read (`${CLAUDE_PLUGIN_ROOT}/references/...`); the
@@ -165,7 +198,7 @@ if grep -qF '/references/worktree-discipline.md' "$ROOT/$PHASE25"; then
 else
     pass "phase 2.5 does not load references/worktree-discipline.md"
 fi
-if grep -qF 'must not' "$ROOT/$PHASE25"; then
+if grep -qiE 'phase files must not|must not carry' "$ROOT/$PHASE25"; then
     fail "phase 2.5 still says some /work-on ticks must not carry --no-cleanup"
 else
     pass "phase 2.5 carries no exception to the every-tick retention rule"

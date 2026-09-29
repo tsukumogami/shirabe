@@ -3,21 +3,14 @@ name: Check work-on scripts
 on:
   pull_request:
     paths:
-      - 'skills/work-on/scripts/**'
-      # retry-clearing_test.sh extracts the clearing blocks out of the phase
-      # files at run time rather than carrying copies, so a phase-file edit can
-      # break it while leaving skills/work-on/scripts/** untouched. Without
-      # these paths that edit would merge with the suite never having run.
-      - 'skills/work-on/references/phases/**'
-      # The suite drives the shipped template, so a template edit can change
-      # which gate holds which state.
-      - 'skills/work-on/koto-templates/**'
-      # terminal-retention_test.sh reads the retention rule out of SKILL.md and
-      # fails when it is missing, names a state, or depends on the run's role.
-      - 'skills/work-on/SKILL.md'
-      # settled-policy_test.sh reads every /work-on file and the shared
-      # worktree reference for statements a decision record settled.
+      # Every file under the skill, not just its scripts: retry-clearing_test.sh
+      # extracts the clearing blocks out of the phase files at run time, the
+      # suite drives the shipped template, terminal-retention_test.sh reads the
+      # retention rule out of SKILL.md, and settled-policy_test.sh reads every
+      # /work-on file for statements a decision record settled. An edit to any
+      # of them can break a suite while leaving the scripts untouched.
       - 'skills/work-on/**'
+      # settled-policy_test.sh also reads the shared worktree reference.
       - 'references/worktree-discipline.md'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
