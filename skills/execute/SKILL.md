@@ -56,7 +56,12 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1
 Silence means the coordinated surface is present. Output means the merge-last
 gate this path fails closed on cannot run as declared — surface it before the
 first child is dispatched, not at the gate, where a whole cascade has already
-landed.
+landed. Run it with the `2>&1 || true` guard as shown, never bare: a missing
+script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, which kills a run
+mid-cascade.
+
+The `single-pr` path makes no such call: the declaration has no `mode:single-pr`
+record, because every tool that path needs is already `always`.
 
 ## Execution-Mode Flags
 
