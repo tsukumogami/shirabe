@@ -53,8 +53,8 @@ stateDiagram-v2
     spawn_and_await --> escalate : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true
     worktree_discipline_check --> spawn_and_await : impact: informational
     worktree_discipline_check --> escalate_upstream_drift : impact: intent-changing
-    worktree_sync --> spawn_and_await : gates.drift_clear.matches: true, gates.current_with_main.exit_code: 0
-    worktree_sync --> worktree_discipline_check : gates.drift_clear.matches: false, gates.current_with_main.exit_code: 0
+    worktree_sync --> spawn_and_await : gates.current_with_main.exit_code: 0, gates.drift_clear.matches: true
+    worktree_sync --> worktree_discipline_check : gates.current_with_main.exit_code: 0, gates.drift_clear.matches: false
     worktree_sync --> worktree_discipline_check : gates.current_with_main.exit_code: 1, sync_status: override
     worktree_sync --> done_blocked : gates.current_with_main.exit_code: 1, sync_status: blocked
     write_set_record --> orchestrator_setup : gates.repos_recorded.matches: true
@@ -113,10 +113,10 @@ stateDiagram-v2
         gate: batch_done
     end note
     note left of worktree_sync
-        gate: drift_clear
+        gate: current_with_main
     end note
     note left of worktree_sync
-        gate: current_with_main
+        gate: drift_clear
     end note
     note left of write_set_record
         gate: repos_recorded

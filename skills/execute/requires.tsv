@@ -6,8 +6,7 @@
 # --no-cleanup on every tick, so the tick that reaches paused_for_review or
 # another success terminal keeps the session's context instead of deleting it
 # (references/koto-session-retention.md). context add/get carry the settled
-# branch and the per-child batch view, workflows (--children) lists the
-# children whose summaries later children read, and
+# branch and the per-child batch view, workflows inspects child outcomes,
 # status reports progress. `context add` pipes on stdin (the settled-branch
 # write, and the drift-facts writes of plan_intent.md and drift_facts.json) and
 # needs no flag.
@@ -41,10 +40,13 @@
 # the portable realpath in run-cascade.sh.
 #
 # `--pr-body` in the template names what CI enforces on the authored body;
-# /execute doesn't run it. Nothing mechanical separates a citation from a call
-# site, so it is exempted by name for scripts/check-skill-requires.sh; an
-# exemption that stops matching its line fails as stale.
+# /execute doesn't run it. `koto workflows --children` in spawn_and_await names
+# the call a later /work-on child makes to find its predecessors' summaries;
+# the orchestrator never runs it. Nothing mechanical separates a citation from
+# a call site, so both are exempted by name for scripts/check-skill-requires.sh;
+# an exemption that stops matching its line fails as stale.
 #not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
+#not-a-call-site	skills/execute/koto-templates/execute.md	koto	--children	Names the call a later /work-on child makes to read its predecessors' summaries; the /execute orchestrator never runs it.
 #
 # The koto floor. /execute enters its orchestrator session through
 # skills/execute/scripts/execute-open.sh and the shared scripts/koto-open.sh,
@@ -98,7 +100,7 @@ koto	context add	-	always
 koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
-koto	workflows	--children	always
+koto	workflows	-	always
 koto	status	-	always
 koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
