@@ -162,7 +162,7 @@ These terms carry the report's numbers, so they're fixed here.
   word from the rule. Rule ids are unique. Pull requests are the first
   artifact kind, and the form doesn't assume them.
 - **R3. The ladder.** Criteria a script can settle (an attribution or
-  session line, a private name in public content, a committed `wip/` path,
+  session line, a private name in public content, a committed path into the scratch directory,
   a word from a fixed tense list, a pasted duplicate paragraph) run as local
   scripts before any Jev call is made. Only judgment criteria go to Jev.
   Both count toward the run status, and each verdict records whether a
