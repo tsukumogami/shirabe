@@ -187,7 +187,7 @@ mutate "a \${context. in a default action" \
     's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
 mutate "the current-context.md step back in spawn_and_await" \
     "no directive tells the agent to build current-context.md" \
-    's/(You build no context file)/Write current-context.md into the next child. $1/'
+    's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'
 
 # No file under skills/execute outside its evals tells the agent to build
 # current-context.md: carry-forward is koto calls, not a file.
