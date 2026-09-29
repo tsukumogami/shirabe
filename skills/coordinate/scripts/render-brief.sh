@@ -79,7 +79,9 @@
 # Exit codes:
 #   0  written (or printed)
 #   1  input refused; nothing written
-#   2  usage error, unreadable input, or no workspace root
+#   2  usage error, unreadable input, no workspace root, a target's
+#      visibility that can't be read live, or an entry-points.tsv
+#      visibility value other than any, public or private
 #
 # Writes only <workspace-root>/.niwa/dispatch-briefs/<topic>.md, through a
 # temporary file in the same directory and a rename. bash 3.2; needs jq.
