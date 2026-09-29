@@ -98,6 +98,52 @@ coord_gh_read() {
     return 1
 }
 
+# coord_repo_visibility <owner/repo> -- print `public` or `private`, read live
+# from `gh api repos/<r>`'s `visibility`: the same read the merge gate's
+# visibility resolver makes (shirabe-validate's fetch_repo_is_public), so the
+# check before a push and the gate before the merge can't disagree about a
+# repository. `internal`, and any value other than `public`, prints
+# `private`. Returns 2, printing nothing, when the read fails or carries no
+# visibility: a caller stops as a status read and never guesses.
+coord_repo_visibility() {
+    local json v
+    coord_gh_read json api "repos/$1" || return 2
+    v=$(printf '%s' "$json" | jq -r 'if type == "object" then (.visibility // "") else "" end') || return 2
+    case "$v" in
+        public) printf 'public' ;;
+        "") return 2 ;;
+        *) printf 'private' ;;
+    esac
+}
+
+# coord_node_visibility <home-repo> <node-repo> <node-id> -- the
+# Coordination-PR Visibility Rule for one node, checked against the node's own
+# target before anything is pushed (references/coordination-strategy.md). Sets
+# COORD_HOME_VIS and COORD_NODE_VIS. Returns 0 when the pair is allowed: a
+# private coordination PR may index any node, and a public one a public node.
+# Returns 3, with a diagnostic, for a public coordination PR over a private
+# node: the index line would name a private repository in a public body. The
+# diagnostic names the node id and the public home, never the private
+# repository (F1). Returns 2 when either read failed. Both callers,
+# node-push.sh and repo-visibility.sh, map 3 to their exit 77
+# (execute:visibility) and 2 to 72 (execute:status-read).
+coord_node_visibility() {
+    COORD_HOME_VIS=""; COORD_NODE_VIS=""
+    COORD_HOME_VIS=$(coord_repo_visibility "$1") || {
+        echo "$PROG: could not read the visibility of the coordination PR's repository $1" >&2
+        return 2
+    }
+    COORD_NODE_VIS=$(coord_repo_visibility "$2") || {
+        echo "$PROG: could not read the visibility of node $3's repository" >&2
+        return 2
+    }
+    if [ "$COORD_HOME_VIS" = public ] && [ "$COORD_NODE_VIS" = private ]; then
+        echo "$PROG: refused: node $3 lands in a private repository, and the coordination PR lives in the public repository $1; a public coordination PR never indexes a private node. Move the node into $1, or run the effort from a PLAN in a private repository, whose coordination PR may index public and private nodes alike." >&2
+        return 3
+    fi
+    return 0
+}
+
 # coord_index_entries <body> -- print the PR Index section's entry lines, one
 # per line. Lines outside the section, and lines inside it that are not
 # entry-shaped, are dropped here; entry-shaped lines that fail the full

@@ -21,6 +21,11 @@
 # beside CAP and PARKED_BOUND from the session's variables.
 #
 # Verdict tokens:
+#   decisions        decision-next.sh --owed pick names a rule: an unrecorded
+#                    write, an owed message, a carry, a proposed entry or one
+#                    waiting for a verdict (a held entry and an escalation that
+#                    owes nothing never count). It comes first, so owed work
+#                    is done before a close is attempted. Needs the session
 #   scope-complete   roadmap: the roadmap lists features and every one reads
 #                    Done or Dropped
 #   rotation-over    discipline: today UTC is after the record title's end date
@@ -28,7 +33,11 @@
 # The facts go to context key coord/pick.json as data (pick's decider input):
 #   {scope, name, units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, pull_request}], active, parked, cap, parked_bound}
+#    dispatch_status, parked, pull_request}], decisions: [{decision, question,
+#    state, round, verdict, reason, recommendation, target, owed}], active,
+#    parked, cap, parked_bound}
+# decisions is the record's unsettled entries (record-decision.sh --list),
+# the rows the progress table renders.
 #
 # Usage:
 #   pick-facts.sh --session S
@@ -82,6 +91,12 @@ else set -- "$@" --session "$SESSION"; fi
 bash "$HERE/record-holding.sh" "$@" > "$T/holdings.json" 2> "$T/holdings.err" \
     || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/holdings.err")"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
+# The unsettled decision entries, through record-decision.sh, the one reader of the section.
+set -- --list
+if [ "$OVERRIDE" = 1 ]; then set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
+else set -- "$@" --session "$SESSION"; fi
+bash "$HERE/record-decision.sh" "$@" > "$T/decisions.json" 2> "$T/decisions.err" \
+    || lib_die2 "record-decision.sh --list failed: $(lib_scrub < "$T/decisions.err")"
 
 VERDICT=pick
 if [ "$SCOPE" = roadmap ]; then
@@ -121,10 +136,19 @@ else
         || lib_die2 "jq failed"
 fi
 
-jq -n --arg scope "$SCOPE" --arg name "$NAME" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" \
+# Owed decision work comes before any other verdict.
+if [ -n "$SESSION" ]; then
+    OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed pick) || lib_die2 "cannot read what the decisions are owed"
+    [ "$OWED_RULE" = none ] || VERDICT="decisions $OWED_RULE"
+fi
+
+jq -n --arg scope "$SCOPE" --arg name "$NAME" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
     --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
     {scope: $scope, name: $name, units: $u[0],
      holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, pull_request}],
+     decisions: [$d[0].entries[] | select(.state != "settled")
+                 | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
+                    recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
      active: ([$h[0][] | select(.parked | not)] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb}' > "$T/pick.json" || lib_die2 "jq failed"
 lib_emit pick_facts "$VERDICT" coord/pick.json "$T/pick.json"

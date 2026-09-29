@@ -131,6 +131,9 @@ refuse "a date-only raised is refused" "$(full_record | jq -c '.deferrals[0].rai
 refuse "a date-only reversal date is refused" "$(full_record | jq -c '.reversals[0].date = "2026-09-25"')" "date"
 refuse "filed without a number is refused" "$(full_record | jq -c '.deferrals[0].disposition = "filed"')" "disposition"
 refuse "a carry without a time is refused" "$(full_record | jq -c '.deferrals[0].disposition = "carried: later"')" "disposition"
+roundtrip "a carry without a decide-by still round-trips" "$(full_record | jq -c '.deferrals[0].disposition = "carried 2026-09-26T08:30Z: waits on infra"')"
+roundtrip "a carry with a decide-by round-trips" "$(full_record | jq -c '.deferrals[0].disposition = "carried 2026-09-26T08:30Z until 2026-10-01T00:00Z: waits on infra"')"
+refuse "a decide-by that isn't a time is refused" "$(full_record | jq -c '.deferrals[0].disposition = "carried 2026-09-26T08:30Z until Friday: waits"')" "disposition"
 refuse "a malformed pull request link is refused" "$(full_record | jq -c '.holdings[0].pull_request = "#12"')" "pull_request"
 refuse "an empty required cell is refused" "$(full_record | jq -c '.holdings[0].unit = ""')" "unit: empty"
 refuse "a control character is refused" "$(full_record | jq -c '.deferrals[0].reason = "a\u0007b"')" "control character"
@@ -214,7 +217,7 @@ entry() { # entry <n> <state> [jq merge]: one Decisions entry
       reason: "", context: "", problem: "", grounds: "", target: "", owed: "",
       asked: "", evidence: "", outcome: "", decided_by: "", updated: "2026-09-27T23:40Z"}' | jq -c ". + ($extra)"
 }
-ESC='{round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip condition did not happen", context: "Option d was approved; a check came back mixed.", problem: "Dropping the feature changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
+ESC='{options: "keep option d and ship -- the flip condition did not happen, so d stands\nswitch to option c -- the per-project installs would pin their versions", round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip condition did not happen", context: "Option d was approved; a check came back mixed.", problem: "Dropping the feature changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
 decisions_record() {
     jq -nc --argjson a "$(entry 1 proposed)" --argjson b "$(entry 2 coordinator-verdict '{verdict: "hold", reason: "waiting on the cache benchmark"}')" \
         --argjson c "$(entry 3 escalated "$ESC")" \
@@ -289,9 +292,27 @@ for c in 'recommendation: "neither"' 'reason: "  "' 'context: ""' 'problem: ""' 
     [ "$(VAL "$(entry 1 escalated "$ESC + {$c}")" "a person" | jq length)" = 1 ] && ok "the validator refuses {$c}" || bad "the validator refuses {$c}"
 done
 [ "$(VAL "$(entry 1 escalated "$ESC")" "coordinator ws" | jq length)" = 1 ] && ok "the validator refuses a target other than the run's" || bad "the validator refuses a target other than the run's"
-CMP=$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{verdict: "settle", outcome: "ship", decided_by: "a person", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: mixed"}')" 'include "record-codec"; $e | compact_settled')
-[ "$(printf '%s' "$CMP" | jq -r '[.evidence, .options, .verdict] | join("")')" = "" ] && [ "$(printf '%s' "$CMP" | jq -r .outcome)" = ship ] \
-    && ok "a settled entry that owes nothing compacts to its identity, question and outcome" || bad "a settled entry that owes nothing compacts" "$CMP"
+[ "$(VAL "$(entry 1 escalated "$ESC + {options: \"keep option d and ship -- d stands\\nswitch to option c\"}")" "a person" | jq -c .)" = '["an option has no explanation"]' ] \
+    && ok "the validator refuses an option without its explanation" || bad "the validator refuses an option without its explanation"
+[ "$(VAL "$(entry 1 escalated "$ESC + {options: \"keep option d and ship --  \\nswitch to option c -- why\"}")" "a person" | jq -c .)" = '["an option has no explanation"]' ] \
+    && ok "the validator refuses a blank explanation" || bad "the validator refuses a blank explanation"
+# The merge is built in a variable first: bash 3.2 brace-expands a `{...}`
+# holding a comma inside a nested command substitution.
+WHOLE='{recommendation: "keep option d and ship -- the flip condition did not happen, so d stands"}'
+[ "$(VAL "$(entry 1 escalated "$ESC + $WHOLE")" "a person" | jq -r '.[0]')" = "the recommendation is not one of the options" ] \
+    && ok "the recommendation names an option, not its explanation" || bad "the recommendation names an option, not its explanation"
+CMP=$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{verdict: "settle", outcome: "ship", decided_by: "a person", evidence: "2026-09-27T23:41Z dispatcher [20260927T233505Z wait 52]: mixed\n2026-09-27T23:42Z this coordinator [20260927T233505Z redirect 40]: redirect sent"}')" 'include "record-codec"; $e | compact_settled')
+[ "$(printf '%s' "$CMP" | jq -r '.verdict')" = "" ] && [ "$(printf '%s' "$CMP" | jq -r .outcome)" = ship ] \
+    && [ "$(printf '%s' "$CMP" | jq -r .options)" = "$(printf 'keep option d and ship\nswitch to option c')" ] \
+    && [ "$(printf '%s' "$CMP" | jq -r .evidence)" = "2026-09-27T23:42Z this coordinator [20260927T233505Z redirect 40]: redirect sent" ] \
+    && ok "a settled entry that owes nothing compacts, keeping its options and its redirect line" || bad "a settled entry that owes nothing compacts" "$CMP"
+TXT() { jq -n -L "$HERE" --arg v "$1" 'include "record-codec"; $v | check_dcell("question"; [])' >/dev/null 2>&1; }
+for v in "task-runner-integration-tests" "disk-space-reclamation-policy" "risk-assessment-of-the-new-design" "keep ~/.config as it is" "the /home page" "and/or n/a CI/CD"; do
+    TXT "$v" && ok "prose is accepted: $v" || bad "prose is accepted: $v"
+done
+for v in "see /home/alice/notes" "token sk-abcdefghijklmnopqrstuvwxyz0123" "ghp_abcdefghijklmnopqrstuvwxyz0123456789" "(/Users/bob/x)"; do
+    TXT "$v" && bad "refused: $v" || ok "refused: $v"
+done
 [ "$(jq -nc -L "$HERE" --argjson e "$(entry 4 settled '{outcome: "ship", decided_by: "a person", owed: "reply"}')" 'include "record-codec"; $e | compact_settled | .owed')" = '"reply"' ] \
     && ok "a settled entry that still owes a reply is not compacted" || bad "a settled entry that still owes a reply is not compacted"
 

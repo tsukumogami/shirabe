@@ -35,7 +35,9 @@ interactive run, the default when neither flag nor the repository's
 `/deliver` is a koto workflow, and it is thin in behaviour: it writes nothing
 to the repository itself. `/scope` and `/execute` do all of that, as the same
 root sessions (`scope-<topic>`, `execute-<topic>`) a person running them
-directly would get. What `/deliver` adds is the sequence and the checks
+directly would get. Visibility is checked where content is written: each
+child checks its writes against the repository it writes to, so `/deliver`
+runs in private repositories as well as public ones. What `/deliver` adds is the sequence and the checks
 between the two, and those live in its template,
 `skills/deliver/koto-templates/deliver.md`, not in this file.
 

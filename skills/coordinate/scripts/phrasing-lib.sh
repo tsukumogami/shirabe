@@ -13,6 +13,10 @@
 #       with grep -E; 1 no match; 2 cannot check: an unknown kind, a list that
 #       is unreadable or has a refused row, or a kind with no patterns. <kind>
 #       is `decision` or `addressed`; a row of kind `both` counts for each.
+#   phrase_lines <kind> <file> [list]
+#       Prints the 1-based number of every line of <file> that matches a
+#       pattern of that kind, one per line, in one grep pass. Exit 0 (none
+#       printed is no match); 2 cannot check, as phrase_match.
 #   phrasings_check [list]
 #       Exit 0 when every row is well formed and its pattern compiles under
 #       grep -E; 65 a refused row (stderr names it); 2 the list is unreadable.
@@ -64,6 +68,12 @@ phrasings_check() {
     return 0
 }
 
+# _ascii: stdin to stdout with every byte but tab, newline and printable ASCII
+# turned into a space. The patterns are ASCII, so nothing they match is lost,
+# line numbers are kept, and no grep's handling of an invalid or non-ASCII
+# byte (BSD grep skips such a line) decides what matches.
+_ascii() { LC_ALL=C tr -c '\11\12\40-\176' ' '; }
+
 phrase_match() {
     local kind="$1" text="$2" f="${3:-$PHRASINGS_LIST}" pats rc
     case "$kind" in
@@ -79,8 +89,28 @@ phrase_match() {
     # on a match, which must not count, and a here-string is no better, since a
     # redirection that can't write its temporary file skips grep and reads as
     # no match.
-    printf '%s\n' "$text" | grep -Eiq -e "$pats"
-    rc=${PIPESTATUS[1]}
+    printf '%s\n' "$text" | _ascii | LC_ALL=C grep -Eiq -e "$pats"
+    rc=${PIPESTATUS[2]}
     [ "$rc" -le 1 ] || return 2
     return "$rc"
+}
+
+phrase_lines() {
+    local kind="$1" file="$2" f="${3:-$PHRASINGS_LIST}" pats rc
+    case "$kind" in
+        decision|addressed) ;;
+        *) echo "decision phrasings: unknown kind '$kind'" >&2; return 2 ;;
+    esac
+    [ -r "$f" ] || { echo "decision phrasings: cannot read $f" >&2; return 2; }
+    [ -r "$file" ] || { echo "decision phrasings: cannot read $file" >&2; return 2; }
+    pats=$(_phrasings_read "$kind" "$f"); rc=$?
+    [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && echo "decision phrasings: no $kind patterns" >&2; return 2; }
+    # One grep over the whole file, so a report's lines are matched in one
+    # pass, never one process per line. grep's own status is the one read.
+    # Only printable ASCII reaches grep (see _ascii): the patterns are ASCII,
+    # and BSD grep skips a line holding an invalid byte, -a and LC_ALL=C or not.
+    _ascii < "$file" | LC_ALL=C grep -aEin -e "$pats" | cut -d: -f1
+    rc=${PIPESTATUS[1]}
+    [ "$rc" -le 1 ] || return 2
+    return 0
 }

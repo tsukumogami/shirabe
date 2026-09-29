@@ -103,7 +103,7 @@ def check_cell($key; $private):
     elif $key == "dispatched" then (if test(re_date) then . else refuse("dispatched: not YYYY-MM-DD") end)
     elif ($key == "raised" or $key == "attempted" or $key == "date") then (if test(re_time_min) then . else refuse("\($key): not YYYY-MM-DDTHH:MMZ") end)
     elif $key == "pull_request" then (if ([pr_link_parts] | length) > 0 then . else refuse("pull_request: not [#n](https://github.com/owner/repo/pull/n), or empty for none yet") end)
-    elif $key == "disposition" then (if test("^(filed #[0-9]+|closed: [\\s\\S]+|carried [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z: [\\s\\S]+)$") then . else refuse("disposition: not filed #<n>, closed: <reason> or carried <YYYY-MM-DDTHH:MMZ>: <reason>") end)
+    elif $key == "disposition" then (if test("^(filed #[0-9]+|closed: [\\s\\S]+|carried [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z( until [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)?: [\\s\\S]+)$") then . else refuse("disposition: not filed #<n>, closed: <reason> or carried <YYYY-MM-DDTHH:MMZ> [until <YYYY-MM-DDTHH:MMZ>]: <reason>") end)
     else . end
   | if ($v != "") and (($key == "repo") or ($key == "pull_request") or ($key == "target")) then
       ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
@@ -157,7 +157,7 @@ def d_text_cols: ["question", "options", "recommendation", "reason", "context",
   "problem", "evidence", "outcome", "decided_by"];
 # A stamp names the run (the UTC stamp in the session's name) and the visit
 # that caused a write, so no run's write is mistaken for another's.
-def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect) [1-9][0-9]*(\\.[1-9][0-9]*)?\\]";
+def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect|ask) [1-9][0-9]*(\\.[1-9][0-9]*)?\\]";
 
 def enc_d: enc | gsub("@"; "&#64;");
 def dec_d: gsub("&#64;"; "@") | dec;
@@ -185,33 +185,63 @@ def check_dcell($key; $private):
   | if ($v != "") and any(d_text_cols[]; . == $key) then
       ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
       | if $hit != null then refuse("decisions.\($key): names \($hit), a repository that isn't public")
-        elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/|~/)")) then refuse("decisions.\($key): a home-directory path")
-        elif ($v | test("(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then refuse("decisions.\($key): a token-shaped string")
+        elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then refuse("decisions.\($key): a home-directory path")
+        elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then refuse("decisions.\($key): a token-shaped string")
         else . end
     else . end;
 
 # escalation_problems($target): what keeps a recorded escalate verdict from
 # being escalated to $target, as a list (empty when it may be). The one
 # validator record-decision.sh and decision-render.sh share.
+#
+# An escalated entry's Options lines each carry an explanation, written
+# `<option> -- <explanation>` so the column's grammar is unchanged; the
+# recommendation names the option part. d_options gives them as
+# {label, explanation}, in the record's order.
+def d_options:
+  (.options // "") | split("\n") | map(select(length > 0)
+    | split(" -- ") as $p | {label: $p[0], explanation: ($p[1:] | join(" -- "))});
 def escalation_problems($target):
   def blank: (. // "") | gsub("^\\s+|\\s+$"; "") | . == "";
   . as $e
-  | [ (if ($e.options // "" | split("\n") | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+  | [ (if ([$e | d_options[].label] | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+      (if any($e | d_options[]; .explanation | blank) then "an option has no explanation" else empty end),
       (if ($e.reason | blank) then "the reason is empty" else empty end),
       (if ($e.context | blank) then "the context is empty" else empty end),
       (if ($e.problem | blank) then "the problem is empty" else empty end),
       (if ($e.grounds | blank) then "no ground" else empty end),
       (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ];
 
-# compact_settled: a settled entry that owes nothing keeps only its identity,
-# its question, its outcome and who decided. `Next decision` keeps its
-# identifier from being reused.
+# The stamps an entry carries, by position: the one ending its Source, and the
+# one after each Evidence line's source. A stamp-like string inside a line's
+# text is not a stamp. Each is {run, kind, seq, text}; text is the Evidence
+# line's text, "" for the Source's.
+def d_stamps:
+  [ ((.source // "") | capture(" \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]$") | . + {text: ""}),
+    ((.evidence // "") | split("\n")[] | select(length > 0)
+      | capture("^[^ ]+ [^\\[]+ \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]: (?<text>.*)$")) ];
+# The text of the Evidence line that marks an extracted question as addressed
+# to a person, stamped with the report that carried it. A report with one owes
+# its worker a redirect; decision-next.sh routes it, decision-render.sh renders
+# it, and record-decision.sh --open-from-report writes the mark.
+def d_addressed_mark: "addressed to a person";
+
+# compact_settled: a settled entry that owes nothing keeps its identity, round,
+# question, options, source, outcome, who decided, when, and its redirect
+# lines; every other cell is blanked. `Next decision` keeps its identifier from
+# being reused.
 def compact_settled:
   if .state == "settled" and (.owed // "") == "" then
     . as $e | reduce (decisions_cols[] | .[0]) as $k ({}; .[$k] = "")
     | .decision = $e.decision | .round = $e.round | .question = $e.question
+    | .options = $e.options
     | .state = "settled" | .source = $e.source | .outcome = $e.outcome
     | .decided_by = $e.decided_by | .updated = $e.updated
+    # Options stay because evidence can reopen a settled entry, which then
+    # needs them to be escalated again; a redirect line stays because losing it
+    # would owe the report's redirect a second time.
+    | .evidence = ([($e.evidence // "") | split("\n")[]
+        | select(test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))] | join("\n"))
   else . end;
 
 def check_drow($private):

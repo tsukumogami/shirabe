@@ -5,7 +5,12 @@
 # Covers, row mode: `filed #12`, `closed: <reason>` and a carry at or after
 # the run start disposed; an earlier carry time, `filed` without a number, an
 # empty Disposition and a row that isn't JSON undisposed (exit 1); an
-# undisposed row raised this run (exit 0). Check mode: a `None.` section and
+# undisposed row raised this run (exit 0); a carry judged against
+# --chain-start; a decide-by (`carried <time> until <time>: <reason>`) still
+# ahead disposed, one passed open (inside the chain too), a malformed one
+# refused. Check mode: a restart honouring the carry of the cancelled run it
+# replaced (coord-log.sh chain-start), unless its decide-by passed; a run
+# ended at a terminal state breaking the chain; a `None.` section and
 # every disposed form passing with the pick's topic; an earlier carry, an
 # empty Disposition before the run start, `filed #<n>` naming no issue or a
 # pull request, each deferral-open; a row raised this run exempt; a discipline
@@ -40,13 +45,26 @@ OUT=$(row 'filed #12'); eq "filed #12 is disposed" "0 disposed filed 12" "$? $OU
 OUT=$(row 'closed: moot now'); eq "closed: <reason> is disposed" "0 disposed closed" "$? $OUT"
 OUT=$(row 'carried 2026-09-26T08:30Z: waits on infra'); eq "a carry after the run start is disposed" "0 disposed carried 2026-09-26T08:30Z" "$? $OUT"
 OUT=$(row 'carried 2026-09-26T08:00Z: same minute'); eq "a carry in the run start's minute is disposed" "0 disposed carried 2026-09-26T08:00Z" "$? $OUT"
-OUT=$(row 'carried 2026-09-25T08:30Z: last run'); eq "an earlier carry time is refused" "1 undisposed carried-before-run-start" "$? $OUT"
+OUT=$(row 'carried 2026-09-25T08:30Z: last run'); eq "an earlier carry time is refused" "1 undisposed carried-before-chain-start" "$? $OUT"
 OUT=$(row 'filed'); eq "filed without a number is refused" "1 undisposed malformed" "$? $OUT"
 OUT=$(row 'filed #abc'); eq "filed with a non-number is refused" "1 undisposed malformed" "$? $OUT"
 OUT=$(row 'carried soon: later'); eq "a carry without a time is refused" "1 undisposed malformed" "$? $OUT"
 OUT=$(row ''); eq "an empty Disposition is refused" "1 undisposed empty" "$? $OUT"
 OUT=$(row '' 2026-09-26T09:00Z); eq "an undisposed row raised this run isn't the predecessor's" "0 undisposed raised-this-run" "$? $OUT"
 OUT=$(row 'carried 2026-09-25T08:30Z: x' 2026-09-26T09:00Z); eq "a bad carry on a row raised this run is exempt too" "0 undisposed raised-this-run" "$? $OUT"
+# The chain start: a restart honours a carry made since the run it replaced
+# began; the run start alone still decides without one.
+CS=2026-09-25T08:00:00.000Z
+rowc() { jq -nc --arg d "$1" '{deferral: "x", reason: "r", raised: "2026-09-24T10:00Z", disposition: $d}' > "$T/row.json"; bash "$DC" --row-file "$T/row.json" --run-start "$RS" --chain-start "$CS"; }
+OUT=$(rowc 'carried 2026-09-25T08:30Z: last run'); eq "a carry since the chain start is disposed" "0 disposed carried 2026-09-25T08:30Z" "$? $OUT"
+OUT=$(rowc 'carried 2026-09-24T08:30Z: before the chain'); eq "a carry before the chain start is refused" "1 undisposed carried-before-chain-start" "$? $OUT"
+# The decide-by: `carried <time> until <time>: <reason>`.
+OUT=$(row 'carried 2026-09-26T08:30Z until 2099-01-01T00:00Z: waits on infra'); eq "a carry with a decide-by still ahead is disposed" "0 disposed carried 2026-09-26T08:30Z" "$? $OUT"
+OUT=$(row 'carried 2026-09-26T08:30Z until 2026-09-26T09:00Z: waits on infra'); eq "a carry whose decide-by has passed is open" "1 undisposed decide-by-passed" "$? $OUT"
+OUT=$(rowc 'carried 2026-09-25T08:30Z until 2026-09-26T09:00Z: last run'); eq "a passed decide-by reopens a carry inside the chain" "1 undisposed decide-by-passed" "$? $OUT"
+OUT=$(row 'carried 2026-09-26T08:30Z until soon: x'); eq "a decide-by that isn't a time is malformed" "1 undisposed malformed" "$? $OUT"
+OUT=$(row 'carried 2026-09-26T08:30Z until 2099-01-01T00:00Z:  '); eq "a decide-by with no reason is malformed" "1 undisposed malformed" "$? $OUT"
+bash "$DC" --row-file "$T/row.json" --run-start "$RS" --chain-start later >/dev/null 2>&1; eq "a chain start that isn't a time is a usage error" 64 $?
 printf 'not json' > "$T/row.json"
 OUT=$(bash "$DC" --row-file "$T/row.json" --run-start "$RS" 2>/dev/null); eq "a row that isn't JSON is malformed" "1 undisposed malformed" "$? $OUT"
 bash "$DC" --row-file "$T/row.json" >/dev/null 2>&1; eq "row mode without --run-start is a usage error" 64 $?
@@ -69,7 +87,7 @@ with_deferrals() { record_json roadmap plugin-system | jq -c --argjson d "[$(IFS
 N=0
 session() { # session <vars-json> <ref> [choice] [unit]: a run at dispatch_check after a pick
     N=$((N + 1))
-    S="coordinate-roadmap-plugin-system-20260926T0800${N}Z"
+    S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
     found_session "$S" "$1" "$2"
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
     log_evidence "$S" pick "$(jq -nc --arg c "${3:-dispatch}" --arg u "${4:-beta}" '{choice: $c, unit: $u}')"
@@ -96,6 +114,39 @@ seed "$(with_deferrals "$(def 'carried 2026-09-25T08:30Z: last run')" "$(def '')
 eq "an earlier carry and an empty Disposition are two open" "deferral-open 2" "$(check)"
 seed "$(with_deferrals "$(def '' 2026-09-26T09:00Z)")"
 eq "a deferral raised this run may stay open" "ok beta" "$(check)"
+# A restart: the run before this one, of the same scope, started at 07:00 and
+# was cancelled when this one opened. Its 07:30 carry still counts, unless its
+# decide-by has passed; a run before it that ended at a terminal state breaks
+# the chain, so its carries don't.
+SAVED_S=$S
+at() { # at <session> <created_at>: set the run's start
+    local f="$KOTO_STORE/sessions/$1/koto-$1.state.jsonl"
+    jq -c --arg t "$2" 'if .type == null then .created_at = $t else . end' "$f" > "$f.new" && mv "$f.new" "$f"
+}
+PREV=coordinate-roadmap-plugin-system-20260926T070000Z
+PREV2=coordinate-roadmap-plugin-system-20260926T060000Z
+S=coordinate-roadmap-plugin-system-20260926T080000Z
+log_new "$PREV2" "$(roadmap_vars plugin-system)"; at "$PREV2" 2026-09-26T06:00:00.000Z; : > "$KOTO_STORE/sessions/$PREV2/.terminal"
+log_new "$PREV" "$(roadmap_vars plugin-system)"; at "$PREV" 2026-09-26T07:00:00.000Z; log_end "$PREV"
+found_session "$S" "$(roadmap_vars plugin-system)" 7
+log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
+log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
+log_to "$S" pick dispatch_check
+f="$KOTO_STORE/sessions/$PREV/koto-$PREV.state.jsonl"; grep -v workflow_cancelled "$f" > "$f.new" && mv "$f.new" "$f"
+eq "a run just before this one that wasn't cancelled gives this run's own start" 2026-09-26T08:00:00.000Z "$(bash "$CL" chain-start --session "$S")"
+log_end "$PREV"
+eq "chain-start reaches the cancelled run before this one" 2026-09-26T07:00:00.000Z "$(bash "$CL" chain-start --session "$S")"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T07:30Z: the run this one restarted carried it')")"
+eq "a restart doesn't re-decide a carry made by the run it replaced" "ok beta" "$(check)"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T07:30Z until 2026-09-26T07:45Z: decide by then')")"
+eq "unless the carry's decide-by has passed" "deferral-open 1" "$(check)"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T06:30Z: carried before the chain')")"
+eq "a carry from before the chain is still open" "deferral-open 1" "$(check)"
+log_end "$PREV2"; rm -f "$KOTO_STORE/sessions/$PREV2/.terminal"
+eq "a chain of two cancelled runs reaches the earlier one" 2026-09-26T06:00:00.000Z "$(bash "$CL" chain-start --session "$S")"
+eq "and honours its carry" "ok beta" "$(check)"
+for s in "$PREV" "$PREV2" "$S"; do rm -rf "$KOTO_STORE/sessions/$s"; done
+S=$SAVED_S
 seed "$(with_deferrals "$(def 'filed #12')")"; db '.fail = [{match: "issues/12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 check >/dev/null; eq "a failed issue read exits 2" 2 ${PIPESTATUS[0]}
 
@@ -111,10 +162,51 @@ seed "$(record_json roadmap other)"
 eq "another scope's record under the number is record-changed" "record-changed" "$(check)"
 seed "$(record_json roadmap plugin-system)"; db '.fail = [{match: "issue view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 check >/dev/null; eq "a failed record read exits 2" 2 ${PIPESTATUS[0]}
-N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T0800${N}Z"
+N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
 log_new "$S" "$(roadmap_vars plugin-system)"; log_to "$S" pick dispatch_check
 seed "$(record_json roadmap plugin-system)"
 eq "a run without a found record is record-changed" "record-changed" "$(check)"
+
+echo "== check mode: owed decision work, the DESIGN's blocking table row by row =="
+ESC='"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "r", "context": "c", "problem": "p", "grounds": "scope", "target": "a person"'
+dentry() { # dentry <n> <state> [extra JSON members]: one Decisions entry
+    printf '{"decision": "%s", "round": "0", "question": "Q%s?", "options": "ship -- now\\nwait -- later", "state": "%s", "source": "self [20260925T080000Z raise %s]", "updated": "2026-09-26T07:00Z"%s}' \
+        "$1" "$1" "$2" "$1" "${3:+, $3}"
+}
+with_entries() { record_json roadmap plugin-system | jq -c --argjson e "[$(IFS=,; echo "$*")]" '.decisions = {next: 20, entries: $e}'; }
+# later: the run has already dispatched once, and this is a second pick.
+later() {
+    log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record pick_facts; log_to "$S" pick_facts pick
+    log_evidence "$S" pick '{"choice":"dispatch","unit":"gamma"}'
+    log_to "$S" pick dispatch_check
+}
+# row <label> <first-dispatch verdict> <later-dispatch verdict> <entries...>
+row_owed() {
+    local label=$1 first=$2 next=$3; shift 3
+    seed "$(with_entries "$@")"; session "$(roadmap_vars plugin-system)" 7
+    eq "$label: the first dispatch" "$first" "$(check)"
+    session "$(roadmap_vars plugin-system)" 7; later
+    eq "$label: a later dispatch" "$next" "$(check)"
+}
+# 2 an unrecorded write: a visit to decision_raise with no entry stamped for it.
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7
+log_to "$S" dispatch_check decision_raise; log_to "$S" decision_raise pick_facts; log_to "$S" pick_facts pick
+log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'; log_to "$S" pick dispatch_check
+eq "an unrecorded write: the first dispatch" "decision-owed unrecorded-raise" "$(check)"
+later
+eq "an unrecorded write: a later dispatch" "decision-owed unrecorded-raise" "$(check)"
+# 3 to 6 an owed message.
+row_owed "an owed withdrawal" "decision-owed withdraw" "decision-owed withdraw" "$(dentry 2 coordinator-verdict '"owed": "withdrawal"')"
+row_owed "an owed reply" "decision-owed reply" "decision-owed reply" \
+    "$(dentry 3 settled '"owed": "reply", "outcome": "wait; reason: r", "decided_by": "a person", "source": "worker w1 [20260925T080000Z report 1.1]"')"
+row_owed "an owed escalation" "decision-owed escalate" "decision-owed escalate" "$(dentry 5 escalated "$ESC, \"owed\": \"escalation\"")"
+# 7 and 8, and the two rows that block nothing.
+row_owed "a proposed entry" "decision-owed take" "ok gamma" "$(dentry 6 proposed)"
+row_owed "an unjudged entry" "decision-owed verdict" "ok gamma" "$(dentry 7 coordinator-verdict)"
+row_owed "a held entry" "ok beta" "ok gamma" "$(dentry 7 coordinator-verdict '"verdict": "hold", "reason": "waits on the benchmark"')"
+row_owed "an escalated entry that owes nothing" "ok beta" "ok gamma" "$(dentry 5 escalated "$ESC")"
+OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)" 7; bash "$DC" --session "$S" 2>/dev/null)
+tok_shape "decision-owed is in koto's capture alphabet" "$OUT"
 
 echo "== check mode: a topic already held =="
 pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
@@ -228,7 +320,7 @@ dseed() { # dseed <record-json> [handoff-on-main: yes|no]
 }
 dsession() {
     N=$((N + 1))
-    S="coordinate-discipline-ci-health-20260926T0800${N}Z"
+    S="coordinate-discipline-ci-health-20260926T08$(printf %02d "$N")00Z"
     found_session "$S" "$(discipline_vars ci-health)" 22
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
     log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
@@ -247,6 +339,18 @@ db '.issues += [{repo: "acme/widgets", number: 12, title: "lint", body: "", stat
 eq "filed into the record passes" "ok beta" "$(check)"
 dseed "$(record_json discipline ci-health)" no
 eq "no handoff file on the default branch is no deferral" "ok beta" "$(check)"
+# 1 carry: the handoff's unsettled entry isn't in this record yet. It blocks
+# the first dispatch; a later one never meets it, since the carry is refused
+# after the first dispatch.
+dseed "$(record_json discipline ci-health)" no
+record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '. + {decisions: {next: 9, entries: $e},
+    rotation: {start: "2026-09-19", end: "2026-09-26", date: "2026-09-26", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"},
+    reasoning: "Lint is flaky."}' | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$HP" --arg t "$(cat "$T/prev.md")"
+dsession
+eq "a carry owed: the first dispatch" "decision-owed carry" "$(check)"
+later
+eq "a carry owed: a later dispatch" "ok gamma" "$(check)"
 echo "-- after the first pass --"
 dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"closed: fixed upstream"}')"
 dsession

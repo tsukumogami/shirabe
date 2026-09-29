@@ -61,6 +61,13 @@
 #                  open leg with a child attached), result: a short
 #                  token -- a result map's outcome, or the engine's own
 #                  terminal status and final state, or "refused:<reason>"
+#       settle     settled (bool), now (the row's status after it), reason:
+#                  the pass's one write, a row read `dispatching` whose
+#                  worker was found live (and its leg, if any, bound or
+#                  resolved) rewritten `dispatched` (reconcile-settle.sh); a
+#                  row that is `dispatched` now, by this write or an earlier
+#                  pass's, is reported under changes, a failed settle under
+#                  not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
@@ -235,7 +242,7 @@ def next_code_of:
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
-  {drop: "drop from holdings", decide: "decide: re-dispatch or drop",
+  {drop: "drop from holdings", decide: "with me: re-dispatch or drop",
    fix_ci: "worker fixes CI", land: "ready to land",
    held: "verified; merge withheld by the human\u0027s direction, waiting on them",
    wait: "wait on worker",
@@ -243,8 +250,11 @@ def next_text:
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
-  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap
+  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
   | [
+      (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
+        {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
+       else empty end),
       (if ok($pr) and $pr.state != "OPEN" then
         {topic: $t, what: "pull request", recorded: "open", live: ($pr.state | ascii_downcase), written: $written, grade: "measured"}
        else empty end),
@@ -314,6 +324,7 @@ def changes_of($written):
                         else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
                      else "inventory could not be taken" + (if ($inv.reason // "") != "" then " (" + $inv.reason + ")" else "" end) end)}],
+    decisions: [$in.decisions[]? | {decision, question, recommendation, reason, target}],
     side_effects: [$in.side_effects[]? | (.fact // {verdict: "not_rechecked"}) as $fact | . + {fact: $fact}
       | ((.fact.status // "ok") == "ok") as $read
       | {action: (.row.action // ""), target: (.row.target // ""),
@@ -352,7 +363,7 @@ def changes_of($written):
           | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
+    [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 | def status_of: .phase
       + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
@@ -367,11 +378,20 @@ def changes_of($written):
   def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: (.pull_request // "none yet"), status: status_of, next: .next};
   .table = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | row("Ready to merge")]
-    + [.holdings[] | select(.next_code == "decide") | row("Blocked on you")]
+    # A person is asked only about an escalated decision entry or a step the
+    # workspace reserves for one. A holding whose pull request was closed is
+    # a call for the coordinator (it holds the dispatch), so it stays Ongoing,
+    # and a coordinator that cannot make it raises a decision entry for it.
+    + [.decisions[] | select(.target == "a person")
+       | {kind: "Blocked on you", unit: .question, session: null, pr: null, status: "decide",
+          next: ("recommended: " + .recommendation + ", because " + .reason)}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
        | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
           next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
-    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again") | row("Ongoing")])
+    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again" or .next_code == "decide") | row("Ongoing")]
+    + [.decisions[] | select(.target != "a person")
+       | {kind: "Ongoing", unit: .question, session: null, pr: null,
+          status: ("with `" + (.target | sub("^coordinator "; "")) + "` for a decision"), next: null}])
 '
 
 if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then
@@ -421,6 +441,7 @@ def code: "`" + . + "`";
 section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
+       elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)

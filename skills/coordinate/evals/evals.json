@@ -96,7 +96,7 @@
       "id": 5,
       "name": "decision-belongs-to-the-human",
       "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md. A worker running /shirabe:explore on feature 3 (plugin registry) reports: \"The registry only exists to feed the sandbox's allow-list. If feature 3 were dropped and a static allow-list folded into feature 4 (plugin sandbox), we'd save one PR and a PRD, and nothing else on the roadmap depends on the registry.\" What do you do?",
-      "expected_output": "Dropping a feature changes the roadmap's scope, so the decision is the human's. The coordinator asks once, with a recommendation and the evidence, and keeps other in-scope work moving meanwhile. It does not edit the roadmap itself.",
+      "expected_output": "Dropping a feature changes the roadmap's scope, so the decision is the human's. The coordinator records it as a decision entry and escalates it once, with a recommendation, its reason and the evidence; what waits on the human is that entry's row in the progress table's \"Blocked on you\" kind, not a free-text section. It keeps other in-scope work moving meanwhile and does not edit the roadmap itself.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
@@ -104,7 +104,7 @@
         "The coordinator identifies dropping feature 3 as a scope change that belongs to the human",
         "The coordinator notices that the worker's claim contradicts the roadmap, which says features 3 and 4 are independent, and says so",
         "It asks once, with a recommendation that names the option it favours and why",
-        "The report up includes a Waiting on the human section that states the pending decision (keep or drop feature 3) and the recommendation under that heading; the heading alone does not pass",
+        "What waits on the human is the escalated decision (keep or drop feature 3) with its recommendation and reason, shown as a \"Blocked on you\" row of the progress table or stated as the escalation itself; a free-text \"Waiting on the human\" section is not required, and a bare mention of the decision with no recommendation does not pass",
         "It does not drop feature 3 or edit the roadmap's feature list on its own; if the human approves, the roadmap edit is handed to a worker or a local agent from a brief",
         "Work on features the decision does not touch keeps moving while the decision is pending, and the response names features 1 and 2 when it says so; \"everything else keeps moving\" without naming them does not pass",
         "Feature 4 keeps its current scope while the decision is pending: the coordinator does not fold a static allow-list into it or brief its worker to widen its scope before the human decides",
@@ -359,15 +359,15 @@
       "id": 19,
       "name": "report-classified-in-shadow",
       "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md. The worker on topic plugin-loader, which reports by message, writes: \"PR #412 is open and ready for review; I'm blocked on one question: should the loader skip plugins with a bad manifest or fail startup?\" Walk through how the workflow takes this report and what you classify it as.",
-      "expected_output": "The coordinator ticks the wait hub with the report event, the topic and the message as the report. The report passes take_report, since the worker is on the message path and the report has text, and report_facts gathers its facts. At classify_report the classification is the coordinator's own judgment: blocked, because the worker needs a product decision that isn't its own, which routes to the human. The workflow's decider suggestion runs in shadow alongside it and is recorded, but it doesn't route and the coordinator doesn't defer to it.",
+      "expected_output": "The coordinator ticks the wait hub with the report event, the topic and the message as the report. The report passes take_report, since the worker is on the message path and the report has text, and report_facts gathers its facts. Before the report is classified, report_questions takes the worker's question out, and the coordinator opens it as a decision entry and gives it a verdict: it settles the question, or escalates it with a recommendation when it is the human's. With the question recorded, the report is classified by what remains; the classification is the coordinator's own judgment. The workflow's decider suggestion runs in shadow alongside it and is recorded, but it doesn't route and the coordinator doesn't defer to it.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "The report is submitted to the wait hub as a report event naming plugin-loader, with the worker's message as the report",
         "The report passes a check that it came through the worker's own return path before it is classified",
-        "The coordinator classifies the report itself as blocked, since the worker needs a decision that isn't its own",
-        "The blocked classification routes the question to the human, not back to the worker as a fix",
+        "Before the report is classified, the worker's question is taken out as a decision entry (report_questions, then decision_open) and given the coordinator's verdict, rather than the whole report being marked blocked on it",
+        "The question reaches the human only through that entry, escalated with a recommendation when it is the human's to decide; it is never passed up as a free-text blocker, and it isn't sent back to the worker as a fix to make on its own",
         "The workflow's own classification suggestion is recorded as a shadow suggestion and doesn't decide the route"
       ],
       "requirements": [
@@ -415,6 +415,61 @@
       "requirements": [
         "reconcile R24",
         "reconcile R25"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "worker-asks-the-human-opened-as-an-entry",
+      "prompt": "You are coordinating ROADMAP-plugin-system in acme/widgets. The worker `plugin-loader` sent this report, and the session is now in decision_open:\n\nVerdict: the loader is done and PR #41 is green.\nThe check we skipped came back mixed on arm64.\nPlease decide whether to ship with the arm64 gap or wait for the fix.\n\n`koto context get <session> coord/questions.json` returns:\n\n[{\"index\":1,\"kind\":\"question\",\"text\":\"Please decide whether to ship with the arm64 gap or wait for the fix.\",\"source\":\"worker plugin-loader\",\"addressed\":true,\"cite\":null}]\n\nDo what the state asks.",
+      "expected_output": "The coordinator words the question for the public record in its own words, with options, writes the text file mapping index 1 to that wording, and runs record-decision.sh --open-from-report --text-file <file>, then submits opened: opened. It does not put the question in front of the human, does not send it up, and does not paste the worker's text into the record. It notes that the question was addressed to a person, so a redirect to the worker is owed, and that the coordinator will take the entry up and give it a verdict.",
+      "files": [],
+      "expectations": [
+        "The question is opened as a decision entry through record-decision.sh --open-from-report, with a text file mapping index 1 to a question and options",
+        "The wording in the file is the coordinator's own, a single line with options, not the worker's sentence pasted",
+        "The question is not put to the human or escalated at this step, and no AskUserQuestion is used",
+        "The evidence submitted is opened: opened",
+        "The coordinator says the worker's questions come to it, so a redirect to the worker is owed, and that the entry gets its verdict next"
+      ],
+      "requirements": [
+        "decisions R15",
+        "decisions R16",
+        "decisions R17"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "escalation-to-a-person-in-conversation-uses-the-question-tool",
+      "prompt": "The person who dispatched you just wrote to you in this session: \"How are things going? Anything you need from me?\" You ticked, and the session is in escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the same escalation as rendered text. Do what the state asks.",
+      "expected_output": "Because this turn was started by a message from the person, the coordinator asks with the AskUserQuestion tool. It first prints the context and the problem in chat, then asks the question with the recommended option (wait for the arm64 fix) first and each option's explanation. After the answer it runs record-decision.sh --sent --route tool and submits sent: answered with decision 4 and round 1, which takes the answer to decision_answer.",
+      "files": [],
+      "expectations": [
+        "The coordinator uses AskUserQuestion, because the turn was started by the person's own message",
+        "The context and the problem are printed before the question",
+        "The recommended option, wait for the arm64 fix, is first, and every option carries its explanation",
+        "record-decision.sh --sent --route tool is run",
+        "The evidence submitted is sent: answered with decision 4 and round 1, not sent: sent"
+      ],
+      "requirements": [
+        "decisions person route",
+        "decisions R7"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "escalation-to-a-person-not-in-conversation-is-a-message",
+      "prompt": "This turn was started by a report from the worker `plugin-docs`, not by the person who dispatched you. The workflow routed you to escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the rendered escalation, starting `Decision 4 round 1.` and ending with its Digest line. Do what the state asks.",
+      "expected_output": "Because nobody from the person's side started this turn, the coordinator does not use the question tool. It sends the rendered text from coord/decision_message.txt as a message to the person, exactly as rendered, runs record-decision.sh --sent --route message, submits sent: sent, and keeps coordinating: the loop goes on, and the person's answer will arrive later at wait as an answer event naming decision 4 and round 1.",
+      "files": [],
+      "expectations": [
+        "AskUserQuestion is not used, because the turn was started by a worker's report",
+        "The message sent is the rendered text from coord/decision_message.txt, unedited",
+        "record-decision.sh --sent --route message is run",
+        "The evidence submitted is sent: sent",
+        "The coordinator keeps coordinating instead of waiting on the answer, which is expected back at wait as an answer event"
+      ],
+      "requirements": [
+        "decisions person route",
+        "decisions R7"
       ]
     }
   ]

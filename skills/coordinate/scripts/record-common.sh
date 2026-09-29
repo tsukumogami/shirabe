@@ -273,6 +273,15 @@ lib_drop_disposed() {
 
 lib_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# lib_run_stamp: RUN, the run's own stamp, the UTC time in the session's name
+# (coordinate-<slug>-<YYYYMMDDTHHMMSSZ>, one per run). Every Decisions stamp
+# starts with it, so a write keyed on a log sequence is never mistaken for
+# another run's: sequences restart with each run, the record outlives them.
+lib_run_stamp() {
+    RUN=${SESSION##*-}
+    [[ $RUN =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || lib_die2 "the session's name carries no run stamp: $SESSION"
+}
+
 # lib_log_readable: the session's log is there and in a schema coord-log.sh
 # knows. A check calls it before its first GitHub read, so a run whose log
 # can't be read reads nothing; every event it needs comes through coord-log.sh.

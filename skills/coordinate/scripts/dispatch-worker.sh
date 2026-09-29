@@ -31,7 +31,10 @@
 #      stopped partway. When `niwa list --json` shows the topic's session, go
 #      to step 7 and confirm; otherwise re-check and re-render the brief
 #      (steps 3 and 4, reusing the recorded return path, so no second leg) and
-#      launch at step 6.
+#      launch at step 6. This applies within the dispatch of the same topic
+#      in the same run; once dispatch_check has seen the row, it refuses the
+#      topic as duplicate-topic, and a later run's reconcile settles the row
+#      instead (reconcile-settle.sh).
 #   2. Refuse a topic a live session already uses (exit 5): koto session names
 #      are machine-wide, so a second worker on one topic would collide.
 #   3. Check the brief input (render-brief.sh). A refusal exits 1 with
@@ -202,6 +205,7 @@ write_row() {
     case "$?" in
         0) return 0 ;;
         10) die 8 "the record refused the write for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        13) die 2 "the record is full (record-full): compact settled decisions or prune the record, then write the holding for $TOPIC again" ;;
         65) die 2 "the record refused the row for $TOPIC as malformed" ;;
         *) die 2 "writing the holding for $TOPIC failed" ;;
     esac

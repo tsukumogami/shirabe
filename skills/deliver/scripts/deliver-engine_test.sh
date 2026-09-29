@@ -35,7 +35,10 @@
 #   - /scope stopping early (scope-ended-early naming which), its errors, an
 #     unrecognised outcome (deliver:child-outcome), the multi-pr hand-off with
 #     no /execute leg bound, the interactive confirmation (stop and proceed),
-#     /execute's pauses and errors, an abandoned request, a private repository
+#     /execute's pauses and errors, an abandoned request
+#   - a private repository runs to its PR, the scope step's real publish
+#     pushing past the public-content visibility check, which still stops
+#     the same push in a public repository
 #   - the stale-run fence: a new run abandons the old request, and the old
 #     run's child finishing later does not answer the new run's leg
 #
@@ -197,7 +200,8 @@ child_template "$T/forged/forged.md" forged "  PLAN_SLUG:
 # --- fixtures -----------------------------------------------------------------------
 
 # fixture <topic> <single-pr|multi-pr|coordinated|executed|private> -- a
-# repository on docs/<topic>, pushed to a bare origin. Sets R, TOPIC, URL,
+# repository on docs/<topic>, pushed to a bare origin (`private` is a
+# single-pr PLAN in a repository declaring Private). Sets R, TOPIC, URL,
 # GH_DB (one owned open PR on the topic branch recording intent=continue).
 fixture() {
     TOPIC="$1"
@@ -531,15 +535,50 @@ k request abandon-request "$REQ" --rationale test >/dev/null
 tick
 expect "an abandoned request" done_error outcome=error step=deliver:request-abandoned
 
+# A private repository runs the whole chain. The scope step publishes for real
+# through publish-scoping-pr.sh, over an unpushed wip/ file that names a
+# private path: the public-content visibility check reads the repository's
+# own header at the push, so it passes the push here and stops it below.
+# wip_commit -- commit a wip/ file carrying a private-path marker, unpushed.
+wip_commit() {
+    mkdir -p "$R/wip"
+    printf 'notes kept beside private/planning-notes.md\n' >"$R/wip/notes.md"
+    g add wip/notes.md
+    g commit -q -m "wip: notes"
+}
+publish() { # publish -- /scope's publish step, run as /scope runs it
+    (cd "$R" && bash "$REPO_ROOT/skills/scope/scripts/publish-scoping-pr.sh" \
+        --topic "$TOPIC" --exit full-run --intent continue) >"$T/publish.out" 2>"$T/publish.err"
+}
 fixture private private
-k init "deliver-$TOPIC" --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" >/dev/null 2>&1
-tick
-expect "a private repository" done_refused "$(printf 'outcome=%s' refused)" reason=private-repo step=deliver:refused
-if k request list --coordinator-of-record "deliver-$TOPIC" | jq -e '.requests | length == 0' >/dev/null; then
-    pass "private: no request was opened"
+wip_commit
+start auto
+publish
+eq "private: the publish step pushes (exit 0)" 0 "$?"
+if grep -q '^wip_paths=wip/notes.md$' "$T/publish.out"; then
+    pass "private: the push step read the wip/ paths"
 else
-    fail "private: no request was opened"
+    fail "private: the push step read the wip/ paths" "$(cat "$T/publish.out" "$T/publish.err")"
 fi
+eq "private: origin holds the pushed head" "$(g rev-parse HEAD)" "$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)"
+to_execute_run
+eq "private: at execute_run" execute_run "$(state)"
+db_set '(.prs[] | select(.number == 42) | .state) = "MERGED"'
+child execute "{\"outcome\":\"merged\",\"pr\":\"$URL\",\"repos\":\"acme/widgets\"}"
+tick
+expect "a private repository reaches its PR" done outcome=merged "pr=$URL"
+
+fixture public-scan single-pr
+wip_commit
+BEFORE=$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)
+publish
+eq "public: the visibility check stops the push (exit 10)" 10 "$?"
+if grep -q '^step=scope:push$' "$T/publish.out" && grep -q 'visibility check found private-repository content in wip/notes.md' "$T/publish.err"; then
+    pass "public: the refusal names scope:push and the file"
+else
+    fail "public: the refusal names scope:push and the file" "$(cat "$T/publish.out" "$T/publish.err")"
+fi
+eq "public: nothing was pushed" "$BEFORE" "$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)"
 
 echo "== the stale-run fence =="
 fixture fence single-pr

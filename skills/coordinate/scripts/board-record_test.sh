@@ -6,8 +6,15 @@
 # Covers: a verified board (the token carries the head, sealed to the latest
 # entry into verify_board, and coord/board.json's verdict, head, reasons and
 # skipped match the board read); every unverified fixture prints unverified
-# with no head; a pending board; an error verdict and a failed context write
-# exit 2; no prediction since the latest arrival at verify exits 2 with
+# with no head; a pending board; a refused check rollup reads source
+# `actions` and prints actions-green (never verified, even with a check only
+# isRequired names unseen); a failed board read or the deadline prints
+# board-unreadable, a merged pull request not-open, and a pull request no
+# single holding links (none, two repositories, a bad link) unlinked with a
+# reason for each (nothing read), each sealed with its reason in
+# coord/board.json in board-verdict.sh's shape; an unreadable record prints
+# board-unreadable; a failed context write exits 2; no
+# prediction since the latest arrival at verify exits 2 with
 # nothing read; the pull request from report_facts's REPORT capture (none,
 # stale, unsealed or absent exits 2); --no-seal; the repository from the
 # record's Holdings row.
@@ -65,12 +72,54 @@ for cf in "$TD"/board/cases/*.jq; do
     fi
 done
 
-echo "== errors exit 2 =="
+echo "== checks the token can't read =="
+fresh; bt_board checks-refused
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
+eq "a refused check rollup, green from the Actions jobs: actions-green, no head" "actions-green 12 none" "${OUT% sealed:*}"
+eq "and coord/board.json names the source it read" actions "$(ctx | jq -r .source)"
+fresh; bt_board checks-refused-rollup-only-required
+eq "a check only isRequired names, unseen under the fallback: still actions-green, never verified" "actions-green 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board
+bash "$BR" --session "$S" --pr 12 --repo acme/widgets >/dev/null 2>&1
+eq "a readable rollup is the checks source" checks "$(ctx | jq -r .source)"
+
+echo "== a board that can't be judged still leaves verify_board =="
 fresh; bt_board rules-unreadable
-bash "$BR" --session "$S" --pr 12 --repo acme/widgets >"$T/out" 2>"$T/err"; rc=$?
-eq "an error verdict exits 2" 2 $rc
-[ ! -s "$T/out" ] && [ -z "$(ctx)" ] && ok "and prints and records nothing" || bad "and prints and records nothing" "$(cat "$T/out") $(ctx)"
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
+eq "a board read that fails exits 0" 0 $rc
+eq "with unreadable" "board-unreadable 12 none" "${OUT% sealed:*}"
+bash "$CL" check --session "$S" --state verify_board --sealed "$OUT" && ok "sealed to the latest entry into verify_board" || bad "sealed to the latest entry into verify_board"
+eq "and coord/board.json keeps the reason" required-set-unreadable "$(ctx | jq -r '.reasons[0].code')"
 grep -q 'required-set-unreadable' "$T/err" && ok "naming the reason on stderr" || bad "naming the reason on stderr" "$(cat "$T/err")"
+fresh; bt_board deadline
+eq "a read past the deadline: unreadable" "board-unreadable 12 none" "$(BOARD_DEADLINE_SECS=2 bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board pr-merged
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
+eq "a merged pull request: not-open" "0 not-open 12 none" "$rc ${OUT% sealed:*}"
+eq "and coord/board.json says it merged" MERGED "$(ctx | jq -r .pr_state)"
+fresh; bt_board complete-board; bt_holdings "[#9](https://github.com/acme/widgets/pull/9)"
+rm -f "$GH_BOARD_DIR/calls"
+OUT=$(bash "$BR" --session "$S" --pr 12 2>"$T/err"); rc=$?
+eq "no holding links #12 (torn down after it merged): unlinked" "0 unlinked 12 none" "$rc ${OUT% sealed:*}"
+eq "and coord/board.json says why" no-holding "$(ctx | jq -r '.reasons[0].code')"
+[ ! -s "$GH_BOARD_DIR/calls" ] && ok "and no board was read without a repository" || bad "and no board was read without a repository" "$(cat "$GH_BOARD_DIR/calls")"
+bash "$PS/board-verdict.sh" --repo acme/widgets --pr 12 > "$T/direct" 2>/dev/null
+eq "in board-verdict.sh's shape" "$(jq -c 'keys' "$T/direct")" "$(ctx | jq -c 'keys')"
+bt_holdings "[#12](https://github.com/acme/widgets/pull/12)" "[#12](https://github.com/acme/gadgets/pull/12)"
+fresh
+eq "#12 linked in two repositories: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "naming the two repositories as the reason" several-holdings "$(ctx | jq -r '.reasons[0].code')"
+bt_holdings "[#12](https://github.com/acme/../pull/12)"
+fresh
+eq "#12 linked to a repository that isn't owner/repo: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "naming the bad link as the reason" bad-link "$(ctx | jq -r '.reasons[0].code')"
+echo 2 > "$BT_STATE/holding.rc"
+fresh
+eq "the holdings can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 2>/dev/null | sed 's/ sealed:.*//')"
+eq "in board-verdict.sh's shape too" "$(jq -c 'keys' "$T/direct")" "$(ctx | jq -c 'keys')"
+rm -f "$BT_STATE/holding.rc"
+
+echo "== errors exit 2 =="
 fresh; bt_board complete-board; touch "$KOTO_BOARD_DIR/fail-context"
 bash "$BR" --session "$S" --pr 12 --repo acme/widgets >"$T/out" 2>/dev/null; eq "a failed context write exits 2" 2 $?
 rm -f "$KOTO_BOARD_DIR/fail-context"
@@ -126,7 +175,7 @@ eq "--no-seal prints the bare token" "verified 12 $H" "$(bash "$BR" --session "$
 bt_holdings "[#12](https://github.com/acme/widgets/pull/12)"
 eq "without --repo, the Holdings row linking #12 names the repository" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
 bt_holdings "[#9](https://github.com/acme/widgets/pull/9)"
-bash "$BR" --session "$S" --pr 12 --no-seal >/dev/null 2>&1; eq "no holding links #12: exit 2" 2 $?
+eq "no holding links #12: unlinked" "unlinked 12 none" "$(bash "$BR" --session "$S" --pr 12 --no-seal 2>/dev/null)"
 bash "$BR" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$BR" --pr 12 >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 bash "$BR" --session "$S" --pr x12 >/dev/null 2>&1; eq "a malformed number: exit 64" 64 $?

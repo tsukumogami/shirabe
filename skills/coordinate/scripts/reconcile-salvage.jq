@@ -53,23 +53,36 @@ def salvage_sections($parts):
    | salvage_table($sec; $p[($sec.title | length) + 2:]) | {key: $sec.key, value: .}]
   | {tables: (map({key, value: .value.rows}) | from_entries), unparseable: (map(.value.bad[]))};
 
+# salvage_decisions($p) -> {decisions: ...} or, when the section can't be read,
+# {unparseable: [one item naming it]}. Reconcile re-checks no decision, so a
+# Decisions section it can't read costs nothing but that report line: every
+# other row is still read and re-checked.
+def salvage_decisions($p):
+  try {decisions: check_decisions(parse_decisions($p); [])}
+  catch {unparseable: [{raw: "## \(decisions_title)", reason: (. | tostring | reason_of)}]};
+
 def salvage_record:
   normalized | split("\n\n## ") as $parts
-  | if ($parts | length) != 5 then refuse("expected four sections, found \(($parts | length) - 1)") else . end
+  | if ($parts | length) != 5 and ($parts | length) != 6 then refuse("expected four sections and an optional Decisions, found \(($parts | length) - 1)") else . end
   | ($parts[0] | split("\n")) as $head
   | ([$head | to_entries[] | select(.value | startswith("> This is a **coordinator record** for ")) | .key]) as $at
   | if ($at | length) != 1 then refuse("expected one declaration line") else . end
   | ($head[$at[0] + 2] // "") as $wline
   | ($wline | capture("^Written: (?<w>.*)$") // refuse("no Written: line")).w as $written
   | salvage_sections($parts[1:5]) as $s
-  | {scope: parse_scope($head[$at[0]]), written: $written} + $s.tables + {unparseable: $s.unparseable};
+  | (if ($parts | length) == 6 then salvage_decisions($parts[5]) else {} end) as $d
+  | {scope: parse_scope($head[$at[0]]), written: $written} + $s.tables
+    + (if $d.decisions != null then {decisions: $d.decisions} else {} end)
+    + {unparseable: ($s.unparseable + ($d.unparseable // []))};
 
 # A handoff whose reasoning section is missing, or present and empty, still
 # has its four tables read; its reasoning is "".
 def salvage_handoff:
   normalized | split("\n\n## ") as $parts
   | if ($parts | length) < 5 then refuse("expected four sections") else . end
-  | ($parts[5:] | join("\n\n## ")) as $rp
+  | (($parts[5] // "") | startswith(decisions_title + "\n\n")) as $has_d
+  | (if $has_d then salvage_decisions($parts[5]) else {} end) as $d
+  | ((if $has_d then $parts[6:] else $parts[5:] end) | join("\n\n## ")) as $rp
   | (if $rp == "" or $rp == "Reasoning for the next rotation" then ""
      elif ($rp | startswith("Reasoning for the next rotation\n\n")) then $rp[("Reasoning for the next rotation\n\n" | length):]
      else refuse("expected ## Reasoning for the next rotation last") end) as $text
@@ -81,4 +94,6 @@ def salvage_handoff:
   | {scope: {kind: "discipline", name: $h.n},
      rotation: {start: $i.s, end: $i.e, date: $h.d, host_repo: $i.r, record_url: $i.u}}
     + (if $p != null and $text == predecessor_sentence then {predecessor_copy: {written: $p.w}} else {reasoning: $text} end)
-    + $s.tables + {unparseable: $s.unparseable};
+    + $s.tables
+    + (if $d.decisions != null then {decisions: $d.decisions} else {} end)
+    + {unparseable: ($s.unparseable + ($d.unparseable // []))};

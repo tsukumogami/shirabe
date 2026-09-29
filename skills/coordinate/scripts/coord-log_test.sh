@@ -10,8 +10,9 @@
 # run-start, vars, entered, entry, evidence (--where, --has), captures, unit
 # (the message and leg paths), count, slug, live-session --all, the refusal of
 # a header whose schema_version isn't 1, provenance by template hash and
-# plugin root, and coord-verdict.sh's exit codes for a valid, a stale and an
-# unknown token.
+# plugin root (and, after the plugin is rewritten in place, by the template
+# path koto compiled the run from and the compiled copy it runs), and
+# coord-verdict.sh's exit codes for a valid, a stale and an unknown token.
 #
 # Usage: bash skills/coordinate/scripts/coord-log_test.sh
 set -uo pipefail
@@ -32,6 +33,7 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     eq "$L: vars" roadmap "$(bash "$CL" vars --session "$S" | jq -r .SCOPE)"
     bash "$CL" entered --session "$S" --state record_find; eq "$L: entered finds a visited state" 0 $?
     bash "$CL" entered --session "$S" --state dispatch; eq "$L: entered reports an unvisited state" 1 $?
+    eq "$L: current is the latest transition's target and its sequence" "reconcile 5" "$(bash "$CL" current --session "$S")"
     bash "$CV" --session "$S" --state record_find --capture "$CAP1"; eq "$L: coord-verdict maps found to 10" 10 $?
     bash "$CV" --session "$S" --state record_find --capture "found 8 ${CAP1#found 7 }" 2>/dev/null; eq "$L: an edited token is refused" 1 $?
     bash "$CV" --session "$S" --state record_find --capture "found 7" 2>/dev/null; eq "$L: an unsealed token is refused" 1 $?
@@ -68,6 +70,37 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     S3=coordinate-alien-20260926T080000Z
     rm -rf "$KOTO_STORE/sessions/$S3"; found_session "$S3" "$(roadmap_vars alien | jq -c '.PLUGIN_ROOT = "/elsewhere"')" 7
     bash "$CL" provenance --session "$S3" 2>/dev/null; eq "$L: provenance fails for another plugin root" 1 $?
+    # The plugin rewritten in place since the run opened: the shipped template
+    # now compiles to another hash, but koto opened the run from the shipped
+    # template's path and still holds the compiled copy it runs it from.
+    local SHIPPED="$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" S5=coordinate-swap-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S5"; found_session "$S5" "$(roadmap_vars swap)" 7
+    H5=$(opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}')
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes after the plugin is rewritten in place" 0 $?
+    rm -f "$KOTO_STORE/cache/$H5.json"
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5" 2>/dev/null; eq "$L: provenance fails once the run's compiled copy is gone" 1 $?
+    opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}' >/dev/null
+    printf 'edited' > "$KOTO_STORE/cache/$H5.json"
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5" 2>/dev/null; eq "$L: provenance fails when the run's compiled copy no longer matches its hash" 1 $?
+    # A reinstall that left the shipped template uncompilable.
+    opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}' >/dev/null
+    KOTO_COMPILE_FAIL=1 bash "$CL" provenance --session "$S5"; eq "$L: provenance passes when the rewritten template doesn't compile" 0 $?
+    # koto opened the run through a symlink to the shipped directory.
+    rm -rf "$T/linked"; ln -s "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates" "$T/linked"
+    opened_from "$S5" "$T/linked/coordinate.md" '{"compiled":"as opened"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes for a source directory reached through a symlink" 0 $?
+    # A foreign session: opened from a real copy of the template at another path.
+    local S6=coordinate-foreign-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S6"; found_session "$S6" "$(roadmap_vars foreign)" 7
+    mkdir -p "$T/elsewhere"; cp "$SHIPPED" "$T/elsewhere/coordinate.md"
+    opened_from "$S6" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for a session opened from another template path" 1 $?
+    opened_from "$S6" "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/other.md" '{"compiled":"foreign"}' >/dev/null
+    KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for another template beside the shipped one" 1 $?
+    # A relative source directory names no fixed place, so it never matches,
+    # even one that would resolve to the shipped directory from here.
+    opened_from "$S6" "skills/coordinate/koto-templates/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+    (cd "$PLUGIN_ROOT_REAL" && KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null); eq "$L: provenance fails for a relative source directory" 1 $?
     bash "$CL" frobnicate 2>/dev/null; eq "$L: an unknown subcommand is a usage error" 64 $?
     event_reads "$L"
 }
@@ -82,6 +115,16 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     log_evidence "$S" wait '{"event":"tick"}'                                  # 6
     eq "$L: entry prints the seq and the source" "4 wait" "$(bash "$CL" entry --session "$S" --state report_facts)"
     bash "$CL" entry --session "$S" --state report_facts --before 4; eq "$L: entry before the only entry is none" 1 $?
+    eq "$L: entry --with-time adds the entry's timestamp" "4 wait 2026-09-26T10:00:00.000Z" "$(bash "$CL" entry --session "$S" --state report_facts --with-time)"
+    bash "$CL" entry --session "$S" --state wait --with-time >/dev/null 2>&1; eq "$L: entry --with-time into a state never entered is none" 1 $?
+    local S2=coordinate-twice-20260926T080000Z
+    rm -rf "$KOTO_STORE/sessions/$S2" "$KOTO_STORE/context/$S2"
+    log_new "$S2" "$(roadmap_vars twice)"                                      # seq 1-2
+    log_to "$S2" pick_facts wait 2026-09-26T09:00:00.000Z                     # 3
+    log_to "$S2" wait decision_apply 2026-09-26T09:05:00.000Z                 # 4
+    log_to "$S2" pick_facts wait 2026-09-26T09:10:00.000Z                     # 5
+    eq "$L: entry --with-time into a state entered twice is the latest" "5 pick_facts 2026-09-26T09:10:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --with-time)"
+    eq "$L: entry --with-time --before takes the earlier one" "3 pick_facts 2026-09-26T09:00:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --before 5 --with-time)"
     eq "$L: evidence is the latest in the state" 6 "$(bash "$CL" evidence --session "$S" --state wait | jq .seq)"
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"

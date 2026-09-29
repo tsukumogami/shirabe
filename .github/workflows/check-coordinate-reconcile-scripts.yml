@@ -38,6 +38,7 @@ jobs:
           bash skills/coordinate/scripts/reconcile-check_test.sh
           bash skills/coordinate/scripts/reconcile-read_test.sh
           bash skills/coordinate/scripts/reconcile-pass_test.sh
+          bash skills/coordinate/scripts/reconcile-settle_test.sh
 
       # The runner refuses a /bin/bash that is not 3.2 and keeps a nested
       # `bash` on 3.2 as well.

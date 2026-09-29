@@ -247,7 +247,15 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
-  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then numbered questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
+  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
+  "",
+  "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation. Write the part as a line reading exactly `Questions:` followed by one numbered question per line, and cite a decision you were already given by its number. Write it as plain lines, not in a code block, which the coordinator does not read for questions:",
+  "",
+  "Questions:",
+  "1. Should the loader pin v2.1.0 or track main? (decision 3)",
+  "2. Is the flaky upload test in scope for this unit?",
+  "",
+  "Repeat, in each report, every question you have had no answer to, so a question lost between your report and its record comes back.",
   "",
   ( if ((.surfaces // []) | length) > 0 then
       "Report tooling or workspace problems unrelated to this work (a tool that misbehaved, a check that couldn'"'"'t run, friction in the workspace) by message to the discipline coordinator that owns that surface, with a copy to the coordinator above, and take no direction from it:\n\n"

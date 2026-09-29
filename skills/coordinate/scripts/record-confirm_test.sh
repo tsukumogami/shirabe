@@ -10,7 +10,14 @@
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
 # and acme/gadgets#12 are both held: the unit is found by its Worker from the
 # log, links are matched by their full URL, and the live head is read from
-# the unit's own repository; a bare #12 never confirms. Also: an older
+# the unit's own repository; a bare #12 never confirms. The natural order:
+# for decision_apply (reversal and deferral) and surface(merge_table), a
+# record written after the run reached the hub but before the evidence that
+# leaves the step confirms with no rewrite, and one written before the hub
+# waits. posture_ask asked again mid-run, through record_find after the run
+# had been at the hub, doesn't accept an answer from before this ask.
+# teardown, which writes after its evidence, still compares with the
+# evidence's time. Also: an older
 # Written: time waits even when the rows match; a missing or non-canonical
 # body is a conflict; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail.
@@ -179,6 +186,16 @@ body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "teardown kept: a newer Written: confirms with the row kept" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
 eq "teardown kept: an older Written: waits" waiting "$(confirm)"
+# teardown writes the record after its evidence, so it keeps the evidence's
+# time: a body written after the hub but before `kept` doesn't count.
+session
+log_to "$S" pick_facts wait 2026-09-26T09:50:00.000Z
+log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait teardown 2026-09-26T09:50:00.000Z
+log_evidence "$S" teardown '{"outcome":"kept"}' "$EVT"
+log_to "$S" teardown record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
+eq "teardown kept: a body written after the hub but before the evidence still waits" waiting "$(confirm)"
 
 echo "== destroy (the dispatch path's teardown) =="
 destroy_run() { # destroy_run <outcome> <sealed topic>
@@ -214,6 +231,7 @@ eq "destroy: an inventory edited after sealing is a conflict" conflict "$(confir
 echo "== decision_apply =="
 REV='{"date":"2026-09-26T10:00Z","reversed":"merge on green","now":"hold","reason":"freeze","from":"the human"}'
 session
+log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait decision_apply "$EVT"
 log_evidence "$S" decision_apply '{"applied":"reversal"}' "$EVT"
 log_to "$S" decision_apply record "$EVT"
 body "$(rec | jq -c --argjson r "$REV" '.reversals = [$r]')"
@@ -221,6 +239,7 @@ eq "decision_apply reversal: a row dated at the event confirms" confirmed "$(con
 body "$(rec | jq -c --argjson r "$REV" '.reversals = [$r | .date = "2026-09-26T09:59Z"]')"
 eq "decision_apply reversal: only an earlier row waits" waiting "$(confirm)"
 session
+log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait decision_apply "$EVT"
 log_evidence "$S" decision_apply '{"applied":"deferral"}' "$EVT"
 log_to "$S" decision_apply record "$EVT"
 DEF='{"deferral":"flaky","reason":"later","raised":"2026-09-26T10:01Z","disposition":""}'
@@ -229,8 +248,65 @@ eq "decision_apply deferral: a row raised after the event confirms" confirmed "$
 body "$(rec | jq -c --argjson d "$DEF" '.deferrals = [$d | .raised = "2026-09-25T10:01Z"]')"
 eq "decision_apply deferral: only an older deferral waits" waiting "$(confirm)"
 
+echo "== the natural order: written before the evidence that leaves the step =="
+# decision_apply: the coordinator reached the hub at 09:50, the human's
+# reversal arrived, it was recorded at 09:55:30, and only then was the
+# decision ticked (09:56) and `change` submitted (10:00).
+session
+log_to "$S" pick_facts wait 2026-09-26T09:50:00.000Z
+log_evidence "$S" wait '{"event":"decision"}' 2026-09-26T09:56:00.000Z
+log_to "$S" wait decision_apply 2026-09-26T09:56:00.000Z
+log_evidence "$S" decision_apply '{"change":"reversal"}' "$EVT"
+log_to "$S" decision_apply record "$EVT"
+body "$(rec | jq -c --argjson r "$REV" '.reversals = [$r | .date = "2026-09-26T09:55Z"]')" 2026-09-26T09:55:30Z
+eq "decision_apply: a reversal recorded before the tick, since the hub, confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson r "$REV" '.reversals = [$r | .date = "2026-09-26T09:55Z"]')" 2026-09-26T09:49:00Z
+eq "decision_apply: a body written before the run reached the hub waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$REV" '.reversals = [$r | .date = "2026-09-26T09:40Z"]')" 2026-09-26T09:55:30Z
+eq "decision_apply: only a reversal dated before the hub waits" waiting "$(confirm)"
+session
+log_to "$S" pick_facts wait 2026-09-26T09:50:00.000Z
+log_to "$S" wait decision_apply 2026-09-26T09:56:00.000Z
+log_evidence "$S" decision_apply '{"change":"deferral"}' "$EVT"
+log_to "$S" decision_apply record "$EVT"
+body "$(rec | jq -c --argjson d "$DEF" '.deferrals = [$d | .raised = "2026-09-26T09:55Z"]')" 2026-09-26T09:55:30Z
+eq "decision_apply: a deferral recorded before the tick, since the hub, confirms" confirmed "$(confirm)"
+# surface(merge_table): the Verified head was written and confirmed at
+# verified_confirm (09:52), before land and surface; nothing is left to write.
+session
+log_to "$S" pick_facts wait 2026-09-26T09:50:00.000Z
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:10.000Z
+log_to "$S" wait take_report 2026-09-26T09:50:10.000Z; log_to "$S" take_report report_facts; log_to "$S" report_facts classify_report
+log_to "$S" classify_report verify; log_to "$S" verify verify_board; log_to "$S" verify_board verified_confirm
+log_to "$S" verified_confirm land; log_to "$S" land surface
+log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
+log_to "$S" surface record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" '.holdings = [$h]')" 2026-09-26T09:52:00Z
+eq "surface: the Verified head written at verified_confirm confirms with no rewrite" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" '.holdings = [$h]')" 2026-09-26T09:45:00Z
+eq "surface: a body written before the run reached the hub waits" waiting "$(confirm)"
+bash "$C" --session "$S" > /dev/null 2>&1
+eq "and the detail names the hub arrival as the point" "2026-09-26T09:50:00.000Z" "$(jq -r .event_time "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+
+# posture_ask asked again mid-run: dispatch_check found the record changed, the
+# run went back through record_find (09:05) to posture_ask (09:06) after it had
+# been at the hub (09:00). A posture answer from before this ask doesn't count.
+PREV_OLD='{"date":"2026-09-26T09:03Z","reversed":"posture unread","now":"coordinator holds merge","reason":"asked once","from":"the human"}'
+session
+log_to "$S" pick_facts wait 2026-09-26T09:00:00.000Z
+log_to "$S" dispatch_check record_find 2026-09-26T09:05:00.000Z
+log_to "$S" record_find reconcile_pass 2026-09-26T09:05:10.000Z; log_to "$S" reconcile_pass reconcile 2026-09-26T09:05:20.000Z
+log_to "$S" reconcile posture_ask 2026-09-26T09:06:00.000Z
+log_evidence "$S" posture_ask '{"merge":"permitted","close":"reserved","teardown":"reserved"}' "$EVT"
+log_to "$S" posture_ask record "$EVT"
+body "$(rec | jq -c --argjson r "$PREV_OLD" '.reversals = [$r]')" 2026-09-26T09:07:00Z
+eq "posture_ask mid-run: an answer dated before this ask's record_find waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$PREV_OLD" '.reversals = [$r | .date = "2026-09-26T09:08Z"]')" 2026-09-26T09:08:30Z
+eq "posture_ask mid-run: the answer to this ask confirms" confirmed "$(confirm)"
+
 echo "== posture_ask =="
 session
+log_to "$S" reconcile posture_ask "$EVT"
 log_evidence "$S" posture_ask '{"merge":"permitted","close":"reserved","teardown":"reserved"}' "$EVT"
 log_to "$S" posture_ask record "$EVT"
 PREV='{"date":"2026-09-26T10:02Z","reversed":"posture unread","now":"coordinator holds merge","reason":"asked once","from":"the human"}'

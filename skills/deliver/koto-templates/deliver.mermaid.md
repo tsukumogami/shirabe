@@ -1,7 +1,7 @@
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> preflight
+    [*] --> open_request
     confirm --> execute_run : gates.mode_auto.exit_code: 0
     confirm --> execute_run : decision: proceed, gates.mode_auto.exit_code: 1
     confirm --> done_stopped : decision: stop, gates.mode_auto.exit_code: 1
@@ -30,9 +30,6 @@ stateDiagram-v2
     mode_route --> done_stopped : gates.plan_mode.exit_code: 20
     mode_route --> done_error : gates.plan_mode.exit_code: 4
     open_request --> scope_run
-    preflight --> open_request : gates.public_repo.exit_code: 0
-    preflight --> done_refused : gates.public_repo.exit_code: 1
-    preflight --> done_refused : gates.public_repo.exit_code: 2
     scope_absent --> scope_run
     scope_run --> scoped_check : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: scoped, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> scoped_check : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: handed-off-multi-pr, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
@@ -55,7 +52,6 @@ stateDiagram-v2
     scoped_check --> done_error : gates.scoped_pass.matches: true, gates.scoped_pr.matches: false
     done --> [*]
     done_error --> [*]
-    done_refused --> [*]
     done_stopped --> [*]
     note left of confirm
         gate: mode_auto
@@ -80,9 +76,6 @@ stateDiagram-v2
     end note
     note left of mode_route
         gate: plan_mode
-    end note
-    note left of preflight
-        gate: public_repo
     end note
     note left of scope_run
         gate: scope_intent
