@@ -217,6 +217,8 @@ suite_scripts() {
             echo "skills/execute/scripts/record-coord-setup_test.sh"
             echo "skills/execute/scripts/node-cut_test.sh"
             echo "skills/execute/scripts/node-push_test.sh"
+            echo "skills/execute/scripts/repo-visibility_test.sh"
+            echo "skills/execute/scripts/coordinated-visibility_test.sh"
             echo "skills/execute/scripts/coord-merge_test.sh"
             echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
             echo "skills/execute/scripts/execute-coordinated-engine_test.sh"

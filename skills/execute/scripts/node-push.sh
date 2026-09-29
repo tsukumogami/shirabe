@@ -83,14 +83,19 @@
 #   4. before any push, find the coordination PR (owned-pr.sh on home repo
 #      and coordination branch, carrying the `This is a **coordination PR**`
 #      marker) and, in node mode, check the node branch's PR: another run's
-#      PR there, or several, stops with 73 and nothing pushed;
+#      PR there, or several, stops with 73 and nothing pushed; then, in node
+#      mode, read the home repository's and the node repository's visibility
+#      live (coord_node_visibility) and refuse a private node under a public
+#      coordination PR with 77, nothing pushed;
 #   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
 #   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `feat(<slug>): <node-id>`, with a body from a fixed
 #      template of the node id, the work-item ids, and the coordination PR's
-#      link (and the run's marker line), passed with --body-file -- unless
+#      link (and the run's marker line), passed with --body-file; the link is
+#      left out when the node's repository is public and the coordination
+#      PR's is private, so a public PR never points into a private one -- unless
 #      the index already names a PR for this node, which must then be adopted,
 #      and zero survivors refuse;
 #   7. rewrite the body's `## PR Index` line for the node (replacing it, or
@@ -124,6 +129,11 @@
 #       PLAN is not coordinated (a node without NODE_KIND pr or gate), or
 #       (node mode) the PLAN has no node named --node; nothing was pushed or
 #       edited
+#   77  node mode: the node's repository is private and the coordination
+#       PR's is public; nothing was pushed or edited (the caller's
+#       execute:visibility)
+#
+# A failed visibility read is a 72, like any other GitHub read.
 #
 # Requires: bash 3.2+, git, gh, jq, shirabe.
 set -uo pipefail
@@ -287,6 +297,16 @@ if [ "$MODE" = node ]; then
         2) exit 72 ;;
         *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
     esac
+    # The node against its own target: a public coordination PR never
+    # indexes a private node, so that pair is refused here, before the push
+    # and before the index line that would name the repository in a public
+    # body. The two visibilities also decide the node PR's body below.
+    coord_node_visibility "$HOME_REPO" "$REPO" "$NODE"
+    case $? in
+        0) ;;
+        3) exit 77 ;;
+        *) exit 72 ;;
+    esac
 fi
 
 # 5. The push: the explicit refspec, never a force option. The order mode
@@ -379,10 +399,15 @@ if [ "$MODE" = node ]; then
         coord_gh_read REPO_JSON api "repos/$REPO" || exit 72
         BASE=$(printf '%s' "$REPO_JSON" | jq -r 'if type == "object" then (.default_branch // "") else "" end')
         coord_valid_branch "$BASE" || { echo "$PROG: the default branch of $REPO is unusable [$BASE]" >&2; exit 72; }
+        # A public node PR links its coordination PR only when that PR is
+        # public too: a link from a public PR into a private repository is a
+        # public-to-private reference.
         {
             printf 'Coordinated node `%s` of `%s`.\n\n' "$NODE" "$SLUG"
-            printf 'Work items: %s\n\n' "$ISSUES"
-            printf 'Coordination PR: %s\n' "$C_URL"
+            printf 'Work items: %s\n' "$ISSUES"
+            if [ "$COORD_NODE_VIS" = private ] || [ "$COORD_HOME_VIS" = public ]; then
+                printf '\nCoordination PR: %s\n' "$C_URL"
+            fi
         } > "$WORK/node-body.md"
         if [ -n "$COORD_RUN_ID" ]; then
             "$BASH" "$COORD_SELF_DIR/run-id.sh" stamp "$COORD_RUN_ID" "$WORK/node-body.md" </dev/null || {

@@ -39,6 +39,16 @@
 #   coordination mode                            pushes the coordination branch
 #     and records the coordination PR's own line with head=, leaving the
 #     merge-order section as it was
+#   each node against its own target, home acme/repo-a over node acme/repo-b:
+#     public over public, private over private   pushed; the node PR links
+#                                                the coordination PR
+#     private over public                        pushed and indexed; the public
+#                                                node PR carries no link into
+#                                                the private coordination PR
+#     public over private                        exit 77, nothing pushed, no gh
+#                                                write, the message naming the
+#                                                node and not the repository
+#     a failed visibility read                   exit 72, nothing pushed
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
 # Usage: node-push_test.sh
@@ -475,6 +485,72 @@ ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass
 [ -n "$ORDER_BEFORE" ] && [ "$(merge_order_section)" = "$ORDER_BEFORE" ] \
     && pass "coordination mode, after the cascade deleted the PLAN, leaves the merge-order section as it was" \
     || fail "coordination mode changed the merge-order section: $(merge_order_section)"
+
+# --- each node against its own target ---------------------------------------------
+#
+# The home (the coordination PR's repository) is acme/repo-a and the node lands
+# in acme/repo-b; the visibilities come from the shim's repository model.
+
+# vis_push <case> <home vis> <node vis> -- a fresh node push into acme/repo-b.
+vis_push() {
+    ct_case "$1"
+    CT_VIS_A="$2"
+    CT_VIS_B="$3"
+    ct_write_db
+    fresh_repo "$1"
+    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+    NBODY=$(jq -r '.prs[] | select(.repo == "acme/repo-b") | .body' "$GH_CALL_LOG.d/db.json" 2>/dev/null)
+}
+pushed() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+
+vis_push vis-pub-pub public public
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+    pass "public home, public node: pushed, and the node PR links the coordination PR"
+else
+    fail "public over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+
+vis_push vis-priv-pub private public
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -q "Work items: 1,2"; then
+    pass "private home, public node: pushed, and the node PR opened"
+else
+    fail "private over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+case "$NBODY" in
+    *"Coordination PR"*|*"acme/repo-a"*) fail "the public node's PR points into the private home: [$NBODY]" ;;
+    *) pass "the public node's PR carries no link into the private coordination PR" ;;
+esac
+db_body | grep -q -- "- $CT_CORE | acme/repo-b:docs/plans/PLAN-t.md#" \
+    && pass "the private coordination PR indexes the public node" \
+    || fail "private over public: the index line is missing"
+
+vis_push vis-priv-priv private private
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+    pass "private home, private node: pushed, and the node PR links the coordination PR"
+else
+    fail "private over private: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+
+vis_push vis-pub-priv public private
+if [ "$RC" -eq 77 ] && ! pushed; then
+    pass "public home, private node: refused with 77, nothing pushed"
+else
+    fail "public over private: rc=$RC pushed=$(pushed && echo yes || echo no)"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "the refusal wrote to GitHub"; else pass "the refusal wrote nothing to GitHub"; fi
+grep -q "node $CT_CORE lands in a private repository" "$CASE/stderr" && ! grep -q repo-b "$CASE/stderr" \
+    && pass "the refusal names the node, never the private repository" \
+    || fail "the refusal's message: $(cat "$CASE/stderr")"
+
+vis_push vis-unread public none
+if [ "$RC" -eq 72 ] && ! pushed; then
+    pass "a failed visibility read exits 72, nothing pushed"
+else
+    fail "a failed read: rc=$RC pushed=$(pushed && echo yes || echo no)"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a failed read wrote to GitHub"; else pass "a failed read wrote nothing to GitHub"; fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

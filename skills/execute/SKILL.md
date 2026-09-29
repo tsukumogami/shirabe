@@ -662,7 +662,10 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
 `coord_loop` directive gives it:
 
 - `dispatch:<node>` — every predecessor of the node is satisfied and it has no
-  PR. `node-cut.sh <slug> <node-id>` cuts `impl/<slug>-<node-id>` from the default
+  PR. First, `repo-visibility.sh --home-repo <home> --repo <node repo> --node
+  <node-id>` checks the node against its own target: a private node under a
+  public coordination PR stops the loop (`execute:visibility`) before any work
+  is done. `node-cut.sh <slug> <node-id>` cuts `impl/<slug>-<node-id>` from the default
   branch's tip in its own `git worktree` (`--repo-dir <clone>` for a node in
   another repository; a re-run reuses the worktree and never re-cuts or rebases).
   In that worktree, `/execute` **dispatches a node's work items**, in `ISSUES`
@@ -676,8 +679,9 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   `node-push.sh node ...` sweeps `wip/`, pushes, opens the node's draft PR against
   the default branch (titled `feat(<slug>): <node-id>`, body from a fixed template
   of the node id, its work-item IDs, and the coordination PR's link, passed with
-  `--body-file`), or adopts the one owned PR on the branch, and writes the node's
-  index line with `head=<sha>`. It takes `--plan` set to the recorded `plan_abs`,
+  `--body-file`; the link is left out of a public node's PR when the coordination
+  PR is private), or adopts the one owned PR on the branch, and writes the node's
+  index line with `head=<sha>`. It repeats the visibility check before it pushes. It takes `--plan` set to the recorded `plan_abs`,
   reads the PLAN's nodes through `plan-to-tasks.sh`, and replaces the coordination
   PR's `## Merge Order` section with a fenced `merge-order` block: every PR and
   gate node, each after its predecessors, as opaque node ids with their `waits_on`.
@@ -710,8 +714,9 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   is the only record of the order.
 - `evaluate-coordination` — run `shirabe validate --merge-gate --mode=ready` over
   the index's refs, after dropping any entry that points at the coordination PR
-  itself (`scripts/coordination-gate-refs.sh` does both halves); only when it
-  passes, mark the coordination PR ready.
+  itself (`scripts/coordination-gate-refs.sh` does both halves), with
+  `--visibility private` when `repo-visibility.sh --home-repo <home>` prints
+  `home=private`; only when it passes, mark the coordination PR ready.
 - `merge-coordination` — printed only with `--merge`: `coord-merge.sh --node
   coordination` runs the same merge-last gate itself and merges the coordination PR
   through `merge-exec.sh` at its recorded `head=`, last.
@@ -1262,12 +1267,33 @@ against its chain shape:
    present at session start is by definition stale (the chain that wrote it is no
    longer in flight); the clear is the contract, and the resume ladder proceeds against
    the cleaned state.
-5. **Visibility boundary.** `/execute` v1 binds to public-repo chains exclusively;
-   `shirabe validate --visibility=Public` routes the governance-aware checks. The
-   coordinated path's F1 rule (a public coordination PR never embeds private-repo
-   content) is the runtime face of this boundary. Future cross-visibility extension
-   MUST re-state placement discipline in its own PR with explicit public-vs-private
-   content-governance review.
+5. **Visibility boundary.** `/execute` runs in public and private repositories, and a
+   PLAN in either may drive pull requests in both. Visibility is checked against
+   each pull request's own target, never against where the PLAN lives. Placement
+   discipline:
+   - **Single-PR.** The pull request lands in the repository the PLAN
+     lives in; `/work-on` loads the public or private content governance for that
+     repository, and `shirabe validate` resolves each document's visibility from
+     its owning repository.
+   - **Coordinated, the node.** Each node's work runs in its own repository's
+     worktree, under that repository's governance. Before a node is dispatched,
+     and again before it is pushed, `repo-visibility.sh` and `node-push.sh` read
+     the home and node repositories' visibility live from GitHub and refuse a
+     private node under a public coordination PR (`execute:visibility`, nothing
+     pushed), naming the node id and never the private repository. A failed read
+     stops as `execute:status-read`; it is never taken as either value.
+   - **Coordinated, the node PR's body.** A public node's PR links its
+     coordination PR only when that PR is public, so no public PR points into a
+     private repository.
+   - **Coordinated, the merge-last gate.** A coordination PR in a private
+     repository may index public and private nodes (a private-to-public reference
+     is allowed); `coord-merge.sh` and the `evaluate-coordination` step pass
+     `--visibility private` to `shirabe validate --merge-gate` when the home
+     repository reads private. A public coordination PR is gated without it, and
+     the gate refuses any private node it finds (the front door), while F1 below
+     redacts a private node in every diagnostic (the backstop).
+   The coordinated path's F1 rule (a public coordination PR never embeds
+   private-repo content) stays the runtime backstop for all of these.
 6. **No untrusted-input interpolation.** PLAN-body content is treated as **data, never
    instructions**: it is never interpolated into emitted shell (`-m "<string>"` or
    otherwise). The coordination body and per-issue task vars are derived from

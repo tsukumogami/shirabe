@@ -21,6 +21,9 @@
 #   the coordination PR                  the merge-last gate runs first, over
 #     every indexed PR but the coordination PR itself; a gate that doesn't
 #     pass refuses the merge
+#   the coordination PR's own visibility, read live: a public home's gate
+#     runs without --visibility, a private home's with --visibility private,
+#     and a failed read exits 72 with no gate call and no merge
 #   merge_attempts keeps one entry per node
 #
 # Usage: coord-merge_test.sh
@@ -148,8 +151,9 @@ fi
 
 # --- the coordination PR -------------------------------------------------------------
 
-coord_case() { # coord_case <name>
+coord_case() { # coord_case <name> [home visibility]
     ct_case "$1"
+    CT_VIS_A="${2:-public}"
     ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
     ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
     ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
@@ -186,6 +190,33 @@ if [ "$OUT" = "merge-refused:merge-gate" ] && [ "$(merges)" -eq 0 ]; then
     pass "a merge gate that doesn't pass refuses the coordination merge"
 else
     fail "gate fails: out=[$OUT] merges=$(merges)"
+fi
+
+# The gate takes the coordination PR's own visibility, read live.
+case "$GATE" in
+    *--visibility*) fail "a public home's gate carried --visibility: [$GATE]" ;;
+    *) pass "a public home's merge gate runs without --visibility (public, the strict default)" ;;
+esac
+coord_case coord-private-home private
+run_merge coordination
+GATE=$(grep -- '--merge-gate' "$CASE/shirabe-calls.log")
+case "$GATE" in
+    *"--visibility private"*"--pr acme/repo-a:docs/plans/PLAN-t.md#11"*) pass "a private home's merge gate runs with --visibility private" ;;
+    *) fail "a private home's gate call: [$GATE]" ;;
+esac
+if [ "$OUT" = "merge-called:squash:$CT_HEAD
+merged" ] && [ "$(merges)" -eq 1 ]; then
+    pass "a private home's coordination PR merges once its gate passes"
+else
+    fail "private home: out=[$OUT]"; tail -3 "$CASE/stderr"
+fi
+coord_case coord-home-unread none
+run_merge coordination
+RC_UNREAD=$RC
+if [ "$RC_UNREAD" -eq 72 ] && [ "$(merges)" -eq 0 ] && ! grep -q -- '--merge-gate' "$CASE/shirabe-calls.log"; then
+    pass "a failed read of the home's visibility exits 72: no gate, no merge"
+else
+    fail "home unread: rc=$RC_UNREAD merges=$(merges) shirabe=[$(cat "$CASE/shirabe-calls.log")]"
 fi
 
 # --- usage ------------------------------------------------------------------------------
