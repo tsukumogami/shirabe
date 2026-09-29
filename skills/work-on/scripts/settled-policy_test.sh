@@ -115,10 +115,10 @@ absent "no /work-on file tells the run to ask the user about CI" \
     '[Ii]f (stuck|a check).*ask the user'
 
 # --- ci-fix-ends-run-unverified ----------------------------------------------
-# A CI fix goes back to ci_monitor, and the state's fallback edge fails the run.
-# ci-monitor-role_test.sh drives the routing through koto; this pins that the
-# directive no longer sends the agent to the finishing-obligations document,
-# an authoring reference it has no use for mid-run.
+# A CI fix goes back to ci_monitor, and the state's fallback edge fails the run;
+# ci-monitor-role_test.sh drives that routing through koto. The same change
+# unloads finishing-obligations.md: no directive sends the agent to it, since
+# it is an authoring reference for maintainers, not something a run acts on.
 
 if grep -nF 'finishing-obligations.md' "$ROOT/$TEMPLATE_REL" "$SKILL_DIR/SKILL.md" \
     "$SKILL_DIR"/references/phases/*.md; then

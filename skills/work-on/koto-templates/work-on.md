@@ -1269,9 +1269,11 @@ states:
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
       # Anything no edge above takes stops the run rather than finishing it.
-      # (`passing` on red CI doesn't get here: koto holds the state on the
-      # failing gate, which ci-monitor-role_test.sh pins.) Reaching done from
-      # an unmatched submission would report success on CI nobody saw green.
+      # No known submission reaches it today: `passing` on red CI holds the
+      # state on the failing gate (ci-monitor-role_test.sh pins that), and a
+      # missing session_role is refused as bad evidence. It is the safe
+      # default for the day an edge above changes: reaching done from here
+      # would report success on CI nobody saw green.
       - target: done_blocked
         context_assignments:
           failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green and the run stopped rather than report success. Check the pull request's CI and finish it in a new run."

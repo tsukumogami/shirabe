@@ -251,7 +251,7 @@ D4=$(mktemp -d); TMPS+=("$D4")
 OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed","session_role":"root"}' || true)
 if echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
     fail "failing_fixed reached done — a fix nobody re-checked ended the run"
-elif echo "$OUT4" | grep -q '"state":"ci_monitor"'; then
+elif echo "$OUT4" | grep -q '"advanced":true' && echo "$OUT4" | grep -q '"state":"ci_monitor"'; then
     pass "failing_fixed returns to ci_monitor for a root"
 else
     fail "failing_fixed case: expected ci_monitor, got: $(echo "$OUT4" | head -c 200)"
@@ -296,14 +296,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 6 — session_role is required. A submission without it must not advance,
-# because the state's last edge is unconditional: an unrecognised submission
-# would otherwise take the silent route to done and skip an owed cascade.
+# Case 6 — session_role is required. A submission without it must not advance:
+# the green-CI edges part on it, and the state's last edge is unconditional, so
+# an unrecognised submission would otherwise end the run at done_blocked
+# instead of reaching the cascade it owes.
 # ---------------------------------------------------------------------------
 D6=$(mktemp -d); TMPS+=("$D6")
 OUT6=$(land "$D6" "ci-role-missing-$$" "$CI_MONITOR" '{"ci_outcome":"passing"}' || true)
-if echo "$OUT6" | grep -qE '"state":"done"|"state":"cascade_entry"'; then
-    fail "a submission with no session_role advanced — the fallback edge swallowed it"
+if echo "$OUT6" | grep -qE '"state":"done"|"state":"done_blocked"|"state":"cascade_entry"'; then
+    fail "a submission with no session_role advanced — the fallback edge took it"
 else
     pass "a submission with no session_role does not advance"
 fi
