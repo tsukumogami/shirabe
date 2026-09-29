@@ -44,7 +44,7 @@ its merge-base with that commit against the PLAN yourself.
 
 ### 2.5.2 Classify Upstream Impact
 
-There are two classes here; the third, "none", belongs to
+Classify main's changes as one of two classes; the third, "none", belongs to
 the script, which has already routed that case past this state.
 
 - **Informational** -- main touched paths the PLAN references, but the changes

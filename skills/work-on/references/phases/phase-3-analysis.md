@@ -16,9 +16,10 @@ koto status <child>                      # is_terminal and current_state
 koto context get <child> summary.md      # once per sibling that reached done
 ```
 
-Skip the step when `PARENT` is empty: a root run has no siblings. Read each
-sibling that reached `done` once, and never poll or re-read a summary in a
-loop. The read count is deliberately small because each `koto context get` is
+Skip the step when `PARENT` is empty: a root run has no siblings. The children
+list includes this run; skip it. Read each sibling that reached `done` once,
+and never poll or re-read a summary in a loop, including when a retry brings
+the run back to analysis. The read count is deliberately small because each `koto context get` is
 logged and uploaded as an event. Carry what bears on this issue into the plan.
 
 ## Plan Complexity
