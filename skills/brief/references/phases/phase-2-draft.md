@@ -79,22 +79,6 @@ upstream: <the STRATEGY or VISION Phase 0 step 0.3a resolved; omit when the
 ---
 ```
 
-The `problem` and `outcome` fields are paragraph-length YAML literal blocks (`|`).
-They carry the same content the Problem Statement and User Outcome sections
-elaborate in prose; the two stay in sync (the Phase 4 structural-format reviewer
-checks consistency).
-
-**`upstream:` holds what Phase 0 step 0.3a resolved, never the grounding
-roadmap.** Write the resolved value when there is one, and omit the field
-entirely when the resolution found nothing. A ROADMAP is deleted when its
-features land, so recording one produces a reference `shirabe validate` rejects
-as `R11`; the brief records the roadmap's nearest durable ancestor instead — the
-STRATEGY it sequences, or a VISION — which stays reachable after the cascade
-runs. The link to the roadmap itself is recorded on the PLAN this chain
-produces, which the same cascade deletes. The rule is in
-`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`; the resolution contract is
-in `phase-0-setup.md`.
-
 Do not resolve the roadmap's ancestor yourself at this phase. Phase 0 already
 did it and ran the result through the visibility check; writing a value that
 skipped that check is how a public brief ends up naming a private strategy.
@@ -115,11 +99,6 @@ Write the body Status section as:
 Draft
 ```
 
-The bare status word goes alone on its own line. `shirabe validate` (FC03) compares
-the first non-blank line under `## Status` to the frontmatter `status`; any prose
-on the status line breaks the check. Explanatory prose, if any, goes after a blank
-line — but at Draft stage the bare word alone is enough.
-
 ## 2.4 Draft Problem Statement
 
 The Problem Statement names the user problem the feature solves. It must read as a
@@ -127,22 +106,12 @@ problem, not as a solution in disguise.
 
 **Required content properties:**
 
-- Names something a user struggles with, lacks, or can't do today. The reader
-  should be able to picture the user hitting the problem before any solution
-  exists.
-- Stands alone: a reader who has never seen the upstream still understands what
-  problem this feature addresses after reading the section.
 - States the problem before any mechanism. If the feature is the only natural way
   to describe the problem, name the user's situation and the friction, not the
   feature's parts.
 
 **What not to include:**
 
-- A solution wearing a problem's clothes. "Users can't export to CSV" describes a
-  missing feature; "users have no way to get their data out of the tool for use
-  elsewhere" describes a problem. The content-quality reviewer rejects the former.
-- Requirements. The downstream PRD owns user stories and acceptance criteria; the
-  brief frames why the feature matters, not what it must do.
 - Verbatim copies of upstream prose, especially across visibility boundaries.
 
 **Length guidance:** 2-5 short paragraphs. A brief frames one feature; the Problem
@@ -155,20 +124,11 @@ It must read as an outcome, not a feature list.
 
 **Required content properties:**
 
-- Describes the user's experience: what they can now do, what friction is gone,
-  what they no longer have to think about. Walk a reader through the changed
-  experience.
 - Ties back to the Problem Statement: the outcome is the problem resolved, seen
   from the user's side.
-- Matches (paraphrased) the frontmatter `outcome:` field. The Phase 4
-  structural-format reviewer checks consistency.
 
 **What not to include:**
 
-- A feature list. "The skill adds a `/brief` command, a format reference, and a
-  jury" describes the product's parts; "an author reaches for `/brief` the way they
-  reach for `/prd` today" describes the experience. The content-quality reviewer
-  rejects the former.
 - Acceptance criteria or measurable targets. Those are PRD-altitude content.
 
 **Length guidance:** 2-5 short paragraphs.

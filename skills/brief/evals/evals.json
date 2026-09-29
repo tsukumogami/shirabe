@@ -42,14 +42,12 @@
       "id": 3,
       "name": "rich-issue-still-produces-a-brief",
       "prompt": "/brief A PRD-ready feature request: the search box should debounce input and the team already wrote a detailed problem and outcome in the issue body.",
-      "expected_output": "Phase 0 records the artifact decision as 'produce' and continues. There is no branch that declines to write a brief: the fold-into-PRD path was retired because it fired before any brief existed (so nothing it read could tell whether the brief would have carried something the PRD would not) and nothing received what it folded (/prd had no absorb step and no input mode for folded framing). A rich issue body is ephemeral evidence, not a durable artifact, so the framing is written down here. If that framing turns out to be fully carried by the downstream PRD, /scope's consolidation judgment removes the brief after both documents exist and after a per-section carry check confirms the content arrived. Phase 5 ends by recommending /prd <brief-path>.",
+      "expected_output": "Phase 0 records the artifact decision as 'produce' and continues. There is no branch that declines to write a brief. A rich issue body is ephemeral evidence, not a durable artifact, so the framing is written down here. Phase 5 ends by recommending /prd <brief-path>.",
       "files": [],
       "expectations": [
         "Plan records the artifact decision as produce and proceeds to Phase 1",
         "Plan describes no branch that exits Phase 0 without producing a brief",
         "Plan explains that a rich issue body is ephemeral evidence rather than a durable artifact",
-        "Plan points at /scope's consolidation judgment as where a redundant brief is removed, after both documents exist",
-        "Plan notes the removal is gated on a per-section carry check confirming the PRD carries the brief's concerns",
         "Plan ends by recommending /prd with the brief's path as the next step"
       ]
     },

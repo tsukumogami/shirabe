@@ -26,21 +26,12 @@ When invoked directly with a draft: identify patterns below, revise, return the 
 for the banned words, phrases, and frequency thresholds. It carries the terms
 and the reason for each, grouped by category.
 
-This file does not restate that list. It used to, and the copy drifted from
-the validator's copy, which is the divergence the rule source exists to end.
-`shirabe validate` reads the same file at enforcement time, so a rule added
-there reaches both you and the validator with no second edit.
-
 A repository can declare terms of art the rules must not fire on, through a
 `## Prose Vocabulary:` header in its CLAUDE.md. Honor a repository's
 declaration when you draft in it: shirabe declares `tier`, `journey`, and
 `underscore` because those are its own vocabulary, not tells.
 
-## What the validator catches, and what it does not
-
-The mechanical rules are enforced before a reviewer sees the draft. Word
-matches, phrase matches, and em dash density are handled; you do not need to
-scan for them, and re-flagging them wastes the reader's attention.
+## What no matcher reaches
 
 What no matcher reaches is the `judgment_only` section of the rule source,
 and it is where the value is:
