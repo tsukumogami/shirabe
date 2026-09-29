@@ -201,6 +201,12 @@ mutate "worktree_sync rebasing again" \
 mutate "the phase-6-pr.md pointer back in ci_monitor" \
     "ci_monitor does not load /work-on's phase-6-pr.md" \
     's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
+mutate "ci_monitor's CI cap removed" \
+    "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable" \
+    's/\*\*CI repair is capped at 3 fix pushes\.\*\*/**CI repair is not capped.**/'
+mutate "worktree_sync's gate reduced to the merge exit code" \
+    "worktree_sync's gate tests ancestry with no merge in progress" \
+    's/command: .git merge-base --is-ancestor origin\/main HEAD && test ! -e "\$\(git rev-parse --git-path MERGE_HEAD\)".\n/command: true\n/'
 mutate "the current-context.md step back in spawn_and_await" \
     "no directive tells the agent to build current-context.md" \
     's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'

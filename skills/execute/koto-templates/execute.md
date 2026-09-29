@@ -380,9 +380,11 @@ states:
     # describe, so the run would merge commits nobody examined.
     #
     # The current_with_main gate asks what the merge is for -- is origin/main
-    # an ancestor of HEAD -- rather than whether the merge command succeeded,
-    # and requires that no merge is in progress, so a conflicted merge never
-    # advances. `git rev-parse --git-path` finds MERGE_HEAD in a worktree too.
+    # an ancestor of HEAD -- rather than whether the merge command succeeded.
+    # A conflicted merge already fails the ancestry test (HEAD hasn't moved);
+    # the MERGE_HEAD test keeps a half-resolved merge from passing if HEAD
+    # somehow contains main while one is still in progress. `git rev-parse
+    # --git-path` finds MERGE_HEAD in a worktree too.
     #
     # drift_clear routes the no-drift case. It matches only when drift_facts
     # computed `route: none`, so the single edge to spawn_and_await needs both
@@ -1420,7 +1422,7 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 
 Empty output or exit 3, 4, or 5 means no single owned PR this run can use: submit `ci_outcome: pr_adopt`. Exit 2 means the read failed: submit `ci_outcome: status_read`.
 
-If the gate fails because a check failed, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
+If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}

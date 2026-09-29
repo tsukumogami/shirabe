@@ -74,7 +74,11 @@
 # The facts describe what main changed before it lands on the branch, and
 # `worktree_sync` merges exactly the `origin/main` fetched here. The branch
 # catches up by merging, never by rebasing, so its own commits keep their
-# identity and the base this script computes is the same after the merge.
+# identity: for a PLAN with a commit on the branch the base is the same after
+# the merge. For a PLAN git doesn't track yet the base is merge-base(HEAD,
+# origin/main), which the merge moves to origin/main, so a `koto rewind` into
+# `drift_facts` after `worktree_sync` reads as "main has not advanced"; compare
+# against HEAD^1 of the merge by hand to re-judge.
 #
 # Bash 3.2: no associative arrays, no mapfile. Lists live in temp files.
 set -uo pipefail
