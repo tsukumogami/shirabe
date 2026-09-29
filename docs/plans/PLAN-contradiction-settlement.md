@@ -5,7 +5,7 @@ execution_mode: coordinated
 split_mode_source: intent
 tracking_level: none
 milestone: "Contradiction Settlement"
-issue_count: 28
+issue_count: 29
 upstream: docs/designs/DESIGN-contradiction-settlement.md
 split_rationale: |
   Hard Constraint. No work item may change what a run loads before the
@@ -74,7 +74,7 @@ skill's mechanical items and every policy item that edits that skill:
 | `review-plan` | 20 | nothing |
 | `work-on` | 1, 9, 10, 11, 22 | `decisions` |
 | `execute` | 2, 12, 13, 23 | `decisions` |
-| `scope` | 4, 14, 17, 18, 24 | `decisions` |
+| `scope` | 4, 14, 17, 18, 24, 29 | `decisions` |
 | `design` | 8, 15, 25 | `decisions` |
 | `plan` | 7, 16, 26 | `decisions` |
 | `brief-prd-policy` | 27, 28 | `decisions`, `brief-prd-deliver` |
@@ -433,7 +433,7 @@ pull request:
 - [ ] Explains, per entry, any shortfall over 10% of that estimate.
 - [ ] Changes no file under `skills/`, `references/`, `scripts/` or `crates/`.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:9>>, <<ISSUE:10>>, <<ISSUE:11>>, <<ISSUE:12>>, <<ISSUE:13>>, <<ISSUE:14>>, <<ISSUE:15>>, <<ISSUE:16>>, <<ISSUE:17>>, <<ISSUE:18>>, <<ISSUE:20>>, <<ISSUE:22>>, <<ISSUE:23>>, <<ISSUE:24>>, <<ISSUE:25>>, <<ISSUE:26>>, <<ISSUE:27>>, <<ISSUE:28>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:9>>, <<ISSUE:10>>, <<ISSUE:11>>, <<ISSUE:12>>, <<ISSUE:13>>, <<ISSUE:14>>, <<ISSUE:15>>, <<ISSUE:16>>, <<ISSUE:17>>, <<ISSUE:18>>, <<ISSUE:20>>, <<ISSUE:22>>, <<ISSUE:23>>, <<ISSUE:24>>, <<ISSUE:25>>, <<ISSUE:26>>, <<ISSUE:27>>, <<ISSUE:28>>, <<ISSUE:29>>
 
 ### Issue 20: docs(review-plan): delete /review-plan's internal restatements
 
@@ -578,6 +578,22 @@ pull request:
 
 **Dependencies**: Blocked by <<ISSUE:6>>
 
+### Issue 29: docs(charter): catch up with main by merging in /charter
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: scope
+
+**Goal**: Apply the force-push-after-rebase decision to /charter, which the inventory did not list but which still tells the agent to rebase.
+
+**Acceptance Criteria**:
+- [ ] Follows the PLAN's rules, as Issue 1 states them.
+- [ ] Every /charter statement that tells the agent to rebase on main now merges `origin/main` in and pushes without force, as the recorded decision says, and every citation of `references/worktree-discipline.md` names its current heading.
+- [ ] It lands with Issue 24, which settles the same decision in /scope's Phase 2 rebase section, so /scope and /charter agree with the merge-only reference in one pull request. This is the one pull request that touches two skills, because /charter's chain orchestration shares /scope's Phase 2 flow.
+- [ ] The repository's charter and scope tests and evals pass.
+
+**Dependencies**: Blocked by <<ISSUE:24>>
+
 ## Dependency Graph
 
 ```mermaid
@@ -610,6 +626,7 @@ graph TD
     I26["26: plan share"]
     I27["27: brief and prd share"]
     I28["28: prd upstream"]
+    I29["29: charter merge"]
     I1 --> I9
     I21 --> I9
     I9 --> I10
@@ -669,11 +686,13 @@ graph TD
     I21 --> I27
     I6 --> I28
     I28 --> I19
+    I24 --> I29
+    I29 --> I19
     classDef ready fill:#bbdefb
     classDef blocked fill:#fff9c4
 
     class I1,I2,I3,I4,I5,I6,I7,I8,I20,I21 ready
-    class I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I22,I23,I24,I25,I26,I27,I28 blocked
+    class I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I22,I23,I24,I25,I26,I27,I28,I29 blocked
 ```
 
 **Legend**: Blue = ready, Yellow = blocked
