@@ -1219,10 +1219,9 @@ states:
         required: true
         description: >-
           From scripts/session-role.sh, which reads koto's own parent_workflow
-          field. Required, because the fallback edge below routes an unrecognised
-          submission to done: a run that omitted this would take the cascade's
-          silent exit rather than stopping, and nobody would learn the cascade
-          was skipped. Not derived from the session name — a name-shaped
+          field. Required, because a root and a child with green CI part here:
+          without it no passing edge could tell whether the cascade is owed.
+          Not derived from the session name — a name-shaped
           heuristic was considered and rejected as unsound in both directions.
       rationale:
         type: string
@@ -1247,21 +1246,21 @@ states:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
           session_role: child
-      # A DIRTY pull request stops, and stops explicitly. Without this edge it
-      # would match no conditional transition and fall to the unconditional one
-      # at the end, reaching done: a run with merge conflicts would report
-      # success on the strength of checks that never ran.
+      # A DIRTY pull request stops, and stops explicitly, with a reason that
+      # names the merge conflicts: GitHub runs no checks on one, so the CI gate
+      # alone would read it as green.
       - target: done_blocked
         when:
           ci_outcome: passing
           gates.merge_state_clean.exit_code: 1
         context_assignments:
           failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
-      # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
-      # polls the PR and may be stale relative to the new push. Gate check
-      # is inappropriate here -- the agent's direct observation is the
-      # authoritative signal.
-      - target: done
+      # failing_fixed: the agent pushed a fix. The run comes back here rather
+      # than finishing, so the gates poll CI on the new push before anything
+      # can reach done: the skill promises a pull request with passing CI,
+      # and a fix nobody re-checked does not keep that promise. The directive's
+      # retry cap bounds the loop.
+      - target: ci_monitor
         when:
           ci_outcome: failing_fixed
       - target: done_blocked
@@ -1269,7 +1268,13 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
-      - target: done
+      # Anything no edge above takes stops the run rather than finishing it.
+      # (`passing` on red CI doesn't get here: koto holds the state on the
+      # failing gate, which ci-monitor-role_test.sh pins.) Reaching done from
+      # an unmatched submission would report success on CI nobody saw green.
+      - target: done_blocked
+        context_assignments:
+          failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green. Re-run ci_monitor once the checks have finished."
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
@@ -1989,11 +1994,6 @@ checks already held at `finalization`, so here they are the backstop. The tip
 moving after finalization doesn't invalidate `cleanup_commit`: a commit that was
 `HEAD` then is an ancestor of `HEAD` now.
 
-`references/finishing-obligations.md` is the table of every finishing obligation
-— which are gate-enforced, which are evidence-carried, and which are
-deliberately advisory. Read it when you want to know what else is checked before
-this run can finish, or when adding an obligation of your own.
-
 ## pr_precheck
 
 Reading the branch this work is on, before the pull request is opened. koto runs the read itself on entry; you only see this state if it could not.
@@ -2041,7 +2041,11 @@ the safe direction — a child that wrongly stops has landed its pull request an
 left the chain for the run that owns it, while a child that wrongly cascades
 deletes a PLAN its siblings are still working from.
 
-If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
+Submit `passing` only once every check on the current head is green. If the
+gate fails, fix what you can, push, and submit `ci_outcome: failing_fixed`: the
+run comes back to this state, and you submit again once the checks on the new
+push have finished. A `passing` the CI gate refuses holds this state and names
+the gate; wait for the checks and submit again.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 
 Retry cap: 3 fix pushes. When CI is still failing after the third, submit

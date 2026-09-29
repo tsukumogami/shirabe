@@ -243,15 +243,45 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 4 — a failing-then-fixed run ends at done whatever its role. The role
-# branch must not have captured the other outcomes on its way past.
+# Case 4 — a fix goes back to CI monitoring whatever its role. A pushed fix has
+# not been checked yet, so failing_fixed must not end the run: it returns to
+# ci_monitor, where the gates poll CI on the new push.
 # ---------------------------------------------------------------------------
 D4=$(mktemp -d); TMPS+=("$D4")
 OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed","session_role":"root"}' || true)
 if echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
-    pass "failing_fixed still routes to done for a root"
+    fail "failing_fixed reached done — a fix nobody re-checked ended the run"
+elif echo "$OUT4" | grep -q '"state":"ci_monitor"'; then
+    pass "failing_fixed returns to ci_monitor for a root"
 else
-    fail "failing_fixed case: expected done, got: $(echo "$OUT4" | head -c 200)"
+    fail "failing_fixed case: expected ci_monitor, got: $(echo "$OUT4" | head -c 200)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 4b — passing while the CI gate still fails never reaches done. koto
+# holds the state and names the failing gate, so the agent waits for the checks
+# and submits again; reporting success on red or unfinished CI is the defect.
+# ---------------------------------------------------------------------------
+D4B=$(mktemp -d); TMPS+=("$D4B")
+OUT4B=$(land "$D4B" "ci-role-red-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"child"}' 1 0 || true)
+if echo "$OUT4B" | grep -qE '"state":"done"|"action":"done"'; then
+    fail "passing on red CI reached done — the run reported success on failing checks"
+elif echo "$OUT4B" | grep -q '"advanced":false' && echo "$OUT4B" | grep -q '"name":"ci_passing"'; then
+    pass "passing on red CI holds ci_monitor, naming the ci_passing gate"
+else
+    fail "red-CI case: expected a hold on ci_passing, got: $(echo "$OUT4B" | head -c 200)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 4c — the state's last edge, the one nothing else catches, ends at
+# done_blocked rather than done. Read from the shipped block: the final
+# transition carries no when clause and targets done_blocked.
+# ---------------------------------------------------------------------------
+LAST_TARGET=$(printf '%s\n' "$CI_MONITOR" | awk '/^      - target:/ { t = $3 } END { print t }')
+if [[ "$LAST_TARGET" == "done_blocked" ]]; then
+    pass "ci_monitor's fallback edge targets done_blocked"
+else
+    fail "ci_monitor's fallback edge targets '$LAST_TARGET', not done_blocked"
 fi
 
 # ---------------------------------------------------------------------------
