@@ -57,9 +57,9 @@ If checks fail:
 3. Push the fix
 4. Re-check
 
-If stuck after 2-3 iterations, ask the user.
-
-If a check is red and you cannot fix it, ask the user.
+A check you cannot fix, or one still red when `ci_monitor`'s retry cap is
+spent, ends the run as `failing_unresolvable`; the state's directive carries
+the cap.
 
 ## Evidence (pr_creation)
 
@@ -68,7 +68,7 @@ If a check is red and you cannot fix it, ask the user.
   set. No PR is created or monitored; the phase routes directly to done. Using
   `created` instead would enter `ci_monitor` and monitor the orchestrator's PR,
   not this child's work.
-- `pr_status: creation_failed_retry` (up to 3)
+- `pr_status: creation_failed_retry` (the state's directive carries the cap)
 - `pr_status: creation_failed_escalate`
 
 ## Evidence (ci_monitor)

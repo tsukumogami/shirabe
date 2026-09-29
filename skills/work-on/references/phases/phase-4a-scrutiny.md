@@ -78,4 +78,4 @@ The run then returns to `implementation`, and when it walks forward into this ph
 
 ## Escalation
 
-If a blocking finding cannot be resolved (after 2+ retry cycles), submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.

@@ -68,4 +68,4 @@ All four keys go, not only this panel's — see `phase-4a-scrutiny.md` for why a
 
 ## Escalation
 
-If a blocking finding cannot be resolved, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.

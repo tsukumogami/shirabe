@@ -13,6 +13,6 @@ finalization:
 Each panel state accepts `passed`, `blocking_retry`, or `blocking_escalate`. A `blocking_retry`
 returns to `implementation`; `blocking_escalate` routes to `done_blocked` with `failure_reason`
 written to context. Panel states carry `override_default` so skipping is auditable via
-`koto overrides list`. The retry loop is capped at 2 cycles — after 2 blocking_retry outcomes,
-the next panel pass must emit `blocking_escalate`. `blocking_escalate` requires a `failure_reason`
+`koto overrides list`. The retry cap is stated in each panel state's directive.
+`blocking_escalate` requires a `failure_reason`
 field; omitting it prevents koto context_assignments from propagating the reason downstream.

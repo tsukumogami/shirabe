@@ -1708,8 +1708,9 @@ koto records `impl_base`, the commit this work starts from, as it enters this
 state. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
-Self-loop with `scope_changed_retry` (up to 3 times). After 3,
-use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
+Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
+use `scope_changed_escalate`. The cap lives here until koto enforces it from its
+attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
 Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
 
 ## implementation
@@ -1721,8 +1722,10 @@ Submit `implementation_status: complete` when the work is committed. The issue's
 type is not part of this submission: koto records the changed paths next and then
 asks for the type once, at `issue_type_routing`.
 
-Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
-use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
+Retry cap: self-loop with `partial_tests_failing_retry` up to 3 times. After 3,
+use `partial_tests_failing_escalate`. The cap lives here until koto enforces it
+from its attempt counts, with the same number. Submit `blocked` for external
+blockers.
 Record non-obvious judgment calls with `koto decisions record {{SESSION_NAME}}`.
 
 ## changed_paths_record
@@ -1782,6 +1785,8 @@ Note on gate discoverability: The gate name is `scrutiny_results`; the context k
 
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+
 ## review
 
 Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. Output: koto context key `review_results.json`.
@@ -1790,6 +1795,8 @@ Note on gate discoverability: The gate name is `review_results`; the context key
 
 Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+
 ## qa_validation
 
 Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. Output: koto context key `qa_results.json`.
@@ -1797,6 +1804,8 @@ Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detaile
 Note on gate discoverability: The gate name is `qa_results`; the context key is `qa_results.json` (with `.json` suffix).
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
+
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation. Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## verification
 
@@ -2010,8 +2019,9 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 
 `gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications.
 
-Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
-`creation_failed_escalate`.
+Retry cap: self-loop with `creation_failed_retry` up to 3 times. After 3, use
+`creation_failed_escalate`. The cap lives here until koto enforces it from its
+attempt counts, with the same number.
 
 ## ci_monitor
 
@@ -2033,6 +2043,12 @@ deletes a PLAN its siblings are still working from.
 
 If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+Retry cap: 3 fix pushes. When CI is still failing after the third, submit
+`ci_outcome: failing_unresolvable` with rationale, which ends the run at
+`done_blocked`. Don't ask the user instead: an unattended run has nobody to
+answer. The cap lives here until koto enforces it from its attempt counts, with
+the same number.
 
 ## cascade_entry
 

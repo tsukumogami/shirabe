@@ -53,9 +53,14 @@ These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
 - The third cap, 3 for analysis, implementation and pull request creation,
-  was never put to the policy owner. It comes from the DESIGN's recommended
-  option by way of the PLAN, and it stands as the PLAN's default until
-  someone rules on it.
+  was not in the question put to the policy owner. It came from the DESIGN's
+  recommended option by way of the PLAN.
+- The third cap was ruled "keep 3" by the policy owner on 2026-09-28.
+- Escalation is also described in
+  `DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
+  `DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md` and
+  `DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`; a
+  panel's escalation after its 2 retries is the one those records describe.
 - The caps apply in both /work-on and /execute.
 - The prose caps are replaced by koto's enforcement from its attempt counts
   when koto supports it, with the same numbers.

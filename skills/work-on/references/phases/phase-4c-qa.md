@@ -67,4 +67,4 @@ All four keys go, not only this panel's. A retry raised here is the widest case:
 
 ## Escalation
 
-If a defect cannot be resolved (after 2+ retry cycles), submit `qa_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`. Include a `failure_reason` string — without it, the context_assignments block cannot propagate the reason to koto context.
+If a defect cannot be resolved, or the retry cap in the state's directive is spent, submit `qa_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`. Include a `failure_reason` string — without it, the context_assignments block cannot propagate the reason to koto context.
