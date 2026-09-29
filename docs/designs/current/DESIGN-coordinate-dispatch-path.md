@@ -551,8 +551,12 @@ plumbing (`ls-files`, `ls-tree`, `rev-list`, `cat-file`, `merge-base`,
 verification (which runs the clone's `gpg.program`) and every transport off,
 hashes the
 working tree's files itself with `hash-object --no-filters --stdin-paths`,
-reads origin's live refs with `ls-remote` against the github.com URL under
-the coordinator's own git config, and reads the trees it compares against
+reads origin's live refs with `ls-remote` against the github.com URL through
+`scripts/github-refs.sh` (the read reconcile shares: from `/` under the
+coordinator's own git config, with `gh auth git-credential` as the only
+credential source, so a private repository the gh login can read is read
+too, and a read that fails or runs late is an `error` for that clone with
+git's reason, never `durable`), and reads the trees it compares against
 from GitHub, one read per commit. For every clone:
 
 1. Staged, uncommitted, deleted and untracked changes, from the index, HEAD's
