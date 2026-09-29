@@ -13,7 +13,8 @@ goals: |
   with the misses listed, the share of blocking findings a criterion could
   cover, and the uncertainty the sample leaves, while every panel keeps
   running unchanged.
-upstream: docs/briefs/BRIEF-jev-review-shadow.md
+absorbed:
+  - docs/briefs/BRIEF-jev-review-shadow.md
 ---
 
 # PRD: Jev review shadow trial
@@ -21,6 +22,35 @@ upstream: docs/briefs/BRIEF-jev-review-shadow.md
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers all passed it on a second
+round. The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-jev-review-shadow](docs/briefs/BRIEF-jev-review-shadow.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so that the decision to let a cheap grader's pass stand in
+for a review panel is made from evidence. The brief framed the gap as a
+measurement nobody has taken: panels are expensive, many of their blocking
+findings are closed questions a typed grader could answer, but no record puts
+a grader's verdict and a panel's verdict side by side on the same head. This
+document's Problem Statement states that in full, including why open-judgment
+findings keep most of a panel's work out of reach.
+
+The outcome it asked for is a maintainer who reads an agreement report, with
+the misses and the coverage share visible, and decides the flip from it while
+every panel keeps running. That's this document's Goals. The four people it
+imagined (a pre-merge reviewer recording a shadow grade, the process owner
+recording the panel's outcome, the decision owner reading the report, and a
+cost analyst pricing the trial) are its User Stories, with the in-run panels
+added as a fifth.
+
+Its boundary held the trial to recording, never approving, and left the flip,
+a rule registry, the in-run koto decider check and criteria for other
+artifact kinds to later work. Those are this document's Out of Scope. Its two
+open questions, what counts as a clean panel and how large a sample is
+enough, are settled under Decisions and Trade-offs and in the Terms.
 
 ## Problem Statement
 
