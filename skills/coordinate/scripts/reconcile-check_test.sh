@@ -30,7 +30,7 @@ trap 'rm -rf "$T"' EXIT
 # The copied tree: reconcile's scripts, /execute's validators, and the two
 # stand-in record-feature checks beside reconcile's scripts.
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
-cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
 # The record feature's merge check and what it sources, which the merge
 # subcommand calls rather than copies.
 cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$T/tree/skills/coordinate/scripts/"
@@ -52,6 +52,27 @@ if [ "$name" = git ]; then
         case "$a" in -c|-C) skip=1 ;; --*) ;; *) sub=$a; break ;; esac
     done
     [ "$sub" = ls-remote ] || exec "$REAL_GIT" "$@"
+    # A private repository (the case holds a "private" file) answers ls-remote
+    # only when the call's own credential config yields the gh login's token,
+    # the way GitHub answers one over https; otherwise git's own failure.
+    if [ -f "$STUB_DIR/private" ]; then
+        cfg=(); prev=""
+        for a in "$@"; do [ "$prev" = -c ] && cfg+=(-c "$a"); prev=$a; done
+        cred=$(printf 'protocol=https\nhost=github.com\n\n' | "$REAL_GIT" ${cfg[@]+"${cfg[@]}"} credential fill 2>&1) \
+            || { printf '%s\n' "$cred" >&2; exit 128; }
+        case "$cred" in
+            *password=gh-login-token*) ;;
+            *) echo "fatal: Authentication failed for 'https://github.com/'" >&2; exit 128 ;;
+        esac
+    fi
+fi
+# gh as git's credential helper: the gh login's token, unless the case says
+# the login can't read the repository (a "gh-auth-fail" file).
+if [ "$name" = gh ] && [ "$1 ${2-}" = "auth git-credential" ]; then
+    cat > /dev/null
+    [ -f "$STUB_DIR/gh-auth-fail" ] && exit 1
+    [ "${3-}" = get ] && printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=gh-login-token\n'
+    exit 0
 fi
 # board-lib.sh reads with `gh api --method GET <path>`: match on the path.
 if [ "$name" = gh ] && [ "$1" = api ] && [ "${2-}" = --method ]; then
@@ -190,10 +211,20 @@ echo "== branch =="
 new_case branch-gone
 serve ls-remote 1 ""
 expect "an absent ref reads branch gone" '.state == "gone"' "$(run branch --repo $R --branch feat/x)"
-grep -q "^git ls-remote https://github.com/$R.git refs/heads/feat/x$" "$CASE/log" && ok "ls-remote reads the row's repository URL" || bad "ls-remote reads the row's repository URL" "$(cat "$CASE/log")"
+grep -q "^git .* -C / .*ls-remote --symref https://github.com/$R.git refs/heads/feat/x$" "$CASE/log" && ok "ls-remote reads the row's repository URL, from outside any repository" || bad "ls-remote reads the row's repository URL, from outside any repository" "$(cat "$CASE/log")"
 new_case branch-present
 serve ls-remote 1 "$LH	refs/heads/feat/x"
 expect "a present ref carries its tip" '.state == "present" and .tip == "'$LH'"' "$(run branch --repo $R --branch feat/x)"
+# A private repository: https answers only with the gh login's credential.
+new_case branch-private
+: > "$CASE/private"
+serve ls-remote 1 "$LH	refs/heads/feat/x"
+expect "a private repository's branch reads through the gh login" '.status == "ok" and .state == "present" and .tip == "'$LH'"' "$(run branch --repo $R --branch feat/x)"
+grep -q '^gh auth git-credential get$' "$CASE/log" && ok "the branch read authenticates with the gh login" || bad "the branch read authenticates with the gh login" "$(cat "$CASE/log")"
+new_case branch-private-denied
+: > "$CASE/private"; : > "$CASE/gh-auth-fail"
+serve ls-remote 1 "$LH	refs/heads/feat/x"
+expect "a private branch the gh login can't read is not verified, never gone" '.status == "not_verified" and (.reason | test("read failed"))' "$(run branch --repo $R --branch feat/x)"
 
 echo "== appeared =="
 new_case appeared-one
@@ -385,6 +416,25 @@ grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -
 grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
 grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
 [ "$(cat "$T/idx-before")" = "$(od -An -tx1 < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
+
+# A private repository: https answers only with the gh login's credential, so
+# the clone reads as it would in a public one.
+inv_case inventory-private
+: > "$CASE/private"
+out=$(run inventory --path "$I")
+expect "a private clone's remote refs read through the gh login" '.status == "ok" and ([.items[] | select(.kind == "unchecked")] | length == 0)' "$out"
+expect "a private clone is judged by content like any other" '[.items[] | select(.kind == "commit") | .path] | (index("branch deleted") != null and index("branch pushed") == null)' "$out"
+grep -q '^gh auth git-credential get$' "$CASE/log" && ok "the inventory authenticates with the gh login" || bad "the inventory authenticates with the gh login" "$(cat "$CASE/log")"
+# The gh login can't read it: the clone is unchecked with git's reason, never
+# judged, even though the clone's own credential helper would answer.
+inv_case inventory-private-denied
+: > "$CASE/private"; : > "$CASE/gh-auth-fail"
+git -C "$RP" config credential.helper "!f() { touch '$CASE/clone-helper-ran'; echo password=gh-login-token; }; f"
+out=$(run inventory --path "$I")
+git -C "$RP" config --unset credential.helper
+expect "a private clone the gh login can't read is unchecked, saying why" '.items | any(.kind == "unchecked" and .clone == "repo" and (.path | test("^remote refs could not be read: .*could not read Username")))' "$out"
+expect "an unread private clone lists no verdict on its commits" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
+[ -e "$CASE/clone-helper-ran" ] && bad "the clone's own credential helper never runs" || ok "the clone's own credential helper never runs"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
@@ -739,7 +789,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|gh auth git-credential get|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always -c protocol\.file\.allow=always -c core\.askPass= -c credential\.interactive=false -c credential\.helper= -c credential\.https://github\.com\.helper= -c credential\.helper=!gh auth git-credential ls-remote --symref https://github\.com/[^ ]+\.git( refs/heads/[^ ]+)?|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 # --method is allowed only as `--method GET`, the merge check's reads.
