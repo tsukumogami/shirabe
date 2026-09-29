@@ -51,7 +51,7 @@ PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/references" "$PR/skills/coordinate/koto-templates"
 for f in dispatch-common.sh holding-recorded.sh wait-target.sh report-source.sh \
-    teardown-inventory.sh teardown-verdict.sh coord-log.sh dispatch-worker.sh render-brief.sh; do
+    teardown-inventory.sh github-refs.sh teardown-verdict.sh coord-log.sh dispatch-worker.sh render-brief.sh; do
     cp "$HERE/$f" "$S/$f"
 done
 cp "$HERE/../references/entry-points.tsv" "$PR/skills/coordinate/references/"
@@ -471,6 +471,7 @@ git init -q --bare "$O"
 # local bare repository.
 GHURL=https://github.com/acme/widgets
 git config --file "$HOME/.gitconfig" "url.$O.insteadOf" "$GHURL"
+git config --file "$HOME/.gitconfig" --add "url.$O.insteadOf" "$GHURL.git"
 git config --file "$HOME/.gitconfig" protocol.file.allow always
 git clone -q "$O" "$T/seed" 2>/dev/null
 printf 'a\n' >"$T/seed/a.txt"

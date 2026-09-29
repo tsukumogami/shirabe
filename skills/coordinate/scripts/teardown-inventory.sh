@@ -28,7 +28,9 @@
 # clone's gpg.program) and every transport off, and hashes working-tree files
 # itself with `hash-object --no-filters`. The remote's refs come from
 # `ls-remote` against the github.com URL under the coordinator's own git
-# config, and the trees it compares against from GitHub, one read per commit.
+# config, authenticated by the gh login (github-refs.sh, the read reconcile
+# makes too), and the trees it compares against from GitHub, one read per
+# commit.
 #
 # Per repository (all its findings are listed):
 #
@@ -309,7 +311,7 @@ files_changed() {
 
 # check_repo <dir> <rel>: one verdict line for one clone.
 check_repo() {
-    local d="$1" rel="$2" loc common top url repo live default dsha
+    local d="$1" rel="$2" loc common top url repo live default dsha why
     if [ -L "$d/.git" ]; then note 2 "error $rel: its .git is a symlink, not read"; return; fi
     loc=$(ig "$d" rev-parse --path-format=absolute --git-common-dir --show-toplevel) || {
         note 2 "error $rel: not a readable git repository"; return; }
@@ -321,14 +323,19 @@ check_repo() {
 
     url=$(ig "$d" config --get remote.origin.url) || url=""
     repo=$(github_repo "$url") || { note 2 "error $rel: no github.com origin to compare against"; return; }
-    # The remote's refs, read with the coordinator's own git config rather
-    # than the clone's, so nothing the worker configured (a URL rewrite, a
-    # transport, a credential helper) runs. https reads GitHub; file lets a
-    # URL the coordinator's own config rewrites point at a local repository,
-    # and runs nothing.
-    live=$(GIT_ALLOW_PROTOCOL=https:file dc_with_deadline "$FETCH_SECS" git -C / -c protocol.allow=never \
-        -c protocol.https.allow=always -c protocol.file.allow=always ls-remote --symref "https://github.com/$repo" 2>"$WORK/ls.err") || {
-        note 2 "error $rel: origin's refs could not be read or the read timed out ($(tail -1 "$WORK/ls.err"))"; return; }
+    # The remote's refs, read by github-refs.sh with the coordinator's own git
+    # config rather than the clone's, so nothing the worker configured (a URL
+    # rewrite, a transport, a credential helper) runs, and authenticated by
+    # the gh login, so a private repository reads too. https reads GitHub;
+    # file lets a URL the coordinator's own config rewrites point at a local
+    # repository, and runs nothing.
+    live=$(dc_with_deadline "$FETCH_SECS" "$HERE/github-refs.sh" --gh "$GH" "$repo" 2>"$WORK/ls.err")
+    case $? in
+        0) ;;
+        124) note 2 "error $rel: origin's refs could not be read: the read timed out after ${FETCH_SECS}s"; return ;;
+        *) why=$(tail -n 1 "$WORK/ls.err" | tr -d '\r' | cut -c1-200)
+           note 2 "error $rel: origin's refs could not be read: ${why:-the read failed with no message}"; return ;;
+    esac
     default=$(printf '%s\n' "$live" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     dsha=$(printf '%s\n' "$live" | awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }')
     [ -n "$default" ] && [ -n "$dsha" ] || { note 2 "error $rel: no default branch on origin"; return; }

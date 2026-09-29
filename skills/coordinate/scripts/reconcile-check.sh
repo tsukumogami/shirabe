@@ -12,7 +12,8 @@
 # command, and one that fails is a not_verified fact that reaches no command.
 #
 # Reads only. `gh` is called with read subcommands and `gh api` with GET;
-# `git` only with ls-remote against a github.com repository, and, inside a
+# `git` only with ls-remote against a github.com repository, authenticated by
+# the gh login (github-refs.sh), and, inside a
 # worker's instance, with reads that neither take the index lock nor run
 # anything the clone's config names (rd_git); `niwa` only with `list`; `koto`
 # only with `request get`.
@@ -102,15 +103,28 @@ need_number() { rd_valid_number "$NUMBER" || refuse "$SUB" "invalid pull request
 need_branch() { rd_valid_branch "$BRANCH" || refuse "$SUB" "invalid branch in the record row"; }
 
 # read_or_fail KIND SECS CMD... -- run CMD under a deadline; on failure print
-# the not_verified fact and exit. CMD's stdout is left in $OUT.
+# the not_verified fact, with the last line CMD wrote to stderr, and exit.
+# CMD's stdout is left in $OUT.
 read_or_fail() {
-    local kind=$1 secs=$2 rc
+    local kind=$1 secs=$2 rc err why
     shift 2
-    OUT=$(rd_deadline "$secs" "$@" 2>/dev/null)
+    err=$(mktemp "${TMPDIR:-/tmp}/reconcile-check.XXXXXX") || refuse "$kind" "read failed (no temporary file)"
+    OUT=$(rd_deadline "$secs" "$@" 2> "$err")
     rc=$?
+    why=$(ls_reason "$err")
+    rm -f "$err"
     [ "$rc" -eq 124 ] && refuse "$kind" "read timed out after ${secs}s"
-    [ "$rc" -ne 0 ] && refuse "$kind" "read failed (exit $rc)"
+    [ "$rc" -ne 0 ] && refuse "$kind" "read failed (exit $rc): $why"
     return 0
+}
+
+# ls_reason FILE -- the last line of a failed read's stderr, as the reason
+# it failed, or a generic one when it said nothing.
+ls_reason() {
+    local r
+    r=$(tail -n 1 "$1" 2>/dev/null | tr -d '\r' | cut -c1-200)
+    [ -n "$r" ] || r="the read failed with no message"
+    printf '%s' "$r"
 }
 
 # blob_at PATH SHA -- the blob sha of PATH at commit SHA, or "absent" when the
@@ -465,9 +479,14 @@ inv_clone() {
     if ! REPO=$(rd_github_repo "$URL"); then
         inv_item "$REL" unchecked "no github.com origin to compare against"; return
     fi
-    # From /, so no repository's config (the caller's included) applies.
-    LIVE=$(RD_GIT_PROTOCOL=https rd_deadline "$DEADLINE" rd_git -C / -c protocol.https.allow=always ls-remote --symref "https://github.com/$REPO.git" 2>/dev/null) \
-        || { inv_item "$REL" unchecked "remote refs could not be read"; return; }
+    # github-refs.sh: from /, under the coordinator's own config, authenticated
+    # by the gh login, so a private repository reads too.
+    LIVE=$(rd_deadline "$DEADLINE" "$RD_GITHUB_REFS" "$REPO" 2> "$ITEMS.ls.err")
+    case $? in
+        0) ;;
+        124) inv_item "$REL" unchecked "remote refs could not be read: the read timed out after ${DEADLINE}s"; return ;;
+        *) inv_item "$REL" unchecked "remote refs could not be read: $(ls_reason "$ITEMS.ls.err")"; return ;;
+    esac
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
     rd_valid_sha "$DEFAULT_SHA" || { inv_item "$REL" unchecked "the default branch could not be resolved"; return; }
@@ -547,7 +566,7 @@ board)
 
 branch)
     need_repo; need_branch
-    read_or_fail branch "$DEADLINE" git ls-remote "https://github.com/$REPO.git" "refs/heads/$BRANCH"
+    read_or_fail branch "$DEADLINE" "$RD_GITHUB_REFS" "$REPO" "refs/heads/$BRANCH"
     TIP=$(printf '%s\n' "$OUT" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')
     if [ -z "$TIP" ]; then
         jq -nc --arg t "$(rd_now)" '{kind: "branch", status: "ok", state: "gone", tip: null, read_at: $t}'
