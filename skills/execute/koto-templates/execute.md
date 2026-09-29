@@ -400,8 +400,8 @@ states:
       command: git merge --no-edit origin/main
       fallback: >-
         koto could not merge origin/main into the shared branch. Read git's own
-        output above. A conflict leaves the merge in progress: resolve it and
-        commit (`git commit --no-edit`), or run `git merge --abort` and merge by
+        output above. A conflict leaves the merge in progress: resolve it,
+        `git add` the files, and commit (`git commit --no-edit`), or run `git merge --abort` and merge by
         hand, then tick again -- the merge re-runs on entry, so nothing needs
         submitting. Never rebase or force-push the shared branch. Submit
         `sync_status: override` if the branch deliberately doesn't carry main,
@@ -1276,7 +1276,7 @@ Bringing the current `origin/main` into the shared branch. koto merges it in its
 
 The `drift_clear` gate reads `drift_facts.json` and matches only when its `route` is `none`. A clean merge with `drift_clear` passing advances straight to `spawn_and_await`, with no evidence and no drift question. A clean merge with any other facts advances to `worktree_discipline_check`. A branch that already contains main passes without a merge having done anything.
 
-You are here because the merge failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the merge in progress: resolve it and `git commit --no-edit`, or `git merge --abort` and merge by hand, then tick again. Re-entering re-runs the merge, and git refuses to start a second merge while one is in progress, so a retry reports the conflict rather than compounding it. Never rebase or force-push the shared branch: it catches up with main by merging, and every push stays plain.
+You are here because the merge failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the merge in progress: resolve it, `git add` the files, and `git commit --no-edit`, or `git merge --abort` and merge by hand, then tick again. Re-entering re-runs the merge, and git refuses to start a second merge while one is in progress, so a retry reports the conflict rather than compounding it. Never rebase or force-push the shared branch: it catches up with main by merging, and every push stays plain.
 
 `sync_status: override` proceeds to `worktree_discipline_check` without the merge, for the deliberate case where the shared branch should not carry main. `blocked` with `detail` stops the run.
 

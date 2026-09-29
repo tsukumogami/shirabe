@@ -78,7 +78,7 @@
 # the merge. For a PLAN git doesn't track yet the base is merge-base(HEAD,
 # origin/main), which the merge moves to origin/main, so a `koto rewind` into
 # `drift_facts` after `worktree_sync` reads as "main has not advanced"; compare
-# against HEAD^1 of the merge by hand to re-judge.
+# against the commit before the merge by hand to re-judge (`git reflog` has it).
 #
 # Bash 3.2: no associative arrays, no mapfile. Lists live in temp files.
 set -uo pipefail
