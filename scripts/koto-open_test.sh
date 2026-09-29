@@ -215,6 +215,27 @@ run_stub s1 "$T/t.md" "$A" --attach-live
 EXPECTED_ARGV=$(printf '%s\n' init s1 --template "$T/t.md" --vars-file "$A" --attach-live)
 assert_eq "only the flags given are passed" "$EXPECTED_ARGV" "$(cat "$STUB_LOG" 2>/dev/null)"
 
+# The harness-only legacy-environment knob. Unset, empty, `0` or `false`, the
+# call is byte-identical to the one above; any other value appends exactly
+# one --legacy-environment, after every other argument.
+for off in unset "" 0 false; do
+    A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+    if [ "$off" = unset ]; then
+        (unset SHIRABE_KOTO_LEGACY_ENVIRONMENT; run_stub s1 "$T/t.md" "$A" --attach-live; cp "$STUB_LOG" "$T/knob-argv" 2>/dev/null)
+    else
+        (SHIRABE_KOTO_LEGACY_ENVIRONMENT="$off"; export SHIRABE_KOTO_LEGACY_ENVIRONMENT; run_stub s1 "$T/t.md" "$A" --attach-live; cp "$STUB_LOG" "$T/knob-argv" 2>/dev/null)
+    fi
+    EXPECTED_ARGV=$(printf '%s\n' init s1 --template "$T/t.md" --vars-file "$A" --attach-live)
+    assert_eq "legacy-environment knob '$off': no flag is added" "$EXPECTED_ARGV" "$(cat "$T/knob-argv" 2>/dev/null)"
+done
+
+for on in 1 yes; do
+    A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+    (SHIRABE_KOTO_LEGACY_ENVIRONMENT="$on"; export SHIRABE_KOTO_LEGACY_ENVIRONMENT; run_stub s1 "$T/t.md" "$A" --attach-live --koto-leg req-1:scope; cp "$STUB_LOG" "$T/knob-argv" 2>/dev/null)
+    EXPECTED_ARGV=$(printf '%s\n' init s1 --template "$T/t.md" --vars-file "$A" --attach-live --koto-leg req-1:scope --legacy-environment)
+    assert_eq "legacy-environment knob '$on': exactly one --legacy-environment, last" "$EXPECTED_ARGV" "$(cat "$T/knob-argv" 2>/dev/null)"
+done
+
 # The transport. The value holds a command substitution, backticks, a
 # semicolon, a newline, and a leading dash; the thin wrapper maps it with jq,
 # and koto must be handed exactly the bytes jq wrote.

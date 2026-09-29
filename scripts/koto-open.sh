@@ -117,6 +117,22 @@
 #
 # Environment:
 #   KOTO_BIN   the koto binary to run (default: `koto` from PATH)
+#   SHIRABE_KOTO_LEGACY_ENVIRONMENT
+#              harness-only. Set to anything other than empty, `0` or
+#              `false`, it appends `--legacy-environment` to the `koto init`
+#              call, so the new session runs its commands with the caller's
+#              whole environment, as koto did before it recorded one. The
+#              test harnesses set it because their stand-in tools (a fake
+#              `gh`, a fake `koto`, test boards) read their configuration
+#              from variables that koto's recorded environment no longer
+#              passes. Production callers never set it, and unset, the call
+#              is exactly what it would be without the knob. A koto older
+#              than the flag refuses it, so a harness sets the knob only
+#              when the koto it drives accepts the flag
+#              (scripts/lib/koto-legacy-env.sh). Temporary: koto removes the
+#              flag in the release after the one that adds it, and the knob
+#              goes too once the stand-ins read their configuration from a
+#              file.
 #
 # Requires: bash 3.2+, jq. No eval anywhere, and no token from the args file
 # is ever interpolated into a command line.
@@ -342,6 +358,10 @@ set -- init "$SESSION" --template "$TEMPLATE" --vars-file "$VARS_PATH"
 [ "$ATTACH_LIVE" -eq 1 ] && set -- "$@" --attach-live
 [ "$REPLACE_TERMINAL" -eq 1 ] && set -- "$@" --replace-terminal
 [ "$HAVE_LEG" -eq 1 ] && set -- "$@" --koto-leg "$KOTO_LEG"
+case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in
+    ''|0|false) ;;
+    *) set -- "$@" --legacy-environment ;;
+esac
 
 # Run in the background and wait, so SIGINT/SIGTERM reach the trap at once
 # instead of after koto returns.

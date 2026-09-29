@@ -329,6 +329,8 @@ suite_scripts() {
             # skip without koto, which the macOS runner lacks, and a developer
             # running this locally with koto gets them on 3.2 as well.
             echo "scripts/koto-open_test.sh"
+            # The harness knob's helper, probed against stand-in kotos only.
+            echo "scripts/lib/koto-legacy-env_test.sh"
             # A stub koto answers every case, so all of them run on 3.2.
             echo "scripts/assert-koto-floor_test.sh"
             # Reads files and greps them; no koto, so every case runs on 3.2.
