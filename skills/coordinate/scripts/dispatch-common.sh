@@ -166,12 +166,16 @@ DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
+# The dispatch topic's grammar, which a refusal names as the accepted values.
+DC_RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
+DC_TOPIC_GRAMMAR="$DC_RE_TOPIC (at most 64 characters)"
+
 dc_valid_topic() {
     case "$1" in
         '' | -*) return 1 ;;
     esac
     [ "${#1}" -le 64 ] || return 1
-    printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*$'
+    [[ $1 =~ $DC_RE_TOPIC ]]
 }
 
 dc_niwa_slug() {
