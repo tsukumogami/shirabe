@@ -544,11 +544,269 @@ def build_slices(pr):
             "doc-pairs": doc}, pair_meta
 
 
+# --- Local files that must stay out of every repository ----------------------
+
+def inside_work_tree(path):
+    """True when `path`, or the nearest existing directory above it, is inside a
+    git work tree. Any answer other than a clean "no" counts as inside, so a git
+    failure refuses rather than lets a record or a term list land in a repository."""
+    p = Path(os.path.realpath(path))
+    while not p.exists():
+        if p.parent == p:
+            return True
+        p = p.parent
+    if p.is_file():
+        p = p.parent
+    try:
+        out = subprocess.run(["git", "-C", str(p), "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    if out.returncode == 0:
+        return out.stdout.strip() != "false"
+    return "not a git repository" not in out.stderr
+
+
+def load_private_terms(path):
+    """The local private-term list: one term per line, # for comments. None when no
+    list was given. The list is never committed, sent or recorded."""
+    if not path:
+        return None
+    if inside_work_tree(path):
+        raise ConfigError("the private-term list must live outside every git work tree")
+    try:
+        with open(path, encoding="utf-8") as f:
+            terms = [ln.strip() for ln in f if ln.strip() and not ln.lstrip().startswith("#")]
+    except OSError:
+        raise ConfigError("the private-term list could not be read")
+    return terms
+
+
+# --- Script criteria ---------------------------------------------------------
+#
+# Each check reads the pr-text slice and returns (verdict, findings, reason).
+# A finding is (path, line): where, never what. The private-name check in
+# particular must not print the term it matched.
+#
+# Some patterns below are written so that the source doesn't contain the
+# literal text they look for (`(?:ed)`, `\/`): otherwise this file would fail
+# its own checks, and every pre-merge grep that looks for the same text.
+
+ATTRIBUTION = re.compile(
+    r"co-author(?:ed)-by\s*:|generated\s+with\s+\[?claude|claude-sess(?:ion)\b|"
+    r"https?://(?:www\.)?claude\.a(?:i)\b", re.I)
+SCRATCH_PATH = re.compile(r"(?<![A-Za-z0-9_.-])wip\/[A-Za-z0-9_.]")
+HOME_PATH = re.compile(r"/home/(?!(?:u|user|x)/)[a-z_][a-z0-9_-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/")
+PATH_TOKEN = re.compile(r"`([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*)`")
+PATH_SUFFIXES = (".md", ".sh", ".py", ".rs", ".json", ".jsonl", ".yml", ".yaml", ".toml", ".txt", "/")
+UNFINISHED_FILE = HERE / "unfinished-wording.txt"
+
+
+def _lines(pt):
+    """(path, line, text) for the body and every added line."""
+    for i, text in enumerate(pt["body"].split("\n"), 1):
+        yield ("(body)", i, text)
+    yield from pt["added"]
+
+
+def check_attribution(pt, _terms):
+    hits = [(p, ln) for p, ln, t in _lines(pt) if ATTRIBUTION.search(t)]
+    return ("fail" if hits else "pass"), hits, None
+
+
+def term_forms(term):
+    """Every committed form of a term the private-name check looks for: plain
+    (matched case-insensitively), base64 at all three byte alignments, hex, and
+    SHA-1, SHA-256 and MD5 digests of the term and its lower case."""
+    import base64
+    raw = term.encode("utf-8")
+    forms = {term.lower(), raw.hex()}
+    for off in range(3):
+        enc = base64.b64encode(b"\0" * off + raw).decode().rstrip("=")
+        start = (off * 4 + 2) // 3 if off else 0
+        end = len(enc) - (1 if (off + len(raw)) % 3 else 0)
+        if end - start >= 4:
+            forms.add(enc[start:end])
+    for t in {term, term.lower()}:
+        b = t.encode("utf-8")
+        forms |= {hashlib.sha1(b).hexdigest(), hashlib.sha256(b).hexdigest(), hashlib.md5(b).hexdigest()}
+    return forms
+
+
+def check_private_terms(pt, terms):
+    if not pt["public"]:
+        return "pass", [], None  # the rule governs public content only
+    if terms is None:
+        return "unanswered", [], "no-denylist"
+    forms = set()
+    for t in terms:
+        forms |= term_forms(t)
+    hits = []
+    for p, ln, text in _lines(pt):
+        low = text.lower()
+        if HOME_PATH.search(text) or any((f in low) if f.islower() or not f.isalpha() else (f in text)
+                                         for f in forms if f):
+            hits.append((p, ln))
+    return ("fail" if hits else "pass"), hits, None
+
+
+def check_scratch_path(pt, _terms):
+    hits = [(p, ln) for p, ln, t in _lines(pt) if not p.startswith("wip" + "/") and SCRATCH_PATH.search(t)]
+    return ("fail" if hits else "pass"), hits, None
+
+
+def _strip_code(text):
+    return re.sub(r"`[^`]*`", "", text)
+
+
+def load_unfinished_phrases(path=UNFINISHED_FILE):
+    with open(path, encoding="utf-8") as f:
+        return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+
+
+def check_unfinished_wording(pt, _terms):
+    phrases = [re.compile(r"(?<![A-Za-z0-9])" + re.escape(p) + r"(?![A-Za-z0-9])", re.I)
+               for p in load_unfinished_phrases()]
+    hits = []
+    for i, line in enumerate(pt["part1"].split("\n"), 1):
+        plain = _strip_code(line)
+        if any(rx.search(plain) for rx in phrases):
+            hits.append(("(body)", i))
+    return ("fail" if hits else "pass"), hits, None
+
+
+def check_pasted_paragraph(pt, _terms):
+    """A prose paragraph over 60 characters that appears twice in one changed
+    Markdown file, where at least one copy was added by this change."""
+    added_by_path = {}
+    for p, ln, _ in pt["added"]:
+        added_by_path.setdefault(p, set()).add(ln)
+    hits = []
+    for path, text in pt["texts"].items():
+        if not text:
+            continue
+        seen = {}
+        for start, para in paragraphs(text):
+            key = " ".join(para.split())
+            if len(key) <= 60 or LINE_UNIT.match(para):
+                continue
+            seen.setdefault(key, []).append((start, start + para.count("\n")))
+        added = added_by_path.get(path, set())
+        for spans in seen.values():
+            if len(spans) > 1 and any(a <= ln <= b for a, b in spans for ln in added):
+                hits.append((path, spans[-1][0]))
+    return ("fail" if hits else "pass"), hits, None
+
+
+def check_dangling_path(pt, _terms):
+    if pt["tree"] is None:
+        return "unanswered", [], "tree-unreadable"
+    hits = []
+    for p, ln, text in pt["added"]:
+        if not p.endswith(".md"):
+            continue
+        for tok in PATH_TOKEN.findall(text):
+            if tok.startswith(("http", "wip" + "/")) or ".." in tok.split("/") or not tok.endswith(PATH_SUFFIXES):
+                continue
+            target = tok.rstrip("/")
+            local = str(Path(p).parent / target) if "/" in p else target
+            if target not in pt["tree"] and local not in pt["tree"]:
+                hits.append((p, ln))
+    return ("fail" if hits else "pass"), hits, None
+
+
+CHECKS = {"attribution": check_attribution, "private_terms": check_private_terms,
+          "scratch_path": check_scratch_path, "unfinished_wording": check_unfinished_wording,
+          "pasted_paragraph": check_pasted_paragraph, "dangling_path": check_dangling_path}
+
+
+def run_scripts(criteria, pt, terms):
+    """Every script criterion over the pr-text slice, in file order."""
+    out = []
+    for c in criteria["criteria"]:
+        if c["observer"] != "script":
+            continue
+        verdict, hits, reason = CHECKS[c["check"]](pt, terms)
+        out.append({"rule_id": c["rule_id"], "slice": "pr-text", "verdict": verdict, "observer": "script",
+                    "probabilities": None, "reason": reason, "findings": len(hits), "where": hits})
+    return out
+
+
+# --- Local branch scan -------------------------------------------------------
+
+def _git(*args):
+    out = subprocess.run(["git", *args], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise FetchError(f"git {args[0]} failed")
+    return out.stdout
+
+
+def local_pr(base, body):
+    """A pr-text slice for the current branch against `base`, for `scan`."""
+    diff = _git("diff", "--no-color", "-U3", f"{base}...HEAD")
+    files, cur = [], None
+    for line in diff.split("\n"):
+        m = re.match(r"^diff --git a/(.+) b/(.+)$", line)
+        if m:
+            cur = {"path": m.group(2), "status": "modified", "additions": 0, "deletions": 0, "patch": []}
+            files.append(cur)
+        elif cur is not None:
+            if line.startswith("deleted file mode"):
+                cur["status"] = "removed"
+            elif line.startswith("@@") or (cur["patch"] and line[:1] in ("+", "-", " ", "\\")):
+                if not line.startswith(("+++", "---")) or cur["patch"]:
+                    cur["patch"].append(line)
+    for f in files:
+        f["patch"] = "\n".join(f["patch"])
+    tree_paths = _git("ls-tree", "-r", "--name-only", "HEAD").split("\n")
+    tree = set(p for p in tree_paths if p)
+    for p in list(tree):
+        parts = p.split("/")
+        for i in range(1, len(parts)):
+            tree.add("/".join(parts[:i]))
+    texts = {}
+    for f in files:
+        if f["path"].endswith(DOC_SUFFIXES) and f["status"] != "removed":
+            texts[f["path"]] = _git("show", f"HEAD:{f['path']}")
+    public = bool(re.search(r"^## Repo Visibility: Public", (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8"),
+                            re.M)) if (REPO_ROOT / "CLAUDE.md").exists() else True
+    pr = {"body": body, "files": files, "texts": texts, "tree": tree, "public": public}
+    return slice_pr_text(pr)
+
+
+def cmd_scan(args, criteria):
+    body = ""
+    if args.body_file:
+        body = Path(args.body_file).read_text(encoding="utf-8").replace("\r\n", "\n")
+    terms = load_private_terms(args.private_terms or os.environ.get("REVIEW_SHADOW_PRIVATE_TERMS"))
+    pt = local_pr(args.base, body)
+    bad = 0
+    for v in run_scripts(criteria, pt, terms):
+        if v["verdict"] == "pass":
+            continue
+        bad += 1
+        if v["verdict"] == "unanswered":
+            print(f"{v['rule_id']}: not checked ({v['reason']})")
+        for path, line in v["where"]:
+            print(f"{v['rule_id']}: {path}:{line}")
+    return 1 if bad else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="review-shadow.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="load the criteria and category files and report problems")
+    sp = sub.add_parser("scan", help="run the script criteria over the current branch; writes nothing")
+    sp.add_argument("--base", default="origin/main")
+    sp.add_argument("--body-file")
+    sp.add_argument("--private-terms")
     args = ap.parse_args(argv)
+    if args.command == "scan":
+        try:
+            return cmd_scan(args, load_criteria())
+        except (ConfigError, FetchError) as e:
+            print(f"review-shadow: {e}", file=sys.stderr)
+            return 2
     try:
         criteria = load_criteria()
         load_categories(criteria)
