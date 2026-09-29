@@ -69,7 +69,9 @@
       "tier": 2,
       "mode": "execute",
       "scenario": "drift-intent-changing",
-      "env": {"KOTO_CALL_LOG": "koto-calls.log"},
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
       "expected_output": "After orchestrator_setup and settled_branch_record, koto runs drift_facts itself: drift-facts.sh fetches origin, takes the base as the merge-base of the PLAN's last commit and origin/main, and writes plan_intent.md and then drift_facts.json to the session context. The diamond PLAN references no path beyond itself, and main deleted that PLAN doc, so drift_facts.json carries route: judge with reasons no_code_references, overlap, and deleted_references, and the PLAN's path in both overlap (status: deleted) and deleted_referenced_paths. koto then runs worktree_sync's git rebase origin/main itself, and because drift_clear does not match, the run stops at worktree_discipline_check. The agent does NOT fetch or rebase, and writes no impact file: it reads drift_facts.json and plan_intent.md with koto context get, per skills/work-on/references/phases/phase-2.5-worktree-discipline.md, judges that the change invalidates the PLAN's intent, and submits impact: intent-changing with a rationale (with --no-cleanup). The workflow routes to escalate_upstream_drift -> done_blocked carrying the upstream-drift failure_reason. Children are NEVER dispatched. This is the drift gate firing under /execute before the first child.",
       "files": [],
@@ -88,7 +90,9 @@
       "tier": 2,
       "mode": "execute",
       "scenario": "drift-informational",
-      "env": {"KOTO_CALL_LOG": "koto-calls.log"},
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- main advanced in unrelated files",
       "expected_output": "Main advanced three commits, only in files the PLAN does not reference. koto runs drift_facts itself: drift-facts.sh fetches origin and writes plan_intent.md and drift_facts.json. The diamond PLAN references no path beyond itself, so the facts cannot rule drift out: drift_facts.json carries route: judge with reasons [no_code_references], an empty overlap, and no deleted reference. koto runs worktree_sync's git rebase origin/main itself; drift_clear does not match, so the run stops at worktree_discipline_check. The agent does not fetch or rebase by hand and writes no impact file: it reads drift_facts.json and plan_intent.md with koto context get, per skills/work-on/references/phases/phase-2.5-worktree-discipline.md, sees that main changed nothing the PLAN depends on, and submits impact: informational with --no-cleanup (never impact: none, which the state does not accept). The workflow routes to spawn_and_await with no escalation, and per-child dispatch proceeds normally. A PLAN that named code paths main left alone would route none and reach spawn_and_await without the question; this PLAN names none, so the question is always asked. This is the drift gate ABSORBING a non-intent-changing base-branch change under /execute.",
       "files": [],
@@ -450,13 +454,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a child surfaces that an upstream DESIGN must change before the plan can proceed (an upstream-must-change boundary)",
-      "expected_output": "Agent recognizes an upstream-must-change boundary: an upstream artifact (PRD or DESIGN) must change before the plan can proceed. Per R2/R19 this is a genuine blocker that routes to the re-evaluation exit, not full-run and not abandonment-forced. The agent writes a Decision Record under docs/decisions/ with its boundary set and does NOT re-execute -- it stops at the boundary rather than driving issues against an upstream that must move first. It sets exit: re-evaluation and records the Decision Record path in exit_artifacts.",
+      "expected_output": "Agent recognizes an upstream-must-change boundary: an upstream artifact (PRD or DESIGN) must change before the plan can proceed. Per R2/R19 this is a genuine blocker that routes to the re-evaluation exit, not full-run and not abandonment-forced. The run stops at the boundary (escalate_upstream_drift to done_blocked, with the rationale in failure_reason) and does NOT re-execute -- it does not drive issues against an upstream that must move first. It writes no Decision Record: failure_reason is the record.",
       "files": [],
       "expectations": [
         "Agent classifies the upstream-must-change boundary as the re-evaluation exit (not full-run, not abandonment-forced)",
-        "Agent writes a Decision Record under docs/decisions/ with its boundary set",
+        "Agent stops at the boundary through escalate_upstream_drift to done_blocked, with the rationale carried in failure_reason",
         "Agent does NOT re-execute or drive further issues against the upstream that must change first",
-        "Agent sets exit: re-evaluation and records the Decision Record path in exit_artifacts"
+        "Agent does NOT write a Decision Record under docs/decisions/"
       ]
     },
     {
@@ -498,10 +502,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- what does pr_finalization set on the PR?",
-      "expected_output": "In pr_finalization the agent authors a template-conformant PR in the single gh pr edit it runs, in one pass (DESIGN R4/D6). It sets a conventional-commit --title of the form <type>[scope]: <description>, defaulting <type> to feat and deriving <description> from the validated PLAN slug (basename {{PLAN_DOC}} .md | sed 's/^PLAN-//', which matches ^[a-z0-9-]+$) -- never from raw PLAN prose interpolated into the title or shell. This replaces the non-conventional impl: $PLAN_SLUG title set at PR creation. The body is two-part: Part 1 a concise factual change paragraph (becomes the squash commit body), then a --- separator, then Part 2 the per-child outcome table (name/outcome/reason/reason_source/skipped_because_chain). The agent applies the spec inline, referencing references/pr-body-conformance.md as the single-sourced mechanical rule (enforced in CI by shirabe validate --pr-body), and does NOT shell out to another plugin's skill at runtime. It does NOT mark the PR ready in this state.",
+      "expected_output": "In pr_finalization the agent authors a template-conformant PR in the single gh pr edit it runs, in one pass (DESIGN R4/D6). It sets the conventional-commit --title feat: <description>, the type the directive's gh pr edit command fixes, deriving <description> from the validated PLAN slug (basename {{PLAN_DOC}} .md | sed 's/^PLAN-//', which matches ^[a-z0-9-]+$) -- never from raw PLAN prose interpolated into the title or shell. This replaces the non-conventional impl: $PLAN_SLUG title set at PR creation. The body is two-part: Part 1 a concise factual change paragraph (becomes the squash commit body), then a --- separator, then Part 2 the per-child outcome table (name/outcome/reason/reason_source/skipped_because_chain). The agent applies the spec inline, referencing references/pr-body-conformance.md as the single-sourced mechanical rule (enforced in CI by shirabe validate --pr-body), and does NOT shell out to another plugin's skill at runtime. It does NOT mark the PR ready in this state.",
       "files": [],
       "expectations": [
-        "Agent sets gh pr edit --title to a conventional-commit <type>[scope]: <description> (default type feat), replacing the impl: $PLAN_SLUG creation-time title",
+        "Agent sets gh pr edit --title to the conventional-commit title feat: <description> the directive's command carries, replacing the impl: $PLAN_SLUG creation-time title",
         "Agent derives the title description from the validated PLAN slug (^[a-z0-9-]+$) and NEVER interpolates raw PLAN prose into the title or emitted shell",
         "Agent assembles a two-part body: Part 1 factual change paragraph, a --- separator, Part 2 the per-child outcome table",
         "Agent references references/pr-body-conformance.md as the single-sourced mechanical title/body rule (enforced by shirabe validate --pr-body) and applies it inline (does NOT shell out to another plugin's skill at runtime)",
@@ -529,13 +533,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- run in interactive mode (the default); stop for review before finalization",
-      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes PAUSE_BEFORE_FINALIZE=true to koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check (which fires only at terminal exits) is not tripped. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
+      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes PAUSE_BEFORE_FINALIZE=true to koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer print-exit.sh prints no exit= line for it, and re-invoking /execute on the same PLAN resumes it. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
       "files": [],
       "expectations": [
         "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes PAUSE_BEFORE_FINALIZE=true to koto init (derived from mode, NOT a --pause-for-review flag)",
         "Agent submits finalization_status: updated with pause_decision: pause in pr_finalization and routes to the paused_for_review terminal",
         "At the pause the chain is intact: PLAN present on disk, BRIEF/PRD/DESIGN un-transitioned, PR still DRAFT (gh pr ready NOT fired, plan_completion cascade NOT run)",
-        "The pause is a suspension: exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check is NOT tripped",
+        "The pause is a suspension, not one of the three exits: no exit= line is printed, and re-invoking /execute on the same PLAN resumes it",
         "Agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false to finalize)"
       ]
     },
@@ -556,33 +560,15 @@
       ]
     },
     {
-      "id": 32,
-      "name": "finalization-not-done-guard-via-validate-lifecycle-chain",
-      "tier": 1,
-      "mode": "plan_only",
-      "prompt": "How do I check whether an /execute run's finalization completed, both for a suspected mid-run and for a finalized chain in CI?",
-      "expected_output": "The R5 finalization-not-done guard is the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode -- not a new flag and not a new subcommand. Exit codes: 0 = finalization complete (the chain is at its terminal: PLAN deleted, BRIEF/PRD Done, DESIGN Current); 2 = finalization NOT done (a present PLAN or an un-transitioned upstream fails L01 under ready posture, so the guard fires); 1 = tool-error/inconclusive, distinct from a violation (never read as a pass). The seed-doc rule is load-bearing: post-finalization the PLAN is GONE (the cascade git rm's it), so a finalized-chain check (CI) MUST seed on the durable surviving anchor -- the DESIGN at docs/designs/current/DESIGN-<slug>.md (or BRIEF/PRD at Done) -- NEVER the deleted PLAN path, which returns L05/exit 2 and looks like a false failure. A human investigating a suspected mid-run seeds on the still-present PLAN (docs/plans/PLAN-<slug>.md), which fails L01/exit 2 exactly as R5 names. A manual run with an un-finalized chain reports incomplete (exit 2); a finalized chain reports complete (exit 0). In CI the reusable lifecycle.yml workflow runs the equivalent whole-tree shirabe validate --lifecycle . --mode=ready gated on github.event.pull_request.draft == false, so the ready-posture finalization assertion fires only at review time and a draft PR's mid-flight cascade does not false-fire.",
-      "files": [],
-      "expectations": [
-        "Agent identifies the guard as the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode, NOT a new flag or new subcommand",
-        "Agent gives the exit-code contract: 0 = finalized/complete, 2 = finalization not done (L01 under ready posture), 1 = tool-error/inconclusive (distinct from a violation, not a pass)",
-        "Agent states a manual run with an un-finalized chain reports incomplete (exit 2) and a finalized chain reports complete (exit 0)",
-        "Agent applies the seed-doc rule: CI/finalized-chain checks seed on the durable surviving anchor (DESIGN at docs/designs/current/, or BRIEF/PRD at Done), NEVER the deleted PLAN path (which returns L05/exit 2); a human mid-run check seeds on the still-present PLAN",
-        "Agent notes CI wires the guard via the lifecycle.yml ready-posture check gated on pull_request.draft == false, so it asserts the finalized terminal only at review time"
-      ]
-    },
-    {
       "id": 33,
       "name": "report-upstream-convention-and-user-facing-behavior-docs",
       "tier": 1,
       "mode": "plan_only",
       "prompt": "Where is the report-upstream durability convention recorded, and where does a developer find the user-facing /execute behaviors documented?",
-      "expected_output": "skills/execute/SKILL.md carries the D5 report-upstream durability convention pointer: friction logs and other report-upstream artifacts go to a durable home -- a GitHub issue on the relevant skill repo (gh issue create, the same surface /plan and /roadmap use) or a committed docs/ note as the fallback -- and NEVER wip/, which the finalization cascade plus squash-merge carry off main by design. The pointer is developer behavior, not a new /execute write, so the closed write-target set is unchanged, and the automated run-report emit is explicitly deferred. The SKILL.md notes the canonical wording also lives in the workspace CLAUDE.md wip rule and its dot-niwa-overlay mirror, which are out-of-repo files (cross-repo follow-up), not edited in this PR. The developer-facing guide docs/guides/execute-friction.md covers the three user-visible behaviors: mode-aware branch/PR targeting (single-pr adopts the scoping branch/PR; coordinated keeps code in per-repo worktrees with the coordination branch for scoping docs only), the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes (straight through to a mergeable green PR), and the finalization guard (shirabe validate --lifecycle-chain <seed> --mode=ready with the 0/2/1 exit codes and the seed-doc rule).",
+      "expected_output": "skills/execute/SKILL.md carries the D5 report-upstream durability convention: friction logs and other report-upstream artifacts go to a durable home -- a GitHub issue on the relevant skill repo (gh issue create, the same surface /plan and /roadmap use) or a committed docs/ note as the fallback -- and NEVER wip/, which the finalization cascade plus squash-merge carry off main by design. The developer-facing guide docs/guides/execute-friction.md covers the three user-visible behaviors: mode-aware branch/PR targeting (single-pr adopts the scoping branch/PR; coordinated keeps code in per-repo worktrees with the coordination branch for scoping docs only), the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes (straight through to a mergeable green PR), and the finalization guard (shirabe validate --lifecycle-chain <seed> --mode=ready with the 0/2/1 exit codes and the seed-doc rule).",
       "files": [],
       "expectations": [
         "skills/execute/SKILL.md records the report-upstream durability convention: durable home is a GitHub issue on the skill repo or a docs/ note fallback, NEVER wip/",
-        "The SKILL.md pointer is developer behavior (not a new /execute write); the closed write-target set is unchanged and the automated run-report emit is deferred",
-        "The SKILL.md notes the workspace CLAUDE.md and dot-niwa-overlay mirror as out-of-repo cross-repo follow-up, not edited in this PR",
         "docs/guides/execute-friction.md documents mode-aware branch/PR targeting (single-pr adopt-the-scoping-PR; coordinated code-in-per-repo-worktrees, coordination-branch docs-only)",
         "docs/guides/execute-friction.md documents the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes, and the finalization guard (shirabe validate --lifecycle-chain --mode=ready, 0/2/1 exit codes, seed-doc rule)"
       ]
@@ -622,7 +608,7 @@
         "gh-calls.log contains exactly one line starting `pr merge`, and it carries `--match-head-commit <expected_head>` with the sha the run recorded",
         "The run passes merge_confirm before reaching the merged terminal",
         "The printed exit lines include `outcome=merged`",
-        "The state file (or the printed `exit=` line) records `exit: full-run`",
+        "The printed `exit=` line records `full-run`",
         "The printed exit lines include a `pr=` line and a `repos=` line",
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
       ]

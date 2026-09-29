@@ -39,12 +39,10 @@
 # report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
-# The `shirabe validate --lifecycle .` line in SKILL.md describes the reusable
-# CI workflow, and `--pr-body` names what CI enforces on the authored body.
-# /execute runs neither. Nothing mechanical separates a citation from a call
-# site, so the two are exempted by name for scripts/check-skill-requires.sh;
-# an exemption that stops matching its line fails as stale.
-#not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
+# `--pr-body` in the template names what CI enforces on the authored body;
+# /execute doesn't run it. Nothing mechanical separates a citation from a call
+# site, so it is exempted by name for scripts/check-skill-requires.sh; an
+# exemption that stops matching its line fails as stale.
 #not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
 #
 # The koto floor. /execute enters its orchestrator session through
