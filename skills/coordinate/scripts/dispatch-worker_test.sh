@@ -77,6 +77,16 @@ case "$1" in
         cat "$ST/sessions.json"
         ;;
     dispatch)
+        # NIWA_HELP picks the niwa being stood in for: `lineage` lists
+        # --brief and --skill, `old` predates them, `fail` can't print help.
+        if [ "${2:-}" = --help ]; then
+            case "${NIWA_HELP:-lineage}" in
+                lineage) printf 'Flags:\n      --brief string\n      --detach\n      --name string\n      --skill string\n' ;;
+                old) printf 'Flags:\n      --detach\n      --name string\n' ;;
+                fail) exit 1 ;;
+            esac
+            exit 0
+        fi
         shift
         printf 'niwa dispatch' >>"$ST/calls.log"
         for a in "$@"; do printf ' [%s]' "$a" >>"$ST/calls.log"; done
@@ -164,7 +174,7 @@ reset() {
     printf '%s' "${2:-plugin-api}" >"$ST/ctx/dispatch_topic"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -229,6 +239,32 @@ has "leg: prompt carries --koto-leg" "$(cat "$ST/prompt")" "--koto-leg=req_1:sco
 has "leg: the brief shows the same invocation" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:scope plugin-api --auto --intent=continue --koto-leg=req_1:scope`'
 CREATE=$(grep -n 'koto request create' "$ST/calls.log" | cut -d: -f1)
 if [ "$CREATE" -lt "$(grep -n 'record write' "$ST/calls.log" | head -1 | cut -d: -f1)" ]; then ok "leg: opened before the write-ahead"; else bad "leg: opened before the write-ahead" "$LOG"; fi
+
+# --- the worker's lineage flags ------------------------------------------------------------
+
+# A niwa that takes them gets the brief and the entry point's skill.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "lineage: --skill names the entry point's skill" "$LAUNCHED" "[--skill] [shirabe:scope]"
+has "lineage: --brief names the brief file" "$LAUNCHED" "[--brief] [$W/.niwa/dispatch-briefs/plugin-api.md]"
+[ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && ok "lineage: the brief exists at launch" || bad "lineage: the brief exists at launch" ""
+
+# A niwa that predates them, or whose help can't be read, launches exactly as
+# before.
+for help in old fail; do
+    reset "$INPUT_SCOPE"
+    export NIWA_HELP=$help
+    run >/dev/null 2>&1; RC=$?
+    eq  "lineage ($help help): exit 0" 0 "$RC"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    lacks "lineage ($help help): no --brief" "$LAUNCHED" "[--brief]"
+    lacks "lineage ($help help): no --skill" "$LAUNCHED" "[--skill]"
+    case "$LAUNCHED" in
+        *" [--name] [plugin-api] [--detach]") ok "lineage ($help help): the launch ends as before" ;;
+        *) bad "lineage ($help help): the launch ends as before" "$LAUNCHED" ;;
+    esac
+done
 
 reset "$INPUT_SCOPE"
 printf '{"requests":[{"request_id":"req_left","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_other","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
