@@ -33,7 +33,7 @@ SLICE_KINDS = ("pr-text", "pr-summary", "code-hunks", "doc-pairs")
 SCRIPT_CHECKS = ("attribution", "private_terms", "scratch_path", "unfinished_wording",
                  "pasted_paragraph", "dangling_path")
 CLASSES = ("covered", "closed-uncovered", "open-judgment")
-RULE_ID = re.compile(r"^rs-[0-9]{3}$")
+RULE_ID = re.compile(r"rs-[0-9]{3}")
 CRITERION_FIELDS = ("rule_id", "rule_ref", "group", "artifact_kind", "slice_kind", "observer",
                     "question", "values", "escape", "threshold")
 
@@ -73,7 +73,7 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
             if field not in c:
                 raise ConfigError(f"{where}: missing {field!r}")
         rid = c["rule_id"]
-        if not isinstance(rid, str) or not RULE_ID.match(rid):
+        if not isinstance(rid, str) or not RULE_ID.fullmatch(rid):
             raise ConfigError(f"{where}: rule_id must look like rs-NNN")
         if rid in seen:
             raise ConfigError(f"{where}: duplicate rule_id {rid}")
@@ -98,11 +98,12 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
                 raise ConfigError(f"{where}: script criteria read the pr-text slice")
         elif c["slice_kind"] == "pr-text":
             raise ConfigError(f"{where}: Jev criteria can't read the unbounded pr-text slice")
-        if not isinstance(c["threshold"], (int, float)) or not 0.5 <= c["threshold"] <= 1.0:
+        t = c["threshold"]
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not 0.5 <= t <= 1.0:
             raise ConfigError(f"{where}: threshold must be between 0.5 and 1.0")
         ref = c["rule_ref"]
         if not isinstance(ref, str) or ref.startswith("/") or ".." in ref.split("/") \
-                or not (Path(repo_root) / ref).exists():
+                or not (Path(repo_root) / ref).is_file():
             raise ConfigError(f"{where}: rule_ref {ref!r} doesn't name a file in the repository")
     if not seen:
         raise ConfigError(f"{path}: no criteria")

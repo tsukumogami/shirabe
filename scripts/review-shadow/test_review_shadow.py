@@ -72,6 +72,16 @@ class TestLoader(unittest.TestCase):
         self.refused(bad, "rule_ref")
         bad["criteria"][0]["rule_ref"] = "../outside.md"
         self.refused(bad, "rule_ref")
+        bad["criteria"][0]["rule_ref"] = "skills"
+        self.refused(bad, "rule_ref")
+
+    def test_strict_id_and_threshold(self):
+        bad = copy.deepcopy(self.good)
+        bad["criteria"][0]["rule_id"] = "rs-001\n"
+        self.refused(bad, "rs-NNN")
+        bad = copy.deepcopy(self.good)
+        bad["criteria"][0]["threshold"] = True
+        self.refused(bad, "threshold")
 
     def test_values_and_escape(self):
         bad = copy.deepcopy(self.good)
