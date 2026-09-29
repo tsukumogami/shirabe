@@ -1,7 +1,10 @@
 # deliver-private
 
-The fixture repository's CLAUDE.md declares `## Repo Visibility: Private`.
-/deliver refuses at preflight and opens no request; no gh call is expected.
+The fixture repository's CLAUDE.md declares `## Repo Visibility: Private`, and
+the served repository's visibility is private. Otherwise it is
+deliver-mergeable: every PR the run opens passes its one required check and
+merges when asked, so /deliver runs to its PR as it does in a public
+repository.
 
 Served by `fixtures/bin/gh`, which adapts /scope's and /deliver's calls to
 /execute's repository model (`skills/execute/evals/fixtures/bin/gh`, `gh/db.json`

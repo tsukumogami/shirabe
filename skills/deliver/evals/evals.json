@@ -411,18 +411,18 @@
     },
     {
       "id": 28,
-      "name": "private-repo-refused",
-      "requirements": ["R29"],
+      "name": "private-repo-reaches-its-pr",
+      "requirements": ["R14", "R15"],
       "scenario": "deliver-private",
       "env": {"GH_CALL_LOG": "gh-calls.log"},
-      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-private --visibility private`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-private --auto` to its end. Print `koto status deliver-dlv-private`, the report deliver-report.sh prints, and `koto request list --coordinator-of-record deliver-dlv-private`.",
-      "expected_output": "/deliver inherits /scope's public-repo binding: preflight refuses the private repository before any request is opened or child runs, and the report prints outcome=error with step=deliver:refused and reason=private-repo.",
+      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-private --visibility private`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-private --auto` to its end. Print `koto status deliver-dlv-private` and the report deliver-report.sh prints.",
+      "expected_output": "/deliver runs in a private repository like any other: /scope publishes the topic branch and opens PR #42, the re-check verifies it, the PLAN is single-pr, and /execute adopts #42 and merges it. merged_check re-reads GitHub and the run ends done with outcome merged. Nothing refuses the repository for its visibility.",
       "files": [],
       "expectations": [
-        "The deliver-dlv-private result payload has reason `private-repo`",
-        "The printed report is `outcome=error`, `step=deliver:refused`, `reason=private-repo`",
-        "No request exists for coordinator deliver-dlv-private",
-        "gh-calls.log contains no line at all"
+        "The `koto status deliver-dlv-private` result payload has outcome `merged`",
+        "The result payload's pr is `https://github.com/eval-org/eval-repo/pull/42`",
+        "gh-calls.log contains exactly one line starting `pr merge`",
+        "Neither the result payload nor the printed report carries `private-repo`"
       ]
     },
     {
@@ -436,18 +436,19 @@
       "files": [],
       "expectations": [
         "The state list includes scope_run, scoped_check, mode_route, confirm, execute_run, merged_check, and done",
-        "The state list includes done_stopped, done_error, and done_refused"
+        "The state list includes done_stopped and done_error, and no done_refused or preflight state"
       ]
     },
     {
       "name": "koto-leg-result-on-the-callers-leg",
-      "prompt": "In an empty directory, `git init` a repository whose CLAUDE.md has no `## Repo Visibility:` header and commit it. Create a koto request with one leg named deliver: `koto request create --with-data '{\"legs\":[{\"name\":\"deliver\",\"role\":\"deliver\",\"template\":\"deliver.md\",\"inputs\":{\"TOPIC\":\"leg-topic\"}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Run `/deliver leg-topic --auto --koto-leg=<request-id>:deliver` to its end. Print `koto request get <request-id> | jq '.legs.deliver'` and `koto request list --coordinator-of-record deliver-leg-topic`.",
-      "expected_output": "deliver-open.sh opens deliver-leg-topic bound to the caller's deliver leg. The preflight state finds no public visibility header and the run ends at done_refused with outcome refused and reason private-repo. That terminal result is promoted onto the caller's leg. No inner request was opened, because the run stopped before open_request, and the caller's request is not closed or abandoned by /deliver.",
+      "prompt": "In an empty directory, `git init` a repository whose CLAUDE.md has no `## Repo Visibility:` header and commit it. Create a koto request with one leg named deliver: `koto request create --with-data '{\"legs\":[{\"name\":\"deliver\",\"role\":\"deliver\",\"template\":\"deliver.md\",\"inputs\":{\"TOPIC\":\"leg-topic\"}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Start `/deliver leg-topic --auto --koto-leg=<request-id>:deliver`, and once its session is waiting on the /scope leg, stop before running /scope: abandon /deliver's own request (the open one under `koto request list --coordinator-of-record deliver-leg-topic`) and tick deliver-leg-topic once more. Print `koto request get <request-id> | jq '.legs.deliver'`.",
+      "expected_output": "deliver-open.sh opens deliver-leg-topic bound to the caller's deliver leg. A repository with no visibility header is no reason to stop: the run opens its own request and waits on the scope leg. With that request abandoned, the run ends at done_error with step deliver:request-abandoned, and that terminal result is promoted onto the caller's leg. The caller's request is not closed or abandoned by /deliver.",
       "files": [],
       "expectations": [
         "The printed leg has bound_child `deliver-leg-topic`",
-        "The printed leg has result_source `promoted` and result_final_state `done_refused`",
-        "The leg's result payload has outcome `refused` and reason `private-repo`",
+        "The printed leg has result_source `promoted` and result_final_state `done_error`",
+        "The leg's result payload has outcome `error` and step `deliver:request-abandoned`",
+        "Nothing in the run refused the repository for its missing visibility header",
         "The agent passed the --koto-leg value to /deliver's entry script rather than making it part of the topic",
         "The agent did not run `koto request close`, `koto request resolve`, or `koto request abandon-request` on the caller's request"
       ],
