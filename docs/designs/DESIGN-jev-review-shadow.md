@@ -345,6 +345,7 @@ A grade record (`schema: review-shadow/record/v1`):
 | `session_id` | the Claude Code session that ran the command (`CLAUDE_CODE_SESSION_ID`), or null when none did |
 | `panel_kind` | the kind the caller said it grades beside, or null |
 | `graded_body_at` | the time the body was read as of (see Decision 6) |
+| `diff_kind` | `docs` when every changed path is under `docs/` or is a top-level `README.md`; `code` when none is; `mixed` otherwise |
 | `in_sample` | true when an outcome for this head already existed at grading time |
 | `host` | the machine's hostname |
 | `criteria_version` | the criteria file's version and SHA-256 |
@@ -479,8 +480,9 @@ At any time:
 scripts/review-shadow/review-shadow.py report [--json]
 ```
 
-prints, per panel kind and then overall, one table of scored heads for
-out-of-sample records and a separate one for in-sample records: agreement,
+prints, per panel kind and per diff kind and then overall, one table of
+scored heads for out-of-sample records and a separate one for in-sample
+records: agreement,
 false passes with the false-pass rate and its Clopper-Pearson 95% upper
 bound, the miss rate, dissents on clean panels, and the counts of
 not-graded and undetermined heads. Then a per-criterion table with the same
@@ -493,6 +495,16 @@ for each head separately within each population (out-of-sample and
 in-sample) and mode, so a later in-sample re-grade never replaces the
 out-of-sample record of the same head. On heads graded both ways it adds a table of
 per-criterion verdicts that differ between the modes.
+
+**Why split by diff kind.** The uncovered blocking findings sit mostly in
+code: correctness and security defects, missing tests and layering. A
+unanimous pass on a code change therefore can't stand in for a panel, while
+on a change that touches only documentation or planning the uncovered
+blocks are rare. The flip is decided per panel kind and per diff kind, and
+the likeliest first flip is documentation-only changes. The `docs` class is
+deliberately narrow: shirabe's skills, references and templates are
+Markdown that drives workflows, so they count as code, and only `docs/` and
+a top-level `README.md` count as documentation.
 
 Nothing else in shirabe calls these commands. No skill, template or
 workflow changes.
