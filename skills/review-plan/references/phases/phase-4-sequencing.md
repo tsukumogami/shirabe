@@ -91,4 +91,7 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""         # always empty for Category D
 ```
 
+`references/templates/review-result-schema.md` says why `correction_hint` stays
+empty and which phase re-runs instead.
+
 If no findings: return `critical_findings: []` for this category.

@@ -81,6 +81,9 @@ in `wip/plan_<topic>_analysis.md` as `review_rounds`.
 
 **Type:** string enum — `"high"`, `"medium"`, or `"low"`
 
+Phase 5 sets it from the signals in `references/phases/phase-5-verdict.md`.
+Ambiguous ACs that could be read multiple ways (Category C) also lower confidence.
+
 ### `critical_findings`
 
 **Type:** array of finding objects. Empty array (`[]`) when `verdict` is `"proceed"`.

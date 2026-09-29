@@ -158,4 +158,4 @@ else                                           → start at Phase 0
 | `references/phases/phase-5-verdict.md` | Phase 5 |
 | `references/phases/phase-6-loop-back.md` | Phase 6 (loop-back only) |
 | `references/templates/review-result-schema.md` | Phases 1–5 (finding format) |
-| `references/templates/ac-discriminability-taxonomy.md` | Phase 3, before Pass 1 (both passes read its detection triggers) |
+| `references/templates/ac-discriminability-taxonomy.md` | Phase 3, before Pass 1 |

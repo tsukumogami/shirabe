@@ -24,7 +24,9 @@ according to the mapping in `references/templates/review-result-schema.md`.
 
 ## Loop Target Selection
 
-Use the deterministic category-to-phase mapping from the schema. Earliest phase wins:
+Use the deterministic category-to-phase mapping from the schema. Earliest phase wins,
+so when a verdict has both D subtypes, D-structural (Phase 3) takes precedence over
+D-dependency (Phase 5).
 
 Read the schema reference for the full table:
 `references/templates/review-result-schema.md`
