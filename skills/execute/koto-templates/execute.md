@@ -303,12 +303,10 @@ states:
 
   drift_facts:
     # Works out, from git alone, whether origin/main moved in a way the PLAN
-    # could care about, BEFORE worktree_sync rebases. The order is the point:
-    # for a PLAN that exists only on this branch, the base is the branch's fork
-    # point, and the rebase moves the fork point to the tip of origin/main. Run
-    # after the rebase, every run would read as "main hasn't advanced".
+    # could care about, BEFORE worktree_sync merges it in, so the facts
+    # describe what main changed rather than a branch that already carries it.
     #
-    # The script fetches origin itself, so the rebase in worktree_sync uses
+    # The script fetches origin itself, so the merge in worktree_sync uses
     # exactly the origin/main these facts describe. It writes plan_intent.md
     # first and drift_facts.json second, both capped at 8192 bytes, and prints
     # nothing. drift_facts.json is compact JSON with `route` as its first key,
@@ -331,7 +329,7 @@ states:
         PLAN), 65 when the PLAN doc is missing or outside the repository, and 66
         when writing a context key failed. Fix the cause and tick again -- the
         script re-runs on entry, so nothing needs submitting. Submit
-        `facts_status: override` with `detail` to continue to the rebase without
+        `facts_status: override` with `detail` to continue to the merge without
         facts (the drift question is then asked with nothing precomputed), or
         `facts_status: blocked` with `detail` to stop the run.
     gates:
@@ -371,54 +369,45 @@ states:
           failure_reason: "drift_facts blocked: ${evidence.detail}"
 
   worktree_sync:
-    # The mechanical half of the drift check: rebase the shared branch on
-    # origin/main. drift_facts already fetched, and computed the facts against
-    # the pre-rebase fork point; the judgment, when one is needed, is
-    # worktree_discipline_check's.
+    # The mechanical half of the drift check: merge origin/main into the shared
+    # branch. A branch that falls behind main catches up by merging, never by
+    # rebasing, so its history is never rewritten and a plain push is always
+    # enough. drift_facts already fetched and computed the facts; the
+    # judgment, when one is needed, is worktree_discipline_check's.
     #
     # There is no fetch here on purpose. drift_facts fetched immediately
     # before, and a second fetch could move origin/main past what the facts
-    # describe, so the run would rebase onto commits nobody examined.
+    # describe, so the run would merge commits nobody examined.
     #
-    # The rebased_on_main gate asks the question the rebase was FOR -- is
-    # origin/main an ancestor of HEAD -- rather than asking whether the rebase
-    # command succeeded. A rebase that exits 0 without achieving it fails the
-    # gate, and a rebase that was unnecessary passes without one having run.
-    # That is what makes this an independent check rather than a restatement
-    # of the action's exit code.
-    #
-    # The two rebase-in-progress tests are not belt-and-braces. Measured: during
-    # a CONFLICTED rebase the ancestor check PASSES on its own, because git has
-    # already replayed part of the branch and HEAD does contain origin/main. The
-    # ancestor test alone would therefore advance the run with a rebase halted
-    # mid-flight and a conflicted worktree. `git rev-parse --git-path` is used
-    # rather than a literal .git/ path so this holds in a worktree, where the
-    # rebase state lives outside the main .git directory.
+    # The current_with_main gate asks what the merge is for -- is origin/main
+    # an ancestor of HEAD -- rather than whether the merge command succeeded,
+    # and requires that no merge is in progress, so a conflicted merge never
+    # advances. `git rev-parse --git-path` finds MERGE_HEAD in a worktree too.
     #
     # drift_clear routes the no-drift case. It matches only when drift_facts
     # computed `route: none`, so the single edge to spawn_and_await needs both
-    # a clean rebase and facts that say nothing the PLAN references moved.
+    # a clean merge and facts that say nothing the PLAN references moved.
     # Everything else -- facts that say judge, facts that are absent because
-    # drift_facts was overridden, or a rebase the agent overrode -- goes to
+    # drift_facts was overridden, or a merge the agent overrode -- goes to
     # worktree_discipline_check.
     #
-    # Re-running is safe in the two ways that matter. On an already-rebased
-    # branch the rebase is a no-op. Mid-conflict, git itself refuses -- "It
-    # seems that there is already a rebase-merge directory" -- so the retry
-    # reports the conflict again instead of compounding it.
+    # Re-running is safe: on a branch that already contains origin/main the
+    # merge is a no-op, and mid-conflict git refuses to start another merge, so
+    # the retry reports the conflict again instead of compounding it.
     default_action:
-      command: git rebase origin/main
+      command: git merge --no-edit origin/main
       fallback: >-
-        koto could not rebase the shared branch onto origin/main. Read git's own
-        output above. A conflict leaves the rebase in progress: resolve it and
-        run `git rebase --continue`, or run `git rebase --abort` and rebase by
-        hand, then tick again -- the rebase re-runs on entry, so nothing needs
-        submitting. Submit `sync_status: override` if the branch is deliberately
-        not on top of main, or `blocked` with `detail` if it cannot be resolved.
+        koto could not merge origin/main into the shared branch. Read git's own
+        output above. A conflict leaves the merge in progress: resolve it and
+        commit (`git commit --no-edit`), or run `git merge --abort` and merge by
+        hand, then tick again -- the merge re-runs on entry, so nothing needs
+        submitting. Never rebase or force-push the shared branch. Submit
+        `sync_status: override` if the branch deliberately doesn't carry main,
+        or `blocked` with `detail` if it cannot be resolved.
     gates:
-      rebased_on_main:
+      current_with_main:
         type: command
-        command: 'git merge-base --is-ancestor origin/main HEAD && test ! -d "$(git rev-parse --git-path rebase-merge)" && test ! -d "$(git rev-parse --git-path rebase-apply)"'
+        command: 'git merge-base --is-ancestor origin/main HEAD && test ! -e "$(git rev-parse --git-path MERGE_HEAD)"'
       drift_clear:
         type: context-matches
         key: drift_facts.json
@@ -436,19 +425,19 @@ states:
     transitions:
       - target: spawn_and_await
         when:
-          gates.rebased_on_main.exit_code: 0
+          gates.current_with_main.exit_code: 0
           gates.drift_clear.matches: true
       - target: worktree_discipline_check
         when:
-          gates.rebased_on_main.exit_code: 0
+          gates.current_with_main.exit_code: 0
           gates.drift_clear.matches: false
       - target: worktree_discipline_check
         when:
-          gates.rebased_on_main.exit_code: 1
+          gates.current_with_main.exit_code: 1
           sync_status: override
       - target: done_blocked
         when:
-          gates.rebased_on_main.exit_code: 1
+          gates.current_with_main.exit_code: 1
           sync_status: blocked
         context_assignments:
           outcome: error
@@ -729,7 +718,7 @@ states:
       rationale:
         type: string
         required: true
-        description: Conflict files or rebase instructions for the operator
+        description: Conflict files or merge instructions for the operator
     transitions:
       # A conflicted PR is not an error: the run ends ready-awaiting-merge on
       # the condition that stops it, through the failure terminal it has
@@ -1259,19 +1248,19 @@ Evidence schema (optional; the passing path submits neither):
 
 ## drift_facts
 
-Computing what `origin/main` changed since this PLAN's base, before the rebase. koto runs the script itself on entry; you only see this state if it could not.
+Computing what `origin/main` changed since this PLAN's base, before it is merged in. koto runs the script itself on entry; you only see this state if it could not.
 
 <!-- details -->
 
 The command is `skills/execute/scripts/drift-facts.sh`. It fetches `origin`, takes the base as the merge-base of the last commit that touched the PLAN (or HEAD, for a PLAN git doesn't track yet) and `origin/main`, collects the paths the PLAN references (its `upstream:`, its `**Files**:` lines, and backticked path tokens), and diffs the base against `origin/main`. It writes two context keys and prints nothing: `plan_intent.md` (the PLAN's title, upstreams, Scope Summary, and outline goals) and then `drift_facts.json` (compact JSON, `route` first, schema `drift-facts/v1`). The facts hold paths, statuses, and line counts only, never commit subjects or diff text.
 
-`route` is `none` when main didn't move, or moved only in paths the PLAN doesn't reference, and `judge` otherwise: an overlap, a deleted reference, a payload cut to fit 8192 bytes, or a PLAN that references nothing beyond itself and its upstreams. `worktree_sync` routes on it after the rebase.
+`route` is `none` when main didn't move, or moved only in paths the PLAN doesn't reference, and `judge` otherwise: an overlap, a deleted reference, a payload cut to fit 8192 bytes, or a PLAN that references nothing beyond itself and its upstreams. `worktree_sync` routes on it after the merge.
 
 On the passing path the run advances to `worktree_sync` with no evidence and you never read this.
 
 You are here because the script failed, and the response above carries its exit code and its own stderr. Exit 64 means no base resolved (the fetch failed, `origin/main` is missing, or it shares no history with the PLAN), 65 the PLAN doc is missing or outside the repository, 66 a context write failed. Fix the cause and tick again; the script re-runs on entry.
 
-`facts_status: override` with `detail` continues to the rebase without facts. The drift question in `worktree_discipline_check` is then asked with no `drift_facts.json` to read, so you'd have to answer it from git yourself. `facts_status: blocked` with `detail` stops the run.
+`facts_status: override` with `detail` continues to the merge without facts. The drift question in `worktree_discipline_check` is then asked with no `drift_facts.json` to read, so you'd have to answer it from git yourself. `facts_status: blocked` with `detail` stops the run.
 
 Evidence schema (optional; the passing path submits neither):
 - `facts_status`: `override` or `blocked`
@@ -1279,21 +1268,21 @@ Evidence schema (optional; the passing path submits neither):
 
 ## worktree_sync
 
-Bringing the shared branch onto the current `origin/main`. koto rebases itself on entry; you only see this state if it could not.
+Bringing the current `origin/main` into the shared branch. koto merges it in itself on entry; you only see this state if it could not.
 
 <!-- details -->
 
-The `drift_clear` gate reads `drift_facts.json` and matches only when its `route` is `none`. A clean rebase with `drift_clear` passing advances straight to `spawn_and_await`, with no evidence and no drift question. A clean rebase with any other facts advances to `worktree_discipline_check`. A branch already on top of main passes without a rebase having done anything.
+The `drift_clear` gate reads `drift_facts.json` and matches only when its `route` is `none`. A clean merge with `drift_clear` passing advances straight to `spawn_and_await`, with no evidence and no drift question. A clean merge with any other facts advances to `worktree_discipline_check`. A branch that already contains main passes without a merge having done anything.
 
-You are here because the rebase failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the rebase in progress: resolve it and `git rebase --continue`, or `git rebase --abort` and rebase by hand, then tick again. Re-entering re-runs the rebase, and git refuses to start a second rebase while one is in progress, so a retry reports the conflict rather than compounding it.
+You are here because the merge failed, and the response above carries git's own output. A conflict is the usual cause and it leaves the merge in progress: resolve it and `git commit --no-edit`, or `git merge --abort` and merge by hand, then tick again. Re-entering re-runs the merge, and git refuses to start a second merge while one is in progress, so a retry reports the conflict rather than compounding it. Never rebase or force-push the shared branch: it catches up with main by merging, and every push stays plain.
 
-`sync_status: override` proceeds to `worktree_discipline_check` without the rebase, for the deliberate case where the shared branch should not be on top of main. `blocked` with `detail` stops the run.
+`sync_status: override` proceeds to `worktree_discipline_check` without the merge, for the deliberate case where the shared branch should not carry main. `blocked` with `detail` stops the run.
 
 This state does not classify anything. Judging what the upstream changes mean for the PLAN is `worktree_discipline_check`'s job, and only when the facts couldn't rule drift out.
 
 ## worktree_discipline_check
 
-Upstream drift check, once per run. `origin/main` changed something this PLAN references, or the facts couldn't rule that out, so decide whether the change invalidates the PLAN's intent. The fetch, the rebase, and the fact-finding already happened; you don't fetch or rebase here, and there's no file to write.
+Upstream drift check, once per run. `origin/main` changed something this PLAN references, or the facts couldn't rule that out, so decide whether the change invalidates the PLAN's intent. The fetch, the merge of `origin/main`, and the fact-finding already happened; you don't fetch or merge here, and there's no file to write.
 
 Read the two context keys `drift_facts` wrote:
 
@@ -1311,7 +1300,7 @@ Submit `impact` as one of:
 
 ## escalate_upstream_drift
 
-A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The tick that submitted `intent-changing` chains through this state to `done_blocked`, which keeps the `failure_reason` `worktree_discipline_check` wrote, rationale included.
+A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (update the PLAN against the new main, abandon, or rescope). The tick that submitted `intent-changing` chains through this state to `done_blocked`, which keeps the `failure_reason` `worktree_discipline_check` wrote, rationale included.
 
 ## spawn_and_await
 
@@ -1358,7 +1347,7 @@ Check progress at any time with `koto status {{SESSION_NAME}}`. If the tick retu
 
 Author a template-conformant PR — a conventional-commit **title** and the project's **two-part body** — and apply it in the single `gh pr edit` this state already runs, so a clean run is conformant in one pass, with no separate repair step (DESIGN R4 / D6). Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to title + body assembly.
 
-The **mechanical** title/body rule is single-sourced in `references/pr-body-conformance.md` (conventional `<type>[scope]: <description>` title with no issue-number scope; a two-part body with exactly one `---` separator where Part 1 becomes the squash commit body and everything from `---` down is deleted at merge; no AI-attribution footer). That rule is what `shirabe validate --pr-body` enforces in CI, so authoring to it here means a clean run is conformant in one pass. Apply it inline — an autonomous `/execute` run authors its own conformant PR rather than producing a malformed one and repairing it afterward, and does **not** shell out to another plugin's skill at runtime. (Subjective Part 2 section selection is reasoning-based; for `/execute` Part 2 is the per-child outcome table below.)
+Author the title and body to the mechanical rule in `references/pr-body-conformance.md`, which owns it and is what `shirabe validate --pr-body` enforces in CI; don't shell out to another plugin's skill at runtime. For `/execute`, Part 2 is the per-child outcome table below.
 
 **1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** `{{PLAN_SLUG}}`, which koto validates against the template's `variables:` block at compile time and which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 5); the title is built only from the validated slug.
 
@@ -1420,8 +1409,6 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-6-pr.md` for CI monitoring guidance.
-
 Both gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (every check in the `pass` or `skipping` bucket) and `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`). To read the PR yourself, resolve it the same way:
 
 ```bash
@@ -1441,9 +1428,11 @@ If the gate fails because a check failed, fix what you can, push the fix, and su
 
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 
+**CI repair is capped at 3 fix pushes.** If the checks still fail after the third fix push this run has made, submit `ci_outcome: failing_unresolvable` with rationale, which ends the run at `done_blocked` (`execute:ci`). Never stop to ask the user in an unattended run. This cap is stated here only until koto enforces retry caps from its own attempt counts; the number stays 3 when it does, and this paragraph goes.
+
 **Waiting on CI is bounded, and not here.** If checks are still pending, don't loop in this state: submit `ci_outcome: pending`. `merge_readiness` reads the checks itself and waits on them against a per-head-commit deadline (1800 s from the head commit's date, `EXECUTE_CI_WAIT_LIMIT_SECS`), after which the run ends at `step=execute:ci-timeout`. `passing` (with both gates green), `failing_fixed`, and `pending` all go to `merge_readiness`; nothing here ends the run as green on your word.
 
-When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with `rationale` naming the conflict files. The workflow routes to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to rebase the shared branch and resolve conflicts before re-running CI; the koto state machine does not retry automatically because the rebase requires judgment about which conflict resolution preserves the PLAN's intent.
+When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with `rationale` naming the conflict files. The workflow routes to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to merge the default branch into the shared branch and resolve the conflicts before re-running CI, never a rebase or a force push; the koto state machine does not retry automatically because the resolution takes judgment about what preserves the PLAN's intent.
 
 ## escalate_dirty_merge_state
 

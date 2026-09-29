@@ -29,6 +29,10 @@
 #   MERGE and PAUSE_BEFORE_FINALIZE are values [true, false], default false,
 #     rebind: true; PLUGIN_ROOT carries the absolute-path pattern; PLAN_DOC and
 #     PLAN_SLUG are not rebindable
+#   worktree_sync merges origin/main in, nothing runs `git rebase`, and its
+#     gate tests ancestry with no merge in progress
+#   ci_monitor caps CI repair at 3 fix pushes and doesn't load phase-6-pr.md;
+#     pr_finalization points at pr-body-conformance.md rather than restating it
 #   no directive names current-context.md, and spawn_and_await carries earlier
 #     children's summaries through `koto context get <child> summary.md`, one
 #     read per child, saying why the count is small; no skills/execute file
@@ -100,6 +104,12 @@ CHECKS=(
 "PAUSE_BEFORE_FINALIZE is values [true, false], rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
+"worktree_sync merges origin/main in|.states.worktree_sync.default_action.command == \"git merge --no-edit origin/main\""
+"no default action or gate runs git rebase|[.states[] | ((.default_action.command // \"\"), ((.gates // {})[] | (.command // \"\"))) | contains(\"git rebase\")] | any | not"
+"worktree_sync's gate tests ancestry with no merge in progress|(.states.worktree_sync.gates.current_with_main.command // \"\") | (startswith(\"git merge-base --is-ancestor origin/main HEAD\") and contains(\"MERGE_HEAD\"))"
+"ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable|.states.ci_monitor.directive | (contains(\"capped at 3 fix pushes\") and contains(\"failing_unresolvable\") and contains(\"Never stop to ask the user\"))"
+"ci_monitor does not load /work-on's phase-6-pr.md|.states.ci_monitor.directive | contains(\"phase-6-pr.md\") | not"
+"pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
 "no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
 "spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
 )
@@ -185,6 +195,12 @@ mutate "a second edge into merged" \
 mutate "a \${context. in a default action" \
     "no default_action command holds \${context." \
     's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
+mutate "worktree_sync rebasing again" \
+    "no default action or gate runs git rebase" \
+    's/command: git merge --no-edit origin\/main/command: git rebase origin\/main/'
+mutate "the phase-6-pr.md pointer back in ci_monitor" \
+    "ci_monitor does not load /work-on's phase-6-pr.md" \
+    's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
 mutate "the current-context.md step back in spawn_and_await" \
     "no directive tells the agent to build current-context.md" \
     's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'

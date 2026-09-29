@@ -2,7 +2,7 @@
 # drift-facts_test.sh -- the upstream drift facts, and the route they drive
 # Part of the execute skill
 #
-# `drift_facts` computes, before the rebase, whether origin/main moved in a way
+# `drift_facts` computes, before the merge, whether origin/main moved in a way
 # the PLAN references, and `worktree_sync` routes on the answer. A run with no
 # drift must reach `spawn_and_await` without the agent being asked anything,
 # and a run with drift must stop at `worktree_discipline_check` with the facts
@@ -600,6 +600,7 @@ start() {
 fixture e-nodrift
 plan "$PLAN_CODE"
 upstream 'printf more >> README.md' 'touch readme'
+BEFORE=$(cd "$FX/repo" && git rev-parse HEAD)
 start e-nodrift
 tick execute-e-nodrift '{"status":"override"}'
 facts=$(cd "$FX/repo" && koto context get execute-e-nodrift drift_facts.json 2>/dev/null)
@@ -618,9 +619,17 @@ else
     fail "origin/main is not an ancestor of HEAD after the run"
 fi
 if (cd "$FX/repo" && git log --format=%s -1 origin/main | grep -q 'touch readme'); then
-    pass "the origin/main that was rebased onto is the one drift_facts fetched"
+    pass "the origin/main that was merged in is the one drift_facts fetched"
 else
     fail "origin/main in the run's clone does not carry the upstream commit"
+fi
+# The branch catches up by merging main in, never by rebasing: its own commit
+# keeps its identity, and HEAD is a merge commit with main as second parent.
+if (cd "$FX/repo" && git merge-base --is-ancestor "$BEFORE" HEAD \
+    && [ "$(git rev-parse HEAD^2 2>/dev/null)" = "$(git rev-parse origin/main)" ]); then
+    pass "worktree_sync merged origin/main in and kept the branch's own commit"
+else
+    fail "worktree_sync rewrote the branch or made no merge commit"
 fi
 
 # Overlap: the run stops at worktree_discipline_check, and informational goes on.

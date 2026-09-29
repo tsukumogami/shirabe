@@ -36,7 +36,7 @@
 # the PR, its checks, and the base's rules through `pr view`, `pr checks`, and
 # `api`, and merge-exec.sh makes the repository's one `pr merge` call. git
 # creates and pushes the shared branch and stages the cascade's transitions,
-# and fetches, diffs, and rebases for the drift check; jq builds the cascade
+# and fetches, diffs, and merges origin/main in for the drift check; jq builds the cascade
 # report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
