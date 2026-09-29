@@ -83,10 +83,13 @@
 #   4. before any push, find the coordination PR (owned-pr.sh on home repo
 #      and coordination branch, carrying the `This is a **coordination PR**`
 #      marker) and, in node mode, check the node branch's PR: another run's
-#      PR there, or several, stops with 73 and nothing pushed; then, in node
-#      mode, read the home repository's and the node repository's visibility
-#      live (coord_node_visibility) and refuse a private node under a public
-#      coordination PR with 77, nothing pushed;
+#      PR there, or several, stops with 73 and nothing pushed. Before those
+#      reads, in node mode, read the home repository's and the node
+#      repository's visibility live (coord_node_visibility): a private node
+#      under a public coordination PR is refused with 77, and a public node
+#      under a private one has its commits since the default branch (added
+#      lines and messages) scanned for the public-content markers, a hit or a
+#      failed scan refused with 78; nothing pushed either way;
 #   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
 #   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
@@ -132,6 +135,9 @@
 #   77  node mode: the node's repository is private and the coordination
 #       PR's is public; nothing was pushed or edited (the caller's
 #       execute:visibility)
+#   78  node mode: a public node under a private coordination PR whose
+#       commits carry private-repository markers, or whose commits the check
+#       couldn't read; nothing was pushed or edited (execute:visibility)
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -277,7 +283,52 @@ if [ "$MODE" != order ]; then
     fi
 fi
 
-# 4. Ownership, before anything is pushed: the coordination PR, and in node
+# 4a. The node against its own target, before any other read can name its
+# repository in a diagnostic: a public coordination PR never indexes a
+# private node, so that pair is refused here, before the push and before the
+# index line that would name the repository in a public body. The call sets
+# COORD_HOME_VIS and COORD_NODE_VIS, which also decide the scan below and the
+# node PR's body. A resumed run can reach this push without passing through
+# the dispatch step's own check, so the check is repeated here.
+if [ "$MODE" = node ]; then
+    coord_node_visibility "$HOME_REPO" "$REPO" "$NODE"
+    case $? in
+        0) ;;
+        3) exit 77 ;;   # a private node under a public coordination PR
+        *) exit 72 ;;   # a visibility read failed
+    esac
+    # A public node driven from a private home: its commits were written from
+    # a private PLAN, so the public-content markers /scope's publish step
+    # scans for (a `private/` path component, a `Repo Visibility: Private`
+    # declaration) are checked on what this push would publish, the added
+    # lines and the commit messages since the default branch. A hit, or a
+    # scan that can't run, stops the push.
+    if [ "$COORD_HOME_VIS" = private ] && [ "$COORD_NODE_VIS" = public ]; then
+        SCAN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/node-push-scan.XXXXXX") || exit 78
+        BASE=""
+        [ -n "$DEFAULT" ] && BASE=$(git merge-base HEAD "refs/remotes/$REMOTE/$DEFAULT")
+        if [ -z "$BASE" ] \
+            || ! git log --format=%B "$BASE..HEAD" >"$SCAN_DIR/text" \
+            || ! git diff "$BASE" HEAD >"$SCAN_DIR/diff"; then
+            rm -rf "$SCAN_DIR"
+            echo "$PROG: the public-content check could not read node $NODE's commits since the default branch; nothing was pushed" >&2
+            exit 78
+        fi
+        grep '^+' "$SCAN_DIR/diff" | grep -v '^+++ ' >>"$SCAN_DIR/text"
+        SCAN=0
+        grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCAN_DIR/text" || SCAN=$?
+        rm -rf "$SCAN_DIR"
+        case "$SCAN" in
+            0) echo "$PROG: node $NODE lands in a public repository from a private PLAN, and its commits carry private-repository content (a private/ path or a Repo Visibility: Private line); remove it and push again. Nothing was pushed." >&2
+               exit 78 ;;
+            1) ;;
+            *) echo "$PROG: the public-content check could not scan node $NODE's commits (grep exit $SCAN); nothing was pushed" >&2
+               exit 78 ;;
+        esac
+    fi
+fi
+
+# 4b. Ownership, before anything is pushed: the coordination PR, and in node
 # mode whose PR (if any) is already on the node branch. A branch whose PR
 # another run opened is never pushed to, so a run can't move another run's
 # PR head.
@@ -296,16 +347,6 @@ if [ "$MODE" = node ]; then
         0) ;;
         2) exit 72 ;;
         *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
-    esac
-    # The node against its own target: a public coordination PR never
-    # indexes a private node, so that pair is refused here, before the push
-    # and before the index line that would name the repository in a public
-    # body. The two visibilities also decide the node PR's body below.
-    coord_node_visibility "$HOME_REPO" "$REPO" "$NODE"
-    case $? in
-        0) ;;
-        3) exit 77 ;;
-        *) exit 72 ;;
     esac
 fi
 
@@ -405,7 +446,9 @@ if [ "$MODE" = node ]; then
         {
             printf 'Coordinated node `%s` of `%s`.\n\n' "$NODE" "$SLUG"
             printf 'Work items: %s\n' "$ISSUES"
-            if [ "$COORD_NODE_VIS" = private ] || [ "$COORD_HOME_VIS" = public ]; then
+            # Omitted exactly when the home is private and the node public
+            # (step 4a has already refused a public home over a private node).
+            if ! { [ "$COORD_HOME_VIS" = private ] && [ "$COORD_NODE_VIS" = public ]; }; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
             fi
         } > "$WORK/node-body.md"

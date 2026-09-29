@@ -193,6 +193,9 @@ else
 fi
 
 # The gate takes the coordination PR's own visibility, read live.
+coord_case coord-public-home
+run_merge coordination
+GATE=$(grep -- '--merge-gate' "$CASE/shirabe-calls.log")
 case "$GATE" in
     *--visibility*) fail "a public home's gate carried --visibility: [$GATE]" ;;
     *) pass "a public home's merge gate runs without --visibility (public, the strict default)" ;;

@@ -124,19 +124,21 @@ coord_repo_visibility() {
 # Returns 3, with a diagnostic, for a public coordination PR over a private
 # node: the index line would name a private repository in a public body. The
 # diagnostic names the node id and the public home, never the private
-# repository (F1). Returns 2 when either read failed.
+# repository (F1). Returns 2 when either read failed. Both callers,
+# node-push.sh and repo-visibility.sh, map 3 to their exit 77
+# (execute:visibility) and 2 to 72 (execute:status-read).
 coord_node_visibility() {
     COORD_HOME_VIS=""; COORD_NODE_VIS=""
     COORD_HOME_VIS=$(coord_repo_visibility "$1") || {
-        echo "$PROG: could not read the visibility of the coordination PR's repository $1; nothing was pushed" >&2
+        echo "$PROG: could not read the visibility of the coordination PR's repository $1" >&2
         return 2
     }
     COORD_NODE_VIS=$(coord_repo_visibility "$2") || {
-        echo "$PROG: could not read the visibility of node $3's repository; nothing was pushed" >&2
+        echo "$PROG: could not read the visibility of node $3's repository" >&2
         return 2
     }
     if [ "$COORD_HOME_VIS" = public ] && [ "$COORD_NODE_VIS" = private ]; then
-        echo "$PROG: refused: node $3 lands in a private repository, and the coordination PR lives in the public repository $1; a public coordination PR never indexes a private node. Move the node into $1, or run the effort from a PLAN in a private repository, whose coordination PR may index public and private nodes alike. Nothing was pushed." >&2
+        echo "$PROG: refused: node $3 lands in a private repository, and the coordination PR lives in the public repository $1; a public coordination PR never indexes a private node. Move the node into $1, or run the effort from a PLAN in a private repository, whose coordination PR may index public and private nodes alike." >&2
         return 3
     fi
     return 0

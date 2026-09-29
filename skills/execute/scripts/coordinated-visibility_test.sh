@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# coordinated-visibility_test.sh — a coordinated run whose PLAN lives in a
-# private repository lands a public node and a private node, each checked
-# against its own target
+# coordinated-visibility_test.sh — each coordinated node checked against its
+# own target: a PLAN in a private repository lands a public node and a private
+# node, and one in a public repository can't dispatch a private node
 # Part of the execute skill
 #
 # Walks the coord_loop directive's actions with the real scripts, the way the

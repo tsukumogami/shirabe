@@ -64,14 +64,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
-case "$SEEN" in
-    *" --repo "*|*" --node "*)
-        case "$SEEN" in *" --repo "*) ;; *) usage_error "--repo and --node go together" ;; esac
-        case "$SEEN" in *" --node "*) ;; *) usage_error "--repo and --node go together" ;; esac
-        coord_valid_repo "$REPO" || usage_error "--repo [$REPO] is not a single owner/repo"
-        [[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
-        ;;
-esac
+if [ -n "$REPO" ] || [ -n "$NODE" ]; then
+    { [ -n "$REPO" ] && [ -n "$NODE" ]; } || usage_error "--repo and --node go together"
+    coord_valid_repo "$REPO" || usage_error "--repo [$REPO] is not a single owner/repo"
+    [[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
+fi
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 
 if [ -z "$REPO" ]; then
@@ -84,12 +81,8 @@ if [ -z "$REPO" ]; then
 fi
 
 coord_node_visibility "$HOME_REPO" "$REPO" "$NODE"
-RC=$?
-case "$RC" in
-    0|3) printf 'home=%s\nnode=%s\n' "$COORD_HOME_VIS" "$COORD_NODE_VIS" ;;
-esac
-case "$RC" in
-    0) exit 0 ;;
-    3) exit 77 ;;
+case $? in
+    0) printf 'home=%s\nnode=%s\n' "$COORD_HOME_VIS" "$COORD_NODE_VIS"; exit 0 ;;
+    3) printf 'home=%s\nnode=%s\n' "$COORD_HOME_VIS" "$COORD_NODE_VIS"; exit 77 ;;
     *) exit 72 ;;
 esac

@@ -48,7 +48,14 @@
 #     public over private                        exit 77, nothing pushed, no gh
 #                                                write, the message naming the
 #                                                node and not the repository
-#     a failed visibility read                   exit 72, nothing pushed
+#     a failed visibility read (node or home)    exit 72, nothing pushed
+#     another run's PR on a private node's branch under a public home
+#                                                still 77: the check runs before
+#                                                the ownership read, whose
+#                                                diagnostics name the repository
+#     a public node under a private home whose commits carry a private/ path
+#     or a Repo Visibility: Private line         exit 78, nothing pushed; no
+#                                                scan for any other pair
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
 # Usage: node-push_test.sh
@@ -491,13 +498,19 @@ ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass
 # The home (the coordination PR's repository) is acme/repo-a and the node lands
 # in acme/repo-b; the visibilities come from the shim's repository model.
 
-# vis_push <case> <home vis> <node vis> -- a fresh node push into acme/repo-b.
+# vis_push <case> <home vis> <node vis> [line] -- a fresh node push into
+# acme/repo-b; with a line, one more commit adds it to notes.txt first.
+# VIS_PRS, when set, is ct_pr arguments for a PR already on the node branch.
 vis_push() {
     ct_case "$1"
     CT_VIS_A="$2"
     CT_VIS_B="$3"
+    [ -n "${VIS_PRS:-}" ] && ct_pr acme/repo-b 60 "impl/t-$CT_CORE" "$VIS_PRS"
     ct_write_db
     fresh_repo "$1"
+    if [ -n "${4:-}" ]; then
+        (cd "$WT" && printf '%s\n' "$4" > notes.txt && git add notes.txt && git commit -q -m "docs: notes")
+    fi
     OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
@@ -551,6 +564,37 @@ else
     fail "a failed read: rc=$RC pushed=$(pushed && echo yes || echo no)"
 fi
 if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a failed read wrote to GitHub"; else pass "a failed read wrote nothing to GitHub"; fi
+vis_push vis-home-unread none public
+[ "$RC" -eq 72 ] && ! pushed && pass "a failed read of the home's visibility exits 72, nothing pushed" \
+    || fail "home unread: rc=$RC"
+
+# The visibility check runs before the ownership read, whose diagnostics name
+# the node's repository: another author's PR on a private node's branch under
+# a public home is still the 77 refusal, and nothing names the repository.
+VIS_PRS='author="someone-else"'
+vis_push vis-order public private
+unset VIS_PRS
+if [ "$RC" -eq 77 ] && ! grep -q "acme/repo-b" "$CASE/stderr"; then
+    pass "the visibility refusal comes before the ownership read, and names no private repository"
+else
+    fail "check order: rc=$RC stderr=[$(cat "$CASE/stderr")]"
+fi
+
+# A public node driven from a private home: what it would publish is scanned
+# for the public-content markers.
+vis_push vis-scan-hit private public "see private/plans/notes.md for the rationale"
+if [ "$RC" -eq 78 ] && ! pushed && grep -q "carry private-repository content" "$CASE/stderr"; then
+    pass "a public node under a private home whose commits name a private/ path is refused (78), nothing pushed"
+else
+    fail "scan hit: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -2 "$CASE/stderr")"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "the scan refusal wrote to GitHub"; else pass "the scan refusal wrote nothing to GitHub"; fi
+vis_push vis-scan-decl private public "## Repo Visibility: Private"
+[ "$RC" -eq 78 ] && ! pushed && pass "a Repo Visibility: Private line is refused too" || fail "scan decl: rc=$RC"
+vis_push vis-scan-public-home public public "see private/plans/notes.md"
+[ "$RC" -eq 0 ] && pass "the scan runs only for a public node under a private home" || fail "public home, no scan: rc=$RC"
+vis_push vis-scan-priv-node private private "see private/plans/notes.md"
+[ "$RC" -eq 0 ] && pass "a private node under a private home isn't scanned" || fail "private node, no scan: rc=$RC"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

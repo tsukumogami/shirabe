@@ -681,7 +681,11 @@ The actions `coordinated-next.sh` prints, each performed exactly as the
   of the node id, its work-item IDs, and the coordination PR's link, passed with
   `--body-file`; the link is left out of a public node's PR when the coordination
   PR is private), or adopts the one owned PR on the branch, and writes the node's
-  index line with `head=<sha>`. It repeats the visibility check before it pushes. It takes `--plan` set to the recorded `plan_abs`,
+  index line with `head=<sha>`. It repeats the visibility check before it pushes
+  (a resumed run can reach the push without the dispatch step), and for a public
+  node under a private coordination PR it scans the commits it would publish for
+  the public-content markers, refusing a hit (`execute:visibility`, nothing
+  pushed). It takes `--plan` set to the recorded `plan_abs`,
   reads the PLAN's nodes through `plan-to-tasks.sh`, and replaces the coordination
   PR's `## Merge Order` section with a fenced `merge-order` block: every PR and
   gate node, each after its predecessors, as opaque node ids with their `waits_on`.
@@ -1282,9 +1286,16 @@ against its chain shape:
      private node under a public coordination PR (`execute:visibility`, nothing
      pushed), naming the node id and never the private repository. A failed read
      stops as `execute:status-read`; it is never taken as either value.
+   - **Coordinated, a public node from a private PLAN.** Its work items are written
+     from a private PLAN, so before the push `node-push.sh` scans the commits it
+     would publish (added lines and messages since the default branch) for the
+     public-content markers `/scope`'s publish step scans for: a `private/` path
+     component or a `Repo Visibility: Private` line. A hit, or a scan that can't
+     run, refuses the push (`execute:visibility`).
    - **Coordinated, the node PR's body.** A public node's PR links its
      coordination PR only when that PR is public, so no public PR points into a
-     private repository.
+     private repository. A node PR adopted rather than opened keeps the body it
+     has; one opened before its home repository turned private is not rewritten.
    - **Coordinated, the merge-last gate.** A coordination PR in a private
      repository may index public and private nodes (a private-to-public reference
      is allowed); `coord-merge.sh` and the `evaluate-coordination` step pass

@@ -256,7 +256,11 @@ readying, and, with `--merge`, its one `gh pr merge` call site. The re-checks
   repository it writes to: `/scope`'s publish step runs the public-content
   visibility check on the unpushed staging files when that repository declares
   `## Repo Visibility: Public`, and `/execute` checks each pull request against
-  its own target repository (its Security Considerations say where).
+  its own target repository (its Security Considerations say where). The
+  publish step scans only when the header says `Public`, so a public
+  repository with no header, or a misspelled one, publishes unscanned; the
+  header is the repository's own declaration, and /deliver no longer refuses
+  a repository that lacks it.
 - **Arguments are data.** Tokens reach koto only through the args file and
   `--vars-file`, mapped with `jq`; koto enforces each variable's pattern before
   any gate sees a value, and every gate command quotes its variables.
