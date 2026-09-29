@@ -1604,6 +1604,26 @@
    "reason": "A PRD written from the format reference fails /scope's hop gate; add schema: prd/v1 to the example."
   },
   {
+   "id": "prd-complexity-routing",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Where /prd routes a simple PRD",
+   "sides": [
+    {
+     "loc": "skills/prd/SKILL.md#L195-L198",
+     "says": "two rows: a simple or medium PRD goes to /plan, a complex one to /design"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-4-validate.md#L248-L253",
+     "says": "three tiers: simple suggests direct implementation, medium a planning workflow, complex a design workflow first"
+    }
+   ],
+   "winner": "skills/prd/references/phases/phase-4-validate.md#L248-L253",
+   "reason": "Phase 4 is the step that presents the routing, and its three tiers match /explore's routing table, where a simple change files an issue and runs /work-on. SKILL.md's Output table becomes three rows: simple, file an issue then /work-on; medium, /plan; complex, /design. Found while re-checking the internal-restatement spans during execution, after the inventory closed."
+  },
+  {
    "id": "plan-single-pr-draft-commit",
    "class": "mechanical",
    "r2": 10,

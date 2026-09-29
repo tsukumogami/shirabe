@@ -22,9 +22,9 @@ Active
 
 ## Scope Summary
 
-Settle the 46 contradictions and remove the dead prose inventoried in
+Settle the 47 contradictions and remove the dead prose inventoried in
 `docs/designs/DESIGN-contradiction-settlement.md`: nine per-skill items apply
-the 36 mechanical winners and the dead-prose deletions, ten items each apply
+the 37 mechanical winners and the dead-prose deletions, ten items each apply
 one policy decision once it is recorded, and a final item re-counts every
 profile against the baseline pin.
 
@@ -226,6 +226,7 @@ pull request:
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules: its pull request opens only after pull request #488 has merged; it finds every span by the DESIGN's excerpt and stops, reporting the identifier, when an excerpt is missing or appears twice; and it leaves unchanged every withholding candidate, every mechanical winner, and every policy statement other than its own.
 - [ ] Covers `prd-format-schema-field`: the frontmatter example and the required-fields sentence in `skills/prd/references/prd-format.md` include `schema: prd/v1`.
+- [ ] Covers `prd-complexity-routing`: `skills/prd/SKILL.md`'s Output table has three rows, simple (file an issue, then /work-on), medium (/plan) and complex (/design), matching Phase 4.
 - [ ] Deletes the spans of `dp-prd-internal-restatements`, keeping each named survivor.
 - [ ] The repository's prd tests and evals pass.
 
