@@ -19,6 +19,7 @@ Every PRD begins with YAML frontmatter:
 
 ```yaml
 ---
+schema: prd/v1
 status: Draft
 problem: |
   1 paragraph: who is affected, what's broken or missing, why now.
@@ -34,11 +35,12 @@ motivating_context: |                       # optional
 ---
 ```
 
-Required fields: `status`, `problem`, `goals`. Optional: `upstream` (the
-BRIEF this PRD's requirements are written from -- a PRD's only legal upstream
-type. A PRD written with no brief above it omits the field rather than reaching
-past it to the ROADMAP that sequenced the feature: a ROADMAP is deleted when
-its features land, and a durable document must not name a working one. See
+Required fields: `schema` (`prd/v1`), `status`, `problem`, `goals`.
+Optional: `upstream` (the BRIEF this PRD's requirements are written from -- a
+PRD's only legal upstream type. A PRD written with no brief above it omits
+the field rather than reaching past it to the ROADMAP that sequenced the
+feature: a ROADMAP is deleted when its features land, and a durable document
+must not name a working one. See
 `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` for the rule and
 `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the cross-repo
 and visibility-direction rules -- Phase 3 step 3.1 validates this value),
@@ -193,12 +195,6 @@ one definition of each rule and nothing to drift. Run `shirabe validate
   research and review -- each entry states the decision, the alternatives
   considered, and the reasoning behind the choice
 
-### During /prd finalization (approval)
-- Open Questions section must be empty or removed
-- All acceptance criteria must be specific and testable
-- Requirements must be numbered (R1, R2, ...)
-- Status transitions to "Accepted" on human approval
-
 ### When referenced by /design or /plan
 - The PRD's chain posture is valid for the consuming step. The per-status
   stop table is enforced by the chain-status lifecycle check (`shirabe
@@ -239,9 +235,6 @@ one definition of each rule and nothing to drift. Run `shirabe validate
 
 ### Common Pitfalls
 - Too broad ("Improve the app") -- narrow to a specific capability or user need
-- Mixing "what" and "how" -- save technical decisions for design docs
-- Subjective acceptance criteria -- every criterion must be verifiable
-- Missing numbered requirements -- always use R1, R2, etc.
 
 ## Contribution to the Chain
 

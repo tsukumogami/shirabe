@@ -38,12 +38,7 @@ the full document:
 > - Upstream: <path or "none">
 > - Visibility: <Public | Private>
 
-Then surface the jury verdicts. **Fence each verdict body inside a code block** to
-prevent rendered-markdown injection — verdict files contain author-evaluated prose
-that may include markdown formatting, and rendering it as live markdown could skew
-the human reader's interpretation. A bold "**PASS**" inside a verdict's prose, if
-rendered as live markdown, could visually compete with the verdict marker the user
-is supposed to read.
+Then surface the jury verdicts. **Fence each verdict body inside a code block**.
 
 For each verdict file, surface as:
 
@@ -103,10 +98,6 @@ narrowing, or block on a concern the jury did not catch.
      docs/briefs/BRIEF-<topic>.md \
      Accepted
    ```
-
-   The subcommand updates both the frontmatter `status:` field and the body
-   `## Status` first line (rewriting it to the bare word `Accepted`). No
-   directory move on any transition — the brief stays in `docs/briefs/`.
 
 2. Remove or empty the Open Questions section if it was present (Open Questions is
    Draft-only per the format reference; Accepted status forbids it).
