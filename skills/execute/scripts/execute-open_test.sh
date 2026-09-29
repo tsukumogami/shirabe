@@ -11,6 +11,8 @@
 #     a malformed --koto-leg, a leg other than `execute`, a repeated
 #     --koto-leg, and an unreadable tokens file are this script's own refusals:
 #     exit 64 and no koto call
+#     a multi-pr PLAN: error=multi-pr, exit 64, no koto call, /work-on named;
+#     a single-pr PLAN is not refused and reaches koto
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -114,6 +116,34 @@ own_refusal "--koto-leg naming another leg" '["docs/plans/PLAN-t.md","--koto-leg
 own_refusal "--koto-leg with an empty request id" '["docs/plans/PLAN-t.md","--koto-leg=:execute"]'
 own_refusal "--koto-leg given twice" '["docs/plans/PLAN-t.md","--koto-leg=r1:execute","--koto-leg","r2:execute"]'
 own_refusal "a tokens file that is not an array of strings" '{"plan":"x"}'
+
+# A multi-pr PLAN runs through /work-on: refused before any koto call, naming
+# /work-on as the entry point.
+mkdir -p "$FIXREPO/docs/plans"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\n---\n\n# PLAN: multi\n' \
+    > "$FIXREPO/docs/plans/PLAN-multi.md"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-multi.md","--auto","--koto-leg=req1:execute"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+RC=$?
+if [ "$RC" -eq 64 ] && [ "$OUT" = "error=multi-pr" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$TOKENS" ] \
+    && grep -q '/work-on docs/plans/PLAN-multi.md' "$WORK/stderr"; then
+    pass "a multi-pr PLAN: error=multi-pr, exit 64, no koto call, /work-on named, tokens file removed"
+else
+    fail "multi-pr PLAN: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")], stderr [$(cat "$WORK/stderr")]"
+fi
+# The control: the same PLAN at single-pr is not refused here and reaches koto.
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN: single\n' \
+    > "$FIXREPO/docs/plans/PLAN-single.md"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-single.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+if [ "$OUT" != "error=multi-pr" ] && grep -q 'execute-single' "$WORK/stub.log"; then
+    pass "a single-pr PLAN is not refused as multi-pr and reaches koto"
+else
+    fail "single-pr control: out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+fi
+rm -f "$FIXREPO/docs/plans/PLAN-multi.md" "$FIXREPO/docs/plans/PLAN-single.md"
 
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$WORK/missing.json" 2>/dev/null)

@@ -98,9 +98,11 @@ own before `koto init` for anything a koto variable can express: the merge flag,
 the mode, and the PLAN slug are all constrained variables, so under `--koto-leg`
 every argument refusal is koto's and koto records it on the leg. `/execute`'s own
 pre-init refusals are only those where no koto call can be built at all: a
-malformed `--koto-leg` value, an args file inside the work tree, or a missing
-`koto` binary. `/deliver` never produces them, because it builds the
-`--koto-leg` value and the args itself.
+malformed `--koto-leg` value, an args file inside the work tree, a missing
+`koto` binary, or a `multi-pr` PLAN, which `execute-open.sh` refuses with
+`error=multi-pr` (exit 64) and a message naming `/work-on <PLAN>` as the entry
+point. `/deliver` never produces them, because it builds the `--koto-leg` value
+and the args itself and routes a `multi-pr` PLAN to `/work-on`.
 
 ## Topic-Slug Constraint
 
