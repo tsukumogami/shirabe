@@ -62,7 +62,7 @@ enforced in the record.
 | Obligation | Why it is not enforced here |
 |---|---|
 | Which reviewer-context sections a pull request body needs | Genuinely a judgment with no concrete referent, and the mechanical half of the body rule is already enforced by `shirabe validate --pr-body` in CI. Recording it as an evidence field would produce a field satisfied by any string, which R7a rules out. |
-| Rebase currency beyond mergeability | `merge_state_clean` covers the case that blocks a merge. A stricter "is rebased on the latest default branch" check would fail runs that are merely behind, which is not a finishing defect. |
+| Currency with the default branch beyond mergeability | `merge_state_clean` covers the case that blocks a merge. A stricter "has merged the latest default branch" check (`origin/main` an ancestor of `HEAD`) would fail runs that are merely behind, which is not a finishing defect. A branch that is behind catches up by merging main in, never by a rebase. |
 
 ## What this table does not claim
 

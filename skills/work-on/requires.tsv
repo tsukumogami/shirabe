@@ -42,7 +42,7 @@
 #                   no flag
 #   decisions record  --with-data carries the decision object
 #
-# gh reads the issue and drives the PR; git rebases, pushes, and inspects the
+# gh reads the issue and drives the PR; git merges main in, pushes, and inspects the
 # worktree; jq builds the JSON in references/scripts/extract-context.sh.
 # scripts/check-staleness.sh, which staleness_check's gate runs, needs the same
 # three and nothing else: gh for the issue and its milestone, git log for the

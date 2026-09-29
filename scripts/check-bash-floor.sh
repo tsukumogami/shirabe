@@ -269,6 +269,8 @@ suite_scripts() {
             # Preflight against a stand-in koto; the at-floor case skips
             # without a real one.
             echo "skills/work-on/scripts/work-on-requires_test.sh"
+            # Reads shipped files only; every case runs on the floor.
+            echo "skills/work-on/scripts/settled-policy_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

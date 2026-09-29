@@ -19,7 +19,8 @@ itself:
   PLAN's last commit and `origin/main`), and compares what main changed since
   then against the paths the PLAN references. It writes the result to the
   `drift_facts.json` and `plan_intent.md` context keys.
-- `worktree_sync` rebases the shared branch onto that `origin/main`.
+- `worktree_sync` merges that `origin/main` into the shared branch; it never
+  rebases it.
 
 When the facts say main didn't move, or moved only in paths the PLAN doesn't
 reference, the run goes straight to `spawn_and_await` and nobody is asked
@@ -37,8 +38,8 @@ cheapest is the contract this phase delivers.
 
 ## Steps
 
-You don't fetch, rebase, or write any file in this phase. The fetch and the
-rebase already happened, and the facts are already recorded.
+You don't fetch, merge, or write any file in this phase. The fetch and the
+merge already happened, and the facts are already recorded.
 
 ### 2.5.1 Read the Facts and the PLAN's Intent
 
@@ -72,9 +73,9 @@ outline's goal -- what the PLAN is trying to do, which is what the changes are
 measured against.
 
 If `drift_facts.json` doesn't exist, the `drift_facts` state was overridden
-and nothing was precomputed. Find the pre-rebase commit in `git reflog`, and
-compare what `origin/main` changed since its merge-base with that commit
-against the PLAN yourself.
+and nothing was precomputed. Find the shared branch's commit from before the
+catch-up merge in `git reflog`, and compare what `origin/main` changed since
+its merge-base with that commit against the PLAN yourself.
 
 ### 2.5.2 Classify Upstream Impact
 
@@ -96,7 +97,7 @@ the facts can't tell; judge it from `commits_since_base` and what main
 changed. If main didn't advance at all, it's `informational`.
 
 The classification is about whether the PLAN's foundation still holds, not
-about whether the rebase was mechanically clean. A clean rebase can silently
+about whether the merge was mechanically clean. A clean merge can silently
 land a contract change that breaks the PLAN's references; a mechanical
 conflict can be in a file the PLAN doesn't care about.
 

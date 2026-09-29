@@ -4,13 +4,15 @@ Create the PR and monitor CI until all checks pass.
 
 ## Pre-PR Verification
 
-Rebase on latest main if behind. Resolve conflicts and re-run tests.
+If the branch is behind main, merge the latest main into it (`git fetch origin`,
+then `git merge origin/main`). Never rebase: a merge keeps every reviewed commit
+in the branch's history. Resolve conflicts and re-run tests.
 
-Review the diff against the branch you just rebased onto, the remote's default
-branch: `git diff origin/main...HEAD` when it is `main` (`git symbolic-ref
+Review the diff against the remote's default branch: `git diff
+origin/main...HEAD` when it is `main` (`git symbolic-ref
 refs/remotes/origin/HEAD` names it). That is what the PR will show, and it
 needs no local `main`. Diffing from `impl_base` here would also show whatever
-the rebase pulled in. No unintended changes.
+the merge pulled in. No unintended changes.
 
 ### Design Document Status
 
@@ -26,7 +28,8 @@ back through `finalization` rather than updating the diagram at this point.
 git push -u origin <branch>
 ```
 
-After rebase: `git push --force-with-lease`.
+Push plainly, never with a force option. A merge from main only adds commits,
+so a plain push is always enough.
 
 ## Create PR
 

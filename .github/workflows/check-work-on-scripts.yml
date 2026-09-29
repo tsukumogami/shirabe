@@ -15,6 +15,11 @@ on:
       # terminal-retention_test.sh reads the retention rule out of SKILL.md and
       # fails when it is missing, names a state, or depends on the run's role.
       - 'skills/work-on/SKILL.md'
+      # settled-policy_test.sh reads every /work-on file and the shared
+      # worktree reference for statements a decision record settled.
+      - 'skills/work-on/**'
+      - 'references/worktree-discipline.md'
+      - 'docs/decisions/DECISION-contradiction-*'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -185,6 +190,13 @@ jobs:
       - name: Run koto floor declaration tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-requires_test.sh
+
+      # Reads the shipped files for the statements each contradiction-settlement
+      # decision record settled: no force push, no rebase, and so on. No engine
+      # needed; the macOS leg runs it on the floor through the work-on suite.
+      - name: Run settled-policy tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/settled-policy_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
