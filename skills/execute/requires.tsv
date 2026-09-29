@@ -6,10 +6,11 @@
 # --no-cleanup on every tick, so the tick that reaches paused_for_review or
 # another success terminal keeps the session's context instead of deleting it
 # (references/koto-session-retention.md). context add/get carry the settled
-# branch and the per-child batch view, workflows inspects child outcomes,
-# status reports progress. `context add` takes `--from-file` on the
-# cross-issue-context path; the settled-branch write, and the drift-facts writes
-# of plan_intent.md and drift_facts.json, pipe on stdin instead and need no flag.
+# branch and the per-child batch view, workflows (--children) lists the
+# children whose summaries later children read, and
+# status reports progress. `context add` pipes on stdin (the settled-branch
+# write, and the drift-facts writes of plan_intent.md and drift_facts.json) and
+# needs no flag.
 #
 # The completion cascade's script owns the shirabe side. It lives under /work-on
 # (skills/work-on/scripts/run-cascade.sh), which runs it for a standalone issue,
@@ -93,11 +94,11 @@
 # per indexed ref.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
-koto	context add	--from-file	always
+koto	context add	-	always
 koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
-koto	workflows	-	always
+koto	workflows	--children	always
 koto	status	-	always
 koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always

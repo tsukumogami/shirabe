@@ -29,6 +29,10 @@
 #   MERGE and PAUSE_BEFORE_FINALIZE are values [true, false], default false,
 #     rebind: true; PLUGIN_ROOT carries the absolute-path pattern; PLAN_DOC and
 #     PLAN_SLUG are not rebindable
+#   no directive names current-context.md, and spawn_and_await carries earlier
+#     children's summaries through `koto context get <child> summary.md`, one
+#     read per child, saying why the count is small; no skills/execute file
+#     outside evals names current-context.md
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an edge into
@@ -96,6 +100,8 @@ CHECKS=(
 "PAUSE_BEFORE_FINALIZE is values [true, false], rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
+"no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
+"spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -179,6 +185,15 @@ mutate "a second edge into merged" \
 mutate "a \${context. in a default action" \
     "no default_action command holds \${context." \
     's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
+mutate "the current-context.md step back in spawn_and_await" \
+    "no directive tells the agent to build current-context.md" \
+    's/(You build no context file)/Write current-context.md into the next child. $1/'
+
+# No file under skills/execute outside its evals tells the agent to build
+# current-context.md: carry-forward is koto calls, not a file.
+BUILDERS=$(grep -rln 'current-context' "$SKILL_DIR" --exclude-dir=evals --exclude="$(basename "$0")" 2>/dev/null || true)
+[ -z "$BUILDERS" ] && pass "no skills/execute file outside evals names current-context.md" \
+    || fail "current-context.md is still named in: $BUILDERS"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

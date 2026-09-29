@@ -105,13 +105,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- dispatching issue 3 after issues 1 and 2 completed",
-      "expected_output": "Before dispatching the child for issue 3 (blocked by issues 1 and 2), the agent reads ALL prior completed children's summaries via koto context get and writes a combined current-context.md to the new child's context. It includes context from every completed child (issues 1 AND 2), not just the immediately preceding one. The agent does not dispatch the next child without first assembling cross-issue context. This is cross-issue carry-forward observable across two issues of a single-pr plan under /execute.",
+      "expected_output": "Issue 3 (blocked by issues 1 and 2) learns what issues 1 and 2 found through koto, not through a file. Each completed child kept its session, so its summary.md is readable with koto context get <child> summary.md. The carry-forward reads come from the child itself at analysis: koto workflows --children names the earlier children, and each one that reached done is read once -- issues 1 AND 2, not just the immediately preceding one -- never polled or re-read in a loop, because each koto context get is logged and uploaded as an event. The /execute agent builds no current-context.md and adds nothing to the child's context between children. This is cross-issue carry-forward observable across two issues of a single-pr plan under /execute.",
       "files": [],
       "expectations": [
-        "Agent reads prior completed children's summaries via koto context get before dispatching the next child",
-        "Agent writes a combined current-context.md to the dispatched child's context",
-        "Agent includes context from ALL completed children (issues 1 and 2), not just the immediately preceding one",
-        "Agent does NOT dispatch a new child without first assembling cross-issue context",
+        "Agent explains earlier children's summary.md stays readable through koto (koto context get <child> summary.md) because each child keeps its session",
+        "Agent does NOT write a current-context.md or add a combined context file to the dispatched child's context",
+        "The carry-forward covers ALL completed children (issues 1 and 2), not just the immediately preceding one",
+        "Each earlier child's summary is read once, not polled or re-read in a loop, and the agent ties the small read count to each koto context get being logged and uploaded as an event",
         "Cross-issue carry-forward is observable across two completed issues of a single-pr plan under /execute"
       ]
     },
@@ -207,13 +207,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- dispatching child N+1 after child N completed",
-      "expected_output": "Before dispatching child N+1, agent reads completed children's summaries via koto context get and writes combined current-context.md to the new child's context. Does not skip this step even when only one prior child has completed.",
+      "expected_output": "Child N+1 reads what earlier children found through koto calls: koto context get <child> summary.md for each earlier child that reached done, once each, never polled or looped, since each koto context get is logged and uploaded as an event. The /execute agent builds no current-context.md and writes nothing into the new child's context. This holds even when only one prior child has completed.",
       "files": [],
       "expectations": [
-        "Agent reads prior completed children's summaries via koto context get before dispatching the next child",
-        "Agent writes combined current-context.md to the dispatched child's context",
-        "Agent includes context from ALL completed children (not just the immediately preceding one)",
-        "Agent does NOT dispatch a new child without first assembling cross-issue context"
+        "Agent identifies koto context get <child> summary.md as how a later child reads an earlier child's summary",
+        "Agent does NOT write a combined current-context.md or add anything to the dispatched child's context",
+        "The reads cover ALL completed children (not just the immediately preceding one), one read per child",
+        "Agent does NOT poll or re-read summaries in a loop"
       ]
     },
     {

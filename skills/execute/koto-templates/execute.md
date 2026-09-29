@@ -1342,7 +1342,9 @@ koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md` so each child sees what prior children found, decided, or changed.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
+
+**What earlier children found reaches later ones through koto, not through a file.** Every child keeps its session (its ticks carry `--no-cleanup`), so the `summary.md` it wrote at finalization stays readable after it finishes. A later child reads its predecessors' summaries itself, at analysis: `koto workflows --children {{SESSION_NAME}}` names them, and `koto context get <child> summary.md` reads each one that reached `done`, once per child, never polled or re-read in a loop. The read count is deliberately small because each `koto context get` is logged and uploaded as an event. You build no context file and add nothing to a child's context between children.
 
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks and routes the batch itself. Do not inspect children or choose an outcome, and submit no evidence: the gate sends the batch to `pr_finalization` when every child succeeded, and to `escalate` when any child failed or was skipped (its `needs_attention` field is true). Advance with a bare tick:
 
