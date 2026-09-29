@@ -205,6 +205,7 @@ write_row() {
     case "$?" in
         0) return 0 ;;
         10) die 8 "the record refused the write for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        13) die 2 "the record is full (record-full): compact settled decisions or prune the record, then write the holding for $TOPIC again" ;;
         65) die 2 "the record refused the row for $TOPIC as malformed" ;;
         *) die 2 "writing the holding for $TOPIC failed" ;;
     esac

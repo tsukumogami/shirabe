@@ -29,7 +29,9 @@
 # (--read only); 2 a read failed; 10 refused (the target isn't an open record
 # of this scope, provenance, or a directed transition); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 64 usage; 65 the row was refused (the reason on stderr).
+# the write failed; 13 the record is full (record-full: the body would pass
+# the write core's size budget); 64 usage; 65 the row was refused (the reason
+# on stderr).
 #
 # GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
 # --json body; writes happen only in record-write.sh.

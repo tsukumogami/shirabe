@@ -121,6 +121,7 @@ if [ "$READ" = 1 ]; then
 fi
 echo "record write $TOPIC $(jq -r .dispatch_status "$ROWF")" >>"$ST/calls.log"
 [ "${RECORD_WRITE_MODE:-}" = refuse ] && exit 10
+[ "${RECORD_WRITE_MODE:-}" = full ] && exit 13
 # changed: the record always changes under the write (exit 12); changed-once:
 # only the first write sees it.
 [ "${RECORD_WRITE_MODE:-}" = changed ] && exit 12
@@ -355,6 +356,14 @@ export RECORD_WRITE_MODE=refuse
 run >/dev/null 2>&1; RC=$?
 eq  "record refuses the write-ahead: exit 8" 8 "$RC"
 eq  "record refuses: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+
+# A full record (exit 13) is reported as one, not as a generic write failure.
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=full
+run >/dev/null 2>"$T/full.err"; RC=$?
+eq  "a full record: the dispatch stops, exit 2" 2 "$RC"
+grep -q "record-full" "$T/full.err" && ok "a full record: it says record-full" || bad "a full record: it says record-full" "$(cat "$T/full.err")"
+eq  "a full record: no launch" 0 "$(grep -c "^niwa dispatch" "$ST/calls.log")"
 
 # The record changing between the writer's read and its write (exit 12) is
 # retried; a record that keeps changing is a failed write, before any launch.

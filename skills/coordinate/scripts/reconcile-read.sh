@@ -18,7 +18,8 @@
 #   {status: "found", scope: {kind, name, repo}, record: {written, source:
 #    "record" | "record and handoff", handoff_date}, holdings: [{row,
 #    source}], deferrals: [{row, source}], side_effects: [{row, source}],
-#    unparseable: [{raw, reason}],
+#    decisions: [{decision, question, recommendation, reason, target}] (the
+#    escalated entries), unparseable: [{raw, reason}],
 #    reasoning: null | "present" | "not_recorded" | "absent"}
 # Rows keep the record's own keys. At discipline scope the handoff's rows
 # follow the record's own with source "handoff", except rows the record
@@ -272,6 +273,11 @@ jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REAS
        holdings: add_new(.holdings; ($h.holdings // []); [.worker, .unit]),
        deferrals: add_new(.deferrals; ($h.deferrals // []); [.deferral, .raised]),
        side_effects: add_new(.side_effects; ($h.side_effects // []); [.action, .target, .attempted]),
+       # The escalated entries, the only decisions that wait on anyone outside
+       # this run; a handoff entry the record does not carry yet counts too.
+       decisions: ([(.decisions.entries // [])[], ($h.decisions.entries // [])[]]
+                   | unique_by(.decision) | map(select(.state == "escalated")
+                   | {decision, question, recommendation: (.recommendation // ""), reason: (.reason // ""), target: (.target // "")})),
        unparseable: (.unparseable
                      + [($h.unparseable // [])[] | .reason = "handoff: " + .reason]
                      + (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not)

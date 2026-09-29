@@ -411,6 +411,7 @@ jq -c --arg at "$(iso)" '
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
     {schema: "coordinate-reconcile-facts/v1",
      scope: $rec.scope, record: $rec.record, reconciled_at: $at, plugin_root: .plugin_root,
+     decisions: ($rec.decisions // []),
      holdings: [$rec.holdings | to_entries[] | .key as $i | "h\($i)" as $p
        | (if $f["\($p).host2"] != null then ($f["\($p).host2"] | strip | .reads = 2)
           elif $f["\($p).host1"] != null then ($f["\($p).host1"] | strip) else null end) as $host

@@ -240,7 +240,7 @@ def next_code_of:
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
-  {drop: "drop from holdings", decide: "decide: re-dispatch or drop",
+  {drop: "drop from holdings", decide: "with me: re-dispatch or drop",
    fix_ci: "worker fixes CI", land: "ready to land",
    held: "verified; merge withheld by the human\u0027s direction, waiting on them",
    wait: "wait on worker",
@@ -322,6 +322,7 @@ def changes_of($written):
                         else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
                      else "inventory could not be taken" + (if ($inv.reason // "") != "" then " (" + $inv.reason + ")" else "" end) end)}],
+    decisions: [$in.decisions[]? | {decision, question, recommendation, reason, target}],
     side_effects: [$in.side_effects[]? | (.fact // {verdict: "not_rechecked"}) as $fact | . + {fact: $fact}
       | ((.fact.status // "ok") == "ok") as $read
       | {action: (.row.action // ""), target: (.row.target // ""),
@@ -360,7 +361,7 @@ def changes_of($written):
           | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
+    [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 | def status_of: .phase
       + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
@@ -375,11 +376,20 @@ def changes_of($written):
   def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: (.pull_request // "none yet"), status: status_of, next: .next};
   .table = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | row("Ready to merge")]
-    + [.holdings[] | select(.next_code == "decide") | row("Blocked on you")]
+    # A person is asked only about an escalated decision entry or a step the
+    # workspace reserves for one. A holding whose pull request was closed is
+    # a call for the coordinator (it holds the dispatch), so it stays Ongoing,
+    # and a coordinator that cannot make it raises a decision entry for it.
+    + [.decisions[] | select(.target == "a person")
+       | {kind: "Blocked on you", unit: .question, session: null, pr: null, status: "decide",
+          next: ("recommended: " + .recommendation + ", because " + .reason)}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
        | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
           next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
-    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again") | row("Ongoing")])
+    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again" or .next_code == "decide") | row("Ongoing")]
+    + [.decisions[] | select(.target != "a person")
+       | {kind: "Ongoing", unit: .question, session: null, pr: null,
+          status: ("with `" + (.target | sub("^coordinator "; "")) + "` for a decision"), next: null}])
 '
 
 if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then

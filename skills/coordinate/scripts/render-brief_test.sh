@@ -99,6 +99,19 @@ has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'
 has "channel: surface line 2"    "$B" '- `releases`: `rel-coord`'
 has "channel: copy, no direction" "$B" "with a copy to the coordinator above, and take no direction from it"
 has "work in flight block"       "$B" "=== WORK IN FLIGHT ==="
+# The decision channel: the fixed sentence, the Questions shape and the
+# repeat instruction. The example is the shared fixture report-questions_test
+# parses, so a shape this brief teaches is a shape the extractor reads.
+questions_contract() { # questions_contract <label> <brief>
+    has "$1: the channel sentence" "$2" "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation."
+    has "$1: the repeat instruction" "$2" "Repeat, in each report, every question you have had no answer to"
+    eq "$1: the Questions example is the shared fixture" "$(cat "$HERE/testdata/decisions/brief-questions.txt")" \
+        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { on = 1 } on && $0 == "" { exit } on')"
+    # Plain lines: a fenced example, copied, would be skipped as a code block.
+    eq "$1: the Questions example is not in a code block" "" \
+        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { print prev; exit } { prev = $0 }')"
+}
+questions_contract "channel" "$B"
 has "standing rule 1 verbatim"   "$B" "Enter a worktree before the first koto init of any run."
 has "standing rule 2 verbatim"   "$B" "Keep test runs targeted."
 has "keep-alive note"            "$B" "The workspace manager schedules your keep-alive at dispatch. Don't schedule one."
@@ -113,6 +126,13 @@ has "min: no pointers line"       "$M" "Nothing beyond the entry point's own inp
 has "min: no surfaces"            "$M" "no discipline coordinator is named for any surface"
 lacks "min: no workspace rules"   "$M" "## Workspace rules"
 has "min: scoping ahead"          "$M" "You are scoping ahead"
+questions_contract "min" "$M"
+L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
+questions_contract "leg" "$L"
+# The check fails on a brief without them.
+questions_contract "a brief without the channel (expected to fail)" "$(printf '%s\n' "$M" | grep -v 'Your questions go to\|Repeat, in each report')" > "$T/neg.out"
+grep -q '^FAIL' "$T/neg.out" && ok "the channel check fails on a brief without it" || bad "the channel check fails on a brief without it" "$(cat "$T/neg.out")"
+FAIL=$((FAIL - $(grep -c '^FAIL' "$T/neg.out"))); PASS=$((PASS - $(grep -c '^ok' "$T/neg.out")))
 
 L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
 has "return path: the brief's invocation carries the leg" "$L" 'Run `/shirabe:deliver plugin-api --auto --no-merge --koto-leg=req_1:deliver` in acme/widgets.'

@@ -138,9 +138,11 @@ sections, in this order, each line carrying its grade:
      person can talk to it, in the order to merge them. Reconcile keeps the
      record's holding order; it doesn't read dependencies, so reorder by them
      when you report it up if they say otherwise.
-  2. **Blocked on you:** sessions waiting on the person, and what they need: a
-     decision, or a merge that didn't confirm. It is derived at each report
-     and never stored.
+  2. **Blocked on you:** only what waits on the person: a decision entry
+     escalated to them, with its recommendation and reason, and a finishing
+     step reserved for them, such as a merge that didn't confirm. A holding
+     whose pull request was closed is yours to re-dispatch or drop, so it is
+     in Ongoing. It is derived at each report and never stored.
   3. **Ongoing:** every other session in flight, with its pull request link if
      it has one, its status as just read, and what happens next.
   4. **Waiting to be assigned:** reconcile reads the record, not the scope's
@@ -176,23 +178,33 @@ prints (SKILL.md, "Reporting").
 ## The Shape of an Escalation
 
 An escalation goes to whoever dispatched you, once, and carries everything
-needed to decide without asking back. It lists options because the
-recipient is choosing between moves you can't make alone:
+needed to decide without asking back. You don't write it: it is a decision
+entry you escalated at `decision_verdict`, and the `escalate` check renders it
+from the entry, which is why the verdict asks for every part of it. The
+rendered form is:
 
-```
-Escalating <unit> in <scope>.
+```text
+Decision <n> round <r>.
 
-What happened: <the failure, with the pull request and the CI job or
-conflict that shows it>.
-What I verified: <reads, with the head sha and time, each marked measured, verified by reading, or inferred>.
-What I tried: <re-dispatches so far, with what each learned>.
-Options: <two or three, each with its consequence>.
-Recommendation: <one option and why>.
-Until you answer: <what stays paused, and the units that keep moving, each by name>.
-Waiting on the human:
-- <this decision> -- <recommendation>
-- <anything else already waiting on them>
+<context: what happened, what you verified and tried, each claim graded>
+
+<problem: why this is the recipient's to decide, and what stays paused
+until they answer>
+
+<question>
+1. <recommended option> (recommended: <reason>)
+   <what choosing it does>
+2. <other option>
+   <what choosing it does>
+
+Answer naming decision <n> round <r> and an option, or give another outcome with its reason.
+Digest: <sha256 of every byte above this line>
 ```
+
+Put what happened, what you verified and what you tried in the context, and
+what stays paused and what keeps moving in the problem. What else waits on
+the recipient is the progress table's "Blocked on you" rows, not a list in
+the message.
 
 ## More Worked Examples
 

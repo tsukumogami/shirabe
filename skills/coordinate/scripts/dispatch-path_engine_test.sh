@@ -107,6 +107,9 @@ mkdir -p "$W/.niwa"
 
 SRC="$HERE/../koto-templates/coordinate.md"
 UNDER="dispatch wait leg_pick wait_leg take_report teardown teardown_inventory promote destroy"
+# Every state an UNDER state routes to that isn't under test, as a terminal.
+ENDS="record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped
+decision_answer decision_evidence decision_raise"
 # block <state>: the state's YAML block, from its `  <state>:` line to the next
 # state's.
 block() {
@@ -151,11 +154,11 @@ EOF
         block "$st"
         echo
     done
-    for st in record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped; do
+    for st in $ENDS; do
         printf '  %s:\n    terminal: true\n\n' "$st"
     done
     echo '---'
-    for st in entry $UNDER record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped; do
+    for st in entry $UNDER $ENDS; do
         printf '## %s\nStand-in.\n\n' "$st"
     done
 } >"$TPL"

@@ -58,7 +58,7 @@ REC=$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdin
 N=0
 session() { # session <vars-json> <ref>: a run at pick_facts
     N=$((N + 1))
-    S="coordinate-$3-20260926T0800${N}Z"
+    S="coordinate-$3-20260926T08$(printf %02d "$N")00Z"
     found_session "$S" "$1" "$2"
     log_to "$S" reconcile pick_facts
 }
@@ -87,6 +87,44 @@ eq "each unit carries the holding that covers it" '{"worker":"alpha","phase":"ex
 eq "the holdings list which is parked" "alpha:false beta:false gamma:true" "$(facts | jq -r '[.holdings[] | "\(.worker):\(.parked)"] | join(" ")')"
 grep -q "contents/$RP?ref=main" "$GH_DB.calls" && ok "the roadmap is read from the default branch" || bad "the roadmap is read from the default branch" "$(calls)"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "it only reads" "$(calls)" || ok "it only reads"
+
+echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="
+ESC='"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "r", "context": "c", "problem": "p", "grounds": "scope", "target": "a person"'
+dentry() { # dentry <n> <state> [extra JSON members]
+    printf '{"decision": "%s", "round": "0", "question": "Q%s?", "options": "ship -- now\\nwait -- later", "state": "%s", "source": "self [20260925T080000Z raise %s]", "updated": "2026-09-26T07:00Z"%s}' \
+        "$1" "$1" "$2" "$1" "${3:+, $3}"
+}
+# picked <label> <verdict> <entries...>: the record with those entries, then pick_facts
+picked() {
+    local label=$1 want=$2; shift 2
+    seed "$(printf '%s' "$REC" | jq -c --argjson e "[$(IFS=,; echo "$*")]" '.decisions = {next: 20, entries: $e}')"; pr 21 OPEN true; pr 23 OPEN false
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$RMTEXT"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+    eq "$label" "$want" "${OUT% sealed:*}"
+}
+RMTEXT=$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)
+# An unrecorded write: a visit to decision_raise that left no entry stamped for it.
+seed "$REC"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$RMTEXT"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+log_to "$S" pick_facts decision_raise; log_to "$S" decision_raise decision_next; log_to "$S" decision_next pick_facts
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "an unrecorded write is decisions" "decisions unrecorded-raise" "${OUT% sealed:*}"
+picked "an owed withdrawal is decisions" "decisions withdraw" "$(dentry 2 coordinator-verdict '"owed": "withdrawal"')"
+picked "an owed reply is decisions" "decisions reply" \
+    "$(dentry 3 settled '"owed": "reply", "outcome": "wait; reason: r", "decided_by": "a person", "source": "worker w1 [20260925T080000Z report 1.1]"')"
+picked "an owed escalation is decisions" "decisions escalate" "$(dentry 5 escalated "$ESC, \"owed\": \"escalation\"")"
+picked "a proposed entry is decisions" "decisions take" "$(dentry 6 proposed)"
+tok_shape "decisions is in koto's capture alphabet" "$OUT"
+picked "an unjudged entry is decisions" "decisions verdict" "$(dentry 7 coordinator-verdict)"
+picked "a held entry is not" "pick" "$(dentry 7 coordinator-verdict '"verdict": "hold", "reason": "waits on the benchmark"')"
+picked "an escalated entry that owes nothing is not" "pick" "$(dentry 5 escalated "$ESC")" "$(dentry 8 settled '"outcome": "ship; reason: r", "decided_by": "the coordinator"')"
+eq "pick.json carries the unsettled entries, not the settled one" "5:escalated:wait:a person" \
+    "$(facts | jq -r '[.decisions[] | "\(.decision):\(.state):\(.recommendation):\(.target)"] | join(" ")')"
+RMTEXT=$(roadmap Done Done Dropped Done Dropped)
+picked "owed decision work comes before scope-complete" "decisions take" "$(dentry 6 proposed)"
+picked "an escalation that owes nothing lets the scope complete, for the close to report" "scope-complete" "$(dentry 5 escalated "$ESC")"
 
 echo "== roadmap: scope-complete =="
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal)
@@ -132,5 +170,15 @@ eq "after the title's end date it is rotation-over" rotation-over "$OUT"
 tok_shape "rotation-over is in koto's capture alphabet" "$OUT"
 dseed "docs(coordinate): ci-health rotation 2026-09-22 to soon"
 bash "$PF" --scope discipline --name ci-health --repo "$REPO" --ref 22 --no-seal >/dev/null 2>&1; eq "a record title that isn't a rotation title exits 2" 2 $?
+# A carry: the previous rotation's handoff holds an unsettled entry this
+# record doesn't carry yet, before the run's first dispatch.
+dseed "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29"
+record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '. + {decisions: {next: 9, entries: $e},
+    rotation: {start: "2026-09-15", end: "2026-09-22", date: "2026-09-22", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"},
+    reasoning: "Lint is flaky."}' | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
+db '.files["acme/widgets"]["main:docs/disciplines/ci-health.md"] = $t' --arg t "$(cat "$T/prev.md")"
+session "$(discipline_vars ci-health)" 22 discipline-ci-health
+OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
+eq "a carry owed is decisions" "decisions carry" "${OUT% sealed:*}"
 
 done_tests pick-facts

@@ -153,6 +153,20 @@ Next decision: <n>
 | <n> | <times escalated> | <one line> | <one per line> | <proposed, coordinator-verdict, escalated or settled> | <worker <topic>, coordinator <topic> #<n> round <r>, dispatcher or self, then a stamp> | <blank, settle, escalate or hold> | <one of the options> | <its reason, or what a hold waits on> | <what is being decided and why now> | <what is unresolved and why the coordinator can't settle it> | <scope, supplied-decision, reserved-step, outside-scope> | <a person or coordinator <topic>> | <blank, escalation, withdrawal or reply> | <YYYY-MM-DDTHH:MMZ> | <one line per item: <time> <source> <stamp>: <text>> | <outcome and reason> | <who decided> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
+Every entry has Decision, Round, Question, State, Source and Updated. What
+each state means, and what else it requires:
+
+| State | Means | Also requires | Reached by |
+|---|---|---|---|
+| `proposed` | Opened, not yet taken up | Options | `--open`, `--open-from-report` |
+| `coordinator-verdict` | With the coordinator for a verdict; a Verdict of `hold` waits on the fact in Reason, and `escalate` is queued behind the escalated entry | Reason, when the Verdict is `hold` | `--take`; any evidence, from any state |
+| `escalated` | Asked of the run's target, one entry at a time | Options (each `<option> -- <explanation>`), Recommendation, Reason, Context, Problem, Grounds, Target | `--escalate`, or the release of a queued verdict |
+| `settled` | Decided | Outcome (`<outcome>; reason: <reason>`), Decided by | `--settle`, `--answer` |
+
+Owed says which message the entry still owes (an escalation, a withdrawal
+after new evidence on a sent escalation, or a reply to the source that asked),
+and clears when `--sent` marks it. Asked is when the escalation went out.
+
 A record written before the section existed has none and stays canonical. The
 section appears at the first decision and stays: `Next decision` only goes up,
 so an identifier is never reused, and a section holding `Next decision: 1` and

@@ -65,6 +65,11 @@
 #   coord-log.sh entered --session S --state ST
 #       Exit 0 when the log shows any entry into ST in this run; 1 none; 2 read
 #       failure. Write scripts ask it whether the run has dispatched yet.
+#   coord-log.sh current --session S
+#       Prints "<state> <seq>": the state the session is in now, the target of
+#       the log's latest transition (transitioned, directed or rewound), and
+#       that entry's sequence. Exit 0; 1 no transition; 2 read failure.
+#       record-decision.sh binds each write mode to its state with it.
 #   coord-log.sh entry --session S --state ST [--before SEQ] [--with-time]
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
 #       directed or rewound), before SEQ when given; --with-time adds the
@@ -339,6 +344,13 @@ entered)
     need SESSION STATE
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     [ -n "$(latest_entry "$LOG" "$STATE")" ] || exit 1
+    ;;
+current)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    CUR=$(jq -r 'select(.type == "transitioned" or .type == "directed_transition" or .type == "rewound") | "\(.payload.to) \(.seq)"' "$LOG" | tail -1)
+    [ -n "$CUR" ] || exit 1
+    printf '%s\n' "$CUR"
     ;;
 entry|evidence|captures)
     if [ "$CMD" = captures ]; then need SESSION NAME; else need SESSION STATE; fi
