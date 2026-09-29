@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dispatch-common_test.sh -- the dispatch helpers: topic validation, niwa's
 # session-name slug and exact match, the guarded workspace-root lookup, and
-# the entry-point table reader.
+# the entry-point table reader, and a repository's visibility read.
 #
 # The workspace-root cases build real directory layouts: a root, an instance
 # under it, a clone inside the instance carrying its own .niwa/workspace.toml
@@ -101,6 +101,44 @@ no  "flag: --upstream never listed" dc_flag_allowed scope --upstream
 no  "flag: coordinate allows none"  dc_flag_allowed coordinate --auto
 no  "flag: with whitespace"         dc_flag_allowed deliver '--auto x'
 
+# The target visibility an entry point requires, from a stand-in table: a
+# row without the field reads as any, and a value outside the three is an
+# error rather than a pass.
+VT="$T/vis-entry-points.tsv"
+printf 'a\t-\t-\t-\t-\n' >"$VT"
+printf 'b\t-\t-\t-\t-\tpublic\twork-on\n' >>"$VT"
+printf 'c\t-\t-\t-\t-\tsecret\t-\n' >>"$VT"
+SAVED="$DC_ENTRY_POINTS"
+DC_ENTRY_POINTS="$VT"
+eq  "visibility: a row without the field is any" any "$(dc_entry_target_visibility a)"
+eq  "visibility: a restricted row reads its value" public "$(dc_entry_target_visibility b)"
+eq  "visibility: the alternative is field 7" work-on "$(dc_entry_field b "$DC_F_INSTEAD")"
+dc_entry_target_visibility c >/dev/null; eq "visibility: an unknown value is an error (2)" 2 "$?"
+dc_entry_target_visibility nope >/dev/null; eq "visibility: no row is 1" 1 "$?"
+DC_ENTRY_POINTS="$SAVED"
+
+# dc_repo_visibility reads gh api repos/<r>, through a gh stand-in.
+GHB="$T/ghvis"
+mkdir -p "$GHB"
+cat >"$GHB/gh" <<'EOF'
+#!/usr/bin/env bash
+case "${@: -1}" in
+    repos/o/pub) printf '{"visibility":"public"}\n' ;;
+    repos/o/priv) printf '{"visibility":"private"}\n' ;;
+    repos/o/int) printf '{"visibility":"internal"}\n' ;;
+    repos/o/none) printf '{}\n' ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$GHB/gh"
+eq  "repo visibility: public" public "$(PATH="$GHB:$PATH" dc_repo_visibility o/pub)"
+eq  "repo visibility: private" private "$(PATH="$GHB:$PATH" dc_repo_visibility o/priv)"
+eq  "repo visibility: internal reads as private" private "$(PATH="$GHB:$PATH" dc_repo_visibility o/int)"
+OUT=$(PATH="$GHB:$PATH" dc_repo_visibility o/none); RC=$?
+eq  "repo visibility: no visibility field is 2, nothing printed" "2:" "$RC:$OUT"
+OUT=$(PATH="$GHB:$PATH" dc_repo_visibility o/gone); RC=$?
+eq  "repo visibility: a failed read is 2, nothing printed" "2:" "$RC:$OUT"
+
 # --- the deadline ----------------------------------------------------------------------
 
 dc_with_deadline 5 true; eq "deadline: a quick command's status" 0 "$?"
@@ -128,9 +166,21 @@ OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...
 # is one the skill's own SKILL.md mentions. A skill that renames a flag or a
 # template shows up here, not at a worker's attach.
 SKILLS="$HERE/../.."
-while IFS='	' read -r skill leg tpls pinned flags; do
+while IFS='	' read -r skill leg tpls pinned flags vis instead; do
     case "$skill" in '' | '#'*) continue ;; esac
     [ -f "$SKILLS/$skill/SKILL.md" ] && ok "table: $skill exists" || bad "table: $skill exists" ""
+    case "$vis" in
+        any | public | private) [ -n "$instead" ] && ok "table: $skill's target visibility is any, public or private" ||
+            bad "table: $skill's row has seven fields" "" ;;
+        *) bad "table: $skill's target visibility is any, public or private" "[$vis]" ;;
+    esac
+    # Every shipped row carries all seven fields: a row cut short would read as
+    # unrestricted, so the table itself is held to its full shape.
+    if [ "$instead" = - ] || dc_entry_row "$instead" >/dev/null; then
+        ok "table: $skill's alternative is - or an entry point"
+    else
+        bad "table: $skill's alternative is - or an entry point" "[$instead]"
+    fi
     if [ "$tpls" != - ]; then
         IFS=, read -r -a TS <<EOF
 $tpls

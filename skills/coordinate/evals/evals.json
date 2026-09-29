@@ -471,6 +471,26 @@
         "decisions person route",
         "decisions R7"
       ]
+    },
+    {
+      "id": 25,
+      "name": "dispatch-refused-for-a-target-the-entry-point-cant-take",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, at the dispatch step for feature 3 under the topic vault-export, which lands in a private repository. The shipped references/entry-points.tsv restricts no entry point, but in this workspace it has been changed so the /deliver row requires public targets and names work-on as the alternative. You ran dispatch-worker.sh with an input whose entry point is deliver, and it exited 1 with: `render-brief: refused: entry_point: /shirabe:deliver takes only public repositories, and repo is private; dispatch it to /shirabe:work-on instead`. What happened, and what do you do?",
+      "expected_output": "dispatch-worker.sh checked the brief input against the entry point's target requirement before anything else: the unit's repository is private and /deliver, as that table has it, takes only public ones. Nothing was written: no request leg was opened, no holding recorded, no worker launched, so no leg is spent and there is nothing to tear down. The coordinator doesn't submit dispatched: sent or failed for this attempt and doesn't try to get past the check. It rewrites the brief input for the entry point the refusal names, /shirabe:work-on with a stated task (its positional argument and flags from that entry point's allowed set), keeping the same topic dispatch_check passed, and runs dispatch-worker.sh again.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator explains the refusal came from the entry point's target requirement: the unit's repository is private and /deliver takes only public ones",
+        "The coordinator says nothing was opened or written: no leg, no holding, no worker",
+        "The coordinator rewrites the brief input for /shirabe:work-on, the entry point the refusal names, rather than retrying /deliver",
+        "The coordinator keeps the topic dispatch_check passed and runs dispatch-worker.sh again",
+        "The coordinator doesn't submit dispatched: failed for the refused attempt, and doesn't use koto next --to or an override"
+      ],
+      "requirements": [
+        "R7",
+        "R9"
+      ]
     }
   ]
 }

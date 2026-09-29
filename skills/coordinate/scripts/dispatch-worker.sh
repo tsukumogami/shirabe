@@ -37,8 +37,12 @@
 #      instead (reconcile-settle.sh).
 #   2. Refuse a topic a live session already uses (exit 5): koto session names
 #      are machine-wide, so a second worker on one topic would collide.
-#   3. Check the brief input (render-brief.sh). A refusal exits 1 with
-#      nothing written anywhere. The brief itself is written after step 4, so
+#   3. Check the brief input (render-brief.sh), the entry point's target
+#      requirement included. A refusal exits 1 with nothing written
+#      anywhere; a target visibility that can't be read exits 2, also with
+#      nothing written. On a resumed `dispatching` run the row and leg
+#      already exist, so a refusal here (a target whose visibility changed
+#      since) leaves them for the next run or reconcile. The brief itself is written after step 4, so
 #      it shows the same invocation, --koto-leg included, as the prompt.
 #   4. Open the leg, when references/entry-points.tsv gives the entry point
 #      one: a one-leg koto request whose leg is the skill's own leg name,
@@ -371,7 +375,7 @@ EOF
 fi
 
 # The brief, the worker's invocation and the prompt, all from the one builder.
-BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH")
+BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
 case "$?" in
     0) ;;
     1) exit 1 ;;
