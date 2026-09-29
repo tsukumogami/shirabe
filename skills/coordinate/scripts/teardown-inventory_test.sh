@@ -288,7 +288,7 @@ case " \$* " in
         [ "\${GIT_LS_HANG:-}" = 1 ] && exec sleep 30
         cfg=(); prev=""
         for a in "\$@"; do [ "\$prev" = -c ] && cfg+=(-c "\$a"); prev=\$a; done
-        cred=\$(printf 'protocol=https\nhost=github.com\n\n' | "$REAL_GIT" \${cfg[@]+"\${cfg[@]}"} credential fill 2>&1) \\
+        cred=\$(printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= "$REAL_GIT" \${cfg[@]+"\${cfg[@]}"} credential fill 2>&1) \\
             || { printf '%s\n' "\$cred" >&2; exit 128; }
         case "\$cred" in *password=gh-login-token*) ;; *) echo "fatal: Authentication failed for 'https://github.com/acme/secret.git/'" >&2; exit 128 ;; esac ;;
 esac

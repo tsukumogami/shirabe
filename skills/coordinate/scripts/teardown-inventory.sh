@@ -311,7 +311,7 @@ files_changed() {
 
 # check_repo <dir> <rel>: one verdict line for one clone.
 check_repo() {
-    local d="$1" rel="$2" loc common top url repo live default dsha
+    local d="$1" rel="$2" loc common top url repo live default dsha why
     if [ -L "$d/.git" ]; then note 2 "error $rel: its .git is a symlink, not read"; return; fi
     loc=$(ig "$d" rev-parse --path-format=absolute --git-common-dir --show-toplevel) || {
         note 2 "error $rel: not a readable git repository"; return; }
@@ -333,7 +333,8 @@ check_repo() {
     case $? in
         0) ;;
         124) note 2 "error $rel: origin's refs could not be read: the read timed out after ${FETCH_SECS}s"; return ;;
-        *) note 2 "error $rel: origin's refs could not be read: $(tail -n 1 "$WORK/ls.err" | tr -d '\r' | cut -c1-200)"; return ;;
+        *) why=$(tail -n 1 "$WORK/ls.err" | tr -d '\r' | cut -c1-200)
+           note 2 "error $rel: origin's refs could not be read: ${why:-the read failed with no message}"; return ;;
     esac
     default=$(printf '%s\n' "$live" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     dsha=$(printf '%s\n' "$live" | awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }')

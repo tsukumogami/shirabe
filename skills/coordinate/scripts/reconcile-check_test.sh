@@ -58,7 +58,10 @@ if [ "$name" = git ]; then
     if [ -f "$STUB_DIR/private" ]; then
         cfg=(); prev=""
         for a in "$@"; do [ "$prev" = -c ] && cfg+=(-c "$a"); prev=$a; done
-        cred=$(printf 'protocol=https\nhost=github.com\n\n' | "$REAL_GIT" ${cfg[@]+"${cfg[@]}"} credential fill 2>&1) \
+        # Only the call's own flags may answer: no config of the developer's,
+        # and no prompt, so a call without the gh helper fails rather than hangs.
+        cred=$(printf 'protocol=https\nhost=github.com\n\n' | HOME="$STUB_DIR" XDG_CONFIG_HOME="$STUB_DIR" GIT_CONFIG_NOSYSTEM=1 \
+            GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= "$REAL_GIT" ${cfg[@]+"${cfg[@]}"} credential fill 2>&1) \
             || { printf '%s\n' "$cred" >&2; exit 128; }
         case "$cred" in
             *password=gh-login-token*) ;;
@@ -224,7 +227,7 @@ grep -q '^gh auth git-credential get$' "$CASE/log" && ok "the branch read authen
 new_case branch-private-denied
 : > "$CASE/private"; : > "$CASE/gh-auth-fail"
 serve ls-remote 1 "$LH	refs/heads/feat/x"
-expect "a private branch the gh login can't read is not verified, never gone" '.status == "not_verified" and (.reason | test("read failed"))' "$(run branch --repo $R --branch feat/x)"
+expect "a private branch the gh login can't read is not verified, never gone, with git's reason" '.status == "not_verified" and (.reason | test("^read failed \\(exit 128\\): fatal: (could not read Username|unable to get password)"))' "$(run branch --repo $R --branch feat/x)"
 
 echo "== appeared =="
 new_case appeared-one
@@ -435,6 +438,11 @@ git -C "$RP" config --unset credential.helper
 expect "a private clone the gh login can't read is unchecked, saying why" '.items | any(.kind == "unchecked" and .clone == "repo" and (.path | test("^remote refs could not be read: fatal: (could not read Username|unable to get password)")))' "$out"
 expect "an unread private clone lists no verdict on its commits" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
 [ -e "$CASE/clone-helper-ran" ] && bad "the clone's own credential helper never runs" || ok "the clone's own credential helper never runs"
+# The refs read runs past its deadline: unchecked, naming the timeout.
+inv_case inventory-refs-late
+echo 4 > "$CASE/ls-remote.sleep.1"
+out=$(DL=1 run inventory --path "$I")
+expect "a refs read past its deadline marks the clone unchecked, naming the timeout" '.items | any(.kind == "unchecked" and .clone == "repo" and .path == "remote refs could not be read: the read timed out after 1s")' "$out"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"

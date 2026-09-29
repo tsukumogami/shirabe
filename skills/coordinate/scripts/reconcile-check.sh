@@ -103,15 +103,28 @@ need_number() { rd_valid_number "$NUMBER" || refuse "$SUB" "invalid pull request
 need_branch() { rd_valid_branch "$BRANCH" || refuse "$SUB" "invalid branch in the record row"; }
 
 # read_or_fail KIND SECS CMD... -- run CMD under a deadline; on failure print
-# the not_verified fact and exit. CMD's stdout is left in $OUT.
+# the not_verified fact, with the last line CMD wrote to stderr, and exit.
+# CMD's stdout is left in $OUT.
 read_or_fail() {
-    local kind=$1 secs=$2 rc
+    local kind=$1 secs=$2 rc err why
     shift 2
-    OUT=$(rd_deadline "$secs" "$@" 2>/dev/null)
+    err=$(mktemp "${TMPDIR:-/tmp}/reconcile-check.XXXXXX") || refuse "$kind" "read failed (no temporary file)"
+    OUT=$(rd_deadline "$secs" "$@" 2> "$err")
     rc=$?
+    why=$(ls_reason "$err")
+    rm -f "$err"
     [ "$rc" -eq 124 ] && refuse "$kind" "read timed out after ${secs}s"
-    [ "$rc" -ne 0 ] && refuse "$kind" "read failed (exit $rc)"
+    [ "$rc" -ne 0 ] && refuse "$kind" "read failed (exit $rc): $why"
     return 0
+}
+
+# ls_reason FILE -- the last line of a failed read's stderr, as the reason
+# it failed, or a generic one when it said nothing.
+ls_reason() {
+    local r
+    r=$(tail -n 1 "$1" 2>/dev/null | tr -d '\r' | cut -c1-200)
+    [ -n "$r" ] || r="the read failed with no message"
+    printf '%s' "$r"
 }
 
 # blob_at PATH SHA -- the blob sha of PATH at commit SHA, or "absent" when the
@@ -209,15 +222,6 @@ gh_contains() {
         return 2
     fi
     case "$out" in 0) return 0 ;; [1-9]*) return 1 ;; *) return 2 ;; esac
-}
-
-# ls_reason FILE -- the last line of a failed ls-remote's stderr, as the
-# reason a clone is unchecked, or a generic one when it said nothing.
-ls_reason() {
-    local r
-    r=$(tail -n 1 "$1" 2>/dev/null | tr -d '\r' | cut -c1-200)
-    [ -n "$r" ] || r="git ls-remote failed with no message"
-    printf '%s' "$r"
 }
 
 # is_local CLONE SHA -- 0 when SHA is a commit this clone has.
