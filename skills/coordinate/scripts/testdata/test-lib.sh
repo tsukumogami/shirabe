@@ -102,6 +102,26 @@ tokens_ok() { # tokens_ok <script>: every token seen fits a koto capture
     elif [ "$n" -eq 0 ]; then bad "every $1 token fits a koto capture" "no token was seen"
     else ok "every $1 token fits a koto capture ($n seen)"; fi
 }
+# opened_from <session> <template-path> <compiled-content>: rewrite the
+# session's header and init event as koto records a session opened from that
+# template: the source path in the header, and a compiled copy in the stand-in's
+# cache, named by its sha256, which becomes the header's template_hash. Pair it
+# with a KOTO_COMPILED_HASH other than that hash (any value that differs) to
+# model the plugin rewritten in place since the run opened.
+opened_from() {
+    local f="$KOTO_STORE/sessions/$1/koto-$1.state.jsonl" c h
+    mkdir -p "$KOTO_STORE/cache"
+    printf '%s' "$3" > "$KOTO_STORE/cache/opened.json"
+    if command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum < "$KOTO_STORE/cache/opened.json" | cut -d' ' -f1)
+    else h=$(shasum -a 256 < "$KOTO_STORE/cache/opened.json" | cut -d' ' -f1); fi
+    c="$KOTO_STORE/cache/$h.json"
+    mv "$KOTO_STORE/cache/opened.json" "$c"
+    jq -c --arg h "$h" --arg d "$(dirname "$2")" --arg n "$(basename "$2")" --arg c "$c" '
+        if .type == null then .template_hash = $h | .template_source_dir = $d | .template_source_file = $n
+        elif .type == "workflow_initialized" then .payload.template_path = $c
+        else . end' "$f" > "$f.new" && mv "$f.new" "$f"
+    printf '%s\n' "$h"
+}
 log_end() { # log_end <session>: cancel the run, so coord-log.sh live-session skips it
     log_ev "$1" workflow_cancelled '{}'
 }

@@ -51,9 +51,13 @@
 #       coordinate-<slug>-<UTC stamp>. Exit 0; 2 S's own log can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session was created from coordinate.md as shipped beside
-#       this script (its compiled hash equals the header's template_hash) and its
-#       PLUGIN_ROOT variable is this script's plugin root; 1 otherwise; 2 read failure.
-#       --template is for tests that run a localized copy.
+#       this script and its PLUGIN_ROOT variable is this script's plugin root;
+#       1 otherwise; 2 read failure. Created from it means either the template
+#       compiles today to the header's template_hash, or (the plugin rewritten
+#       in place since the run opened) the header shows koto compiled the run
+#       from that template's own path, and the compiled copy koto runs it from
+#       still hashes to template_hash. --template is for tests that run a
+#       localized copy.
 #   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
 #       With --all, prints every live one, one per line. Exit 0; 1 none.
@@ -299,9 +303,32 @@ provenance)
     MINE=$(cd "$HERE/../../.." && pwd -P)
     [ -n "$ROOT" ] && [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$MINE" ] || { echo "coord-log: PLUGIN_ROOT is not this plugin" >&2; exit 1; }
     [ -n "$TEMPLATE" ] || TEMPLATE="$MINE/skills/coordinate/koto-templates/coordinate.md"
-    COMPILED=$("$KOTO" template compile "$TEMPLATE") || die "cannot compile $TEMPLATE"
-    WANT=$(basename "$COMPILED" .json)
-    [ -n "$HASH" ] && [ "$HASH" = "$WANT" ] || { echo "coord-log: the session was not created from $TEMPLATE" >&2; exit 1; }
+    [ -n "$HASH" ] || { echo "coord-log: the session's header has no template_hash" >&2; exit 1; }
+    # A template that doesn't compile (a reinstall left half-written, say)
+    # proves nothing either way, so it falls through to the check below.
+    COMPILED=$("$KOTO" template compile "$TEMPLATE") || COMPILED=
+    [ -n "$COMPILED" ] && [ "$HASH" = "$(basename "$COMPILED" .json)" ] && exit 0
+    # The template no longer compiles to the hash the session opened under:
+    # a foreign session, or the plugin rewritten in place since the run
+    # opened. koto runs a session from the compiled copy it cached at init,
+    # whose content hashes to template_hash (coord-log_engine_test.sh pins
+    # this against real koto), so a rewrite leaves the run's own contract
+    # unchanged. What tells the two apart is where koto recorded compiling it
+    # from: the session passes when that is this template's own path, given
+    # absolute, and its compiled copy is still there, whole.
+    { IFS= read -r SRC_DIR; IFS= read -r SRC_FILE; } <<EOF
+$(head -1 "$LOG" | jq -r '(.template_source_dir // ""), (.template_source_file // "")')
+EOF
+    RUN_COPY=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path // empty' "$LOG" | head -1)
+    TEMPLATE_DIR=$(cd "$(dirname "$TEMPLATE")" 2>/dev/null && pwd -P) || TEMPLATE_DIR=
+    case "$SRC_DIR" in /*) ;; *) SRC_DIR= ;; esac
+    if [ -n "$SRC_DIR" ] && [ -n "$TEMPLATE_DIR" ] && [ "$(cd "$SRC_DIR" 2>/dev/null && pwd -P)" = "$TEMPLATE_DIR" ] \
+        && [ "$(basename "$SRC_FILE")" = "$(basename "$TEMPLATE")" ] \
+        && [ -n "$RUN_COPY" ] && [ -r "$RUN_COPY" ] && [ "$(sha256 < "$RUN_COPY")" = "$HASH" ]; then
+        exit 0
+    fi
+    echo "coord-log: the session was not created from $TEMPLATE" >&2
+    exit 1
     ;;
 live-session)
     need SLUG

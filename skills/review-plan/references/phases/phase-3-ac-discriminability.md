@@ -27,8 +27,6 @@ Read the following from Phase 0 context:
 | `topic` | Full check — both passes run; pattern 6 is skipped (no upstream doc) |
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 
-For `roadmap` input types, this phase returns empty findings immediately.
-
 ## Pass 1: Pattern Pass
 
 For each acceptance criterion across all issue bodies, scan the AC text for these
@@ -36,40 +34,14 @@ exact signals:
 
 ### Pattern 1 — Fixture-anchored
 
-**Detection trigger**: the AC text contains any of these terms — "all fixture",
-"fixture data", "test data", "sample data", "seed data", "pre-populated" — AND
-the issue body contains no AC that mentions a clean-state scenario (empty state,
-empty registry, fresh start, reset before running).
-
-Match condition: positive fixture-language match AND absence of any clean-state AC
-in the same issue body.
-
 Flag immediately. Do not proceed to adversarial pass for this AC.
 
 ### Pattern 3 — Happy-path only (issue-level check)
-
-**Detection trigger**: scan the *entire issue body* (all ACs in the issue). If no
-AC in the issue mentions any of: "fail", "failure", "error", "invalid", "edge case",
-"empty", "missing", "not found", "rejected", "unauthorized", "timeout", "concurrent"
-— flag the issue as happy-path-only.
-
-This is a per-issue check, not per-AC. One issue with six happy-path ACs and no
-failure AC produces one finding for the issue.
 
 Flag immediately. Do not run adversarial pass on individual ACs of a happy-path-only
 issue — the finding is at the issue level.
 
 ### Pattern 7 — Existence-without-correctness
-
-**Detection trigger**: the AC text contains any of these phrases — "exists",
-"is created", "is populated", "is not empty", "was created", "has been created" —
-AND the AC contains no assertion about content, fields, values, or specific data.
-
-Examples of content assertions (do not flag): "contains the expected rows",
-"matches the config schema", "includes the required field", "equals the expected value".
-
-Match condition: existence assertion present AND no content-verification assertion
-in the same AC sentence or immediately adjacent AC.
 
 Flag immediately. Do not proceed to adversarial pass for this AC.
 
@@ -108,9 +80,6 @@ Produce a `critical_finding` with `category: "C"` when:
 
 Do NOT produce a finding when:
 
-- Pattern 3 triggers but the issue has at least one failure/error AC elsewhere in the body
-- Pattern 5 is triggered for a unit AC where a unit test could also detect the
-  behavior (false-positive guard)
 - A pattern check is ambiguous — Category C findings must be confident; uncertain
   matches produce no finding
 
@@ -125,15 +94,4 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: "..."              # non-empty; describes what a discriminating AC should check
 ```
 
-**Category C findings must include a non-empty `correction_hint`**. The hint
-describes what a discriminating AC should check — not a replacement AC, but
-directional guidance for Phase 4 regeneration agents. Example:
-
-> "Add a clean-state scenario — empty the registry before running the command and
-> verify the table is empty, then populate and verify it contains the expected rows."
-
 If no findings: return `critical_findings: []` for this category.
-
-## Loop-Back Target
-
-Category C findings → `loop_target: 4` (Agent Generation)
