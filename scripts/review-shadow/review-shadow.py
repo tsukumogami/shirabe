@@ -15,10 +15,14 @@ Requires: Python 3.8 or later, standard library only, and `gh` for `grade`.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
+import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -134,6 +138,410 @@ def load_categories(criteria, path=CATEGORIES_FILE):
         if c["group"] not in cats:
             raise ConfigError(f"{path}: criterion {c['rule_id']} has group {c['group']!r}, which isn't a category")
     return data
+
+
+# --- Arguments -------------------------------------------------------------
+
+# Every value that becomes a path segment or a `gh` endpoint is checked here
+# first, so text from the command line never reaches either unvalidated.
+REPO_ARG = re.compile(r"([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)")
+HEAD_ARG = re.compile(r"[0-9a-f]{40}")
+PANEL_RUN_ARG = re.compile(r"claude:[A-Za-z0-9._-]{1,80}|koto:[A-Za-z0-9._-]{1,80}:[A-Za-z0-9._-]{1,80}")
+
+
+def check_repo(value):
+    m = REPO_ARG.fullmatch(value or "")
+    if not m or any(part in (".", "..") for part in m.groups()):
+        raise ValueError("--repo must be owner/name")
+    return value
+
+
+def check_pr(value):
+    if not re.fullmatch(r"[1-9][0-9]{0,8}", str(value)):
+        raise ValueError("--pr must be a pull request number")
+    return int(value)
+
+
+def check_head(value):
+    if not HEAD_ARG.fullmatch(value or ""):
+        raise ValueError("--head must be a full 40-character lowercase commit sha")
+    return value
+
+
+def check_panel_run(value):
+    if value is not None and not PANEL_RUN_ARG.fullmatch(value):
+        raise ValueError("--panel-run must be claude:<session-id> or koto:<workflow>:<session-id>")
+    return value
+
+
+def parse_time(value):
+    """Parse an ISO-8601 UTC time such as 2026-09-28T07:25:00Z."""
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# --- Fetching a pull request at a head --------------------------------------
+
+class FetchError(Exception):
+    """GitHub data the grade needs could not be read."""
+
+
+class GhFetcher:
+    """Reads pull request data through `gh api`, with an argument list and no shell.
+
+    Field values go through `-f`, never `-F`: `-F` reads a local file for a
+    value starting with `@`, and a pull request's text must never choose what
+    is read from this machine.
+    """
+
+    def _api(self, *args):
+        cmd = ["gh", "api", *args]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise FetchError(f"gh could not run: {type(e).__name__}")
+        if out.returncode != 0:
+            raise FetchError(f"gh api {args[-1].split('?')[0]} failed")
+        return out.stdout
+
+    def pull(self, repo, number):
+        return json.loads(self._api(f"repos/{repo}/pulls/{number}"))
+
+    def compare(self, repo, base_ref, head):
+        base = urllib.parse.quote(base_ref, safe="")
+        return json.loads(self._api(f"repos/{repo}/compare/{base}...{head}"))
+
+    def raw_file(self, repo, path, head):
+        return self._api("-H", "Accept: application/vnd.github.raw",
+                         f"repos/{repo}/contents/{urllib.parse.quote(path, safe='/')}?ref={head}")
+
+    def tree(self, repo, head):
+        data = json.loads(self._api(f"repos/{repo}/git/trees/{head}?recursive=1"))
+        return [e["path"] for e in data.get("tree", [])], bool(data.get("truncated"))
+
+    def body_edits(self, repo, number):
+        owner, name = repo.split("/", 1)
+        # number is validated digits, so it is safe inline; owner and name go
+        # as GraphQL variables.
+        query = ("query($o:String!,$r:String!){repository(owner:$o,name:$r){pullRequest(number:%d)"
+                 "{userContentEdits(first:100){nodes{editedAt diff}}}}}" % number)
+        data = json.loads(self._api("graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"r={name}"))
+        nodes = data["data"]["repository"]["pullRequest"]["userContentEdits"]["nodes"]
+        return [(n["editedAt"], n["diff"]) for n in nodes if n.get("editedAt") and isinstance(n.get("diff"), str)]
+
+
+DOC_SUFFIXES = (".md",)
+NON_CODE_SUFFIXES = (".md", ".json", ".yaml", ".yml", ".lock")
+
+
+def body_as_of(edits, current_body, body_at):
+    """The body text as it read at `body_at`, from the edit history.
+
+    Each edit holds the full body after that edit. With no edit at or before
+    `body_at`, the oldest version is used: it is the body the pull request
+    was opened with.
+    """
+    if not edits:
+        return current_body
+    edits = sorted(edits, key=lambda e: e[0])
+    chosen = edits[0][1]
+    for at, text in edits:
+        if parse_time(at) <= body_at:
+            chosen = text
+    return chosen
+
+
+def diff_kind(paths):
+    """docs, code or mixed. Only Markdown under docs/ and a top-level README count as
+    documentation: shirabe's skills, references and templates are Markdown that drives
+    workflows, and a script kept under docs/ is still code."""
+    docs = [p == "README.md" or (p.startswith("docs/") and p.endswith(".md")) for p in paths]
+    if docs and all(docs):
+        return "docs"
+    if not any(docs):
+        return "code"
+    return "mixed"
+
+
+def fetch_pr(fetcher, repo, number, head, body_at=None, body_file=None):
+    """Everything the slicers and script checks read, for one pull request at one head."""
+    pull = fetcher.pull(repo, number)
+    base_ref = pull["base"]["ref"]
+    public = not pull["base"]["repo"].get("private", True)
+    cmp = fetcher.compare(repo, base_ref, head)
+    files = []
+    for f in cmp.get("files", []):
+        files.append({"path": f["filename"], "status": f.get("status", "modified"),
+                      "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
+                      "patch": f.get("patch")})
+    reasons = []
+    graded_body_at = body_at or now_iso()
+    if body_file is not None:
+        body, body_source = body_file, "file"
+    else:
+        try:
+            body = body_as_of(fetcher.body_edits(repo, number), pull.get("body") or "", parse_time(graded_body_at))
+            body_source = "history"
+        except (FetchError, KeyError, TypeError, ValueError):
+            body, body_source = pull.get("body") or "", "current"
+            reasons.append("body-history-unreadable")
+    texts = {}
+    for f in files:
+        if f["path"].endswith(DOC_SUFFIXES) and f["status"] != "removed":
+            try:
+                texts[f["path"]] = fetcher.raw_file(repo, f["path"], head)
+            except FetchError:
+                texts[f["path"]] = None
+    try:
+        tree_paths, tree_truncated = fetcher.tree(repo, head)
+        tree = set(tree_paths)
+        for p in tree_paths:
+            parts = p.split("/")
+            for i in range(1, len(parts)):
+                tree.add("/".join(parts[:i]))
+    except (FetchError, KeyError, TypeError, ValueError):
+        tree, tree_truncated = None, False
+    return {"repo": repo, "pr": number, "head": head, "base_ref": base_ref, "public": public,
+            "body": (body or "").replace("\r\n", "\n"), "body_source": body_source,
+            "graded_body_at": graded_body_at, "files": files,
+            "files_truncated": len(files) >= 300, "texts": texts,
+            "tree": tree, "tree_truncated": tree_truncated, "reasons": reasons,
+            "diff_kind": diff_kind([f["path"] for f in files])}
+
+
+# --- Slices ------------------------------------------------------------------
+
+BOUND = 2560  # bytes: the budget koto's decider check uses, within what the spike measured
+MAX_DOC_PAIRS = 8
+COMMENT_START = re.compile(r"^\s*(#|//|/\*|\*|--)")
+TERM = re.compile(r"`[^`\n]{2,80}`|\b\d+(?:[.,]\d+)+\b|\b\d{2,}\b")
+
+
+def utf8_len(text):
+    return len(text.encode("utf-8"))
+
+
+def part1(body):
+    """The body up to its first `---` line: the part that becomes the squash message."""
+    lines = body.replace("\r\n", "\n").split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            return "\n".join(lines[:i]).strip()
+    return body.strip()
+
+
+def make_slice(kind, n, inputs, meta=None):
+    blob = json.dumps(inputs, sort_keys=True, ensure_ascii=False)
+    size = sum(utf8_len(v) for v in inputs.values())
+    return {"id": f"{kind}-{n}", "kind": kind, "inputs": inputs, "bytes": size,
+            "sha256": hashlib.sha256(blob.encode("utf-8")).hexdigest(),
+            "over_bound": size > BOUND, "meta": meta or {}}
+
+
+STATUS_LETTER = {"added": "A", "removed": "D", "modified": "M", "renamed": "R", "copied": "C", "changed": "M"}
+
+
+def diffstat(files, depth=None):
+    """One line per file, or with `depth`, one line per directory at that depth."""
+    if depth is None:
+        return "\n".join(f"{STATUS_LETTER.get(f['status'], 'M')} {f['path']} +{f['additions']} -{f['deletions']}"
+                         for f in files)
+    groups = {}
+    for f in files:
+        parts = f["path"].split("/")
+        key = "/".join(parts[:min(depth, len(parts) - 1)]) or "."
+        g = groups.setdefault(key, [0, 0, 0])
+        g[0] += 1
+        g[1] += f["additions"]
+        g[2] += f["deletions"]
+    return "\n".join(f"{k}/ {n} files +{a} -{d}" for k, (n, a, d) in sorted(groups.items()))
+
+
+def slice_pr_summary(pr):
+    """Part 1 with the file list. The list is summarized by directory before it
+    is ever cut: an "omits a change" question over part of the list is wrong."""
+    body = part1(pr["body"])
+    for level, depth in (("files", None), ("dir3", 3), ("dir2", 2), ("dir1", 1)):
+        s = make_slice("pr-summary", 1, {"pr_body_part1": body, "diff_summary": diffstat(pr["files"], depth)},
+                       {"summary_level": level})
+        if not s["over_bound"]:
+            return [s]
+    return [s]
+
+
+def split_hunks(patch):
+    hunks, cur = [], []
+    for line in (patch or "").split("\n"):
+        if line.startswith("@@") and cur:
+            hunks.append("\n".join(cur))
+            cur = []
+        cur.append(line)
+    if cur and any(cur):
+        hunks.append("\n".join(cur))
+    return hunks
+
+
+def hunk_has_comment(hunk):
+    return any(COMMENT_START.match(line[1:]) for line in hunk.split("\n") if line[:1] in "+- ")
+
+
+def hunk_units(hunk, path_len):
+    """A hunk as whole units within the bound. A hunk over the bound, such as a
+    whole new file, is split at blank lines into blocks, each headed by the
+    hunk's @@ line so the reader keeps its position; a block still over the
+    bound stays one over-bound unit."""
+    if path_len + utf8_len(hunk) <= BOUND:
+        return [hunk]
+    lines = hunk.split("\n")
+    header, body = lines[0], lines[1:]
+    blocks, cur = [], []
+    for line in body:
+        cur.append(line)
+        if not line[1:].strip() and len(cur) > 1:
+            blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+    units, pack = [], []
+    for block in blocks:
+        if pack and path_len + utf8_len("\n".join([header] + pack + block)) > BOUND:
+            units.append("\n".join([header] + pack))
+            pack = []
+        pack += block
+    if pack:
+        units.append("\n".join([header] + pack))
+    return units
+
+
+def slice_code_hunks(pr):
+    """Hunks that add, remove or border a comment, packed whole per file up to the bound."""
+    slices, n = [], 0
+    for f in pr["files"]:
+        if f["status"] == "removed" or f["path"].endswith(NON_CODE_SUFFIXES) or not f["patch"]:
+            continue
+        plen = utf8_len(f["path"])
+        pack = []
+        units = [u for h in split_hunks(f["patch"]) for u in hunk_units(h, plen)]
+        for h in (u for u in units if hunk_has_comment(u)):
+            candidate = "\n".join(pack + [h])
+            if pack and utf8_len(f["path"]) + utf8_len(candidate) > BOUND:
+                n += 1
+                slices.append(make_slice("code-hunks", n, {"path": f["path"], "hunks": "\n".join(pack)}))
+                pack = [h]
+            else:
+                pack.append(h)
+        if pack:
+            n += 1
+            slices.append(make_slice("code-hunks", n, {"path": f["path"], "hunks": "\n".join(pack)}))
+    return slices
+
+
+def added_lines(patch):
+    """(new-file line number, text) for every added line of a unified diff."""
+    out, new = [], 0
+    for line in (patch or "").split("\n"):
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+        if m:
+            new = int(m.group(1))
+            continue
+        if line.startswith("+"):
+            out.append((new, line[1:]))
+            new += 1
+        elif line.startswith(" "):
+            new += 1
+    return out
+
+
+LINE_UNIT = re.compile(r"^\s*(\||[-*+] |\d+\. )")
+
+
+def paragraphs(text):
+    """(first line number, text) for each passage: a blank-line-separated prose
+    block, or a single table row or list item, which is where a count or a status
+    usually sits. Fenced code is skipped."""
+    out, cur, start, fenced = [], [], 1, False
+
+    def flush():
+        if cur:
+            out.append((start, "\n".join(cur)))
+            cur.clear()
+
+    for i, line in enumerate(text.split("\n"), 1):
+        if line.lstrip().startswith("```"):
+            flush()
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        if not line.strip():
+            flush()
+        elif LINE_UNIT.match(line):
+            flush()
+            out.append((i, line))
+        else:
+            if not cur:
+                start = i
+            cur.append(line)
+    flush()
+    return out
+
+
+def slice_doc_pairs(pr):
+    """Pairs an added paragraph with each paragraph in the same file that shares a
+    number or a backticked term, strongest first, capped at MAX_DOC_PAIRS."""
+    candidates = []
+    for f in pr["files"]:
+        text = pr["texts"].get(f["path"])
+        if not text or not f["patch"]:
+            continue
+        added = {ln for ln, _ in added_lines(f["patch"])}
+        paras = paragraphs(text)
+        terms = [set(TERM.findall(p)) for _, p in paras]
+        for i, (start, p) in enumerate(paras):
+            end = start + p.count("\n")
+            if not terms[i] or not any(start <= ln <= end for ln in added):
+                continue
+            for j, (_, q) in enumerate(paras):
+                if j == i:
+                    continue
+                shared = terms[i] & terms[j]
+                if shared:
+                    candidates.append((len(shared), f["path"], min(i, j), max(i, j), paras))
+    seen, pairs, over = set(), [], 0
+    for score, path, i, j, paras in sorted(candidates, key=lambda c: -c[0]):
+        if (path, i, j) in seen:
+            continue
+        seen.add((path, i, j))
+        inputs = {"path": path, "location_a": paras[i][1], "location_b": paras[j][1]}
+        if sum(utf8_len(v) for v in inputs.values()) > BOUND:
+            over += 1  # logged in the record's pair counts, never sent or cut
+            continue
+        pairs.append(inputs)
+    kept, dropped = pairs[:MAX_DOC_PAIRS], max(0, len(pairs) - MAX_DOC_PAIRS)
+    meta = {"pairs_dropped": dropped, "pairs_over_bound": over}
+    return [make_slice("doc-pairs", n, inputs, meta) for n, inputs in enumerate(kept, 1)], meta
+
+
+def slice_pr_text(pr):
+    """Everything the script criteria read. Scripts run locally, so this has no bound."""
+    added = []
+    for f in pr["files"]:
+        for ln, text in added_lines(f["patch"]):
+            added.append((f["path"], ln, text))
+    return {"body": pr["body"], "part1": part1(pr["body"]), "added": added,
+            "texts": pr["texts"], "tree": pr["tree"], "public": pr["public"],
+            "paths": [f["path"] for f in pr["files"]]}
+
+
+def build_slices(pr):
+    """Slices per slice kind, plus the doc-pair counts: dropped by the cap, and
+    candidate pairs left out because the two passages together exceed the bound."""
+    doc, pair_meta = slice_doc_pairs(pr)
+    return {"pr-summary": slice_pr_summary(pr), "code-hunks": slice_code_hunks(pr),
+            "doc-pairs": doc}, pair_meta
 
 
 def main(argv=None):

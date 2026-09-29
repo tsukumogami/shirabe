@@ -242,15 +242,20 @@ every path in the repository at the head (for `rs-006`).
   file that isn't Markdown, JSON, YAML or a lock file, whole hunks are
   packed in file order into slices up to the bound. Only hunks that add,
   remove or border a comment line (`#`, `//`, `/*`, `*`, `--`) are packed;
-  a file with none produces no slice. A single hunk over the bound is one
+  a file with none produces no slice. A hunk over the bound, which is what a
+  whole new file arrives as, is first split at blank lines into blocks, each
+  headed by the hunk's `@@` line; a block still over the bound is one
   over-bound unit.
 - **`doc-pairs`** (`rs-009`). Inputs: `path`, `location_a` and
-  `location_b`. For each changed Markdown file, every added paragraph that
-  contains a number or a backticked term is paired with each other
-  paragraph in the file at the head that shares one of those terms. Pairs
-  are ranked by the number of shared terms and at most eight are kept per
-  pull request; the count dropped is recorded. A pair over the bound is
-  over-bound.
+  `location_b`. A passage is a blank-line-separated prose block, or a single
+  table row or list item, since that's where a count or a status usually
+  sits; fenced code is skipped. For each changed Markdown file, every added
+  passage that contains a multi-digit number or a backticked term is paired
+  with each other passage in the file at the head that shares one of those
+  terms. Pairs are ranked by the number of shared terms and at most eight are
+  kept per pull request. The record counts the pairs dropped by the cap and
+  the candidate pairs left out because the two passages together exceed the
+  bound; neither kind is cut or sent.
 - **`pr-text`** (script criteria). The body plus every added line, with its
   path. Scripts have no bound.
 
@@ -345,14 +350,14 @@ A grade record (`schema: review-shadow/record/v1`):
 | `session_id` | the Claude Code session that ran the command (`CLAUDE_CODE_SESSION_ID`), or null when none did |
 | `panel_kind` | the kind the caller said it grades beside, or null |
 | `graded_body_at` | the time the body was read as of (see Decision 6) |
-| `diff_kind` | `docs` when every changed path is under `docs/` or is a top-level `README.md`; `code` when none is; `mixed` otherwise |
+| `diff_kind` | `docs` when every changed path is Markdown under `docs/` or a top-level `README.md`; `code` when none is; `mixed` otherwise |
 | `in_sample` | true when an outcome for this head already existed at grading time |
 | `host` | the machine's hostname |
 | `criteria_version` | the criteria file's version and SHA-256 |
 | `mode` | `batched` (default) or `unbatched` |
 | `slices` | per slice: id, slice kind, byte length, SHA-256, over-bound flag |
 | `verdicts` | per criterion per slice: rule id, slice id, verdict, probabilities (Jev only), observer, reason (unanswered only) |
-| `criteria` | per criterion: rule id, criterion verdict, slice count, pairs dropped |
+| `criteria` | per criterion: rule id, criterion verdict, slice count, and for `rs-009` the pairs dropped and over bound |
 | `rounds` | per Jev request: slice id, rule ids, `batched` flag, model string, input tokens, output tokens, attempts, latency |
 | `unread_usage_attempts` | billed answers whose usage couldn't be read, counted as koto counts them |
 | `tokens` | totals of input and output tokens over `rounds` |
@@ -503,8 +508,9 @@ on a change that touches only documentation or planning the uncovered
 blocks are rare. The flip is decided per panel kind and per diff kind, and
 the likeliest first flip is documentation-only changes. The `docs` class is
 deliberately narrow: shirabe's skills, references and templates are
-Markdown that drives workflows, so they count as code, and only `docs/` and
-a top-level `README.md` count as documentation.
+Markdown that drives workflows, so they count as code, and only Markdown
+under `docs/` and a top-level `README.md` count as documentation. A script
+kept under `docs/` is code.
 
 Nothing else in shirabe calls these commands. No skill, template or
 workflow changes.
