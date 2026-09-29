@@ -186,7 +186,10 @@ states never ask you to do these steps by hand.
   issue goes to `/shirabe:work-on`. The brief lists the checkpoints the worker
   reports at and waits on no approval.
   `scripts/render-brief.sh` renders a worker's brief from one
-  JSON input and refuses an incomplete one; `scripts/dispatch-worker.sh`
+  JSON input and refuses an incomplete one, or one whose target repositories
+  its entry point can't take (the visibility requirement in
+  `references/entry-points.tsv`, read live, with the entry point to use
+  instead named); `scripts/dispatch-worker.sh`
   renders it, writes the holding, runs the workspace manager's dispatch and
   confirms the holding. The `dispatch` state can't be left until
   `scripts/holding-recorded.sh` reads the holding on the record as

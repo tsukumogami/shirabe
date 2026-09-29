@@ -200,6 +200,71 @@ eq  "bad return path: exit 1" 1 "$RC"
 has "bad return path: names it" "$ERR" "--return-path: not message"
 if [ -e "$BRIEFS" ]; then bad "bad return path: nothing written" ""; else ok "bad return path: nothing written"; fi
 
+# --- the entry point's target requirement ----------------------------------------------
+#
+# The shipped table restricts no entry point, so these run on a stand-in where
+# /deliver and /execute take only public repositories and name /work-on and
+# nothing instead. gh is a stand-in that answers `api repos/<r>` and logs.
+RT="$T/restricted.tsv"
+awk -F'\t' 'BEGIN { OFS = "\t" } /^#/ { next } NF < 5 { next }
+    $1 == "deliver" { $6 = "public"; $7 = "work-on" }
+    $1 == "execute" { $6 = "public"; $7 = "-" }
+    { print }' "$HERE/../references/entry-points.tsv" >"$RT"
+GHB="$T/ghbin"
+mkdir -p "$GHB"
+cat >"$GHB/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+case "${@: -1}" in
+    repos/acme/widgets | repos/acme/tools) printf '{"visibility":"public"}\n' ;;
+    repos/acme/vault) printf '{"visibility":"private"}\n' ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$GHB/gh"
+export GH_LOG="$T/gh.log"
+restricted() { # restricted <input> -- render with the stand-in table and gh
+    ERR=$(DC_ENTRY_POINTS="$RT" PATH="$GHB:$PATH" bash "$S" --input "$1" --stdout 2>&1 >/dev/null)
+    RC=$?
+}
+rm -rf "$BRIEFS"
+: >"$GH_LOG"
+
+restricted "$BASE"
+eq  "target: a public repository passes a public-only entry point" 0 "$RC"
+has "target: its visibility was read live" "$(cat "$GH_LOG")" "api --method GET repos/acme/widgets"
+
+restricted "$(variant priv-repo '.repo = "acme/vault"')"
+eq  "target: a private repository is refused (exit 1)" 1 "$RC"
+has "target: the refusal names the requirement and the field" "$ERR" "entry_point: /shirabe:deliver takes only public repositories, and repo is private"
+has "target: the refusal names the alternative" "$ERR" "dispatch it to /shirabe:work-on instead"
+lacks "target: the refusal never names the private repository" "$ERR" "acme/vault"
+
+restricted "$(variant priv-target '.targets = ["acme/tools", "acme/vault"]')"
+eq  "target: a private repository among targets is refused" 1 "$RC"
+has "target: the refusal names targets[2]" "$ERR" "targets[2] is private"
+
+restricted "$(variant exec-no-targets '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"]')"
+eq  "target: a PLAN-driven entry point with a requirement needs targets" 1 "$RC"
+has "target: it says to list the PLAN's repositories" "$ERR" "targets: required for execute"
+
+restricted "$(variant exec-priv '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/vault"]')"
+eq  "target: a PLAN's private issue repository is refused" 1 "$RC"
+has "target: with no alternative, the unit goes back to pick" "$ERR" "no entry point takes it; the unit goes back to pick"
+
+restricted "$(variant unread '.repo = "acme/unknown"')"
+eq  "target: a visibility that can't be read is exit 2, never a pass" 2 "$RC"
+
+restricted "$(variant bad-target '.targets = ["not a repo"]')"
+eq  "target: a malformed targets entry is refused" 1 "$RC"
+has "target: it names the entry" "$ERR" "targets[1]: must be owner/repo"
+
+: >"$GH_LOG"
+restricted "$(variant any-entry '.entry_point = "work-on" | .entry_args = ["#12"] | .repo = "acme/vault"')"
+eq  "target: an entry point with no requirement takes a private repository" 0 "$RC"
+eq  "target: and reads no visibility" "" "$(cat "$GH_LOG")"
+if [ -e "$BRIEFS" ]; then bad "target: nothing written by any of these" ""; else ok "target: nothing written by any of these"; fi
+
 # --- usage and environment ------------------------------------------------------------
 
 bash "$S" >/dev/null 2>&1; eq "usage: no input is exit 2" 2 "$?"

@@ -10,7 +10,9 @@
 # real; niwa, gh and the record feature's record-holding.sh are stand-ins.
 #
 # Proves: dispatch doesn't leave on `sent` until the record shows the holding
-# dispatched, and no override record can stand in for the gate; a leg-bound
+# dispatched, and no override record can stand in for the gate; a unit whose
+# private target the entry point can't take is refused by dispatch-worker.sh
+# before any leg, holding or launch, naming the entry point to use instead; a leg-bound
 # worker's promoted result reaches take_report and report_facts with the leg's
 # outcome as the report, an open leg holds until back or rescan, an explicit
 # result goes to surface, and a leg read once isn't read again; a message
@@ -49,7 +51,7 @@ PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/references" "$PR/skills/coordinate/koto-templates"
 for f in dispatch-common.sh holding-recorded.sh wait-target.sh report-source.sh \
-    teardown-inventory.sh teardown-verdict.sh coord-log.sh; do
+    teardown-inventory.sh teardown-verdict.sh coord-log.sh dispatch-worker.sh render-brief.sh; do
     cp "$HERE/$f" "$S/$f"
 done
 cp "$HERE/../references/entry-points.tsv" "$PR/skills/coordinate/references/"
@@ -81,12 +83,17 @@ mkdir -p "$BIN"
 # niwa: `list --json` names each worker's instance.
 cat >"$BIN/niwa" <<'EOF'
 #!/usr/bin/env bash
-[ "$1" = list ] || exit 64
+[ "$1" = list ] || { printf '%s\n' "$*" >>"$ST/niwa.log"; exit 64; }
 cat "$ST/sessions.json"
 EOF
-# gh: no merged pull requests; a tree read answers from the local origin.
+# gh: no merged pull requests; a tree read answers from the local origin; a
+# repository read answers its visibility (acme/vault is private).
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+case "$1 $2 $3 $4" in
+    "api --method GET repos/acme/vault") printf '{"visibility":"private"}\n'; exit 0 ;;
+    "api --method GET repos/acme/widgets") printf '{"visibility":"public"}\n'; exit 0 ;;
+esac
 if [ "$1" = api ]; then
     sha=${2##*/trees/}; sha=${sha%%\?*}
     git --git-dir="$O" ls-tree -r "$sha" |
@@ -202,6 +209,51 @@ put dispatch_topic w1
 tick --with-data '{"go":"dispatch"}'
 tick --with-data '{"dispatched":"failed","topic":"w1"}'
 eq  "dispatch: failed goes to failure" failure "$(at)"
+
+# --- a unit whose target an entry point can't take ------------------------------------------------
+#
+# The shipped table restricts no entry point; a restricted copy (/deliver takes
+# only public repositories and names /work-on instead) stands in for the next
+# requirement. The unit lands in a private repository. dispatch-worker.sh runs
+# for real against this session's context and koto's real request store: it
+# refuses at its brief check, before a leg is opened, a holding written or a
+# worker launched, and the dispatch state can't leave on `sent`.
+RT="$T/restricted.tsv"
+awk -F'\t' 'BEGIN { OFS = "\t" } /^#/ { next } NF < 5 { next }
+    $1 == "deliver" { $6 = "public"; $7 = "work-on" } { print }' "$HERE/../references/entry-points.tsv" >"$RT"
+cat >"$T/brief-private.json" <<'EOF'
+{"topic": "w9", "repo": "acme/vault", "unit": "Feature 9: the vault export",
+ "entry_point": "deliver", "entry_args": ["w9"], "run_mode": "--auto", "phase": "executing",
+ "authority": "You are working for the owner on acme/vault.", "goal": "The export ships.",
+ "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
+ "dispatcher_session": "coord-dp"}
+EOF
+start
+put dispatch_topic w9
+koto context add "$SESS" brief_input.json --from-file "$T/brief-private.json" >/dev/null
+rows '[]'
+: >"$ST/niwa.log"
+printf '[]\n' >"$ST/sessions.json"
+tick --with-data '{"go":"dispatch"}'
+DW_ERR=$( (cd "$W" && DC_ENTRY_POINTS="$RT" bash "$S/dispatch-worker.sh" --session "$SESS") 2>&1 >/dev/null)
+DW_RC=$?
+eq  "private target: dispatch-worker.sh refuses the brief (exit 1)" 1 "$DW_RC"
+case "$DW_ERR" in
+    *"/shirabe:deliver takes only public repositories, and repo is private; dispatch it to /shirabe:work-on instead"*)
+        pass "private target: the refusal names the requirement and the alternative" ;;
+    *) fail "private target: the refusal names the requirement and the alternative" "$DW_ERR" ;;
+esac
+case "$DW_ERR" in *acme/vault*) fail "private target: the refusal names the private repository" "$DW_ERR" ;;
+    *) pass "private target: the refusal never names the private repository" ;; esac
+eq  "private target: no holding was written" '[]' "$(cat "$ST/rows.json")"
+eq  "private target: no request (and so no leg) was opened" 0 \
+    "$( (cd "$W" && koto request list --coordinator-of-record "$SESS") | jq '.requests | length')"
+eq  "private target: no worker was launched" "" "$(cat "$ST/niwa.log")"
+tick --with-data '{"dispatched":"sent","topic":"w9"}'
+eq  "private target: sent can't leave dispatch without the holding" dispatch "$(at)"
+# The shipped table: the same unit passes the check.
+(cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null 2>"$T/rb.err")
+eq  "private target: the shipped table's /deliver takes it" 0 "$?"
 
 # --- the leg path ----------------------------------------------------------------------------------
 

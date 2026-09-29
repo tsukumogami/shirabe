@@ -35,6 +35,23 @@
 #   surfaces            optional  [{surface, coordinator}], one line each
 #   standing_rules      optional  the workspace's own rules for workers,
 #                                 copied verbatim
+#   targets             optional  owner/repo strings: the repositories the
+#                                 unit lands in besides `repo`. For a unit
+#                                 driven by a PLAN (/execute, or a scoped
+#                                 unit's execution), the repositories its
+#                                 issues land in. Required when the entry
+#                                 point takes a PLAN and restricts its
+#                                 targets' visibility.
+#
+# The entry point's target requirement. references/entry-points.tsv gives each
+# entry point the visibility its targets must have (`any`, `public` or
+# `private`). When it isn't `any`, each target (`repo`, then every `targets`
+# entry) is read live from GitHub (`gh api repos/<r>`), and a target the entry
+# point can't take refuses the input, naming the entry point to use instead.
+# The refusal names the target by its field (`repo`, `targets[1]`), never the
+# repository, so a private repository's name doesn't travel in the message. A
+# visibility that can't be read exits 2: never read as a pass. With `any`, no
+# read is made.
 #
 # No value may carry a UUID-shaped token, so a session id never reaches a
 # brief; a session name, which the worker needs to reach its coordinator, is
@@ -123,7 +140,7 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   else "checkpoints: required, an array of 1+ non-empty strings" end ),
 ( if (.acceptance | type) == "array" and (.acceptance | length) >= 1 and strs("acceptance") then empty
   else "acceptance: required, an array of 1+ non-empty strings" end ),
-( ["out_of_scope","standing_rules","read_first"][] | . as $k
+( ["out_of_scope","standing_rules","read_first","targets"][] | . as $k
   | select(($in | has($k)) and (($in | strs($k)) | not)) | "\($k): must be an array of non-empty strings" ),
 ( if has("decisions") then
     ( if (.decisions | type) == "array" and all(.decisions[]; (type == "object") and ((.decision // "") | type == "string" and test("\\S")) and ((.by // "") | type == "string" and test("\\S")))
@@ -132,6 +149,10 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 ( if has("surfaces") then
     ( if (.surfaces | type) == "array" and all(.surfaces[]; (type == "object") and ((.surface // "") | type == "string" and test("\\S") and (test("[\\r\\n]") | not)) and ((.coordinator // "") | type == "string" and test("\\S") and (test("[\\r\\n]") | not)))
       then empty else "surfaces: must be an array of {surface, coordinator}, each one line" end )
+  else empty end ),
+( if (.targets | type) == "array" then
+    ( .targets | to_entries[] | select((.value | type) == "string" and ((.value | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not))
+      | "targets[\(.key + 1)]: must be owner/repo" )
   else empty end ),
 ( if (.read_first | type) == "array" then
     ( .read_first[] | select(type == "string")
@@ -182,6 +203,38 @@ if printf '%s\n' "$FLAGS" | grep -qx -- --auto && printf '%s\n' "$FLAGS" | grep 
 fi
 if jq -e '(.entry_args | type) == "array" and ((.entry_args[0] // "") | test("[\"`$\\\\]"))' "$INPUT" >/dev/null; then
     refuse "entry_args: the positional argument may not contain a quote, backtick, dollar sign or backslash"
+fi
+# The entry point's target requirement, read only when the input is otherwise
+# sound and the entry point restricts its targets.
+if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ]; then
+    NEED=$(dc_entry_visibility "$ENTRY") || {
+        printf '%s: references/entry-points.tsv gives %s a visibility other than any, public or private\n' "$PROG" "$ENTRY" >&2
+        exit 2
+    }
+    if [ "$NEED" != any ]; then
+        INSTEAD=$(dc_entry_field "$ENTRY" "$DC_F_INSTEAD") || INSTEAD=""
+        case "$INSTEAD" in
+            '' | -) ALT="no entry point takes it; the unit goes back to pick" ;;
+            *) ALT="dispatch it to /shirabe:$INSTEAD instead" ;;
+        esac
+        case "$(dc_entry_field "$ENTRY" "$DC_F_PINNED")" in
+            *plan-slug*)
+                jq -e 'has("targets")' "$INPUT" >/dev/null ||
+                    refuse "targets: required for $ENTRY, whose PLAN's issues land in repositories it must check: list them"
+                ;;
+        esac
+        while IFS='	' read -r label target; do
+            [ -n "$target" ] || continue
+            VIS=$(dc_repo_visibility "$target") || {
+                printf '%s: could not read the visibility of %s; nothing was dispatched\n' "$PROG" "$label" >&2
+                exit 2
+            }
+            [ "$VIS" = "$NEED" ] ||
+                refuse "entry_point: /shirabe:$ENTRY takes only $NEED repositories, and $label is $VIS; $ALT"
+        done <<EOF
+$(jq -r '(["repo", .repo]), (.targets // [] | to_entries[] | ["targets[\(.key + 1)]", .value]) | @tsv' "$INPUT")
+EOF
+    fi
 fi
 case "$RETURN_PATH" in
     message) ;;

@@ -2234,7 +2234,19 @@ where the worker stops; none may wait on an approval), the acceptance
 criteria, your session name, the decisions the worker can't see anywhere it
 will read, pointers to pushed artifacts, the discipline coordinator for each
 surface the work touches when you know them, and the workspace's standing
-rules for workers, copied verbatim.
+rules for workers, copied verbatim. When the unit lands anywhere besides its
+repository, list those repositories as `targets`; for a unit a PLAN drives
+(`/shirabe:execute`, or a scoped unit's execution), they are the repositories
+its issues land in.
+
+Before anything is written, the script checks the unit's targets against the
+entry point's requirement in `references/entry-points.tsv`: an entry point
+that takes only public (or only private) repositories refuses a unit landing
+anywhere else, exit 1, with no leg opened, holding written or worker launched,
+and the refusal names the entry point to use instead. Rewrite the input for
+that entry point and run the script again; when it names none, the unit goes
+back to pick. No entry point carries such a requirement today, so the check
+passes every target until one does.
 
 The script renders the brief to the workspace manager's brief directory, opens
 a request leg when the entry point accepts `--koto-leg`, writes the holding
