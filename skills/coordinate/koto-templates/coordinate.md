@@ -2251,13 +2251,14 @@ a request leg when the entry point accepts `--koto-leg`, writes the holding
 rewrites it dispatched, or dispatch-failed when the worker didn't start. It
 prints the worker's session name, which you use to message it and never
 record. It is safe to run again: a dispatched topic prints
-`already-dispatched`, and a `dispatching` row it left when it stopped partway
-is settled from `niwa list` without a second launch. A `dispatching` row left
-by a refused write, or by a run that stopped before the rewrite, is settled by
-the next run's reconcile instead: when the listing finds the worker and its
-leg (if it has one) is bound, the pass rewrites the row `dispatched` and
-reports it under "Changed since then". Don't dispatch the topic again to settle
-it; dispatch_check refuses a topic a holding already names.
+`already-dispatched`, and while you are still in this state for the topic,
+running it again settles a `dispatching` row it left from `niwa list` without
+a second launch. Once the run has moved on (the record refused the write and
+the run restarted, say), dispatch_check refuses the topic as `duplicate-topic`
+because a holding already names it: don't try to dispatch it again. The next
+run's reconcile settles the row instead: when the listing finds the worker and
+its leg (if it has one) is bound, the pass rewrites the row `dispatched` and
+reports it under "Changed since then".
 
 `sent` leaves this state only when the record shows the holding dispatched
 (the `holding_recorded` gate reads it). Its exit codes: 1 no holding (run the

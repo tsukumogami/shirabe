@@ -121,11 +121,12 @@ A deferral is disposed of when its Disposition reads `filed #<n>`,
 run's start. Filed and closed rows drop out at the first rewrite after the
 run's first dispatch; a carried row stays with its new reason.
 
-A carry can name a decide-by, `carried <time> until <time>: <reason>`; once
-the until time passes, the deferral is open again. On a restart (a run opened
-over a live run of the same scope, which it cancels), a carry made since the
-first of those cancelled runs started still counts; a run that ended at a
-handover or a finish breaks the chain.
+On a restart (a run opened over a live run of the same scope, which it
+cancels), the carry time is compared with the start of the first of those
+cancelled runs instead of this run's start, so a carry made since then still
+counts; a run that ended at a handover or a finish breaks the chain. A carry
+can name a decide-by, `carried <time> until <time>: <reason>`; once the until
+time passes, the deferral is open again.
 
 The verified head is the sha the workflow verified before you acted or asked.
 After a crash, confirming a merge compares the default branch against that sha,

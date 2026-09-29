@@ -50,7 +50,7 @@
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
 # raised, disposition) against a run start, and prints one of:
 #   disposed filed <n> | disposed closed | disposed carried <time>
-#   undisposed empty | undisposed malformed | undisposed carried-before-run-start
+#   undisposed empty | undisposed malformed | undisposed carried-before-chain-start
 #   undisposed decide-by-passed   (a carry whose `until` time has passed)
 #   undisposed raised-this-run    (undisposed, but raised at or after the run
 #                                 start, so not a predecessor's; exit 0)
@@ -60,7 +60,10 @@
 # the earliest run in the unbroken chain of restarts that led to this one, so
 # a restart doesn't re-decide what the run it replaced carried, while a
 # successor still does. A carry whose until time is before now is open again,
-# chain or not. Times compare to the minute (the Disposition's resolution).
+# chain or not: the until time is compared with the clock now, and a carry is
+# still disposed through the until minute itself. An until at or before the
+# carry time is allowed; it only makes a carry that is already open. Times
+# compare to the minute (the Disposition's resolution).
 # Row mode reads nothing from GitHub, so it can't tell whether a filed issue
 # exists; check mode does.
 #
@@ -121,7 +124,7 @@ judge_row() {
         [ -n "$(minute "$t")" ] || { ROW_VERDICT="undisposed malformed"; return 1; }
         [ -z "$u" ] || [ -n "$(minute "$u")" ] || { ROW_VERDICT="undisposed malformed"; return 1; }
         case "$why" in *[![:space:]]*) ;; *) ROW_VERDICT="undisposed malformed"; return 1 ;; esac
-        if [ "$(minute "$t")" \< "$2" ]; then ROW_VERDICT="undisposed carried-before-run-start"; return 1; fi
+        if [ "$(minute "$t")" \< "$2" ]; then ROW_VERDICT="undisposed carried-before-chain-start"; return 1; fi
         if [ -n "$u" ] && [ "$(minute "$u")" \< "$(date -u +%Y-%m-%dT%H:%M)" ]; then ROW_VERDICT="undisposed decide-by-passed"; return 1; fi
         ROW_VERDICT="disposed carried $t"; return 0
     fi

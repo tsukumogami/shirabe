@@ -42,7 +42,7 @@ grep -q '^issue edit 7' "$GH_DB.calls"; eq "the write is the record's own whole-
 echo "== left alone =="
 reset_calls
 OUT=$(settle); rc=$?
-eq "a row already dispatched is not written again" "0 false" "$rc $(printf '%s' "$OUT" | jq -r '.settled')"
+eq "a row already dispatched is not written again, and says it is dispatched now" "0 false dispatched" "$rc $(printf '%s' "$OUT" | jq -r '"\(.settled) \(.now)"')"
 grep -q 'edit' "$GH_DB.calls" && bad "and nothing is edited" "$(calls)" || ok "and nothing is edited"
 seed "[$(stuck)]"
 OUT=$(settle stuck "leg req1:work-on"); rc=$?

@@ -61,11 +61,13 @@
 #                  open leg with a child attached), result: a short
 #                  token -- a result map's outcome, or the engine's own
 #                  terminal status and final state, or "refused:<reason>"
-#       settle     settled (bool), reason: the pass's one write, a row left
-#                  `dispatching` whose worker was found live (and its leg,
-#                  if any, bound or resolved) rewritten `dispatched`
-#                  (reconcile-settle.sh); a settled row is reported under
-#                  changes, a failed settle under not_verified
+#       settle     settled (bool), now (the row's status after it), reason:
+#                  the pass's one write, a row read `dispatching` whose
+#                  worker was found live (and its leg, if any, bound or
+#                  resolved) rewritten `dispatched` (reconcile-settle.sh); a
+#                  row that is `dispatched` now, by this write or an earlier
+#                  pass's, is reported under changes, a failed settle under
+#                  not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
@@ -250,7 +252,7 @@ def next_of: next_code_of | next_text;
 def changes_of($written):
   topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
   | [
-      (if ok($st) and $st.settled == true then
+      (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
         {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
        else empty end),
       (if ok($pr) and $pr.state != "OPEN" then

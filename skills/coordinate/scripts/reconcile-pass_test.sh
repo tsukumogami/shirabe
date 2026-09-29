@@ -378,6 +378,23 @@ new_case settle-dispatched
 record "[$(hold fine "" '{branch: "", verified_head: ""}')]"
 pass
 [ ! -s "$CASE/settles" ]; check "a row already dispatched is not written" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-late
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+# The listing read costs 5 seconds, so a settle launched after it would have
+# less than its 20-second budget: it waits for the next pass, which starts
+# with it.
+echo 5 > "$CASE/cost.host"
+pass
+case "$LINE" in pending:*) ok "a settle that doesn't fit whole leaves the pass pending" ;; *) bad "a settle that doesn't fit whole leaves the pass pending" "$LINE" ;; esac
+[ ! -s "$CASE/settles" ]; check "and isn't started in it" $? "$(cat "$CASE/settles" 2>/dev/null)"
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "the next pass settles it and seals" ;; *) bad "the next pass settles it and seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ -s "$CASE/settles" ]; check "with the settle run once" $?
+new_case chain-start
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T07:30Z: last run"}]'
+echo 2026-09-26T07:00:00.000Z > "$CASE/chain-start"
+pass
+grep -q -- '--chain-start 2026-09-26T07:00:00.000Z' "$CASE/checks"; check "the deferral re-check is given the run's chain start" $? "$(cat "$CASE/checks")"
 new_case settle-refused
 record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
 echo '{"kind":"settle","status":"not_verified","reason":"the record refused the write","read_at":"t"}' > "$CASE/settle.out"

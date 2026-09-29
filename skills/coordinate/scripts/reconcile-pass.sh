@@ -274,7 +274,7 @@ plan() {
                  (if ($f[$p].verdict // "") == "confirmed" then {id: "\($p).2", sub: "teardown", args: ["--topic", ($s.target // "")], natural: 8, due: ($f[$p].t + 30)} else empty end)
                else empty end)),
           ($rec.deferrals | to_entries[] | "d\(.key)" as $p
-            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start, "--chain-start", ($work.chain_start // $work.run_start)], natural: 8})
+            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start, "--chain-start", $work.chain_start], natural: 8})
         ]
         | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
@@ -377,7 +377,11 @@ while :; do
         tn=$(now) || exit 1
         el=$((tn - T0))
         left=$((READS_END - el))
-        if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ]; then
+        # A write is never clipped: the settle starts only when its whole
+        # budget fits, else in a later pass, which starts with it.
+        whole=1
+        [ "$(printf '%s' "$spec" | jq -r .sub)" = settle ] && [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+        if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
             launch "$spec" "$left"
             ready=$((ready - 1))
         fi

@@ -43,10 +43,12 @@
 #       Prints the created_at of the earliest run in the unbroken chain of
 #       cancelled runs of S's scope just before S, or S's own created_at when
 #       the run just before it wasn't cancelled. coordinate-open.sh cancels
-#       the live run it replaces, so the chain is the restarts that led to S;
-#       a run that ended at a terminal state (a handover, a finish) or is no
-#       longer listed ends it; so does a name that isn't
-#       coordinate-<slug>-<UTC stamp>. Exit 0; 2 read failure.
+#       the live run it replaces, so the chain is the restarts that led to S
+#       (a run a person cancelled by hand counts the same way). A run that
+#       ended at a terminal state (a handover, a finish), is no longer
+#       listed, or whose log can't be read ends it, which only makes the
+#       chain shorter; so does a name that isn't
+#       coordinate-<slug>-<UTC stamp>. Exit 0; 2 S's own log can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session was created from coordinate.md as shipped beside
 #       this script (its compiled hash equals the header's template_hash) and its
