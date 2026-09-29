@@ -643,7 +643,7 @@ if to_pick unmerged "$(record_json roadmap unmerged | jq -c --argjson h "$(unit_
     eq "16: merged with a unit's title comes back to wait" wait "$(at --with-data '{"event":"merged","unit":"Feature 16: example"}')"
     from_to merged_facts wait && ok "16: the route was merged_facts -> wait" || bad "16: the route was merged_facts -> wait"
     case "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>/dev/null | jq -r .reason)" in
-        "the merged event's unit [Feature 16: example] is not a dispatch topic; unit takes the dispatch topic of a holding"*)
+        "the merged event's unit [Feature 16: example] is not a topic; unit takes the dispatch topic of a holding"*)
             ok "16: the refusal names the field, the value and what it takes" ;;
         *) bad "16: the refusal names the field, the value and what it takes" "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>&1)" ;;
     esac

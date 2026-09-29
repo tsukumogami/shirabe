@@ -6,8 +6,10 @@
 # Usage: merged-facts.sh --session S [--unit <topic>] [--pr N --repo R] [--no-seal]
 #
 # The unit is the one the `merged` event named: the `unit` field of the latest
-# evidence_submitted in state `wait` in the session log. --unit overrides it.
-# A unit that isn't a dispatch topic, or names no holding with a pull request
+# evidence_submitted in state `wait` in the session log. --unit overrides it
+# (for tests and hand runs; one outside the Worker cell's grammar, RE_TOPIC,
+# is a usage error there). A logged unit outside that grammar, or one that
+# names no holding with a pull request
 # link (a unit's title or tag submitted in place of its topic, say), is
 # refused: the token `unknown-topic`, which sends the run back to `wait` to
 # submit the event again, with the reason and the accepted topics on stderr
@@ -60,15 +62,16 @@ bl_session_ok "$SESSION" || usage
 refuse_unit() {
     local known
     known=$(bash "$HERE/record-holding.sh" --session "$SESSION" --list 2>/dev/null \
-        | jq -c '[.[]? | select((.pull_request // "") != "") | .worker]') || {
+        | jq -c -L "$HERE" 'include "record-codec"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
         echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
+    # The script's only EXIT trap; lib_emit exits through it.
     trap 'rm -f "$DETAIL"' EXIT
     jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
         '{verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
           reason: ($lead + " [" + $u + "] " + $why + "; " + $want + ": "
-                   + (if ($known | length) == 0 then "none" else ($known | join(", ")) end))}' > "$DETAIL"
+                   + (if ($known | length) == 0 then "none (no holding has a pull request yet)" else ($known | join(", ")) end))}' > "$DETAIL"
     echo "$PROG: refused: $(jq -r .reason "$DETAIL")" >&2
     lib_emit merged_facts unknown-topic coord/merged_facts.json "$DETAIL"
 }
@@ -80,7 +83,7 @@ else
         EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait 2>/dev/null)
         [ $? -eq 2 ] && { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
         UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
-        bl_topic_ok "$UNIT" || refuse_unit "is not a dispatch topic"
+        bl_topic_ok "$UNIT" || refuse_unit "is not a topic"
     fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
     case $? in

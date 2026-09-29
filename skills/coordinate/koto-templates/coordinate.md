@@ -26,6 +26,8 @@ version: "1.0"
 #                               decider input; progress-view.sh's input)
 #   coord/dispatch_check.json   dispatch_check: the verdict, the checked
 #                               choice and topic, open deferrals, counts
+#   coord/merged_facts.json     merged_facts, on unknown-topic only: the
+#                               refused unit, the accepted topics and why
 #   coord/record_confirm.json   record, verified_confirm: the source state, the
 #                               expectation and why it isn't met yet
 #   coord/report.json           report_facts: the unit's holding and pull
@@ -568,6 +570,9 @@ states:
       - target: pick_facts
         when:
           gates.dispatch_check_verdict.exit_code: 46  # unknown-topic
+      - target: failure
+        when:
+          gates.dispatch_check_verdict.exit_code: 47  # unresolved-topic
 
   deferral_dispose:
     accepts:

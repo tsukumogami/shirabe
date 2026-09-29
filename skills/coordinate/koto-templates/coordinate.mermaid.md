@@ -54,6 +54,8 @@ stateDiagram-v2
     dispatch_check --> wait : gates.dispatch_check_verdict.exit_code: 43
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 44
     dispatch_check --> decision_next : gates.dispatch_check_verdict.exit_code: 45
+    dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 46
+    dispatch_check --> failure : gates.dispatch_check_verdict.exit_code: 47
     escalate --> escalate_send : gates.escalate_verdict.exit_code: 180
     escalate --> record_conflict : gates.escalate_verdict.exit_code: 62
     escalate_send --> decision_next : sent: sent
@@ -75,6 +77,7 @@ stateDiagram-v2
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 90
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 91
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 92
+    merged_facts --> wait : gates.merged_facts_verdict.exit_code: 46
     pick --> dispatch_check : choice: dispatch
     pick --> dispatch_check : choice: scope_ahead
     pick --> dispatch_check : choice: send_execution

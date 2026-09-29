@@ -262,10 +262,16 @@ log_to "$S" take_report failure
 log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
 eq "a redispatch after a leg arrival checks the holding the leg names" "ok theta" "$(check)"
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-9:execute"}')" '.holdings = [$h]')"
-OUT=$(check)
-eq "a leg no holding carries resolves to no unit, and is refused rather than sealed ok -" "unknown-topic" "$OUT"
-jq -e '.reason | test("no dispatch topic to check") and test("Workers are: theta")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
-    && ok "the refusal names the Holdings rows' Workers" || bad "the refusal names the Holdings rows' Workers" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+OUT=$(bash "$DC" --session "$S" 2>/dev/null)
+eq "a leg no holding carries resolves to no unit, and is refused rather than sealed ok -" "unresolved-topic" "${OUT% sealed:*}"
+tok_shape "unresolved-topic is in koto's capture alphabet" "$OUT"
+jq -e '.verdict == "unresolved-topic" and (.reason | test("^the unit to redispatch could not be resolved") and test("Workers are: theta; escalate if none fits$"))' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
+    && ok "the refusal says why and names the Holdings rows' Workers" || bad "the refusal says why and names the Holdings rows' Workers" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+# A redispatch whose Worker the dispatch path would refuse names that Worker.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding Theta.v2 '{"return_path": "leg req-1:execute", "pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+eq "a redispatch whose Worker isn't a dispatch topic is refused too" "unresolved-topic" "$(check)"
+jq -e '.reason | test("resolves to the Worker \\[Theta.v2\\]")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
+    && ok "that refusal names the Worker" || bad "that refusal names the Worker" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 
 echo "== check mode: pick's unit must be a dispatch topic =="
 # A unit's tag from coord/pick.json in place of its topic (shirabe#492): refused
