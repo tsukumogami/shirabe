@@ -19,7 +19,6 @@ on:
       # worktree reference for statements a decision record settled.
       - 'skills/work-on/**'
       - 'references/worktree-discipline.md'
-      - 'docs/decisions/DECISION-contradiction-*'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'

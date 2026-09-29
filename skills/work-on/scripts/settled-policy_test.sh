@@ -26,7 +26,8 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 # The files a case searches: /work-on's own prose and templates, and the shared
 # worktree reference its PR carries. Test files are left out, since they name
-# the forbidden forms in order to look for them.
+# the forbidden forms in order to look for them, and so are the evals, which
+# are scenario prompts and fixtures rather than instructions the skill ships.
 policy_files() {
     find "$SKILL_DIR" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.tsv' \) \
         ! -name '*_test.sh' ! -path '*/evals/*'
