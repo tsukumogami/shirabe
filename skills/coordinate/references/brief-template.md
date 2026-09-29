@@ -169,8 +169,13 @@ at the brief:
 
 ```bash
 niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
-  --name <topic> --detach
+  --name <topic> --detach \
+  --brief <workspace-root>/.niwa/dispatch-briefs/<topic>.md --skill shirabe:<entry point>
 ```
+
+`--brief` and `--skill` let niwa put the brief's digest and the requested
+skill on the worker's telemetry. niwa accepts them from 0.28.0; with an older
+niwa, leave both off, since it refuses flags it doesn't know.
 
 Record the holding under the dispatch topic you passed, with
 `record-holding.sh`, before any other action. `scripts/dispatch-worker.sh`
