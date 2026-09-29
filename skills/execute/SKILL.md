@@ -163,6 +163,8 @@ The script prints koto-open's result line and nothing else you need to parse:
 
 ### Step 3 — Drive the orchestrator loop
 
+How each state runs is its directive in `skills/execute/koto-templates/execute.md`, which koto returns with every tick; read the template for a state's gates and routes.
+
 **Every `koto next` on the orchestrator session carries `--no-cleanup`:**
 
 ```bash
@@ -200,7 +202,9 @@ canonical in
 [`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](../../references/coordination-strategy.md);
 this section binds to it rather than restating it. The `shirabe validate` modes
 (`--coordination-body`, `--merge-gate`) and their fail-closed behavior are owned
-by the CLI.
+by the CLI; the merge-last gate treats any PR it can't resolve as not-merged, and
+the `evaluate-coordination` and `merge-coordination` actions in
+`execute-coordinated.md`'s `coord_loop` directive are where the run invokes it.
 
 The loop reads **work items and PR status** and the merge-gate result, never a
 child PR's body. It runs against an existing coordination PR, found by an
