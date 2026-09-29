@@ -1624,6 +1624,32 @@
    "reason": "Phase 4 is the step that presents the routing, and its three tiers match /explore's routing table, where a simple change files an issue and runs /work-on. SKILL.md's Output table becomes three rows: simple, file an issue then /work-on; medium, /plan; complex, /design. Found while re-checking the internal-restatement spans during execution, after the inventory closed."
   },
   {
+   "id": "prd-upstream-roadmap",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Whether a PRD may name a ROADMAP as its upstream",
+   "sides": [
+    {
+     "loc": "skills/prd/references/phases/phase-3-draft.md#L31-L35",
+     "says": "the --upstream path typically points to a ROADMAP when the PRD is part of a multi-feature initiative"
+    },
+    {
+     "loc": "skills/prd/references/prd-format.md#L37-L41",
+     "says": "a BRIEF is a PRD's only legal upstream; with no brief, the field is omitted rather than naming the ROADMAP"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/validate.rs#L266-L270",
+     "says": "R10/R11 reject an upstream of an illegal type or one that does not outlive the document"
+    }
+   ],
+   "winner": "skills/prd/references/prd-format.md#L37-L41",
+   "reason": "The validator's R11 rejects a durable PRD naming a ROADMAP, which the cascade deletes once its features land, and prd-format.md states the same rule. Phase 3's upstream rule and the upstream-propagation eval, which expects a ROADMAP recorded as upstream, change to match. Found during execution, after the inventory closed."
+  },
+  {
    "id": "plan-single-pr-draft-commit",
    "class": "mechanical",
    "r2": 10,

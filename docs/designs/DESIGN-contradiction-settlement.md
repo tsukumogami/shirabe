@@ -9,7 +9,7 @@ problem: |
   acts on. Execution needs a located, reasoned list to edit from, and later
   gate and ablation work needs stable identifiers to depend on.
 decision: |
-  A 47-item inventory taken at 662f6ec (37 mechanical, 10 policy), each item
+  A 48-item inventory taken at 662f6ec (38 mechanical, 10 policy), each item
   with a kebab-case identifier, every side located by line range and a
   file-unique excerpt, and a winner chosen by one rule: the side the code
   enforces wins, then the file the state directive points at, then the
@@ -44,7 +44,7 @@ actually happens: `resume-probe.sh` decides whether a state file is valid,
 checks decide whether a document passes.
 
 Reading every loaded file against the others and against that code at
-`662f6ec` turns up 47 places where two statements disagree about the same
+`662f6ec` turns up 48 places where two statements disagree about the same
 situation. They fall into three shapes:
 
 - **Prose against code.** A reference says `phase_pointer: phase-0`; the
@@ -116,7 +116,7 @@ most recently. Rejected: several stale statements were touched recently for
 unrelated reasons, and recency says nothing about which side the code
 follows.
 
-**Option 1c: Decide each item on its merits with no rule.** Rejected: 37
+**Option 1c: Decide each item on its merits with no rule.** Rejected: 38
 mechanical items decided ad hoc would produce inconsistent winners, and a
 reviewer would have no rule to check a winner against.
 
@@ -144,7 +144,7 @@ skill's SKILL.md, template and references change together, so one reviewer
 reads one skill's diff at a time; a policy item's edit waits only on its own
 decision.
 
-**Option 3b: One work item per contradiction.** Rejected: 37 pull requests
+**Option 3b: One work item per contradiction.** Rejected: 38 pull requests
 for mechanical fixes, many of them one line, with heavy overlap in the same
 files and constant rebasing.
 
@@ -172,7 +172,7 @@ loads every other caller's rules, which is the dead-prose problem again.
 
 ## Decision Outcome
 
-The inventory below has 47 items: 37 mechanical, each with a winner chosen by
+The inventory below has 48 items: 38 mechanical, each with a winner chosen by
 the code-first rule, and 10 policy items carried open with a recommendation.
 Every PRD R2 item maps to at least one identifier. Dead prose comes to
 28.2% of `/work-on`'s raw load, 51.0% of `/execute`'s single-pr load, 62.4% of
@@ -931,6 +931,21 @@ Statements:
 - `skills/prd/references/phases/phase-4-validate.md#L248-L253`: three tiers: simple suggests direct implementation, medium a planning workflow, complex a design workflow first. Excerpt: `- **Simple** (few requirements, clear scope,`
 
 Winner: `skills/prd/references/phases/phase-4-validate.md#L248-L253`. Phase 4 is the step that presents the routing, and its three tiers match /explore's routing table, where a simple change files an issue and runs /work-on. SKILL.md's Output table becomes three rows: simple, file an issue then /work-on; medium, /plan; complex, /design. Found while re-checking the internal-restatement spans during execution, after the inventory closed.
+
+#### `prd-upstream-roadmap`
+
+Whether a PRD may name a ROADMAP as its upstream. Class: **mechanical**. Profiles: `scope`.
+
+Statements:
+
+- `skills/prd/references/phases/phase-3-draft.md#L31-L35`: the --upstream path typically points to a ROADMAP when the PRD is part of a multi-feature initiative. Excerpt: `` **Detect upstream:** Check `$ARGUMENTS` for ``
+- `skills/prd/references/prd-format.md#L37-L41`: a BRIEF is a PRD's only legal upstream; with no brief, the field is omitted rather than naming the ROADMAP. Excerpt: `` Required fields: `status`, `problem`, `goals`. ``
+
+What runs:
+
+- `crates/shirabe-validate/src/validate.rs#L266-L270`: R10/R11 reject an upstream of an illegal type or one that does not outlive the document. Excerpt: `` // 2c. (R10/R11) The `upstream` field names ``
+
+Winner: `skills/prd/references/prd-format.md#L37-L41`. The validator's R11 rejects a durable PRD naming a ROADMAP, which the cascade deletes once its features land, and prd-format.md states the same rule. Phase 3's upstream rule and the upstream-propagation eval, which expects a ROADMAP recorded as upstream, change to match. Found during execution, after the inventory closed.
 
 #### `plan-single-pr-draft-commit`
 

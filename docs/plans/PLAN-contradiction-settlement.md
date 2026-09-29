@@ -5,7 +5,7 @@ execution_mode: coordinated
 split_mode_source: intent
 tracking_level: none
 milestone: "Contradiction Settlement"
-issue_count: 27
+issue_count: 28
 upstream: docs/designs/DESIGN-contradiction-settlement.md
 split_rationale: |
   Hard Constraint. No work item may change what a run loads before the
@@ -22,9 +22,9 @@ Active
 
 ## Scope Summary
 
-Settle the 47 contradictions and remove the dead prose inventoried in
+Settle the 48 contradictions and remove the dead prose inventoried in
 `docs/designs/DESIGN-contradiction-settlement.md`: nine per-skill items apply
-the 37 mechanical winners and the dead-prose deletions, ten items each apply
+the 38 mechanical winners and the dead-prose deletions, ten items each apply
 one policy decision once it is recorded, and a final item re-counts every
 profile against the baseline pin.
 
@@ -77,7 +77,7 @@ skill's mechanical items and every policy item that edits that skill:
 | `scope` | 4, 14, 17, 18, 24 | `decisions` |
 | `design` | 8, 15, 25 | `decisions` |
 | `plan` | 7, 16, 26 | `decisions` |
-| `brief-prd-policy` | 27 | `decisions`, `brief-prd-deliver` |
+| `brief-prd-policy` | 27, 28 | `decisions`, `brief-prd-deliver` |
 | `measure` | 19 | every other pull request |
 
 Why batch:
@@ -433,7 +433,7 @@ pull request:
 - [ ] Explains, per entry, any shortfall over 10% of that estimate.
 - [ ] Changes no file under `skills/`, `references/`, `scripts/` or `crates/`.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:9>>, <<ISSUE:10>>, <<ISSUE:11>>, <<ISSUE:12>>, <<ISSUE:13>>, <<ISSUE:14>>, <<ISSUE:15>>, <<ISSUE:16>>, <<ISSUE:17>>, <<ISSUE:18>>, <<ISSUE:20>>, <<ISSUE:22>>, <<ISSUE:23>>, <<ISSUE:24>>, <<ISSUE:25>>, <<ISSUE:26>>, <<ISSUE:27>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>>, <<ISSUE:9>>, <<ISSUE:10>>, <<ISSUE:11>>, <<ISSUE:12>>, <<ISSUE:13>>, <<ISSUE:14>>, <<ISSUE:15>>, <<ISSUE:16>>, <<ISSUE:17>>, <<ISSUE:18>>, <<ISSUE:20>>, <<ISSUE:22>>, <<ISSUE:23>>, <<ISSUE:24>>, <<ISSUE:25>>, <<ISSUE:26>>, <<ISSUE:27>>, <<ISSUE:28>>
 
 ### Issue 20: docs(review-plan): delete /review-plan's internal restatements
 
@@ -563,6 +563,21 @@ pull request:
 
 **Dependencies**: Blocked by <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:21>>
 
+### Issue 28: docs(prd): name only a BRIEF as a PRD's upstream
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: brief-prd-policy
+
+**Goal**: Make /prd's Phase 3 upstream rule agree with the format reference and the validator.
+
+**Acceptance Criteria**:
+- [ ] Follows the PLAN's rules, as Issue 1 states them.
+- [ ] Covers `prd-upstream-roadmap`, resolved to the DESIGN's winner: Phase 3 no longer says the upstream typically points to a ROADMAP, and the `upstream-propagation` eval expects a BRIEF recorded as upstream.
+- [ ] The repository's prd tests and evals pass.
+
+**Dependencies**: Blocked by <<ISSUE:6>>
+
 ## Dependency Graph
 
 ```mermaid
@@ -594,6 +609,7 @@ graph TD
     I25["25: design share"]
     I26["26: plan share"]
     I27["27: brief and prd share"]
+    I28["28: prd upstream"]
     I1 --> I9
     I21 --> I9
     I9 --> I10
@@ -651,11 +667,13 @@ graph TD
     I5 --> I27
     I6 --> I27
     I21 --> I27
+    I6 --> I28
+    I28 --> I19
     classDef ready fill:#bbdefb
     classDef blocked fill:#fff9c4
 
     class I1,I2,I3,I4,I5,I6,I7,I8,I20,I21 ready
-    class I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I22,I23,I24,I25,I26,I27 blocked
+    class I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I22,I23,I24,I25,I26,I27,I28 blocked
 ```
 
 **Legend**: Blue = ready, Yellow = blocked
