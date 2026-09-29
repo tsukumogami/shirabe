@@ -1944,9 +1944,9 @@ Evidence schema:
 
 The finishing obligations that can be decided before a pull request exists.
 `pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
-The one exception is history rewritten since then (an amend or rebase of the
-reviewed commit): its old sha is no longer in `HEAD`'s history and the gate
-fails. A failure here ends the run rather than holding it, so if you rewrote
+The one exception is history rewritten since then (an amend of the reviewed
+commit; catching up with main is a merge, which rewrites nothing): its old sha
+is no longer in `HEAD`'s history and the gate fails. A failure here ends the run rather than holding it, so if you rewrote
 history, run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
 before submitting, and on a failure rewrite `pre_pr.md` with the reviewed

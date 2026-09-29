@@ -6,7 +6,8 @@ Create the PR and monitor CI until all checks pass.
 
 If the branch is behind main, merge the latest main into it (`git fetch origin`,
 then `git merge origin/main`). Never rebase: a merge keeps every reviewed commit
-in the branch's history. Resolve conflicts and re-run tests.
+in the branch's history, so the commit `pre_pr.md` names stays an ancestor of
+`HEAD`. Resolve conflicts and re-run tests on the merged tip.
 
 Review the diff against the remote's default branch: `git diff
 origin/main...HEAD` when it is `main` (`git symbolic-ref
