@@ -29,7 +29,8 @@
 #                   reads the same field to find a child's parent
 #   status          the Resume step reads is_terminal from it BEFORE ticking, so
 #                   a retained finished session is recognised without the tick
-#                   that would report it done
+#                   that would report it done; analysis reads a sibling's
+#                   state from it before reading that sibling's summary
 #   session cleanup the Resume step's recovery once that record has been read
 #   rewind          step back after a failed gate, no flag
 #   context add     --from-file for the file-backed keys (context.md,

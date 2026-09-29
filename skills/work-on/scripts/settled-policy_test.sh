@@ -140,8 +140,11 @@ present "analysis reads each earlier child's summary through koto" \
     "$PHASE3" 'koto context get <child> summary.md'
 present "analysis finds the siblings through koto" \
     "$PHASE3" 'koto workflows --children'
-present "analysis says each summary is read once, never in a loop" \
-    "$PHASE3" 'never poll or re-read a summary in a'
+if tr '\n' ' ' <"$ROOT/$PHASE3" | grep -qF 'never poll or re-read a summary in a loop'; then
+    pass "analysis says each summary is read once, never in a loop"
+else
+    fail "analysis does not say each summary is read once, never in a loop"
+fi
 if directive_of analysis | tr '\n' ' ' | grep -qF 'summary.md` through `koto context get`'; then
     pass "the analysis directive names the summary read"
 else

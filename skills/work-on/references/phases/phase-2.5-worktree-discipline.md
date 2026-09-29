@@ -1,5 +1,7 @@
 # Phase 2.5: Worktree Discipline Check
 
+The steps for `/execute`'s `worktree_discipline_check` state.
+
 ## Steps
 
 You don't fetch, change the branch, or write any file in this phase. The fetch
