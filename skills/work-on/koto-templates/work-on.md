@@ -1704,7 +1704,9 @@ artifact already exists in koto context, the gate auto-advances.
 ## analysis
 
 Read `references/phases/phase-3-analysis.md` for plan structure and agent
-delegation patterns. Output: koto context key `plan.md`.
+delegation patterns. Output: koto context key `plan.md`. A child of `/execute`
+first reads its earlier siblings' `summary.md` through `koto context get`, once
+per sibling; that file's first section says how.
 
 **Already-complete detection**: during analysis, check whether the issue goal is
 already fully satisfied by current code. If all acceptance criteria are already met,

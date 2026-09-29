@@ -13,6 +13,10 @@
 #     marked temporary, and no file tells an unattended run to ask the user.
 #   ci-fix-ends-run-unverified -- no directive loads finishing-obligations.md
 #     (the routing itself is driven in ci-monitor-role_test.sh).
+#   cross-issue-context-no-consumer -- a child reads earlier siblings'
+#     summary.md through koto at analysis, once each; no current-context.md.
+#   worktree-discipline-vs-drift-state, no-cleanup-on-child-ticks -- phase 2.5
+#     drops its pointer to the worktree reference and its retention exception.
 #
 # Usage: settled-policy_test.sh
 # Exit codes: 0 all pass, 1 any failed.
@@ -125,6 +129,43 @@ if grep -nF 'finishing-obligations.md' "$ROOT/$TEMPLATE_REL" "$SKILL_DIR/SKILL.m
     fail "a work-on directive, SKILL.md or phase file points at finishing-obligations.md"
 else
     pass "no work-on directive points at finishing-obligations.md"
+fi
+
+# --- cross-issue-context-no-consumer (/work-on's reader) ----------------------
+# A child reads its earlier siblings' summary.md through koto, once each, at
+# analysis; nothing builds or reads a current-context.md file.
+
+PHASE3=skills/work-on/references/phases/phase-3-analysis.md
+present "analysis reads each earlier child's summary through koto" \
+    "$PHASE3" 'koto context get <child> summary.md'
+present "analysis finds the siblings through koto" \
+    "$PHASE3" 'koto workflows --children'
+present "analysis says each summary is read once, never in a loop" \
+    "$PHASE3" 'never poll or re-read a summary in a'
+if directive_of analysis | tr '\n' ' ' | grep -qF 'summary.md` through `koto context get`'; then
+    pass "the analysis directive names the summary read"
+else
+    fail "the analysis directive does not name the summary read"
+fi
+absent "no /work-on file builds or reads current-context.md" 'current-context\.md'
+
+# --- worktree-discipline-vs-drift-state, no-cleanup-on-child-ticks ----------
+# Phase 2.5, which /execute's orchestrator reads, no longer loads the worktree
+# discipline reference, and states the retention rule the way the retention
+# reference does: every tick, root or child.
+
+PHASE25=skills/work-on/references/phases/phase-2.5-worktree-discipline.md
+# The pointer was a path to read (`${CLAUDE_PLUGIN_ROOT}/references/...`); the
+# file's own name and its sample rationale mention the reference without one.
+if grep -qF '/references/worktree-discipline.md' "$ROOT/$PHASE25"; then
+    fail "phase 2.5 still points at references/worktree-discipline.md"
+else
+    pass "phase 2.5 does not load references/worktree-discipline.md"
+fi
+if grep -qF 'must not' "$ROOT/$PHASE25"; then
+    fail "phase 2.5 still says some /work-on ticks must not carry --no-cleanup"
+else
+    pass "phase 2.5 carries no exception to the every-tick retention rule"
 fi
 
 echo

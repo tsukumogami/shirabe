@@ -180,6 +180,7 @@ rather than re-authoring the body.
 | `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` | parent itself (solo mode); team-lead-spawned sub-agent (amplifier mode) |
 | `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` | parent itself (solo); team-lead-spawned sub-agent (amplifier) |
 | `/work-on` | future | TBD | binding deferred to the amplifier-layer parent migration | binding deferred |
+| `/execute` | not bound | n/a | its `drift_facts` and `worktree_sync` states fetch and catch up themselves, and its `worktree_discipline_check` directive carries the two-class rule; intent-changing ends the run at `done_blocked` | the orchestrator, from the precomputed drift facts |
 
 The "Analyzer actor" column reflects the team-primitive substitution
 surface (see `parent-skill-pattern.md`). In v1's

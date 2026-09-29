@@ -2,6 +2,25 @@
 
 Research the codebase and create an implementation plan.
 
+## Earlier Children's Summaries
+
+When `/execute` materialized this run as a child, read what the children
+before it found, decided and changed, before planning. Every child keeps its
+session, so the `summary.md` each one wrote at finalization is still readable
+through koto. There is no context file to build and none to look for.
+
+```bash
+PARENT=$(koto session list | jq -r --arg wf "<WF>" '.[] | select(.id == $wf) | .parent_workflow // empty')
+koto workflows --children "$PARENT"      # names this run's siblings
+koto status <child>                      # is_terminal and current_state
+koto context get <child> summary.md      # once per sibling that reached done
+```
+
+Skip the step when `PARENT` is empty: a root run has no siblings. Read each
+sibling that reached `done` once, and never poll or re-read a summary in a
+loop. The read count is deliberately small because each `koto context get` is
+logged and uploaded as an event. Carry what bears on this issue into the plan.
+
 ## Plan Complexity
 
 Parse issue labels:

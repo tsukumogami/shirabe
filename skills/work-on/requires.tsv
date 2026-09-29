@@ -21,10 +21,12 @@
 #                   on it. --no-cleanup rides every tick, root or child, so
 #                   the terminal tick keeps the session's context instead of
 #                   deleting it (references/koto-session-retention.md).
-#   workflows       resume lookup, no flag
+#   workflows       resume lookup, no flag; --children names a child's
+#                   siblings, whose summary.md analysis reads once each
 #   session list    scripts/session-role.sh reads koto's parent_workflow field
 #                   from it to tell a root run from a materialized child, the
-#                   session_role ci_monitor routes the cascade on
+#                   session_role ci_monitor routes the cascade on; analysis
+#                   reads the same field to find a child's parent
 #   status          the Resume step reads is_terminal from it BEFORE ticking, so
 #                   a retained finished session is recognised without the tick
 #                   that would report it done
@@ -100,7 +102,7 @@
 koto	init	--template,--var	always
 koto	init	--template,--vars-file,--attach-live,--koto-leg	mode:koto-leg
 koto	next	--with-data,--no-cleanup	always
-koto	workflows	-	always
+koto	workflows	--children	always
 koto	session list	-	always
 koto	status	-	always
 koto	session cleanup	-	always
