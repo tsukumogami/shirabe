@@ -2236,17 +2236,23 @@ will read, pointers to pushed artifacts, the discipline coordinator for each
 surface the work touches when you know them, and the workspace's standing
 rules for workers, copied verbatim. When the unit lands anywhere besides its
 repository, list those repositories as `targets`; for a unit a PLAN drives
-(`/shirabe:execute`, or a scoped unit's execution), they are the repositories
-its issues land in.
+(`/shirabe:execute`, including a scoped unit's execution sent later), they are
+the repositories its issues land in.
 
 Before anything is written, the script checks the unit's targets against the
 entry point's requirement in `references/entry-points.tsv`: an entry point
 that takes only public (or only private) repositories refuses a unit landing
 anywhere else, exit 1, with no leg opened, holding written or worker launched,
-and the refusal names the entry point to use instead. Rewrite the input for
-that entry point and run the script again; when it names none, the unit goes
-back to pick. No entry point carries such a requirement today, so the check
-passes every target until one does.
+and the refusal names the entry point to use instead. Every exit-1 refusal
+says what to change, so follow its text: for a target the entry point can't
+take, rewrite the input for the entry point it names (when it names none, the
+unit goes back to pick); for a missing or malformed `targets`, fix that list.
+Then run the script again. An exit 2 means the check couldn't run (a
+visibility read failed, or the table is malformed) and nothing was opened: it
+is not a cue to change entry points; run the script again once, and if it
+fails the same way, surface it. Neither is a `dispatched: failed`. No entry
+point carries a requirement today, so the check passes every target until one
+does.
 
 The script renders the brief to the workspace manager's brief directory, opens
 a request leg when the entry point accepts `--koto-leg`, writes the holding

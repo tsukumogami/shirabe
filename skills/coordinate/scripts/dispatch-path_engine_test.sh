@@ -10,7 +10,7 @@
 # real; niwa, gh and the record feature's record-holding.sh are stand-ins.
 #
 # Proves: dispatch doesn't leave on `sent` until the record shows the holding
-# dispatched, and no override record can stand in for the gate; a unit whose
+# dispatched, and no override record can stand in for the gate. A unit whose
 # private target the entry point can't take is refused by dispatch-worker.sh
 # before any leg, holding or launch, naming the entry point to use instead; a leg-bound
 # worker's promoted result reaches take_report and report_facts with the leg's
@@ -252,7 +252,7 @@ eq  "private target: no worker was launched" "" "$(cat "$ST/niwa.log")"
 tick --with-data '{"dispatched":"sent","topic":"w9"}'
 eq  "private target: sent can't leave dispatch without the holding" dispatch "$(at)"
 # The shipped table: the same unit passes the check.
-(cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null 2>"$T/rb.err")
+(cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
 eq  "private target: the shipped table's /deliver takes it" 0 "$?"
 
 # --- the leg path ----------------------------------------------------------------------------------

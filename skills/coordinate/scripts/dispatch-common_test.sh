@@ -110,11 +110,11 @@ printf 'b\t-\t-\t-\t-\tpublic\twork-on\n' >>"$VT"
 printf 'c\t-\t-\t-\t-\tsecret\t-\n' >>"$VT"
 SAVED="$DC_ENTRY_POINTS"
 DC_ENTRY_POINTS="$VT"
-eq  "visibility: a row without the field is any" any "$(dc_entry_visibility a)"
-eq  "visibility: a restricted row reads its value" public "$(dc_entry_visibility b)"
+eq  "visibility: a row without the field is any" any "$(dc_entry_target_visibility a)"
+eq  "visibility: a restricted row reads its value" public "$(dc_entry_target_visibility b)"
 eq  "visibility: the alternative is field 7" work-on "$(dc_entry_field b "$DC_F_INSTEAD")"
-dc_entry_visibility c >/dev/null; eq "visibility: an unknown value is an error (2)" 2 "$?"
-dc_entry_visibility nope >/dev/null; eq "visibility: no row is 1" 1 "$?"
+dc_entry_target_visibility c >/dev/null; eq "visibility: an unknown value is an error (2)" 2 "$?"
+dc_entry_target_visibility nope >/dev/null; eq "visibility: no row is 1" 1 "$?"
 DC_ENTRY_POINTS="$SAVED"
 
 # dc_repo_visibility reads gh api repos/<r>, through a gh stand-in.
@@ -170,9 +170,12 @@ while IFS='	' read -r skill leg tpls pinned flags vis instead; do
     case "$skill" in '' | '#'*) continue ;; esac
     [ -f "$SKILLS/$skill/SKILL.md" ] && ok "table: $skill exists" || bad "table: $skill exists" ""
     case "$vis" in
-        any | public | private) ok "table: $skill's target visibility is any, public or private" ;;
+        any | public | private) [ -n "$instead" ] && ok "table: $skill's target visibility is any, public or private" ||
+            bad "table: $skill's row has seven fields" "" ;;
         *) bad "table: $skill's target visibility is any, public or private" "[$vis]" ;;
     esac
+    # Every shipped row carries all seven fields: a row cut short would read as
+    # unrestricted, so the table itself is held to its full shape.
     if [ "$instead" = - ] || dc_entry_row "$instead" >/dev/null; then
         ok "table: $skill's alternative is - or an entry point"
     else

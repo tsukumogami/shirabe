@@ -203,8 +203,8 @@ if [ -e "$BRIEFS" ]; then bad "bad return path: nothing written" ""; else ok "ba
 # --- the entry point's target requirement ----------------------------------------------
 #
 # The shipped table restricts no entry point, so these run on a stand-in where
-# /deliver and /execute take only public repositories and name /work-on and
-# nothing instead. gh is a stand-in that answers `api repos/<r>` and logs.
+# /deliver and /execute take only public repositories; /deliver's refusal
+# names /work-on instead, and /execute's names no entry point. gh is a stand-in that answers `api repos/<r>` and logs.
 RT="$T/restricted.tsv"
 awk -F'\t' 'BEGIN { OFS = "\t" } /^#/ { next } NF < 5 { next }
     $1 == "deliver" { $6 = "public"; $7 = "work-on" }
@@ -248,12 +248,24 @@ restricted "$(variant exec-no-targets '.entry_point = "execute" | .entry_args = 
 eq  "target: a PLAN-driven entry point with a requirement needs targets" 1 "$RC"
 has "target: it says to list the PLAN's repositories" "$ERR" "targets: required for execute"
 
+restricted "$(variant exec-empty-targets '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = []')"
+eq  "target: an empty targets list doesn't satisfy a PLAN-driven entry point" 1 "$RC"
+
 restricted "$(variant exec-priv '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/vault"]')"
 eq  "target: a PLAN's private issue repository is refused" 1 "$RC"
 has "target: with no alternative, the unit goes back to pick" "$ERR" "no entry point takes it; the unit goes back to pick"
 
 restricted "$(variant unread '.repo = "acme/unknown"')"
 eq  "target: a visibility that can't be read is exit 2, never a pass" 2 "$RC"
+
+: >"$GH_LOG"
+ERR=$(DC_ENTRY_POINTS="$RT" PATH="$GHB:$PATH" bash "$S" --input "$T/priv-repo.json" --stdout --targets-checked 2>&1 >/dev/null)
+eq  "target: --targets-checked skips the requirement" 0 "$?"
+eq  "target: and reads no visibility" "" "$(cat "$GH_LOG")"
+
+# Written, not printed: a refusal still leaves nothing in the brief directory.
+ERR=$(DC_ENTRY_POINTS="$RT" PATH="$GHB:$PATH" bash "$S" --input "$T/priv-repo.json" --workspace-root "$W" 2>&1 >/dev/null)
+eq  "target: a refusal without --stdout exits 1" 1 "$?"
 
 restricted "$(variant bad-target '.targets = ["not a repo"]')"
 eq  "target: a malformed targets entry is refused" 1 "$RC"

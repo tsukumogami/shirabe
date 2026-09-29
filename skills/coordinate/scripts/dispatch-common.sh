@@ -65,10 +65,10 @@
 #       templates, comma-joined (or -), 4 pinned inputs as VAR=source pairs
 #       (or -), 5 allowed flags (or -), 6 the visibility its targets must have
 #       (any, public or private), 7 the entry point to name instead (or -).
-#       DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED, DC_F_FLAGS, DC_F_VISIBILITY and
+#       DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED, DC_F_FLAGS, DC_F_TARGET_VIS and
 #       DC_F_INSTEAD name them.
 #
-#   dc_entry_visibility <skill>
+#   dc_entry_target_visibility <skill>
 #       Prints the visibility the skill's targets must have: `any`, `public`
 #       or `private`. A row without the field reads as `any`; any other value
 #       returns 2, so a malformed table never passes a dispatch.
@@ -157,7 +157,7 @@ DC_F_LEG=2
 DC_F_TEMPLATES=3
 DC_F_PINNED=4
 DC_F_FLAGS=5
-DC_F_VISIBILITY=6
+DC_F_TARGET_VIS=6
 DC_F_INSTEAD=7
 # koto's request-id grammar, and its leg-name grammar.
 DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
@@ -270,9 +270,9 @@ dc_entry_field() {
     printf '%s\n' "$row" | cut -f"$2"
 }
 
-dc_entry_visibility() {
+dc_entry_target_visibility() {
     local v
-    v=$(dc_entry_field "$1" "$DC_F_VISIBILITY") || return $?
+    v=$(dc_entry_field "$1" "$DC_F_TARGET_VIS") || return $?
     case "$v" in
         '' | any) printf 'any\n' ;;
         public | private) printf '%s\n' "$v" ;;

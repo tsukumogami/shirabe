@@ -39,8 +39,9 @@
 #                                 unit lands in besides `repo`. For a unit
 #                                 driven by a PLAN (/execute, or a scoped
 #                                 unit's execution), the repositories its
-#                                 issues land in. Required when the entry
-#                                 point takes a PLAN and restricts its
+#                                 issues land in. Required, non-empty, when
+#                                 the entry point's row pins `plan-slug`
+#                                 (today /execute) and restricts its
 #                                 targets' visibility.
 #
 # The entry point's target requirement. references/entry-points.tsv gives each
@@ -51,7 +52,7 @@
 # The refusal names the target by its field (`repo`, `targets[1]`), never the
 # repository, so a private repository's name doesn't travel in the message. A
 # visibility that can't be read exits 2: never read as a pass. With `any`, no
-# read is made.
+# read is made. The first target refused ends the reads.
 #
 # No value may carry a UUID-shaped token, so a session id never reaches a
 # brief; a session name, which the worker needs to reach its coordinator, is
@@ -67,6 +68,10 @@
 #                     invocation the brief shows, so the brief and the
 #                     dispatch prompt name the same command
 #   --stdout          print the brief instead of writing it
+#   --targets-checked skip the entry point's target requirement: the caller
+#                     already checked this input (dispatch-worker.sh's second
+#                     render, after its leg is open, so a flaky read there
+#                     can't strand the leg)
 #
 # Output: the written brief's path, or the brief with --stdout. The reason for
 # a refusal on stderr, one line per problem.
@@ -93,6 +98,7 @@ usage() {
 INPUT=""
 ROOT=""
 TO_STDOUT=0
+SKIP_TARGETS=0
 RETURN_PATH=message
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -100,6 +106,7 @@ while [ $# -gt 0 ]; do
         --workspace-root) [ $# -ge 2 ] || usage; ROOT="$2"; shift 2 ;;
         --return-path) [ $# -ge 2 ] || usage; RETURN_PATH="$2"; shift 2 ;;
         --stdout) TO_STDOUT=1; shift ;;
+        --targets-checked) SKIP_TARGETS=1; shift ;;
         *) usage ;;
     esac
 done
@@ -206,8 +213,8 @@ if jq -e '(.entry_args | type) == "array" and ((.entry_args[0] // "") | test("[\
 fi
 # The entry point's target requirement, read only when the input is otherwise
 # sound and the entry point restricts its targets.
-if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ]; then
-    NEED=$(dc_entry_visibility "$ENTRY") || {
+if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ] && [ "$SKIP_TARGETS" = 0 ]; then
+    NEED=$(dc_entry_target_visibility "$ENTRY") || {
         printf '%s: references/entry-points.tsv gives %s a visibility other than any, public or private\n' "$PROG" "$ENTRY" >&2
         exit 2
     }
@@ -219,7 +226,7 @@ if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ]; then
         esac
         case "$(dc_entry_field "$ENTRY" "$DC_F_PINNED")" in
             *plan-slug*)
-                jq -e 'has("targets")' "$INPUT" >/dev/null ||
+                jq -e '(.targets | type) == "array" and (.targets | length) > 0' "$INPUT" >/dev/null ||
                     refuse "targets: required for $ENTRY, whose PLAN's issues land in repositories it must check: list them"
                 ;;
         esac
@@ -229,8 +236,11 @@ if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ]; then
                 printf '%s: could not read the visibility of %s; nothing was dispatched\n' "$PROG" "$label" >&2
                 exit 2
             }
-            [ "$VIS" = "$NEED" ] ||
+            if [ "$VIS" != "$NEED" ]; then
+                # The first target refused is enough; later ones aren't read.
                 refuse "entry_point: /shirabe:$ENTRY takes only $NEED repositories, and $label is $VIS; $ALT"
+                break
+            fi
         done <<EOF
 $(jq -r '(["repo", .repo]), (.targets // [] | to_entries[] | ["targets[\(.key + 1)]", .value]) | @tsv' "$INPUT")
 EOF
