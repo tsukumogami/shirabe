@@ -1274,7 +1274,7 @@ states:
       # an unmatched submission would report success on CI nobody saw green.
       - target: done_blocked
         context_assignments:
-          failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green. Re-run ci_monitor once the checks have finished."
+          failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green and the run stopped rather than report success. Check the pull request's CI and finish it in a new run."
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
