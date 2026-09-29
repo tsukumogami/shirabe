@@ -55,14 +55,14 @@
     },
     {
       "id": 5,
-      "name": "routing-simple-to-plan",
+      "name": "routing-simple-to-work-on",
       "prompt": "/prd --auto cli-help-text-improvements",
-      "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements, recommends the plan skill as the next step rather than design.",
+      "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements (few requirements, clear scope, a single PR), recommends filing an issue and running /work-on on it rather than /plan or /design.",
       "files": [],
       "expectations": [
         "Transcript describes suggesting a next step after PRD acceptance based on complexity",
-        "Transcript recommends the plan skill as the next step for this scope",
-        "Transcript gives a complexity-based reason for choosing plan over design",
+        "Transcript recommends filing an issue and then /work-on as the next step for this scope",
+        "Transcript gives a complexity-based reason for skipping /plan and /design",
         "Transcript does NOT recommend the design skill as the next step"
       ]
     },
