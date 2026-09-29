@@ -66,6 +66,8 @@
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `session=execute-<slug>` when a session was opened, or, on a refusal, the exit
 # lines print-exit.sh --refused prints (outcome=error, step=execute:refused).
+# This script's own refusals print `error=usage`, or `error=multi-pr` for a
+# multi-pr PLAN, with the reason on stderr and no koto call.
 # koto's refusal wording goes to stderr, from execute-open-wording.tsv.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
