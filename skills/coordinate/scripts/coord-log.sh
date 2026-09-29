@@ -39,6 +39,16 @@
 #       Prints {"scope","name","repo","ref"}. Exit 0; 1 no found record in the
 #       run; 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
+#   coord-log.sh chain-start --session S
+#       Prints the created_at of the earliest run in the unbroken chain of
+#       cancelled runs of S's scope just before S, or S's own created_at when
+#       the run just before it wasn't cancelled. coordinate-open.sh cancels
+#       the live run it replaces, so the chain is the restarts that led to S
+#       (a run a person cancelled by hand counts the same way). A run that
+#       ended at a terminal state (a handover, a finish), is no longer
+#       listed, or whose log can't be read ends it, which only makes the
+#       chain shorter; so does a name that isn't
+#       coordinate-<slug>-<UTC stamp>. Exit 0; 2 S's own log can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session was created from coordinate.md as shipped beside
 #       this script and its PLUGIN_ROOT variable is this script's plugin root;
@@ -251,6 +261,24 @@ run-start)
     need SESSION
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     head -1 "$LOG" | jq -er '.created_at' || die "no created_at in the header"
+    ;;
+chain-start)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
+    # A name coordinate-open.sh didn't give has no scope to find a chain in.
+    [[ $SESSION =~ ^coordinate-([a-z0-9-]+)-[0-9]{8}T[0-9]{6}Z$ ]] || { printf '%s\n' "$START"; exit 0; }
+    P="coordinate-${BASH_REMATCH[1]}-"
+    # Every earlier run of this scope, newest first. The stamp sorts as time,
+    # and matching it whole keeps a longer slug from reading as this scope's.
+    LIST=$("$KOTO" session list) || die "koto session list failed"
+    for id in $(printf '%s' "$LIST" | jq -r --arg p "$P" --arg me "$SESSION" '[.[] | select(.parent_workflow == null) | .id
+            | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")) and . < $me)] | sort | reverse | .[]'); do
+        L=$(session_log "$id") || break
+        jq -e 'select(.type == "workflow_cancelled")' "$L" >/dev/null || break
+        START=$(head -1 "$L" | jq -er '.created_at') || die "no created_at in $id's header"
+    done
+    printf '%s\n' "$START"
     ;;
 run-facts)
     need SESSION

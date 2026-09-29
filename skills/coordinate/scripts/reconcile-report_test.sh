@@ -103,6 +103,29 @@ H=$(holding parked "[$(pr OPEN "$VH" true)]")
 facts "[$H]" | report | jq -e '.changes | any(.what == "draft")' >/dev/null \
   && ok "a parked holding back in draft is a change" || bad "a parked holding back in draft is a change"
 
+# The pass's settle: a row left dispatching, its worker live, now dispatched.
+SETTLED='{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"2026-09-27T09:58:30Z"}'
+H=$(holding stuck "[$(host found), $SETTLED]" '{"dispatch_status": "dispatching", "pull_request": "", "verified_head": ""}')
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '.changes | any(.what == "dispatch status" and .recorded == "dispatching" and .live == "dispatched" and .grade == "measured")' >/dev/null \
+  && ok "a settled holding is a change, measured" || bad "a settled holding is a change, measured" "$out"
+printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching, the worker is live, and the record now says dispatched' \
+  && ok "the rendered report says the row was settled" || bad "the rendered report says the row was settled" "$(printf '%s' "$out" | "$BASH" "$S" md)"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, reason: "the holding is dispatched now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status") | not' >/dev/null \
+  && ok "a settle that found nothing to write is no change" || bad "a settle that found nothing to write is no change"
+# An earlier pass in this visit wrote the row but was stopped before its fact
+# was kept: the row already says dispatched, and that is still the change.
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, now: "dispatched", reason: "the holding is dispatched now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status")' >/dev/null \
+  && ok "a row already dispatched by an earlier pass is still reported as changed" || bad "a row already dispatched by an earlier pass is still reported as changed"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, now: "dispatch-failed", reason: "the holding is dispatch-failed now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status") | not' >/dev/null \
+  && ok "a row now at another status is not reported as settled" || bad "a row now at another status is not reported as settled"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "not_verified", reason: "the record refused the write", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '(.changes | any(.what == "dispatch status") | not) and (.not_verified | any(.what == "stuck: settle" and .reason == "the record refused the write"))' >/dev/null \
+  && ok "a failed settle is not verified, and no change" || bad "a failed settle is not verified, and no change" "$(facts "[$H]" | report | jq -c '.not_verified')"
+
 echo "== next lines and waiting =="
 nx() { facts "[$1]" | report | jq -r '.holdings[0].next'; }
 check_next() { local got; got=$(nx "$2"); [ "$got" = "$3" ] && ok "$1" || bad "$1" "want '$3' got '$got'"; }

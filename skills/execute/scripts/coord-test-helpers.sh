@@ -98,6 +98,8 @@ ct_case() {
     CT_COORD_DRAFT=true
     CT_COORD_MERGE=ok
     CT_LOGIN=eval-user
+    CT_VIS_A=public
+    CT_VIS_B=public
 }
 
 # ct_index_line <node> <repo> <number> [head] -- append one PR index line.
@@ -126,20 +128,23 @@ ct_pr() {
 
 # ct_write_db -- write the case's gh/db.json: the model repository, the
 # coordination PR (#10 on CT_CB carrying the marker and CT_INDEX), and the PRs
-# ct_pr added.
+# ct_pr added. CT_VIS_A and CT_VIS_B are the two repositories' `visibility`
+# (public by default); `none` leaves the repository out of the model, so a
+# read of it fails.
 ct_write_db() {
     local body
     body=$(printf '# Coordination PR: %s\n\n> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n%s\n## Merge Order\n\n```merge-order\n%s | open\n%s | open\n```\n' \
         "$CT_SLUG" "$CT_INDEX" "$CT_CORE" "$CT_CLI")
     jq -n --arg login "$CT_LOGIN" --argjson prs "$CT_PRS" --arg body "$body" --arg cb "$CT_CB" \
         --arg state "$CT_COORD_STATE" --argjson draft "$CT_COORD_DRAFT" --arg cmerge "$CT_COORD_MERGE" \
-        --arg sha "$CT_HEAD" '
+        --arg sha "$CT_HEAD" --arg va "$CT_VIS_A" --arg vb "$CT_VIS_B" '
         def repo: {default_branch: "main", allow_squash_merge: true, allow_merge_commit: true,
                    allow_rebase_merge: true, branch: {name: "main", protected: false},
                    rules: [{type: "required_status_checks",
                             parameters: {required_status_checks: [{context: "build"}]}}]};
         {login: $login, default_repo: "acme/repo-a", next_number: 50,
-         repos: {"acme/repo-a": repo, "acme/repo-b": repo},
+         repos: ({"acme/repo-a": (repo + {visibility: $va}), "acme/repo-b": (repo + {visibility: $vb})}
+                 | with_entries(select(.value.visibility != "none"))),
          created_defaults: {mergeStateStatus: "CLEAN", reviewDecision: "",
                             checks: [{name: "build", bucket: "pass"}], files: ["src/x.go"], merge: "ok"},
          prs: ([{repo: "acme/repo-a", number: 10, headRefName: $cb, baseRefName: "main",

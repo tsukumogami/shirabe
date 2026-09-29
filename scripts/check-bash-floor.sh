@@ -217,6 +217,8 @@ suite_scripts() {
             echo "skills/execute/scripts/record-coord-setup_test.sh"
             echo "skills/execute/scripts/node-cut_test.sh"
             echo "skills/execute/scripts/node-push_test.sh"
+            echo "skills/execute/scripts/repo-visibility_test.sh"
+            echo "skills/execute/scripts/coordinated-visibility_test.sh"
             echo "skills/execute/scripts/coord-merge_test.sh"
             echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
             echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
@@ -389,14 +391,13 @@ suite_scripts() {
             echo "skills/coordinate/scripts/skill-states_test.sh"
             ;;
         deliver)
-            # The report, the probes, the binding check, the mode map, and the
-            # eval gh shim. They drive test-local gh and koto stand-ins and need
-            # only bash, git and jq, so every case runs on 3.2. The engine
+            # The report, the probes, the mode map, and the eval gh shim. They
+            # drive test-local gh and koto stand-ins and need only bash, git
+            # and jq, so every case runs on 3.2. The engine
             # suites stay on the Linux job that installs koto.
             echo "scripts/plan-mode_test.sh"
             echo "skills/deliver/scripts/deliver-report_test.sh"
             echo "skills/deliver/scripts/deliver-probe_test.sh"
-            echo "skills/deliver/scripts/deliver-preflight_test.sh"
             echo "skills/deliver/scripts/eval-gh-shim_test.sh"
             echo "skills/deliver/scripts/deliver-requires_test.sh"
             ;;
@@ -439,6 +440,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/reconcile-check_test.sh"
             echo "skills/coordinate/scripts/reconcile-read_test.sh"
             echo "skills/coordinate/scripts/reconcile-pass_test.sh"
+            echo "skills/coordinate/scripts/reconcile-settle_test.sh"
             ;;
         *)
             return 1

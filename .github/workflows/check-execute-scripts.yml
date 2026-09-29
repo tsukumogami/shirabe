@@ -138,6 +138,8 @@ jobs:
           bash skills/execute/scripts/record-coord-setup_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
+          bash skills/execute/scripts/repo-visibility_test.sh
+          bash skills/execute/scripts/coordinated-visibility_test.sh
           bash skills/execute/scripts/coord-merge_test.sh
 
       # settled-branch-record_test.sh drives real koto sessions -- it asserts

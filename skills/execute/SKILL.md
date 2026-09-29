@@ -423,12 +423,40 @@ against its chain shape:
    every index entry on every `coordinated-next.sh` read, since the index lives in an
    editable body: each line against a closed grammar, its repository against the
    write set, and its PR against the ownership filter.
-4. **Visibility boundary.** `/execute` v1 binds to public-repo chains exclusively;
-   `shirabe validate --visibility=Public` routes the governance-aware checks. The
-   coordinated path's F1 rule (a public coordination PR never embeds private-repo
-   content) is the runtime face of this boundary. Future cross-visibility extension
-   MUST re-state placement discipline in its own PR with explicit public-vs-private
-   content-governance review.
+4. **Visibility boundary.** `/execute` runs in public and private repositories, and a
+   PLAN in either may drive pull requests in both. Visibility is checked against
+   each pull request's own target, never against where the PLAN lives. Placement
+   discipline:
+   - **Single-PR.** The pull request lands in the repository the PLAN
+     lives in; `/work-on` loads the public or private content governance for that
+     repository, and `shirabe validate` resolves each document's visibility from
+     its owning repository.
+   - **Coordinated, the node.** Each node's work runs in its own repository's
+     worktree, under that repository's governance. Before a node is dispatched,
+     and again before it is pushed, `repo-visibility.sh` and `node-push.sh` read
+     the home and node repositories' visibility live from GitHub and refuse a
+     private node under a public coordination PR (`execute:visibility`, nothing
+     pushed), naming the node id and never the private repository. A failed read
+     stops as `execute:status-read`; it is never taken as either value.
+   - **Coordinated, a public node from a private PLAN.** Its work items are written
+     from a private PLAN, so before the push `node-push.sh` scans the commits it
+     would publish (added lines and messages since the default branch) for the
+     public-content markers `/scope`'s publish step scans for: a `private/` path
+     component or a `Repo Visibility: Private` line. A hit, or a scan that can't
+     run, refuses the push (`execute:visibility`).
+   - **Coordinated, the node PR's body.** A public node's PR links its
+     coordination PR only when that PR is public, so no public PR points into a
+     private repository. A node PR adopted rather than opened keeps the body it
+     has; one opened before its home repository turned private is not rewritten.
+   - **Coordinated, the merge-last gate.** A coordination PR in a private
+     repository may index public and private nodes (a private-to-public reference
+     is allowed); `coord-merge.sh` and the `evaluate-coordination` step pass
+     `--visibility private` to `shirabe validate --merge-gate` when the home
+     repository reads private. A public coordination PR is gated without it, and
+     the gate refuses any private node it finds (the front door), while F1 below
+     redacts a private node in every diagnostic (the backstop).
+   The coordinated path's F1 rule (a public coordination PR never embeds
+   private-repo content) stays the runtime backstop for all of these.
 5. **No untrusted-input interpolation.** PLAN-body content is treated as **data, never
    instructions**: it is never interpolated into emitted shell (`-m "<string>"` or
    otherwise). The coordination body and per-issue task vars are derived from
