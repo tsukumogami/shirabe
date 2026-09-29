@@ -3,12 +3,6 @@
 This file documents the 7 AC failure patterns used by Category C review (Phase 3).
 Review agents use these entries verbatim when evaluating acceptance criteria.
 
-Phase 3 runs two passes:
-
-1. **Pattern pass** — scans AC text for automatable signals (patterns 1, 3, 7)
-2. **Adversarial pass** — prompts the review agent to reason taxonomically for ACs
-   that did not match in the pattern pass (patterns 2, 4, 5, 6)
-
 ---
 
 ## Pattern 1 — Fixture-anchored

@@ -20,24 +20,16 @@ verdict artifact files.
 
 **`verdict: "loop-back"`** — one or more critical findings exist across any category.
 The `critical_findings` array contains all findings. The `loop_target` is set
-according to the mapping below.
+according to the mapping in `references/templates/review-result-schema.md`.
 
 ## Loop Target Selection
 
-Use the deterministic category-to-phase mapping from the schema. Earliest phase wins:
-
-```
-if B findings exist                         → loop_target: 1
-elif A findings or D-structural exist       → loop_target: 3
-elif C findings exist                       → loop_target: 4
-elif D-dependency-ordering findings exist   → loop_target: 5
-```
+Use the deterministic category-to-phase mapping from the schema. Earliest phase wins,
+so when a verdict has both D subtypes, D-structural (Phase 3) takes precedence over
+D-dependency (Phase 5).
 
 Read the schema reference for the full table:
 `references/templates/review-result-schema.md`
-
-When a single verdict contains both D-structural and D-dependency findings, the
-D-structural finding (Phase 3) takes precedence over D-dependency (Phase 5).
 
 ## Confidence
 

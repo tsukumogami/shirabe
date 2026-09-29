@@ -81,12 +81,8 @@ in `wip/plan_<topic>_analysis.md` as `review_rounds`.
 
 **Type:** string enum — `"high"`, `"medium"`, or `"low"`
 
-The review skill's confidence in the verdict. Factors that lower confidence:
-
-- Upstream design doc was unavailable (Category B ran with limited context)
-- Issue body files were missing or incomplete
-- Ambiguous ACs that could be read multiple ways (Category C)
-- Roadmap input type (B, C, D return empty findings regardless of plan quality)
+Phase 5 sets it from the signals in `references/phases/phase-5-verdict.md`.
+Ambiguous ACs that could be read multiple ways (Category C) also lower confidence.
 
 ### `critical_findings`
 
@@ -141,11 +137,6 @@ and verify the table is empty, then populate and verify it contains the expected
 
 A 1–2 sentence human-readable summary of the review outcome. Suitable for display
 in `/plan` status output and for reading without parsing the full YAML block.
-
-Examples:
-- `"Review passed. No critical findings across all four categories."`
-- `"Loop-back required at Phase 4. Issue 3 has fixture-anchored ACs that would pass
-  for an incorrect implementation; correction hint provided."`
 
 ## Example: Proceed
 

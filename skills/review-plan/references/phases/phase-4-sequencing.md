@@ -24,8 +24,6 @@ Read the following from Phase 0 context:
 | `topic` | Full check |
 | `roadmap` | Returns empty findings immediately (`critical_findings: []`) |
 
-For `roadmap` input types, this phase returns empty findings immediately.
-
 ## Full Sequencing Check (design, prd, topic)
 
 Run the following checks:
@@ -93,18 +91,7 @@ Findings use the `review_result` `critical_findings` format:
   correction_hint: ""         # always empty for Category D
 ```
 
-The `correction_hint` field is left empty for all Category D findings — corrections
-require re-running an earlier phase (which phase depends on the finding subtype —
-see loop_target mapping below), not changing issue body content.
+`references/templates/review-result-schema.md` says why `correction_hint` stays
+empty and which phase re-runs instead.
 
 If no findings: return `critical_findings: []` for this category.
-
-## Loop-Back Targets for Category D Findings
-
-Category D has two subtypes with different loop targets:
-
-- Dependency ordering errors → `loop_target: 5` (Dependencies)
-- Structural deferral (must-run QA classified as low-priority) → `loop_target: 3` (Decomposition)
-
-When a single verdict includes both subtypes, the earliest phase wins: structural
-deferral (Phase 3) takes precedence over dependency ordering errors (Phase 5).
