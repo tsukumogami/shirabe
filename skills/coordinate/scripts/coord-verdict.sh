@@ -52,6 +52,8 @@ case "$WORD" in
     # dispatch_check
     ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;; duplicate-topic) exit 44 ;;
     decision-owed) exit 45 ;;
+    # dispatch_check and merged_facts: the evidence's unit is no topic they can act on
+    unknown-topic) exit 46 ;;
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts

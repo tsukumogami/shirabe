@@ -262,7 +262,37 @@ log_to "$S" take_report failure
 log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
 eq "a redispatch after a leg arrival checks the holding the leg names" "ok theta" "$(check)"
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-9:execute"}')" '.holdings = [$h]')"
-eq "a leg no holding carries resolves to no unit, not a guess" "ok -" "$(check)"
+OUT=$(check)
+eq "a leg no holding carries resolves to no unit, and is refused rather than sealed ok -" "unknown-topic" "$OUT"
+jq -e '.reason | test("no dispatch topic to check") and test("Workers are: theta")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
+    && ok "the refusal names the Holdings rows' Workers" || bad "the refusal names the Holdings rows' Workers" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+
+echo "== check mode: pick's unit must be a dispatch topic =="
+# A unit's tag from coord/pick.json in place of its topic (shirabe#492): refused
+# before any read, so nothing reaches dispatch, and nothing is written.
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7 dispatch "Feature 1"
+reset_calls
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "dispatch with unit \"Feature 1\" is refused" "unknown-topic" "${OUT% sealed:*}"
+tok_shape "unknown-topic is in koto's capture alphabet" "$OUT"
+bash "$CL" check --session "$S" --state dispatch_check --sealed "$OUT" && ok "the refusal is sealed to dispatch_check" || bad "the refusal is sealed to dispatch_check"
+jq -e '.verdict == "unknown-topic" and .topic == "-" and (.reason | test("^pick.s unit \\[Feature 1\\] is not a dispatch topic")) and (.reason | test("\\^\\[a-z0-9\\]\\[a-z0-9-\\]\\*\\$"))' \
+    "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
+    && ok "the refusal names the field, the value and the accepted pattern" || bad "the refusal names the field, the value and the accepted pattern" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+[ -s "$GH_DB.calls" ] && bad "the refusal makes no read and no write" "$(calls)" || ok "the refusal makes no read and no write"
+session "$(roadmap_vars plugin-system)" 7 scope_ahead "Feature 3"
+eq "scope_ahead with a unit's tag is refused" "unknown-topic" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 send_execution "Feature 3"
+eq "send_execution with a unit's tag is refused" "unknown-topic" "$(check)"
+jq -e '.reason | test("scoping-ahead holding")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
+    && ok "send_execution's refusal says it names a scoping-ahead holding" || bad "send_execution's refusal says it names a scoping-ahead holding"
+session "$(roadmap_vars plugin-system)" 7 dispatch "Feature_1"
+eq "a Worker-cell shape the dispatch path would refuse is refused here" "unknown-topic" "$(check)"
+session "$(roadmap_vars plugin-system)" 7
+log_to "$S" dispatch_check pick; log_evidence "$S" pick '{"choice":"dispatch"}'; log_to "$S" pick dispatch_check
+eq "a dispatch with no unit is refused" "unknown-topic" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch "plugin-api"
+eq "a dispatch topic passes" "ok plugin-api" "$(check)"
 
 echo "== check mode: the cap and the parked bound =="
 pr() { # pr <n> <state> <draft>
@@ -367,5 +397,12 @@ grep -q "contents/$HP" "$GH_DB.calls" && bad "the handoff isn't read after the f
 dsession
 log_capture "$S" DISPATCH_CHECK "ok beta sealed:3:0000000000000000000000000000000000000000000000000000000000000000"
 eq "a DISPATCH_CHECK capture whose seal fails doesn't count as a pass" "deferral-open 1" "$(check)"
+# The discipline equivalent of a unit's tag: an issue's "#<n>".
+dseed "$(record_json discipline ci-health)" no
+dsession
+log_to "$S" dispatch_check pick; log_evidence "$S" pick '{"choice":"dispatch","unit":"#1712"}'; log_to "$S" pick dispatch_check
+reset_calls
+eq "a discipline pick with an issue's \"#1712\" as its unit is refused" "unknown-topic" "$(check)"
+[ -s "$GH_DB.calls" ] && bad "that refusal makes no read either" "$(calls)" || ok "that refusal makes no read either"
 
 done_tests deferral-check

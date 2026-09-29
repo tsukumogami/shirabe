@@ -6,8 +6,12 @@
 # Usage: merged-facts.sh --session S [--unit <topic>] [--pr N --repo R] [--no-seal]
 #
 # The unit is the one the `merged` event named: the `unit` field of the latest
-# evidence_submitted in state `wait` in the session log. No unit there exits
-# 2. --unit overrides it.
+# evidence_submitted in state `wait` in the session log. --unit overrides it.
+# A unit that isn't a dispatch topic, or names no holding with a pull request
+# link (a unit's title or tag submitted in place of its topic, say), is
+# refused: the token `unknown-topic`, which sends the run back to `wait` to
+# submit the event again, with the reason and the accepted topics on stderr
+# and in context key coord/merged_facts.json.
 #
 # The unit's topic only locates the holding: record-holding.sh --read finds
 # its row on GitHub, whose Pull request cell gives the number and the
@@ -18,13 +22,14 @@
 # MERGED, each changed file's blob on the default branch against <sha>.
 #
 # Token: `merged <pr> <sha>`, `unconfirmed <pr> <sha>` (merged, but the
-# default branch doesn't hold the verified content), or `not-merged <pr>`;
+# default branch doesn't hold the verified content), `not-merged <pr>`, or
+# `unknown-topic`;
 # sealed to the latest entry into merged_facts (captured as MERGED_FACTS).
 # --pr with --repo skip the holding read, for tests; --no-seal (tests) prints
 # the bare token.
 #
-# Exit codes: 0 a token printed; 2 no holding for the topic, no valid verify
-# capture for its pull request in this run, or a read failed; 64 usage.
+# Exit codes: 0 a token printed; 2 no valid verify capture for the pull
+# request in this run, or a read failed; 64 usage.
 set -uo pipefail
 
 PROG=merged-facts
@@ -45,6 +50,29 @@ while [ $# -gt 0 ]; do
 done
 bl_session_ok "$SESSION" || usage
 [ -z "$UNIT" ] || bl_topic_ok "$UNIT" || usage
+
+# refuse_unit <why>: the unit names no holding a merge can be about. Nothing
+# is read further and nothing is written but this state's own verdict:
+# `unknown-topic`, sealed, which sends the run back to the hub to submit the
+# event again, with the reason and the accepted values on stderr and in
+# context key coord/merged_facts.json. Exits 2 when the holdings can't be
+# listed, so the tick is retried rather than refused on a guess.
+refuse_unit() {
+    local known
+    known=$(bash "$HERE/record-holding.sh" --session "$SESSION" --list 2>/dev/null \
+        | jq -c '[.[]? | select((.pull_request // "") != "") | .worker]') || {
+        echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
+    DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
+    trap 'rm -f "$DETAIL"' EXIT
+    jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
+        --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
+        '{verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
+          reason: ($lead + " [" + $u + "] " + $why + "; " + $want + ": "
+                   + (if ($known | length) == 0 then "none" else ($known | join(", ")) end))}' > "$DETAIL"
+    echo "$PROG: refused: $(jq -r .reason "$DETAIL")" >&2
+    lib_emit merged_facts unknown-topic coord/merged_facts.json "$DETAIL"
+}
+
 if [ -n "$PR$REPO" ]; then
     bl_pr_ok "$PR" && bl_repo_ok "$REPO" || usage
 else
@@ -52,18 +80,17 @@ else
         EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait 2>/dev/null)
         [ $? -eq 2 ] && { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
         UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
-        bl_topic_ok "$UNIT" || { echo "$PROG: the latest wait evidence names no unit [$UNIT]" >&2; exit 2; }
+        bl_topic_ok "$UNIT" || refuse_unit "is not a dispatch topic"
     fi
     ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
     case $? in
         0) ;;
-        1) echo "$PROG: the record has no holding for $UNIT" >&2; exit 2 ;;
+        1) refuse_unit "names no holding in the record" ;;
         *) echo "$PROG: the holding read failed" >&2; exit 2 ;;
     esac
     if ! lib_pr_link "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" \
         || ! bl_pr_ok "$LINK_NUM" || ! bl_repo_ok "$LINK_REPO"; then
-        echo "$PROG: the holding for $UNIT has no pull request link" >&2
-        exit 2
+        refuse_unit "names a holding with no pull request link"
     fi
     REPO=$LINK_REPO
     PR=$LINK_NUM

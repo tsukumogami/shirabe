@@ -492,7 +492,7 @@ states:
             - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
-        description: The dispatch topic of the unit picked, when the choice dispatches.
+        description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here.'
       rationale:
         type: string
         description: Why this choice, especially when it departs from the facts' order.
@@ -565,6 +565,9 @@ states:
       - target: decision_next
         when:
           gates.dispatch_check_verdict.exit_code: 45  # decision-owed
+      - target: pick_facts
+        when:
+          gates.dispatch_check_verdict.exit_code: 46  # unknown-topic
 
   deferral_dispose:
     accepts:
@@ -641,7 +644,7 @@ states:
         description: What arrived, or what is due.
       unit:
         type: string
-        description: The dispatch topic the event is about, when it is about one.
+        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here.
       report:
         type: string
         description: With a report event, the worker's message as it arrived.
@@ -1455,6 +1458,9 @@ states:
       - target: wait
         when:
           gates.merged_facts_verdict.exit_code: 92  # not-merged
+      - target: wait
+        when:
+          gates.merged_facts_verdict.exit_code: 46  # unknown-topic
 
   surface:
     # A blocker is sent only as one of the closed need kinds, which
