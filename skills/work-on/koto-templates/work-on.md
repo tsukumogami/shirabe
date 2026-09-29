@@ -1643,7 +1643,8 @@ Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
 
 Submit `status: completed` after creating the branch and baseline, `status: override`
-if reusing an existing branch (including when `SHARED_BRANCH` is set), or `status: blocked`.
+if reusing an existing branch, or `status: blocked`. When `SHARED_BRANCH` is set, koto
+skips this state through `skip_if` and you submit nothing here.
 
 ## staleness_check
 
