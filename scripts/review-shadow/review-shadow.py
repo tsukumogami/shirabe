@@ -271,7 +271,7 @@ def fetch_pr(fetcher, repo, number, head, body_at=None, body_file=None):
     pull = fetcher.pull(repo, number)
     base_ref = pull["base"]["ref"]
     public = not pull["base"]["repo"].get("private", True)
-    cmp = fetcher.compare(repo, base_ref, head)
+    cmp = fetcher.compare(repo, pull["base"].get("sha") or base_ref, head)
     files = []
     for f in cmp.get("files", []):
         files.append({"path": f["filename"], "status": f.get("status", "modified"),

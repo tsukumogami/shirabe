@@ -1,6 +1,6 @@
 {
   "pull": {
-    "base": {"ref": "main", "repo": {"private": false}},
+    "base": {"ref": "main", "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "repo": {"private": false}},
     "body": "Adds a retry to the fetch helper and documents the limit.\n\n---\n\n## Test plan\n\nRan the unit tests."
   },
   "compare": {
