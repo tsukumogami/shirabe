@@ -5,7 +5,8 @@ Create the PR and monitor CI until all checks pass.
 ## Pre-PR Verification
 
 If the branch is behind main, merge the latest main into it (`git fetch origin`,
-then `git merge origin/main`). Never rebase: a merge keeps every reviewed commit
+then `git merge --no-edit origin/main`, which takes the default message
+rather than opening an editor). Never rebase: a merge keeps every reviewed commit
 in the branch's history, so the commit `pre_pr.md` names stays an ancestor of
 `HEAD`. Resolve conflicts and re-run tests on the merged tip.
 
