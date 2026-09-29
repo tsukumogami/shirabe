@@ -155,6 +155,7 @@ case "$cmd" in
         fi
         printf '%s\n' "$c" ;;
     run-start) echo 2026-09-27T00:00:00Z ;;
+    chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
@@ -182,6 +183,13 @@ cat > "$T/bin/git" <<'STUB'
 echo "git $*" >> "$STUB_DIR/log"
 case " $* " in *" rev-parse --show-toplevel "*) [ -f "$STUB_DIR/top" ] && { cat "$STUB_DIR/top"; exit 0; }; exit 128 ;; esac
 exit 99
+STUB
+# The settle, the pass's one write: logs its arguments to <case>/settles and
+# prints <case>/settle.out, else a settled fact.
+cat > "$SC/reconcile-settle.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/settles"
+cat "$STUB_DIR/settle.out" 2>/dev/null || echo '{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"t"}'
 STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
@@ -340,6 +348,59 @@ echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > 
 # due 15 seconds into this one, before the cutoff, so this pass waits for it.
 pass; tick 15; pass
 [ "$(grep -c ' host ' "$CASE/checks")" = 2 ]; check "a re-read that falls before the cutoff is made within the pass" $? "$(cat "$CASE/checks")"
+
+echo "== a holding left dispatching =="
+# A refused write after the launch leaves the row dispatching with a live
+# worker; the pass settles it once the listing finds the worker and, for a
+# leg, the leg is bound.
+new_case settle-message
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+pass
+case "$LINE" in "reconciled "*) ok "a dispatching row with its worker found is reconciled in one pass" ;; *) bad "a dispatching row with its worker found is reconciled in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(cat "$CASE/settles" 2>/dev/null)" = "--session $SESSION --topic stuck --return-path message" ]; check "the pass settles it, naming the session, topic and return path" $? "$(cat "$CASE/settles" 2>/dev/null)"
+ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching'
+check "the settle is reported under Changed since then" $? "$(ctx reconcile/report.md)"
+new_case settle-leg-open
+record "[$(hold legged "" '{dispatch_status: "dispatching", branch: "", verified_head: "", return_path: "leg req1:work-on"}')]"
+pass
+[ ! -s "$CASE/settles" ]; check "a leg still open and unbound leaves the row alone" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-leg-bound
+record "[$(hold legged "" '{dispatch_status: "dispatching", branch: "", verified_head: "", return_path: "leg req1:work-on"}')]"
+echo '{"kind":"leg","status":"ok","disposition":"bound","result":"","read_at":"t"}' > "$CASE/check.leg"
+pass
+grep -q -- '--return-path leg req1:work-on' "$CASE/settles" 2>/dev/null; check "a bound leg and a live worker settle the row" $? "$(cat "$CASE/settles" 2>/dev/null) $(cat "$CASE/stderr")"
+new_case settle-missed
+record "[$(hold gone-quiet "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host"
+pass; tick 31; pass
+[ ! -s "$CASE/settles" ]; check "a worker not found is never settled" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-dispatched
+record "[$(hold fine "" '{branch: "", verified_head: ""}')]"
+pass
+[ ! -s "$CASE/settles" ]; check "a row already dispatched is not written" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-late
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+# The listing read costs 5 seconds, so a settle launched after it would have
+# less than its 20-second budget: it waits for the next pass, which starts
+# with it.
+echo 5 > "$CASE/cost.host"
+pass
+case "$LINE" in pending:*) ok "a settle that doesn't fit whole leaves the pass pending" ;; *) bad "a settle that doesn't fit whole leaves the pass pending" "$LINE" ;; esac
+[ ! -s "$CASE/settles" ]; check "and isn't started in it" $? "$(cat "$CASE/settles" 2>/dev/null)"
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "the next pass settles it and seals" ;; *) bad "the next pass settles it and seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ -s "$CASE/settles" ]; check "with the settle run once" $?
+new_case chain-start
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T07:30Z: last run"}]'
+echo 2026-09-26T07:00:00.000Z > "$CASE/chain-start"
+pass
+grep -q -- '--chain-start 2026-09-26T07:00:00.000Z' "$CASE/checks"; check "the deferral re-check is given the run's chain start" $? "$(cat "$CASE/checks")"
+new_case settle-refused
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+echo '{"kind":"settle","status":"not_verified","reason":"the record refused the write","read_at":"t"}' > "$CASE/settle.out"
+pass
+ctx reconcile/report.md | sed -n '/^## Not verified/,$p' | grep -q 'the record refused the write'; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
+ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q 'settled' && bad "and not reported as changed" || ok "and not reported as changed"
 
 echo "== the work file =="
 new_case edited

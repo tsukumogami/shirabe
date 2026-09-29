@@ -93,7 +93,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Deferral | Reason | Raised | Disposition |
 |---|---|---|---|
-| <what> | <why not now> | <YYYY-MM-DDTHH:MMZ> | <blank, filed #n, closed: <reason>, or carried <YYYY-MM-DDTHH:MMZ>: <reason>> |
+| <what> | <why not now> | <YYYY-MM-DDTHH:MMZ> | <blank, filed #n, closed: <reason>, or carried <YYYY-MM-DDTHH:MMZ> [until <YYYY-MM-DDTHH:MMZ>]: <reason>> |
 
 ## Side effects in flight
 
@@ -120,6 +120,13 @@ A deferral is disposed of when its Disposition reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
 run's start. Filed and closed rows drop out at the first rewrite after the
 run's first dispatch; a carried row stays with its new reason.
+
+On a restart (a run opened over a live run of the same scope, which it
+cancels), the carry time is compared with the start of the first of those
+cancelled runs instead of this run's start, so a carry made since then still
+counts; a run that ended at a handover or a finish breaks the chain. A carry
+can name a decide-by, `carried <time> until <time>: <reason>`; once the until
+time passes, the deferral is open again.
 
 The verified head is the sha the workflow verified before you acted or asked.
 After a crash, confirming a merge compares the default branch against that sha,

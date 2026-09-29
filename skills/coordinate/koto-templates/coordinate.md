@@ -2180,7 +2180,13 @@ send the holding its next step.
 
 A deferral is disposed of when its Disposition reads `filed #<n>` (an issue that
 exists), `closed: <reason>`, or `carried <time>: <reason>` with a time at or
-after this run's start. Until the first check passes in this run, every deferral
+after this run's start. A carry may name a decide-by, `carried <time> until
+<time>: <reason>`, and is open again once that time passes. On a restart (this
+run opened over a live run of the same scope, which it cancelled), a carry made
+since the first of those cancelled runs started still counts, so you don't
+re-decide what you carried minutes earlier; a run that ended at a handover or a
+finish breaks that chain, so a successor still decides every one. Until the
+first check passes in this run, every deferral
 in the previous rotation's handoff must also appear in your record with a
 disposition. A restart is a new run: deferrals the previous run filed or closed
 have dropped out of the record, so re-add each with its disposition before this
@@ -2195,7 +2201,10 @@ it forward with a reason and the time), rewrite the record with
 <!-- details -->
 
 Carrying a deferral forward is a decision with a reason, not a way past this
-check: the reason is dated and read by the next successor. A roadmap coordinator
+check: the reason is dated and read by the next successor. When the reason
+depends on something with a date (a release, a decision someone owes), write it
+as a decide-by, `carried <time> until <time>: <reason>`: the check reopens the
+deferral once that time passes, even across restarts. A roadmap coordinator
 that finishes files or closes every open deferral, because nobody succeeds it.
 
 ## dispatch
@@ -2242,8 +2251,14 @@ a request leg when the entry point accepts `--koto-leg`, writes the holding
 rewrites it dispatched, or dispatch-failed when the worker didn't start. It
 prints the worker's session name, which you use to message it and never
 record. It is safe to run again: a dispatched topic prints
-`already-dispatched`, and a `dispatching` row an interrupted run left is
-settled from `niwa list` without a second launch.
+`already-dispatched`, and while you are still in this state for the topic,
+running it again settles a `dispatching` row it left from `niwa list` without
+a second launch. Once the run has moved on (the record refused the write and
+the run restarted, say), dispatch_check refuses the topic as `duplicate-topic`
+because a holding already names it: don't try to dispatch it again. The next
+run's reconcile settles the row instead: when the listing finds the worker and
+its leg (if it has one) is bound, the pass rewrites the row `dispatched` and
+reports it under "Changed since then".
 
 `sent` leaves this state only when the record shows the holding dispatched
 (the `holding_recorded` gate reads it). Its exit codes: 1 no holding (run the
