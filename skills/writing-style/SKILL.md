@@ -33,8 +33,8 @@ declaration when you draft in it: shirabe declares `tier`, `journey`, and
 
 ## What no matcher reaches
 
-What no matcher reaches is the `judgment_only` section of the rule source,
-and it is where the value is:
+The `judgment_only` section of the rule source holds what no matcher
+decides, and it is where the value is:
 
 - **Low information density.** Well-formed sentences that say nothing. A
   fluent, entirely vacuous document produced ten alerts under three
