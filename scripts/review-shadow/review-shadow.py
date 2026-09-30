@@ -742,7 +742,7 @@ def check_private_terms(pt, terms):
         exact |= e
     # A home-directory path is a leak only when it names a real account: this
     # machine's user, or a name on the list. Example paths in docs and tests
-    # (/home/alice/, /Users/me/) are not.
+    # (a made-up account under /home or /Users) are not.
     import getpass
     users = {t.lower() for t in terms}
     try:
