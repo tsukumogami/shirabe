@@ -122,8 +122,11 @@ These terms carry the report's numbers, so they're fixed here.
 - **Run status.** A grading run is a *unanimous pass* when every criterion
   verdict is `pass`. It's a *dissent* when at least one criterion verdict is
   `fail`. Otherwise (no fail, but at least one escape or unanswered) it's
-  *inconclusive*. An inconclusive run isn't a pass: in the flip it would
-  escalate to the panel, exactly as a dissent would.
+  *inconclusive*. No verdict counts as a fail: an inconclusive run is never a
+  pass, it agrees with a blocked panel and dissents from a clean one, and in
+  the flip it would escalate to the panel exactly as a dissent would. The
+  report counts it in its own columns so a reader can tell a real fail from
+  a question the grader couldn't answer.
 - **Upheld finding.** A blocking finding whose final disposition is `upheld`
   or `narrowed` (it held in reduced form). `dismissed` findings don't count.
   A finding whose disposition is `unknown` is kept apart and counted
@@ -136,8 +139,10 @@ These terms carry the report's numbers, so they're fixed here.
   one panel of the same kind reviewed one head, the head is blocked if any
   of them was. A seat's vote alone decides nothing.
 - **False pass.** A unanimous pass on a head whose panel was blocked.
-- **Dissent on a clean panel.** A dissent or inconclusive run on a head
-  whose panel was clean.
+- **Fail on a clean panel, no verdict on a clean panel.** A dissent on a head
+  whose panel was clean is a *fail on clean*; an inconclusive run there is a
+  *no verdict on clean*. The two are counted apart and never added together
+  in the report, though both count as disagreement.
 - **Scored head.** A head of one panel kind with a graded record (run
   status unanimous pass, dissent or inconclusive) and a blocked or clean
   panel. Only scored heads enter the rates. Heads whose record is
@@ -217,13 +222,16 @@ These terms carry the report's numbers, so they're fixed here.
   overall and per criterion:
   - the count of scored heads, and separately of not-graded and
     undetermined heads;
-  - agreement: unanimous passes on clean panels plus dissents or
-    inconclusive runs on blocked panels, over that count;
+  - agreement (no verdict counting as a fail): unanimous passes on clean
+    panels plus dissents or inconclusive runs on blocked panels, over that
+    count;
   - false passes, each listed with its pull request, head and upheld
     findings, and the false-pass rate as false passes over unanimous
     passes;
   - the miss rate as false passes over blocked panels;
-  - dissents on clean panels, over clean panels.
+  - fails on clean panels, and no-verdicts on clean panels, each over clean
+    panels, and no-verdicts over all scored heads;
+  - unanimous passes in which a Jev criterion passed on zero slices.
   Per criterion the same figures are computed with the criterion verdict in
   place of the run status and the panel narrowed to that criterion's group:
   the panel counts as blocked for a criterion only when it upheld a finding
@@ -246,6 +254,25 @@ These terms carry the report's numbers, so they're fixed here.
   and never pools them.
 - **R15. Shadow only.** Nothing in this change skips, replaces or shortens a
   panel, and a pass never approves anything.
+
+- **R20. When the trial ends, and what flips a criterion.** The trial ends
+  for a panel kind at the earlier of 2026-12-31 or 20 out-of-sample scored
+  heads of that kind; the maintainer who owns the flip reads the report then
+  and records the decision. A criterion flips to a koto decider check for a
+  panel kind, in veto mode, only when, over at least 20 out-of-sample scored
+  heads of that kind, it has no false pass (so the Clopper-Pearson 95% upper
+  bound on its false-pass rate is at most 14%), a no-verdict rate of at most
+  25%, and a pass on at least half the clean heads, since a criterion that
+  rarely passes saves nothing. A criterion with two or more out-of-sample
+  false passes for a kind is dropped for that kind at once. Flips are judged
+  per criterion. Letting a panel be skipped is a separate decision that needs
+  every criterion covering that panel's upheld findings flipped, and it
+  stays out of this trial.
+- **R21. Costly criteria ship off.** A criterion whose Jev cost per pull
+  request is several times the rest ships off by default and runs only when
+  the grade command names it. The stale-comment and document-contradiction
+  criteria ship off: in the in-sample demonstration the stale-comment
+  criterion took 89% of the Jev tokens.
 
 ### Non-functional
 
@@ -307,7 +334,8 @@ Automated, offline:
       keeps that label in the report.
 - [ ] Against a fixture record set with hand-computed expected output, the
       report prints the expected agreement, false-pass rate, miss rate,
-      dissent rate and coverage shares per panel kind, including a case with
+      fails on clean, no-verdicts (on clean and overall, in their own
+      columns) and coverage shares per panel kind, including a case with
       zero blocked panels (miss rate not applicable), a case with one false
       pass in 5 unanimous passes (bound 0.6574), and a case with zero false
       passes in 10 (bound 0.2589).

@@ -11,14 +11,15 @@ problem: |
   measurement effort can both read, and a report that makes the uncovered
   share of panel findings impossible to miss.
 decision: |
-  A standard-library Python tool at `scripts/review-shadow/` with three
-  subcommands. `grade` fetches a pull request at a stated head through `gh`,
+  A standard-library Python tool at `scripts/review-shadow/` with five
+  subcommands (`grade`, `outcome`, `report`, `scan`, `check`). `grade` fetches a pull request at a stated head through `gh`,
   cuts it into slices per criterion, runs six script criteria locally and
   then sends each Jev slice as one request carrying every Jev criterion that
   reads it, and writes one JSON record per run under a local state
   directory. `outcome` records a panel's kind, run id and each blocking
   finding's category and final disposition against the same head. `report`
-  joins the two and prints agreement, false passes, dissent, coverage and a
+  joins the two and prints agreement, false passes, fails and no-verdicts
+  on clean panels, coverage and a
   Clopper-Pearson bound per panel kind and per criterion, in-sample and
   out-of-sample apart. Criteria live in a JSON file with opaque ids, an
   artifact kind and a slice kind, so pull requests are only the first kind.
@@ -137,7 +138,7 @@ merged days ago. It needs HTTP, JSON, a binomial bound and a diff parser.
 
 #### Chosen: a standard-library Python tool under `scripts/review-shadow/`
 
-One executable, `scripts/review-shadow/review-shadow.py`, with `grade`,
+One executable, `scripts/review-shadow/review-shadow.py`, with `check`, `scan`, `grade`,
 `outcome` and `report` subcommands, plus a criteria file, a category map, a
 test module and fixtures in the same directory. It uses only the Python
 standard library (3.8 or later), calls `gh` for pull request data and
@@ -187,7 +188,8 @@ criterion:
 | `escape` | `{"unclear": "..."}`: the escape value and its description |
 | `threshold` | 0.9, koto's default; a value wins only if highest and at least this |
 | `check` | script criteria: the check function's name |
-| `applies_to` | optional: `public` for criteria that run only on public repositories |
+| `applies_to` | optional: `public` for criteria that run only on public repositories; `run_scripts` gives such a criterion `pass` with reason `not-applicable` on a private one |
+| `enabled` | optional, default true: `false` ships the criterion off, and `grade --enable <rule-id>` turns it on for a run |
 
 The loader refuses a file where any criterion lacks a field, declares a
 boolean, repeats a rule id, names a `rule_ref` that doesn't exist, or names
@@ -257,9 +259,10 @@ every path in the repository at the head (for `rs-006`).
   passage that contains a multi-digit number or a backticked term is paired
   with each other passage in the file at the head that shares one of those
   terms. Pairs are ranked by the number of shared terms and at most eight are
-  kept per pull request. The record counts the pairs dropped by the cap and
-  the candidate pairs left out because the two passages together exceed the
-  bound; neither kind is cut or sent.
+  kept per pull request; the record counts the pairs dropped by the cap. A
+  kept pair whose two passages together exceed the bound becomes an
+  over-bound slice: it is never cut or sent, and its verdict is `unanswered`,
+  so the criterion can't pass without having looked at it.
 - **`pr-text`** (script criteria). The body plus every added line, with its
   path. Scripts have no bound.
 
@@ -361,8 +364,10 @@ A grade record (`schema: review-shadow/record/v1`):
 | `mode` | `batched` (default) or `unbatched` |
 | `slices` | per slice: id, slice kind, byte length, SHA-256, over-bound flag |
 | `verdicts` | per criterion per slice: rule id, slice id, verdict, probabilities (Jev only), observer, reason (unanswered only) |
-| `criteria` | per criterion: rule id, criterion verdict, slice count, and for `rs-009` the pairs dropped and over bound |
-| `rounds` | per Jev request: slice id, rule ids, `batched` flag, model string, input tokens, output tokens, attempts, latency |
+| `criteria` | per criterion that ran: rule id, criterion verdict, slice count, and for `rs-009` the pairs dropped and over bound |
+| `criteria_enabled` | the rule ids this run graded |
+| `tool` | the tool version, SHA-256 of the script, `categories.json` and `unfinished-wording.txt`, and the git sha (with a dirty flag) when git can say |
+| `rounds` | per Jev request: slice id, rule ids, `batched` flag, model string, input tokens, output tokens, attempts, latency. Tokens are per request, not per criterion: in batched mode `rs-007` and `rs-008` share one usage block |
 | `unread_usage_attempts` | billed answers whose usage couldn't be read, counted as koto counts them |
 | `tokens` | totals of input and output tokens over `rounds` |
 | `status` | `unanimous-pass`, `dissent`, `inconclusive` or `not-graded`; a run where no Jev request got an answer (no key, transport or provider failure on every request) is `not-graded`, so an outage never counts as agreement |
@@ -371,6 +376,7 @@ A grade record (`schema: review-shadow/record/v1`):
 Every `reason` in a record comes from one closed list: `over-bound`,
 `no-key`, `transport`, `provider`, `unreadable-answer`, `missing-answer`,
 `outcome-without-grade`, `body-history-unreadable`, `no-denylist`, `no-changed-paths`,
+`file-unreadable`, `not-applicable`,
 `tree-unreadable`. No record field holds
 free text taken from the pull request or typed by a person.
 
@@ -494,8 +500,11 @@ prints, per panel kind and per diff kind and then overall, one table of
 scored heads for out-of-sample records and a separate one for in-sample
 records: agreement,
 false passes with the false-pass rate and its Clopper-Pearson 95% upper
-bound, the miss rate, dissents on clean panels, and the counts of
-not-graded and undetermined heads. Then a per-criterion table with the same
+bound, the miss rate, fails on clean panels and no-verdicts on clean panels
+in separate columns, no-verdicts over all heads, unanimous passes that rest
+on a zero-slice Jev criterion, and the counts of not-graded and
+undetermined heads. No verdict counts as a fail for agreement but is never
+added into the fail column. Then a per-criterion table with the same
 figures, the coverage table (covered, closed-uncovered, open-judgment
 counts and shares of upheld blocking findings), each false pass listed with
 its pull request, head and upheld categories, and the trial's total Jev
@@ -539,11 +548,17 @@ workflow changes.
 | `rs-003` | script | `pr-text` | No added line outside the scratch directory names a path inside it | `CLAUDE.md` | none needed (script) |
 | `rs-004` | script | `pr-text` | The body's first part has no wording from a fixed list that marks work as unfinished (for example "not yet implemented", "will be added", "TODO", "for now") | `references/pr-body-conformance.md` | none needed (script) |
 | `rs-005` | script | `pr-text` | No paragraph longer than 60 characters appears twice in a changed Markdown file | `skills/writing-style/SKILL.md` | none needed (script) |
-| `rs-006` | script | `pr-text` | Every backticked repository path in an added Markdown line exists at the head | `references/cross-repo-references.md` | none needed (script) |
+| `rs-006` | script | `pr-text` | Every backticked repository path in an added Markdown line resolves at the head, from the root, from any directory above the file, or as the tail of a tracked path; a path whose first segment isn't a top-level entry of the repository (a workspace, runtime or other-repository path) isn't checked | `references/cross-repo-references.md` | none needed (script) |
 | `rs-007` | jev | `pr-summary` | Does the body's first part claim no change that the file list doesn't show? | `references/pr-body-conformance.md` | close to `pr_body_summary`, which failed the bar |
 | `rs-008` | jev | `pr-summary` | Does the body's first part mention every significant change the file list shows? | `references/pr-body-conformance.md` | close to `pr_body_summary`, which failed the bar |
 | `rs-009` | jev | `doc-pairs` | Are these two passages from one document consistent with each other? | `skills/design/references/phases/phase-6-final-review.md` | new ground |
 | `rs-010` | jev | `code-hunks` | Does every comment in these hunks still describe the code as changed? | `skills/work-on/references/phases/phase-4-implementation.md` | related to `comment_reason` (cleared the bar) but a different question |
+
+`rs-009` and `rs-010` ship off (`enabled: false`). In the in-sample
+demonstration `rs-010` took 89% of the Jev tokens and escaped on most heads,
+so they run only when `grade --enable` names them. The PRD's R20 states when
+the trial ends and what per-criterion result flips a criterion to a koto
+decider check.
 
 Each Jev criterion's `values` and `escape` descriptions are written in the
 criteria file in the spike's style: one sentence each for `pass`, `fail`
@@ -587,16 +602,20 @@ Components in `scripts/review-shadow/`:
 - the `scan` subcommand, which runs the script criteria on a local branch.
 - `test_review_shadow.py`: `unittest` suite, offline, with a stub fetcher
   and a stub Jev transport.
-- `scripts/review-shadow/fixtures/`: a small fake pull request (body, file list, patches, file
-  texts) with seeded violations and clean twins per script criterion, and a
-  record-and-outcome set with hand-computed expected report output.
+- `scripts/review-shadow/fixtures/pr-basic.json`: one small fake pull request (body, file
+  list, patches, a Markdown file's text, a two-version body history) that the
+  fetch and slice tests read. The seeded, clean and near-miss cases for each
+  script criterion, and the record-and-outcome set with hand-computed report
+  figures (`TestReport`), are built inline in the tests.
 
 CI: `.github/workflows/check-review-shadow.yml` runs on changes under
 `scripts/review-shadow/`. One job per script criterion (a matrix over
 `rs-001` to `rs-006`) runs that criterion's test class, and one job runs the
 rest of the suite (loader, slicers, bound, batching, record, outcome,
-report). No job sets a Jev key or names the endpoint, and the suite fails
-if the stub transport is ever bypassed.
+report). No job sets a Jev key or names the endpoint. The test module
+replaces urllib's opener factory with one that fails the test, so a test
+that reached a real transport would fail, and `cmd_grade` is tested end to
+end with a key set, through the stub transport and the stub fetcher.
 
 ## Implementation Approach
 
@@ -694,6 +713,11 @@ field values go through `-f` (raw strings), never `-F`, which would read a
 local file for a value starting with `@`; file paths from the pull request
 are percent-encoded before they enter an endpoint.
 
+**Endpoint.** The Jev endpoint is Jev's public API host, the same one the
+accuracy spike already commits in `docs/spikes/jev-accuracy/grade.py`; it is
+a public service, not a private vendor, so the PRD's rule against naming
+private vendors doesn't reach it.
+
 **Key transport.** The Jev endpoint is a constant `https://` URL; an
 override (for tests) must also be `https://` or the command refuses. The
 key is attached with `add_unredirected_header`, and the opener refuses to
@@ -704,6 +728,18 @@ follow any redirect, so the key never reaches a second host.
 inside a work tree, and any answer other than a clean "no" refuses. The
 `--private-terms` file gets the same check, so a term list inside a
 repository is refused rather than read.
+
+**Visibility fails closed.** The private-name check is skipped only for a
+repository that is explicitly private: `grade` reads GitHub's `private` flag
+and treats a missing value as public, and `scan` treats the repository as
+public unless `CLAUDE.md` declares `Repo Visibility: Private`. A
+home-directory path counts as a leak only when it names this machine's user
+or a term on the list, so example paths in docs and tests don't fail it.
+
+**Failure messages.** A failed `gh` call raises a fixed hint per cause (not
+logged in, no such repository or pull request, a head the pull request never
+had, the rate limit) chosen by classifying `gh`'s error text, which is never
+echoed.
 
 **Test fixtures.** The private-term tests use an invented term and compute
 its plain, case-folded, base64 (all three byte alignments), hex, SHA-1,
