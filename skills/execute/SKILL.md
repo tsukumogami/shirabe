@@ -182,6 +182,10 @@ the worst loss, since the pause is solicited; at `merged`,
 `ready_awaiting_merge` and `done` it costs the run's record. koto keeps
 `done_blocked`, a failure terminal, either way. The rule and its reasoning are
 in [`references/koto-session-retention.md`](../../references/koto-session-retention.md).
+The same reference explains why a tick does not stop at the state it routes to:
+one tick can chain through several states, `merge_route` included, to a
+terminal, so a run may already be past a state you meant to act at. `koto
+status` shows where it landed.
 
 **The per-issue `/work-on` children carry it too.** `/work-on`'s own rule is
 every tick, root or child. On a child the flag only keeps the session: its
