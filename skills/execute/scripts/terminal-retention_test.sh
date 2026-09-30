@@ -387,6 +387,7 @@ gh_fixture default
 # than letting later assertions prove nothing.
 init_orchestrator() {
     local s="execute-$1" merge="${2:-false}" st
+    # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
         --var PLAN_SLUG="$1" \
@@ -395,6 +396,7 @@ init_orchestrator() {
         --var MERGE="$merge" >/dev/null 2>&1
     if ! k status "$s" >/dev/null 2>&1; then
         echo "FAIL: koto init did not produce session '$s' -- the engine-backed cases cannot run" >&2
+        # $KOTO_LEGACY_ENV_ARG: #483.
         k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$1.md" --var PLAN_SLUG="$1" \
             --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false --var MERGE="$merge" 2>&1 | tail -2 >&2
         exit 1

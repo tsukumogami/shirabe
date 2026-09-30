@@ -254,6 +254,7 @@ start() { # start <session> <board case> [posture]
     bt_board "$2"
     printf '{"mergeStateStatus":"CLEAN"}\n' > "$GH_BOARD_DIR/prview-12.out"
     rm -f "$BT_STATE/merge-exec.calls"
+    # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
     eq "$S: start_posture routes to verify" verify "$(state "$(cd "$T/work" && koto next "$S" --no-cleanup 2>/dev/null)")"
 }

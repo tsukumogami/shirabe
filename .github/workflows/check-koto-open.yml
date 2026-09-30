@@ -13,6 +13,7 @@ on:
     paths:
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
+      # The legacy-environment knob's helper; temporary, #483.
       - 'scripts/lib/koto-legacy-env.sh'
       - 'scripts/lib/koto-legacy-env_test.sh'
       - 'scripts/assert-koto-floor.sh'
@@ -66,6 +67,7 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/koto-open_test.sh
 
+      # Temporary, #483: goes with scripts/lib/koto-legacy-env.sh.
       - name: Run the legacy-environment knob helper's tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/lib/koto-legacy-env_test.sh

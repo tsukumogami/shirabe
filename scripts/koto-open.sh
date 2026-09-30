@@ -125,8 +125,11 @@
 #              test harnesses set it because their stand-in tools (a fake
 #              `gh`, a fake `koto`, test boards) read their configuration
 #              from variables that koto's recorded environment no longer
-#              passes. Production callers never set it, and unset, the call
-#              is exactly what it would be without the knob. A koto older
+#              passes. Production callers never set it, and a user's own
+#              shell exporting it is unsupported (every entry fails on a koto
+#              without the flag; on one with it, sessions quietly run with the
+#              caller's whole environment). Unset, the call is exactly what it
+#              would be without the knob. A koto older
 #              than the flag refuses it, so a harness sets the knob only
 #              when the koto it drives accepts the flag
 #              (scripts/lib/koto-legacy-env.sh). Temporary (#483): koto

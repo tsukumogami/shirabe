@@ -188,6 +188,7 @@ new_run() {
     db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
         state: "open", author: "coord", editor: null}]' --argjson k "$4" --arg n "$3" \
         --arg b "$(render "$(record_json roadmap "$3")" issue)"
+    # $KOTO_LEGACY_ENV_ARG: #483.
     koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
         --var RECORD_REF="$4" --var REPORTS_TO="${5-}" >/dev/null 2>"$T/init.err" ||
         { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }

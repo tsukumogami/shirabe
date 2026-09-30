@@ -16,9 +16,16 @@
 # koto the harness drives (KOTO_BIN, else `koto` on PATH) lists
 # --legacy-environment in `koto init --help`, and leaves it unset otherwise,
 # so the same harness runs unchanged on a koto older than the flag, which
-# would refuse it. A value already set in the environment is left alone, so a
-# developer can run a suite with SHIRABE_KOTO_LEGACY_ENVIRONMENT=0 to see what
-# the recorded environment breaks.
+# would refuse it. No koto, or a `koto init --help` that fails or prints
+# nothing, also leaves it unset. A value already set in the environment is
+# left alone, so a developer can run a suite with
+# SHIRABE_KOTO_LEGACY_ENVIRONMENT=0 to see what the recorded environment
+# breaks. An explicit 1 is kept too, even on a koto without the flag, where
+# every `koto init` then refuses it: a loud failure, not a silent one.
+#
+# The knob belongs to test harnesses only. Exported in a user's own shell it is
+# unsupported: on a koto without the flag every skill's entry fails, and on one
+# with it the user's sessions quietly run with the caller's whole environment.
 #
 # A harness that runs `koto init` itself, not through koto-open.sh, adds
 # $KOTO_LEGACY_ENV_ARG, unquoted, to its init line instead. It holds the one
@@ -27,8 +34,12 @@
 # empty array's "${a[@]}" as unset under set -u.
 #
 # Temporary (#483): koto removes the flag in the release after the one that
-# adds it. Before then the stand-ins read their configuration from a file, and
-# this file and the knob go; `git grep '#483'` finds every site.
+# adds it, so step two, the stand-ins reading their configuration from a file,
+# has to land before that release; then this file and the knob go. Every site
+# carries #483, and `git grep -e '#483' -e KOTO_LEGACY_ENV_ARG -e
+# SHIRABE_KOTO_LEGACY_ENVIRONMENT -e koto-legacy-env` finds them all: removing
+# the helper while a `koto init ... $KOTO_LEGACY_ENV_ARG` line remains fails
+# that harness on an unbound variable under set -u.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -40,7 +51,7 @@ koto_legacy_env_enable() {
         # The help text is read whole before it's searched: `koto ... | grep -q`
         # under pipefail can end with koto killed by SIGPIPE and read as "no
         # flag".
-        command -v "$koto" >/dev/null 2>&1 && help=$("$koto" init --help 2>/dev/null)
+        command -v "$koto" >/dev/null 2>&1 && help=$("$koto" init --help 2>/dev/null) || true
         case "$help" in
             *--legacy-environment*)
                 SHIRABE_KOTO_LEGACY_ENVIRONMENT=1

@@ -66,6 +66,7 @@ trap cleanup EXIT
 export HOME="$T/home"
 # The argv cases below pin koto-open.sh's call with the legacy-environment knob
 # off unless a case turns it on; a knob exported by the caller would change it.
+# Temporary, #483.
 unset SHIRABE_KOTO_LEGACY_ENVIRONMENT
 mkdir -p "$HOME"
 
@@ -218,9 +219,9 @@ run_stub s1 "$T/t.md" "$A" --attach-live
 EXPECTED_ARGV=$(printf '%s\n' init s1 --template "$T/t.md" --vars-file "$A" --attach-live)
 assert_eq "only the flags given are passed" "$EXPECTED_ARGV" "$(cat "$STUB_LOG" 2>/dev/null)"
 
-# The harness-only legacy-environment knob. Unset, empty, `0` or `false`, the
-# call is byte-identical to the one above; any other value appends exactly
-# one --legacy-environment, after every other argument.
+# The harness-only legacy-environment knob (temporary, #483). Unset, empty,
+# `0` or `false`, the call is byte-identical to the one above; any other value
+# appends exactly one --legacy-environment, after every other argument.
 for off in unset "" 0 false; do
     A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
     if [ "$off" = unset ]; then

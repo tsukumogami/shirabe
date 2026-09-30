@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # koto-legacy-env_test.sh -- tests for scripts/lib/koto-legacy-env.sh, the
 # helper a test harness sources to turn on koto-open.sh's legacy-environment
-# knob only when its koto accepts the flag.
+# knob only when its koto accepts the flag. Temporary, #483: it goes with the
+# helper.
 #
 # Usage: bash scripts/lib/koto-legacy-env_test.sh
 # Needs no koto: two stand-ins answer `init --help`, one listing

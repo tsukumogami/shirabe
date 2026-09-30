@@ -111,6 +111,7 @@ open_run() {
     shift
     local merge="$1"
     shift
+    # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
@@ -281,6 +282,7 @@ fi
 ct_case setup-blocked
 fixture blocked
 ct_write_db
+# $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1

@@ -121,6 +121,7 @@ k() { (cd "$R" && HOME="$KH" PATH="$BIN:$PATH" GHF="$GHF" koto "$@"); }
 # open <topic> [--koto-leg <req>:scope] [--var ...] -- a fresh or replacing session.
 open() {
     local topic="$1"; shift
+    # $KOTO_LEGACY_ENV_ARG: #483.
     k init "scope-$topic" $KOTO_LEGACY_ENV_ARG --template "$TEMPLATE" --var TOPIC="$topic" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PLUGIN_ROOT_PLACEMENT=outside \
         --replace-terminal "$@" >"$T/init.out" 2>&1 \

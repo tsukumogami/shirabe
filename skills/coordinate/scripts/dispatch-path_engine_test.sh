@@ -182,6 +182,7 @@ N=0
 start() {
     N=$((N + 1))
     SESS="coord-dp-$N"
+    # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$W" && koto init "$SESS" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") ||
         fail "session $SESS starts" "$(cat "$T/init.err")"
 }
