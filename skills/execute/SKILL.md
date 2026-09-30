@@ -394,7 +394,7 @@ against its chain shape:
 1. **Slug re-validation.** The topic slug is re-validated against
    `^[a-z0-9-]+$` before any interpolation into emitted shell or a write path.
 2. **Closed write-target set.** `/execute`'s filesystem and remote writes are confined
-   to: its scratch under `wip/execute_<topic>_*`; the skill's own
+   to: its own `execute_<topic>_*` scratch files in the work-in-progress directory; the skill's own
    files; the home PR via `gh` (`gh pr create` through `adopt-or-create-pr.sh`,
    `gh pr edit`, `gh pr ready`, and `gh pr close` on abandonment); the
    finalization cascade's atomic chain transitions (PLAN deletion +
