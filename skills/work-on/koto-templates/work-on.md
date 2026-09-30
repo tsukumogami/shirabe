@@ -510,12 +510,6 @@ states:
       approach_summary:
         type: string
         description: Summary of the implementation approach
-      decisions:
-        type: string
-        description: >
-          JSON array of decision records, each with choice, rationale, and
-          alternatives_considered fields. Captures non-obvious judgment calls
-          made during analysis.
     transitions:
       - target: implementation
         when:
@@ -573,12 +567,6 @@ states:
       rationale:
         type: string
         description: What was accomplished or what is blocking progress
-      decisions:
-        type: string
-        description: >
-          JSON array of decision records, each with choice, rationale, and
-          alternatives_considered fields. Captures non-obvious judgment calls
-          made during implementation.
     transitions:
       # One edge for a finished implementation, whatever the issue's type.
       # The type is asked once, at issue_type_routing, after
@@ -1231,10 +1219,9 @@ states:
         required: true
         description: >-
           From scripts/session-role.sh, which reads koto's own parent_workflow
-          field. Required, because the fallback edge below routes an unrecognised
-          submission to done: a run that omitted this would take the cascade's
-          silent exit rather than stopping, and nobody would learn the cascade
-          was skipped. Not derived from the session name — a name-shaped
+          field. Required, because a root and a child with green CI part here:
+          without it no passing edge could tell whether the cascade is owed.
+          Not derived from the session name — a name-shaped
           heuristic was considered and rejected as unsound in both directions.
       rationale:
         type: string
@@ -1259,21 +1246,21 @@ states:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
           session_role: child
-      # A DIRTY pull request stops, and stops explicitly. Without this edge it
-      # would match no conditional transition and fall to the unconditional one
-      # at the end, reaching done: a run with merge conflicts would report
-      # success on the strength of checks that never ran.
+      # A DIRTY pull request stops, and stops explicitly, with a reason that
+      # names the merge conflicts: GitHub runs no checks on one, so the CI gate
+      # alone would read it as green.
       - target: done_blocked
         when:
           ci_outcome: passing
           gates.merge_state_clean.exit_code: 1
         context_assignments:
           failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
-      # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
-      # polls the PR and may be stale relative to the new push. Gate check
-      # is inappropriate here -- the agent's direct observation is the
-      # authoritative signal.
-      - target: done
+      # failing_fixed: the agent pushed a fix. The run comes back here rather
+      # than finishing, so the gates poll CI on the new push before anything
+      # can reach done: the skill promises a pull request with passing CI,
+      # and a fix nobody re-checked does not keep that promise. The directive's
+      # retry cap bounds the loop.
+      - target: ci_monitor
         when:
           ci_outcome: failing_fixed
       - target: done_blocked
@@ -1281,7 +1268,15 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
-      - target: done
+      # Anything no edge above takes stops the run rather than finishing it.
+      # No known submission reaches it today: `passing` on red CI holds the
+      # state on the failing gate (ci-monitor-role_test.sh pins that), and a
+      # missing session_role is refused as bad evidence. It is the safe
+      # default for the day an edge above changes: reaching done from here
+      # would report success on CI nobody saw green.
+      - target: done_blocked
+        context_assignments:
+          failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green and the run stopped rather than report success. Check the pull request's CI and finish it in a new run."
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
@@ -1654,11 +1649,9 @@ Evidence schema:
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
 
-When `SHARED_BRANCH` is set, submit `status: override` — the orchestrator has already
-created the branch. Commit directly to `SHARED_BRANCH` without creating a new one.
-
 Submit `status: completed` after creating the branch and baseline, `status: override`
-if reusing an existing branch (including when `SHARED_BRANCH` is set), or `status: blocked`.
+if reusing an existing branch, or `status: blocked`. When `SHARED_BRANCH` is set, koto
+skips this state through `skip_if` and you submit nothing here.
 
 ## staleness_check
 
@@ -1711,7 +1704,9 @@ artifact already exists in koto context, the gate auto-advances.
 ## analysis
 
 Read `references/phases/phase-3-analysis.md` for plan structure and agent
-delegation patterns. Output: koto context key `plan.md`.
+delegation patterns. Output: koto context key `plan.md`. A child of `/execute`
+first reads its earlier siblings' `summary.md` through `koto context get`, once
+per sibling; its "Earlier Children's Summaries" section says how.
 
 **Already-complete detection**: during analysis, check whether the issue goal is
 already fully satisfied by current code. If all acceptance criteria are already met,
@@ -1722,9 +1717,10 @@ koto records `impl_base`, the commit this work starts from, as it enters this
 state. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
-Self-loop with `scope_changed_retry` (up to 3 times). After 3,
-use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
-Capture non-obvious decisions in the `decisions` field.
+Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
+use `scope_changed_escalate`. The cap lives here until koto enforces it from its
+attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
+Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
 
 ## implementation
 
@@ -1735,9 +1731,11 @@ Submit `implementation_status: complete` when the work is committed. The issue's
 type is not part of this submission: koto records the changed paths next and then
 asks for the type once, at `issue_type_routing`.
 
-Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
-use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
-Capture non-obvious judgment calls in the `decisions` field.
+Retry cap: self-loop with `partial_tests_failing_retry` up to 3 times. After 3,
+use `partial_tests_failing_escalate`. The cap lives here until koto enforces it
+from its attempt counts, with the same number. Submit `blocked` for external
+blockers.
+Record non-obvious judgment calls with `koto decisions record {{SESSION_NAME}}`.
 
 ## changed_paths_record
 
@@ -1794,7 +1792,9 @@ Run the scrutiny panel (three parallel reviewers: completeness, justification, i
 
 Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, submit `blocking_retry` and commit it in implementation. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 
-Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## review
 
@@ -1802,7 +1802,9 @@ Run the code review panel (three parallel reviewers: pragmatic, architect, maint
 
 Note on gate discoverability: The gate name is `review_results`; the context key is `review_results.json` (with `.json` suffix).
 
-Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## qa_validation
 
@@ -1811,6 +1813,8 @@ Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detaile
 Note on gate discoverability: The gate name is `qa_results`; the context key is `qa_results.json` (with `.json` suffix).
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
+
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## verification
 
@@ -1918,10 +1922,6 @@ stop and report it rather than rewriting the record. The same applies when the
 check passes by hand and the gate still holds: report it rather than editing a
 record the check accepts.
 
-Reaching this state means verification ran and passed (the `verification` state only
-routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
-verification evidence — there is no clean finalization without it.
-
 Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met.
 Submit `issues_found` to return to implementation. If an acceptance criterion is unmet
 and you want to defer it, submit `deferral_requested` — this does NOT finalize the issue;
@@ -1962,9 +1962,9 @@ Evidence schema:
 
 The finishing obligations that can be decided before a pull request exists.
 `pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
-The one exception is history rewritten since then (an amend or rebase of the
-reviewed commit): its old sha is no longer in `HEAD`'s history and the gate
-fails. A failure here ends the run rather than holding it, so if you rewrote
+The one exception is history rewritten since then (an amend of the reviewed
+commit; catching up with main is a merge, which rewrites nothing): its old sha
+is no longer in `HEAD`'s history and the gate fails. A failure here ends the run rather than holding it, so if you rewrote
 history, run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
 before submitting, and on a failure rewrite `pre_pr.md` with the reviewed
@@ -1996,14 +1996,7 @@ Conventional Commits, and the two referents. A failing one stops the run before
 the pull request is opened, with the reason naming which. The shape and referent
 checks already held at `finalization`, so here they are the backstop. The tip
 moving after finalization doesn't invalidate `cleanup_commit`: a commit that was
-`HEAD` then is an ancestor of `HEAD` now. The
-commit convention is checked only here, because the tip can still move after
-finalization (the summary commit lands there).
-
-`references/finishing-obligations.md` is the table of every finishing obligation
-— which are gate-enforced, which are evidence-carried, and which are
-deliberately advisory. Read it when you want to know what else is checked before
-this run can finish, or when adding an obligation of your own.
+`HEAD` then is an ancestor of `HEAD` now.
 
 ## pr_precheck
 
@@ -2028,10 +2021,11 @@ Check if a PR already exists: `gh pr list --head {{BRANCH}}`
 
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
 
-`gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications. See `references/default-action-conversion.md`.
+`gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications.
 
-Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
-`creation_failed_escalate`.
+Retry cap: self-loop with `creation_failed_retry` up to 3 times. After 3, use
+`creation_failed_escalate`. The cap lives here until koto enforces it from its
+attempt counts, with the same number.
 
 ## ci_monitor
 
@@ -2051,8 +2045,18 @@ the safe direction — a child that wrongly stops has landed its pull request an
 left the chain for the run that owns it, while a child that wrongly cascades
 deletes a PLAN its siblings are still working from.
 
-If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
+Submit `passing` only once every check on the current head is green. If the
+gate fails, fix what you can, push, and submit `ci_outcome: failing_fixed`: the
+run comes back to this state, and you submit again once the checks on the new
+push have finished. A `passing` the CI gate refuses holds this state and names
+the gate; wait for the checks and submit again.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+Retry cap: 3 fix pushes. When CI is still failing after the third, submit
+`ci_outcome: failing_unresolvable` with rationale, which ends the run at
+`done_blocked`. In an unattended run, don't ask the user instead: nobody is
+there to answer. The cap lives here until koto enforces it from its attempt counts, with
+the same number.
 
 ## cascade_entry
 
@@ -2075,11 +2079,7 @@ PLAN=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/find-anchor-plan.sh "{{ISSUE
 RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push "$PLAN")
 ```
 
-Ask the finder for the path rather than searching for it yourself. It is the
-same script cascade_entry's gate just ran to decide you belong here, so asking
-it again is what keeps the document you cascade the same one the gate found. A
-second search written by hand can differ — the row for issue 123 is a substring
-match away from the row for issue 12.
+Take the PLAN path from the finder, never from a search of your own.
 
 Then observe what the repository actually shows:
 
@@ -2092,12 +2092,6 @@ verifier's exit code: 0 `verified`, 2 `plan_present`, 3 `no_commit`, 4
 `wrong_status`, 5 `not_in_commit`, 6 `undecided`. Add `anchor_plan` (the PLAN
 path) and `finalization_commit` (the sha the verifier read), and `cascade_detail`
 summarising which transitions ran.
-
-The two are different kinds of thing and the state keeps them apart on purpose.
-`cascade_status` is the cascade's account of itself; `post_state` is the
-repository's. A `completed` claim with anything other than `verified` does not
-route to `done` — it stops, and the reason names which of the five things was
-wrong.
 
 **Do not treat the script's step-level `ok` as evidence that the chain moved.**
 Several of its operations report `ok` having changed nothing, and its own
@@ -2129,13 +2123,6 @@ acceptance criteria were met before any implementation was needed. No commits
 were required. This is a successful terminal state — it is not a failure.
 
 ## done_blocked
-
-The workflow reached a blocking condition that requires human intervention.
-This state is reachable from multiple points in the workflow: analysis
-(scope too large or missing context), implementation (persistent test failures
-or external blockers), changed_paths_record (the changed paths could not be
-recorded), pr_creation (repeated creation failures), ci_monitor
-(unresolvable CI failures), and introspection (issue superseded).
 
 If the blocker has been resolved externally, use `koto rewind <name>` to walk
 back to the originating state. `koto rewind` rewinds one step per call; call

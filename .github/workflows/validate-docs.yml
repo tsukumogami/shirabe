@@ -21,10 +21,20 @@ on:
         required: false
         type: string
         default: ''
+      runs-on:
+        description: >-
+          Where the job runs. A single runner label (`ubuntu-latest`) or a
+          JSON array of labels for a self-hosted runner
+          (`["self-hosted", "linux", "x64"]`). Defaults to `ubuntu-latest`.
+        required: false
+        type: string
+        default: ubuntu-latest
 
 jobs:
   validate-docs:
-    runs-on: ubuntu-latest
+    # A value starting with `[` is parsed as a JSON label array; anything else
+    # is used as a single label.
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
     steps:
@@ -72,9 +82,13 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build shirabe
+        # Installs into the job's temp directory rather than /usr/local/bin so
+        # the step needs no root and leaves nothing behind on a self-hosted
+        # runner.
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
-          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+          install -D -m 0755 .shirabe-src/target/release/shirabe "$RUNNER_TEMP/bin/shirabe"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Validate changed docs
         # Per-consumer contract (see docs/guides/multi-consumer-cli-contract.md):

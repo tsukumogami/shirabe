@@ -53,7 +53,7 @@ while IFS=$'\t' read -r kind pat; do
         both) fx="$FIX/decision.txt $FIX/addressed.txt" ;;
     esac
     # shellcheck disable=SC2086
-    cat $fx | grep -Eiq -e "$pat" || uncovered="$uncovered [$pat]"
+    grep -Eiq -e "$pat" $fx || uncovered="$uncovered [$pat]"
 done < "$PHRASINGS_LIST"
 eq "every row is matched by a fixture line of its kind" "" "$uncovered"
 

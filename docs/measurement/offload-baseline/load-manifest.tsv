@@ -104,7 +104,6 @@ execute-coordinated	skills/execute/koto-templates/execute-coordinated.md	state:d
 execute-coordinated	skills/execute/koto-templates/execute-coordinated.md	state:done_error	0	profile-excluded
 
 deliver	skills/deliver/SKILL.md	file	1	resident
-deliver	skills/deliver/koto-templates/deliver.md	state:preflight	0.05	failure-only
 deliver	skills/deliver/koto-templates/deliver.md	state:open_request	0.05	failure-only
 deliver	skills/deliver/koto-templates/deliver.md	state:scope_run	1.5	visits
 deliver	skills/deliver/koto-templates/deliver.md	state:scope_absent	0.05	failure-only
@@ -118,7 +117,6 @@ deliver	skills/deliver/koto-templates/deliver.md	state:merged_check	0.05	failure
 deliver	skills/deliver/koto-templates/deliver.md	state:done	1	visits
 deliver	skills/deliver/koto-templates/deliver.md	state:done_stopped	0	profile-excluded
 deliver	skills/deliver/koto-templates/deliver.md	state:done_error	0	profile-excluded
-deliver	skills/deliver/koto-templates/deliver.md	state:done_refused	0	profile-excluded
 
 scope	skills/scope/SKILL.md	file	1	resident
 scope	skills/scope/koto-templates/scope.md	state:intake	0.05	failure-only

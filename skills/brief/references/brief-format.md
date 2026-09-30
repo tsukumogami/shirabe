@@ -8,7 +8,6 @@ documents.
 - [Frontmatter](#frontmatter)
 - [Required Sections](#required-sections)
 - [Optional Sections](#optional-sections)
-- [Section Matrix](#section-matrix)
 - [Content Boundaries](#content-boundaries)
 - [Lifecycle](#lifecycle)
 - [Validation Rules](#validation-rules)
@@ -142,31 +141,6 @@ Every brief document has these sections in order:
 The rules below are mechanically applicable by the Phase 4 jury. They
 specify what content must appear, not how prose must be shaped.
 
-- **Status.** First non-blank line is the bare status word matching
-  the frontmatter `status`. Prose after a blank line is free -- it
-  typically carries transition context (jury verdicts, what the
-  downstream PRD owns). The bare-word-first shape is load-bearing for
-  FC03.
-
-- **Problem Statement.** States the problem the feature solves. The
-  problem is a problem, not a solution wearing a problem's clothes --
-  "authors have no codified framing step between roadmap and PRD" is a
-  problem; "we should build a `/brief` skill" is a solution. Sub-
-  structure is free; no mandatory sub-headings.
-
-- **User Outcome.** Describes the outcome a user should experience once
-  the feature lands. Outcome-shaped, not a feature list -- "an author
-  frames a feature before requirements exist and the framing resolves
-  cleanly downstream" is an outcome; "the skill has six phases and a
-  jury" is a feature list. Same content the `outcome` frontmatter field
-  summarizes.
-
-- **User Journeys.** Each journey leads with a name heading (`###`) and
-  names a concrete user, the trigger that starts the journey, and the
-  outcome shape the journey reaches. Journeys are distinct -- each
-  exercises the feature from a different entry point, not the same path
-  re-told. Expansion below the lead is free.
-
 - **Scope Boundary.** Two explicit lists: what's IN and what's OUT.
   The OUT items are real exclusions a reader might otherwise assume are
   in -- "the parent-skill integration is separate downstream work" is a
@@ -193,19 +167,6 @@ Include when relevant:
   artifact exists yet.
 - **References** -- in-repo precedents the brief draws on (prior
   briefs, format references, skill templates). Durable paths.
-
-## Section Matrix
-
-| Section | Required |
-|---------|----------|
-| Status | Required |
-| Problem Statement | Required |
-| User Outcome | Required |
-| User Journeys | Required |
-| Scope Boundary | Required |
-| Open Questions | Draft only |
-| Downstream Artifacts | Optional |
-| References | Optional |
 
 ## Content Boundaries
 
@@ -284,15 +245,6 @@ is durable but not frozen -- if the problem or outcome shifts
 materially before the downstream PRD lands, edit the brief and note the
 change in the Status section prose.
 
-### Directory Mapping
-
-| Status | Directory |
-|--------|-----------|
-| Draft, Accepted, Done | `docs/briefs/` |
-
-The brief never leaves `docs/briefs/`. No status triggers a directory
-move.
-
 ## Validation Rules
 
 `shirabe validate` recognizes `BRIEF-*.md` files by longest-prefix
@@ -309,57 +261,14 @@ visibility-gated section.
   `Published`) fails FC02 and the error lists the valid set.
 - **FC03 -- frontmatter status matches body `## Status`.** The check
   compares the frontmatter `status` against the *entire first non-blank
-  line* under the body `## Status` heading, case-insensitively. They
-  must be equal. Because the *whole* first line is compared, the line
-  must be the bare status word alone -- prose on that line makes the
-  compared value the whole sentence and fails the check.
+  line* under the body `## Status` heading, case-insensitively.
 - **FC04 -- required sections present.** The body carries all five
   required sections (Status, Problem Statement, User Outcome, User
   Journeys, Scope Boundary). A missing section fails FC04 and the error
   names it.
 
-### The `## Status` first-line convention (FC03 contract)
-
-FC03 is the one subtle check. The body `## Status` section MUST open
-with the bare status word -- `Draft`, `Accepted`, or `Done` -- alone on
-its own line, followed by a blank line, followed by any explanatory
-prose. The validator reads the entire first non-blank line under the
-heading and compares it to the frontmatter `status`; prose on that line
-fails the comparison.
-
-Passes FC03:
-
-```markdown
-## Status
-
-Accepted
-
-Phase 4 jury returned all-PASS. The downstream PRD owns the
-requirements articulation.
-```
-
-Fails FC03 (the compared value becomes the whole sentence, which does
-not equal `Accepted`):
-
-```markdown
-## Status
-
-Accepted. Phase 4 jury returned all-PASS and the downstream PRD owns
-the requirements.
-```
-
-The transition script preserves this shape automatically: it rewrites
-only the bare status word on the first line and leaves the prose
-paragraph below it untouched.
-
 ### During /brief (drafting)
 
-- Frontmatter has `schema`, `status`, `problem`, `outcome` fields
-- `schema` is `brief/v1`
-- Frontmatter `status` matches the body `## Status` first line (FC03)
-- All five required sections present (FC04) and in canonical order (FC15)
-- Status is `Draft`
-- Open Questions section may contain unresolved items
 - No `private/` paths, private repos, private filenames, internal
   codenames, or private issue numbers (public-visibility
   cleanliness). The qualifier "private" matters: public GitHub
@@ -368,18 +277,6 @@ paragraph below it untouched.
   (`tsukumogami/vision#NN`, `tsukumogami/coding-tools#NN`, etc.)
   are forbidden in a public BRIEF.
 
-### During /brief finalization (approval)
-
-- Open Questions section must be empty or removed
-- Phase 4 jury verdicts all PASS
-- User Journeys section contains at least one journey with a name
-  heading, a named user, a trigger, and an outcome shape
-- Scope Boundary section contains both an IN list and an OUT list with
-  real exclusions
-- Downstream Artifacts entries, if present, are durable paths (not
-  `wip/...`)
-- Status transitions to `Accepted` on explicit human approval
-
 ### When referenced by downstream workflows
 
 - Status must be `Accepted` or `Done` to serve as upstream context
@@ -387,13 +284,6 @@ paragraph below it untouched.
   approval first
 - A `Done` brief is still a valid upstream record -- its downstream PRD
   has simply already been authored
-
-### Status consistency
-
-- Frontmatter `status` and the body `## Status` first line must always
-  match (FC03)
-- The first line under `## Status` is always the bare status word; any
-  prose follows after a blank line
 
 ## Quality Guidance
 
@@ -454,48 +344,12 @@ authors should check these during drafting and validation.
   exclusions ("not solving unrelated problem X") defeat the section.
 - Helps prevent scope creep when the downstream PRD picks the brief up.
 
-### Open Questions (optional, Draft only)
-
-- Each question genuinely defers a framing detail to the downstream
-  PRD, not a blocker that should stop the brief. "The PRD picks the
-  exact required-field set against the bootstrapping constraint" is a
-  deferred detail; "we don't know if this feature should exist" is a
-  blocker the brief should resolve before Accepted.
-- Empty or removed before Draft -> Accepted.
-
-### Downstream Artifacts (optional)
-
-- Typed link list. Each entry: durable repo-relative path + one-sentence
-  purpose.
-- Paths are durable. `wip/...` paths fail the structural reviewer's
-  check.
-- Empty at draft creation; populated as the downstream PRD and design
-  land.
-
 ### Common Pitfalls
 
-- **Smuggling the solution into the Problem Statement.** The brief's
-  whole value is framing the problem before requirements exist. If the
-  Problem Statement already describes the feature, the framing step
-  collapsed into a solution sketch -- pull the solution out and name the
-  gap it answers.
-- **A feature list masquerading as a User Outcome.** Enumerating what
-  gets built is the easiest way to fail the outcome shape. Ask "what's
-  different for the user once this lands?" and write that.
-- **Indistinct journeys.** Four journeys that all describe "an author
-  uses the skill" are one journey told four ways. Each journey needs a
-  distinct entry point and trigger.
-- **Empty-calorie scope exclusions.** OUT items that no reader would
-  have assumed were in ("not building a time machine") satisfy the
-  structure but defend nothing. Each exclusion should be a boundary a
-  downstream author could otherwise cross by accident.
 - **Prose on the `## Status` first line.** The single most common FC03
   failure. The first non-blank line under `## Status` must be the bare
   status word alone; move every word of context to a paragraph after a
   blank line.
-- **Drifting into requirements.** A brief that grows acceptance
-  criteria, user stories, or interface shapes has climbed down into PRD
-  or DESIGN altitude. Defer that content downstream.
 
 ## Contribution to the Chain
 

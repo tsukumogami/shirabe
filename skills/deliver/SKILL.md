@@ -3,7 +3,8 @@ name: deliver
 description: >-
   Take a feature from scoping to its PRs in one session: run `/scope` with
   `--intent=continue` and then `/execute` on the PLAN it produces, merging
-  (when the repository's own rules allow it) unless run with `--no-merge`. Use
+  (when the repository's own rules allow it, and in an interactive run only
+  after a review pause) unless run with `--no-merge`. Use
   it when the author wants a topic done end to end without re-invoking
   anything between the two -- "scope and build this", "deliver the
   plugin-system feature", "take this from idea to PR" -- and to pick such a
@@ -22,38 +23,23 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 `/deliver <topic>` runs `/scope <topic> --intent=continue` and then
 `/execute docs/plans/PLAN-<topic>.md` in one session, without the author
 re-invoking anything. It passes `--merge` to `/execute` unless `--no-merge` is
-given, so a run ends `merged` wherever the repository's protection lets
-`/execute` merge, and in a named, resumable state everywhere else.
+given. An `--auto` run ends `merged` wherever the repository's protection lets
+`/execute` merge, and in a named, resumable state everywhere else. An
+interactive run, the default when neither flag nor the repository's
+`## Execution Mode:` header asks for `auto`, stops before the merge:
+
+| Token | Meaning |
+|-------|---------|
+| `paused-for-review` | Interactive only: `/execute`'s review pause, with the home PR still draft. |
 
 `/deliver` is a koto workflow, and it is thin in behaviour: it writes nothing
 to the repository itself. `/scope` and `/execute` do all of that, as the same
 root sessions (`scope-<topic>`, `execute-<topic>`) a person running them
-directly would get. What `/deliver` adds is the sequence and the checks
+directly would get. Visibility is checked where content is written: each
+child checks its writes against the repository it writes to, so `/deliver`
+runs in private repositories as well as public ones. What `/deliver` adds is the sequence and the checks
 between the two, and those live in its template,
 `skills/deliver/koto-templates/deliver.md`, not in this file.
-
-## How the Run Is Held Together
-
-Each invocation opens a fresh `deliver-<topic>` session and a fresh koto
-request with two legs, `scope` and `execute`. Each child joins its leg through
-its own `--koto-leg=<request-id>:<leg>` flag and reports through its terminal
-result, which koto records on the leg. `/deliver` reads each leg only through
-a `request-leg` gate in its template. It never parses what a child printed,
-and nothing you submit can stand in for a child's result.
-
-A child's word never moves the run forward on its own. Every forward step is
-re-checked against durable state first: the PLAN tracked and the scoping PR
-recording `intent=continue` after `/scope`, the PLAN's mode before `/execute`,
-the owned PR re-read after `/scope` reports an already-executed topic, and
-GitHub re-read before `merged` is reported. Those re-checks find the PR
-themselves through the shared ownership filter; a PR a leg names is never
-trusted. The gates that route on a leg or a re-check refuse
-`koto overrides record`, with or without `--with-data`.
-
-The request id is also the stale-run fence. Before this run's request is
-created, every request still open for the topic is abandoned, so a late
-result from an earlier run is refused at promotion and never read as this
-run's.
 
 ## Flags
 
@@ -193,95 +179,3 @@ state's directive without ticking. Never run a cleanup or cancel verb against
 a session this run did not open, and never `koto request resolve` a leg by
 hand: the one value `/deliver` ever writes to a leg is its own fixed
 child-absent record, written by the template.
-
-## Resume
-
-There is no resume state in `/deliver` itself. Every invocation opens a fresh
-session and a fresh request, and always enters through `/scope`, which owns
-every "where did this topic stop" question:
-
-- an unfinished `/scope` run in this working copy resumes inside `/scope` at
-  the hop it stopped; its session is re-pointed from the abandoned request to
-  this run's leg, so no second `scope-<topic>` session appears;
-- a topic whose PLAN exists passes through `/scope`, which re-runs its publish
-  step (opening the branch's PR if none is open), and then `/execute` adopts
-  that PR; no BRIEF, PRD, or DESIGN is written again;
-- a topic whose PLAN was already executed and removed isn't re-scoped: `/scope`
-  reports it, `/deliver` re-reads the owned PR, and the run ends `merged` or
-  `ready-awaiting-merge` without running `/execute`;
-- an unfinished `/scope` run started with a different intent isn't converted:
-  the run ends `outcome=error` with `step=deliver:intent-mismatch`.
-
-A `multi-pr` PLAN is never handed to `/execute`: the run ends
-`handed-off-multi-pr` and lists the startable items.
-
-## Final States
-
-`deliver-report.sh` prints `outcome=<token>` first, then the lines the result
-calls for.
-
-| Token | Meaning |
-|-------|---------|
-| `merged` | Every PR the PLAN needs reads MERGED on GitHub, coordination PR included, confirmed by `/deliver`'s own live read. |
-| `ready-awaiting-merge` | The PRs are open and ready, and at least one is unmerged; each is listed with `waiting=human` or `waiting=predecessor`. |
-| `paused-awaiting-merges` | Coordinated only: some PR can't start until a predecessor merges. Each unmerged PR is listed, with the `resume=` command. |
-| `paused-for-review` | Interactive only: `/execute`'s review pause, with the home PR still draft. |
-| `scoped` | The author declined the confirmation; the report prints `next=/deliver <topic>`. |
-| `handed-off-multi-pr` | The PLAN is `multi-pr`; `/execute` was not started, and the startable items follow. |
-| `scope-ended-early` | `/scope` ended at `re-evaluation`, `abandonment`, or a clean cancel; `reason=` names which. |
-| `error` | A step failed; `step=` names it: `/scope`'s and `/execute`'s own steps, `scope:refused` and `execute:refused` (a child's arguments or attach refused), `deliver:intent-mismatch`, `deliver:child-outcome` (a result `/deliver` doesn't recognise, or a re-check that failed), `deliver:child-absent` (a child returned without ever recording a result), `deliver:request-abandoned` (this run's request was abandoned under it), or `deliver:refused` (koto refused this invocation's own arguments). |
-
-The report also carries, where the run produced them, `repos=` (the
-repositories `/execute` wrote to), `pr=`, `pr_state=`, and `wip_paths=` (the
-`wip/` paths `/scope` published with its branch). Every value is checked
-against a closed pattern before it is printed.
-
-## Write Targets
-
-`/deliver` has one write of its own: the per-run koto request, in koto's local
-request store. Its template's default actions touch only that store and this
-run's own session context; none of them pushes, opens or edits a PR, or merges.
-
-Every repository write happens through its children, under their own
-declarations: `/scope`'s artifact commits, its `git push`, and its one
-`gh pr create` for the scoping PR; `/execute`'s commits, pushes, PR creation,
-readying, and, with `--merge`, its one `gh pr merge` call site. The re-checks
-`/deliver` runs between them only read git and GitHub.
-
-## Security Considerations
-
-- **Visibility is checked where content is written.** `/deliver` runs in public
-  and private repositories alike. It writes no repository content itself, so
-  the visibility rules apply at its children's writes, each against the
-  repository it writes to: `/scope`'s publish step runs the public-content
-  visibility check on the unpushed staging files when that repository declares
-  `## Repo Visibility: Public`, and `/execute` checks each pull request against
-  its own target repository (its Security Considerations say where). The
-  publish step scans only when the header says `Public`, so a public
-  repository with no header, or a misspelled one, publishes unscanned; the
-  header is the repository's own declaration, and /deliver no longer refuses
-  a repository that lacks it.
-- **Arguments are data.** Tokens reach koto only through the args file and
-  `--vars-file`, mapped with `jq`; koto enforces each variable's pattern before
-  any gate sees a value, and every gate command quotes its variables.
-- **Leg results are checked, not trusted.** Only a promoted result that passes
-  the gate's closed `expect` set can move the run; an explicit or refused
-  result reaches only an error. Every value the report prints from a leg is
-  checked against a closed pattern and dropped otherwise, so a leg can't carry
-  control characters or prose into the report.
-- **Merges stay gated by the repository.** `/execute --merge` merges only what
-  its merge decision table allows, and `/deliver` reports `merged` only after
-  its own live read. An unattended `--auto` run can merge only where the
-  repository's rules would let an ordinary contributor merge.
-- **Single machine.** koto's request store is local, so a `/deliver` run is a
-  single-machine flow.
-
-## Reference Files
-
-| File | Purpose |
-|------|---------|
-| `skills/deliver/koto-templates/deliver.md` | The workflow: states, gates, routing, results |
-| `skills/deliver/scripts/deliver-open.sh` | The koto entry: tokens to variables, a fresh session |
-| `skills/deliver/scripts/deliver-report.sh` | The printed report, from the terminal result |
-| `${CLAUDE_PLUGIN_ROOT}/references/koto-session-retention.md` | Why every tick carries `--no-cleanup` |
-| `skills/scope/SKILL.md`, `skills/execute/SKILL.md` | The children, including `--koto-leg`, `--intent`, and `--merge` |

@@ -17,8 +17,6 @@ Establish the runtime context for the rest of the workflow:
 - Constrain the `<topic>` slug to a safe character set.
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
   working tree.
-- Record the artifact decision as `produce`. `/brief` always writes a standalone
-  brief; the fold-into-PRD branch that once lived here is retired (see 0.5).
 - Initialize the `wip/` working directory with placeholder context for resume
   detection.
 
@@ -96,9 +94,10 @@ Parse what remains of `$ARGUMENTS` and classify into one of three modes:
 A ROADMAP is the only document the upstream-path entry mode accepts. A
 `docs/prds/PRD-*.md` path is not an upstream mode — it is rejected at step 0.3.
 
-A BRIEF's `upstream:` field holds nothing at all — its legal-parent set is
-empty, and `shirabe validate` rejects any value it carries. A follow-up brief
-born out of downstream work names what prompted it in prose rather than in
+A BRIEF's `upstream:` field may name only a STRATEGY or a VISION: the durable
+ancestor step 0.3a resolves, never the ROADMAP itself (see the `upstream`
+entry in `skills/brief/references/brief-format.md`). A follow-up brief born
+out of downstream work names what prompted it in prose rather than in
 frontmatter; a link there would point down or sideways in the chain, which the
 direction rule (`R10`) forbids.
 
@@ -158,13 +157,6 @@ canonicalize the path before any read:
 6. Verify the basename starts with `ROADMAP-`. Other prefixes indicate the user
    pointed at the wrong artifact type and the problem/outcome derivation will
    misfire.
-
-   **This check carries more weight than it used to.** A BRIEF records no
-   `upstream:` (see "Reading a document vs. recording it as `upstream`" below),
-   so nothing reaches frontmatter for a reviewer or the validator to catch a
-   wrong-type input. The basename rule is now the only guard between pointing
-   `/brief` at the wrong artifact and a brief whose problem and outcome were
-   silently derived from it.
 
 On any rejection, abort with a message that names the offending path and the
 reason. Do not silently fall back to freeform-topic mode — the user provided a
@@ -295,28 +287,6 @@ declines to write one.
 Phase 0 records `## Artifact Decision` as `produce` in the context file (step 0.6)
 and continues. The key is kept because downstream phases and the resume ladder read
 it; it no longer has a second value.
-
-**What changed and why.** An earlier revision decided here whether the framing
-should live in its own document or be folded into the downstream PRD. The decision
-had two defects that could not be fixed in place. It fired before any brief
-existed, so nothing it read could tell whether the brief would have carried
-something the PRD would not — the question it was trying to answer was not
-answerable yet. And nothing received what it folded: the path recommended `/prd`
-and named the content to carry forward, but `/prd` had no absorb step and no input
-mode for folded framing, so a fold left the framing in the ephemeral source it was
-supposed to be rescued from.
-
-The reader-economy goal that path served is real, and it is now served where the
-reduction can actually be verified. `/scope`'s Phase 2 runs a consolidation
-judgment after each artifact lands: it reads the BRIEF and the PRD, checks
-section by section that the PRD carries the brief's problem, outcome, journeys,
-and boundary, and only then removes the brief. See the Consolidation Judgment
-section of `skills/scope/references/phases/phase-2-chain-orchestration.md`, which
-is where that judgment's bounds live.
-
-An author invoking `/brief` directly gets a brief and, at Phase 5, a
-recommendation to run `/prd <brief-path>` — one command away from the chain that
-can perform the reduction.
 
 ## 0.6 Initialize wip/
 

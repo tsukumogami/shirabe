@@ -37,8 +37,12 @@
 #      instead (reconcile-settle.sh).
 #   2. Refuse a topic a live session already uses (exit 5): koto session names
 #      are machine-wide, so a second worker on one topic would collide.
-#   3. Check the brief input (render-brief.sh). A refusal exits 1 with
-#      nothing written anywhere. The brief itself is written after step 4, so
+#   3. Check the brief input (render-brief.sh), the entry point's target
+#      requirement included. A refusal exits 1 with nothing written
+#      anywhere; a target visibility that can't be read exits 2, also with
+#      nothing written. On a resumed `dispatching` run the row and leg
+#      already exist, so a refusal here (a target whose visibility changed
+#      since) leaves them for the next run or reconcile. The brief itself is written after step 4, so
 #      it shows the same invocation, --koto-leg included, as the prompt.
 #   4. Open the leg, when references/entry-points.tsv gives the entry point
 #      one: a one-leg koto request whose leg is the skill's own leg name,
@@ -49,7 +53,9 @@
 #      empty (not yet known) and the pull request cell empty, the record's
 #      "none yet".
 #   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
-#      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300).
+#      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300),
+#      plus `--brief <brief> --skill shirabe:<entry point>` when the installed
+#      niwa lists both flags in `niwa dispatch --help`.
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. On a failure or the deadline, look for the topic's
@@ -371,7 +377,7 @@ EOF
 fi
 
 # The brief, the worker's invocation and the prompt, all from the one builder.
-BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH")
+BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
 case "$?" in
     0) ;;
     1) exit 1 ;;
@@ -399,9 +405,29 @@ if [ "$STATUS" != dispatching ]; then
     write_row "$ROW"
 fi
 
+# The worker's lineage: the brief it runs and the skill it's asked to run, so
+# niwa can put both on the worker's telemetry. niwa takes --brief and --skill
+# from 0.28.0; an older niwa refuses flags it doesn't know, which would fail
+# the dispatch, so they're added only when `niwa dispatch --help` lists both,
+# and the launch is otherwise exactly what it was. The skill is the entry
+# point's own name (the skill column of entry-points.tsv), which niwa requires
+# as <plugin>:<name> in lowercase letters, digits and dashes.
+LINEAGE=()
+HELP=$(dc_with_deadline 30 "$NIWA" dispatch --help 2>/dev/null) || HELP=""
+case "$HELP" in
+    *--brief*)
+        case "$HELP" in
+            *--skill*)
+                LINEAGE=(--brief "$BRIEF")
+                printf '%s' "$ENTRY" | grep -Eq '^[a-z0-9][a-z0-9-]*$' && LINEAGE+=(--skill "shirabe:$ENTRY")
+                ;;
+        esac
+        ;;
+esac
+
 # Launch.
 LOG="$WORK/niwa.out"
-(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach) >"$LOG"
+(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach ${LINEAGE[@]+"${LINEAGE[@]}"}) >"$LOG"
 RC=$?
 if [ "$RC" -eq 0 ]; then
     NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)

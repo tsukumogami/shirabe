@@ -1,0 +1,184 @@
+{
+  "version": 2,
+  "criteria": [
+    {
+      "rule_id": "rs-001",
+      "rule_ref": "CLAUDE.md",
+      "group": "attribution-trailer",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "attribution",
+      "question": "Are the body and the added lines free of attribution and session trailers?",
+      "values": {
+        "pass": "No attribution line, co-author trailer, generated-with line or session link appears.",
+        "fail": "At least one attribution line, co-author trailer, generated-with line or session link appears."
+      },
+      "escape": {
+        "unclear": "The text could not be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-002",
+      "rule_ref": "skills/public-content/SKILL.md",
+      "group": "private-name",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "private_terms",
+      "applies_to": "public",
+      "question": "Are the body and the added lines of a public repository free of private terms and home-directory paths?",
+      "values": {
+        "pass": "No term from the local private-term list, in any checked form, and no home-directory path appears.",
+        "fail": "A private term in some checked form, or a home-directory path, appears."
+      },
+      "escape": {
+        "unclear": "No private-term list was supplied, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-003",
+      "rule_ref": "CLAUDE.md",
+      "group": "scratch-path",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "scratch_path",
+      "question": "Do the body and the added lines outside the scratch directory avoid naming paths inside it?",
+      "values": {
+        "pass": "No added line outside the scratch directory, and no body line, names a path inside it.",
+        "fail": "A body line or an added line outside the scratch directory names a path inside it."
+      },
+      "escape": {
+        "unclear": "The text could not be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-004",
+      "rule_ref": "references/pr-body-conformance.md",
+      "group": "unfinished-wording",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "unfinished_wording",
+      "question": "Is the body's first part free of wording that marks work as unfinished?",
+      "values": {
+        "pass": "No phrase from the fixed unfinished-work list appears in the body's first part.",
+        "fail": "A phrase from the fixed unfinished-work list appears in the body's first part."
+      },
+      "escape": {
+        "unclear": "The body could not be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-005",
+      "rule_ref": "skills/writing-style/SKILL.md",
+      "group": "pasted-paragraph",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "pasted_paragraph",
+      "question": "Is every changed Markdown file free of a paragraph that appears twice?",
+      "values": {
+        "pass": "No paragraph longer than 60 characters appears twice in any changed Markdown file.",
+        "fail": "A paragraph longer than 60 characters appears twice in a changed Markdown file."
+      },
+      "escape": {
+        "unclear": "A changed file could not be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-006",
+      "rule_ref": "references/cross-repo-references.md",
+      "group": "dangling-reference",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-text",
+      "observer": "script",
+      "check": "dangling_path",
+      "question": "Does every backticked repository path in an added Markdown line exist at the head?",
+      "values": {
+        "pass": "Every backticked repository path in an added Markdown line names a file or directory that exists at the head.",
+        "fail": "A backticked repository path in an added Markdown line names nothing at the head."
+      },
+      "escape": {
+        "unclear": "The repository's file list could not be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-007",
+      "rule_ref": "references/pr-body-conformance.md",
+      "group": "body-vs-diff",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-summary",
+      "observer": "jev",
+      "question": "Does the pr_body_part1 text claim only changes that the diff_summary file list shows?",
+      "values": {
+        "pass": "Every change the text claims is consistent with the files and line counts in the list.",
+        "fail": "The text claims a change, a file, or a scope of change that the list doesn't show."
+      },
+      "escape": {
+        "unclear": "The text or the list is empty or unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-008",
+      "rule_ref": "references/pr-body-conformance.md",
+      "group": "body-vs-diff",
+      "artifact_kind": "pull-request",
+      "slice_kind": "pr-summary",
+      "observer": "jev",
+      "question": "Does the pr_body_part1 text mention every significant change that the diff_summary file list shows?",
+      "values": {
+        "pass": "Every significant area of change in the list is described or clearly covered by the text.",
+        "fail": "The list shows a significant change, such as new code, a new workflow or a deleted component, that the text never mentions."
+      },
+      "escape": {
+        "unclear": "The text or the list is empty or unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-009",
+      "rule_ref": "skills/design/references/phases/phase-6-final-review.md",
+      "group": "doc-contradiction",
+      "artifact_kind": "pull-request",
+      "slice_kind": "doc-pairs",
+      "observer": "jev",
+      "question": "Are location_a and location_b, two passages from the same document, consistent with each other?",
+      "values": {
+        "pass": "The two passages agree, or talk about different things.",
+        "fail": "The two passages state conflicting facts, such as different numbers, names, statuses or behaviour for the same thing."
+      },
+      "escape": {
+        "unclear": "A passage is empty or truncated, so it can't be judged."
+      },
+      "threshold": 0.9,
+      "enabled": false
+    },
+    {
+      "rule_id": "rs-010",
+      "rule_ref": "skills/work-on/references/phases/phase-4-implementation.md",
+      "group": "stale-comment",
+      "artifact_kind": "pull-request",
+      "slice_kind": "code-hunks",
+      "observer": "jev",
+      "question": "In these diff hunks, does every code comment still describe the code as it reads after the change?",
+      "values": {
+        "pass": "Every comment in the hunks is consistent with the code after the change.",
+        "fail": "A comment in the hunks describes behaviour the changed code no longer has, or code that isn't there."
+      },
+      "escape": {
+        "unclear": "The hunks have no comment or are unreadable, so it can't be judged."
+      },
+      "threshold": 0.9,
+      "enabled": false
+    }
+  ]
+}

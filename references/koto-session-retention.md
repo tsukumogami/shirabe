@@ -22,8 +22,8 @@ It describes koto 0.14.0 and later. shirabe's koto minimum is 0.14.1
 koto decides at the tick that reaches a terminal state whether to keep the
 session. A session it does not keep is disposed of, and every context key the
 run accumulated goes with it at once —
-for `/work-on` that is `plan.md` and seven others, including the running record
-that carries a CORRECTION block per review round.
+for `/work-on` that is `plan.md`, `summary.md` and the panels' verdicts among
+others.
 
 A session is kept when either holds:
 

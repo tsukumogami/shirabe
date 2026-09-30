@@ -191,20 +191,3 @@ Produce a brief summary (2-3 sentences) covering:
 For full-plan delegation: return this summary to the main agent.
 For simplified-plan inline: this becomes the rationale on the next
 `koto next` evidence submission.
-
-Don't classify the issue as `code`, `docs`, or `task` here, and don't
-include `issue_type` in the summary or the evidence: `analysis` doesn't
-accept it. The workflow asks for the type exactly once, at the
-`issue_type_routing` state after implementation, when the changed paths
-are known. Any `ISSUE_TYPE` hint from the plan context is read there.
-
-## Success Criteria
-
-The plan is complete when:
-
-- [ ] Plan has all appropriate sections for the issue type
-- [ ] At least 2 alternatives considered (full plan, non-trivial issues)
-- [ ] Files to modify/create identified with specific changes
-- [ ] Implementation steps are ordered and actionable
-- [ ] Testing strategy present (full plan only)
-- [ ] No blocking questions remain

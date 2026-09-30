@@ -12,7 +12,7 @@ Spawn all three simultaneously using the Task tool:
 
 ## Evidence Format
 
-Each reviewer writes full findings to `wip/research/work-on_review_<focus>_<WF>.md` and returns a compact JSON summary:
+Each reviewer writes full findings to a `mktemp`-produced file outside the repository and returns a compact JSON summary:
 
 ```json
 {
@@ -20,9 +20,11 @@ Each reviewer writes full findings to `wip/research/work-on_review_<focus>_<WF>.
   "blocking_count": 0,
   "advisory_count": 2,
   "summary": "<1-3 paragraphs>",
-  "detail_file": "wip/research/work-on_review_pragmatic_<WF>.md"
+  "detail_file": "<the reviewer's mktemp path>"
 }
 ```
+
+Delete the detail files once the round is aggregated; anything worth keeping goes into `review_results.json`.
 
 ## Aggregation
 
@@ -33,10 +35,12 @@ After all three return:
 
 ```bash
 koto context add <WF> review_results.json < /dev/stdin <<EOF
-{"passed": true, "round": 1, "blocking_count": 0}
+{"passed": true, "round": <N>, "blocking_count": 0}
 EOF
 koto next <WF> --with-data '{"review_outcome": "passed"}' --no-cleanup
 ```
+
+`<N>` is the number of the review round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
 
 ## Retry Loop
 
@@ -60,14 +64,8 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 The `review_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All four keys go, not only this panel's — see `review-panel-orchestration.md` for why a retry raised anywhere invalidates every panel's verdict, and `summary.md` with them.
-
-The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
-
-That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
-
-The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
+All four keys go, not only this panel's — see `phase-4a-scrutiny.md` for why a retry raised anywhere invalidates every panel's verdict, and `summary.md` with them.
 
 ## Escalation
 
-If a blocking finding cannot be resolved, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.

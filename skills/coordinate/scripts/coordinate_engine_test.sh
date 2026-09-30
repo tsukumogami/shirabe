@@ -622,6 +622,37 @@ for route in tool message; do
     fi
 done
 
+# ---- 16. a unit that isn't a topic is refused where it is read ----------------
+echo "== 16. a unit's tag in place of its topic goes back to be submitted again =="
+if to_pick untopic "$(record_json roadmap untopic | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 960; then
+    # pick's unit is a dispatch topic, never the unit's tag (shirabe#492).
+    eq "16: dispatch with unit \"Feature 1\" comes back to pick" pick "$(at --with-data '{"choice":"dispatch","unit":"Feature 1"}')"
+    from_to dispatch_check pick_facts && ok "16: the route was dispatch_check -> pick_facts" || bad "16: the route was dispatch_check -> pick_facts"
+    eq "16: dispatch is never entered" 0 "$(entered dispatch)"
+    case "$(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null | jq -r .reason)" in
+        "pick's unit [Feature 1] is not a dispatch topic"*) ok "16: the refusal names the field and the value" ;;
+        *) bad "16: the refusal names the field and the value" "$(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>&1)" ;;
+    esac
+    eq "16: the same pick with its topic goes on to dispatch" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-2"}')"
+else
+    bad "16: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+if to_pick unmerged "$(record_json roadmap unmerged | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 961 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    # A merged event naming the unit's title rather than its topic (shirabe#547).
+    eq "16: merged with a unit's title comes back to wait" wait "$(at --with-data '{"event":"merged","unit":"Feature 16: example"}')"
+    from_to merged_facts wait && ok "16: the route was merged_facts -> wait" || bad "16: the route was merged_facts -> wait"
+    case "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>/dev/null | jq -r .reason)" in
+        "the merged event's unit [Feature 16: example] is not a topic; unit takes the dispatch topic of a holding"*)
+            ok "16: the refusal names the field, the value and what it takes" ;;
+        *) bad "16: the refusal names the field, the value and what it takes" "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>&1)" ;;
+    esac
+    tick --with-data '{"event":"quiet"}' >/dev/null
+    from_to wait quiet_check && ok "16: back at wait, the next event is taken" || bad "16: back at wait, the next event is taken" "$(now_at)"
+else
+    bad "16: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
 echo
 echo "coordinate_engine: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -53,7 +53,7 @@ if clear. Continue without waiting.
 
 ### For known decision points
 
-Read `references/decision-points.md` to find the pre-assigned tier for each
+Read `docs/specs/decision-points.md` to find the pre-assigned tier for each
 known decision point. No runtime classification needed.
 
 ### For emergent decisions
@@ -99,6 +99,10 @@ After writing a decision block, append an entry to the consolidated file:
 
 The consolidated file is the source of truth for review. Inline blocks are
 write-time snapshots.
+
+A koto-driven skill (one whose run is a koto session, such as `/work-on`)
+records each decision with `koto decisions record <WF>` instead of an inline
+block and index row; the session's decision log is its source of truth.
 
 ## Interaction with --auto mode
 

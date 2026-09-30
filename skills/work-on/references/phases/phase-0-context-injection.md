@@ -24,14 +24,5 @@ based on the design excerpt. If context is incomplete, gather more from:
 - Open or closed issues for prior decisions
 - Milestone context for broader goals
 
-If you updated the content, store it back:
-
-```bash
-koto context add <WF> context.md --from-file <updated-file>
-```
-
-## Evidence
-
-Submit `status: completed` after the context artifact exists, `status: override`
-if providing context through a different mechanism, or `status: blocked` if the
-issue cannot be reached.
+If you updated the content, store it back under `context.md`, by stdin pipe or
+a `mktemp` file deleted after ingestion (see `../koto-context-conventions.md`).

@@ -63,8 +63,21 @@
 #   dc_entry_field <skill> <n>
 #       Prints field n of the skill's row: 1 skill, 2 leg (or -), 3 admitted
 #       templates, comma-joined (or -), 4 pinned inputs as VAR=source pairs
-#       (or -), 5 allowed flags (or -). DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED
-#       and DC_F_FLAGS name them.
+#       (or -), 5 allowed flags (or -), 6 the visibility its targets must have
+#       (any, public or private), 7 the entry point to name instead (or -).
+#       DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED, DC_F_FLAGS, DC_F_TARGET_VIS and
+#       DC_F_INSTEAD name them.
+#
+#   dc_entry_target_visibility <skill>
+#       Prints the visibility the skill's targets must have: `any`, `public`
+#       or `private`. A row without the field reads as `any`; any other value
+#       returns 2, so a malformed table never passes a dispatch.
+#
+#   dc_repo_visibility <owner/repo>
+#       Prints `public` or `private`, read live from `gh api --method GET
+#       repos/<r>`'s `visibility`, the read the merge gate's resolver makes;
+#       `internal` and any other value print `private`. Returns 2, printing
+#       nothing, when the read fails: a caller never guesses.
 #
 #   dc_flag_allowed <skill> <flag>
 #       0 when the flag is in the skill's allowed set: an exact entry, or a
@@ -144,6 +157,8 @@ DC_F_LEG=2
 DC_F_TEMPLATES=3
 DC_F_PINNED=4
 DC_F_FLAGS=5
+DC_F_TARGET_VIS=6
+DC_F_INSTEAD=7
 # koto's request-id grammar, and its leg-name grammar.
 DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
@@ -151,12 +166,16 @@ DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
+# The dispatch topic's grammar, which a refusal names as the accepted values.
+DC_RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
+DC_TOPIC_GRAMMAR="$DC_RE_TOPIC (at most 64 characters)"
+
 dc_valid_topic() {
     case "$1" in
         '' | -*) return 1 ;;
     esac
     [ "${#1}" -le 64 ] || return 1
-    printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*$'
+    [[ $1 =~ $DC_RE_TOPIC ]]
 }
 
 dc_niwa_slug() {
@@ -253,6 +272,27 @@ dc_entry_field() {
     local row
     row=$(dc_entry_row "$1") || return $?
     printf '%s\n' "$row" | cut -f"$2"
+}
+
+dc_entry_target_visibility() {
+    local v
+    v=$(dc_entry_field "$1" "$DC_F_TARGET_VIS") || return $?
+    case "$v" in
+        '' | any) printf 'any\n' ;;
+        public | private) printf '%s\n' "$v" ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_repo_visibility() {
+    local json v
+    json=$(gh api --method GET "repos/$1" </dev/null) || return 2
+    v=$(printf '%s' "$json" | jq -r 'if type == "object" then (.visibility // "") else "" end') || return 2
+    case "$v" in
+        public) printf 'public\n' ;;
+        '') return 2 ;;
+        *) printf 'private\n' ;;
+    esac
 }
 
 dc_flag_allowed() {

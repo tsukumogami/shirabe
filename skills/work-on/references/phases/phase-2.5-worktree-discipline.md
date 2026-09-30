@@ -1,44 +1,12 @@
-# Phase 2.5: Worktree Discipline Check (Plan-Orchestrator Only)
+# Phase 2.5: Worktree Discipline Check
 
-Decide whether upstream main movement invalidates the PLAN's intent, before
-any child workflow is dispatched. This phase runs inside the
-`worktree_discipline_check` koto state defined in
-`skills/execute/koto-templates/execute.md`.
-
-## When This Phase Runs
-
-This phase runs at most once per run, between `orchestrator_setup` and
-`spawn_and_await`, in plan-orchestrator mode (`/execute` on a
-`schema: plan/v1` doc). Single-issue `work-on.md` invocations do NOT execute
-this phase.
-
-Most runs never reach it. Before this state, koto runs two mechanical states
-itself:
-
-- `drift_facts` fetches `origin`, finds the PLAN's base (the merge-base of the
-  PLAN's last commit and `origin/main`), and compares what main changed since
-  then against the paths the PLAN references. It writes the result to the
-  `drift_facts.json` and `plan_intent.md` context keys.
-- `worktree_sync` rebases the shared branch onto that `origin/main`.
-
-When the facts say main didn't move, or moved only in paths the PLAN doesn't
-reference, the run goes straight to `spawn_and_await` and nobody is asked
-anything. You're here only when the facts couldn't rule drift out: main
-changed or deleted a path the PLAN references, the facts were cut to fit their
-size limit, or the PLAN references no path beyond itself and its upstreams.
-
-## Goal
-
-Catch upstream drift before the children start rather than at PR
-finalization. When main has advanced under a long-running PR's shared branch,
-the PLAN's foundation may have shifted in ways the operator needs to act on
-before the first child commits. Deciding this at the point recovery is
-cheapest is the contract this phase delivers.
+The steps for `/execute`'s `worktree_discipline_check` state.
 
 ## Steps
 
-You don't fetch, rebase, or write any file in this phase. The fetch and the
-rebase already happened, and the facts are already recorded.
+You don't fetch, change the branch, or write any file in this phase. The fetch
+and the catch-up with main already happened, and the facts are already
+recorded.
 
 ### 2.5.1 Read the Facts and the PLAN's Intent
 
@@ -72,14 +40,13 @@ outline's goal -- what the PLAN is trying to do, which is what the changes are
 measured against.
 
 If `drift_facts.json` doesn't exist, the `drift_facts` state was overridden
-and nothing was precomputed. Find the pre-rebase commit in `git reflog`, and
-compare what `origin/main` changed since its merge-base with that commit
-against the PLAN yourself.
+and nothing was precomputed. Find the shared branch's commit from before the
+catch-up with main in `git reflog`, and compare what `origin/main` changed since
+its merge-base with that commit against the PLAN yourself.
 
 ### 2.5.2 Classify Upstream Impact
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` for the full
-classification rule. There are two classes here; the third, "none", belongs to
+Classify main's changes as one of two classes; the third, "none", belongs to
 the script, which has already routed that case past this state.
 
 - **Informational** -- main touched paths the PLAN references, but the changes
@@ -96,7 +63,7 @@ the facts can't tell; judge it from `commits_since_base` and what main
 changed. If main didn't advance at all, it's `informational`.
 
 The classification is about whether the PLAN's foundation still holds, not
-about whether the rebase was mechanically clean. A clean rebase can silently
+about whether the catch-up was mechanically clean. A clean one can silently
 land a contract change that breaks the PLAN's references; a mechanical
 conflict can be in a file the PLAN doesn't care about.
 
@@ -119,26 +86,5 @@ why every line above carries `--no-cleanup`: without it, the `intent-changing`
 tick disposes of the orchestrator's session and destroys the record of why the
 chain was stopped.
 
-This file sits under `/work-on` but is read only by `/execute`'s
-`worktree_discipline_check`, which runs on the orchestrator — always a root — so
-the flag is correct here even though `/work-on`'s other phase files must not
-carry it. See
+Every `koto next` carries `--no-cleanup`, on a root and on a child alike; see
 [`references/koto-session-retention.md`](../../../../references/koto-session-retention.md).
-
-## Why This Phase Exists
-
-Without it, `/work-on`'s plan-orchestrator mode could ship a PR whose PLAN
-foundation has silently shifted out from under it. The catastrophic failure
-mode (SE11 PR-141 in the v0.7.0 friction record) hit when main moved during a
-multi-day chain run and the operator only discovered the drift at PR
-finalization — at which point recovery costs were maximal. This phase moves
-the detection point to before the first child, where recovery is cheapest,
-and the facts computed ahead of it keep the question from being asked when the
-answer is mechanical.
-
-## Quality Checklist
-
-- [ ] `drift_facts.json` and `plan_intent.md` were read before classifying
-- [ ] `impact` value is one of `informational`, `intent-changing`
-- [ ] `rationale` is populated when `impact` is `intent-changing`
-- [ ] The `koto next` submission carries `--no-cleanup`

@@ -88,19 +88,7 @@ Outcomes:
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
 
-The gate carries no project-specific commands. Those live only in the project's
-extension file; this skill holds the discipline, not the commands.
-
 ### Finalization and No Silent Deferral
-
-After verification passes, the `finalization` state assembles the summary and decides
-whether the issue is done. `/work-on` cannot self-report an issue done with an unmet or
-deferred acceptance criterion (R4, R5). The clean `deferred_items_noted` terminal that
-once let the agent ship a unilateral deferral is removed.
-
-`ready_for_pr` is only reachable after verification ran and passed — finalization is
-reached only via `verification_outcome: passed`, so a finalization that reports done is
-backed by run verification evidence, not by the mere presence of a verification artifact.
 
 When an acceptance criterion is unmet, finalization reports `deferral_requested`, which
 routes to the blocking `deferral_approval` human gate. The human makes an explicit
@@ -111,12 +99,6 @@ decision:
   deferred and on whose authority. The workflow then proceeds to PR creation.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
-
-A finalization-checklist item disallows unapproved caveat or hedge language
-("experimental", "not yet handled", "known limitation") in the issue's shipped
-artifacts. A caveat is legitimate only where it records an approved deferral (R6). This
-is enforced by the deferral gate plus the checklist — no approval means no caveat — not
-by a brittle word-grep that would flag legitimate uses of those words.
 
 ## Plan Input (Dispatcher)
 
@@ -173,20 +155,13 @@ For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `p
 
 Skip staleness checks in plan-backed mode.
 
-When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. koto skips `setup_plan_backed` (its `skip_if` records `status: override`), so the response arrives with `advanced: true`: submit nothing for that state, call `koto next` again, and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
 
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
 
-**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. The type is asked exactly once, at the `issue_type_routing` state, after implementation. It is not submitted during `analysis` or `implementation`. When `implementation_status: complete` is submitted, koto records the changed paths itself (`changed_paths_record`, which writes `changed_paths.txt` from the `impl_base` commit `analysis` recorded on entry) and stops at `issue_type_routing`, where the agent confirms or overrides the hint against those paths and submits `issue_type`:
-- `code` — proceeds through scrutiny → review → qa_validation; scrutiny won't pass while the run has no commits since `impl_base`
-- `docs` — skips the panels and goes to verification; needs at least one commit since `impl_base`
-- `task` — skips the panels and goes to verification; needs no commits
-
-When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), the hint defaults to `code`; the question at `issue_type_routing` is asked either way.
-
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
-The plan-level orchestrator — shared branch and draft PR, child spawning, cross-issue context assembly, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
+The plan-level orchestrator — shared branch and draft PR, child spawning, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
 
 ---
 
@@ -211,8 +186,9 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
   --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 ```
 
-**Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
-PLAN doc and provide them as the task description in the entry evidence.
+**Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
+`SHARED_BRANCH`, `ISSUE_TYPE`) and enters with `mode: plan_backed` (see **Plan-Backed Child
+Mode**), which routes to `plan_context_injection`.
 
 **Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open
 the session through `work-on-open.sh` as **Answering a Caller's Leg** below says.
@@ -305,16 +281,6 @@ refused as `input-mismatch` on the leg. A
 coordinator running several workers gives each its own request, or at least its own
 leg, since one leg answers one session.
 
-### Branch Setup
-
-Branch creation is conditional. Before creating a new branch in any setup state, check whether you already have an appropriate working branch:
-
-- **User instruction**: if the user asked you to continue on the current branch, submit `status: override` in the setup state
-- **Plan-backed mode**: if `SHARED_BRANCH` is set, the orchestrator has already created the branch — commit directly to it with `status: override`
-- **Resuming work**: if already on a feature branch from a previous session on this issue, `status: override` is correct
-
-Only create a new branch when none of the above apply. The setup states (`setup_issue_backed`, `setup_free_form`, `setup_plan_backed`) all accept `status: override` for these cases.
-
 ### Scripts
 
 - `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
@@ -362,10 +328,7 @@ whether this run is a root or a child that `/execute` materialized from
 `work-on.md`.** Without it, the tick that reaches a success terminal disposes of
 the session and takes `plan.md` and the run's other context keys with it. koto
 keeps a session that reaches a failure terminal either way, and on a child the flag only keeps the session: the child's result still
-reaches its parent on that tick. Why the rule is every tick rather than a
-predicted last one, and the koto commands that read a kept session, are in
-[`references/koto-session-retention.md`](../../references/koto-session-retention.md);
-`scripts/terminal-retention_test.sh` pins the behaviour.
+reaches its parent on that tick. `scripts/terminal-retention_test.sh` pins the behaviour.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
@@ -395,17 +358,7 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
 4. If none, `koto init` fresh (under `--koto-leg`, through `work-on-open.sh`).
 
 Ticking is not a substitute for the state read: a finished session answers
-`action: "done"` to any tick, which the loop would report as this run's outcome. See
-[`references/koto-session-retention.md`](../../references/koto-session-retention.md)
-§ "What retention does not buy".
-
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent. (Per R9, /work-on does not
-add a Resume Logic row -- the sentinel detection is scoped to the
-seven authoring children.)
+`action: "done"` to any tick, which the loop would report as this run's outcome.
 
 ### Decision Capture
 
@@ -426,8 +379,11 @@ its own: its commits land on the branch `/execute` owns.
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). In --auto
-mode, follow `references/decision-protocol.md` at decision points (W1, W2).
-Safety gates (W3, W4) remain blocking in both modes. Use
+mode, follow `references/decision-protocol.md` at decision points W1 (handling a
+`needs-triage` issue) and W2 (clarifying an ambiguity during introspection). Safety
+gates W3 (CI failure guidance) and W4 (accepting a red check) remain blocking in both
+modes: blocking means the run ends at `done_blocked` through `failing_unresolvable`,
+and an unattended run never asks the user instead. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
@@ -447,19 +403,14 @@ those for project-specific quality and PR requirements.
 Then:
 1. `koto workflows` — find a workflow matching this issue, or `koto init` with
    the template path and appropriate variables if none does. Under
-   `--koto-leg`, on a found workflow apply the Resume guard of step 2 first,
+   `--koto-leg`, on a found workflow apply the **Resume** guard first,
    then open through `work-on-open.sh` (see **Answering a Caller's Leg**),
    fresh or resumed.
-2. On a resumed workflow, apply the **Resume** guard above before ticking it
-   (under `--koto-leg`, step 1 already did):
-   `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not
-   a resume. Never tick it and never report the issue complete on its strength.
-   Otherwise resume with `koto next <WF> --no-cleanup`.
-3. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
+2. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
    later tick:
    - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
    - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
-4. Enter the execution loop.
+3. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
 proceeds with generic behavior: no language-specific quality checks. The `needs-design`

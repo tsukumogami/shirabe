@@ -26,6 +26,8 @@ version: "1.0"
 #                               decider input; progress-view.sh's input)
 #   coord/dispatch_check.json   dispatch_check: the verdict, the checked
 #                               choice and topic, open deferrals, counts
+#   coord/merged_facts.json     merged_facts, on unknown-topic only: the
+#                               refused unit, the accepted topics and why
 #   coord/record_confirm.json   record, verified_confirm: the source state, the
 #                               expectation and why it isn't met yet
 #   coord/report.json           report_facts: the unit's holding and pull
@@ -492,7 +494,7 @@ states:
             - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
-        description: The dispatch topic of the unit picked, when the choice dispatches.
+        description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here.'
       rationale:
         type: string
         description: Why this choice, especially when it departs from the facts' order.
@@ -565,6 +567,12 @@ states:
       - target: decision_next
         when:
           gates.dispatch_check_verdict.exit_code: 45  # decision-owed
+      - target: pick_facts
+        when:
+          gates.dispatch_check_verdict.exit_code: 46  # unknown-topic
+      - target: failure
+        when:
+          gates.dispatch_check_verdict.exit_code: 47  # unresolved-topic
 
   deferral_dispose:
     accepts:
@@ -641,7 +649,7 @@ states:
         description: What arrived, or what is due.
       unit:
         type: string
-        description: The dispatch topic the event is about, when it is about one.
+        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here.
       report:
         type: string
         description: With a report event, the worker's message as it arrived.
@@ -1455,6 +1463,9 @@ states:
       - target: wait
         when:
           gates.merged_facts_verdict.exit_code: 92  # not-merged
+      - target: wait
+        when:
+          gates.merged_facts_verdict.exit_code: 46  # unknown-topic
 
   surface:
     # A blocker is sent only as one of the closed need kinds, which
@@ -2243,7 +2254,25 @@ where the worker stops; none may wait on an approval), the acceptance
 criteria, your session name, the decisions the worker can't see anywhere it
 will read, pointers to pushed artifacts, the discipline coordinator for each
 surface the work touches when you know them, and the workspace's standing
-rules for workers, copied verbatim.
+rules for workers, copied verbatim. When the unit lands anywhere besides its
+repository, list those repositories as `targets`; for a unit a PLAN drives
+(`/shirabe:execute`, including a scoped unit's execution sent later), they are
+the repositories its issues land in.
+
+Before anything is written, the script checks the unit's targets against the
+entry point's requirement in `references/entry-points.tsv`: an entry point
+that takes only public (or only private) repositories refuses a unit landing
+anywhere else, exit 1, with no leg opened, holding written or worker launched,
+and the refusal names the entry point to use instead. Every exit-1 refusal
+says what to change, so follow its text: for a target the entry point can't
+take, rewrite the input for the entry point it names (when it names none, the
+unit goes back to pick); for a missing or malformed `targets`, fix that list.
+Then run the script again. An exit 2 means the check couldn't run (a
+visibility read failed, or the table is malformed) and nothing was opened: it
+is not a cue to change entry points; run the script again once, and if it
+fails the same way, surface it. Neither is a `dispatched: failed`. No entry
+point carries a requirement today, so the check passes every target until one
+does.
 
 The script renders the brief to the workspace manager's brief directory, opens
 a request leg when the entry point accepts `--koto-leg`, writes the holding

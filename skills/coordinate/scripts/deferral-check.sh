@@ -4,6 +4,13 @@
 # row.
 #
 # Check mode, first that applies:
+#   unknown-topic         the pick being checked dispatches (dispatch,
+#                         scope_ahead, send_execution) and its `unit` isn't a
+#                         dispatch topic (dispatch-common.sh dc_valid_topic,
+#                         the grammar render-brief.sh holds a brief to): a
+#                         unit's tag such as "Feature 2" is refused before
+#                         any read, nothing is written, and pick is asked
+#                         again
 #   record-changed        the record the run found (coord-log.sh run-facts) is
 #                         gone, closed, or no longer a canonical record of
 #                         this scope, or the run has no found record
@@ -22,6 +29,12 @@
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
 #                         it an unrecorded write or an owed message
+#   unresolved-topic      a redispatch (or any visit not from a pick) whose
+#                         unit resolves to no dispatch topic: the failed
+#                         unit can't be found (a leg no Holdings row
+#                         carries), or its Worker isn't a topic the
+#                         dispatch path takes. Nothing is written and the
+#                         run goes back to failure, where escalate stays
 #   duplicate-topic <topic>
 #                         the pick dispatches (dispatch or scope_ahead) a
 #                         topic a Holdings row already names as its Worker:
@@ -40,8 +53,9 @@
 #                         active > CAP
 #   ok <topic>            clear; <topic> is the unit this visit checks, by the
 #                         path into it (the pick after the latest entry into
-#                         pick, or on a redispatch the unit that failed; `-`
-#                         when there is none). record-confirm.sh holds the
+#                         pick, or on a redispatch the unit that failed),
+#                         always a dispatch topic: with none, the verdict is
+#                         unknown-topic or unresolved-topic. record-confirm.sh holds the
 #                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; every other Holdings row is active. CAP and PARKED_BOUND are the
@@ -105,6 +119,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 . "$HERE/record-common.sh"
+# dc_valid_topic: the dispatch topic's grammar, the dispatch path's own.
+. "$HERE/dispatch-common.sh"
 
 # minute <time>: YYYY-MM-DDTHH:MM of a valid time, else empty.
 minute() { lib_epoch "$1" > /dev/null 2>&1 && printf '%s' "${1:0:16}"; }
@@ -222,6 +238,19 @@ esac
 [[ $U =~ $RE_TOPIC ]] && TOPIC=$U
 case "$CHOICE" in ''|dispatch|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
 
+# A pick that dispatches must name a topic the dispatch path can take
+# (dispatch-common.sh's dc_valid_topic, the check render-brief.sh and
+# dispatch-worker.sh apply), never a unit's tag from coord/pick.json. One
+# that doesn't is refused before any read, and pick is asked again.
+case "$CHOICE" in dispatch|scope_ahead|send_execution)
+    if ! dc_valid_topic "$U"; then
+        TOPIC=-
+        REASON="pick's unit [${U:0:80}] is not a dispatch topic: unit takes the topic the worker is dispatched under, matching $DC_TOPIC_GRAMMAR, never a unit's tag or title from coord/pick.json such as \"Feature 2\" or \"#12\""
+        [ "$CHOICE" = send_execution ] && REASON="$REASON; send_execution names a scoping-ahead holding's Worker"
+        finish unknown-topic
+    fi ;;
+esac
+
 # The record, by the run's ref.
 lib_run_ref || { REASON="the run has no found record"; finish record-changed; }
 changed_or_die() { # changed_or_die <err-file> <what>
@@ -334,6 +363,19 @@ if [ "$UNIT_FROM_LOG" = 1 ]; then
     parsed_holdings() { cat "$T/holdings.json"; }
     lib_unit "" "" parsed_holdings; rc=$?
     case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
+fi
+# Nothing passes without a topic the dispatch path can take: a redispatch
+# whose unit can't be resolved, or resolves to a Worker the dispatch path
+# would refuse, goes back to failure rather than sealing `ok -`.
+if ! dc_valid_topic "$TOPIC"; then
+    if [ "$TOPIC" = - ]; then
+        REASON="the unit to redispatch could not be resolved (a leg arrival no Holdings row carries, or no failed dispatch this run)"
+    else
+        REASON="the unit to redispatch resolves to the Worker [${TOPIC:0:80}], which is not a dispatch topic matching $DC_TOPIC_GRAMMAR"
+    fi
+    REASON="$REASON; redispatch needs a Holdings row's Worker that is one, and the rows' Workers are: $(jq -r '[.[].worker] | if length == 0 then "none" else join(", ") end' "$T/holdings.json"); escalate if none fits"
+    TOPIC=-
+    finish unresolved-topic
 fi
 # A topic already held. send_execution is judged below, as it targets a holding.
 if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \

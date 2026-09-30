@@ -29,9 +29,9 @@ stateDiagram-v2
     ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: root
     ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: child
     ci_monitor --> done_blocked : ci_outcome: passing, gates.merge_state_clean.exit_code: 1
-    ci_monitor --> done : ci_outcome: failing_fixed
+    ci_monitor --> ci_monitor : ci_outcome: failing_fixed
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
-    ci_monitor --> done
+    ci_monitor --> done_blocked
     context_injection --> setup_issue_backed : gates.context_artifact.exists: true, status: completed
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked

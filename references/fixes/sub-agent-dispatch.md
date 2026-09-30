@@ -1,7 +1,7 @@
 # Sub-Agent Dispatch Fallback Resolution
 
 Canonical resolution guidance for child skills (`/brief`, `/prd`,
-`/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`, `/work-on`)
+`/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`)
 when they are invoked from a parent chain (`/scope` for tactical,
 `/charter` for strategic) rather than directly by a human author.
 
@@ -126,11 +126,9 @@ does not need a fallback at that phase.
 | `/vision` | Phase finalize | Parent-delegated-approval |
 | `/strategy` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
 | `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-delegated-approval |
-| `/work-on` | Phase 0 detection only | (no Resume Logic row; sentinel detection only) |
-
-`/work-on` carries only the Phase 0 detection line (R9 scopes the
-seven authoring children for the Resume Logic row). When `/work-on`
-runs under a parent chain, it inherits the parent's branch and PR
+`/work-on` has no row: it reads no sentinel, at Phase 0 or anywhere else
+(R9 scopes the seven authoring children for the Resume Logic row). When
+`/work-on` runs under a parent chain, it inherits the parent's branch and PR
 context but otherwise operates normally.
 
 ## Chain-handoff routing by rationale

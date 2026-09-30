@@ -245,12 +245,13 @@ is public-visibility clean, and writing-style rules are honored.
    `skills/writing-style/rules.yaml`, which is the single source the
    validator reads too. Do not restate the word list here: a fourth copy is
    what the rule source exists to end, and a copy that drifts is worse than
-   a pointer. Concentrate on what the validator cannot decide, which the
-   source marks `judgment_only`: vacuous sentences, empty conclusions,
-   demonstratives with no antecedent, attribution without a citation. The
-   mechanical terms are already caught before you see the draft. Also check
-   direct prose without preamble, no emojis, no AI attribution, and flag
-   specific offending phrases.
+   a pointer. Check the mechanical terms yourself: nothing runs them before
+   you see the draft, so scan for the banned words and phrases and the em
+   dash density the rules file lists. Then check what the validator cannot
+   decide, which the source marks `judgment_only`: vacuous sentences, empty
+   conclusions, demonstratives with no antecedent, attribution without a
+   citation. Also check direct prose without preamble, no emojis, no AI
+   attribution, and flag specific offending phrases.
 
 ## Output Format
 
@@ -306,7 +307,6 @@ precedent):
 | Both PASS | Proceed to step 4.4 (Apply Minor Fixes if any) then to Phase 5 |
 | One FAIL with minor issues only | Fix issues in place, surface brief summary to user, proceed to Phase 5 |
 | Any FAIL with significant issues | Surface to user via AskUserQuestion with option to loop back to Phase 2 or Phase 3 |
-| Reviewers disagree on the same issue | Surface both perspectives, recommend the better-supported one, and let the user override |
 
 **Reviewer disagreement:** quote both perspectives, then say which one you find
 better supported and why, citing the specific verdict finding that decides it.
@@ -380,12 +380,6 @@ Options:
    needs reframing)** — re-articulate the foundational sections
 3. **Apply targeted fixes and re-run jury** — for issues that don't require
    restructuring but warrant another verdict pass
-
-When fencing verdict bodies in this surfacing step, use a fenced code block:
-
-```
-[verdict body content here]
-```
 
 Do not paraphrase the verdict — the user reads the literal verdict so they can
 apply their own judgment to whether the issue warrants a loop.

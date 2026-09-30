@@ -35,8 +35,8 @@
 # agent's answer names a real commit in HEAD's history. That history
 # includes commits already on the base branch, so the check proves the sha is
 # real and reachable, not that it is one of this branch's own commits. It is not
-# bounded by impl_base (record-changed-paths.sh): a rebase after `analysis` can
-# leave impl_base off HEAD's history, and a bound on it would then refuse the
+# bounded by impl_base (record-changed-paths.sh): amending the commit
+# `analysis` started from leaves impl_base off HEAD's history, and a bound on it would then refuse the
 # reviewed commit of a run that did nothing wrong.
 #
 # Each key must appear on exactly one line, starting at the beginning of the
