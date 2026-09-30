@@ -776,6 +776,30 @@ class TestGrade(unittest.TestCase):
         self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "no-changed-paths"))
         self.assertEqual(sent, [])
 
+    def test_a_bad_key_never_reaches_an_error_message(self):
+        with self.assertRaises(rs.ConfigError) as cm:
+            rs.https_transport("https://example.invalid", "SECRETKEY\nX", 1)
+        self.assertNotIn("SECRETKEY", str(cm.exception))
+        send = rs.https_transport("https://example.invalid", "  SECRETKEY\n", 1)  # stripped, then valid
+        self.assertTrue(callable(send))
+
+    def test_a_5xx_then_200_is_retried(self):
+        calls = []
+        ok = stub_send()
+
+        def flaky(body):
+            calls.append(1)
+            return (503, b"") if len(calls) == 1 else ok(body)
+        answer, reason, attempts, _, _ = rs.ask_jev(flaky, {"questions": {"rs-010": rs.question(
+            next(c for c in self.crit["criteria"] if c["rule_id"] == "rs-010"))}})
+        self.assertEqual((reason, attempts), (None, 2))
+        self.assertIsNotNone(answer)
+
+    def test_boolean_probabilities_are_unreadable(self):
+        c = next(c for c in self.crit["criteria"] if c["rule_id"] == "rs-010")
+        bad = {"answers": {"rs-010": {"probabilities": {"pass": True, "fail": 0, "unclear": 0}}}}
+        self.assertEqual(rs.map_answer(c, bad)[0], "unanswered")
+
     def test_https_only(self):
         with self.assertRaises(rs.ConfigError):
             rs.https_transport("http://example.com", "k", 1)
@@ -792,6 +816,8 @@ class TestStore(unittest.TestCase):
         path = rs.write_record(home, rs.new_record("octo/demo", 7, HEAD, status="dissent"))
         self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
         self.assertEqual(oct(path.parent.stat().st_mode & 0o777), "0o700")
+        for d in [home, home / "records", home / "records" / "octo"]:
+            self.assertEqual(oct(d.stat().st_mode & 0o777), "0o700", d)
         self.assertEqual(json.loads(path.read_text())["status"], "dissent")
         self.assertEqual(list(path.parent.glob("*.tmp")), [])
 
@@ -812,6 +838,157 @@ class TestStore(unittest.TestCase):
         rs.store_home()
         rs.grade(rs.load_criteria(), fetched(), None, stub_send())
         self.assertNotIn("koto", seen)
+
+
+class TestReport(unittest.TestCase):
+    """A hand-built store whose figures are worked out below, head by head.
+
+    pre-merge, code diffs, out-of-sample:
+      h1 unanimous pass, clean panel         -> agreement
+      h2 unanimous pass, upheld correctness  -> false pass
+      h3 dissent (rs-010 fail), upheld stale comment -> agreement
+      h4 inconclusive, clean panel           -> dissent on clean
+      h5 dissent, only a dismissed finding   -> clean panel, dissent on clean
+      h6 outcome with no grade               -> not graded
+      h7 unanimous pass, only unknown finding -> undetermined
+    Scored heads 5; agreement 2/5; unanimous passes 2 with 1 false pass (50%);
+    blocked 2, miss rate 1/2; clean 3, dissent on clean 2/3; coverage of the
+    upheld findings: 1 covered (stale comment), 1 open judgment (correctness).
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        self.crit = rs.load_criteria()
+        self.cats = rs.load_categories(self.crit)
+        self.n = 0
+
+    def head(self, i):
+        return f"{i:040x}"
+
+    def record(self, i, status, in_sample=False, rs010="pass", mode="batched", diff_kind="code"):
+        self.n += 1
+        crit = [{"rule_id": c["rule_id"], "verdict": "pass", "slices": 1} for c in self.crit["criteria"]]
+        for c in crit:
+            if c["rule_id"] == "rs-010":
+                c["verdict"] = rs010
+        rec = rs.new_record("octo/demo", i, self.head(i), in_sample=in_sample, mode=mode, status=status,
+                            diff_kind=diff_kind, criteria=crit, tokens={"input": 10, "output": 1})
+        rec["recorded_at"] = f"2026-09-30T00:00:{self.n:02d}Z"
+        rs.write_record(self.home, rec)
+
+    def outcome(self, i, *findings):
+        parsed = [rs.parse_finding(f, self.cats) for f in findings]
+        rs.record_outcome(self.home, "octo/demo", i, self.head(i), "pre-merge", f"claude:run-{i}", parsed)
+
+    def build(self):
+        self.record(1, "unanimous-pass"); self.outcome(1)
+        self.record(2, "unanimous-pass"); self.outcome(2, "correctness:upheld")
+        self.record(3, "dissent", rs010="fail"); self.outcome(3, "stale-comment:upheld:inferred")
+        self.record(4, "inconclusive"); self.outcome(4)
+        self.record(5, "dissent"); self.outcome(5, "naming:dismissed")
+        self.outcome(6)
+        self.record(7, "unanimous-pass"); self.outcome(7, "test-gap:unknown")
+
+    def data(self, mode="batched"):
+        return rs.report_data(self.home, self.crit, self.cats, mode=mode)
+
+    def test_figures(self):
+        self.build()
+        p = self.data()["populations"]["out-of-sample"]
+        g = p["groups"]["pre-merge|code"]
+        self.assertEqual(g["n"], 5)
+        self.assertAlmostEqual(g["agreement"], 0.4)
+        self.assertEqual((g["unanimous_passes"], g["false_passes"]), (2, 1))
+        self.assertAlmostEqual(g["false_pass_rate"], 0.5)
+        self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(1, 2))
+        self.assertEqual(g["blocked"], 2)
+        self.assertAlmostEqual(g["miss_rate"], 0.5)
+        self.assertEqual((g["dissent_on_clean"], g["clean"]), (2, 3))
+        self.assertEqual(p["not_graded"]["pre-merge|code"] if "pre-merge|code" in p["not_graded"] else
+                         p["not_graded"]["pre-merge|unknown"], 1)
+        self.assertEqual(p["undetermined"]["pre-merge|code"], 1)
+        self.assertEqual(p["coverage"]["pre-merge|code"], {"covered": 1, "closed-uncovered": 0, "open-judgment": 1})
+        self.assertEqual([(f["pr"], f["upheld"]) for f in p["false_passes"]], [(2, ["correctness"])])
+        c = p["criteria"]["pre-merge|code|rs-010"]
+        self.assertEqual((c["false_passes"], c["blocked"]), (0, 1))
+
+    def test_bounds(self):
+        self.assertAlmostEqual(rs.binom_upper(1, 5), 0.6574, places=4)
+        self.assertAlmostEqual(rs.binom_upper(0, 10), 0.2589, places=4)
+        self.assertIsNone(rs.binom_upper(0, 0))
+
+    def test_zero_blocked_is_not_applicable(self):
+        self.record(1, "unanimous-pass"); self.outcome(1)
+        g = self.data()["populations"]["out-of-sample"]["groups"]["pre-merge|code"]
+        self.assertIsNone(g["miss_rate"])
+        self.assertEqual(self.data()["populations"]["out-of-sample"]["coverage"], {})
+
+    def test_in_sample_never_moves_out_of_sample(self):
+        self.build()
+        before = self.data()["populations"]["out-of-sample"]
+        self.record(1, "dissent", in_sample=True)
+        self.record(3, "unanimous-pass", in_sample=True)
+        after = self.data()
+        self.assertEqual(after["populations"]["out-of-sample"], before)
+        ins = after["populations"]["in-sample"]["groups"]["pre-merge|code"]
+        self.assertEqual((ins["n"], ins["false_passes"]), (2, 1))
+
+    def test_dismissed_counts_nowhere_and_inferred_is_kept(self):
+        self.build()
+        outcome = json.loads(rs.outcome_path(self.home, "octo/demo", 3, self.head(3), "claude:run-3").read_text())
+        self.assertEqual(outcome["findings"][0]["disposition_source"], "inferred")
+        cov = self.data()["populations"]["out-of-sample"]["coverage"]["all|all"]
+        self.assertEqual(sum(cov.values()), 2)  # the dismissed naming finding isn't there
+
+    def test_outcome_without_grade_and_replacement(self):
+        self.outcome(9, "correctness:upheld")
+        recs = list((self.home / "records").rglob("*.json"))
+        self.assertEqual(len(recs), 1)
+        rec = json.loads(recs[0].read_text())
+        self.assertEqual((rec["status"], rec["not_graded_reason"]), ("not-graded", "outcome-without-grade"))
+        self.outcome(9)  # the fix round dismissed it: the same panel run is replaced
+        outs = list((self.home / "outcomes").rglob("*.json"))
+        self.assertEqual(len(outs), 1)
+        self.assertEqual(json.loads(outs[0].read_text())["result"], "clean")
+
+    def test_panel_run_id_is_filled_in(self):
+        self.record(1, "unanimous-pass")
+        self.outcome(1)
+        rec = json.loads(next((self.home / "records").rglob("*.json")).read_text())
+        self.assertEqual((rec["panel_run_id"], rec["panel_kind"]), ("claude:run-1", "pre-merge"))
+
+    def test_split_by_diff_kind_and_mode(self):
+        self.record(1, "unanimous-pass", diff_kind="docs"); self.outcome(1)
+        self.record(2, "dissent", diff_kind="code"); self.outcome(2, "correctness:upheld")
+        self.record(2, "unanimous-pass", diff_kind="code", mode="unbatched")
+        groups = self.data()["populations"]["out-of-sample"]["groups"]
+        self.assertEqual(groups["pre-merge|docs"]["n"], 1)
+        self.assertEqual(groups["pre-merge|code"]["false_passes"], 0)
+        self.assertEqual(self.data("unbatched")["populations"]["out-of-sample"]["groups"]["pre-merge|code"]
+                         ["false_passes"], 1)
+
+    def test_finding_parsing(self):
+        f = rs.parse_finding("stale-comment:narrowed:inferred:r2-a", self.cats)
+        self.assertEqual(f, {"category": "stale-comment", "disposition": "narrowed",
+                             "disposition_source": "inferred", "code": "r2-a"})
+        for bad in ("nope:upheld", "stale-comment:maybe", "stale-comment:upheld:Free Text Here",
+                    "stale-comment:upheld:" + "a" * 33):
+            with self.assertRaises(ValueError):
+                rs.parse_finding(bad, self.cats)
+
+    def test_printed_report(self):
+        self.build()
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rs.print_report(self.data())
+        text = out.getvalue()
+        self.assertIn("## out-of-sample (the test)", text)
+        self.assertIn("| pre-merge | code | 5 | 40% | 2 | 1 | 50% |", text)
+        self.assertIn("Nothing here approves a panel", text)
 
 
 if __name__ == "__main__":

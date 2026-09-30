@@ -794,8 +794,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def https_transport(endpoint, key, timeout):
     """POST a JSON body; return (status, raw body). The key goes in an
     unredirected Authorization header and nowhere else."""
+    import http.client
     if not endpoint.startswith("https://"):
         raise ConfigError("the Jev endpoint must be https")
+    key = key.strip()
+    if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
+        # The message names no part of the key: an error text reaches stderr.
+        raise ConfigError("the Jev key is empty or holds whitespace or control characters")
     opener = urllib.request.build_opener(_NoRedirect)
 
     def send(body):
@@ -807,7 +812,8 @@ def https_transport(endpoint, key, timeout):
                 return resp.status, resp.read()
         except urllib.error.HTTPError as e:
             return e.code, b""  # an error body can echo request headers, so it's dropped
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException, ValueError):
+            # Nothing from the exception is kept: some carry the request headers.
             return None, b""
     return send
 
@@ -861,7 +867,8 @@ def map_answer(c, answer):
     probs = ans.get("probabilities") if isinstance(ans, dict) else None
     keys = set(c["values"]) | set(c["escape"])
     if not isinstance(probs, dict) or set(probs) != keys or \
-            not all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in probs.values()):
+            not all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1
+                    for v in probs.values()):
         return "unanswered", None, "unreadable-answer"
     win = max(probs, key=probs.get)
     if win in c["escape"] or probs[win] < c["threshold"]:
@@ -984,28 +991,22 @@ def store_home():
     return Path(home)
 
 
-def write_private(path, data):
-    """Write JSON with directories 0700 and the file 0600, through a temporary file
-    and a rename so an archiver never reads half a record."""
+def write_private(path, data, home=None):
+    """Write JSON with every directory from the store home down made 0700 and the
+    file 0600, through a temporary file and a rename so an archiver never reads
+    half a record."""
+    home = Path(home) if home else store_home()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for d in [path.parent, *path.parent.parents]:
-        if d == store_home_root(path):
-            break
-        os.chmod(d, 0o700)
+    rel = path.parent.relative_to(home)
+    os.chmod(home, 0o700)
+    for i in range(1, len(rel.parts) + 1):
+        os.chmod(home.joinpath(*rel.parts[:i]), 0o700)
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, sort_keys=True)
         f.write("\n")
     os.replace(tmp, path)
-
-
-def store_home_root(path):
-    """The store root above a record or outcome path."""
-    for d in path.parents:
-        if d.name in ("records", "outcomes"):
-            return d.parent
-    return path.parent
 
 
 def head_dir(home, kind, repo, pr, head):
@@ -1017,7 +1018,7 @@ def write_record(home, record):
     stamp = record["recorded_at"].replace("-", "").replace(":", "")
     path = head_dir(home, "records", record["repo"], record["pr"], record["head_sha"]) / \
         f"{stamp}-{record['run_id']}.json"
-    write_private(path, record)
+    write_private(path, record, home)
     return path
 
 
@@ -1054,6 +1055,272 @@ def cmd_grade(args, criteria):
                      **body)
     path = write_record(home, rec)
     print(f"{path} status={rec['status']} tokens={rec['tokens']['input']}+{rec['tokens']['output']}")
+    return 0
+
+
+# --- Panel outcomes ----------------------------------------------------------
+
+DISPOSITIONS = ("upheld", "narrowed", "dismissed", "unknown")
+FINDING_CODE = re.compile(r"[a-z0-9-]{1,32}")
+
+
+def parse_finding(text, categories):
+    """category:disposition[:inferred][:code] -> a finding. No free text: the store
+    is archived, and a note about a private pull request would leave the host."""
+    parts = text.split(":")
+    if len(parts) < 2 or len(parts) > 4:
+        raise ValueError("--finding is category:disposition[:inferred][:code]")
+    cat, disp, rest = parts[0], parts[1], parts[2:]
+    if cat not in categories["categories"]:
+        raise ValueError(f"unknown finding category {cat!r}")
+    if disp not in DISPOSITIONS:
+        raise ValueError(f"disposition must be one of {DISPOSITIONS}")
+    source = "recorded"
+    if rest and rest[0] == "inferred":
+        source, rest = "inferred", rest[1:]
+    code = None
+    if rest:
+        if not FINDING_CODE.fullmatch(rest[0]):
+            raise ValueError("a finding code is at most 32 characters from [a-z0-9-]")
+        code = rest[0]
+    return {"category": cat, "disposition": disp, "disposition_source": source, "code": code}
+
+
+def outcome_path(home, repo, pr, head, panel_run):
+    return head_dir(home, "outcomes", repo, pr, head) / (panel_run.replace(":", "_") + ".json")
+
+
+def record_outcome(home, repo, pr, head, panel_kind, panel_run, findings):
+    """Write (or replace) the outcome of one panel run on one head. A head with no
+    grade record gets a not-graded one, so a per-head count sees heads the grader
+    never saw; grade records still waiting for a panel run id get this one."""
+    out = {"schema": "review-shadow/outcome/v1", "repo": repo, "pr": pr, "head_sha": head,
+           "panel_kind": panel_kind, "panel_run_id": panel_run, "recorded_at": now_iso(),
+           "driver_session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
+           "result": "blocked" if findings else "clean", "findings": findings}
+    write_private(outcome_path(home, repo, pr, head, panel_run), out, home)
+    rdir = head_dir(home, "records", repo, pr, head)
+    records = sorted(rdir.glob("*.json")) if rdir.exists() else []
+    if not records:
+        write_record(home, new_record(repo, pr, head, panel_run_id=panel_run, panel_kind=panel_kind,
+                                      in_sample=False, diff_kind=None, mode=None, status="not-graded",
+                                      not_graded_reason="outcome-without-grade", tokens={"input": 0, "output": 0},
+                                      verdicts=[], criteria=[], rounds=[], unread_usage_attempts=0))
+    for path in records:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        if rec.get("panel_run_id") is None:
+            rec["panel_run_id"] = panel_run
+            rec["panel_kind"] = rec.get("panel_kind") or panel_kind
+            write_private(path, rec, home)
+    return out
+
+
+def cmd_outcome(args, criteria):
+    repo, pr, head = check_repo(args.repo), check_pr(args.pr), check_head(args.head)
+    if not args.panel_run or not check_panel_run(args.panel_run):
+        raise ValueError("--panel-run is required")
+    categories = load_categories(criteria)
+    findings = [parse_finding(f, categories) for f in args.finding or []]
+    home = store_home()
+    out = record_outcome(home, repo, pr, head, args.panel_kind, args.panel_run, findings)
+    print(f"{outcome_path(home, repo, pr, head, args.panel_run)} result={out['result']} findings={len(findings)}")
+    return 0
+
+
+# --- Report ------------------------------------------------------------------
+
+def binom_upper(k, n, alpha=0.05):
+    """Exact one-sided upper bound for a binomial proportion (Clopper-Pearson)."""
+    from math import comb
+    if n == 0:
+        return None
+    if k >= n:
+        return 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        cdf = sum(comb(n, i) * mid ** i * (1 - mid) ** (n - i) for i in range(k + 1))
+        lo, hi = (mid, hi) if cdf > alpha else (lo, mid)
+    return lo
+
+
+def load_store(home):
+    records, outcomes = [], []
+    for sub, dest in (("records", records), ("outcomes", outcomes)):
+        root = home / sub
+        if root.exists():
+            for p in sorted(root.rglob("*.json")):
+                dest.append(json.loads(p.read_text(encoding="utf-8")))
+    return records, outcomes
+
+
+def panel_state(outcomes):
+    """blocked, clean or undetermined, and the upheld categories, over every outcome
+    of one panel kind on one head."""
+    upheld, unknown = [], False
+    for o in outcomes:
+        for f in o["findings"]:
+            if f["disposition"] in ("upheld", "narrowed"):
+                upheld.append(f["category"])
+            elif f["disposition"] == "unknown":
+                unknown = True
+    if upheld:
+        return "blocked", upheld
+    return ("undetermined" if unknown else "clean"), []
+
+
+def rates(rows):
+    """Agreement figures over scored rows of (passed, blocked)."""
+    n = len(rows)
+    passes = sum(1 for p, b in rows if p)
+    blocked = sum(1 for p, b in rows if b)
+    clean = n - blocked
+    fp = sum(1 for p, b in rows if p and b)
+    agree = sum(1 for p, b in rows if p != b)
+    dissent_clean = sum(1 for p, b in rows if not p and not b)
+
+    def ratio(a, d):
+        return None if d == 0 else a / d
+    return {"n": n, "agreement": ratio(agree, n), "unanimous_passes": passes, "false_passes": fp,
+            "false_pass_rate": ratio(fp, passes), "false_pass_upper95": binom_upper(fp, passes),
+            "blocked": blocked, "miss_rate": ratio(fp, blocked), "clean": clean,
+            "dissent_on_clean": dissent_clean, "dissent_rate": ratio(dissent_clean, clean)}
+
+
+def report_data(home, criteria, categories, mode="batched"):
+    records, outcomes = load_store(home)
+    by_head_kind = {}
+    for o in outcomes:
+        by_head_kind.setdefault((o["repo"], o["pr"], o["head_sha"], o["panel_kind"]), []).append(o)
+    latest = {}
+    for r in records:
+        key = (r["repo"], r["pr"], r["head_sha"], bool(r.get("in_sample")))
+        if r.get("status") != "not-graded" and r.get("mode") != mode:
+            continue
+        if key not in latest or r["recorded_at"] > latest[key]["recorded_at"]:
+            latest[key] = r
+    cats = categories["categories"]
+    result = {"mode": mode, "populations": {}}
+    for pop, in_sample in (("out-of-sample", False), ("in-sample", True)):
+        groups, per_crit, not_graded, undetermined, false_passes, coverage = {}, {}, {}, {}, [], {}
+        for (repo, pr, head, kind), outs in sorted(by_head_kind.items()):
+            rec = latest.get((repo, pr, head, in_sample))
+            if rec is None:
+                continue
+            dk = rec.get("diff_kind") or "unknown"
+            state, upheld = panel_state(outs)
+            for cat in upheld:
+                cls = cats.get(cat, {}).get("class", "open-judgment")
+                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                    coverage.setdefault(g, {"covered": 0, "closed-uncovered": 0, "open-judgment": 0})[cls] += 1
+            if rec["status"] == "not-graded":
+                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                    not_graded[g] = not_graded.get(g, 0) + 1
+                continue
+            if state == "undetermined":
+                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                    undetermined[g] = undetermined.get(g, 0) + 1
+                continue
+            passed = rec["status"] == "unanimous-pass"
+            for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                groups.setdefault(g, []).append((passed, state == "blocked"))
+            if passed and state == "blocked":
+                false_passes.append({"repo": repo, "pr": pr, "head": head, "panel_kind": kind, "upheld": upheld})
+            for crow in rec["criteria"]:
+                blocked_c = any(cats.get(cat, {}).get("rule_ids") and crow["rule_id"] in cats[cat]["rule_ids"]
+                                for cat in upheld)
+                for g in ((kind, dk, crow["rule_id"]), (kind, "all", crow["rule_id"])):
+                    per_crit.setdefault(g, []).append((crow["verdict"] == "pass", blocked_c))
+        result["populations"][pop] = {
+            "groups": {f"{k}|{d}": rates(rows) for (k, d), rows in groups.items()},
+            "criteria": {f"{k}|{d}|{r}": rates(rows) for (k, d, r), rows in per_crit.items()},
+            "not_graded": {f"{k}|{d}": v for (k, d), v in not_graded.items()},
+            "undetermined": {f"{k}|{d}": v for (k, d), v in undetermined.items()},
+            "coverage": {f"{k}|{d}": v for (k, d), v in coverage.items()},
+            "false_passes": false_passes}
+    result["tokens"] = {"input": sum(r.get("tokens", {}).get("input", 0) for r in records),
+                        "output": sum(r.get("tokens", {}).get("output", 0) for r in records),
+                        "records": len(records)}
+    diffs = []
+    both = {}
+    for r in records:
+        if r.get("mode") in ("batched", "unbatched"):
+            both.setdefault((r["repo"], r["pr"], r["head_sha"]), {})[r["mode"]] = r
+    for (repo, pr, head), modes in sorted(both.items()):
+        if len(modes) == 2:
+            a = {c["rule_id"]: c["verdict"] for c in modes["batched"]["criteria"]}
+            b = {c["rule_id"]: c["verdict"] for c in modes["unbatched"]["criteria"]}
+            for rid in sorted(set(a) | set(b)):
+                if a.get(rid) != b.get(rid):
+                    diffs.append({"repo": repo, "pr": pr, "head": head, "rule_id": rid,
+                                  "batched": a.get(rid), "unbatched": b.get(rid)})
+    result["mode_differences"] = diffs
+    return result
+
+
+def _pct(x):
+    return "n/a" if x is None else f"{100 * x:.0f}%"
+
+
+def print_report(data):
+    print(f"Review shadow trial report (Jev mode: {data['mode']}). Nothing here approves a panel.\n")
+    for pop, p in data["populations"].items():
+        label = "the test" if pop == "out-of-sample" else "graded after the panel's outcome was known; not the test"
+        print(f"## {pop} ({label})\n")
+        if not p["groups"] and not p["not_graded"] and not p["undetermined"]:
+            print("No heads.\n")
+            continue
+        print("| panel kind | diff kind | heads | agreement | unanimous passes | false passes | false-pass rate "
+              "| 95% upper bound | miss rate | dissent on clean | not graded | undetermined |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        keys = sorted(set(p["groups"]) | set(p["not_graded"]) | set(p["undetermined"]))
+        for key in keys:
+            k, d = key.split("|")
+            g = p["groups"].get(key) or rates([])
+            print(f"| {k} | {d} | {g['n']} | {_pct(g['agreement'])} | {g['unanimous_passes']} | {g['false_passes']} "
+                  f"| {_pct(g['false_pass_rate'])} | {_pct(g['false_pass_upper95'])} | {_pct(g['miss_rate'])} "
+                  f"| {g['dissent_on_clean']}/{g['clean']} | {p['not_graded'].get(key, 0)} "
+                  f"| {p['undetermined'].get(key, 0)} |")
+        print("\nPer criterion (the panel counts as blocked for a criterion only on an upheld finding in its group):\n")
+        print("| panel kind | diff kind | criterion | heads | agreement | passes | false passes | 95% upper bound "
+              "| miss rate | dissent on clean |")
+        print("|---|---|---|---|---|---|---|---|---|---|")
+        for key in sorted(p["criteria"]):
+            k, d, r = key.split("|")
+            g = p["criteria"][key]
+            print(f"| {k} | {d} | {r} | {g['n']} | {_pct(g['agreement'])} | {g['unanimous_passes']} "
+                  f"| {g['false_passes']} | {_pct(g['false_pass_upper95'])} | {_pct(g['miss_rate'])} "
+                  f"| {g['dissent_on_clean']}/{g['clean']} |")
+        print("\nCoverage of upheld blocking findings (a flip can only ever be safe for the covered share):\n")
+        print("| panel kind | diff kind | covered | closed, uncovered | open judgment |")
+        print("|---|---|---|---|---|")
+        for key in sorted(p["coverage"]):
+            k, d = key.split("|")
+            c = p["coverage"][key]
+            total = sum(c.values())
+            print(f"| {k} | {d} | " + " | ".join(f"{c[x]} ({_pct(c[x] / total if total else None)})"
+                                                  for x in ("covered", "closed-uncovered", "open-judgment")) + " |")
+        if p["false_passes"]:
+            print("\nFalse passes:\n")
+            for fp in p["false_passes"]:
+                print(f"- {fp['repo']}#{fp['pr']} at {fp['head'][:12]} ({fp['panel_kind']}): "
+                      f"upheld {', '.join(fp['upheld'])}")
+        print()
+    if data["mode_differences"]:
+        print("## Verdicts that differ between batched and unbatched runs\n")
+        for d in data["mode_differences"]:
+            print(f"- {d['repo']}#{d['pr']} {d['rule_id']}: batched {d['batched']}, unbatched {d['unbatched']}")
+        print()
+    t = data["tokens"]
+    print(f"Trial Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
+
+
+def cmd_report(args, criteria):
+    data = report_data(store_home(), criteria, load_categories(criteria), mode=args.mode)
+    if args.json:
+        print(json.dumps(data, indent=1, sort_keys=True))
+    else:
+        print_report(data)
     return 0
 
 
@@ -1136,12 +1403,23 @@ def main(argv=None):
     gp.add_argument("--body-file")
     gp.add_argument("--private-terms")
     gp.add_argument("--unbatched", action="store_true", help="one Jev request per criterion per slice")
+    op = sub.add_parser("outcome", help="record a panel's outcome for one pull request and head")
+    op.add_argument("--repo", required=True)
+    op.add_argument("--pr", required=True)
+    op.add_argument("--head", required=True)
+    op.add_argument("--panel-kind", required=True, choices=PANEL_KINDS)
+    op.add_argument("--panel-run", required=True)
+    op.add_argument("--finding", action="append",
+                    help="category:disposition[:inferred][:code]; repeat per blocking finding; none means clean")
+    rp = sub.add_parser("report", help="print agreement between the grader and the panels")
+    rp.add_argument("--mode", choices=("batched", "unbatched"), default="batched")
+    rp.add_argument("--json", action="store_true")
     sp = sub.add_parser("scan", help="run the script criteria over the current branch; writes nothing")
     sp.add_argument("--base", default="origin/main")
     sp.add_argument("--body-file")
     sp.add_argument("--private-terms")
     args = ap.parse_args(argv)
-    commands = {"scan": cmd_scan, "grade": cmd_grade}
+    commands = {"scan": cmd_scan, "grade": cmd_grade, "outcome": cmd_outcome, "report": cmd_report}
     if args.command in commands:
         try:
             criteria = load_criteria()
