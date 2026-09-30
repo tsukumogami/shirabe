@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   /work-on and /execute ship validators for their own output, but those
   validators mostly run in CI or not at all, and several states ask the agent to
@@ -20,7 +20,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-output-gates](docs/briefs/BRIEF-output-gates.md); carried in Absorbed Brief.
 
@@ -134,8 +134,10 @@ already decides.
 **R3. Pull-request output is gated where it is written.** /work-on's
 `pr_creation` and /execute's `pr_finalization` run `shirabe validate --pr-body`
 with the title over the pull request as GitHub has it, and route on its exit
-status. The same states run the public-content visibility check over the
-branch's commits in a repository that declares `Repo Visibility: Public`.
+status. Whether the same states also run a public-content check is a design
+question: the shipped marker check was built for cross-visibility pushes, and
+the design decides whether it can run over a public repository's own commits
+without firing on content that legitimately documents the markers.
 
 **R4. Commit output is gated over every commit.** The commit convention check
 runs over every commit the run made (`impl_base..HEAD` in /work-on, the
@@ -144,10 +146,12 @@ refuses a commit whose trailers attribute it to an AI assistant (a
 `Co-Authored-By:` line naming one, or a generated-with line), using a new,
 small script with its own test.
 
-**R5. wip hygiene is gated before a pull request opens.** /work-on's
-`pre_pr_evidence` and /execute's `plan_completion` refuse a head whose tree
-holds any path under `wip/`, using the same `git ls-tree` check
-`node-push.sh` runs.
+**R5. wip hygiene is gated before a pull request is presented.** The state
+that opens or finalizes the run's own pull request (/work-on's step before
+`pr_creation`, /execute's `pr_finalization`) refuses a head whose tree holds
+any path under `wip/`, using the same `git ls-tree` check `node-push.sh` runs.
+A /work-on child on /execute's shared branch opens no pull request of its own
+and leaves the check to /execute.
 
 **R6. Verification gets a real gate.** The verification map is owned by the
 target repository: a machine-readable file committed beside its shirabe
