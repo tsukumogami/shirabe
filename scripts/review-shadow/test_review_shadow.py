@@ -953,6 +953,15 @@ class TestReport(unittest.TestCase):
         self.assertEqual(len(outs), 1)
         self.assertEqual(json.loads(outs[0].read_text())["result"], "clean")
 
+    def test_outcome_first_then_grade_is_one_in_sample_head(self):
+        self.outcome(1, "correctness:upheld")
+        self.record(1, "unanimous-pass", in_sample=True)
+        pops = self.data()["populations"]
+        self.assertEqual(pops["out-of-sample"]["not_graded"], {})
+        self.assertEqual(pops["out-of-sample"]["coverage"], {})
+        self.assertEqual(pops["in-sample"]["groups"]["pre-merge|code"]["false_passes"], 1)
+        self.assertIn("all|all|rs-010", pops["in-sample"]["criteria"])
+
     def test_panel_run_id_is_filled_in(self):
         self.record(1, "unanimous-pass")
         self.outcome(1)

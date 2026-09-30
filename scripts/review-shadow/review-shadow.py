@@ -1192,8 +1192,13 @@ def report_data(home, criteria, categories, mode="batched"):
     by_head_kind = {}
     for o in outcomes:
         by_head_kind.setdefault((o["repo"], o["pr"], o["head_sha"], o["panel_kind"]), []).append(o)
+    # A head graded after its outcome was recorded also has the placeholder the
+    # outcome wrote; the grade supersedes it in every population.
+    graded = {(r["repo"], r["pr"], r["head_sha"]) for r in records if r.get("status") != "not-graded"}
     latest = {}
     for r in records:
+        if r.get("not_graded_reason") == "outcome-without-grade" and (r["repo"], r["pr"], r["head_sha"]) in graded:
+            continue
         key = (r["repo"], r["pr"], r["head_sha"], bool(r.get("in_sample")))
         if r.get("status") != "not-graded" and r.get("mode") != mode:
             continue
@@ -1229,7 +1234,8 @@ def report_data(home, criteria, categories, mode="batched"):
             for crow in rec["criteria"]:
                 blocked_c = any(cats.get(cat, {}).get("rule_ids") and crow["rule_id"] in cats[cat]["rule_ids"]
                                 for cat in upheld)
-                for g in ((kind, dk, crow["rule_id"]), (kind, "all", crow["rule_id"])):
+                for g in ((kind, dk, crow["rule_id"]), (kind, "all", crow["rule_id"]),
+                          ("all", dk, crow["rule_id"]), ("all", "all", crow["rule_id"])):
                     per_crit.setdefault(g, []).append((crow["verdict"] == "pass", blocked_c))
         result["populations"][pop] = {
             "groups": {f"{k}|{d}": rates(rows) for (k, d), rows in groups.items()},
