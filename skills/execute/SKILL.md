@@ -106,7 +106,8 @@ pre-init refusals are only those where no koto call can be built at all: a
 malformed `--koto-leg` value, an args file inside the work tree, or a missing
 `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
-`/work-on <PLAN>` as the entry point. None of these makes a koto call, so none
+`/work-on <PLAN>` as the entry point (per
+`docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`). None of these makes a koto call, so none
 is recorded on a `--koto-leg`. `/deliver` never produces them, because it builds the `--koto-leg` value
 and the args itself and hands a `multi-pr` PLAN off without calling `/execute`.
 
@@ -165,6 +166,9 @@ The script prints koto-open's result line and nothing else you need to parse:
   follows it with `outcome=error` and `step=execute:refused`. The session, and
   its `MERGE`, is untouched, and under `--koto-leg` koto has recorded the
   refusal on the leg. Stop there.
+- `error=multi-pr` (exit 64) — the PLAN is `multi-pr`, which `/execute` doesn't
+  run; stderr names `/work-on <PLAN>` as the entry point. No koto call was made.
+  Stop and direct the user there.
 
 ### Step 3 — Drive the orchestrator loop
 
@@ -299,8 +303,10 @@ short-cuts is the canonical contract in `coordination-strategy.md` (R20).
 
 A friction log or any other report-upstream note captured during a run goes to a
 **durable home**, never to `wip/`. The `wip/execute_<topic>_*` scratch is
-non-durable: the finalization cascade plus the squash-merge carry it off main by
-design, so an artifact left there is erased exactly as the `wip/` rule intends. The
+non-durable: it must be gone before the PR merges, so an artifact left there is
+lost. On the single-pr path nothing removes it for you: neither the finalization
+cascade (`run-cascade.sh`) nor any state of `execute.md` deletes `wip/` files,
+and only a coordinated node's push (`node-push.sh`) sweeps them. The
 durable home is a **GitHub issue on the relevant skill repo** (filed with
 `gh issue create`, the same surface `/plan` and `/roadmap` use), or — when no issue
 is the right target — a **committed note under `docs/`**. Prefer the issue; fall
@@ -334,9 +340,9 @@ re-reads every node's state from the coordination PR's index and live `gh`; see
 `execute-{{PLAN_SLUG}}` while its gate reads the *current* session, so a run under
 any other name blocks there with no override edge and routes to `done_blocked`.
 
-On the resume ladder's body slots
-([`parent-skill-resume-ladder-template.md`](../../references/parent-skill-resume-ladder-template.md)),
-when the run has already terminated, the home PR / PLAN status routes between the exit
+On re-entry, `/execute` follows the resume ladder in
+[`parent-skill-resume-ladder-template.md`](../../references/parent-skill-resume-ladder-template.md).
+In its body slots, when the run has already terminated, the home PR / PLAN status routes between the exit
 re-entries below rather than re-running issues. Slot 6 (partial-child-run) resumes
 into a `/work-on` child that started but did not reach `/work-on`'s `done` terminal
 (its work committed and CI passing; a plan-backed child opens no PR of its own), by
@@ -426,8 +432,7 @@ against its chain shape:
    `merge_readiness`, `merge_confirm`, `coord_verdict`, `coord_merge_confirm`) read
    GitHub and write local state or koto context only. The repository write set is
    fixed at start as `repos`, and every PR lookup and merge call receives its
-   repository from that record. A write outside this set fails the R9
-   hard-finalization check.
+   repository from that record.
 3. **`execution_mode` enum re-validation at both consumers.** The PLAN's
    `execution_mode` is re-validated against `{single-pr, coordinated, multi-pr}` at
    `/execute` entry BEFORE it selects a path or interpolates into any branch name, and
