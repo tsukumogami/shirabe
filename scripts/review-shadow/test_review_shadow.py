@@ -5,6 +5,7 @@ Run: python3 scripts/review-shadow/test_review_shadow.py [TestClass ...]
 """
 
 import copy
+import os
 import importlib.util
 import json
 import re
@@ -377,6 +378,213 @@ class TestSlices(unittest.TestCase):
         self.assertIn(("docs/guides/fetch.md", 5,
                        "Each call to `fetch` waits 250 ms between attempts, and gives up after 3 tries."),
                       t["added"])
+
+
+def pr_text(body="Changes the helper.", added=(), texts=None, tree=None, public=True):
+    """A pr-text slice built by hand. Violation text in these tests is assembled at
+    run time, so this file never carries the literal strings its checks look for."""
+    return {"body": body, "part1": rs.part1(body), "added": list(added), "texts": texts or {},
+            "tree": set(tree) if tree is not None else set(), "public": public, "paths": []}
+
+
+class TestRs001Attribution(unittest.TestCase):
+    CO = "Co-Author" + "ed-By: Someone <a@b>"
+    GEN = "Generated " + "with [Claude Code]"
+
+    def verdict(self, pt):
+        return rs.check_attribution(pt, None)[0]
+
+    def test_seeded(self):
+        self.assertEqual(self.verdict(pr_text(body="Fix.\n\n" + self.CO)), "fail")
+        self.assertEqual(self.verdict(pr_text(added=[("a.md", 3, self.GEN)])), "fail")
+        link = "see https://" + "claude." + "ai/code/x"
+        self.assertEqual(self.verdict(pr_text(added=[("a.md", 1, link)])), "fail")
+
+    def test_clean(self):
+        self.assertEqual(self.verdict(pr_text()), "pass")
+
+    def test_near_miss(self):
+        self.assertEqual(self.verdict(pr_text(body="The co-author of the design reviewed it.")), "pass")
+        self.assertEqual(self.verdict(pr_text(added=[("a.md", 1, "Generated with the release script.")])), "pass")
+
+
+class TestRs002PrivateTerms(unittest.TestCase):
+    TERM = "Zorblax-Internal"  # invented; every encoded form is computed below
+
+    def verdict(self, pt, terms=(TERM,)):
+        return rs.check_private_terms(pt, list(terms) if terms is not None else None)
+
+    def test_every_form_is_caught(self):
+        import base64
+        raw = self.TERM.encode()
+        forms = [self.TERM, self.TERM.upper(), raw.hex(),
+                 hashlib_hex("sha1", raw), hashlib_hex("sha256", raw), hashlib_hex("md5", raw),
+                 hashlib_hex("sha256", self.TERM.lower().encode())]
+        for off in range(3):
+            forms.append(base64.b64encode(b"xyz"[:off] + raw + b"!").decode())
+        for form in forms:
+            v, hits, _ = self.verdict(pr_text(added=[("f.txt", 9, f"value = {form}")]))
+            self.assertEqual(v, "fail", form)
+            self.assertEqual(hits, [("f.txt", 9)])
+
+    def test_home_path(self):
+        v, _, _ = self.verdict(pr_text(body="Run it from /home/" + "alice/src."))
+        self.assertEqual(v, "fail")
+
+    def test_clean_and_near_miss(self):
+        self.assertEqual(self.verdict(pr_text())[0], "pass")
+        self.assertEqual(self.verdict(pr_text(body="Zorb and blax are fine; so is /home/user/x."))[0], "pass")
+
+    def test_no_list_is_not_a_pass(self):
+        self.assertEqual(self.verdict(pr_text(), terms=None)[0:3:2], ("unanswered", "no-denylist"))
+
+    def test_private_repository_is_out_of_scope(self):
+        self.assertEqual(self.verdict(pr_text(body=self.TERM, public=False))[0], "pass")
+
+    def test_output_never_names_the_term(self):
+        _, hits, reason = self.verdict(pr_text(body=self.TERM))
+        self.assertNotIn(self.TERM.lower(), json.dumps([hits, reason]).lower())
+
+    def test_list_inside_a_work_tree_is_refused(self):
+        p = HERE / "terms-test.txt"
+        p.write_text(self.TERM + "\n", encoding="utf-8")
+        try:
+            with self.assertRaises(rs.ConfigError):
+                rs.load_private_terms(str(p))
+        finally:
+            p.unlink()
+        outside = Path(tempfile.mkdtemp()) / "terms.txt"
+        outside.write_text("# comment\n" + self.TERM + "\n\n", encoding="utf-8")
+        self.assertEqual(rs.load_private_terms(str(outside)), [self.TERM])
+
+
+def hashlib_hex(name, data):
+    import hashlib
+    return hashlib.new(name, data).hexdigest()
+
+
+class TestRs003ScratchPath(unittest.TestCase):
+    SCRATCH = "wi" + "p/"
+
+    def verdict(self, pt):
+        return rs.check_scratch_path(pt, None)[0]
+
+    def test_seeded(self):
+        self.assertEqual(self.verdict(pr_text(added=[("docs/a.md", 2, f"See `{self.SCRATCH}notes.md`.")])), "fail")
+        self.assertEqual(self.verdict(pr_text(body=f"Plan in {self.SCRATCH}plan.md")), "fail")
+
+    def test_clean(self):
+        self.assertEqual(self.verdict(pr_text()), "pass")
+
+    def test_near_miss(self):
+        self.assertEqual(self.verdict(pr_text(added=[("a.md", 1, "swi" + "p/x and wipe/y and wip is a word")])), "pass")
+        self.assertEqual(self.verdict(pr_text(added=[(self.SCRATCH + "state.md", 1, self.SCRATCH + "x.md")])), "pass")
+
+
+class TestRs004UnfinishedWording(unittest.TestCase):
+    def verdict(self, body):
+        return rs.check_unfinished_wording(pr_text(body=body), None)[0]
+
+    def test_seeded(self):
+        self.assertEqual(self.verdict("Adds the parser. Validation is not yet implemented."), "fail")
+        self.assertEqual(self.verdict("Adds the parser; " + "TO" + "DO: errors."), "fail")
+
+    def test_clean(self):
+        self.assertEqual(self.verdict("Adds the parser and its validation."), "pass")
+
+    def test_near_miss(self):
+        self.assertEqual(self.verdict("Removes the `" + "TO" + "DO` marker from the parser."), "pass")
+        self.assertEqual(self.verdict("Addresses the " + "TO" + "DOs the review left."), "pass")
+        self.assertEqual(self.verdict("Done.\n\n---\n\nFollow-ups: not yet implemented items."), "pass")
+
+
+class TestRs005PastedParagraph(unittest.TestCase):
+    PARA = "This paragraph is long enough to count, well over sixty characters of prose text."
+
+    def verdict(self, text, added_lines):
+        pt = pr_text(added=[("docs/a.md", ln, "") for ln in added_lines], texts={"docs/a.md": text})
+        return rs.check_pasted_paragraph(pt, None)[0]
+
+    def test_seeded(self):
+        self.assertEqual(self.verdict(f"{self.PARA}\n\nOther.\n\n{self.PARA}\n", [5]), "fail")
+
+    def test_clean(self):
+        self.assertEqual(self.verdict(f"{self.PARA}\n\nOther.\n", [1]), "pass")
+
+    def test_near_miss(self):
+        short = "Too short to count."
+        self.assertEqual(self.verdict(f"{short}\n\n{short}\n", [3]), "pass")
+        # A duplicate that predates the change isn't this change's finding.
+        self.assertEqual(self.verdict(f"{self.PARA}\n\n{self.PARA}\n\nNew line.\n", [5]), "pass")
+
+
+class TestRs006DanglingPath(unittest.TestCase):
+    TREE = ["docs", "docs/guides", "docs/guides/a.md", "scripts", "scripts/x.sh"]
+
+    def verdict(self, line, tree=TREE, path="docs/guides/b.md"):
+        return rs.check_dangling_path(pr_text(added=[(path, 1, line)], tree=tree), None)[0:3:2]
+
+    def test_seeded(self):
+        self.assertEqual(self.verdict("See `docs/guides/missing.md`."), ("fail", None))
+
+    def test_clean(self):
+        self.assertEqual(self.verdict("See `docs/guides/a.md` and `scripts/`."), ("pass", None))
+        self.assertEqual(self.verdict("Relative: `guides/a.md`.", path="docs/b.md"), ("pass", None))
+
+    def test_near_miss(self):
+        self.assertEqual(self.verdict("Run `git log` and `owner/repo:docs/x.md` and `<path>/x.md`."), ("pass", None))
+        self.assertEqual(self.verdict("See `docs/missing.md`.", path="scripts/x.sh"), ("pass", None))
+
+    def test_unreadable_tree(self):
+        pt = pr_text(added=[("a.md", 1, "`docs/a.md`")])
+        pt["tree"] = None
+        self.assertEqual(rs.check_dangling_path(pt, None)[0:3:2], ("unanswered", "tree-unreadable"))
+
+
+class TestScan(unittest.TestCase):
+    """scan over a throwaway repository: exits non-zero on a failure, zero when clean."""
+
+    def setUp(self):
+        import subprocess
+        self.dir = Path(tempfile.mkdtemp())
+        self.git = lambda *a: subprocess.run(["git", "-C", str(self.dir), *a], check=True,
+                                             capture_output=True, text=True)
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        (self.dir / "README.md").write_text("Hello.\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "init")
+        self.git("checkout", "-q", "-b", "topic")
+        self.cwd = os.getcwd()
+        os.chdir(self.dir)
+        self.addCleanup(os.chdir, self.cwd)
+
+    def commit(self, name, text):
+        (self.dir / name).write_text(text)
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "change")
+
+    def scan(self):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["scan", "--base", "main"])
+        return code, out.getvalue()
+
+    def test_clean_branch(self):
+        self.commit("notes.md", "A clean note.\n")
+        code, out = self.scan()
+        # With no term list, the private-name check reports itself as not checked.
+        self.assertIn("rs-002: not checked (no-denylist)", out)
+        self.assertEqual([l for l in out.splitlines() if not l.startswith("rs-002")], [])
+
+    def test_failure_names_rule_path_and_line(self):
+        self.commit("notes.md", "Line one.\nSee `docs/nowhere.md`.\n")
+        code, out = self.scan()
+        self.assertEqual(code, 1)
+        self.assertIn("rs-006: notes.md:2", out)
 
 
 if __name__ == "__main__":

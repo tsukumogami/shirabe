@@ -626,22 +626,24 @@ def check_attribution(pt, _terms):
 
 
 def term_forms(term):
-    """Every committed form of a term the private-name check looks for: plain
-    (matched case-insensitively), base64 at all three byte alignments, hex, and
-    SHA-1, SHA-256 and MD5 digests of the term and its lower case."""
+    """Every committed form of a term the private-name check looks for, as two
+    sets: forms matched case-insensitively (the plain term, hex, and SHA-1,
+    SHA-256 and MD5 digests of the term and its lower case), and base64 at all
+    three byte alignments, which is case-sensitive."""
     import base64
     raw = term.encode("utf-8")
-    forms = {term.lower(), raw.hex()}
+    folded = {term.lower(), raw.hex()}
+    exact = set()
     for off in range(3):
         enc = base64.b64encode(b"\0" * off + raw).decode().rstrip("=")
         start = (off * 4 + 2) // 3 if off else 0
         end = len(enc) - (1 if (off + len(raw)) % 3 else 0)
         if end - start >= 4:
-            forms.add(enc[start:end])
+            exact.add(enc[start:end])
     for t in {term, term.lower()}:
         b = t.encode("utf-8")
-        forms |= {hashlib.sha1(b).hexdigest(), hashlib.sha256(b).hexdigest(), hashlib.md5(b).hexdigest()}
-    return forms
+        folded |= {hashlib.sha1(b).hexdigest(), hashlib.sha256(b).hexdigest(), hashlib.md5(b).hexdigest()}
+    return folded, exact
 
 
 def check_private_terms(pt, terms):
@@ -649,14 +651,15 @@ def check_private_terms(pt, terms):
         return "pass", [], None  # the rule governs public content only
     if terms is None:
         return "unanswered", [], "no-denylist"
-    forms = set()
+    folded, exact = set(), set()
     for t in terms:
-        forms |= term_forms(t)
+        f, e = term_forms(t)
+        folded |= f
+        exact |= e
     hits = []
     for p, ln, text in _lines(pt):
         low = text.lower()
-        if HOME_PATH.search(text) or any((f in low) if f.islower() or not f.isalpha() else (f in text)
-                                         for f in forms if f):
+        if HOME_PATH.search(text) or any(f in low for f in folded) or any(e in text for e in exact):
             hits.append((p, ln))
     return ("fail" if hits else "pass"), hits, None
 

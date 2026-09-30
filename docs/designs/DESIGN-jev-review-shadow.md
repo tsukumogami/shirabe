@@ -366,7 +366,8 @@ A grade record (`schema: review-shadow/record/v1`):
 
 Every `reason` in a record comes from one closed list: `over-bound`,
 `no-key`, `transport`, `provider`, `unreadable-answer`, `missing-answer`,
-`outcome-without-grade`, `body-history-unreadable`, `no-denylist`. No record field holds
+`outcome-without-grade`, `body-history-unreadable`, `no-denylist`,
+`tree-unreadable`. No record field holds
 free text taken from the pull request or typed by a person.
 
 An outcome (`schema: review-shadow/outcome/v1`): `repo`, `pr`, `head_sha`,
