@@ -24,6 +24,12 @@ exist, and the consolidation judgment there is the only mechanism
 that does it. See the Consolidation Judgment section of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
+**When the author asks for a shorter chain, tell them both halves.**
+Invoking `/design <topic>` or `/plan <topic>` directly shortens the
+conversation. It does not make the artifact set smaller: inside
+`/scope` that is decided per hop, after the documents exist, by the
+consolidation judgment.
+
 ## Discovery Prompt Structure
 
 The discovery prompt opens with the framing-shift question (R4):
