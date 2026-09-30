@@ -46,7 +46,11 @@ already `Accepted` when they start, and the parent never transitions
 anything, so each hop's approval has to happen inside the hop that
 produced the artifact. An interactive run asks the author as the child
 always does. An unattended run (`--auto`) takes the recommended option
-and says so in its output, naming the verdict it took.
+and says so in its output, naming the verdict it took. The mode is the
+parent's: the child is invoked inline, in the parent's own context, and
+follows the execution mode the parent is running under at every decision
+point, whether or not a mode flag is among its arguments (a parent adds
+no arguments of its own to a child, so for most children none is).
 
 What the child skips is everything that publishes or routes, because the
 parent owns those:
@@ -63,7 +67,8 @@ parent owns those:
   keeps only the verdict. Control returns to the parent, which
   decides the next hop.
 
-The parent publishes once, at its own exit, and its list of writes is the
+The parent publishes at most once, at its own exit (a `/scope` run with
+no intent publishes nothing), and its list of writes is the
 only one that applies while a child runs under it (for `/scope`, the
 Security Considerations section of `skills/scope/SKILL.md`; for
 `/charter`, its own closed write-target set).
@@ -72,7 +77,7 @@ Security Considerations section of `skills/scope/SKILL.md`; for
 
 A child invoked under sub-agent dispatch cannot always perform the
 same review or approval mechanics it uses under direct human
-invocation (no interactive user, parent owns the prompt UX, etc.).
+invocation (no interactive user, parent owns publishing, etc.).
 The five canonical fallback shapes encode the resolutions:
 
 ### 1. Serial-self-jury

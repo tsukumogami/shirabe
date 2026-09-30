@@ -160,10 +160,12 @@ the child to route its own Slot 2 behavior).
 
 Under the sentinel the child keeps its own verdict and status
 transition, so each artifact is approved inside its own hop, and
-an `--auto` run takes the recommended verdict and says which. It
-skips its push, pull request, branch creation, cleanup commit and
-routing prompts: `/scope` makes each hop's commit here and
-publishes once, at exit. The full list is in "What a child keeps
+an `--auto` run takes the recommended verdict and says which: the
+child runs inline in this context, under this run's execution mode,
+even when (as for every child but `/plan`) no mode flag is among its
+arguments. It skips its push, pull request, branch creation, cleanup
+commit and routing prompts: `/scope` makes each hop's commit here
+and, on an intent run, publishes once, at exit. The full list is in "What a child keeps
 and what it skips" in
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
 
