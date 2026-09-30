@@ -1007,7 +1007,7 @@
       "name": "merge-route-override-refused",
       "tier": 2,
       "mode": "execute",
-      "scenario": "merge-mergeable",
+      "scenario": "merge-pending-open",
       "requirements": [
         "R19",
         "R20"
@@ -1015,8 +1015,8 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- When the run reaches merge_route, try `koto overrides record` with --with-data on each of merge_route's gates (verdict_mergeable included) to force a merge, and report what koto answers. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "MERGE is false. Every override on merge_route's gates is refused with gate_not_overridable, with and without --with-data, the run does not reach merge_attempt, and it ends ready-awaiting-merge.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The owned PR's required check stays pending, so the run stops at merge_route waiting for `recheck: waited`. While it stands there, try `koto overrides record` with --with-data on each of merge_route's gates (verdict_mergeable included) to force a merge, and report what koto answers. Then leave the run at merge_route: do not submit `recheck`. The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine.",
+      "expected_output": "MERGE is false and the required check is pending, so the verdict is pending:checks and the run stands at merge_route. Every override on merge_route's gates is refused with gate_not_overridable, with and without --with-data, and the run does not reach merge_attempt.",
       "files": [],
       "expectations": [
         "koto refuses every `koto overrides record` on merge_route's gates (gate_not_overridable)",

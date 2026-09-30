@@ -1,0 +1,2 @@
+This scenario runs the real koto: the merge step's gates, default actions,
+result maps, and refusals are what its eval asserts on.
