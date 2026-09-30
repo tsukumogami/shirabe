@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   /work-on and /execute already ship validators for their output, but most of
   them run in CI or not at all, and several states ask the agent to copy a
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
