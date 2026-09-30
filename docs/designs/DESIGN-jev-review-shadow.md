@@ -587,7 +587,7 @@ Components in `scripts/review-shadow/`:
 - the `scan` subcommand, which runs the script criteria on a local branch.
 - `test_review_shadow.py`: `unittest` suite, offline, with a stub fetcher
   and a stub Jev transport.
-- `fixtures/`: a small fake pull request (body, file list, patches, file
+- `scripts/review-shadow/fixtures/`: a small fake pull request (body, file list, patches, file
   texts) with seeded violations and clean twins per script criterion, and a
   record-and-outcome set with hand-computed expected report output.
 
