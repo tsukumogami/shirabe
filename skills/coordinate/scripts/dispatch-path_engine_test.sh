@@ -30,6 +30,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-path-engine.XXXXXX")
 T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
@@ -177,7 +182,8 @@ N=0
 start() {
     N=$((N + 1))
     SESS="coord-dp-$N"
-    (cd "$W" && koto init "$SESS" --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") ||
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    (cd "$W" && koto init "$SESS" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") ||
         fail "session $SESS starts" "$(cat "$T/init.err")"
 }
 tick() { (cd "$W" && koto next "$SESS" --no-cleanup "$@" >"$T/next.json" 2>&1); }

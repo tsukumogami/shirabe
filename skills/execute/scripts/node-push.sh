@@ -78,8 +78,8 @@
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one, and the remote's default branch;
 #   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
-#      commit, so the pushed head carries no wip/ file (the sweep single-pr
-#      finalization runs, since a node PR is finalized on its own);
+#      commit, so the pushed head carries no wip/ file (a node PR is
+#      finalized on its own; the single-pr path has no such sweep);
 #   4. before any push, find the coordination PR (owned-pr.sh on home repo
 #      and coordination branch, carrying the `This is a **coordination PR**`
 #      marker) and, in node mode, check the node branch's PR: another run's

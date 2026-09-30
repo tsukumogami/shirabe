@@ -25,8 +25,8 @@ import records  # noqa: E402
 
 CASE_FILE = os.path.join(HERE, "cases", "work-on-introspection-evidence.json")
 STUB = os.path.join(HERE, "testdata", "stub-agent")
-PIN = "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10"
-KEY = "skills/work-on/references/phases/phase-2-introspection.md#L20-L24"
+PIN = "3cc4c54b8afa95b62c544a0d4b99990ba08d8609"
+KEY = "skills/work-on/references/phases/phase-2-introspection.md#L17-L21"
 WF = "issue_1"
 
 
@@ -149,7 +149,7 @@ class Spans(unittest.TestCase):
         _, b = ablation.resolve_span("skills/work-on/references/phases/phase-2-introspection.md#Evidence", PIN)
         self.assertEqual(path, "skills/work-on/references/phases/phase-2-introspection.md")
         self.assertEqual(a, b)
-        self.assertEqual(len(a), 257)
+        self.assertEqual(len(a), 164)
 
     def test_heading_ignores_fenced_code(self):
         content = b"# Top\n```bash\n# Not a heading\n```\n## Part\nbody\n```\n## inside fence\n```\nmore\n## Next\n"
@@ -223,7 +223,8 @@ class Checks(unittest.TestCase):
             ({"introspection_outcome": "approach_updated", "rationale": "  "}, 1, "rationale-missing"),
             ({"introspection_outcome": "approach_updated", "rationale": "flag landed"}, 0, "ok"),
             ({"introspection_outcome": "approach_unchanged"}, 0, "ok"),
-            ({"introspection_outcome": "issue_superseded"}, 0, "ok"),
+            ({"introspection_outcome": "issue_superseded"}, 1, "rationale-missing"),
+            ({"introspection_outcome": "issue_superseded", "rationale": "shipped in #9"}, 0, "ok"),
             ({"introspection_outcome": "bogus"}, 2, "enum-left-to-koto"),
             ("not an object", 2, "unreadable"),
         ]

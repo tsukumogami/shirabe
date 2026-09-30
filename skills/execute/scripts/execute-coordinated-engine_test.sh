@@ -61,6 +61,11 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
@@ -106,7 +111,8 @@ open_run() {
     shift
     local merge="$1"
     shift
-    k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
     # The run identity execute-open.sh mints at the session's birth.
@@ -276,7 +282,8 @@ fi
 ct_case setup-blocked
 fixture blocked
 ct_write_db
-k init execute-blocked --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
+# $KOTO_LEGACY_ENV_ARG: #483.
+k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup

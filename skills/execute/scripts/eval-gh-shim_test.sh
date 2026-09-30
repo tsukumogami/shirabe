@@ -104,6 +104,8 @@ expect_verdict merge-review-required true "awaiting:merge-state:BLOCKED:review=R
 expect_verdict merge-dirty true "awaiting:merge-state:DIRTY"
 expect_verdict merge-failing-check true "error:execute:ci"
 LIMIT=60 expect_verdict merge-pending-timeout true "error:execute:ci-timeout"
+expect_verdict merge-pending-open false "pending:checks"
+expect_verdict merge-pending-open true "pending:checks"
 expect_verdict merge-draft-ready-fails true "error:execute:ready"
 expect_verdict merge-unprotected true "awaiting:base-unprotected"
 expect_verdict merge-no-checks true "awaiting:no-checks"

@@ -192,6 +192,18 @@ difference seen" at such a count is never evidence that withholding is safe.
 The audit bar is at least 30 runs per workflow, and more than 5 points of
 erosion in an unchecked rule fails a withholding.
 
+## Re-pinning a case
+
+A case pins its withheld span by line range at a commit, and the span must
+still appear exactly once in the tree being run. When the file moves under it,
+re-pin in all five places: the case JSON's `withhold`, `PIN` and `KEY` in
+`scripts/ablation/ablation_test.py`, the span's byte count asserted in that
+file, and the deployed check's `SECTION` constant and docstring. Then confirm
+the check still grades a rule the new span states. Committed runs stay at the
+pin they recorded, and `summarize` reads it from them, so
+`ablation.py check-figures` still reproduces. The last re-pin (#576) and the
+check it changed are described in the check's own docstring.
+
 ## The demonstration
 
 [`work-on-introspection-evidence/`](work-on-introspection-evidence/summary.txt)

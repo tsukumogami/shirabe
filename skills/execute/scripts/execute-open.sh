@@ -12,7 +12,8 @@
 #             [--koto-leg <request-id>:execute]
 #
 # The template follows the PLAN's `execution_mode:` frontmatter:
-# `coordinated` enters execute-coordinated.md, anything else execute.md. Both
+# `coordinated` enters execute-coordinated.md, `multi-pr` is refused (it runs
+# through /work-on), anything else enters execute.md. Both
 # share the session name, so a live session from the other template is koto's
 # template_mismatch refusal, and a finished one is replaced.
 #
@@ -23,7 +24,8 @@
 # store is template_mismatch or origin_mismatch. Under --koto-leg every one of
 # those refusals is recorded on the leg by koto itself. This script's own
 # refusals are only the ones where no koto call can be built at all: a
-# malformed --koto-leg value, or a tokens file it cannot read. koto-open.sh
+# malformed --koto-leg value, a tokens file it cannot read, or a multi-pr PLAN,
+# which /work-on runs rather than /execute (`error=multi-pr`). koto-open.sh
 # adds the other two: an args file inside the work tree, and no koto binary.
 #
 # Usage: execute-open.sh <tokens-file>
@@ -64,10 +66,12 @@
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `session=execute-<slug>` when a session was opened, or, on a refusal, the exit
 # lines print-exit.sh --refused prints (outcome=error, step=execute:refused).
+# This script's own refusals print `error=usage`, or `error=multi-pr` for a
+# multi-pr PLAN, with the reason on stderr and no koto call.
 # koto's refusal wording goes to stderr, from execute-open-wording.tsv.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
-# own code otherwise), or 64 for this script's own usage refusals.
+# own code otherwise), or 64 for this script's own refusals (usage, multi-pr).
 #
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail
@@ -131,7 +135,8 @@ SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
 
 # The template, from the PLAN's execution_mode, re-validated against the enum:
-# exactly `coordinated` selects execute-coordinated.md; anything else, a PLAN
+# exactly `coordinated` selects execute-coordinated.md, `multi-pr` is refused
+# here, before any koto call; anything else, a PLAN
 # that doesn't exist included, stays on execute.md, as before. Both templates
 # share the execute-<slug> session name, so koto's --attach-live refuses a live
 # session built from the other one (template_mismatch) and --replace-terminal
@@ -150,6 +155,13 @@ if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
 fi
 case "$MODE" in
     coordinated) TEMPLATE="$SKILL_DIR/koto-templates/execute-coordinated.md" ;;
+    multi-pr)
+        # A multi-pr PLAN lands one pull request per issue, through /work-on.
+        # Refused before any koto call, so nothing is recorded on a --koto-leg.
+        printf 'error=multi-pr\n'
+        echo "$PROG: $PLAN is a multi-pr PLAN; /execute doesn't run it. Run it with /work-on $PLAN, one issue at a time." >&2
+        exit 64
+        ;;
 esac
 
 # A slug outside the pattern is koto's to refuse (invalid_var on PLAN_SLUG), and

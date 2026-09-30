@@ -11,6 +11,8 @@
 #     a malformed --koto-leg, a leg other than `execute`, a repeated
 #     --koto-leg, and an unreadable tokens file are this script's own refusals:
 #     exit 64 and no koto call
+#     a multi-pr PLAN: error=multi-pr, exit 64, no koto call, /work-on named;
+#     a single-pr PLAN is not refused and reaches koto
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -115,6 +117,34 @@ own_refusal "--koto-leg with an empty request id" '["docs/plans/PLAN-t.md","--ko
 own_refusal "--koto-leg given twice" '["docs/plans/PLAN-t.md","--koto-leg=r1:execute","--koto-leg","r2:execute"]'
 own_refusal "a tokens file that is not an array of strings" '{"plan":"x"}'
 
+# A multi-pr PLAN runs through /work-on: refused before any koto call, naming
+# /work-on as the entry point.
+mkdir -p "$FIXREPO/docs/plans"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\n---\n\n# PLAN: multi\n' \
+    > "$FIXREPO/docs/plans/PLAN-multi.md"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-multi.md","--auto","--koto-leg=req1:execute"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+RC=$?
+if [ "$RC" -eq 64 ] && [ "$OUT" = "error=multi-pr" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$TOKENS" ] \
+    && grep -q '/work-on docs/plans/PLAN-multi.md' "$WORK/stderr"; then
+    pass "a multi-pr PLAN: error=multi-pr, exit 64, no koto call, /work-on named, tokens file removed"
+else
+    fail "multi-pr PLAN: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")], stderr [$(cat "$WORK/stderr")]"
+fi
+# The control: the same PLAN at single-pr is not refused here and reaches koto.
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN: single\n' \
+    > "$FIXREPO/docs/plans/PLAN-single.md"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-single.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+if [ "$OUT" != "error=multi-pr" ] && grep -q 'execute-single' "$WORK/stub.log"; then
+    pass "a single-pr PLAN is not refused as multi-pr and reaches koto"
+else
+    fail "single-pr control: out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+fi
+rm -f "$FIXREPO/docs/plans/PLAN-multi.md" "$FIXREPO/docs/plans/PLAN-single.md"
+
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$WORK/missing.json" 2>/dev/null)
 [ $? -eq 64 ] && [ ! -s "$WORK/stub.log" ] && pass "own refusal: a missing tokens file" \
@@ -145,6 +175,21 @@ session_var() {
     cat "$dir"/*.state.jsonl 2>/dev/null | jq -rs --arg v "$2" '
         reduce (.[] | select(.type == "workflow_initialized" or .type == "variables_rebound")) as $e
             ({}; . + ($e.payload.variables // {})) | .[$v] // "<unset>"'
+}
+# log_len_without_reads <session> -- how many entries the session's log holds,
+# reads left out. From koto's context-read logging (tsukumogami/koto#290),
+# execute-open.sh's own `koto context exists` presence check appends a
+# context_read to the session it probes; that records the read, not a change,
+# so a session a refusal left untouched still compares equal. It fails, and
+# prints nothing, when the session's log can't be found or read, so a caller
+# can't compare two failed reads as equal.
+log_len_without_reads() {
+    local dir n
+    dir=$(k session dir "$1" 2>/dev/null) && [ -n "$dir" ] || return 1
+    set -- "$dir"/*.state.jsonl
+    [ -f "$1" ] || return 1
+    n=$(cat "$@" | jq -c 'select(.type != "context_read")' | wc -l) || return 1
+    printf '%s\n' "$n" | tr -d ' '
 }
 exists() { k status "$1" >/dev/null 2>&1; }
 line() { printf '%s\n' "$OUT" | grep -qx "$1"; }
@@ -257,9 +302,9 @@ Done.
 OTHER
 k init execute-other --template "$WORK/other.md" --var PLAN_DOC=docs/plans/PLAN-other.md \
     --var PLAN_SLUG=other --var PLUGIN_ROOT=/koto-probe --var MERGE=false >/dev/null 2>&1
-LOG_BEFORE=$(cat "$(k session dir execute-other)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_BEFORE=$(log_len_without_reads execute-other) || LOG_BEFORE="unreadable (before)"
 refusal "a live session from another template" '["docs/plans/PLAN-other.md","--merge"]' template_mismatch execute-nonexistent
-LOG_AFTER=$(cat "$(k session dir execute-other)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_AFTER=$(log_len_without_reads execute-other) || LOG_AFTER="unreadable (after)"
 if [ "$(session_var execute-other MERGE)" = false ] && [ "$LOG_BEFORE" = "$LOG_AFTER" ] \
     && [ "$(k status execute-other | jq -r .current_state)" = wait ]; then
     pass "the other template's session is untouched: same state, same log, MERGE still false"
@@ -361,10 +406,10 @@ run_open '["docs/plans/PLAN-mix.md"]'
 [ "$(built_from execute-mix)" != execute-coordinated.md ] && line 'opened=new' \
     || fail "could not open a single-pr execute-mix session: [$OUT]"
 coord_plan mix
-LOG_BEFORE=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_BEFORE=$(log_len_without_reads execute-mix) || LOG_BEFORE="unreadable (before)"
 STATE_BEFORE=$(k status execute-mix | jq -r .current_state)
 run_open '["docs/plans/PLAN-mix.md","--merge"]'
-LOG_AFTER=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_AFTER=$(log_len_without_reads execute-mix) || LOG_AFTER="unreadable (after)"
 if [ "$RC" -eq 2 ] && line 'refused=template_mismatch' && line 'outcome=error' && line 'step=execute:refused' \
     && [ "$LOG_BEFORE" = "$LOG_AFTER" ] && [ "$(k status execute-mix | jq -r .current_state)" = "$STATE_BEFORE" ] \
     && [ "$(session_var execute-mix MERGE)" = false ]; then
