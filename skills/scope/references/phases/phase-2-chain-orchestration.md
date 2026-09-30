@@ -158,6 +158,15 @@ invoke; the `rationale:` field carries the upfront decision
 about whether the run is a fresh chain or a revision (read by
 the child to route its own Slot 2 behavior).
 
+Under the sentinel the child keeps its own verdict and status
+transition, so each artifact is approved inside its own hop, and
+an `--auto` run takes the recommended verdict and says which. It
+skips its push, pull request, branch creation, cleanup commit and
+routing prompts: `/scope` makes each hop's commit here and
+publishes once, at exit. The full list is in "What a child keeps
+and what it skips" in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+
 ## Child Invocation
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
@@ -530,7 +539,9 @@ here. Any rationale text, now or later, goes through `git commit -F
 with no intent a branch reaches a remote when the author or a
 downstream skill puts it there; on an intent run the publish step
 pushes it once, at exit (the Publish group in SKILL.md's Security
-Considerations), and never from a hop.
+Considerations), and never from a hop. The children push nothing
+either: under the sentinel they skip their own push and pull
+request (see the sentinel section above).
 
 The absorb's own commit (step 8 of Stage 3 below) is a different
 commit with its own pathspecs, carrying the deletion, the re-point

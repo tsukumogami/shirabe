@@ -341,8 +341,10 @@ do not read them all before starting:
    protection stays in the list and is also recorded in
    `chain_skipped:`), running the worktree-staleness
    check before each invocation, writing the
-   `parent_orchestration:` sentinel immediately before invoking,
-   clearing the sentinel immediately after, capturing the child
+   `parent_orchestration:` sentinel immediately before invoking
+   (under it a child keeps its own verdict and status transition but
+   skips its push, pull request, branch creation, cleanup commit and
+   routing prompts), clearing the sentinel immediately after, capturing the child
    snapshot, running the validator pass-through against each
    intermediate, and running the consolidation judgment against
    the nearest surviving artifact above it. The judgment is the only

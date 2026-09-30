@@ -23,6 +23,8 @@
 #   - executed_report takes no evidence and routes on non-overridable
 #     context-matches gates; /scope ships no owned-pr script of its own;
 #   - the frontmatter description's state count matches the states declared.
+#   - the child-dispatch reference keeps a child's verdict and lists the
+#     publishing and routing steps a child skips under the sentinel.
 #
 # Usage: bash skills/scope/scripts/scope-template_test.sh
 # Exit 0 when every case holds. The compiled-template cases need koto and jq and
@@ -254,6 +256,30 @@ eq "hop_plan's landed edge requires plan_mode_consistent" 'true' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_mode_consistent.exit_code"]] == [0]')"
 eq "a plan-mode mismatch routes to bail" 'true' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_mode_consistent.exit_code"] == 1)] | length == 1')"
+
+# The child-dispatch contract the hops rely on: under the sentinel a child keeps
+# its verdict and skips every step that publishes or routes, so /scope's one
+# push at exit stays true. The dispatch reference once had children leave their
+# artifact unapproved for the parent, which /design and /plan cannot start from.
+DISPATCH="$HERE/../../../references/fixes/sub-agent-dispatch.md"
+PHASE2="$HERE/../references/phases/phase-2-chain-orchestration.md"
+if grep -q 'Parent-delegated-approval' "$DISPATCH"; then
+    bad "the dispatch reference no longer delegates a child's approval to the parent" "$(grep -n 'Parent-delegated-approval' "$DISPATCH")"
+else
+    ok "the dispatch reference no longer delegates a child's approval to the parent"
+fi
+SKIPS=$(awk '/^## What a child keeps and what it skips/{f=1;next} f&&/^## /{exit} f' "$DISPATCH")
+for step in '**push**' '**pull request**' '**branch creation**' '**cleanup commit**' '**routing prompts**'; do
+    case "$SKIPS" in
+        *"$step"*) ok "the dispatch reference's skip list names $step" ;;
+        *) bad "the dispatch reference's skip list names $step" "section missing or step absent" ;;
+    esac
+done
+if grep -q 'What a child keeps' "$PHASE2"; then
+    ok "Phase 2 cites the dispatch reference's keep-and-skip section"
+else
+    bad "Phase 2 cites the dispatch reference's keep-and-skip section" ""
+fi
 
 echo
 echo "passed: $PASS   failed: $FAIL"

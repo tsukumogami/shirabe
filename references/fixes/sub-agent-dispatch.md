@@ -14,7 +14,7 @@ state file (`wip/scope_<topic>_state.md` for `/scope`,
 ```yaml
 parent_orchestration:
   invoking_child: <skill-name>            # brief|prd|design|plan|...
-  suppress_status_aware_prompt: true      # parent owns the prompt UX
+  suppress_status_aware_prompt: true      # skip the re-entry prompt
   rationale: <fresh-chain|revise|repeat>  # routes chain-handoff behavior
 ```
 
@@ -24,9 +24,10 @@ The three subfields are load-bearing:
   child reads this to confirm it was spawned from the expected parent
   context (not, for example, a stale state file from a different
   topic).
-- `suppress_status_aware_prompt` -- when `true`, the child must skip
-  the status-aware approval prompt the parent owns. The parent
-  presents the unified prompt at chain boundaries.
+- `suppress_status_aware_prompt` -- when `true`, the child skips its
+  status-aware re-entry prompt (the question it asks when its artifact
+  already exists at a status it recognizes). It does not skip the
+  child's own verdict: see "What a child keeps and what it skips" below.
 - `rationale` -- routes how the child closes out:
   - `fresh-chain` -- this is the first pass through the chain; the
     child finalizes the artifact and hands control back to the parent.
@@ -36,6 +37,36 @@ The three subfields are load-bearing:
   - `repeat` -- the child should re-run an already-finalized artifact
     to reflect a downstream change (rare; reserved for tooling-driven
     re-emission).
+
+## What a child keeps and what it skips
+
+Under the sentinel a child still reaches its own verdict and makes its
+own status transition. `/design` and `/plan` require their upstream
+already `Accepted` when they start, and the parent never transitions
+anything, so each hop's approval has to happen inside the hop that
+produced the artifact. An interactive run asks the author as the child
+always does. An unattended run (`--auto`) takes the recommended option
+and says so in its output, naming the verdict it took.
+
+What the child skips is everything that publishes or routes, because the
+parent owns those:
+
+- **push** -- no `git push` of any kind;
+- **pull request** -- no `gh pr create`, `gh pr edit` or `gh pr ready`;
+- **branch creation** -- the child works on the branch it was invoked on
+  and never creates or switches branches;
+- **cleanup commit** -- no commit removing the child's intermediate
+  files; the parent's cleanup phase owns that;
+- **routing prompts** -- no "what next" question (which skill to run
+  next, whether to update an upstream issue); a prompt that pairs the
+  verdict with a next step, such as `/design`'s "Plan or Approve",
+  keeps only the verdict. Control returns to the parent, which
+  decides the next hop.
+
+The parent publishes once, at its own exit, and its list of writes is the
+only one that applies while a child runs under it (for `/scope`, the
+Security Considerations section of `skills/scope/SKILL.md`; for
+`/charter`, its own closed write-target set).
 
 ## The five canonical fallback shapes
 
@@ -56,14 +87,14 @@ verdicts are folded into a single feedback table.
 **Bindings:** `/design` Phase 6, `/prd` Phase 4 jury, `/strategy`
 Phase 6.
 
-### 2. Parent-delegated-approval
+### 2. Parent-owned-publishing
 
-When the child would normally prompt the author for an Accepted/
-Reject verdict, but the parent chain owns the unified prompt at the
-chain boundary, the child writes its draft to disk in a non-Accepted
-state (`Draft` for BRIEF/PRD/PLAN; `Proposed` for DESIGN) and hands
-control back to the parent. The parent presents the chain-level
-prompt and triggers the Accepted transition on approval.
+The child reaches its own verdict and makes its own status
+transition, as "What a child keeps and what it skips" above says,
+and leaves publishing to the parent: no push, no pull request, no
+branch creation, no cleanup commit, and no routing prompt. Under
+`--auto` it takes the recommended verdict and names it in its
+output.
 
 **Bindings:** all seven authoring children (`/brief`, `/prd`,
 `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`).
@@ -111,16 +142,17 @@ does not need a fallback at that phase.
 
 | Skill | Phase | Applicable fallback shapes |
 |-------|-------|---------------------------|
-| `/brief` | Phase 4 finalize | Parent-delegated-approval |
+| `/brief` | Phase 4 finalize | Parent-owned-publishing |
 | `/prd` | Phase 4 jury | Serial-self-jury, Inline-substitute-review |
-| `/prd` | Phase 5 finalize | Parent-delegated-approval |
+| `/prd` | Phase 5 finalize | Parent-owned-publishing |
 | `/design` | Phase 2 decisions | Decision-bypass-with-inline-resolution |
-| `/design` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
+| `/design` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
 | `/plan` | Phase 6 review | Inline-substitute-review |
-| `/plan` | Phase 7 emit | Deterministic-mode-bypass, Parent-delegated-approval |
-| `/vision` | Phase finalize | Parent-delegated-approval |
-| `/strategy` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
-| `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-delegated-approval |
+| `/plan` | Phase 7 emit | Deterministic-mode-bypass, Parent-owned-publishing |
+| `/vision` | Phase finalize | Parent-owned-publishing |
+| `/strategy` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
+| `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-owned-publishing |
+
 `/work-on` has no row: it reads no sentinel, at Phase 0 or anywhere else
 (R9 scopes the seven authoring children for the Resume Logic row). When
 `/work-on` runs under a parent chain, it inherits the parent's branch and PR
@@ -134,7 +166,8 @@ routing:
 - `rationale: fresh-chain` -- the child finalizes the artifact, the
   parent reads the child's terminal state, and the parent advances
   to the next chain step (e.g. BRIEF -> PRD, PRD -> DESIGN, DESIGN
-  -> PLAN). The parent owns the transition.
+  -> PLAN). The child made its artifact's status transition; the
+  parent owns the move to the next step.
 - `rationale: revise` -- the child re-finalizes the revised artifact
   and returns control to the parent at the SAME chain step. The
   parent then re-evaluates whether downstream artifacts need
