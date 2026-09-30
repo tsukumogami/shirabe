@@ -9,6 +9,7 @@ name: Check offload ablation
 # sits with run-evals.sh among the bash-floor exemptions.
 
 on:
+  # The two paths: lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/ablation/**'
@@ -16,6 +17,27 @@ on:
       - 'scripts/run-evals_test.sh'
       - 'scripts/offload-baseline.sh'
       - 'docs/measurement/**'
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/references/**'
+      - '.github/workflows/offload-ablation.yml'
+  # Also on main, so an edit to a file the ablation pins shows on the push that
+  # lands it, not on the next unrelated pull request. The two jobs that need a
+  # pull request (normal-runs-unchanged compares it with its base;
+  # public-content reads its added lines and body) run on pull requests only.
+  # The skills/* entries are deliberately wide, so an edit to a template or
+  # reference trips the check on its own PR (#572); that width is why
+  # normal-runs-unchanged needs its guard step, so don't trim them back.
+  push:
+    branches: [main]
+    # Must match the pull_request paths: list above.
+    paths:
+      - 'scripts/ablation/**'
+      - 'scripts/run-evals.sh'
+      - 'scripts/run-evals_test.sh'
+      - 'scripts/offload-baseline.sh'
+      - 'docs/measurement/**'
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/references/**'
       - '.github/workflows/offload-ablation.yml'
 
 permissions:
@@ -25,16 +47,38 @@ jobs:
   # Nothing a normal run of a shipped skill loads may change: every path the
   # offload baseline's load manifest lists, and every koto template.
   normal-runs-unchanged:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # This job guards the ablation harness's own changes. The path filter
+      # also admits ordinary edits to skill templates and references, which
+      # this comparison would rightly refuse, so it steps aside for a pull
+      # request that touches none of the harness's files. The grep below is the
+      # paths: entries except skills/*: a new harness file goes here and in both
+      # paths: lists.
+      - name: Find out whether the harness changed
+        id: harness
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --name-only "$BASE...$HEAD" | grep -qE '^(scripts/ablation/|scripts/run-evals\.sh|scripts/run-evals_test\.sh|scripts/offload-baseline\.sh|docs/measurement/|\.github/workflows/offload-ablation\.yml)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No harness file changed; nothing to compare."
+          fi
+
       - name: Test the check
+        if: steps.harness.outputs.changed == 'true'
         run: bash scripts/ablation/check-normal-runs-unchanged_test.sh
 
       - name: Compare with the pull request's base
+        if: steps.harness.outputs.changed == 'true'
         # The PR's own head, not the merge commit CI checks out: commits that
         # landed on main meanwhile are not this PR's.
         run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
@@ -45,6 +89,7 @@ jobs:
   # maintainer supplies from outside the repository; no such list is wired
   # here, so the job prints that the denylisted-term check did not run.
   public-content:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
