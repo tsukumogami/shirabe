@@ -86,6 +86,7 @@ execute-single-pr	skills/execute/koto-templates/execute.md	state:ready_awaiting_
 execute-single-pr	skills/execute/koto-templates/execute.md	state:paused_for_review	0.2	conditional
 execute-single-pr	skills/execute/koto-templates/execute.md	state:done	0	profile-excluded
 execute-single-pr	skills/execute/koto-templates/execute.md	state:done_blocked	0.2	conditional
+execute-single-pr	skills/execute/references/cross-issue-context.md	file	1	resident
 execute-single-pr	references/pr-body-conformance.md	file	1	visits
 execute-single-pr	skills/work-on/references/phases/phase-6-pr.md	file	2	visits
 execute-single-pr	skills/work-on/references/phases/phase-2.5-worktree-discipline.md	file	0.3	conditional
