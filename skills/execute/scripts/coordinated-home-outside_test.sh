@@ -29,6 +29,8 @@
 #                         branches and never the coordination branch
 #   the index             the coordination entry names acme/repo-a, the node
 #                         entries acme/repo-b
+#   visibility            neither public node PR links the private
+#                         coordination PR
 #
 # Usage: coordinated-home-outside_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -138,12 +140,16 @@ while [ "$step" -lt 20 ]; do
                 --coord-branch "$(ctx coord_branch)" --plan "$(ctx plan_abs)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
                 || { fail "node-push.sh order: $(tail -3 "$CASE/push.err")"; break; }
             # The finalization cascade's own commit and push, standing in for
-            # run-cascade.sh --push: the PLAN leaves the coordination branch.
+            # run-cascade.sh --push (a plain push of the coordination branch
+            # from this checkout, with its own tests): what this case needs is
+            # the PLAN gone from the coordination branch and the branch pushed
+            # to the home origin, not the cascade's document transitions.
             (cd "$HOMEDIR" && git rm -q docs/plans/PLAN-t.md && git commit -q -m "chore: finalize" && git push -q origin "$CT_CB")
             (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" coordination --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
                 --coord-branch "$(ctx coord_branch)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
                 || { fail "node-push.sh coordination: $(tail -3 "$CASE/push.err")"; break; }
-            # GitHub now reports the pushed commit as the coordination PR's head.
+            # GitHub now reports the pushed commit as the coordination PR's
+            # head. The shim's model can't see a push, so the case moves it.
             sha=$(git -C "$HOMEDIR" rev-parse HEAD)
             jq --arg sha "$sha" '(.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .headRefOid) = $sha' \
                 "$DB" > "$DB.tmp" && mv "$DB.tmp" "$DB"
@@ -200,6 +206,15 @@ else
 fi
 OTHER=$(printf '%s\n' "$WRITES" | grep -v -F -- "--repo $HOME_REPO" | grep -v -F -- "--repo $NODE_REPO" | grep . || true)
 [ -z "$OTHER" ] && pass "every other write names $NODE_REPO" || fail "a write naming neither repository: $OTHER"
+
+# A public node PR under a private coordination PR carries no link into it.
+LINKED=$(jq -r '[.prs[] | select(.repo == "acme/repo-b") | select(.body | test("acme/repo-a/pull/10|acme/repo-a#10"))] | length' "$DB")
+NODE_PRS=$(jq '[.prs[] | select(.repo == "acme/repo-b")] | length' "$DB")
+if [ "$NODE_PRS" -eq 2 ] && [ "$LINKED" -eq 0 ]; then
+    pass "neither public node PR links the private coordination PR"
+else
+    fail "node PRs: $NODE_PRS, linking the coordination PR: $LINKED"
+fi
 
 # --- branches ---------------------------------------------------------------------
 

@@ -278,7 +278,9 @@ entry (`coordination`), which must name `home_repo` and nothing else. `home_repo
 need not be in `repos`: a PLAN whose nodes all land in other repositories, such as
 a private planning repository over public ones, keeps its coordination PR where it
 was scoped, and the run writes there only through the coordination PR's body edits,
-its branch's push, `gh pr ready`, and its merge, each given `home_repo` explicitly.
+`gh pr ready`, and its merge, each given `home_repo` explicitly, and its branch's push
+from the coordination checkout, whose origin `home_repo` is read from. Every node then
+lives in another repository, so each is cut with `node-cut.sh --repo-dir <clone>`.
 
 **The pause.** When a node can't start because a predecessor's PR is unmerged,
 the run ends `paused_awaiting_merges`. The coordination PR is **left open**, never

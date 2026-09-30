@@ -20,9 +20,11 @@
 #                 be one of the repos entries: a PLAN whose nodes all land in
 #                 other repositories (a private planning repository over
 #                 public ones, say) keeps its coordination PR here. The run
-#                 writes to it only through the coordination PR's own paths,
-#                 which take home_repo explicitly: the body edits, the
-#                 coordination branch's push, marking it ready, and its merge.
+#                 writes to it only through the coordination PR's own paths:
+#                 the body edits, marking it ready, and its merge, which take
+#                 home_repo explicitly, and the coordination branch's push,
+#                 which goes to this checkout's origin, the remote home_repo
+#                 is read from.
 #   coord_branch  the checked-out branch: the coordination branch. A detached
 #                 HEAD and the remote's default branch are refused.
 #   plan_abs      the PLAN's absolute path in this checkout, which outline
@@ -40,7 +42,8 @@
 #   0   recorded (or already recorded with the same values)
 #   64  usage error
 #   65  HEAD is detached
-#   66  a value is outside its pattern
+#   66  a value is outside its pattern, or this checkout's owner/repo could
+#       not be read
 #   67  the checked-out branch is the remote's default branch
 #   68  a different value is already recorded for this session
 #   69  the PLAN could not be read into nodes
