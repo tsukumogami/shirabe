@@ -76,7 +76,9 @@
 #   (the order mode skips steps 2, 3, 5, 6, the node-branch check in 4, and
 #   the index half of 7)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
-#      one, and the remote's default branch;
+#      one, and the remote's default branch; in node mode, for a node whose
+#      repository is not the coordination PR's, refuse a worktree that
+#      shares the coordination checkout's git directory or origin URL;
 #   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
 #      commit, so the pushed head carries no wip/ file (a node PR is
 #      finalized on its own; the single-pr path has no such sweep);
@@ -138,6 +140,11 @@
 #   78  node mode: a public node under a private coordination PR whose
 #       commits carry private-repository markers, or whose commits the check
 #       couldn't read; nothing was pushed or edited (execute:visibility)
+#   79  node mode: the node names a repository other than the coordination
+#       PR's, but this worktree shares the coordination checkout's git
+#       directory or pushes to its origin URL (a node cut without
+#       node-cut.sh --repo-dir), or those could not be read; nothing was
+#       pushed or edited (execute:dispatch)
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -273,6 +280,29 @@ if [ "$MODE" != order ]; then
         [ "$BRANCH" = "$DEFAULT" ] && { echo "$PROG: refusing to push [$BRANCH]: it is the default branch of $REMOTE" >&2; exit 67; }
     else
         case "$BRANCH" in main|master) echo "$PROG: refusing to push [$BRANCH]: a default branch name" >&2; exit 67 ;; esac
+    fi
+
+    # 2b. A node in a repository other than the coordination PR's is pushed
+    # from a clone of that repository (node-cut.sh --repo-dir), never from
+    # the coordination checkout the PLAN sits in. A worktree sharing that
+    # checkout's git directory, or pushing to the same URL as its origin,
+    # would put the node branch in the home repository, which the run
+    # writes only through the coordination PR's own paths.
+    if [ "$MODE" = node ] && [ "$(coord_lower "$REPO")" != "$(coord_lower "$HOME_REPO")" ]; then
+        PLAN_DIR=$(dirname -- "$PLAN")
+        HOME_GIT=$(cd "$PLAN_DIR" && cd "$(git rev-parse --git-common-dir)" && pwd -P) || HOME_GIT=""
+        NODE_GIT=$(cd "$(git rev-parse --git-common-dir)" && pwd -P) || NODE_GIT=""
+        HOME_URL=$(cd "$PLAN_DIR" && git config --get remote.origin.url) || HOME_URL=""
+        NODE_URL=$(git config --get "remote.$REMOTE.url") || NODE_URL=""
+        if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
+            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout; nothing was pushed" >&2
+            exit 79
+        fi
+        if [ "$HOME_GIT" = "$NODE_GIT" ] || { [ -n "$HOME_URL" ] && [ "$HOME_URL" = "$NODE_URL" ]; }; then
+            # Named by node id only: either repository may be private.
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed" >&2
+            exit 79
+        fi
     fi
 
     # 3. The wip/ sweep.

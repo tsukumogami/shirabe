@@ -2,7 +2,8 @@
 #
 # Sourced by coordinated-next_test.sh, coordination-verdict_test.sh,
 # record-coordination-verdict_test.sh, node-push_test.sh, node-cut_test.sh,
-# coord-merge_test.sh, record-coord-setup_test.sh, and
+# coord-merge_test.sh, record-coord-setup_test.sh, repo-visibility_test.sh,
+# coordinated-visibility_test.sh, execute-coordinated-engine_test.sh, and
 # coordinated-home-outside_test.sh. Not a test itself.
 #
 # GitHub is the eval gh shim (skills/execute/evals/fixtures/bin/gh) in its
@@ -234,7 +235,7 @@ PLAN
 }
 
 # ct_repo <dir> -- a clone of a fresh bare origin (default branch main, one
-# commit), checked out on CT_CB with the PLAN committed. Prints nothing; the
+# commit), checked out on CT_CB (the caller writes and commits the PLAN). Prints nothing; the
 # origin is <dir>.origin.git.
 ct_repo() {
     local d="$1"

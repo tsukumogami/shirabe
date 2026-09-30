@@ -11,9 +11,11 @@
 # It records four context keys:
 #
 #   repos         the write set: every PR node's REPO as plan-to-tasks.sh
-#                 emits it, sorted, de-duplicated, comma-joined. Every PR the
-#                 run opens, edits, readies, or merges must be in one of these
-#                 repositories, and an index entry naming any other is refused.
+#                 emits it, sorted, de-duplicated, comma-joined. Every node PR
+#                 the run opens, edits, readies, or merges must be in one of
+#                 these repositories, and a node's index entry naming any other
+#                 is refused. The coordination PR is the one exception: it
+#                 lives in home_repo.
 #   home_repo     the one repository holding the coordination branch, read
 #                 from the origin remote the way record-write-set.sh reads it.
 #                 It must match ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$. It need not

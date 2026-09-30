@@ -95,7 +95,7 @@ fi
 
 COORD_URL="https://github.com/acme/repo-a/pull/10"
 
-# fixture <slug> [two-repo] -- a coordination checkout for one case, on CT_CB,
+# fixture <slug> [two-repo|remote] -- a coordination checkout for one case, on CT_CB,
 # with docs/plans/PLAN-<slug>.md committed. Sets REPO and CT_SLUG.
 fixture() {
     CT_SLUG="$1"

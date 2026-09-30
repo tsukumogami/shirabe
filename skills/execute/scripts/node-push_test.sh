@@ -56,6 +56,14 @@
 #     a public node under a private home whose commits carry a private/ path
 #     or a Repo Visibility: Private line         exit 78, nothing pushed; no
 #                                                scan for any other pair
+#   a node in another repository than the coordination PR's, pushed from the
+#   coordination checkout:
+#     a worktree cut there (no --repo-dir)       exit 79, nothing pushed, no
+#                                                gh write, the message naming
+#                                                neither repository
+#     a separate clone whose origin is the home's exit 79, nothing pushed
+#     the first, through a remote naming another URL   exit 79
+#     the node's own clone (control)             pushed
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
 # Usage: node-push_test.sh
@@ -498,9 +506,21 @@ ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass
 # The home (the coordination PR's repository) is acme/repo-a and the node lands
 # in acme/repo-b; the visibilities come from the shim's repository model.
 
+# node_clone <case> -- a clone of acme/repo-b (its own bare origin) and the
+# node cut there with --repo-dir, one commit on it. Sets NREPO and WT.
+node_clone() {
+    NREPO="$CT_WORK/$1-node"
+    ct_repo "$NREPO"
+    (cd "$NREPO" && git checkout -q main)
+    WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no acme/repo-b worktree for case $1" >&2; exit 1; }
+    (cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+}
+
 # vis_push <case> <home vis> <node vis> [line] -- a fresh node push into
-# acme/repo-b; with a line, one more commit adds it to notes.txt first.
-# VIS_PRS, when set, is ct_pr arguments for a PR already on the node branch.
+# acme/repo-b, from a worktree of its own clone; with a line, one more commit
+# adds it to notes.txt first. VIS_PRS, when set, is ct_pr arguments for a PR
+# already on the node branch.
 vis_push() {
     ct_case "$1"
     CT_VIS_A="$2"
@@ -508,6 +528,7 @@ vis_push() {
     [ -n "${VIS_PRS:-}" ] && ct_pr acme/repo-b 60 "impl/t-$CT_CORE" "$VIS_PRS"
     ct_write_db
     fresh_repo "$1"
+    node_clone "$1"
     if [ -n "${4:-}" ]; then
         (cd "$WT" && printf '%s\n' "$4" > notes.txt && git add notes.txt && git commit -q -m "docs: notes")
     fi
@@ -516,7 +537,7 @@ vis_push() {
     RC=$?
     NBODY=$(jq -r '.prs[] | select(.repo == "acme/repo-b") | .body' "$GH_CALL_LOG.d/db.json" 2>/dev/null)
 }
-pushed() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+pushed() { [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
 
 vis_push vis-pub-pub public public
 if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
@@ -595,6 +616,72 @@ vis_push vis-scan-public-home public public "see private/plans/notes.md"
 [ "$RC" -eq 0 ] && pass "the scan runs only for a public node under a private home" || fail "public home, no scan: rc=$RC"
 vis_push vis-scan-priv-node private private "see private/plans/notes.md"
 [ "$RC" -eq 0 ] && pass "a private node under a private home isn't scanned" || fail "private node, no scan: rc=$RC"
+
+# --- a node pushed from the coordination checkout ---------------------------------
+#
+# The node lands in acme/repo-b; the coordination PR is in acme/repo-a.
+
+# home_push -- push the node from $WT with --repo acme/repo-b.
+home_push() {
+    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+}
+home_pushed() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+gh_wrote() { ct_calls | grep -Eq '^pr (create|edit|ready|merge|close)'; }
+
+ct_case home-worktree
+ct_write_db
+fresh_repo home-worktree
+home_push
+if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote \
+    && grep -q "cut it with node-cut.sh --repo-dir" "$CASE/stderr" && ! grep -q 'acme/' "$CASE/stderr"; then
+    pass "a node in another repository, cut in the coordination checkout: exit 79, nothing pushed or written, no repository named"
+else
+    fail "home worktree: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+ct_case home-url
+ct_write_db
+fresh_repo home-url
+NREPO="$CT_WORK/home-url-reclone"
+git clone -q "$REPO.origin.git" "$NREPO"
+WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+home_push
+if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+    pass "a separate clone whose origin is the coordination checkout's: exit 79, nothing pushed"
+else
+    fail "home url: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# The same worktree, pushing through a remote that does point at acme/repo-b's
+# origin: the branch was still cut from the coordination checkout's default
+# branch, so the git directory alone refuses it.
+ct_case home-worktree-alt-remote
+ct_write_db
+fresh_repo home-worktree-alt-remote
+git init -q --bare "$CT_WORK/alt-remote.git"
+(cd "$REPO" && git remote add alt "$CT_WORK/alt-remote.git")
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --remote alt 2>"$CASE/stderr")
+RC=$?
+if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$CT_WORK/alt-remote.git" "refs/heads/impl/*")" ]; then
+    pass "a worktree of the coordination checkout pushing through another remote: exit 79, nothing pushed"
+else
+    fail "alt remote: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+ct_case own-clone
+ct_write_db
+fresh_repo own-clone
+node_clone own-clone
+home_push
+if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] && ! home_pushed; then
+    pass "the node's own clone (control): pushed to acme/repo-b's origin, never the home's"
+else
+    fail "own clone: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

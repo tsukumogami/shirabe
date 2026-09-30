@@ -205,7 +205,7 @@ branch, per repository. Mixed shapes work the same way: the node is always
 
 A node whose predecessor hasn't merged can't start. When that's the only thing
 left to do, `/execute` ends `outcome=paused-awaiting-merges`. The pause isn't a
-failure. It prints the repositories it wrote to, each unmerged PR with
+failure. It prints the node repositories (`repos=`), each unmerged PR with
 `waiting=human` or `waiting=predecessor` and the condition it's waiting on, and
 the command that continues the run:
 
@@ -257,6 +257,15 @@ shirabe never emits a plan that assumes an atomic merge.
 
 A work item whose `**Repo**:` names a repository outside the PLAN's write set
 ends the run `outcome=error` with `step=execute:write-set`.
+
+The coordination PR's own repository doesn't have to hold a node. A PLAN scoped
+in a private planning repository can send every node to other repositories; the
+coordination PR stays in the planning repository, and `/execute` writes there
+only through the coordination PR itself: its body, its branch, marking it
+ready, and its merge. Each node then needs a clone of its own repository, passed
+to `node-cut.sh` with `--repo-dir`. A node pushed from the planning checkout
+instead is refused before anything is pushed, and so is a PR index line other
+than the coordination PR's own that names the planning repository.
 
 ## Visibility
 
