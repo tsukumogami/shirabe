@@ -237,6 +237,24 @@ class TestFetch(unittest.TestCase):
         pr = fetched(body_file="Given body.")
         self.assertEqual((pr["body"], pr["body_source"]), ("Given body.", "file"))
 
+    def test_diff_kind_edge_cases(self):
+        # Both sides of a rename count: moving a file out of docs/ is never docs.
+        files = [{"path": "skills/x/guide.md", "previous_path": "docs/guide.md"}]
+        self.assertEqual(rs.diff_kind(rs.changed_paths(files)), "mixed")
+        files = [{"path": "scripts/tool.py", "previous_path": "docs/tool.py"}]
+        self.assertEqual(rs.diff_kind(rs.changed_paths(files)), "code")
+        # Only docs/**.md and the top-level README.md are docs.
+        for path in ("CLAUDE.md", "AGENTS.md", "CHANGELOG.md", "skills/x/README.md", "docs/x.yml"):
+            self.assertEqual(rs.diff_kind([path]), "code", path)
+        # No changed paths is its own kind, never docs.
+        self.assertEqual(rs.diff_kind([]), "none")
+
+    def test_rename_reaches_diff_kind_through_fetch(self):
+        fx = fixture()
+        fx["compare"]["files"] = [{"filename": "skills/x/guide.md", "previous_filename": "docs/guide.md",
+                                   "status": "renamed", "additions": 0, "deletions": 0}]
+        self.assertEqual(fetched(fx)["diff_kind"], "mixed")
+
     def test_diff_kind(self):
         self.assertEqual(rs.diff_kind(["docs/a.md", "README.md"]), "docs")
         self.assertEqual(rs.diff_kind(["skills/x/SKILL.md"]), "code")
@@ -750,6 +768,13 @@ class TestGrade(unittest.TestCase):
         self.graded(send)
         self.assertTrue(sent)
         self.assertFalse(any(token in s for s in sent))
+
+    def test_no_changed_paths_is_not_graded(self):
+        self.pr["files"] = []
+        sent = []
+        b = self.graded(stub_send(log=sent))
+        self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "no-changed-paths"))
+        self.assertEqual(sent, [])
 
     def test_https_only(self):
         with self.assertRaises(rs.ConfigError):

@@ -269,11 +269,18 @@ def body_as_of(edits, current_body, body_at):
 
 
 def diff_kind(paths):
-    """docs, code or mixed. Only Markdown under docs/ and a top-level README count as
-    documentation: shirabe's skills, references and templates are Markdown that drives
-    workflows, and a script kept under docs/ is still code."""
+    """docs, code, mixed, or none for a head that changes nothing.
+
+    Only Markdown under docs/ and the top-level README.md count as documentation.
+    Every other Markdown file (CLAUDE.md, AGENTS.md, a changelog, a nested
+    README) is code, because shirabe's skills, references and agent instructions
+    are Markdown that drives workflows, and a script kept under docs/ is still
+    code. Callers pass both paths of a rename, so moving a file out of docs/ is
+    never docs."""
+    if not paths:
+        return "none"
     docs = [p == "README.md" or (p.startswith("docs/") and p.endswith(".md")) for p in paths]
-    if docs and all(docs):
+    if all(docs):
         return "docs"
     if not any(docs):
         return "code"
@@ -288,7 +295,8 @@ def fetch_pr(fetcher, repo, number, head, body_at=None, body_file=None):
     cmp = fetcher.compare(repo, pull["base"].get("sha") or base_ref, head)
     files = []
     for f in cmp.get("files", []):
-        files.append({"path": f["filename"], "status": f.get("status", "modified"),
+        files.append({"path": f["filename"], "previous_path": f.get("previous_filename"),
+                      "status": f.get("status", "modified"),
                       "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
                       "patch": f.get("patch")})
     reasons = []
@@ -323,7 +331,17 @@ def fetch_pr(fetcher, repo, number, head, body_at=None, body_file=None):
             "graded_body_at": graded_body_at, "files": files,
             "files_truncated": len(files) >= 300, "texts": texts,
             "tree": tree, "tree_truncated": tree_truncated, "reasons": reasons,
-            "diff_kind": diff_kind([f["path"] for f in files])}
+            "diff_kind": diff_kind(changed_paths(files))}
+
+
+def changed_paths(files):
+    """Every path a change touches, both sides of a rename included."""
+    out = []
+    for f in files:
+        out.append(f["path"])
+        if f.get("previous_path"):
+            out.append(f["previous_path"])
+    return out
 
 
 # --- Slices ------------------------------------------------------------------
@@ -920,7 +938,12 @@ def criteria_version(path=CRITERIA_FILE):
 
 
 def grade(criteria, pr, terms, send, batched=True):
-    """Scripts first, then Jev. Returns the record body (no identity fields yet)."""
+    """Scripts first, then Jev. Returns the record body (no identity fields yet).
+    A head that changes nothing is not graded: a pass over nothing isn't agreement."""
+    if not pr["files"]:
+        return {"mode": "batched" if batched else "unbatched", "slices": [], "verdicts": [], "criteria": [],
+                "rounds": [], "models": [], "unread_usage_attempts": 0, "tokens": {"input": 0, "output": 0},
+                "status": "not-graded", "not_graded_reason": "no-changed-paths"}
     pt = slice_pr_text(pr)
     verdicts = run_scripts(criteria, pt, terms)
     slices, pair_meta = build_slices(pr)

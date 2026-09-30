@@ -350,7 +350,7 @@ A grade record (`schema: review-shadow/record/v1`):
 | `session_id` | the Claude Code session that ran the command (`CLAUDE_CODE_SESSION_ID`), or null when none did |
 | `panel_kind` | the kind the caller said it grades beside, or null |
 | `graded_body_at` | the time the body was read as of (see Decision 6) |
-| `diff_kind` | `docs` when every changed path is Markdown under `docs/` or a top-level `README.md`; `code` when none is; `mixed` otherwise |
+| `diff_kind` | `docs` when every changed path is Markdown under `docs/` or the top-level `README.md`; `code` when none is; `mixed` otherwise; `none` when the head changes nothing. Both paths of a rename count, so moving a file out of `docs/` is never `docs`, and every other Markdown file (`CLAUDE.md`, `AGENTS.md`, a changelog, a nested README) is code |
 | `in_sample` | true when an outcome for this head already existed at grading time |
 | `host` | the machine's hostname |
 | `criteria_version` | the criteria file's version and SHA-256 |
@@ -362,11 +362,11 @@ A grade record (`schema: review-shadow/record/v1`):
 | `unread_usage_attempts` | billed answers whose usage couldn't be read, counted as koto counts them |
 | `tokens` | totals of input and output tokens over `rounds` |
 | `status` | `unanimous-pass`, `dissent`, `inconclusive` or `not-graded`; a run where no Jev request got an answer (no key, transport or provider failure on every request) is `not-graded`, so an outage never counts as agreement |
-| `not_graded_reason` | for `not-graded` and all-unanswered runs: `no-key`, `transport`, `provider`, `outcome-without-grade` |
+| `not_graded_reason` | for `not-graded` runs: `no-key`, `transport`, `provider`, `outcome-without-grade`, or `no-changed-paths` for a head that changes nothing (a merge-only head or an empty diff), which is never counted as docs |
 
 Every `reason` in a record comes from one closed list: `over-bound`,
 `no-key`, `transport`, `provider`, `unreadable-answer`, `missing-answer`,
-`outcome-without-grade`, `body-history-unreadable`, `no-denylist`,
+`outcome-without-grade`, `body-history-unreadable`, `no-denylist`, `no-changed-paths`,
 `tree-unreadable`. No record field holds
 free text taken from the pull request or typed by a person.
 
