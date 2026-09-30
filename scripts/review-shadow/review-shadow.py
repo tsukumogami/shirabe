@@ -2,14 +2,16 @@
 """Shadow trial: grade a pull request with closed criteria beside its review panel.
 
 The trial only records. Nothing here approves, skips or shortens a panel; a
-unanimous pass is a line in a local file. docs/designs/DESIGN-jev-review-shadow.md
-is the design this implements.
+unanimous pass is a line in a local file.
+docs/designs/current/DESIGN-jev-review-shadow.md is the design this implements,
+and docs/guides/review-shadow.md says how to run it.
 
 Subcommands:
   grade    grade one pull request at one head and write a record
   outcome  record a panel's outcome for the same pull request and head
   report   print agreement between grader and panels
   scan     run the script criteria over a local branch; writes nothing
+  check    load the criteria and category files and report problems
 
 Requires: Python 3.8 or later, standard library only, and `gh` for `grade`.
 """
@@ -36,8 +38,6 @@ VALUE_KEYS = ("pass", "fail")
 OBSERVERS = ("script", "jev")
 ARTIFACT_KINDS = ("pull-request",)
 SLICE_KINDS = ("pr-text", "pr-summary", "code-hunks", "doc-pairs")
-SCRIPT_CHECKS = ("attribution", "private_terms", "scratch_path", "unfinished_wording",
-                 "pasted_paragraph", "dangling_path")
 CLASSES = ("covered", "closed-uncovered", "open-judgment")
 PANEL_KINDS = ("scrutiny", "review", "qa", "pre-merge")
 RULE_ID = re.compile(r"rs-[0-9]{3}")
@@ -99,12 +99,16 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
         if c["observer"] not in OBSERVERS:
             raise ConfigError(f"{where}: observer must be script or jev")
         if c["observer"] == "script":
-            if c.get("check") not in SCRIPT_CHECKS:
+            if c.get("check") not in CHECKS:  # the dispatch table is the one list of checks
                 raise ConfigError(f"{where}: unknown check {c.get('check')!r}")
             if c["slice_kind"] != "pr-text":
                 raise ConfigError(f"{where}: script criteria read the pr-text slice")
         elif c["slice_kind"] == "pr-text":
             raise ConfigError(f"{where}: Jev criteria can't read the unbounded pr-text slice")
+        if "enabled" in c and not isinstance(c["enabled"], bool):
+            raise ConfigError(f"{where}: enabled must be true or false")
+        if c.get("applies_to") not in (None, "public"):
+            raise ConfigError(f"{where}: applies_to may only be public")
         t = c["threshold"]
         if isinstance(t, bool) or not isinstance(t, (int, float)) or not 0.5 <= t <= 1.0:
             raise ConfigError(f"{where}: threshold must be between 0.5 and 1.0")
@@ -115,6 +119,13 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
     if not seen:
         raise ConfigError(f"{path}: no criteria")
     return data
+
+
+def active(criteria):
+    """The criteria a run grades: every criterion not shipped off, plus any the
+    caller turned on with --enable (recorded on the criteria object by grade)."""
+    on = set(criteria.get("_enabled", ()))
+    return [c for c in criteria["criteria"] if c.get("enabled", True) or c["rule_id"] in on]
 
 
 def load_categories(criteria, path=CATEGORIES_FILE):
@@ -192,6 +203,23 @@ class FetchError(Exception):
     """GitHub data the grade needs could not be read."""
 
 
+def gh_hint(endpoint, stderr):
+    """A fixed cause-and-fix line for a failed gh call. stderr is only classified,
+    never echoed: some servers put request headers in an error body."""
+    err = (stderr or "").lower()
+    if "gh auth login" in err or "not logged" in err or "authentication" in err or "http 401" in err:
+        return "gh is not logged in; run `gh auth status` and `gh auth login`"
+    if "rate limit" in err or "http 429" in err or ("http 403" in err and "limit" in err):
+        return "GitHub's rate limit was hit; wait and run it again"
+    if "/compare/" in endpoint and ("http 404" in err or "not found" in err or "http 422" in err):
+        return "--head isn't a commit this pull request had; pass its full 40-character sha"
+    if "/contents/" in endpoint or "/git/trees/" in endpoint:
+        return "a file or the tree at --head couldn't be read; check --head"
+    if "http 404" in err or "not found" in err:
+        return "no such repository or pull request; check --repo and --pr, and that your login can read it"
+    return "gh returned an error; check `gh auth status`, --repo, --pr and --head"
+
+
 class GhFetcher:
     """Reads pull request data through `gh api`, with an argument list and no shell.
 
@@ -207,8 +235,8 @@ class GhFetcher:
         except (OSError, subprocess.TimeoutExpired) as e:
             raise FetchError(f"gh could not run: {type(e).__name__}")
         if out.returncode != 0:
-            endpoint = next((a for a in args if a.startswith("repos/") or a == "graphql"), "?")
-            raise FetchError(f"gh api {endpoint.split('?')[0]} failed")
+            endpoint = next((a for a in args if a.startswith("repos/") or a == "graphql"), "?").split("?")[0]
+            raise FetchError(f"gh api {endpoint} failed: {gh_hint(endpoint, out.stderr)}")
         return out.stdout
 
     def pull(self, repo, number):
@@ -291,7 +319,9 @@ def fetch_pr(fetcher, repo, number, head, body_at=None, body_file=None):
     """Everything the slicers and script checks read, for one pull request at one head."""
     pull = fetcher.pull(repo, number)
     base_ref = pull["base"]["ref"]
-    public = not pull["base"]["repo"].get("private", True)
+    # Only an explicit private flag skips the private-name check: an unknown
+    # visibility is treated as public, so the leak guard never turns itself off.
+    public = pull["base"]["repo"].get("private") is not True
     cmp = fetcher.compare(repo, pull["base"].get("sha") or base_ref, head)
     files = []
     for f in cmp.get("files", []):
@@ -576,19 +606,20 @@ def slice_doc_pairs(pr):
                 shared = terms[i] & terms[j]
                 if shared:
                     candidates.append((len(shared), f["path"], min(i, j), max(i, j), paras))
-    seen, pairs, over = set(), [], 0
+    seen, pairs = set(), []
     for score, path, i, j, paras in sorted(candidates, key=lambda c: -c[0]):
         if (path, i, j) in seen:
             continue
         seen.add((path, i, j))
-        inputs = {"path": path, "location_a": paras[i][1], "location_b": paras[j][1]}
-        if sum(utf8_len(v) for v in inputs.values()) > BOUND:
-            over += 1  # logged in the record's pair counts, never sent or cut
-            continue
-        pairs.append(inputs)
+        pairs.append({"path": path, "location_a": paras[i][1], "location_b": paras[j][1]})
+    # A kept pair over the bound becomes an over-bound slice: never sent or cut,
+    # and graded unanswered, so the criterion can't pass without looking at it.
     kept, dropped = pairs[:MAX_DOC_PAIRS], max(0, len(pairs) - MAX_DOC_PAIRS)
-    meta = {"pairs_dropped": dropped, "pairs_over_bound": over}
-    return [make_slice("doc-pairs", n, inputs, meta) for n, inputs in enumerate(kept, 1)], meta
+    slices = [make_slice("doc-pairs", n, inputs) for n, inputs in enumerate(kept, 1)]
+    meta = {"pairs_dropped": dropped, "pairs_over_bound": sum(s["over_bound"] for s in slices)}
+    for sl in slices:
+        sl["meta"] = dict(meta)
+    return slices, meta
 
 
 def slice_pr_text(pr):
@@ -662,7 +693,7 @@ ATTRIBUTION = re.compile(
     r"co-author(?:ed)-by\s*:|generated\s+with\s+\[?claude|claude-sess(?:ion)\b|"
     r"https?://(?:www\.)?claude\.a(?:i)\b", re.I)
 SCRATCH_PATH = re.compile(r"(?<![A-Za-z0-9_.-])wip\/[A-Za-z0-9_.]")
-HOME_PATH = re.compile(r"/home/(?!(?:u|user|x)/)[a-z_][a-z0-9_-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/")
+HOME_PATH = re.compile(r"/(?:home|Users)/([A-Za-z_][A-Za-z0-9._-]*)/")
 PATH_TOKEN = re.compile(r"`(?:\./)?([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*?)(?::\d+(?:-\d+)?)?`")
 PATH_SUFFIXES = (".md", ".sh", ".py", ".rs", ".json", ".jsonl", ".yml", ".yaml", ".toml", ".txt", "/")
 UNFINISHED_FILE = HERE / "unfinished-wording.txt"
@@ -702,8 +733,6 @@ def term_forms(term):
 
 
 def check_private_terms(pt, terms):
-    if not pt["public"]:
-        return "pass", [], None  # the rule governs public content only
     if not terms:
         return "unanswered", [], "no-denylist"  # an empty list checks nothing, so it isn't a pass
     folded, exact = set(), set()
@@ -711,10 +740,20 @@ def check_private_terms(pt, terms):
         f, e = term_forms(t)
         folded |= f
         exact |= e
+    # A home-directory path is a leak only when it names a real account: this
+    # machine's user, or a name on the list. Example paths in docs and tests
+    # (/home/alice/, /Users/me/) are not.
+    import getpass
+    users = {t.lower() for t in terms}
+    try:
+        users.add(getpass.getuser().lower())
+    except (KeyError, OSError):
+        pass
     hits = []
     for p, ln, text in _lines(pt):
         low = text.lower()
-        if HOME_PATH.search(text) or any(f in low for f in folded) or any(e in text for e in exact):
+        home = any(m.group(1).lower() in users for m in HOME_PATH.finditer(text))
+        if home or any(f in low for f in folded) or any(e in text for e in exact):
             hits.append((p, ln))
     return ("fail" if hits else "pass"), hits, None
 
@@ -750,9 +789,10 @@ def check_pasted_paragraph(pt, _terms):
     added_by_path = {}
     for p, ln, _ in pt["added"]:
         added_by_path.setdefault(p, set()).add(ln)
-    hits = []
+    hits, unreadable = [], False
     for path, text in pt["texts"].items():
-        if not text:
+        if text is None:
+            unreadable = True
             continue
         seen = {}
         for start, para in paragraphs(text):
@@ -764,12 +804,23 @@ def check_pasted_paragraph(pt, _terms):
         for spans in seen.values():
             if len(spans) > 1 and any(a <= ln <= b for a, b in spans for ln in added):
                 hits.append((path, spans[-1][0]))
-    return ("fail" if hits else "pass"), hits, None
+    if hits:
+        return "fail", hits, None
+    if unreadable:
+        return "unanswered", [], "file-unreadable"
+    return "pass", [], None
 
 
 def check_dangling_path(pt, _terms):
     if pt["tree"] is None:
         return "unanswered", [], "tree-unreadable"
+    tree = pt["tree"]
+    top = {t.split("/", 1)[0] for t in tree}
+    tails = {}
+    for t in tree:
+        parts = t.split("/")
+        for i in range(1, len(parts)):
+            tails.setdefault("/".join(parts[i:]), True)
     hits = []
     for p, ln, text in pt["added"]:
         if not p.endswith(".md"):
@@ -778,10 +829,20 @@ def check_dangling_path(pt, _terms):
             if tok.startswith(("http", "wip" + "/")) or ".." in tok.split("/") or not tok.endswith(PATH_SUFFIXES):
                 continue
             target = tok.rstrip("/")
-            local = str(Path(p).parent / target) if "/" in p else target
-            if target not in pt["tree"] and local not in pt["tree"]:
-                hits.append((p, ln))
+            if target.endswith(".local.md"):
+                continue  # a per-machine file, untracked by convention
+            if target in tree or target in tails or any(f"{a}/{target}" in tree for a in _ancestors(p)):
+                continue
+            if target.split("/", 1)[0] not in top:
+                continue  # names something outside this repository: a workspace, runtime or other-repo path
+            hits.append((p, ln))
     return ("fail" if hits else "pass"), hits, None
+
+
+def _ancestors(path):
+    """Every directory above a repository path, nearest first."""
+    parts = path.split("/")[:-1]
+    return ["/".join(parts[:i]) for i in range(len(parts), 0, -1)]
 
 
 CHECKS = {"attribution": check_attribution, "private_terms": check_private_terms,
@@ -792,8 +853,12 @@ CHECKS = {"attribution": check_attribution, "private_terms": check_private_terms
 def run_scripts(criteria, pt, terms):
     """Every script criterion over the pr-text slice, in file order."""
     out = []
-    for c in criteria["criteria"]:
+    for c in active(criteria):
         if c["observer"] != "script":
+            continue
+        if c.get("applies_to") == "public" and not pt["public"]:
+            out.append({"rule_id": c["rule_id"], "slice": "pr-text", "verdict": "pass", "observer": "script",
+                        "probabilities": None, "reason": "not-applicable", "findings": 0, "where": []})
             continue
         verdict, hits, reason = CHECKS[c["check"]](pt, terms)
         out.append({"rule_id": c["rule_id"], "slice": "pr-text", "verdict": verdict, "observer": "script",
@@ -824,14 +889,16 @@ def https_transport(endpoint, key, timeout):
     if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
         # The message names no part of the key: an error text reaches stderr.
         raise ConfigError("the Jev key is empty or holds whitespace or control characters")
-    opener = urllib.request.build_opener(_NoRedirect)
+    opener = []  # built on first use
 
     def send(body):
+        if not opener:
+            opener.append(urllib.request.build_opener(_NoRedirect))
         req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json"})
         req.add_unredirected_header("Authorization", "Bearer " + key)
         try:
-            with opener.open(req, timeout=timeout) as resp:
+            with opener[0].open(req, timeout=timeout) as resp:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as e:
             return e.code, b""  # an error body can echo request headers, so it's dropped
@@ -913,7 +980,7 @@ def run_jev(criteria, slices, send, batched):
     criterion of that slice kind, or one per criterion when unbatched."""
     verdicts, rounds, unread = [], [], 0
     by_kind = {}
-    for c in criteria["criteria"]:
+    for c in active(criteria):
         if c["observer"] == "jev":
             by_kind.setdefault(c["slice_kind"], []).append(c)
     for kind, crits in by_kind.items():
@@ -962,6 +1029,27 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key):
     return "unanimous-pass", None
 
 
+TOOL_VERSION = 2  # bump when grading behaviour changes; the hashes below catch the rest
+
+
+def tool_version():
+    """Which tool produced a record: the version, a hash of every file that
+    shapes a verdict, and the commit it came from when git can say."""
+    files = {"script": Path(__file__).resolve(), "categories": CATEGORIES_FILE, "wording": UNFINISHED_FILE}
+    out = {"version": TOOL_VERSION}
+    for name, path in files.items():
+        out[f"{name}_sha256"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    try:
+        git = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10)
+        dirty = subprocess.run(["git", "-C", str(HERE), "status", "--porcelain", "--", "."],
+                               capture_output=True, text=True, timeout=10)
+        out["git_sha"] = git.stdout.strip() if git.returncode == 0 else None
+        out["git_dirty"] = bool(dirty.stdout.strip()) if dirty.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        out["git_sha"], out["git_dirty"] = None, None
+    return out
+
+
 def criteria_version(path=CRITERIA_FILE):
     data = Path(path).read_bytes()
     return {"version": json.loads(data)["version"], "sha256": hashlib.sha256(data).hexdigest()}
@@ -982,13 +1070,13 @@ def grade(criteria, pr, terms, send, batched=True):
         v.pop("where", None)  # paths and lines stay in scan output; records hold counts
     verdicts += jev_verdicts
     crit_rows = []
-    for c in criteria["criteria"]:
+    for c in active(criteria):
         vs = [v["verdict"] for v in verdicts if v["rule_id"] == c["rule_id"]]
         row = {"rule_id": c["rule_id"], "verdict": worst(vs), "slices": len(vs)}
         if c["slice_kind"] == "doc-pairs":
             row.update(pair_meta)
         crit_rows.append(row)
-    jev_slices = sum(len(slices.get(c["slice_kind"], [])) for c in criteria["criteria"] if c["observer"] == "jev")
+    jev_slices = sum(len(slices.get(c["slice_kind"], [])) for c in active(criteria) if c["observer"] == "jev")
     status, why = run_status(crit_rows, rounds, jev_slices, send is None)
     all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")}, **s["meta"])
                   for kind in slices for s in slices[kind]]
@@ -1051,7 +1139,7 @@ def new_record(repo, pr, head, **fields):
     rec = {"schema": "review-shadow/record/v1", "trial": "jev-review-shadow", "run_id": uuid.uuid4().hex[:16],
            "recorded_at": now_iso(), "repo": repo, "pr": pr, "head_sha": head, "panel_run_id": None,
            "panel_kind": None, "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
-           "host": socket.gethostname(), "criteria_version": criteria_version()}
+           "host": socket.gethostname(), "criteria_version": criteria_version(), "tool": tool_version()}
     rec.update(fields)
     return rec
 
@@ -1060,7 +1148,15 @@ def cmd_grade(args, criteria):
     repo, pr, head = check_repo(args.repo), check_pr(args.pr), check_head(args.head)
     panel_run = check_panel_run(args.panel_run)
     if args.body_at:
-        parse_time(args.body_at)
+        try:
+            parse_time(args.body_at)
+        except ValueError:
+            raise ValueError("--body-at must be a UTC time like 2026-09-28T07:25:00Z")
+    known = {c["rule_id"] for c in criteria["criteria"]}
+    unknown = [r for r in args.enable or [] if r not in known]
+    if unknown:
+        raise ValueError(f"--enable names unknown criteria: {', '.join(unknown)}")
+    criteria = dict(criteria, _enabled=list(args.enable or []))
     if args.panel_kind and args.panel_kind not in PANEL_KINDS:
         raise ValueError(f"--panel-kind must be one of {PANEL_KINDS}")
     terms = load_private_terms(args.private_terms or os.environ.get("REVIEW_SHADOW_PRIVATE_TERMS"))
@@ -1074,10 +1170,13 @@ def cmd_grade(args, criteria):
     rec = new_record(repo, pr, head, panel_run_id=panel_run, panel_kind=args.panel_kind,
                      graded_body_at=pr_data["graded_body_at"], body_source=pr_data["body_source"],
                      diff_kind=pr_data["diff_kind"], in_sample=in_sample,
+                     criteria_enabled=[c["rule_id"] for c in active(criteria)],
                      reasons=pr_data["reasons"] + (["files-truncated"] if pr_data["files_truncated"] else []),
                      **body)
     path = write_record(home, rec)
-    print(f"{path} status={rec['status']} tokens={rec['tokens']['input']}+{rec['tokens']['output']}")
+    reasons = ",".join(rec["reasons"] + ([rec["not_graded_reason"]] if rec.get("not_graded_reason") else []))
+    print(f"{path} status={rec['status']} in_sample={str(rec['in_sample']).lower()} "
+          f"tokens={rec['tokens']['input']}+{rec['tokens']['output']}" + (f" reasons={reasons}" if reasons else ""))
     return 0
 
 
@@ -1193,21 +1292,38 @@ def panel_state(outcomes):
 
 
 def rates(rows):
-    """Agreement figures over scored rows of (passed, blocked)."""
+    """Agreement figures over scored rows of (outcome, blocked, zero_slice_pass).
+
+    outcome is pass, fail or none (escape or unanswered). No verdict counts as a
+    fail, so it agrees with a blocked panel and dissents from a clean one, but it
+    is counted in its own columns and never folded into fail."""
     n = len(rows)
-    passes = sum(1 for p, b in rows if p)
-    blocked = sum(1 for p, b in rows if b)
+    passes = sum(1 for o, b, z in rows if o == "pass")
+    blocked = sum(1 for o, b, z in rows if b)
     clean = n - blocked
-    fp = sum(1 for p, b in rows if p and b)
-    agree = sum(1 for p, b in rows if p != b)
-    dissent_clean = sum(1 for p, b in rows if not p and not b)
+    fp = sum(1 for o, b, z in rows if o == "pass" and b)
+    agree = sum(1 for o, b, z in rows if (o == "pass") != b)
+    fail_clean = sum(1 for o, b, z in rows if o == "fail" and not b)
+    none_clean = sum(1 for o, b, z in rows if o == "none" and not b)
+    none_all = sum(1 for o, b, z in rows if o == "none")
 
     def ratio(a, d):
         return None if d == 0 else a / d
     return {"n": n, "agreement": ratio(agree, n), "unanimous_passes": passes, "false_passes": fp,
             "false_pass_rate": ratio(fp, passes), "false_pass_upper95": binom_upper(fp, passes),
             "blocked": blocked, "miss_rate": ratio(fp, blocked), "clean": clean,
-            "dissent_on_clean": dissent_clean, "dissent_rate": ratio(dissent_clean, clean)}
+            "fail_on_clean": fail_clean, "no_verdict_on_clean": none_clean,
+            "no_verdict": none_all, "no_verdict_rate": ratio(none_all, n),
+            "zero_slice_passes": sum(1 for o, b, z in rows if o == "pass" and z)}
+
+
+STATUS_OUTCOME = {"unanimous-pass": "pass", "dissent": "fail", "inconclusive": "none"}
+VERDICT_OUTCOME = {"pass": "pass", "fail": "fail", "escape": "none", "unanswered": "none"}
+
+
+def rollups(kind, dk):
+    """The four groups a head counts in: its panel kind and diff kind, each rolled up."""
+    return ((kind, dk), (kind, "all"), ("all", dk), ("all", "all"))
 
 
 def report_data(home, criteria, categories, mode="batched"):
@@ -1228,6 +1344,7 @@ def report_data(home, criteria, categories, mode="batched"):
         if key not in latest or r["recorded_at"] > latest[key]["recorded_at"]:
             latest[key] = r
     cats = categories["categories"]
+    observer = {c["rule_id"]: c["observer"] for c in criteria["criteria"]}
     result = {"mode": mode, "populations": {}}
     for pop, in_sample in (("out-of-sample", False), ("in-sample", True)):
         groups, per_crit, not_graded, undetermined, false_passes, coverage = {}, {}, {}, {}, [], {}
@@ -1237,29 +1354,33 @@ def report_data(home, criteria, categories, mode="batched"):
                 continue
             dk = rec.get("diff_kind") or "unknown"
             state, upheld = panel_state(outs)
+            ran = {c["rule_id"] for c in rec.get("criteria", [])}
             for cat in upheld:
-                cls = cats.get(cat, {}).get("class", "open-judgment")
-                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
+                entry = cats.get(cat, {"class": "open-judgment"})
+                cls = entry["class"]
+                if cls == "covered" and not ran & set(entry.get("rule_ids", [])):
+                    cls = "closed-uncovered"  # its criteria didn't run on this head
+                for g in rollups(kind, dk):
                     coverage.setdefault(g, {"covered": 0, "closed-uncovered": 0, "open-judgment": 0})[cls] += 1
             if rec["status"] == "not-graded":
-                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
+                for g in rollups(kind, dk):
                     not_graded[g] = not_graded.get(g, 0) + 1
                 continue
             if state == "undetermined":
-                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
+                for g in rollups(kind, dk):
                     undetermined[g] = undetermined.get(g, 0) + 1
                 continue
-            passed = rec["status"] == "unanimous-pass"
-            for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
-                groups.setdefault(g, []).append((passed, state == "blocked"))
-            if passed and state == "blocked":
+            outcome = STATUS_OUTCOME[rec["status"]]
+            zero = any(c["slices"] == 0 and observer.get(c["rule_id"]) == "jev" for c in rec["criteria"])
+            for g in rollups(kind, dk):
+                groups.setdefault(g, []).append((outcome, state == "blocked", zero))
+            if outcome == "pass" and state == "blocked":
                 false_passes.append({"repo": repo, "pr": pr, "head": head, "panel_kind": kind, "upheld": upheld})
             for crow in rec["criteria"]:
-                blocked_c = any(cats.get(cat, {}).get("rule_ids") and crow["rule_id"] in cats[cat]["rule_ids"]
-                                for cat in upheld)
-                for g in ((kind, dk, crow["rule_id"]), (kind, "all", crow["rule_id"]),
-                          ("all", dk, crow["rule_id"]), ("all", "all", crow["rule_id"])):
-                    per_crit.setdefault(g, []).append((crow["verdict"] == "pass", blocked_c))
+                blocked_c = any(crow["rule_id"] in cats.get(cat, {}).get("rule_ids", []) for cat in upheld)
+                row = (VERDICT_OUTCOME[crow["verdict"]], blocked_c, crow["slices"] == 0)
+                for k, d in rollups(kind, dk):
+                    per_crit.setdefault((k, d, crow["rule_id"]), []).append(row)
         result["populations"][pop] = {
             "groups": {f"{k}|{d}": rates(rows) for (k, d), rows in groups.items()},
             "criteria": {f"{k}|{d}|{r}": rates(rows) for (k, d, r), rows in per_crit.items()},
@@ -1292,7 +1413,8 @@ def _pct(x):
 
 
 def print_report(data):
-    print(f"Review shadow trial report (Jev mode: {data['mode']}). Nothing here approves a panel.\n")
+    print(f"Review shadow trial report (Jev mode: {data['mode']}). Nothing here approves a panel.")
+    print("No verdict (an escape or an unanswered question) counts as a fail and has its own columns.\n")
     for pop, p in data["populations"].items():
         label = "the test" if pop == "out-of-sample" else "graded after the panel's outcome was known; not the test"
         print(f"## {pop} ({label})\n")
@@ -1300,26 +1422,29 @@ def print_report(data):
             print("No heads.\n")
             continue
         print("| panel kind | diff kind | heads | agreement | unanimous passes | false passes | false-pass rate "
-              "| 95% upper bound | miss rate | dissent on clean | not graded | undetermined |")
-        print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+              "| 95% upper bound | miss rate | fail on clean | no verdict on clean | no verdict (all heads) "
+              "| passes on zero slices | not graded | undetermined |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         keys = sorted(set(p["groups"]) | set(p["not_graded"]) | set(p["undetermined"]))
         for key in keys:
             k, d = key.split("|")
             g = p["groups"].get(key) or rates([])
             print(f"| {k} | {d} | {g['n']} | {_pct(g['agreement'])} | {g['unanimous_passes']} | {g['false_passes']} "
                   f"| {_pct(g['false_pass_rate'])} | {_pct(g['false_pass_upper95'])} | {_pct(g['miss_rate'])} "
-                  f"| {g['dissent_on_clean']}/{g['clean']} | {p['not_graded'].get(key, 0)} "
-                  f"| {p['undetermined'].get(key, 0)} |")
+                  f"| {g['fail_on_clean']}/{g['clean']} | {g['no_verdict_on_clean']}/{g['clean']} "
+                  f"| {g['no_verdict']}/{g['n']} | {g['zero_slice_passes']} "
+                  f"| {p['not_graded'].get(key, 0)} | {p['undetermined'].get(key, 0)} |")
         print("\nPer criterion (the panel counts as blocked for a criterion only on an upheld finding in its group):\n")
         print("| panel kind | diff kind | criterion | heads | agreement | passes | false passes | 95% upper bound "
-              "| miss rate | dissent on clean |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+              "| miss rate | fail on clean | no verdict on clean | no verdict (all heads) | passes on zero slices |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for key in sorted(p["criteria"]):
             k, d, r = key.split("|")
             g = p["criteria"][key]
             print(f"| {k} | {d} | {r} | {g['n']} | {_pct(g['agreement'])} | {g['unanimous_passes']} "
                   f"| {g['false_passes']} | {_pct(g['false_pass_upper95'])} | {_pct(g['miss_rate'])} "
-                  f"| {g['dissent_on_clean']}/{g['clean']} |")
+                  f"| {g['fail_on_clean']}/{g['clean']} | {g['no_verdict_on_clean']}/{g['clean']} "
+                  f"| {g['no_verdict']}/{g['n']} | {g['zero_slice_passes']} |")
         print("\nCoverage of upheld blocking findings (a flip can only ever be safe for the covered share):\n")
         print("| panel kind | diff kind | covered | closed, uncovered | open judgment |")
         print("|---|---|---|---|---|")
@@ -1394,8 +1519,10 @@ def local_pr(base, body):
     for f in files:
         if f["path"].endswith(DOC_SUFFIXES) and f["status"] != "removed":
             texts[f["path"]] = _git("show", f"HEAD:{f['path']}")
-    public = bool(re.search(r"^## Repo Visibility: Public", (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8"),
-                            re.M)) if (REPO_ROOT / "CLAUDE.md").exists() else True
+    # Public unless CLAUDE.md explicitly declares the repository private.
+    claude_md = REPO_ROOT / "CLAUDE.md"
+    declared = claude_md.read_text(encoding="utf-8", errors="replace") if claude_md.exists() else ""
+    public = not re.search(r"^##\s*Repo Visibility:\s*Private\b", declared, re.M | re.I)
     pr = {"body": body, "files": files, "texts": texts, "tree": tree, "public": public}
     return slice_pr_text(pr)
 
@@ -1432,6 +1559,8 @@ def main(argv=None):
     gp.add_argument("--body-file")
     gp.add_argument("--private-terms")
     gp.add_argument("--unbatched", action="store_true", help="one Jev request per criterion per slice")
+    gp.add_argument("--enable", action="append", metavar="RULE_ID",
+                    help="also grade a criterion shipped off (rs-009, rs-010); repeatable")
     op = sub.add_parser("outcome", help="record a panel's outcome for one pull request and head")
     op.add_argument("--repo", required=True)
     op.add_argument("--pr", required=True)

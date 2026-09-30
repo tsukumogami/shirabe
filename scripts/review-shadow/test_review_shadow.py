@@ -183,9 +183,7 @@ def fetched(fx=None, **kw):
 class TestArguments(unittest.TestCase):
     def test_repo(self):
         self.assertEqual(rs.check_repo("octo/demo"), "octo/demo")
-        for bad in ("octo", "octo/../x", "../demo", "octo/demo/x", "-x/y", "octo/ demo", "octo/.."):
-            if bad == "-x/y":
-                continue  # a leading dash is a legal name character; it never reaches a shell
+        for bad in ("octo", "octo/../x", "../demo", "octo/demo/x", "octo/ demo", "octo/.."):
             with self.assertRaises(ValueError, msg=bad):
                 rs.check_repo(bad)
 
@@ -397,7 +395,7 @@ class TestSlices(unittest.TestCase):
         self.assertEqual(len(slices), rs.MAX_DOC_PAIRS)
         self.assertEqual(meta["pairs_dropped"], 66 - rs.MAX_DOC_PAIRS)
 
-    def test_doc_pairs_over_bound_are_counted_not_sent(self):
+    def test_doc_pairs_over_bound_are_kept_as_unanswered_slices(self):
         pr = fetched()
         big = "Long passage about `alpha`. " + "filler " * 250
         text = big + "\n\n" + big.replace("Long", "Other") + "\n"
@@ -405,7 +403,8 @@ class TestSlices(unittest.TestCase):
         patch = "@@ -1,0 +1,3 @@\n" + "\n".join("+" + l for l in text.split("\n")[:-1])
         pr["files"] = [{"path": "docs/x.md", "status": "added", "additions": 3, "deletions": 0, "patch": patch}]
         slices, meta = rs.slice_doc_pairs(pr)
-        self.assertEqual(slices, [])
+        self.assertEqual(len(slices), 1)
+        self.assertTrue(slices[0]["over_bound"])
         self.assertEqual(meta["pairs_over_bound"], 1)
 
     def test_table_rows_and_list_items_are_passages(self):
@@ -467,9 +466,16 @@ class TestRs002PrivateTerms(unittest.TestCase):
             self.assertEqual(v, "fail", form)
             self.assertEqual(hits, [("f.txt", 9)])
 
-    def test_home_path(self):
-        v, _, _ = self.verdict(pr_text(body="Run it from /home/" + "alice/src."))
+    def test_home_path_of_a_real_account(self):
+        import getpass
+        v, _, _ = self.verdict(pr_text(body="Run it from /home/" + getpass.getuser() + "/src."))
         self.assertEqual(v, "fail")
+        v, _, _ = self.verdict(pr_text(body="Run it from /Users/" + self.TERM + "/src."))
+        self.assertEqual(v, "fail")
+
+    def test_example_home_paths_are_not_leaks(self):
+        v, _, _ = self.verdict(pr_text(body="For example /home/" + "alice-example/src or /Users/me-example/x."))
+        self.assertEqual(v, "pass")
 
     def test_clean_and_near_miss(self):
         self.assertEqual(self.verdict(pr_text())[0], "pass")
@@ -479,8 +485,23 @@ class TestRs002PrivateTerms(unittest.TestCase):
         self.assertEqual(self.verdict(pr_text(), terms=None)[0:3:2], ("unanswered", "no-denylist"))
         self.assertEqual(self.verdict(pr_text(), terms=[])[0:3:2], ("unanswered", "no-denylist"))
 
-    def test_private_repository_is_out_of_scope(self):
-        self.assertEqual(self.verdict(pr_text(body=self.TERM, public=False))[0], "pass")
+    def test_private_repository_is_out_of_scope_through_applies_to(self):
+        crit = rs.load_criteria()
+        (v,) = [x for x in rs.run_scripts(crit, pr_text(body=self.TERM, public=False), [self.TERM])
+                if x["rule_id"] == "rs-002"]
+        self.assertEqual((v["verdict"], v["reason"]), ("pass", "not-applicable"))
+        (v,) = [x for x in rs.run_scripts(crit, pr_text(body=self.TERM, public=True), [self.TERM])
+                if x["rule_id"] == "rs-002"]
+        self.assertEqual(v["verdict"], "fail")
+
+    def test_unknown_visibility_is_public(self):
+        fx = fixture()
+        del fx["pull"]["base"]["repo"]["private"]
+        self.assertTrue(fetched(fx)["public"])
+        fx["pull"]["base"]["repo"]["private"] = None
+        self.assertTrue(fetched(fx)["public"])
+        fx["pull"]["base"]["repo"]["private"] = True
+        self.assertFalse(fetched(fx)["public"])
 
     def test_output_never_names_the_term(self):
         _, hits, reason = self.verdict(pr_text(body=self.TERM))
@@ -651,7 +672,25 @@ class TestScan(unittest.TestCase):
         code, out = self.scan()
         self.assertIn(code, (0, 1))
 
+    def test_a_claude_md_without_a_visibility_line_is_public(self):
+        terms = Path(tempfile.mkdtemp()) / "terms.txt"
+        terms.write_text("Zorblax\n", encoding="utf-8")
+        real = rs.REPO_ROOT
+        rs.REPO_ROOT = self.dir
+        self.addCleanup(setattr, rs, "REPO_ROOT", real)
+        self.commit("CLAUDE.md", "# A project\n\nNo visibility header here.\n")
+        self.commit("n.md", "Mentions Zorblax.\n")
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["scan", "--base", "main", "--private-terms", str(terms)])
+        self.assertEqual(code, 1)
+        self.assertIn("rs-002: n.md:1", out.getvalue())
+
     def test_failure_names_rule_path_and_line(self):
+        (self.dir / "docs").mkdir()
+        self.commit("docs/a.md", "A doc.\n")
         self.commit("notes.md", "Line one.\nSee `docs/nowhere.md`.\n")
         code, out = self.scan()
         self.assertEqual(code, 1)
@@ -724,7 +763,7 @@ class TestGrade(unittest.TestCase):
         self.assertEqual(self.graded(stub_send())["status"], "unanimous-pass")
         self.assertEqual(self.graded(stub_send(lambda r: "escape" if r == "rs-007" else "pass"))["status"],
                          "inconclusive")
-        self.assertEqual(self.graded(stub_send(lambda r: "fail" if r == "rs-010" else "pass"))["status"], "dissent")
+        self.assertEqual(self.graded(stub_send(lambda r: "fail" if r == "rs-007" else "pass"))["status"], "dissent")
         self.assertEqual(self.graded(stub_send(), terms=None)["status"], "inconclusive")  # no-denylist
 
     def test_batched_and_unbatched(self):
@@ -927,9 +966,9 @@ class TestReport(unittest.TestCase):
         self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(1, 2))
         self.assertEqual(g["blocked"], 2)
         self.assertAlmostEqual(g["miss_rate"], 0.5)
-        self.assertEqual((g["dissent_on_clean"], g["clean"]), (2, 3))
-        self.assertEqual(p["not_graded"]["pre-merge|code"] if "pre-merge|code" in p["not_graded"] else
-                         p["not_graded"]["pre-merge|unknown"], 1)
+        self.assertEqual((g["fail_on_clean"], g["no_verdict_on_clean"], g["clean"]), (1, 1, 3))
+        self.assertEqual((g["no_verdict"], g["zero_slice_passes"]), (1, 0))
+        self.assertEqual(p["not_graded"]["pre-merge|unknown"], 1)
         self.assertEqual(p["undetermined"]["pre-merge|code"], 1)
         self.assertEqual(p["coverage"]["pre-merge|code"], {"covered": 1, "closed-uncovered": 0, "open-judgment": 1})
         self.assertEqual([(f["pr"], f["upheld"]) for f in p["false_passes"]], [(2, ["correctness"])])
@@ -1038,6 +1077,136 @@ class TestReport(unittest.TestCase):
         self.assertIn("## out-of-sample (the test)", text)
         self.assertIn("| pre-merge | code | 5 | 40% | 2 | 1 | 50% |", text)
         self.assertIn("Nothing here approves a panel", text)
+
+
+class TestFailClosed(unittest.TestCase):
+    """Nothing reports a pass without checking."""
+
+    def test_rs005_unreadable_text_is_unanswered(self):
+        pt = pr_text(texts={"docs/a.md": None})
+        self.assertEqual(rs.check_pasted_paragraph(pt, None)[0:3:2], ("unanswered", "file-unreadable"))
+
+    def test_zero_slice_pass_is_counted(self):
+        rows = [("pass", False, True), ("pass", False, False), ("none", True, False)]
+        g = rs.rates(rows)
+        self.assertEqual((g["zero_slice_passes"], g["no_verdict"], g["unanimous_passes"]), (1, 1, 2))
+        self.assertAlmostEqual(g["agreement"], 1.0)  # no verdict on a blocked panel agrees, as a fail
+
+    def test_rs006_resolves_relative_and_skips_outside_paths(self):
+        tree = {"skills", "skills/x", "skills/x/references", "skills/x/references/t.md", "skills/x/SKILL.md",
+                "references", "references/fixes", "references/fixes/f.md", "docs"}
+        pt = pr_text(added=[("skills/x/SKILL.md", 1, "See `references/t.md` and `fixes/f.md`."),
+                            ("docs/a.md", 2, "Writes `.niwa/instance.json` and `coord/report.json`."),
+                            ("docs/a.md", 3, "Local `x/y.local.md`.")], tree=tree)
+        self.assertEqual(rs.check_dangling_path(pt, None)[0], "pass")
+        pt = pr_text(added=[("docs/a.md", 1, "See `references/missing.md`.")], tree=tree)
+        self.assertEqual(rs.check_dangling_path(pt, None)[0], "fail")
+
+
+class TestShippedOff(unittest.TestCase):
+    def test_rs009_and_rs010_are_off_by_default(self):
+        crit = rs.load_criteria()
+        self.assertEqual({c["rule_id"] for c in crit["criteria"] if not c.get("enabled", True)},
+                         {"rs-009", "rs-010"})
+        self.assertNotIn("rs-010", [c["rule_id"] for c in rs.active(crit)])
+        on = dict(crit, _enabled=["rs-010"])
+        self.assertIn("rs-010", [c["rule_id"] for c in rs.active(on)])
+
+    def test_a_run_grades_only_active_criteria(self):
+        b = rs.grade(rs.load_criteria(), fetched(), ["Zorblax"], stub_send())
+        self.assertNotIn("rs-010", [c["rule_id"] for c in b["criteria"]])
+        self.assertFalse(any(r["rule_ids"] == ["rs-010"] for r in b["rounds"]))
+
+    def test_coverage_counts_a_category_whose_criteria_didnt_run_as_uncovered(self):
+        home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        crit = rs.load_criteria()
+        cats = rs.load_categories(crit)
+        rows = [{"rule_id": r, "verdict": "pass", "slices": 1} for r in ("rs-001", "rs-007")]
+        rec = rs.new_record("octo/demo", 1, HEAD, in_sample=False, mode="batched", status="dissent",
+                            diff_kind="code", criteria=rows, tokens={"input": 0, "output": 0})
+        rs.write_record(home, rec)
+        rs.record_outcome(home, "octo/demo", 1, HEAD, "pre-merge", "claude:r",
+                          [rs.parse_finding("stale-comment:upheld", cats)])
+        cov = rs.report_data(home, crit, cats)["populations"]["out-of-sample"]["coverage"]["all|all"]
+        self.assertEqual(cov, {"covered": 0, "closed-uncovered": 1, "open-judgment": 0})
+
+
+class TestToolVersion(unittest.TestCase):
+    def test_every_record_carries_the_tool(self):
+        rec = rs.new_record("octo/demo", 1, HEAD)
+        tool = rec["tool"]
+        self.assertEqual(tool["version"], rs.TOOL_VERSION)
+        for k in ("script_sha256", "categories_sha256", "wording_sha256"):
+            self.assertRegex(tool[k], r"^[0-9a-f]{64}$")
+        self.assertIn("git_sha", tool)
+
+
+class TestNoLiveTransport(unittest.TestCase):
+    """The suite must never reach Jev: with a key in the environment, grade still
+    goes through a stub, and a real transport can't be opened during the tests."""
+
+    def test_opening_a_real_transport_fails_the_suite(self):
+        with self.assertRaises(AssertionError):
+            rs.urllib.request.build_opener()
+
+    def test_cmd_grade_end_to_end_through_stubs(self):
+        home = Path(tempfile.mkdtemp()) / "store"
+        os.environ.update({"REVIEW_SHADOW_HOME": str(home), "JEV_API_KEY": "test-key"})
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        self.addCleanup(os.environ.pop, "JEV_API_KEY", None)
+        sent = []
+        real_t, real_f = rs.https_transport, rs.GhFetcher
+        rs.https_transport = lambda endpoint, key, timeout: stub_send(log=sent)
+        rs.GhFetcher = lambda: StubFetcher(fixture())
+        self.addCleanup(setattr, rs, "https_transport", real_t)
+        self.addCleanup(setattr, rs, "GhFetcher", real_f)
+        terms = Path(tempfile.mkdtemp()) / "terms.txt"
+        terms.write_text("Zorblax\n", encoding="utf-8")
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["grade", "--repo", "octo/demo", "--pr", "7", "--head", HEAD, "--panel-kind",
+                            "pre-merge", "--panel-run", "claude:t", "--private-terms", str(terms)])
+        self.assertEqual(code, 0)
+        self.assertTrue(sent)
+        self.assertIn("status=unanimous-pass in_sample=false", out.getvalue())
+        rec = json.loads(next((home / "records").rglob("*.json")).read_text())
+        self.assertEqual((rec["panel_kind"], rec["panel_run_id"]), ("pre-merge", "claude:t"))
+        self.assertNotIn("rs-010", rec["criteria_enabled"])
+
+    def test_cmd_grade_refuses_an_unknown_enable_and_a_bad_body_at(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(rs.main(["grade", "--repo", "o/r", "--pr", "1", "--head", HEAD,
+                                      "--enable", "rs-999"]), 2)
+            self.assertEqual(rs.main(["grade", "--repo", "o/r", "--pr", "1", "--head", HEAD,
+                                      "--body-at", "yesterday"]), 2)
+        self.assertIn("--enable", err.getvalue())
+        self.assertIn("--body-at", err.getvalue())
+
+
+class TestGhHints(unittest.TestCase):
+    def test_fixed_hints_never_echo_stderr(self):
+        cases = [("repos/o/r/pulls/1", "To get started with GitHub CLI, please run:  gh auth login", "logged in"),
+                 ("repos/o/r/pulls/1", "HTTP 404: Not Found (https://api.github.com/...)", "--repo and --pr"),
+                 ("repos/o/r/compare/b...h", "HTTP 404: Not Found", "--head"),
+                 ("repos/o/r/pulls/1", "API rate limit exceeded", "rate limit")]
+        for endpoint, stderr, want in cases:
+            hint = rs.gh_hint(endpoint, stderr)
+            self.assertIn(want, hint)
+            self.assertNotIn("api.github.com", hint)
+
+
+def _refuse_real_opener(*a, **k):
+    raise AssertionError("a test tried to open a real HTTP transport to Jev")
+
+
+rs.urllib.request.build_opener = _refuse_real_opener
 
 
 if __name__ == "__main__":

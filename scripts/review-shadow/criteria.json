@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "criteria": [
     {
       "rule_id": "rs-001",
@@ -14,7 +14,9 @@
         "pass": "No attribution line, co-author trailer, generated-with line or session link appears.",
         "fail": "At least one attribution line, co-author trailer, generated-with line or session link appears."
       },
-      "escape": {"unclear": "The text could not be read, so it can't be judged."},
+      "escape": {
+        "unclear": "The text could not be read, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -31,7 +33,9 @@
         "pass": "No term from the local private-term list, in any checked form, and no home-directory path appears.",
         "fail": "A private term in some checked form, or a home-directory path, appears."
       },
-      "escape": {"unclear": "No private-term list was supplied, so it can't be judged."},
+      "escape": {
+        "unclear": "No private-term list was supplied, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -47,7 +51,9 @@
         "pass": "No added line outside the scratch directory, and no body line, names a path inside it.",
         "fail": "A body line or an added line outside the scratch directory names a path inside it."
       },
-      "escape": {"unclear": "The text could not be read, so it can't be judged."},
+      "escape": {
+        "unclear": "The text could not be read, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -63,7 +69,9 @@
         "pass": "No phrase from the fixed unfinished-work list appears in the body's first part.",
         "fail": "A phrase from the fixed unfinished-work list appears in the body's first part."
       },
-      "escape": {"unclear": "The body could not be read, so it can't be judged."},
+      "escape": {
+        "unclear": "The body could not be read, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -79,7 +87,9 @@
         "pass": "No paragraph longer than 60 characters appears twice in any changed Markdown file.",
         "fail": "A paragraph longer than 60 characters appears twice in a changed Markdown file."
       },
-      "escape": {"unclear": "A changed file could not be read, so it can't be judged."},
+      "escape": {
+        "unclear": "A changed file could not be read, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -95,7 +105,9 @@
         "pass": "Every backticked repository path in an added Markdown line names a file or directory that exists at the head.",
         "fail": "A backticked repository path in an added Markdown line names nothing at the head."
       },
-      "escape": {"unclear": "The repository's file list could not be read, so it can't be judged."},
+      "escape": {
+        "unclear": "The repository's file list could not be read, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -110,7 +122,9 @@
         "pass": "Every change the text claims is consistent with the files and line counts in the list.",
         "fail": "The text claims a change, a file, or a scope of change that the list doesn't show."
       },
-      "escape": {"unclear": "The text or the list is empty or unreadable, so it can't be judged."},
+      "escape": {
+        "unclear": "The text or the list is empty or unreadable, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -125,7 +139,9 @@
         "pass": "Every significant area of change in the list is described or clearly covered by the text.",
         "fail": "The list shows a significant change, such as new code, a new workflow or a deleted component, that the text never mentions."
       },
-      "escape": {"unclear": "The text or the list is empty or unreadable, so it can't be judged."},
+      "escape": {
+        "unclear": "The text or the list is empty or unreadable, so it can't be judged."
+      },
       "threshold": 0.9
     },
     {
@@ -140,8 +156,11 @@
         "pass": "The two passages agree, or talk about different things.",
         "fail": "The two passages state conflicting facts, such as different numbers, names, statuses or behaviour for the same thing."
       },
-      "escape": {"unclear": "A passage is empty or truncated, so it can't be judged."},
-      "threshold": 0.9
+      "escape": {
+        "unclear": "A passage is empty or truncated, so it can't be judged."
+      },
+      "threshold": 0.9,
+      "enabled": false
     },
     {
       "rule_id": "rs-010",
@@ -155,8 +174,11 @@
         "pass": "Every comment in the hunks is consistent with the code after the change.",
         "fail": "A comment in the hunks describes behaviour the changed code no longer has, or code that isn't there."
       },
-      "escape": {"unclear": "The hunks have no comment or are unreadable, so it can't be judged."},
-      "threshold": 0.9
+      "escape": {
+        "unclear": "The hunks have no comment or are unreadable, so it can't be judged."
+      },
+      "threshold": 0.9,
+      "enabled": false
     }
   ]
 }
