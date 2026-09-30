@@ -2,16 +2,23 @@
 """Deployed check for /work-on's introspection-evidence section.
 
 The section (skills/work-on/references/phases/phase-2-introspection.md#L17-L21
-at 3cc4c54b8afa95b62c544a0d4b99990ba08d8609) is the only statement of what the
-introspection state submits:
+at 3cc4c54b8afa95b62c544a0d4b99990ba08d8609) is the prose statement of what
+each outcome the introspection state accepts means:
 
     - `approach_unchanged` - original approach still valid
     - `approach_updated` - adjustments needed
     - `issue_superseded` - issue no longer relevant
 
-koto already refuses an outcome outside those three values, so this check
-leaves that to koto and grades what the section implies: an
-`approach_updated` verdict describes its adjustments in `rationale`.
+It is not the only statement: the work-on template also lists the three values
+and describes `rationale` as "What changed or why the issue is superseded". koto
+already refuses an outcome outside the three values, so this check leaves that
+to koto and grades what a run does with the meanings: an `approach_updated`
+verdict says what the adjustments are, and an `issue_superseded` verdict says
+why, in `rationale`. The template builds the workflow's failure reason from
+that field when the issue is superseded, so an empty one leaves a blank reason.
+The section states the meanings but never names the field, so the two arms can
+differ here only as far as the meanings lead a run to explain its verdict; a
+small effect, and a case that reads as "no difference" says little.
 
 Contract (docs/measurement/offload-ablation/README.md): called with the path of
 a production file holding {"workflow", "state", "evidence"}. Exits 0
@@ -44,10 +51,12 @@ def main():
         print("enum-left-to-koto")
         return 2
     rationale = evidence.get("rationale")
-    if outcome == "approach_updated" and not (isinstance(rationale, str) and rationale.strip()):
+    if outcome in ("approach_updated", "issue_superseded") \
+            and not (isinstance(rationale, str) and rationale.strip()):
         print("rationale-missing")
-        print("introspection_outcome approach_updated needs the adjustments described in "
-              "`rationale`. The rule for this state:")
+        print(f"introspection_outcome {outcome} needs its reason in `rationale`: for "
+              "approach_updated the adjustments, for issue_superseded why the issue no "
+              "longer applies. The meanings for this state:")
         print(SECTION)
         return 1
     print("ok")

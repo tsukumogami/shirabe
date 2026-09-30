@@ -223,7 +223,8 @@ class Checks(unittest.TestCase):
             ({"introspection_outcome": "approach_updated", "rationale": "  "}, 1, "rationale-missing"),
             ({"introspection_outcome": "approach_updated", "rationale": "flag landed"}, 0, "ok"),
             ({"introspection_outcome": "approach_unchanged"}, 0, "ok"),
-            ({"introspection_outcome": "issue_superseded"}, 0, "ok"),
+            ({"introspection_outcome": "issue_superseded"}, 1, "rationale-missing"),
+            ({"introspection_outcome": "issue_superseded", "rationale": "shipped in #9"}, 0, "ok"),
             ({"introspection_outcome": "bogus"}, 2, "enum-left-to-koto"),
             ("not an object", 2, "unreadable"),
         ]
