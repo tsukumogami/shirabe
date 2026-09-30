@@ -329,10 +329,11 @@ do not read them all before starting:
 1. **Discover + Chain Proposal** — topic-related child-doc
    discovery, re-entry protection, the pre-authoring upstream notice
    and when it is suppressed, chain-proposal output (Proceed /
-   Adjust / Bail triad). Phase 1 never shortens the chain: an author
-   who wants a shorter conversation invokes `/design` or `/plan`
-   directly, which shortens the conversation but not the artifact
-   set.
+   Adjust / Bail triad). Phase 1 never shortens the chain: skipping
+   a hop here would be a judgment about a document nobody has
+   written yet. An author who wants a shorter conversation invokes
+   `/design` or `/plan` directly, which shortens the conversation
+   but not the artifact set.
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
 2. **Child Invocation Loop** — invoke the planned chain (the
