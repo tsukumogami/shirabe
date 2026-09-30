@@ -437,6 +437,7 @@ class TestRs002PrivateTerms(unittest.TestCase):
 
     def test_no_list_is_not_a_pass(self):
         self.assertEqual(self.verdict(pr_text(), terms=None)[0:3:2], ("unanswered", "no-denylist"))
+        self.assertEqual(self.verdict(pr_text(), terms=[])[0:3:2], ("unanswered", "no-denylist"))
 
     def test_private_repository_is_out_of_scope(self):
         self.assertEqual(self.verdict(pr_text(body=self.TERM, public=False))[0], "pass")
@@ -531,6 +532,10 @@ class TestRs006DanglingPath(unittest.TestCase):
         self.assertEqual(self.verdict("See `docs/guides/a.md` and `scripts/`."), ("pass", None))
         self.assertEqual(self.verdict("Relative: `guides/a.md`.", path="docs/b.md"), ("pass", None))
 
+    def test_line_suffix_and_dot_prefix(self):
+        self.assertEqual(self.verdict("See `docs/guides/missing.md:12`."), ("fail", None))
+        self.assertEqual(self.verdict("See `./docs/guides/a.md` and `docs/guides/a.md:3-9`."), ("pass", None))
+
     def test_near_miss(self):
         self.assertEqual(self.verdict("Run `git log` and `owner/repo:docs/x.md` and `<path>/x.md`."), ("pass", None))
         self.assertEqual(self.verdict("See `docs/missing.md`.", path="scripts/x.sh"), ("pass", None))
@@ -580,11 +585,208 @@ class TestScan(unittest.TestCase):
         self.assertIn("rs-002: not checked (no-denylist)", out)
         self.assertEqual([l for l in out.splitlines() if not l.startswith("rs-002")], [])
 
+    def test_non_ascii_path_is_scanned(self):
+        terms = Path(tempfile.mkdtemp()) / "terms.txt"
+        terms.write_text("Zorblax\n", encoding="utf-8")
+        self.commit("\u00e9t\u00e9.md", "Mentions Zorblax here.\n")
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["scan", "--base", "main", "--private-terms", str(terms)])
+        self.assertEqual(code, 1)
+        self.assertIn("rs-002: \u00e9t\u00e9.md:1", out.getvalue())
+
+    def test_scan_from_a_subdirectory(self):
+        (self.dir / "sub").mkdir()
+        self.commit("sub/n.md", "See `README.md`.\n")
+        os.chdir(self.dir / "sub")
+        code, out = self.scan()
+        self.assertNotIn("rs-006", out)
+
+    def test_non_utf8_text_does_not_crash(self):
+        (self.dir / "latin.md").write_bytes(b"caf\xe9 text\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "latin")
+        code, out = self.scan()
+        self.assertIn(code, (0, 1))
+
     def test_failure_names_rule_path_and_line(self):
         self.commit("notes.md", "Line one.\nSee `docs/nowhere.md`.\n")
         code, out = self.scan()
         self.assertEqual(code, 1)
         self.assertIn("rs-006: notes.md:2", out)
+
+
+def stub_send(verdict_for=lambda rule_id: "pass", log=None, status=200, usage=True, raw=None):
+    """A Jev transport stand-in. Answers each question with `verdict_for(rule_id)`
+    at 0.95, or `escape` spread below the threshold."""
+    def send(body):
+        if log is not None:
+            log.append(("jev", sorted(body["questions"])))
+        if raw is not None:
+            return status, raw
+        answers = {}
+        for rid, q in body["questions"].items():
+            esc = [k for k in q["criteria"] if k not in ("pass", "fail")][0]
+            v = verdict_for(rid)
+            probs = {"pass": 0.02, "fail": 0.02, esc: 0.01}
+            if v == "escape":
+                probs = {"pass": 0.5, "fail": 0.45, esc: 0.05}
+            else:
+                probs[v] = 0.95
+            answers[rid] = {"type": "choice", "choice": v, "probabilities": probs}
+        out = {"model": "jev-test", "answers": answers}
+        if usage:
+            out["usage"] = {"input_tokens": 100, "output_tokens": 10}
+        return status, json.dumps(out).encode()
+    return send
+
+
+class TestGrade(unittest.TestCase):
+    def setUp(self):
+        self.crit = rs.load_criteria()
+        self.pr = fetched()
+
+    def graded(self, send, terms=("Zorblax",), batched=True):
+        return rs.grade(self.crit, self.pr, list(terms) if terms is not None else None, send, batched)
+
+    def test_record_fields(self):
+        body = self.graded(stub_send())
+        rec = rs.new_record("octo/demo", 7, HEAD, panel_kind="pre-merge", graded_body_at="x",
+                            body_source="history", diff_kind="mixed", in_sample=False, reasons=[], **body)
+        for field in ("schema", "trial", "run_id", "recorded_at", "repo", "pr", "head_sha", "panel_run_id",
+                      "session_id", "panel_kind", "graded_body_at", "diff_kind", "in_sample", "host",
+                      "criteria_version", "mode", "slices", "verdicts", "criteria", "rounds", "models",
+                      "unread_usage_attempts", "tokens", "status", "not_graded_reason"):
+            self.assertIn(field, rec)
+        self.assertEqual(rec["trial"], "jev-review-shadow")
+        for v in rec["verdicts"]:
+            self.assertEqual(set(v) >= {"rule_id", "slice", "verdict", "observer", "probabilities", "reason"}, True)
+            self.assertIn(v["verdict"], ("pass", "fail", "escape", "unanswered"))
+        self.assertTrue(all(v["observer"] == "script" for v in rec["verdicts"] if v["rule_id"] <= "rs-006"))
+        self.assertEqual(rec["tokens"]["input"], 100 * len(rec["rounds"]))
+
+    def test_scripts_run_before_any_jev_request(self):
+        log = []
+        real = rs.run_scripts
+
+        def logged(*a):
+            log.append(("scripts",))
+            return real(*a)
+        rs.run_scripts = logged
+        self.addCleanup(setattr, rs, "run_scripts", real)
+        self.graded(stub_send(log=log))
+        self.assertEqual(log[0], ("scripts",))
+        self.assertEqual([e for e in log if e[0] == "scripts"], [("scripts",)])
+
+    def test_run_status(self):
+        self.assertEqual(self.graded(stub_send())["status"], "unanimous-pass")
+        self.assertEqual(self.graded(stub_send(lambda r: "escape" if r == "rs-007" else "pass"))["status"],
+                         "inconclusive")
+        self.assertEqual(self.graded(stub_send(lambda r: "fail" if r == "rs-010" else "pass"))["status"], "dissent")
+        self.assertEqual(self.graded(stub_send(), terms=None)["status"], "inconclusive")  # no-denylist
+
+    def test_batched_and_unbatched(self):
+        b = self.graded(stub_send())
+        summary = [r for r in b["rounds"] if r["slice"].startswith("pr-summary")]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["rule_ids"], ["rs-007", "rs-008"])
+        self.assertTrue(summary[0]["batched"])
+        u = self.graded(stub_send(), batched=False)
+        self.assertEqual(u["mode"], "unbatched")
+        self.assertEqual(len([r for r in u["rounds"] if r["slice"].startswith("pr-summary")]), 2)
+        self.assertFalse(any(r["batched"] for r in u["rounds"]))
+
+    def test_no_key_is_not_graded(self):
+        b = self.graded(None)
+        self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "no-key"))
+        self.assertTrue(all(v["reason"] == "no-key" for v in b["verdicts"] if v["observer"] == "jev"))
+
+    def test_transport_failure_is_retried_once_then_not_graded(self):
+        calls = []
+
+        def down(body):
+            calls.append(1)
+            return None, b""
+        b = self.graded(down)
+        self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "transport"))
+        self.assertEqual(len(calls), 2 * len(b["rounds"]))
+
+    def test_unreadable_usage_is_counted(self):
+        b = self.graded(stub_send(usage=False))
+        self.assertEqual(b["unread_usage_attempts"], len(b["rounds"]))
+        b = self.graded(stub_send(raw=b"not json"))
+        self.assertEqual(b["unread_usage_attempts"], 2 * len(b["rounds"]))
+
+    def test_over_bound_slice_is_never_sent(self):
+        self.pr["body"] = "word " * 700
+        sent = []
+        b = self.graded(stub_send(log=sent))
+        self.assertFalse(any("rs-007" in q for _, q in sent))
+        v = [x for x in b["verdicts"] if x["rule_id"] == "rs-007"]
+        self.assertEqual([(x["verdict"], x["reason"]) for x in v], [("unanswered", "over-bound")])
+
+    def test_threshold_and_malformed_answers(self):
+        c = next(c for c in self.crit["criteria"] if c["rule_id"] == "rs-010")
+        ok = {"answers": {"rs-010": {"probabilities": {"pass": 0.9, "fail": 0.05, "unclear": 0.05}}}}
+        self.assertEqual(rs.map_answer(c, ok)[0], "pass")
+        low = {"answers": {"rs-010": {"probabilities": {"pass": 0.89, "fail": 0.06, "unclear": 0.05}}}}
+        self.assertEqual(rs.map_answer(c, low)[0], "escape")
+        esc = {"answers": {"rs-010": {"probabilities": {"pass": 0.02, "fail": 0.03, "unclear": 0.95}}}}
+        self.assertEqual(rs.map_answer(c, esc)[0], "escape")
+        self.assertEqual(rs.map_answer(c, {"answers": {}})[0:3:2], ("unanswered", "missing-answer"))
+        bad = {"answers": {"rs-010": {"probabilities": {"pass": 2}}}}
+        self.assertEqual(rs.map_answer(c, bad)[0:3:2], ("unanswered", "unreadable-answer"))
+
+    def test_credentials_are_redacted_before_sending(self):
+        token = "gh" + "p_" + "A" * 36
+        self.pr["body"] = f"Rotates {token} in the fixture."
+        sent = []
+
+        def send(body):
+            sent.append(json.dumps(body))
+            return stub_send()(body)
+        self.graded(send)
+        self.assertTrue(sent)
+        self.assertFalse(any(token in s for s in sent))
+
+    def test_https_only(self):
+        with self.assertRaises(rs.ConfigError):
+            rs.https_transport("http://example.com", "k", 1)
+
+
+class TestStore(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+
+    def test_permissions(self):
+        home = rs.store_home()
+        path = rs.write_record(home, rs.new_record("octo/demo", 7, HEAD, status="dissent"))
+        self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+        self.assertEqual(oct(path.parent.stat().st_mode & 0o777), "0o700")
+        self.assertEqual(json.loads(path.read_text())["status"], "dissent")
+        self.assertEqual(list(path.parent.glob("*.tmp")), [])
+
+    def test_refuses_a_home_inside_a_work_tree(self):
+        os.environ["REVIEW_SHADOW_HOME"] = str(HERE / "store")
+        with self.assertRaises(rs.ConfigError):
+            rs.store_home()
+
+    def test_grade_never_runs_koto(self):
+        seen = []
+        real = rs.subprocess.run
+
+        def spy(cmd, **kw):
+            seen.append(cmd[0])
+            return real(cmd, **kw)
+        rs.subprocess.run = spy
+        self.addCleanup(setattr, rs.subprocess, "run", real)
+        rs.store_home()
+        rs.grade(rs.load_criteria(), fetched(), None, stub_send())
+        self.assertNotIn("koto", seen)
 
 
 if __name__ == "__main__":

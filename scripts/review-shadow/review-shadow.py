@@ -21,7 +21,9 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +39,7 @@ SLICE_KINDS = ("pr-text", "pr-summary", "code-hunks", "doc-pairs")
 SCRIPT_CHECKS = ("attribution", "private_terms", "scratch_path", "unfinished_wording",
                  "pasted_paragraph", "dangling_path")
 CLASSES = ("covered", "closed-uncovered", "open-judgment")
+PANEL_KINDS = ("scrutiny", "review", "qa", "pre-merge")
 RULE_ID = re.compile(r"rs-[0-9]{3}")
 CRITERION_FIELDS = ("rule_id", "rule_ref", "group", "artifact_kind", "slice_kind", "observer",
                     "question", "values", "escape", "threshold")
@@ -344,7 +347,18 @@ def part1(body):
     return body.strip()
 
 
+CREDENTIAL = re.compile(
+    r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|"
+    r"AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,})\b|-----BEGIN [A-Z ]*PRIVATE KEY-----")
+
+
+def redact(text):
+    """Replace strings shaped like common credentials before any text leaves the machine."""
+    return CREDENTIAL.sub("[redacted]", text)
+
+
 def make_slice(kind, n, inputs, meta=None):
+    inputs = {k: redact(v) for k, v in inputs.items()}
     blob = json.dumps(inputs, sort_keys=True, ensure_ascii=False)
     size = sum(utf8_len(v) for v in inputs.values())
     return {"id": f"{kind}-{n}", "kind": kind, "inputs": inputs, "bytes": size,
@@ -608,7 +622,7 @@ ATTRIBUTION = re.compile(
     r"https?://(?:www\.)?claude\.a(?:i)\b", re.I)
 SCRATCH_PATH = re.compile(r"(?<![A-Za-z0-9_.-])wip\/[A-Za-z0-9_.]")
 HOME_PATH = re.compile(r"/home/(?!(?:u|user|x)/)[a-z_][a-z0-9_-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/")
-PATH_TOKEN = re.compile(r"`([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*)`")
+PATH_TOKEN = re.compile(r"`(?:\./)?([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*?)(?::\d+(?:-\d+)?)?`")
 PATH_SUFFIXES = (".md", ".sh", ".py", ".rs", ".json", ".jsonl", ".yml", ".yaml", ".toml", ".txt", "/")
 UNFINISHED_FILE = HERE / "unfinished-wording.txt"
 
@@ -649,8 +663,8 @@ def term_forms(term):
 def check_private_terms(pt, terms):
     if not pt["public"]:
         return "pass", [], None  # the rule governs public content only
-    if terms is None:
-        return "unanswered", [], "no-denylist"
+    if not terms:
+        return "unanswered", [], "no-denylist"  # an empty list checks nothing, so it isn't a pass
     folded, exact = set(), set()
     for t in terms:
         f, e = term_forms(t)
@@ -746,10 +760,285 @@ def run_scripts(criteria, pt, terms):
     return out
 
 
+# --- Jev ---------------------------------------------------------------------
+
+JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+JEV_MODEL = "jev-latest"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect, so the key never reaches a second host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+
+def https_transport(endpoint, key, timeout):
+    """POST a JSON body; return (status, raw body). The key goes in an
+    unredirected Authorization header and nowhere else."""
+    if not endpoint.startswith("https://"):
+        raise ConfigError("the Jev endpoint must be https")
+    opener = urllib.request.build_opener(_NoRedirect)
+
+    def send(body):
+        req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        req.add_unredirected_header("Authorization", "Bearer " + key)
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, b""  # an error body can echo request headers, so it's dropped
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None, b""
+    return send
+
+
+def ask_jev(send, body):
+    """One request, retried once on a transport failure, a 5xx or an unreadable
+    answer, as koto's decider check does. Returns (answer, reason, attempts,
+    latency_ms, billed_unread): `billed_unread` counts 200 answers whose usage
+    couldn't be read."""
+    import time
+    reason, billed_unread, latency = None, 0, 0
+    for attempt in (1, 2):
+        start = time.monotonic()
+        status, raw = send(body)
+        latency = int((time.monotonic() - start) * 1000)
+        if status is None:
+            reason = "transport"
+            continue
+        if status != 200:
+            reason = "provider"
+            if status < 500:
+                return None, reason, attempt, latency, billed_unread
+            continue
+        try:
+            answer = json.loads(raw)
+            if not isinstance(answer, dict) or not isinstance(answer.get("answers"), dict):
+                raise ValueError
+        except ValueError:
+            reason = "unreadable-answer"
+            billed_unread += 1
+            continue
+        usage = answer.get("usage")
+        if not (isinstance(usage, dict) and isinstance(usage.get("input_tokens"), int)
+                and isinstance(usage.get("output_tokens"), int)):
+            billed_unread += 1
+        return answer, None, attempt, latency, billed_unread
+    return None, reason, 2, latency, billed_unread
+
+
+def question(c):
+    return {"type": "choice", "instructions": c["question"],
+            "criteria": {**c["values"], **c["escape"]}}
+
+
+def map_answer(c, answer):
+    """(verdict, probabilities, reason) for one criterion, with koto's threshold rule:
+    a value wins only if it has the highest probability and at least the threshold."""
+    ans = (answer.get("answers") or {}).get(c["rule_id"])
+    if ans is None:
+        return "unanswered", None, "missing-answer"
+    probs = ans.get("probabilities") if isinstance(ans, dict) else None
+    keys = set(c["values"]) | set(c["escape"])
+    if not isinstance(probs, dict) or set(probs) != keys or \
+            not all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in probs.values()):
+        return "unanswered", None, "unreadable-answer"
+    win = max(probs, key=probs.get)
+    if win in c["escape"] or probs[win] < c["threshold"]:
+        return "escape", probs, None
+    return win, probs, None
+
+
+VERDICT_ORDER = ("fail", "unanswered", "escape", "pass")
+
+
+def worst(verdicts):
+    return min(verdicts, key=VERDICT_ORDER.index) if verdicts else "pass"
+
+
+# --- Grade -------------------------------------------------------------------
+
+def run_jev(criteria, slices, send, batched):
+    """Every Jev criterion over its slices. One request per slice carries every
+    criterion of that slice kind, or one per criterion when unbatched."""
+    verdicts, rounds, unread = [], [], 0
+    by_kind = {}
+    for c in criteria["criteria"]:
+        if c["observer"] == "jev":
+            by_kind.setdefault(c["slice_kind"], []).append(c)
+    for kind, crits in by_kind.items():
+        for s in slices.get(kind, []):
+            if s["over_bound"] or send is None:
+                reason = "over-bound" if s["over_bound"] else "no-key"
+                verdicts += [{"rule_id": c["rule_id"], "slice": s["id"], "verdict": "unanswered", "observer": "jev",
+                              "probabilities": None, "reason": reason} for c in crits]
+                continue
+            for group in ([crits] if batched else [[c] for c in crits]):
+                body = {"model": JEV_MODEL, "state": s["inputs"],
+                        "questions": {c["rule_id"]: question(c) for c in group}}
+                answer, reason, attempts, latency, billed_unread = ask_jev(send, body)
+                unread += billed_unread
+                usage = (answer or {}).get("usage") or {}
+                rounds.append({"slice": s["id"], "rule_ids": [c["rule_id"] for c in group],
+                               "batched": len(group) > 1,
+                               "model": (answer or {}).get("model"), "answered": answer is not None,
+                               "input_tokens": usage.get("input_tokens") if isinstance(usage.get("input_tokens"), int) else None,
+                               "output_tokens": usage.get("output_tokens") if isinstance(usage.get("output_tokens"), int) else None,
+                               "attempts": attempts, "latency_ms": latency, "reason": reason})
+                for c in group:
+                    if answer is None:
+                        v, probs, why = "unanswered", None, reason
+                    else:
+                        v, probs, why = map_answer(c, answer)
+                    verdicts.append({"rule_id": c["rule_id"], "slice": s["id"], "verdict": v, "observer": "jev",
+                                     "probabilities": probs, "reason": why})
+    return verdicts, rounds, unread
+
+
+def run_status(criterion_verdicts, rounds, jev_slices, no_key):
+    """unanimous-pass, dissent, inconclusive, or not-graded when Jev had slices to
+    grade and never answered, so an outage is never counted as agreement."""
+    if jev_slices and not any(r["answered"] for r in rounds):
+        if no_key:
+            return "not-graded", "no-key"
+        if rounds:
+            reasons = {r["reason"] for r in rounds}
+            return "not-graded", "transport" if "transport" in reasons else "provider"
+    vs = [c["verdict"] for c in criterion_verdicts]
+    if "fail" in vs:
+        return "dissent", None
+    if any(v != "pass" for v in vs):
+        return "inconclusive", None
+    return "unanimous-pass", None
+
+
+def criteria_version(path=CRITERIA_FILE):
+    data = Path(path).read_bytes()
+    return {"version": json.loads(data)["version"], "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def grade(criteria, pr, terms, send, batched=True):
+    """Scripts first, then Jev. Returns the record body (no identity fields yet)."""
+    pt = slice_pr_text(pr)
+    verdicts = run_scripts(criteria, pt, terms)
+    slices, pair_meta = build_slices(pr)
+    jev_verdicts, rounds, unread = run_jev(criteria, slices, send, batched)
+    for v in verdicts:
+        v.pop("where", None)  # paths and lines stay in scan output; records hold counts
+    verdicts += jev_verdicts
+    crit_rows = []
+    for c in criteria["criteria"]:
+        vs = [v["verdict"] for v in verdicts if v["rule_id"] == c["rule_id"]]
+        row = {"rule_id": c["rule_id"], "verdict": worst(vs), "slices": len(vs)}
+        if c["slice_kind"] == "doc-pairs":
+            row.update(pair_meta)
+        crit_rows.append(row)
+    jev_slices = sum(len(slices.get(c["slice_kind"], [])) for c in criteria["criteria"] if c["observer"] == "jev")
+    status, why = run_status(crit_rows, rounds, jev_slices, send is None)
+    all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")}, **s["meta"])
+                  for kind in slices for s in slices[kind]]
+    tokens = {"input": sum(r["input_tokens"] or 0 for r in rounds),
+              "output": sum(r["output_tokens"] or 0 for r in rounds)}
+    models = sorted({r["model"] for r in rounds if r["model"]})
+    return {"mode": "batched" if batched else "unbatched", "slices": all_slices, "verdicts": verdicts,
+            "criteria": crit_rows, "rounds": rounds, "models": models, "unread_usage_attempts": unread,
+            "tokens": tokens, "status": status, "not_graded_reason": why}
+
+
+# --- The local store ---------------------------------------------------------
+
+def store_home():
+    """The record store: a fixed directory under XDG_STATE_HOME. REVIEW_SHADOW_HOME
+    overrides it for tests only. It must sit outside every git work tree."""
+    home = os.environ.get("REVIEW_SHADOW_HOME") or os.path.join(
+        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
+        "shirabe", "review-shadow")
+    home = os.path.realpath(home)
+    if inside_work_tree(home):
+        raise ConfigError("the record store must live outside every git work tree")
+    return Path(home)
+
+
+def write_private(path, data):
+    """Write JSON with directories 0700 and the file 0600, through a temporary file
+    and a rename so an archiver never reads half a record."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for d in [path.parent, *path.parent.parents]:
+        if d == store_home_root(path):
+            break
+        os.chmod(d, 0o700)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def store_home_root(path):
+    """The store root above a record or outcome path."""
+    for d in path.parents:
+        if d.name in ("records", "outcomes"):
+            return d.parent
+    return path.parent
+
+
+def head_dir(home, kind, repo, pr, head):
+    owner, name = repo.split("/", 1)
+    return home / kind / owner / name / str(pr) / head
+
+
+def write_record(home, record):
+    stamp = record["recorded_at"].replace("-", "").replace(":", "")
+    path = head_dir(home, "records", record["repo"], record["pr"], record["head_sha"]) / \
+        f"{stamp}-{record['run_id']}.json"
+    write_private(path, record)
+    return path
+
+
+def new_record(repo, pr, head, **fields):
+    import socket
+    import uuid
+    rec = {"schema": "review-shadow/record/v1", "trial": "jev-review-shadow", "run_id": uuid.uuid4().hex[:16],
+           "recorded_at": now_iso(), "repo": repo, "pr": pr, "head_sha": head, "panel_run_id": None,
+           "panel_kind": None, "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
+           "host": socket.gethostname(), "criteria_version": criteria_version()}
+    rec.update(fields)
+    return rec
+
+
+def cmd_grade(args, criteria):
+    repo, pr, head = check_repo(args.repo), check_pr(args.pr), check_head(args.head)
+    panel_run = check_panel_run(args.panel_run)
+    if args.body_at:
+        parse_time(args.body_at)
+    if args.panel_kind and args.panel_kind not in PANEL_KINDS:
+        raise ValueError(f"--panel-kind must be one of {PANEL_KINDS}")
+    terms = load_private_terms(args.private_terms or os.environ.get("REVIEW_SHADOW_PRIVATE_TERMS"))
+    home = store_home()
+    body_file = Path(args.body_file).read_text(encoding="utf-8") if args.body_file else None
+    in_sample = head_dir(home, "outcomes", repo, pr, head).exists()
+    pr_data = fetch_pr(GhFetcher(), repo, pr, head, body_at=args.body_at, body_file=body_file)
+    key = os.environ.get("JEV_API_KEY") or os.environ.get("KOTO_DECIDER_API_KEY")
+    send = https_transport(JEV_ENDPOINT, key, 20.0) if key else None
+    body = grade(criteria, pr_data, terms, send, batched=not args.unbatched)
+    rec = new_record(repo, pr, head, panel_run_id=panel_run, panel_kind=args.panel_kind,
+                     graded_body_at=pr_data["graded_body_at"], body_source=pr_data["body_source"],
+                     diff_kind=pr_data["diff_kind"], in_sample=in_sample,
+                     reasons=pr_data["reasons"] + (["files-truncated"] if pr_data["files_truncated"] else []),
+                     **body)
+    path = write_record(home, rec)
+    print(f"{path} status={rec['status']} tokens={rec['tokens']['input']}+{rec['tokens']['output']}")
+    return 0
+
+
 # --- Local branch scan -------------------------------------------------------
 
 def _git(*args):
-    out = subprocess.run(["git", *args], capture_output=True, text=True)
+    out = subprocess.run(["git", "-c", "core.quotepath=off", *args], capture_output=True, text=True,
+                         errors="replace")
     if out.returncode != 0:
         raise FetchError(f"git {args[0]} failed")
     return out.stdout
@@ -757,22 +1046,26 @@ def _git(*args):
 
 def local_pr(base, body):
     """A pr-text slice for the current branch against `base`, for `scan`."""
-    diff = _git("diff", "--no-color", "-U3", f"{base}...HEAD")
-    files, cur = [], None
-    for line in diff.split("\n"):
-        m = re.match(r"^diff --git a/(.+) b/(.+)$", line)
-        if m:
-            cur = {"path": m.group(2), "status": "modified", "additions": 0, "deletions": 0, "patch": []}
-            files.append(cur)
-        elif cur is not None:
-            if line.startswith("deleted file mode"):
-                cur["status"] = "removed"
-            elif line.startswith("@@") or (cur["patch"] and line[:1] in ("+", "-", " ", "\\")):
-                if not line.startswith(("+++", "---")) or cur["patch"]:
-                    cur["patch"].append(line)
+    # The file list comes NUL-separated, so no path is ever quoted or escaped;
+    # each file's patch is then read on its own, by pathspec.
+    fields = _git("diff", "--name-status", "-z", "-M", f"{base}...HEAD").split("\0")
+    files, i = [], 0
+    status_word = {"A": "added", "D": "removed", "M": "modified", "R": "renamed", "C": "copied", "T": "modified"}
+    while i < len(fields) and fields[i]:
+        code = fields[i]
+        if code[0] in "RC":
+            old, path, i = fields[i + 1], fields[i + 2], i + 3
+        else:
+            old, path, i = None, fields[i + 1], i + 2
+        files.append({"path": path, "previous_path": old, "status": status_word.get(code[0], "modified"),
+                      "additions": 0, "deletions": 0, "patch": None})
     for f in files:
-        f["patch"] = "\n".join(f["patch"])
-    tree_paths = _git("ls-tree", "-r", "--name-only", "HEAD").split("\n")
+        if f["status"] == "removed":
+            continue
+        diff = _git("diff", "--no-color", "-U3", "-M", f"{base}...HEAD", "--", f["path"])
+        hunks = diff[diff.find("\n@@") + 1:] if "\n@@" in diff else ""
+        f["patch"] = hunks.rstrip("\n")
+    tree_paths = _git("ls-tree", "-r", "-z", "--full-tree", "--name-only", "HEAD").split("\0")
     tree = set(p for p in tree_paths if p)
     for p in list(tree):
         parts = p.split("/")
@@ -810,15 +1103,28 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="review-shadow.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="load the criteria and category files and report problems")
+    gp = sub.add_parser("grade", help="grade one pull request at one head and write a record")
+    gp.add_argument("--repo", required=True)
+    gp.add_argument("--pr", required=True)
+    gp.add_argument("--head", required=True)
+    gp.add_argument("--panel-kind", choices=PANEL_KINDS)
+    gp.add_argument("--panel-run")
+    gp.add_argument("--body-at", help="grade the body as it read at this UTC time (YYYY-MM-DDTHH:MM:SSZ)")
+    gp.add_argument("--body-file")
+    gp.add_argument("--private-terms")
+    gp.add_argument("--unbatched", action="store_true", help="one Jev request per criterion per slice")
     sp = sub.add_parser("scan", help="run the script criteria over the current branch; writes nothing")
     sp.add_argument("--base", default="origin/main")
     sp.add_argument("--body-file")
     sp.add_argument("--private-terms")
     args = ap.parse_args(argv)
-    if args.command == "scan":
+    commands = {"scan": cmd_scan, "grade": cmd_grade}
+    if args.command in commands:
         try:
-            return cmd_scan(args, load_criteria())
-        except (ConfigError, FetchError) as e:
+            criteria = load_criteria()
+            load_categories(criteria)
+            return commands[args.command](args, criteria)
+        except (ConfigError, FetchError, ValueError) as e:
             print(f"review-shadow: {e}", file=sys.stderr)
             return 2
     try:
