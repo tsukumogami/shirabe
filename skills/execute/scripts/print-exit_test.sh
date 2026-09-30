@@ -5,7 +5,7 @@
 # print-exit.sh turns a terminal result into /execute's exit lines. Each case
 # feeds it a result payload shaped like the one the template's result maps
 # produce for that stop point, and asserts the exact lines. The rows are the
-# outcome-versus-exit table in skills/execute/SKILL.md (Exit Paths):
+# stop-point-to-exit mapping print-exit.sh applies (SKILL.md Exit Paths):
 #
 #   merged terminal                                  full-run      merged
 #   ready_awaiting_merge terminal, and legacy done   full-run      ready-awaiting-merge

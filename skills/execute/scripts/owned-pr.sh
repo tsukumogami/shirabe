@@ -72,7 +72,8 @@
 #   --take-over  needs --run-id and --state open; takes no value
 #
 # Output and exit codes. The contract names no caller step: each caller maps
-# these codes to its own (see skills/execute/SKILL.md, "Owned-PR lookup").
+# these codes to its own (for /execute, see the orchestrator_setup directive in
+# skills/execute/koto-templates/execute.md).
 #
 #   0  exactly one survivor: its URL is the only line on stdout
 #   0  zero survivors: stdout is empty. A branch whose only PRs come from

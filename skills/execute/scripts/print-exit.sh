@@ -25,8 +25,8 @@
 #                                          outcome prints error
 #   step=<execute:...>                     on error only
 #   exit=<full-run|abandonment-forced|re-evaluation>
-#                                          the state file's exit: value, per
-#                                          SKILL.md's outcome-versus-exit table;
+#                                          the exit path the terminal maps to;
+#                                          see SKILL.md's Exit Paths;
 #                                          absent on a pause and on a refusal
 #   repos=<owner/repo[,owner/repo...]>     the write set, fixed at start
 #   pr=<url>                               on merged

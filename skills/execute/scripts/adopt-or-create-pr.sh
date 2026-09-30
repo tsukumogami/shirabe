@@ -38,13 +38,13 @@
 #                takeover can never reach another PLAN's (or another node's)
 #                PR.
 #                Only /execute's re-entry passes it, after exit 6 said so;
-#                see SKILL.md, "Owned-PR lookup".
+#                see orchestrator_setup in koto-templates/execute.md.
 #   --plan-slug  ^[a-z0-9-]+$            (required with --create)
 #   --plan-doc   ^[A-Za-z0-9._/-]+\.md$   (required with --create)
 #
 # Each flag appears at most once, as `--flag value`.
 #
-# Exit codes, mapped to /execute's steps in SKILL.md ("Owned-PR lookup"):
+# Exit codes, mapped to /execute's steps (orchestrator_setup in execute.md):
 #   0   one owned PR: recorded, and its URL is on stdout
 #   2   a lookup read failed                     -> execute:status-read
 #   3   several owned PRs, or an ambiguous       -> execute:pr-adopt

@@ -104,7 +104,7 @@ for f in skills/*/koto-templates/*.md skills/*/SKILL.md; do
         esac
     done < <(invocations "$f")
 done
-[ "$M" -ge 6 ] && pass "found $M template and SKILL.md call sites" || fail "found only $M template call sites; the extractor is broken"
+[ "$M" -ge 5 ] && pass "found $M template and SKILL.md call sites" || fail "found only $M template call sites; the extractor is broken"
 
 # --- sessionless scripts --------------------------------------------------------
 
