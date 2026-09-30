@@ -14,6 +14,9 @@
 #   merged                  two repositories, the coordination PR MERGED: the
 #                           result has outcome=merged, pr naming the
 #                           coordination PR, and repos listing both
+#   merged (home outside)   the coordination PR in acme/repo-a, every node in
+#                           acme/repo-b: coord_setup reaches coord_loop and the
+#                           run ends merged with repos=acme/repo-b
 #   ready_awaiting_merge    two independent roots without --merge: pr,
 #                           waiting, reason=merge-not-requested
 #   paused_awaiting_merges  a root awaiting a human, its successor waiting:
@@ -171,6 +174,20 @@ if ct_calls | grep -q -- '--head docs/t --state all' && ! ct_calls | grep -q 'ac
     pass "the confirm read looked up the coordination branch in home_repo, never the comma-joined repos"
 else
     fail "the confirm read's lookups: $(ct_calls | grep 'pr list')"
+fi
+
+# The coordination PR in acme/repo-a over a PLAN whose nodes are all in
+# acme/repo-b: coord_setup's gates pass, and the verdict reads the run whole.
+ct_case home-outside
+fixture homeout remote
+CT_COORD_STATE=MERGED
+ct_write_db
+open_run homeout true && finish homeout "done:merged"
+expect_terminal homeout merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-b"
+if [ "$(k context get execute-homeout home_repo 2>/dev/null)" = acme/repo-a ]; then
+    pass "home outside the write set: home_repo=acme/repo-a is recorded beside repos=acme/repo-b"
+else
+    fail "home outside the write set: home_repo [$(k context get execute-homeout home_repo 2>/dev/null)]"
 fi
 
 # --- ready_awaiting_merge ---------------------------------------------------------

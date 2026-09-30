@@ -282,8 +282,12 @@ coord_compute() {
     esac
     CC_COORD_ATTEMPT=$(coord_attempt_of "$CC_ATTEMPTS" coordination)
 
-    # The index: every entry parses, names a repository in the write set, and
-    # appears once.
+    # The index: every entry parses, names a repository this run owns, and
+    # appears once. A node entry's repository must be in the write set. The
+    # coordination PR's own entry must name the home repository, which need
+    # not be in the write set (a PLAN whose nodes all land in other
+    # repositories). A node entry may name the home only when some node lands
+    # there, which puts the home in the write set.
     entries=$(coord_index_entries "$(printf '%s' "$C_JSON" | jq -r '.body // ""')")
     local seen=","
     while IFS= read -r line; do
@@ -292,7 +296,12 @@ coord_compute() {
             echo "$PROG: PR index entry outside the grammar: [$line]" >&2
             CC_ACTION="error:execute:status-read"; return 0
         fi
-        if ! coord_in_list "$E_REPO" "$CC_REPOS"; then
+        if [ "$E_NODE" = coordination ]; then
+            if [ "$(coord_lower "$E_REPO")" != "$(coord_lower "$CC_HOME")" ]; then
+                echo "$PROG: the coordination entry names $E_REPO, not the coordination PR's repository $CC_HOME" >&2
+                CC_ACTION="error:execute:write-set"; return 0
+            fi
+        elif ! coord_in_list "$E_REPO" "$CC_REPOS"; then
             echo "$PROG: PR index entry $E_NODE names $E_REPO, outside the write set [$CC_REPOS]" >&2
             CC_ACTION="error:execute:write-set"; return 0
         fi

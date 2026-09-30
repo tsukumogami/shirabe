@@ -2,7 +2,8 @@
 #
 # Sourced by coordinated-next_test.sh, coordination-verdict_test.sh,
 # record-coordination-verdict_test.sh, node-push_test.sh, node-cut_test.sh,
-# coord-merge_test.sh, and record-coord-setup_test.sh. Not a test itself.
+# coord-merge_test.sh, record-coord-setup_test.sh, and
+# coordinated-home-outside_test.sh. Not a test itself.
 #
 # GitHub is the eval gh shim (skills/execute/evals/fixtures/bin/gh) in its
 # repository-model mode: each case writes a gh/db.json seed into its own
@@ -155,14 +156,22 @@ ct_write_db() {
         > "$CASE/scenario/gh/db.json"
 }
 
-# ct_plan <dir> [two-repo|gated] -- write docs/plans/PLAN-t.md into <dir>: an
-# issue-carrying coordinated PLAN (no tracking_level, so plan-to-tasks.sh's
-# table path, which needs no shirabe binary). One repository, groups core
-# (issues 1, 2) and cli (issue 3, blocked by 1); with `gated`, the same plus a
-# gate node publish-core after core and before cli; or, with `two-repo`, two
-# independent roots in acme/repo-a and acme/repo-b, Group default.
+# ct_plan <dir> [two-repo|gated|remote] -- write docs/plans/PLAN-t.md into
+# <dir>: an issue-carrying coordinated PLAN (no tracking_level, so
+# plan-to-tasks.sh's table path, which needs no shirabe binary). One
+# repository, groups core (issues 1, 2) and cli (issue 3, blocked by 1); with
+# `gated`, the same plus a gate node publish-core after core and before cli;
+# with `two-repo`, two independent roots in acme/repo-a and acme/repo-b, Group
+# default; or, with `remote`, the one-repository shape with every node in
+# acme/repo-b (pr-repo-b-core, then pr-repo-b-cli), so a coordination PR in
+# acme/repo-a sits in a repository that holds no node.
 ct_plan() {
     mkdir -p "$1/docs/plans"
+    if [ "${2:-}" = remote ]; then
+        ct_plan "$1"
+        sed -i.bak 's#acme/repo-a#acme/repo-b#' "$1/docs/plans/PLAN-t.md" && rm -f "$1/docs/plans/PLAN-t.md.bak"
+        return
+    fi
     if [ "${2:-}" = gated ]; then
         ct_plan "$1"
         printf '%s\n' '| ^_Gate: publish-core \| After: pr-repo-a-core \| Before: pr-repo-a-cli_ | | |' \

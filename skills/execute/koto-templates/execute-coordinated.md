@@ -394,9 +394,9 @@ Record the run's write set and its coordination home. Run this in the coordinati
 {{PLUGIN_ROOT}}/skills/execute/scripts/record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}
 ```
 
-It records four keys, each fixed for the rest of the run: `repos`, the sorted, comma-joined `owner/repo` list of every PR node's repository, which is the run's write set; `home_repo`, this checkout's repository, which must be one of them; `coord_branch`, the branch checked out here; and `plan_abs`, the PLAN's absolute path, which outline-sourced children receive as `PLAN_DOC`. Then tick with `koto next {{SESSION_NAME}} --no-cleanup`; the state's gates read the record back and move the run to the loop.
+It records four keys, each fixed for the rest of the run: `repos`, the sorted, comma-joined `owner/repo` list of every PR node's repository, which is the run's write set; `home_repo`, this checkout's repository, which holds the coordination PR and need not hold a node (the run writes to it only through the coordination PR's own paths, each of which takes `home_repo` explicitly); `coord_branch`, the branch checked out here; and `plan_abs`, the PLAN's absolute path, which outline-sourced children receive as `PLAN_DOC`. Then tick with `koto next {{SESSION_NAME}} --no-cleanup`; the state's gates read the record back and move the run to the loop.
 
-The script refuses a detached HEAD (exit 65), a home repository outside the write set (66), the default branch (67), and a value that differs from one already recorded (68). If the cause can't be fixed, submit `setup_status: blocked` with `detail`, which ends the run at `done_error` with `step=execute:coord_setup`.
+The script refuses a detached HEAD (exit 65), a value outside its pattern (66), the default branch (67), and a value that differs from one already recorded (68). If the cause can't be fixed, submit `setup_status: blocked` with `detail`, which ends the run at `done_error` with `step=execute:coord_setup`.
 
 ## coord_loop
 

@@ -16,8 +16,13 @@
 #                 repositories, and an index entry naming any other is refused.
 #   home_repo     the one repository holding the coordination branch, read
 #                 from the origin remote the way record-write-set.sh reads it.
-#                 It must match ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ and be one
-#                 of the repos entries.
+#                 It must match ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$. It need not
+#                 be one of the repos entries: a PLAN whose nodes all land in
+#                 other repositories (a private planning repository over
+#                 public ones, say) keeps its coordination PR here. The run
+#                 writes to it only through the coordination PR's own paths,
+#                 which take home_repo explicitly: the body edits, the
+#                 coordination branch's push, marking it ready, and its merge.
 #   coord_branch  the checked-out branch: the coordination branch. A detached
 #                 HEAD and the remote's default branch are refused.
 #   plan_abs      the PLAN's absolute path in this checkout, which outline
@@ -35,7 +40,7 @@
 #   0   recorded (or already recorded with the same values)
 #   64  usage error
 #   65  HEAD is detached
-#   66  a value is outside its pattern, or home_repo is not in repos
+#   66  a value is outside its pattern
 #   67  the checked-out branch is the remote's default branch
 #   68  a different value is already recorded for this session
 #   69  the PLAN could not be read into nodes
@@ -100,10 +105,6 @@ HOME_REPO=$("$BASH" "$COORD_SELF_DIR/record-write-set.sh" --print) || {
     exit 66
 }
 coord_valid_repo "$HOME_REPO" || { echo "$PROG: home_repo [$HOME_REPO] is not a single owner/repo" >&2; exit 66; }
-if ! coord_in_list "$HOME_REPO" "$REPOS"; then
-    echo "$PROG: this checkout's repository $HOME_REPO holds the coordination branch but is not in the write set [$REPOS]" >&2
-    exit 66
-fi
 
 # coord_branch.
 CB=$(git symbolic-ref --quiet --short HEAD) || {
