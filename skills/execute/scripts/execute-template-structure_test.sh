@@ -37,8 +37,9 @@
 #     children's summaries through `koto context get <child> summary.md`, one
 #     read per child, saying why the count is small; no skills/execute file
 #     outside evals names current-context.md
-#   settled_branch_record's own prose names SETTLED_BRANCH without braces
-#     (a braced mention there stops the failure-path tick with capture_unset)
+#   settled_branch_record's own prose names SETTLED_BRANCH without braces and
+#     says why (a braced mention there stops the failure-path tick with
+#     capture_unset)
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an edge into
@@ -114,7 +115,7 @@ CHECKS=(
 "pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
 "no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
 "spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
-"settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
+"settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and contains(\"without braces here on purpose\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -213,6 +214,9 @@ mutate "worktree_sync's gate reduced to the merge exit code" \
 mutate "a braced SETTLED_BRANCH in settled_branch_record" \
     "settled_branch_record's prose names SETTLED_BRANCH without braces" \
     's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'
+mutate "the no-braces reason dropped from settled_branch_record" \
+    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+    's/That name is written without braces here on purpose: /That name is written this way: /'
 mutate "the current-context.md step back in spawn_and_await" \
     "no directive tells the agent to build current-context.md" \
     's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'

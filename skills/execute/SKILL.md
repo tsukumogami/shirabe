@@ -303,10 +303,8 @@ short-cuts is the canonical contract in `coordination-strategy.md` (R20).
 
 A friction log or any other report-upstream note captured during a run goes to a
 **durable home**, never to `wip/`. The `wip/execute_<topic>_*` scratch is
-non-durable: it must be gone before the PR merges, so an artifact left there is
-lost. On the single-pr path nothing removes it for you: neither the finalization
-cascade (`run-cascade.sh`) nor any state of `execute.md` deletes `wip/` files,
-and only a coordinated node's push (`node-push.sh`) sweeps them. The
+non-durable: the finalization cascade plus the squash-merge carry it off main by
+design, so an artifact left there is erased exactly as the `wip/` rule intends. The
 durable home is a **GitHub issue on the relevant skill repo** (filed with
 `gh issue create`, the same surface `/plan` and `/roadmap` use), or — when no issue
 is the right target — a **committed note under `docs/`**. Prefer the issue; fall
@@ -396,7 +394,7 @@ against its chain shape:
 1. **Slug re-validation.** The topic slug is re-validated against
    `^[a-z0-9-]+$` before any interpolation into emitted shell or a write path.
 2. **Closed write-target set.** `/execute`'s filesystem and remote writes are confined
-   to: its state file and scratch under `wip/execute_<topic>_*`; the skill's own
+   to: its scratch under `wip/execute_<topic>_*`; the skill's own
    files; the home PR via `gh` (`gh pr create` through `adopt-or-create-pr.sh`,
    `gh pr edit`, `gh pr ready`, and `gh pr close` on abandonment); the
    finalization cascade's atomic chain transitions (PLAN deletion +
