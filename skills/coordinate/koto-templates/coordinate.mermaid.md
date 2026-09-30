@@ -3,7 +3,8 @@ stateDiagram-v2
     direction LR
     [*] --> start
     ask_up --> wait : asked: sent
-    classify_report --> verify : classification: done
+    classify_report --> verify : classification: done, gates.report_pr.exit_code: 0
+    classify_report --> wait : classification: done, gates.report_pr.exit_code: 1
     classify_report --> surface : classification: blocked
     classify_report --> rebrief : classification: needs_fix
     decision_answer --> decision_next : answered: recorded
@@ -127,6 +128,9 @@ stateDiagram-v2
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 60, gates.report_input.exists: true
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 62
+    report_facts --> report_link : gates.report_facts_verdict.exit_code: 63
+    report_link --> report_facts : linked: written
+    report_link --> surface : linked: refused
     report_questions --> decision_open : gates.report_questions_verdict.exit_code: 170
     report_questions --> classify_report : gates.report_holding.exit_code: 60, gates.report_questions_verdict.exit_code: 11
     report_questions --> wait : gates.report_holding.exit_code: 61, gates.report_questions_verdict.exit_code: 11
@@ -186,6 +190,7 @@ stateDiagram-v2
     verify_board --> surface : gates.verify_board_verdict.exit_code: 74
     verify_board --> surface : gates.verify_board_verdict.exit_code: 75
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76
+    verify_board --> wait : gates.verify_board_verdict.exit_code: 77
     wait --> take_report : event: report
     wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet
@@ -209,6 +214,9 @@ stateDiagram-v2
     done_handed_over --> [*]
     done_not_active --> [*]
     done_stopped --> [*]
+    note left of classify_report
+        gate: report_pr
+    end note
     note left of decision_next
         gate: decision_input
     end note

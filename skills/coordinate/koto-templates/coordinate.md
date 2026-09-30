@@ -653,6 +653,9 @@ states:
       report:
         type: string
         description: With a report event, the worker's message as it arrived.
+      pull_request:
+        type: string
+        description: With a report event whose message names the worker's pull request, that pull request as its URL or as owner/repo#number. report_facts has it written onto a holding that has none yet, after checking it on GitHub.
       decision:
         type: string
         description: Required with an answer or evidence event, which does not leave wait without it; the decision entry it names, as a plain number.
@@ -906,6 +909,29 @@ states:
       - target: report_questions
         when:
           gates.report_facts_verdict.exit_code: 62  # refused
+      - target: report_link
+        when:
+          gates.report_facts_verdict.exit_code: 63  # link
+
+  report_link:
+    # The report named a pull request its holding doesn't link yet, and
+    # report_facts found it may be adopted. holding-link.sh writes it and its
+    # head branch onto the holding, re-deriving both from the log and GitHub;
+    # `written` goes back to report_facts, whose read of the live record is
+    # the confirmation, so a write that didn't land comes back here.
+    accepts:
+      linked:
+        type: enum
+        values: [written, refused]
+        required: true
+        description: written once holding-link.sh exited 0; refused when it refuses the pull request (exit 65) or the record refuses the write (exit 10 or 13), which goes to the human.
+    transitions:
+      - target: report_facts
+        when:
+          linked: written
+      - target: surface
+        when:
+          linked: refused
 
   report_questions:
     default_action:
@@ -1273,10 +1299,26 @@ states:
       rationale:
         type: string
         description: What in the report decided it.
+    # report_pr reads report_facts' sealed verdict: `done` reaches verify only
+    # with a pull request to verify (0); with none (1) it goes back to the
+    # hub, since verify_board would have nothing to read.
+    gates:
+      report_pr:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/report-pr.sh" --session "{{SESSION_NAME}}"'
+        overridable: false
     transitions:
       - target: verify
         when:
           classification: done
+          gates.report_pr.exit_code: 0
+      - target: wait
+        when:
+          classification: done
+          gates.report_pr.exit_code: 1
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: surface
         when:
           classification: blocked
@@ -1351,6 +1393,9 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 76  # actions-green
+      - target: wait
+        when:
+          gates.verify_board_verdict.exit_code: 77  # no-pr
 
   verified_confirm:
     default_action:
@@ -2337,7 +2382,8 @@ A `koto next --to` anywhere in this run sends it to the human.
 
 Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `report` for a worker's message, with the message itself as
-`report`; `leg` when a notification says a worker's request leg may have
+`report` and, when it names the worker's pull request, that pull request as
+`pull_request`; `leg` when a notification says a worker's request leg may have
 resolved, or when a leg-bound worker has been quiet; `quiet` when a worker has
 been silent; `decision` or `deferral` for a new decision from whoever
 dispatched you that isn't the answer to an escalation; `answer` when an answer
@@ -2414,7 +2460,10 @@ since the leg is spent and won't come back to the hub.
 Reading the reporting worker's holding. koto runs `report-facts.sh` itself: it
 finds the holding by topic in the record, and refuses a pull request outside the
 scope's repositories, a head from another repository, or a head branch that
-differs from the holding's Branch.
+differs from the holding's Branch. When the holding links no pull request yet
+and the report names one (the leg result's pull request, or the message's
+`pull_request`), it checks that one the same way and goes to `report_link` to
+have it written onto the holding.
 
 <!-- details -->
 
@@ -2426,6 +2475,23 @@ Every other worker reports by message only, and a worker on another host always
 does, since koto's request legs are local. koto 0.14.0 records a wake when a leg
 resolves (tsukumogami/koto#250, fixed by koto#252), but this workflow doesn't
 watch for it, so the message is still what makes you tick.
+
+## report_link
+
+The report named a pull request its holding doesn't link yet. Run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/holding-link.sh" --session
+"{{SESSION_NAME}}"` and submit `linked: written` when it exits 0, or `linked:
+refused` when it exits 65, 10 or 13. On 12 (the record changed) or 2 (a read
+failed), run it again.
+
+<!-- details -->
+
+The script takes no pull request from you: it reads the one report_facts
+checked from the session log, re-checks it on GitHub, and writes it with the
+pull request's own head branch through `record-holding.sh`. `report_facts`
+then reads the holding again, so a write that didn't land comes back here. A
+refusal goes to the human with its reason: the pull request stays unadopted
+until someone says whose it is.
 
 ## report_questions
 
@@ -2664,7 +2730,9 @@ one this redirect answers.
 Classify the worker's report and submit `classification`: `done` when its pull
 request is ready to verify, `blocked` when it needs a decision or a step that
 isn't its own, `needs_fix` when the work has a problem it can fix. The report is
-in `worker_report` and the facts about it in `coord/report.json`.
+in `worker_report` and the facts about it in `coord/report.json`. `done` for
+a holding with no pull request goes back to the hub: there is nothing to
+verify until the worker's report names one.
 
 <!-- details -->
 
@@ -2740,6 +2808,8 @@ or put a refused read to the human, since the token's permissions are theirs,
 then bring the worker's report back through `wait`. A pull request that is
 already merged or closed, or whose holding is gone from the record, goes to
 surface: put what happened to it, from `coord/board.json`, to the human there.
+A report with no pull request to verify, which classify_report doesn't send
+here, reads `no-pr` and goes back to waiting.
 
 ## verified_confirm
 

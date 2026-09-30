@@ -199,8 +199,13 @@ states never ask you to do these steps by hand.
 - **Wait.** A message report goes through the hub; a leg-bound worker's result
   is read from its leg by `scripts/wait-target.sh`, once. Both pass
   `take_report`, where `scripts/report-source.sh` refuses a message standing
-  in for a leg-bound worker. The report's classification is yours; the
-  workflow's own suggestion is recorded next to it in shadow and never routes.
+  in for a leg-bound worker. When a holding has no pull request yet and its
+  report names one (a leg result's `pr`, or the `pull_request` you pass with a
+  message), `scripts/holding-link.sh` writes that pull request and its head
+  branch, as GitHub reports it, onto the holding. The report's
+  classification is yours; the workflow's own suggestion is recorded next to
+  it in shadow and never routes. `done` reaches verification only with a pull
+  request to verify.
 - **Teardown.** After the worker's session is stopped,
   `scripts/teardown-inventory.sh` inventories its instance by content and
   seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is
