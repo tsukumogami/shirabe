@@ -37,15 +37,15 @@ STUB
 chmod +x "$T/new/koto" "$T/old/koto"
 
 # probe <label> <env assignments...> -- source the helper in a clean shell
-# (set -u on, as the harnesses run) and print the knob and the flag array.
+# (set -u on, as the harnesses run) and print the knob, how many words the
+# flag argument expands to unquoted, and those words.
 probe() {
     env -u SHIRABE_KOTO_LEGACY_ENVIRONMENT -u KOTO_BIN "$@" bash -c '
         set -u
         . "$0"
         koto_legacy_env_enable
-        printf "%s|%s|%s\n" "${SHIRABE_KOTO_LEGACY_ENVIRONMENT-unset}" \
-            "${#KOTO_LEGACY_ENV_FLAG[@]}" \
-            "${KOTO_LEGACY_ENV_FLAG[@]+${KOTO_LEGACY_ENV_FLAG[@]}}"
+        set -- $KOTO_LEGACY_ENV_ARG
+        printf "%s|%s|%s\n" "${SHIRABE_KOTO_LEGACY_ENVIRONMENT-unset}" "$#" "$*"
     ' "$LIB"
 }
 
@@ -63,7 +63,7 @@ check "KOTO_BIN is the koto probed, not PATH's" \
     "1|1|--legacy-environment" "$(probe PATH="$T/old:/usr/bin:/bin" KOTO_BIN="$T/new/koto")"
 check "an explicit 0 is kept, even on a koto with the flag" \
     "0|0|" "$(probe PATH="$T/new:/usr/bin:/bin" SHIRABE_KOTO_LEGACY_ENVIRONMENT=0)"
-check "an explicit 1 is kept, and fills the flag array" \
+check "an explicit 1 is kept, and fills the flag argument" \
     "1|1|--legacy-environment" "$(probe PATH="$T/old:/usr/bin:/bin" SHIRABE_KOTO_LEGACY_ENVIRONMENT=1)"
 
 # The helper only probes: it never writes a koto session or runs anything but

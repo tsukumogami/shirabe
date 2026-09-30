@@ -14,15 +14,17 @@
 #
 # koto_legacy_env_enable exports SHIRABE_KOTO_LEGACY_ENVIRONMENT=1 when the
 # koto the harness drives (KOTO_BIN, else `koto` on PATH) lists
-# --legacy-environment in `koto init --help`, and unsets it otherwise, so the
-# same harness runs unchanged on a koto older than the flag, which would
-# refuse it. A value already set in the environment is left alone, so a
+# --legacy-environment in `koto init --help`, and leaves it unset otherwise,
+# so the same harness runs unchanged on a koto older than the flag, which
+# would refuse it. A value already set in the environment is left alone, so a
 # developer can run a suite with SHIRABE_KOTO_LEGACY_ENVIRONMENT=0 to see what
 # the recorded environment breaks.
 #
-# A harness that runs `koto init` itself, not through koto-open.sh, appends
-# "${KOTO_LEGACY_ENV_FLAG[@]}" to its init line instead; that array holds the
-# one flag when the knob is on and is empty otherwise.
+# A harness that runs `koto init` itself, not through koto-open.sh, adds
+# $KOTO_LEGACY_ENV_ARG, unquoted, to its init line instead. It holds the one
+# flag when the knob is on and is empty otherwise, so unquoted it expands to
+# nothing. It is a scalar rather than an array because bash 3.2 treats an
+# empty array's "${a[@]}" as unset under set -u.
 #
 # Temporary: koto removes the flag in the release after the one that adds it.
 # Before then the stand-ins read their configuration from a file, and this
@@ -30,7 +32,7 @@
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
-KOTO_LEGACY_ENV_FLAG=()
+KOTO_LEGACY_ENV_ARG=
 
 koto_legacy_env_enable() {
     local koto="${KOTO_BIN:-koto}"
@@ -41,10 +43,10 @@ koto_legacy_env_enable() {
             export SHIRABE_KOTO_LEGACY_ENVIRONMENT
         fi
     fi
-    KOTO_LEGACY_ENV_FLAG=()
+    KOTO_LEGACY_ENV_ARG=
     case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in
         ''|0|false) ;;
-        *) KOTO_LEGACY_ENV_FLAG=(--legacy-environment) ;;
+        *) KOTO_LEGACY_ENV_ARG=--legacy-environment ;;
     esac
     return 0
 }

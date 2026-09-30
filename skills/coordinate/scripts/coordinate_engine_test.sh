@@ -47,6 +47,11 @@ REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 REAL_DATE=$(command -v date)
 ORIG_PATH=$PATH
 

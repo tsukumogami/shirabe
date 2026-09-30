@@ -43,6 +43,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/../koto-templates/coordinate.md"
@@ -183,7 +188,7 @@ new_run() {
     db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
         state: "open", author: "coord", editor: null}]' --argjson k "$4" --arg n "$3" \
         --arg b "$(render "$(record_json roadmap "$3")" issue)"
-    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
+    koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
         --var RECORD_REF="$4" --var REPORTS_TO="${5-}" >/dev/null 2>"$T/init.err" ||
         { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
     koto next "$1" --no-cleanup --with-data '{"go":"wait"}' > "$T/next.json" 2>&1

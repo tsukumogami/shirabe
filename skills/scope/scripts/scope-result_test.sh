@@ -41,6 +41,11 @@ PRINT="$HERE/print-scope-exit.sh"
 for bin in koto jq git shirabe; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- no case ran"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/scope-result-test.XXXXXX")"
 T="$(cd -P "$T" && pwd -P)"
@@ -116,7 +121,7 @@ k() { (cd "$R" && HOME="$KH" PATH="$BIN:$PATH" GHF="$GHF" koto "$@"); }
 # open <topic> [--koto-leg <req>:scope] [--var ...] -- a fresh or replacing session.
 open() {
     local topic="$1"; shift
-    k init "scope-$topic" --template "$TEMPLATE" --var TOPIC="$topic" \
+    k init "scope-$topic" $KOTO_LEGACY_ENV_ARG --template "$TEMPLATE" --var TOPIC="$topic" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PLUGIN_ROOT_PLACEMENT=outside \
         --replace-terminal "$@" >"$T/init.out" 2>&1 \
         || bad "koto init scope-$topic" "$(cat "$T/init.out")"

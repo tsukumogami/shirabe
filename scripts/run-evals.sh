@@ -195,6 +195,26 @@ EVAL_CLAUDE_PERMISSION_ARGS=(--permission-mode "$EVAL_CLAUDE_PERMISSION_MODE" --
 SHIRABE_PREFLIGHT_DISABLE=1
 export SHIRABE_PREFLIGHT_DISABLE
 
+# ---------------------------------------------------------------------------
+# koto's legacy command environment
+#
+# A tier-2 scenario that carries a `koto-passthrough` file runs a real koto,
+# entered through the skill's entry script and scripts/koto-open.sh. That
+# koto's gates call the fixture `gh` stub, which reads EVAL_SCENARIO,
+# EVAL_SCENARIO_DIR and GH_CALL_LOG. From the koto release that fixes a
+# session's command environment at creation, those variables no longer reach
+# the commands koto runs, so the stub would find no scenario.
+# scripts/lib/koto-legacy-env.sh exports koto-open.sh's harness-only knob
+# (SHIRABE_KOTO_LEGACY_ENVIRONMENT) when the koto on PATH accepts
+# --legacy-environment, so every session a scenario opens keeps the old
+# environment. It is exported here, like the switch above, so it reaches the
+# `claude -p` process and every entry script it runs. On an older koto it
+# stays unset and nothing changes.
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/koto-legacy-env.sh
+. "$SCRIPT_DIR/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
+
 # Prerequisite checks
 command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }

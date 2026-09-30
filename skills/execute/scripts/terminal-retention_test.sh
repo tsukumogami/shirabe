@@ -245,6 +245,11 @@ skip_engine_cases() {
 }
 
 command -v koto >/dev/null 2>&1 || skip_engine_cases "koto not on PATH"
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 # jq skips rather than failing, matching koto. A runner with koto but no jq is
 # an environment gap, not a defect in what this suite tests, and the Linux leg
 # installs both so the cases genuinely run where it matters.
@@ -382,7 +387,7 @@ gh_fixture default
 # than letting later assertions prove nothing.
 init_orchestrator() {
     local s="execute-$1" merge="${2:-false}" st
-    k init "$s" --template "$TPL" \
+    k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
         --var PLAN_SLUG="$1" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
@@ -390,7 +395,7 @@ init_orchestrator() {
         --var MERGE="$merge" >/dev/null 2>&1
     if ! k status "$s" >/dev/null 2>&1; then
         echo "FAIL: koto init did not produce session '$s' -- the engine-backed cases cannot run" >&2
-        k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$1.md" --var PLAN_SLUG="$1" \
+        k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$1.md" --var PLAN_SLUG="$1" \
             --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false --var MERGE="$merge" 2>&1 | tail -2 >&2
         exit 1
     fi
@@ -498,7 +503,7 @@ else
     fail "koto status no longer reports is_terminal: true for the retained pause session"
 fi
 
-if k init execute-pause-keep --template "$TPL" \
+if k init execute-pause-keep $KOTO_LEGACY_ENV_ARG --template "$TPL" \
         --var PLAN_DOC=docs/plans/PLAN-pause-keep.md --var PLAN_SLUG=pause-keep \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1; then
     fail "a plain koto init accepted a name still held by the retained session -- re-check whether --replace-terminal is still needed"

@@ -61,6 +61,11 @@ if ! koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
     echo "SKIP: this koto predates --koto-leg -- no case ran"
     exit 0
 fi
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-engine-test.XXXXXX")
 T=$(cd -P "$T" && pwd -P)
@@ -250,7 +255,7 @@ FORGED="https://github.com/acme/widgets/pull/666"
 
 # start <mode> [merge] -- init deliver-<topic> and tick into scope_run. Sets REQ.
 start() {
-    k init "deliver-$TOPIC" --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
+    k init "deliver-$TOPIC" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
         --var MODE="${1:-auto}" --var MERGE="${2:-true}" >/dev/null 2>"$T/init.err" \
         || { fail "$TOPIC: koto init deliver" "$(cat "$T/init.err")"; return 1; }
     # The run identity deliver-open.sh mints at the session's birth; the

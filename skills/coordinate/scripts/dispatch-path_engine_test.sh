@@ -30,6 +30,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-path-engine.XXXXXX")
 T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
@@ -177,7 +182,7 @@ N=0
 start() {
     N=$((N + 1))
     SESS="coord-dp-$N"
-    (cd "$W" && koto init "$SESS" --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") ||
+    (cd "$W" && koto init "$SESS" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") ||
         fail "session $SESS starts" "$(cat "$T/init.err")"
 }
 tick() { (cd "$W" && koto next "$SESS" --no-cleanup "$@" >"$T/next.json" 2>&1); }
@@ -305,7 +310,7 @@ eq  "leg: the picked request is the worker's" "$REQ" "$(ctx wait_target | jq -r 
 tick --with-data '{"watch":"back"}'
 eq  "leg: back returns to the hub while the leg is open" wait "$(at)"
 
-(cd "$T" && koto init scope-w1 --template "$T/tpl/scope.md" --var TOPIC=w1 --koto-leg "$REQ:scope" >/dev/null 2>"$T/child.err") ||
+(cd "$T" && koto init scope-w1 $KOTO_LEGACY_ENV_ARG --template "$T/tpl/scope.md" --var TOPIC=w1 --koto-leg "$REQ:scope" >/dev/null 2>"$T/child.err") ||
     fail "the stand-in worker attaches to its leg" "$(cat "$T/child.err")"
 (cd "$T" && koto next scope-w1 --with-data '{"finish":"go"}' >/dev/null 2>&1)
 tick --with-data '{"event":"leg"}'
@@ -379,7 +384,7 @@ eq  "leg: an override record can't stand in for an open leg's result" wait_leg "
 # The leg resolves between two ticks and the coordinator submits rescan: the
 # gate takes the result on that evidence tick, where wait_leg's action doesn't
 # run, so the mark has to come from the consuming edge.
-(cd "$T" && koto init scope-w8 --template "$T/tpl/scope.md" --var TOPIC=w8 --koto-leg "$REQ5:scope" >/dev/null 2>&1)
+(cd "$T" && koto init scope-w8 $KOTO_LEGACY_ENV_ARG --template "$T/tpl/scope.md" --var TOPIC=w8 --koto-leg "$REQ5:scope" >/dev/null 2>&1)
 (cd "$T" && koto next scope-w8 --with-data '{"finish":"go"}' >/dev/null 2>&1)
 tick --with-data '{"watch":"rescan"}'
 eq  "leg: a result taken on a rescan tick reaches report_facts" report_facts "$(at)"
