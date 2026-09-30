@@ -378,6 +378,16 @@ them up:
 - **A skill starts loading a new file.** Add a manifest row with its weight and
   provenance. Re-run `count` at the pinned commit; if the file existed there,
   the pinned figures change, so record them and say why in the commit.
+- **A template removes or renames a state.** Delete or update that state's
+  manifest rows in the same PR. `count` refuses a row whose state is missing
+  from the template, so a stale row fails every profile that lists it, and the
+  ablation check, which runs on any PR touching the job's paths, then sees
+  `instruction_static.raw` as `None`. Then re-run `count` at both recorded
+  commits, update `token-baseline.tsv` and the figures table, and add a dated
+  restatement line below. A new state needs a row too. The rule: the same
+  manifest runs at both recorded commits, so when a row is dropped a pinned
+  commit's figures are restated, and `token-baseline.tsv` no longer records
+  what that commit's templates literally loaded.
 - **Refreshing weights.** Weights are data. Changing one changes the weighted
   figures at every recorded commit; re-run `count` at each and update
   `token-baseline.tsv` in the same commit.
@@ -385,10 +395,11 @@ them up:
   `count` there, and keep the old rows for comparison.
 - **Line-range rule keys drift** once the file above a rule is edited. They
   stay resolvable with `git show <rule.source_commit>:<path>`.
-- **Restated on 2026-09-29.** The manifest lost deliver's `preflight` and
-  `done_refused` rows, because #542 removed those states from `deliver.md` and
-  `count` at head refused the manifest. Both recorded commits still contain the
-  states, so their deliver rows moved: at e592501, 6,203 raw / 5,325 weighted
-  became 5,992 / 5,317; at the pinned commit, 6,181 / 5,303 became 5,970 /
-  5,295. The other profiles did not change. The method is the same; the
-  figures now follow today's manifest, as the manifest's own rule describes.
+- **Restated on 2026-09-29** (#570, #571). The manifest lost deliver's
+  `preflight` and `done_refused` rows, because #542 removed those states from
+  `deliver.md` and `count` at head refused the manifest. Both recorded commits
+  still contain the states, so their deliver rows moved: at e592501, 6,203 raw
+  / 5,325 weighted became 5,992 / 5,317; at the pinned commit, 6,181 / 5,303
+  became 5,970 / 5,295. The other profiles did not change. The method is the
+  same; the figures now follow the current manifest, per the rule in the
+  bullet on removed states above.
