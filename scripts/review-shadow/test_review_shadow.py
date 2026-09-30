@@ -354,6 +354,28 @@ class TestSlices(unittest.TestCase):
         self.assertTrue(all(not s["over_bound"] for s in slices))
         self.assertTrue(all(s["inputs"]["hunks"].startswith("@@ -0,0 +1,300 @@") for s in slices))
 
+    def test_a_long_block_is_cut_at_comments(self):
+        lines = ["+x = 0"] * 30
+        for k in (0, 120, 240):
+            lines += [f"+# note {k}"] + [f"+value_{k}_{i} = {i}" for i in range(110)]
+        patch = "@@ -0,0 +1,400 @@\n" + "\n".join(lines)
+        pr = fetched()
+        pr["files"] = [{"path": "big.py", "status": "added", "additions": 400, "deletions": 0, "patch": patch}]
+        slices = rs.slice_code_hunks(pr)
+        self.assertTrue(slices)
+        self.assertTrue(all(not s["over_bound"] for s in slices))
+        text = "\n".join(s["inputs"]["hunks"] for s in slices)
+        for k in (0, 120, 240):
+            self.assertIn(f"# note {k}", text)
+        self.assertNotIn("+x = 0\n+x = 0", text)  # code before any comment isn't sent
+
+    def test_a_single_huge_line_stays_over_bound(self):
+        pr = fetched()
+        pr["files"] = [{"path": "one.py", "status": "added", "additions": 1, "deletions": 0,
+                        "patch": "@@ -0,0 +1,1 @@\n+# " + "z" * 3000}]
+        (s,) = rs.slice_code_hunks(pr)
+        self.assertTrue(s["over_bound"])
+
     def test_doc_pairs_two_locations(self):
         slices, meta = rs.slice_doc_pairs(fetched())
         self.assertEqual(meta, {"pairs_dropped": 0, "pairs_over_bound": 0})

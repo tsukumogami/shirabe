@@ -431,11 +431,28 @@ def hunk_has_comment(hunk):
     return any(COMMENT_START.match(line[1:]) for line in hunk.split("\n") if line[:1] in "+- ")
 
 
+def comment_windows(header, block, path_len):
+    """An over-bound block as windows that each start at a comment line and run
+    on through the code after it, up to the bound. Code before the first comment
+    has no comment to check and is left out; a single line over the bound stays
+    one over-bound unit."""
+    starts = [i for i, line in enumerate(block) if line[:1] in "+- " and COMMENT_START.match(line[1:])]
+    windows = []
+    for i in starts:
+        if windows and i < windows[-1][1]:
+            continue  # this comment is already inside the previous window
+        j = i + 1
+        while j < len(block) and path_len + utf8_len("\n".join([header] + block[i:j + 1])) <= BOUND:
+            j += 1
+        windows.append((i, j))
+    return ["\n".join([header] + block[a:b]) for a, b in windows]
+
+
 def hunk_units(hunk, path_len):
     """A hunk as whole units within the bound. A hunk over the bound, such as a
     whole new file, is split at blank lines into blocks, each headed by the
     hunk's @@ line so the reader keeps its position; a block still over the
-    bound stays one over-bound unit."""
+    bound is cut into comment-anchored windows."""
     if path_len + utf8_len(hunk) <= BOUND:
         return [hunk]
     lines = hunk.split("\n")
@@ -450,6 +467,12 @@ def hunk_units(hunk, path_len):
         blocks.append(cur)
     units, pack = [], []
     for block in blocks:
+        if path_len + utf8_len("\n".join([header] + block)) > BOUND:
+            if pack:
+                units.append("\n".join([header] + pack))
+                pack = []
+            units += comment_windows(header, block, path_len)
+            continue
         if pack and path_len + utf8_len("\n".join([header] + pack + block)) > BOUND:
             units.append("\n".join([header] + pack))
             pack = []

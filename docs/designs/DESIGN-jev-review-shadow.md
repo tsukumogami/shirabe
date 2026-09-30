@@ -244,8 +244,12 @@ every path in the repository at the head (for `rs-006`).
   remove or border a comment line (`#`, `//`, `/*`, `*`, `--`) are packed;
   a file with none produces no slice. A hunk over the bound, which is what a
   whole new file arrives as, is first split at blank lines into blocks, each
-  headed by the hunk's `@@` line; a block still over the bound is one
-  over-bound unit.
+  headed by the hunk's `@@` line; a block still over the bound is cut into
+  windows that each start at a comment line and run on through the code
+  after it, up to the bound. Only a single line over the bound stays an
+  over-bound unit. (The in-sample demonstration showed why: without the
+  windows, nearly every pull request had one long block, so this criterion
+  was unanswered everywhere and no run could be a unanimous pass.)
 - **`doc-pairs`** (`rs-009`). Inputs: `path`, `location_a` and
   `location_b`. A passage is a blank-line-separated prose block, or a single
   table row or list item, since that's where a count or a status usually
