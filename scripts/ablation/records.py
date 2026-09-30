@@ -465,7 +465,12 @@ def summarize(records, case, repo_root):
     w = out.append
     w(f"# Ablation summary: {case['id']}")
     w("")
-    w(f"withheld: {case['withhold']['source']} at {case['withhold']['source_commit']} ({span_bytes} bytes)")
+    # The pin the runs recorded, not the case's current one: a case is re-pinned
+    # when the file moves, and the committed runs stay at the pin they used.
+    first = recs[0] if recs else {}
+    source = first.get("rule.source", case["withhold"]["source"])
+    source_commit = first.get("rule.source_commit", case["withhold"]["source_commit"])
+    w(f"withheld: {source} at {source_commit} ({span_bytes} bytes)")
     w(f"deployed check: {case['deployed_check']}; delivery shape: "
       f"{', '.join(sorted({r.get('delivery.shape') or 'unknown' for r in recs}))}")
     w(f"definition: {DEFINITION_VERSION}; model: {', '.join(sorted({str(r.get('model')) for r in recs}))}; "
