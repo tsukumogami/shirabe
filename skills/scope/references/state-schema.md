@@ -102,10 +102,7 @@ and each is written at the site it was already written at.
   creates the file. **Its reader is the resume ladder**
   (`skills/scope/references/phases/phase-resume.md`), which reads it
   on a later re-entry to tell a run that consumed a handoff from one
-  that started cold. A Slot 7 clause that wrote a field nothing read
-  would be an orphan of exactly the shape the post-`/prd` gate's
-  retired chain-revision flag was: written by a phase file, named in
-  no schema, read by nobody. The value is a path recovered from state and is
+  that started cold. The value is a path recovered from state and is
   re-validated against the slug regex before it is interpolated
   anywhere, on the same grounds as `consumed_upstream:`.
 - **`planned_chain`** — list of child names the chain plans to

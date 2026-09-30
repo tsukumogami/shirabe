@@ -143,6 +143,8 @@ through Slot 5's refuse-and-redirect on the next `/scope` run).
 
 - `skills/scope/references/phases/phase-3-exit-finalization.md`
   — the R9 hard-finalization check whose success is Phase 4's
-  trigger; the closed write-target set Phase 4 reads back.
+  trigger.
+- `skills/scope/SKILL.md` Security Considerations — the closed
+  write-target set Phase 4's removals stay inside.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   — `exit:` enum the success summary names.

@@ -10,8 +10,8 @@ abandonment-forced, the clean cancel and its one deletion, the
 HTML-comment marker placement for force-materialized partials,
 the `git commit -F` discipline for author-supplied prose
 written into commits, the public-history disclaimer for in-
-chain Reject, and the closed write-target set Phase 3 may
-touch.
+chain Reject. The closed write-target set Phase 3 may touch is
+declared in `skills/scope/SKILL.md` (Security Considerations).
 
 ## Table of Contents
 

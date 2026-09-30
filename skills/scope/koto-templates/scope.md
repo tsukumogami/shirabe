@@ -2178,6 +2178,12 @@ Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
 
+This run's settings are the session's variables: execution mode
+`{{EXEC_MODE}}`, coordination flag `{{COORDINATION}}`, re-evaluation cap
+`{{MAX_ROUNDS}}` (empty means the default of 5), and upstream `{{UPSTREAM}}`
+(empty means none was given; the visibility check in the Phase 0 reference
+still decides whether it is recorded).
+
 **Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the state
 file, on the initial write and on every later write that rewrites the file.
 The value is `continue`, `stop`, or `none`, always present, never empty:
