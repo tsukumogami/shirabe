@@ -130,7 +130,7 @@ example.
   Actions bot) emits a fixed body shape that cannot carry the two-part `---`
   convention, so gating it would false-positive every such PR. The reusable
   workflow skips the built-in bot set and any author a caller adds through its
-  `exempt_authors` input; the rule itself (PB1–PB3) is unchanged — only the set
+  `exempt_authors` input; the rule itself (PB1–PB4) is unchanged — only the set
   of PRs the CI surface applies it to.
 - **`/execute`** (`pr_finalization`) and **`/work-on`** (PR phase) cite this
   reference for the mechanical rule while authoring the title and two-part
@@ -139,5 +139,5 @@ example.
   as a built-in default for shirabe adopters) runs the same `check_pr_body`
   engine against a `gh pr create` / `gh pr edit` command before it executes,
   catching a malformed PR at authoring time in any checkout. It reuses this
-  rule, adding no checks of its own — PB1–PB3 are stated here once and enforced
+  rule, adding no checks of its own — PB1–PB4 are stated here once and enforced
   by CI, the skills, and the hook alike.

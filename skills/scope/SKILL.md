@@ -366,12 +366,12 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 |-------|---------|-----------|
 | 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; state-file creation with `intent:`; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; R6 shape-predicate evaluation for `/design`'s roster size; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
-| 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
+| 2. Child Invocation Loop | Per-child: worktree-staleness check (Merge / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
 Before each child invocation the loop runs a worktree-staleness check —
-the Rebase / Impact-analysis / Escalation flow in
+the Merge / Impact-analysis / Escalation flow in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`. None and
 Informational classifications proceed silently; an Intent-changing one
 halts and puts the judgment to the author. The hop's own directive says
@@ -718,7 +718,7 @@ literal value that its variable's constraint then refuses.
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes including `boundary:` and `plan_execution_mode:`), Phase 3 (R9 check, multi-discriminator Part 2, chain-membership-gated Part 3) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 8-9, refuse-and-redirect Slot 5 paragraph |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
-| `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
+| `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Merge / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` | All phases — six pattern-level security contract surfaces (slug re-validation, closed write-target set, enum re-validation, self-heal, visibility, no-untrusted-input-interpolation) |
 | `skills/scope/references/phases/phase-0-setup.md` | Phase 0 — tokenizing, the entry through `scope-open.sh`, and what `intake` checks |
 | `skills/scope/references/phases/phase-1-discovery.md` | Phase 1 |

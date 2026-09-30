@@ -69,7 +69,7 @@ cat >"$T/bin/koto" <<'OLD'
 #!/usr/bin/env bash
 case "$*" in
     "init --help") printf 'Usage: koto init <NAME> --template <T>\n\nOptions:\n      --template <T>\n      --var <K=V>\n  -h, --help\n' ;;
-    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n  -h, --help\n' "$1" ;;
+    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n      --children <NAME>\n  -h, --help\n' "$1" ;;
     "version"|"--version") printf 'koto %s\n' "$KOTO_STUB_VERSION" ;;
     *) printf "error: unrecognized subcommand '%s'\n" "$1" >&2; exit 2 ;;
 esac

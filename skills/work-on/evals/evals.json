@@ -256,7 +256,7 @@
         "Agent plans to read GitHub issue via gh issue view for ISSUE_SOURCE=github",
         "Agent plans to proceed to setup_plan_backed after context injection",
         "Agent plans to route to analysis without staleness_check (plan-backed skips staleness)",
-        "Agent plans to use status: override in setup_plan_backed when SHARED_BRANCH is provided, committing directly to it instead of creating a new branch"
+        "Agent plans to let koto skip setup_plan_backed when SHARED_BRANCH is provided (submitting no evidence for it), committing directly to SHARED_BRANCH instead of creating a new branch"
       ]
     },
     {
@@ -273,7 +273,7 @@
         "Agent plans to route through plan_validation state",
         "Agent plans to skip staleness_check for plan_outline source",
         "Agent does NOT plan to call gh issue view for plan_outline source",
-        "Agent plans to use status: override in setup_plan_backed when SHARED_BRANCH is provided, committing directly to it instead of creating a new branch"
+        "Agent plans to let koto skip setup_plan_backed when SHARED_BRANCH is provided (submitting no evidence for it), committing directly to SHARED_BRANCH instead of creating a new branch"
       ]
     },
     {

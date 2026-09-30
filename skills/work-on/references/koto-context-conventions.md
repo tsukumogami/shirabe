@@ -1,11 +1,5 @@
 # Koto Context Ingestion Conventions
 
-This file is the single authoritative description of how the
-`/work-on` phases (and other koto-driven shirabe skills) move
-artifacts into koto context. The underlying rule lives in shirabe's
-`CLAUDE.md` § "Intermediate Storage"; this file is the operational
-pattern.
-
 ## Preferred: pipe via stdin
 
 `koto context add` reads from stdin. Assemble content in the same

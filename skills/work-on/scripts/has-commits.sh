@@ -19,9 +19,9 @@
 # hand. Re-entering `analysis` doesn't help: it would record the current HEAD,
 # which is already past the run's commits.
 #
-# Limitation, shared with record-changed-paths.sh: a rebase after `analysis`
-# can leave `impl_base` off HEAD's history, and the count then includes what
-# the rebase pulled in.
+# Limitation, shared with record-changed-paths.sh: merging main in after
+# `analysis` brings main's new commits into impl_base..HEAD, and the count
+# then includes them.
 #
 # Usage: has-commits.sh <koto-session-name>
 #

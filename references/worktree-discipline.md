@@ -2,14 +2,14 @@
 
 The rule every parent skill follows when upstream advances mid-chain:
 **escalate based on whether upstream changes invalidate the chain's
-intent, not on whether the rebase was mechanically clean.** A clean
-rebase can silently land a contract change that breaks the chain's
+intent, not on whether the catch-up merge was mechanically clean.** A
+clean merge can silently land a contract change that breaks the chain's
 references; a mechanical conflict can be in a file the chain doesn't
 care about. The discipline below replaces mechanical-conflict
 signals with contextual-impact signals at every step.
 
 Before each Phase 2 child invocation, the parent runs a three-step
-flow: rebase, analyze impact, escalate by impact level. Every actor
+flow: merge main in, analyze impact, escalate by impact level. Every actor
 in the chain operates at its appropriate altitude — sub-agents
 handle git mechanics and conflict resolution, the team lead handles
 judgment calls about intent, and the author is brought in only when
@@ -43,19 +43,20 @@ wallclock time — a long-running child does not retrigger the flow on
 its own. The flow fires after chain-proposal confirmation, not
 before, for reasons documented in DESIGN Decision 4.
 
-## Rebase phase
+## Merge phase
 
-Execute the equivalent of:
+Catch up by merging, never by rebasing, and push without force. Execute
+the equivalent of:
 
 ```
 git fetch
-git rebase origin/<tracking-branch>
+git merge origin/<tracking-branch>
 ```
 
-**Clean rebase**: proceed directly to the impact-analysis phase
+**Clean merge**: proceed directly to the impact-analysis phase
 with the list of upstream commits that landed.
 
-**Conflicted rebase**: the parent's conflict-resolution sub-agent (or
+**Conflicted merge**: the parent's conflict-resolution sub-agent (or
 the parent itself in solo mode) attempts to resolve the conflict
 from artifact context. BRIEF, PRD, and DESIGN citations frequently
 make the correct resolution obvious — if the chain's artifact says
@@ -68,7 +69,7 @@ part of the diff the analysis will classify.
 
 ## Impact-analysis phase
 
-Read the upstream commits that landed in the rebase phase and
+Read the upstream commits that landed in the merge phase and
 cross-reference them against:
 
 - The chain's authored artifacts at this point (BRIEF, PRD, DESIGN,
@@ -102,7 +103,7 @@ doing.
 
 ## Escalation phase
 
-**None or Informational**: record the rebase in `worktree_rebases:`
+**None or Informational**: record the merge in `worktree_rebases:`
 (see Recording) and proceed to child invocation. The team lead is
 not prompted; the author is not prompted.
 
@@ -129,14 +130,16 @@ holds against the new upstream reality:
 
 ## Recording
 
-Per I-5 (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)), these fields MUST be absent when no rebases or divergences have occurred — never null, empty list, or placeholder.
+Per I-5 (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)), these fields MUST be absent when no catch-up merges or divergences have occurred — never null, empty list, or placeholder.
 
 Two conditional state-file lists, both extensions over the 5-field
 minimum schema (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
 
-**`worktree_rebases:`** — appended after every rebase that brought
-new upstream commits in (regardless of classification, except when
-the chain bailed). Informational. Entries:
+**`worktree_rebases:`** — appended after every catch-up merge that
+brought new upstream commits in (regardless of classification, except
+when the chain bailed). Informational. The field and its `rebased_at`
+key keep their state-schema names; each entry records a merge.
+Entries:
 
 ```yaml
 worktree_rebases:
@@ -177,6 +180,7 @@ rather than re-authoring the body.
 | `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` | parent itself (solo mode); team-lead-spawned sub-agent (amplifier mode) |
 | `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` | parent itself (solo); team-lead-spawned sub-agent (amplifier) |
 | `/work-on` | future | TBD | binding deferred to the amplifier-layer parent migration | binding deferred |
+| `/execute` | not bound | n/a | its `drift_facts` and `worktree_sync` states fetch and catch up themselves, and its `worktree_discipline_check` directive carries the two-class rule; intent-changing ends the run at `done_blocked` | the orchestrator, from the precomputed drift facts |
 
 The "Analyzer actor" column reflects the team-primitive substitution
 surface (see `parent-skill-pattern.md`). In v1's

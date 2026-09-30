@@ -33,20 +33,6 @@ For each step in the plan:
   decision the diff cannot show, and keep it current when the code
   changes
 
-On that last point, because it is the one that gets skipped: a comment
-explaining *what* the code does is usually redundant with the code. A
-comment explaining *why* it is this way and not the obvious
-alternative is not recoverable from anywhere else. When you rejected an
-approach, when a constraint forced a shape, when an ordering is
-load-bearing — that reasoning exists only in your head at the moment you
-write it, and nothing downstream captures it.
-
-This holds regardless of what documents the work leaves behind. A chain
-may fold its scoping artifacts away and leave the code as the record; it
-may keep all four. Either way this instruction is the same, because the
-code is the thing that outlives every other artifact and the thing the
-next person reads first.
-
 ### B. Validate
 
 Run the project's validation commands (from CLAUDE.md or language skill):
@@ -71,8 +57,7 @@ If tests fail:
 
 ### Commit
 
-Mark step complete in the plan: `- [x] <step>`. Commit format:
-`<type>(scope): <description>`
+Commit format: `<type>(scope): <description>`
 
 ## Coverage Tracking
 
@@ -105,9 +90,6 @@ AC references `rule.config.pattern` but the rest of the system uses
 decision via `koto decisions record` — don't ship a contorted
 implementation to transcribe the AC verbatim.
 
-This step is cheap (usually < 2 minutes) and has caught real AC
-deviations in practice where the first read glossed over specifics.
-
 ## Acceptance Criteria Validation Scripts
 
 Some issue bodies include a shell validation script (for example,
@@ -132,7 +114,7 @@ and design intent drift.
 ## Evidence
 
 - `implementation_status: complete` — all steps done, tests pass. Submit it alone, with no `issue_type`: koto records the changed paths (`changed_paths_record`) and then asks for the type once, at `issue_type_routing`
-- `implementation_status: partial_tests_failing_retry` — fixing failures (up to 3)
+- `implementation_status: partial_tests_failing_retry` — fixing failures (the state's directive carries the cap)
 - `implementation_status: partial_tests_failing_escalate` — cannot fix
 - `implementation_status: scope_expanded_retry` — scope grew beyond the plan mid-implementation; route back to `analysis` to rewrite the plan rather than proceeding with stale decisions
 - `implementation_status: blocked` — external blocker
@@ -163,14 +145,8 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}" --no-cleanup
 ```
 
-The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.
-
-The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
-
-That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
-
-The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
+The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 `analysis` clears the same keys on its own `scope_changed_retry` self-loop; see `phase-3-analysis.md`. Two edges, one gate, and each needs its own clearing step.
 
-A note on the escalate outcome named above. `partial_tests_failing_escalate` is the exit this state has that reaches a terminal state, and it does reach `done_blocked` — but its name describes failing tests, not a context store that cannot be written. If you take it because the clearing step failed, say so in `rationale`: the outcome name will otherwise read as a lie in the audit trail, and the next person to read the run will look for a test failure that never happened.
+If the clearing step fails and you stop the run, submit `implementation_status: blocked` with the reason in `rationale`; it reaches `done_blocked` like the escalate outcome the block names.
