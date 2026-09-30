@@ -26,24 +26,30 @@
 # nothing. It is a scalar rather than an array because bash 3.2 treats an
 # empty array's "${a[@]}" as unset under set -u.
 #
-# Temporary: koto removes the flag in the release after the one that adds it.
-# Before then the stand-ins read their configuration from a file, and this
-# file and the knob go.
+# Temporary (#483): koto removes the flag in the release after the one that
+# adds it. Before then the stand-ins read their configuration from a file, and
+# this file and the knob go; `git grep '#483'` finds every site.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 KOTO_LEGACY_ENV_ARG=
 
 koto_legacy_env_enable() {
-    local koto="${KOTO_BIN:-koto}"
+    local koto="${KOTO_BIN:-koto}" help=""
     if [ -z "${SHIRABE_KOTO_LEGACY_ENVIRONMENT+set}" ]; then
-        if command -v "$koto" >/dev/null 2>&1 &&
-            "$koto" init --help 2>/dev/null | grep -q -- '--legacy-environment'; then
-            SHIRABE_KOTO_LEGACY_ENVIRONMENT=1
-            export SHIRABE_KOTO_LEGACY_ENVIRONMENT
-        fi
+        # The help text is read whole before it's searched: `koto ... | grep -q`
+        # under pipefail can end with koto killed by SIGPIPE and read as "no
+        # flag".
+        command -v "$koto" >/dev/null 2>&1 && help=$("$koto" init --help 2>/dev/null)
+        case "$help" in
+            *--legacy-environment*)
+                SHIRABE_KOTO_LEGACY_ENVIRONMENT=1
+                export SHIRABE_KOTO_LEGACY_ENVIRONMENT
+                ;;
+        esac
     fi
     KOTO_LEGACY_ENV_ARG=
+    # The same on/off rule as scripts/koto-open.sh; keep the two in step.
     case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in
         ''|0|false) ;;
         *) KOTO_LEGACY_ENV_ARG=--legacy-environment ;;

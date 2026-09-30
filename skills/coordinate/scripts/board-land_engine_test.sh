@@ -26,7 +26,7 @@ for bin in koto jq; do
 done
 # koto's recorded command environment hides this harness's stand-in variables
 # from the commands koto runs; the knob keeps the old environment where the
-# koto accepts it (scripts/lib/koto-legacy-env.sh).
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$HERE/../../../scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/board-land-engine.XXXXXX")

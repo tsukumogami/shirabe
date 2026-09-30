@@ -49,7 +49,7 @@ for bin in koto jq git; do
 done
 # koto's recorded command environment hides this harness's stand-in variables
 # from the commands koto runs; the knob keeps the old environment where the
-# koto accepts it (scripts/lib/koto-legacy-env.sh).
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 REAL_DATE=$(command -v date)

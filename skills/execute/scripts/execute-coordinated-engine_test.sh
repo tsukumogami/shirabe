@@ -63,7 +63,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
 # koto's recorded command environment hides this harness's stand-in variables
 # from the commands koto runs; the knob keeps the old environment where the
-# koto accepts it (scripts/lib/koto-legacy-env.sh).
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 

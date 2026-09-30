@@ -247,7 +247,7 @@ skip_engine_cases() {
 command -v koto >/dev/null 2>&1 || skip_engine_cases "koto not on PATH"
 # koto's recorded command environment hides this harness's stand-in variables
 # from the commands koto runs; the knob keeps the old environment where the
-# koto accepts it (scripts/lib/koto-legacy-env.sh).
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 # jq skips rather than failing, matching koto. A runner with koto but no jq is
@@ -503,7 +503,7 @@ else
     fail "koto status no longer reports is_terminal: true for the retained pause session"
 fi
 
-if k init execute-pause-keep $KOTO_LEGACY_ENV_ARG --template "$TPL" \
+if k init execute-pause-keep --template "$TPL" \
         --var PLAN_DOC=docs/plans/PLAN-pause-keep.md --var PLAN_SLUG=pause-keep \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var PAUSE_BEFORE_FINALIZE=false >/dev/null 2>&1; then
     fail "a plain koto init accepted a name still held by the retained session -- re-check whether --replace-terminal is still needed"

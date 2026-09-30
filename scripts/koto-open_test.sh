@@ -64,6 +64,9 @@ cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
 trap cleanup EXIT
 
 export HOME="$T/home"
+# The argv cases below pin koto-open.sh's call with the legacy-environment knob
+# off unless a case turns it on; a knob exported by the caller would change it.
+unset SHIRABE_KOTO_LEGACY_ENVIRONMENT
 mkdir -p "$HOME"
 
 TOOLS="$T/tools"

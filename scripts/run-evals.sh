@@ -209,7 +209,10 @@ export SHIRABE_PREFLIGHT_DISABLE
 # --legacy-environment, so every session a scenario opens keeps the old
 # environment. It is exported here, like the switch above, so it reaches the
 # `claude -p` process and every entry script it runs. On an older koto it
-# stays unset and nothing changes.
+# stays unset and nothing changes. Scenarios without `koto-passthrough` get it
+# too: their canned koto shim ignores the flag, and KOTO_CALL_LOG then records
+# it on the `init` line, which no scenario's expectations read. Temporary,
+# #483.
 # ---------------------------------------------------------------------------
 # shellcheck source=lib/koto-legacy-env.sh
 . "$SCRIPT_DIR/lib/koto-legacy-env.sh"

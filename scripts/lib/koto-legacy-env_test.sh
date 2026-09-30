@@ -63,12 +63,10 @@ check "KOTO_BIN is the koto probed, not PATH's" \
     "1|1|--legacy-environment" "$(probe PATH="$T/old:/usr/bin:/bin" KOTO_BIN="$T/new/koto")"
 check "an explicit 0 is kept, even on a koto with the flag" \
     "0|0|" "$(probe PATH="$T/new:/usr/bin:/bin" SHIRABE_KOTO_LEGACY_ENVIRONMENT=0)"
+check "an explicit empty value is kept as off, and the koto isn't probed" \
+    "|0|" "$(probe PATH="$T/new:/usr/bin:/bin" SHIRABE_KOTO_LEGACY_ENVIRONMENT=)"
 check "an explicit 1 is kept, and fills the flag argument" \
     "1|1|--legacy-environment" "$(probe PATH="$T/old:/usr/bin:/bin" SHIRABE_KOTO_LEGACY_ENVIRONMENT=1)"
-
-# The helper only probes: it never writes a koto session or runs anything but
-# `init --help`. The stand-ins exit 2 on any other call, which the probe would
-# have turned into an unset knob, so the first case above already covers it.
 
 echo "koto-legacy-env_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
