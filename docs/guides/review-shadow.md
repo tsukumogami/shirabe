@@ -34,9 +34,11 @@ and the Jev tokens used.
 - `--body-at <YYYY-MM-DDTHH:MM:SSZ>` grades the body as it read at that time,
   from the pull request's edit history. Leave it out to grade the body as it
   reads now.
-- `--private-terms` names a local file of private terms, one per line, which
-  must live outside every git work tree. Without it the private-name check is
-  not run, and the run can't be a unanimous pass.
+- `--private-terms` (or `REVIEW_SHADOW_PRIVATE_TERMS`) names a local file of
+  private terms, one per line, which must live outside every git work tree.
+  For a public repository, running without it leaves the private-name check
+  unanswered, so the run can't be a unanimous pass. A private repository
+  isn't checked for private names.
 - `--unbatched` sends each criterion in its own request, for comparing
   accuracy against the default batched mode on the same slices.
 - The Jev key is read from `JEV_API_KEY`, or `KOTO_DECIDER_API_KEY` when that
