@@ -11,12 +11,12 @@
 #   directory's method, so the gap between the two is visible and checkable.
 commit	profile	raw	weighted	source	note
 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	work-on	46671	36789	recount	pinned commit
-2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	execute-single-pr	41083	37300	recount	pinned commit
+2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	execute-single-pr	40903	37119	recount	pinned commit
 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	execute-coordinated	24844	24004	recount	pinned commit
 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	deliver	5970	5295	recount	pinned commit
 2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10	scope	226407	192499	recount	pinned commit
 e5925017d38aa592613b2a809937e530cf2118f9	work-on	45776	35761	recount	census commit
-e5925017d38aa592613b2a809937e530cf2118f9	execute-single-pr	41065	37283	recount	census commit
+e5925017d38aa592613b2a809937e530cf2118f9	execute-single-pr	40885	37103	recount	census commit
 e5925017d38aa592613b2a809937e530cf2118f9	execute-coordinated	24987	24148	recount	census commit
 e5925017d38aa592613b2a809937e530cf2118f9	deliver	5992	5317	recount	census commit
 e5925017d38aa592613b2a809937e530cf2118f9	scope	226437	192549	recount	census commit

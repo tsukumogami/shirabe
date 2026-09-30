@@ -206,7 +206,7 @@ The same manifest runs at both recorded commits; no row differs at e592501.
 | Profile | Pinned commit (raw / weighted) | e592501 recount (raw / weighted) | September census, quoted (raw / weighted) |
 |---------|------------------------------|----------------------------------|-------------------------------------------|
 | `work-on` | 46,671 / 36,789 | 45,776 / 35,761 | 48.0k / 37.8k |
-| `execute-single-pr` | 41,083 / 37,300 | 41,065 / 37,283 | 37.2k / 33.5k |
+| `execute-single-pr` | 40,903 / 37,119 | 40,885 / 37,103 | 37.2k / 33.5k |
 | `execute-coordinated` | 24,844 / 24,004 | 24,987 / 24,148 | 22.0k / 21.5k |
 | `deliver` | 5,970 / 5,295 | 5,992 / 5,317 | 5.9k / 5.0k |
 | `scope` | 226,407 / 192,499 | 226,437 / 192,549 | 181k across its files / 135k to 145k per run |
@@ -378,16 +378,21 @@ them up:
 - **A skill starts loading a new file.** Add a manifest row with its weight and
   provenance. Re-run `count` at the pinned commit; if the file existed there,
   the pinned figures change, so record them and say why in the commit.
-- **A template removes or renames a state.** Delete or update that state's
-  manifest rows in the same PR. `count` refuses a row whose state is missing
-  from the template, so a stale row fails every profile that lists it, and the
-  ablation check, which runs on any PR touching the job's paths, then sees
-  `instruction_static.raw` as `None`. Then re-run `count` at both recorded
-  commits, update `token-baseline.tsv` and the figures table, and add a dated
-  restatement line below. A new state needs a row too. The rule: the same
-  manifest runs at both recorded commits, so when a row is dropped a pinned
-  commit's figures are restated, and `token-baseline.tsv` no longer records
-  what that commit's templates literally loaded.
+- **A change removes a file the manifest loads, or removes or renames a
+  template state it lists.** `count` refuses a row whose file or state is
+  missing, so a stale row fails every profile that lists it, and the ablation
+  check then sees `instruction_static.raw` as `None`. The change lands in two
+  pull requests, because the offload-ablation workflow's normal-runs-unchanged
+  check refuses a pull request that edits the harness (`docs/measurement/`
+  among it) and also edits a file the manifest or a koto template loads. First
+  a harness-only pull request: delete or update the rows, re-run `count` at
+  both recorded commits, update `token-baseline.tsv` and the figures table, and
+  add a dated restatement line below. It merges first. Then the skill pull
+  request removes the file or state, touching skills only. A new state needs a
+  row too. The rule: the same manifest runs at both recorded commits, so when a
+  row is dropped a pinned commit's figures are restated, and
+  `token-baseline.tsv` no longer records what that commit's files literally
+  loaded.
 - **Refreshing weights.** Weights are data. Changing one changes the weighted
   figures at every recorded commit; re-run `count` at each and update
   `token-baseline.tsv` in the same commit.
@@ -403,3 +408,11 @@ them up:
   became 5,970 / 5,295. The other profiles did not change. The method is the
   same; the figures now follow the current manifest, per the rule in the
   bullet on removed states above.
+- **Restated on 2026-09-30** (#545). The manifest lost execute-single-pr's
+  `skills/execute/references/cross-issue-context.md` row, because #545 deletes
+  that file and `count` at its head refuses the manifest. Both recorded commits
+  still contain the file, so their execute-single-pr rows moved: at e592501,
+  41,065 raw / 37,283 weighted became 40,885 / 37,103; at the pinned commit,
+  41,083 / 37,300 became 40,903 / 37,119. The other profiles did not change.
+  The pinned commit's figure is restated because the same manifest now runs at
+  both recorded commits.
