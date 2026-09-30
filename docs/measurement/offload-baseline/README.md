@@ -382,17 +382,25 @@ them up:
   template state it lists.** `count` refuses a row whose file or state is
   missing, so a stale row fails every profile that lists it, and the ablation
   check then sees `instruction_static.raw` as `None`. The change lands in two
-  pull requests, because the offload-ablation workflow's normal-runs-unchanged
-  check refuses a pull request that edits the harness (`docs/measurement/`
-  among it) and also edits a file the manifest or a koto template loads. First
-  a harness-only pull request: delete or update the rows, re-run `count` at
-  both recorded commits, update `token-baseline.tsv` and the figures table, and
-  add a dated restatement line below. It merges first. Then the skill pull
-  request removes the file or state, touching skills only. A new state needs a
-  row too. The rule: the same manifest runs at both recorded commits, so when a
-  row is dropped a pinned commit's figures are restated, and
-  `token-baseline.tsv` no longer records what that commit's files literally
-  loaded.
+  pull requests. The offload-ablation workflow's normal-runs-unchanged check
+  runs on any pull request that edits the harness, `docs/measurement/`
+  included, and compares every path the load manifest lists, plus every koto
+  template, between the pull request's merge base and its head; any difference
+  fails it. An edit under `docs/measurement/` therefore counts as a harness
+  change, and it can't share a pull request with the skill edit that removes
+  the file or state. First a harness-only pull request: delete or update the
+  rows, re-run `count` at both recorded commits, update `token-baseline.tsv`
+  and the figures table, and add a dated restatement line to the bullets at the
+  end of this file, newest last. It must be green, and it merges, before the
+  skill pull request opens. That pull request then removes the file or state,
+  touching skills only. A new state needs a row too.
+
+  The rule: the same manifest runs at both recorded commits, so when a row is
+  dropped a pinned commit's figures are restated. A restated pinned figure is a
+  recount of the pinned commit with the current manifest, not what that
+  commit's files literally loaded. The literal original figure is in the
+  earlier restatement line that records the change, and in
+  `token-baseline.tsv`'s git history.
 - **Refreshing weights.** Weights are data. Changing one changes the weighted
   figures at every recorded commit; re-run `count` at each and update
   `token-baseline.tsv` in the same commit.
@@ -407,7 +415,7 @@ them up:
   / 5,325 weighted became 5,992 / 5,317; at the pinned commit, 6,181 / 5,303
   became 5,970 / 5,295. The other profiles did not change. The method is the
   same; the figures now follow the current manifest, per the rule in the
-  bullet on removed states above.
+  bullet on removed files and template states above.
 - **Restated on 2026-09-30** (#545). The manifest lost execute-single-pr's
   `skills/execute/references/cross-issue-context.md` row, because #545 deletes
   that file and `count` at its head refuses the manifest. Both recorded commits
