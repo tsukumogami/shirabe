@@ -978,6 +978,24 @@ class TestReport(unittest.TestCase):
             with self.assertRaises(ValueError):
                 rs.parse_finding(bad, self.cats)
 
+    def test_overall_rows_split_by_diff_kind(self):
+        self.record(1, "unanimous-pass", diff_kind="docs"); self.outcome(1)
+        self.record(2, "dissent"); self.outcome(2, "correctness:upheld")
+        groups = self.data()["populations"]["out-of-sample"]["groups"]
+        self.assertEqual((groups["all|docs"]["n"], groups["all|code"]["n"], groups["all|all"]["n"]), (1, 1, 2))
+
+    def test_report_command_json(self):
+        self.build()
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["report", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data["populations"]["out-of-sample"]["groups"]["pre-merge|code"]["n"], 5)
+        self.assertEqual(data["tokens"]["records"], 7)
+
     def test_printed_report(self):
         self.build()
         import contextlib

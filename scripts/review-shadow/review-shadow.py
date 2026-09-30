@@ -1211,18 +1211,18 @@ def report_data(home, criteria, categories, mode="batched"):
             state, upheld = panel_state(outs)
             for cat in upheld:
                 cls = cats.get(cat, {}).get("class", "open-judgment")
-                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
                     coverage.setdefault(g, {"covered": 0, "closed-uncovered": 0, "open-judgment": 0})[cls] += 1
             if rec["status"] == "not-graded":
-                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
                     not_graded[g] = not_graded.get(g, 0) + 1
                 continue
             if state == "undetermined":
-                for g in ((kind, dk), (kind, "all"), ("all", "all")):
+                for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
                     undetermined[g] = undetermined.get(g, 0) + 1
                 continue
             passed = rec["status"] == "unanimous-pass"
-            for g in ((kind, dk), (kind, "all"), ("all", "all")):
+            for g in ((kind, dk), (kind, "all"), ("all", dk), ("all", "all")):
                 groups.setdefault(g, []).append((passed, state == "blocked"))
             if passed and state == "blocked":
                 false_passes.append({"repo": repo, "pr": pr, "head": head, "panel_kind": kind, "upheld": upheld})

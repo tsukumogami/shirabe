@@ -502,6 +502,16 @@ in-sample) and mode, so a later in-sample re-grade never replaces the
 out-of-sample record of the same head. On heads graded both ways it adds a table of
 per-criterion verdicts that differ between the modes.
 
+**How the report counts.** A head enters the rates for a panel kind only when it
+has a graded record and a blocked or clean panel of that kind. A not-graded
+record and an undetermined panel (only `unknown` findings left) are counted in
+their own columns and change no rate. Several panels of one kind on one head
+count as blocked if any of them was. Per criterion, the panel counts as blocked
+only when it upheld a finding in that criterion's group, so a criterion is
+charged with a false pass only for a miss it could have caught. Every table is
+printed per panel kind and diff kind, for all panel kinds per diff kind, and
+overall.
+
 **Why split by diff kind.** The uncovered blocking findings sit mostly in
 code: correctness and security defects, missing tests and layering. A
 unanimous pass on a code change therefore can't stand in for a panel, while
