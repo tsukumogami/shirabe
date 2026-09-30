@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   /work-on and /execute take the agent's word for verdicts that shipped checks
   can decide: whether the pull request title and body conform, whether every
@@ -38,7 +38,7 @@ upstream: docs/prds/PRD-output-gates.md
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -209,18 +209,30 @@ head stamp makes clearing a tidiness step rather than a safety one.
 
 ### Decision 5: What a finding's rule_id is
 
-**Chosen: the source-location key of the rule the gate enforces.** Each gate
-script carries a small rule table: one row per rule it can report, holding
-the key (`<path>#L<start>-L<end>`), the commit the key is exact at, and a
-short excerpt. Findings print `rule_id` as `<path>#L<start>-L<end>@<commit>`
-(12-character sha) and `rule_ref` as the GitHub permalink at that commit. A
-test re-resolves each excerpt inside its range at `HEAD` and fails when an
-edit moves the rule, so a stale key is caught by CI rather than by a reader.
+**Chosen: a stable name as the `rule_id`, and the source location as the
+`rule_ref`.** Each rule a gate script can report gets a name of the form
+`<area>/<rule>` (for example `pr-body/no-ai-trailer`), chosen so a later rule
+registry can adopt it unchanged. Once a name has been emitted it never
+changes; a rule whose meaning changes gets a new name. Each gate script
+carries a small rule table: one row per rule, holding the name, the
+source-location key (`<path>#L<start>-L<end>`), the commit the key is exact
+at, and a short excerpt. Findings print the name as `rule_id` and the key as
+`rule_ref`, written `<path>#L<start>-L<end>@<12-char commit>`, the slot koto's
+finding shape gives an opaque pointer to the rule's text. A test re-resolves
+each excerpt inside its referenced range at `HEAD` and fails when an edit
+moves the text, so a stale reference is caught by CI; the fix updates the
+`rule_ref` and leaves the `rule_id` alone.
 
-*Alternative: invented ids (`OG1`, `PB3`).* Shorter, and exactly the registry
-this feature isn't building. The PB codes exist only inside one reference, and
-the other rules have none. Rejected until a rule registry exists; the keys map
-onto it then.
+*Alternative: the source-location key as the `rule_id`.* Precise and free of
+naming decisions, and it breaks the one thing a rule id is for: any edit that
+shifts lines renames the rule, and a different rule can later inherit the same
+range, so per-rule counts from two template versions stop lining up without
+anyone noticing. Rejected.
+
+*Alternative: the PB codes and invented short codes (`PB3`, `OG1`).* Short,
+but the PB codes exist only inside one reference, the other rules have none,
+and opaque codes don't tell a reader of the event log what failed. Rejected;
+the PB code stays in the finding's message.
 
 *Alternative: let koto's default rule_id stand (the gate's name).* Free, and
 too coarse: a failing commit walk would say nothing about whether a subject or
@@ -238,6 +250,12 @@ reason. When that release is installed, the same scripts' finding lines reach
 the `failure` object and the event log with no template change, and
 `scripts/assert-koto-floor.sh` takes its version number then. The feature
 requests no release.
+
+Runs on 0.14.1 contribute no per-rule data: koto records no findings and no
+`rule_counts` there, so a failing gate is visible only as a failed
+`gate_evaluated` with its exit code. Any per-rule figure (how often
+`commit/no-ai-trailer` fires, before and after a template change) counts only
+runs on the release that carries koto#290.
 
 *Alternative: require the next release outright.* Cleaner events from day one,
 and a build blocked on a schedule this feature doesn't own. Rejected.
@@ -264,6 +282,46 @@ trial checks private names against a terms file kept outside every
 repository, which is the right shape. It is still in its trial and needs a
 terms file the worker may not have. Deferred: when the trial settles it, it
 belongs in the decider slot or a command gate beside the panels.
+
+The leak class is not unchecked in the meantime: the trial's private-name
+criterion (`rs-002`) already runs on every pull request before its pre-merge
+panel, so private names are caught, just later than the state that produced
+them.
+
+This decision covers the marker grep only. `shirabe validate --visibility`,
+which checks documents against the repository's declared visibility, is a
+different check and gets a gate (Decision 8).
+
+### Decision 8: Checking documents against the repository's visibility
+
+**Chosen: a gate that runs `shirabe validate --visibility=<declared> --format
+json` over the documents the branch changed under `docs/`, and counts only the
+visibility-gated codes.** The validator already resolves visibility from the
+repository's `CLAUDE.md` header, and its visibility-gated checks are R7
+(prohibited VISION sections in a public repository), R8 (prohibited STRATEGY
+sections in a public repository) and R9 (a private-only artifact type, such as
+COMP, outside a private repository), per `crates/shirabe-validate/src/visibility.rs`
+and `docs/guides/doc-validation.md`. The gate passes the changed `docs/**/*.md`
+files, a finding with one of those codes is a violation, and every other code
+is left to the `validate-docs` workflow that already runs in CI, so the gate
+doesn't turn a formatting nit into a held run. It fires on neither shirabe's
+skills nor its references, because it only reads documents under `docs/` and
+only the three codes. It runs in the states that present the branch's
+documents: /work-on's `pr_precheck` and /execute's `pr_finalization`.
+
+One case it can't catch: a public document whose `upstream:` names a private
+artifact in another repository. The validator resolves nothing for a
+cross-repo value, so such a document validates clean, as /scope's Phase 0
+reference already records; the skills that write `upstream:` check it at
+authoring time, and this gate adds nothing there.
+
+*Alternative: run the whole validator over changed documents.* One more set of
+codes caught before CI, and a gate that holds a run for a missing section or a
+status mismatch the author is already told about in CI. Rejected as scope
+beyond visibility.
+
+*Alternative: leave it to CI.* This is what happens today, and it is the
+"settled after a reviewer sees it" case D1 exists to remove. Rejected.
 
 ## Decision Outcome
 
