@@ -176,6 +176,21 @@ session_var() {
         reduce (.[] | select(.type == "workflow_initialized" or .type == "variables_rebound")) as $e
             ({}; . + ($e.payload.variables // {})) | .[$v] // "<unset>"'
 }
+# log_len_without_reads <session> -- how many entries the session's log holds,
+# reads left out. From koto's context-read logging (tsukumogami/koto#290),
+# execute-open.sh's own `koto context exists` presence check appends a
+# context_read to the session it probes; that records the read, not a change,
+# so a session a refusal left untouched still compares equal. It fails, and
+# prints nothing, when the session's log can't be found or read, so a caller
+# can't compare two failed reads as equal.
+log_len_without_reads() {
+    local dir n
+    dir=$(k session dir "$1" 2>/dev/null) && [ -n "$dir" ] || return 1
+    set -- "$dir"/*.state.jsonl
+    [ -f "$1" ] || return 1
+    n=$(cat "$@" | jq -c 'select(.type != "context_read")' | wc -l) || return 1
+    printf '%s\n' "$n" | tr -d ' '
+}
 exists() { k status "$1" >/dev/null 2>&1; }
 line() { printf '%s\n' "$OUT" | grep -qx "$1"; }
 
@@ -287,9 +302,9 @@ Done.
 OTHER
 k init execute-other --template "$WORK/other.md" --var PLAN_DOC=docs/plans/PLAN-other.md \
     --var PLAN_SLUG=other --var PLUGIN_ROOT=/koto-probe --var MERGE=false >/dev/null 2>&1
-LOG_BEFORE=$(cat "$(k session dir execute-other)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_BEFORE=$(log_len_without_reads execute-other) || LOG_BEFORE="unreadable (before)"
 refusal "a live session from another template" '["docs/plans/PLAN-other.md","--merge"]' template_mismatch execute-nonexistent
-LOG_AFTER=$(cat "$(k session dir execute-other)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_AFTER=$(log_len_without_reads execute-other) || LOG_AFTER="unreadable (after)"
 if [ "$(session_var execute-other MERGE)" = false ] && [ "$LOG_BEFORE" = "$LOG_AFTER" ] \
     && [ "$(k status execute-other | jq -r .current_state)" = wait ]; then
     pass "the other template's session is untouched: same state, same log, MERGE still false"
@@ -391,10 +406,10 @@ run_open '["docs/plans/PLAN-mix.md"]'
 [ "$(built_from execute-mix)" != execute-coordinated.md ] && line 'opened=new' \
     || fail "could not open a single-pr execute-mix session: [$OUT]"
 coord_plan mix
-LOG_BEFORE=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_BEFORE=$(log_len_without_reads execute-mix) || LOG_BEFORE="unreadable (before)"
 STATE_BEFORE=$(k status execute-mix | jq -r .current_state)
 run_open '["docs/plans/PLAN-mix.md","--merge"]'
-LOG_AFTER=$(cat "$(k session dir execute-mix)"/*.state.jsonl | wc -l | tr -d ' ')
+LOG_AFTER=$(log_len_without_reads execute-mix) || LOG_AFTER="unreadable (after)"
 if [ "$RC" -eq 2 ] && line 'refused=template_mismatch' && line 'outcome=error' && line 'step=execute:refused' \
     && [ "$LOG_BEFORE" = "$LOG_AFTER" ] && [ "$(k status execute-mix | jq -r .current_state)" = "$STATE_BEFORE" ] \
     && [ "$(session_var execute-mix MERGE)" = false ]; then
