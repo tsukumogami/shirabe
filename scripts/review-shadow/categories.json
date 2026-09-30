@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "categories": {
+    "body-vs-diff": {"class": "covered", "rule_ids": ["rs-007", "rs-008"]},
+    "doc-contradiction": {"class": "covered", "rule_ids": ["rs-009"]},
+    "stale-comment": {"class": "covered", "rule_ids": ["rs-010"]},
+    "dangling-reference": {"class": "covered", "rule_ids": ["rs-006"]},
+    "unfinished-wording": {"class": "covered", "rule_ids": ["rs-004"]},
+    "private-name": {"class": "covered", "rule_ids": ["rs-002"]},
+    "pasted-paragraph": {"class": "covered", "rule_ids": ["rs-005"]},
+    "attribution-trailer": {"class": "covered", "rule_ids": ["rs-001"]},
+    "scratch-path": {"class": "covered", "rule_ids": ["rs-003"]},
+    "decision-fidelity": {"class": "closed-uncovered", "rule_ids": []},
+    "correctness": {"class": "open-judgment", "rule_ids": []},
+    "security": {"class": "open-judgment", "rule_ids": []},
+    "test-gap": {"class": "open-judgment", "rule_ids": []},
+    "layering": {"class": "open-judgment", "rule_ids": []},
+    "proportionality": {"class": "open-judgment", "rule_ids": []},
+    "naming": {"class": "open-judgment", "rule_ids": []},
+    "docs-not-updated": {"class": "open-judgment", "rule_ids": []},
+    "strategy-fit": {"class": "open-judgment", "rule_ids": []}
+  }
+}

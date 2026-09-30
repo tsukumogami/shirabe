@@ -52,7 +52,7 @@ enforced in the record.
 |---|---|---|---|
 | The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
 | The design diagram was updated, or does not apply | `pre_pr_evidence` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
-| The run knows whether it is a root or a child | `ci_monitor` | `session_role` | A closed enum read from `session-role.sh`, which reads koto's own `parent_workflow`. Required, because the state's last edge is unconditional and a missing value would take it. |
+| The run knows whether it is a root or a child | `ci_monitor` | `session_role` | A closed enum read from `session-role.sh`, which reads koto's own `parent_workflow`. Required, because the root and child edges for green CI part on it; a submission without it does not advance. |
 | What the cascade did | `cascade_run` | `cascade_status` | A closed enum. |
 | What the repository shows after the cascade | `cascade_run` | `post_state` | A closed enum of one success and five distinct causes, read from the verifier's exit code. |
 | The anchor and the finalization commit | `cascade_run` | `anchor_plan`, `finalization_commit` | A path and a sha, both re-derivable: the verifier reads the same commit independently, so a wrong value fails the state rather than decorating it. |
@@ -62,7 +62,7 @@ enforced in the record.
 | Obligation | Why it is not enforced here |
 |---|---|
 | Which reviewer-context sections a pull request body needs | Genuinely a judgment with no concrete referent, and the mechanical half of the body rule is already enforced by `shirabe validate --pr-body` in CI. Recording it as an evidence field would produce a field satisfied by any string, which R7a rules out. |
-| Rebase currency beyond mergeability | `merge_state_clean` covers the case that blocks a merge. A stricter "is rebased on the latest default branch" check would fail runs that are merely behind, which is not a finishing defect. |
+| Currency with the default branch beyond mergeability | `merge_state_clean` covers the case that blocks a merge. A stricter "has merged the latest default branch" check (`origin/main` an ancestor of `HEAD`) would fail runs that are merely behind, which is not a finishing defect. A branch that is behind catches up by merging main in, never by a rebase. |
 
 ## What this table does not claim
 

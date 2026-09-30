@@ -29,7 +29,7 @@
 # keeps a sibling's commits out: the orchestrator's other children commit to
 # the same branch, and every commit they made before this run reached
 # `analysis` is behind `impl_base`, so none of them appears here.
-# Limitation: a rebase after `analysis` can leave `impl_base` off HEAD's history; the diff then includes what the rebase pulled in.
+# Limitation: merging main in after `analysis` brings main's new commits into the range; the diff then includes what the merge pulled in.
 #
 # When `impl_base` is unset -- the `analysis` action failed and the base was
 # never recorded by hand, which analysis's fallback asks for because

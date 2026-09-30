@@ -1,0 +1,20 @@
+# Phrases that mark work as unfinished. rs-004 fails a pull request whose
+# body, in its first part (the squash message), uses any of them outside
+# backticks. One phrase per line, matched case-insensitively on word
+# boundaries; lines starting with # are comments.
+not yet implemented
+not implemented yet
+not yet supported
+will be added
+will be implemented
+to be implemented
+to be added later
+TODO
+TBD
+coming soon
+for now
+in a follow-up
+in a future pull request
+left for later
+stubbed out
+placeholder for

@@ -2,6 +2,27 @@
 
 Research the codebase and create an implementation plan.
 
+## Earlier Children's Summaries
+
+When `/execute` materialized this run as a child, read what the children
+before it found, decided and changed, before planning. Every child keeps its
+session, so the `summary.md` each one wrote at finalization is still readable
+through koto. There is no context file to build and none to look for.
+
+```bash
+PARENT=$(koto session list | jq -r --arg wf "<WF>" '.[] | select(.id == $wf) | .parent_workflow // empty')
+koto workflows --children "$PARENT"      # names this run's siblings
+koto status <child>                      # is_terminal and current_state
+koto context get <child> summary.md      # once per sibling that reached done
+```
+
+Skip the step when `PARENT` is empty: a root run has no siblings. The children
+list includes this run; skip it. Read each sibling that reached `done` once,
+and never poll or re-read a summary in a loop, including when a retry brings
+the run back to analysis. The read count is deliberately small because each
+`koto context get` is logged and uploaded as an event. Carry what bears on this
+issue into the plan.
+
 ## Plan Complexity
 
 Parse issue labels:
@@ -37,39 +58,13 @@ enough that the main agent writes it directly:
 
 1. Read the simplified-plan template in `../agent-instructions/phase-3-analysis.md`.
 2. Fill it in from the issue + baseline already in context.
-3. Write the plan to a local file under the per-session tmp directory
-   (see phase-1 for the path convention).
-4. Store it in koto context: `koto context add <WF> plan.md --from-file <path>`.
-5. Proceed to phase 4 with `plan_outcome: plan_ready`.
+3. Store it in koto context under `plan.md`, by stdin pipe or a `mktemp` file
+   deleted after ingestion (see `../koto-context-conventions.md`).
+4. Proceed to phase 4 with `plan_outcome: plan_ready`.
 
 Delegate for simplified plans only when the main agent's context is genuinely
 too limited to write the plan accurately (e.g., resuming a session with no
 prior context on the issue).
-
-Commit: `docs: create implementation plan`
-
-## Already-Complete Detection
-
-Before writing a plan, check whether the issue goal is already satisfied. Read the
-acceptance criteria from the issue (or plan outline) and verify each one against
-current code. If every criterion is already met, submit `plan_outcome: already_complete`
-— no plan needed, no commits required. Routes to `done_already_complete`.
-
-This check is especially important for plan-backed children where an orchestrator may
-schedule issues before earlier issues have run. An issue whose AC is satisfied by a
-sibling's commit should exit via `already_complete` rather than writing a redundant plan.
-
-## Issue Type Is Not Asked Here
-
-Don't classify the issue's type in this phase, and don't submit `issue_type` with
-the analysis evidence: `analysis` doesn't accept it. The type is asked exactly
-once, at `issue_type_routing`, after implementation, when `changed_paths.txt`
-shows what the work actually touched. The PLAN outline's `ISSUE_TYPE` hint is
-read there, not here.
-
-koto records `impl_base` -- the commit this issue's work starts from -- as it
-enters this state. That's the base the changed-paths record diffs from, so there's
-nothing to submit for it.
 
 ## Retry Loop
 
@@ -91,20 +86,6 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_changed_retry\"}" --no-cleanup
 ```
 
-The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out.
-
-The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
-
-That second case is why this is not caution for its own sake. The gate makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
-
-The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
+The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 `implementation` reaches this phase by the same gate on a different edge (`scope_expanded_retry`) and clears the same key; see `phase-4-implementation.md`.
-
-## Evidence
-
-- `plan_outcome: plan_ready` — plan complete
-- `plan_outcome: already_complete` — all acceptance criteria already satisfied; routes to `done_already_complete`
-- `plan_outcome: scope_changed_retry` — scope changed, revising (up to 3 times)
-- `plan_outcome: scope_changed_escalate` — too many scope changes
-- `plan_outcome: blocked_missing_context` — cannot proceed

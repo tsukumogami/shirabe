@@ -476,7 +476,7 @@ own phase.
 
 ## Worktree-Discipline Trigger Is Not in Phase 0
 
-The worktree-discipline three-phase flow (Rebase phase → Impact-
+The worktree-discipline three-phase flow (Merge phase → Impact-
 analysis phase → Escalation phase) defined in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
 fires BEFORE EACH Phase 2 child invocation. It does NOT fire in

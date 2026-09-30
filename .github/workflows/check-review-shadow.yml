@@ -1,0 +1,58 @@
+name: Check review shadow
+
+# The review-shadow trial tool (scripts/review-shadow/) grades pull requests
+# with closed criteria beside their review panels. Every script criterion has
+# its own job, so a broken check is named by its rule id; the last job runs
+# the rest of the offline suite. Nothing here calls Jev or needs a key: the
+# Jev client is tested against a stub transport.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/review-shadow/**'
+      - '.github/workflows/check-review-shadow.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  script-criterion:
+    name: script criterion ${{ matrix.rule }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rule: rs-001
+            tests: TestRs001Attribution
+          - rule: rs-002
+            tests: TestRs002PrivateTerms
+          - rule: rs-003
+            tests: TestRs003ScratchPath
+          - rule: rs-004
+            tests: TestRs004UnfinishedWording
+          - rule: rs-005
+            tests: TestRs005PastedParagraph
+          - rule: rs-006
+            tests: TestRs006DanglingPath
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the ${{ matrix.rule }} tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 scripts/review-shadow/test_review_shadow.py -v ${{ matrix.tests }}
+
+  suite:
+    name: offline suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run every review-shadow test
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          python3 scripts/review-shadow/test_review_shadow.py -v
+      - name: The criteria and category files load
+        run: python3 scripts/review-shadow/review-shadow.py check
