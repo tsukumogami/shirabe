@@ -45,8 +45,9 @@ terminal exits a team lead drives.
 ## Input Modes
 
 From `$ARGUMENTS`. Flags are set aside first (see Execution-Mode
-Flags and Intent Flag below, and Upstream Validation in
-`skills/scope/references/phases/phase-0-setup.md`); the input modes
+Flags and Intent Flag below; `--upstream <path>` names an existing
+ROADMAP this chain consumes, validated as Upstream Validation in
+`skills/scope/references/phases/phase-0-setup.md` says); the input modes
 classify what remains. koto, not this file, checks every argument:
 the tokens reach `koto init` through `scripts/scope-open.sh`, and a
 value the template's variables do not admit is refused there, with
@@ -326,8 +327,12 @@ do not read them all before starting:
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
 1. **Discover + Chain Proposal** — topic-related child-doc
-   discovery, re-entry protection, chain-proposal output (Proceed /
-   Adjust / Bail triad).
+   discovery, re-entry protection, the pre-authoring upstream notice
+   and when it is suppressed, chain-proposal output (Proceed /
+   Adjust / Bail triad). Phase 1 never shortens the chain: an author
+   who wants a shorter conversation invokes `/design` or `/plan`
+   directly, which shortens the conversation but not the artifact
+   set.
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
 2. **Child Invocation Loop** — invoke the planned chain (the
@@ -339,7 +344,10 @@ do not read them all before starting:
    clearing the sentinel immediately after, capturing the child
    snapshot, running the validator pass-through against each
    intermediate, and running the consolidation judgment against
-   the nearest surviving artifact above it.
+   the nearest surviving artifact above it. The judgment is the only
+   thing that removes a document, and there is no durable-artifact
+   floor; both rules, and the prohibition on a guard that forces
+   `keep`, are in the Phase 2 reference.
    - Instructions: `skills/scope/references/phases/phase-2-chain-orchestration.md`
 
 3. **Exit Finalization** — set the `exit:` field to one of
