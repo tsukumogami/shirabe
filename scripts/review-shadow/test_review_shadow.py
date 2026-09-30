@@ -243,6 +243,38 @@ class TestFetch(unittest.TestCase):
         self.assertEqual(rs.diff_kind(["docs/spikes/tool.py"]), "code")
 
 
+class TestGhArgv(unittest.TestCase):
+    """The fetcher's argument lists: -f only, never -F, and encoded paths."""
+
+    def setUp(self):
+        self.calls = []
+        real = rs.subprocess.run
+
+        def fake(cmd, **kw):
+            self.calls.append(cmd)
+
+            class R:
+                returncode = 0
+                stdout = json.dumps({"files": [], "tree": [],
+                                     "data": {"repository": {"pullRequest": {"userContentEdits": {"nodes": []}}}}})
+                stderr = ""
+            return R()
+        rs.subprocess.run = fake
+        self.addCleanup(setattr, rs.subprocess, "run", real)
+
+    def test_argv(self):
+        g = rs.GhFetcher()
+        g.raw_file("o/r", "docs/a b#c?d.md", HEAD)
+        g.compare("o/r", "b" * 40, HEAD)
+        g.body_edits("o/r", 7)
+        for cmd in self.calls:
+            self.assertEqual(cmd[:2], ["gh", "api"])
+            self.assertNotIn("-F", cmd)
+        self.assertIn(f"repos/o/r/contents/docs/a%20b%23c%3Fd.md?ref={HEAD}", self.calls[0])
+        self.assertIn(f"repos/o/r/compare/{'b' * 40}...{HEAD}?per_page=100&page=1", self.calls[1])
+        self.assertEqual([a for a in self.calls[2] if a.startswith(("o=", "r="))], ["o=o", "r=r"])
+
+
 class TestSlices(unittest.TestCase):
     def test_bound_is_utf8_bytes(self):
         s = rs.make_slice("x", 1, {"a": "x" * 2560})

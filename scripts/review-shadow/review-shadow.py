@@ -200,19 +200,30 @@ class GhFetcher:
     def _api(self, *args):
         cmd = ["gh", "api", *args]
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=60)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise FetchError(f"gh could not run: {type(e).__name__}")
         if out.returncode != 0:
-            raise FetchError(f"gh api {args[-1].split('?')[0]} failed")
+            endpoint = next((a for a in args if a.startswith("repos/") or a == "graphql"), "?")
+            raise FetchError(f"gh api {endpoint.split('?')[0]} failed")
         return out.stdout
 
     def pull(self, repo, number):
         return json.loads(self._api(f"repos/{repo}/pulls/{number}"))
 
-    def compare(self, repo, base_ref, head):
-        base = urllib.parse.quote(base_ref, safe="")
-        return json.loads(self._api(f"repos/{repo}/compare/{base}...{head}"))
+    def compare(self, repo, base, head):
+        """The compare API pages its file list; read up to three pages of 100,
+        GitHub's limit of 300 files."""
+        base = urllib.parse.quote(base, safe="")
+        files, data = [], {}
+        for page in (1, 2, 3):
+            data = json.loads(self._api(f"repos/{repo}/compare/{base}...{head}?per_page=100&page={page}"))
+            batch = data.get("files", [])
+            files += batch
+            if len(batch) < 100:
+                break
+        data["files"] = files
+        return data
 
     def raw_file(self, repo, path, head):
         return self._api("-H", "Accept: application/vnd.github.raw",
