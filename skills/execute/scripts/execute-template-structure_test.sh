@@ -37,6 +37,8 @@
 #     children's summaries through `koto context get <child> summary.md`, one
 #     read per child, saying why the count is small; no skills/execute file
 #     outside evals names current-context.md
+#   settled_branch_record's own prose names SETTLED_BRANCH without braces
+#     (a braced mention there stops the failure-path tick with capture_unset)
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an edge into
@@ -112,6 +114,7 @@ CHECKS=(
 "pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
 "no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
 "spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
+"settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -203,10 +206,13 @@ mutate "the phase-6-pr.md pointer back in ci_monitor" \
     's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
 mutate "ci_monitor's CI cap removed" \
     "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable" \
-    's/\*\*CI repair is capped at 3 fix pushes\.\*\*/**CI repair is not capped.**/'
+    's/\*\*CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`\.\*\*/**CI repair is not capped.**/'
 mutate "worktree_sync's gate reduced to the merge exit code" \
     "worktree_sync's gate tests ancestry with no merge in progress" \
     's/command: .git merge-base --is-ancestor origin\/main HEAD && test ! -e "\$\(git rev-parse --git-path MERGE_HEAD\)".\n/command: true\n/'
+mutate "a braced SETTLED_BRANCH in settled_branch_record" \
+    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+    's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'
 mutate "the current-context.md step back in spawn_and_await" \
     "no directive tells the agent to build current-context.md" \
     's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'
