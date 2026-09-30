@@ -11,7 +11,7 @@ Nothing in the trial approves, skips or shortens a panel. A unanimous pass is
 a line in a local file.
 
 The requirements are in `docs/prds/PRD-jev-review-shadow.md` and the approach
-in `docs/designs/DESIGN-jev-review-shadow.md`. The tool is
+in `docs/designs/current/DESIGN-jev-review-shadow.md`. The tool is
 `scripts/review-shadow/review-shadow.py`; it needs Python 3.8 or later and
 `gh`.
 

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe wants to know whether a unanimous pass from Jev, the typed decision
   model koto calls as its decider, agrees often enough with a clean review
@@ -40,7 +40,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

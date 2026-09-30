@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Every pull request goes through a review panel, and panels are one of the
   largest costs in a delivery run. Many blocking findings are closed
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers all passed it on a second
 round. The downstream DESIGN owns the approach.
