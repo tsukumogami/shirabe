@@ -5,11 +5,6 @@ Canonical resolution guidance for child skills (`/brief`, `/prd`,
 when they are invoked from a parent chain (`/scope` for tactical,
 `/charter` for strategic) rather than directly by a human author.
 
-This file is dereferenced on-demand by each child SKILL's Phase 0
-detection step and by the Resume Logic row that the parent-chain
-sentinel matches. The child skills do NOT eagerly load this prose;
-the lazy-load principle holds (DESIGN D1 / D2).
-
 ## Sentinel detection convention
 
 When a parent chain spawns a child, it writes a sentinel into its own

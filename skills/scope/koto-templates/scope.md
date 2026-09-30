@@ -2178,39 +2178,14 @@ Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
 
-**The argument checks ran before this state.** koto refused, at `koto init`,
-every value its variables do not admit -- the topic slug, `--intent`,
-`--max-rounds`, the `--upstream` shape, and any repeated or conflicting flag --
-and `intake` ran the `--upstream` checks that need the working tree and the
-recorded-intent check. Do not re-validate them here. This run's settings are
-the session's variables: execution mode `{{EXEC_MODE}}`, coordination flag
-`{{COORDINATION}}`, re-evaluation cap `{{MAX_ROUNDS}}` (empty means the
-default of 5), and upstream `{{UPSTREAM}}` (empty means none was given; the
-visibility check in the Phase 0 reference still decides whether it is
-recorded).
-
 **Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the state
 file, on the initial write and on every later write that rewrites the file.
 The value is `continue`, `stop`, or `none`, always present, never empty:
 `intake` resolved it from the invocation's `--intent`, else the intent the
 state file already recorded, else `none`.
 
-**The branch check ran before this state.** `branch_check` reads HEAD and gates
-on a named non-default branch, so a run that reaches `setup` is already on a
-branch it can commit to, and the name is available as `{{BRANCH}}`. The check
-used to live here as an instruction with nothing enforcing it, which meant a
-run that started on the default branch did `/brief`'s whole hop and then could
-not keep it -- the first commit happens after a document exists.
-
 `blocked` here covers neither the branch nor the arguments. It covers a state
 file that cannot be written. Anything else, fix and submit `ready`.
-
-Ignore koto's discovery warnings about sessions other than this run's —
-`migration skipped`, and `state file corrupted`, which reads as an invitation
-to tidy up. Never run a cleanup or cancel verb against a session this run did
-not open. The rule and its reasoning are in `skills/scope/SKILL.md` under
-Running the Workflow, and in `phase-0-setup.md`; both are durable, which this
-block is not.
 
 Evidence schema:
 - `setup_result`: `ready` or `blocked`
@@ -2268,13 +2243,6 @@ claiming the hop landed. Commit only after it passes, staging the one canonical
 path with `git add --` and naming the hop.
 
 <!-- details -->
-
-The ordering above is in the directive, and repeated at every hop, because you
-need it when the child returns — a whole inline child invocation after you
-arrived here, far enough that this block is no longer in easy reach. Its
-preconditions and branch checks are in the Per-Hop Commit section of
-`skills/scope/references/phases/phase-2-chain-orchestration.md`; that section
-is deliberately not one of the eight steps below.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order:
@@ -2377,8 +2345,9 @@ Run the PLAN hop: decompose the settled approach into implementable units, in
 the order the work happens and with each unit's dependencies stated.
 
 **Child returns, then gate, then commit.** A failed gate never produces a
-commit claiming the hop landed. Stage the one canonical path with `git add --`
-and name the hop.
+commit claiming the hop landed. Stage the PLAN's canonical path and the DESIGN
+`/plan` moved to `Planned` (when one is on disk, at whichever of its two paths
+it sits) with `git add --`, and name the hop.
 
 <!-- details -->
 

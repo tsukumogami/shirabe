@@ -1,9 +1,8 @@
 # Phase 1 — Discovery and Chain Proposal
 
 Phase 1 turns the topic slug into a planned chain. It runs the
-discovery prompt to surface a framing-shift signal, walks the R6
-shape-predicates inline to size `/design`'s decision roster,
-evaluates the re-entry protection each child carries, captures
+discovery prompt to surface a framing-shift signal, evaluates
+the re-entry protection each child carries, captures
 initial child-snapshots for any pre-existing durable artifacts,
 and emits a chain-proposal output the author confirms (Proceed /
 Adjust / Bail).
@@ -15,16 +14,6 @@ Phase 1 decides **nothing about the size of the artifact set.**
 There is no starting altitude to choose and no child that Phase 1
 can decide is not worth invoking.
 
-That is the point of this phase's shape. A judgment about whether
-a document would have carried anything can only be made against a
-document that exists, and at Phase 1 none of them do — so Phase 1
-does not make one, in any form. An earlier revision let Phase 1
-choose an entry altitude for the chain; it was removed for exactly
-this reason, even though the question it asked the author (which
-conversation are you having?) was more answerable than the per-hop
-gates it replaced. It still shrank the artifact set before any
-artifact existed.
-
 The only thing that stops a child from running is that its durable
 artifact is already on disk at a settled status, which is
 re-entry protection against overwriting settled work — not a
@@ -34,19 +23,6 @@ Reducing the artifact set is Phase 2's job, after the artifacts
 exist, and the consolidation judgment there is the only mechanism
 that does it. See the Consolidation Judgment section of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
-
-**An author who wants a shorter conversation reaches for a child
-skill directly.** `/design <topic>` and `/plan <topic>` are the
-documented ways to enter the tactical chain above `/brief`, and
-that choice is theirs and visible in what they typed. It is
-supported and stays supported.
-
-What it does not buy is a smaller artifact set. Those are two
-rules, not one: a direct invocation shortens the conversation, and
-the artifact set is decided afterwards by the consolidation
-judgment, per hop, against documents that exist. `/scope` means
-"walk the whole chain"; it does not guess that an altitude is not
-worth writing down.
 
 ## Discovery Prompt Structure
 
@@ -88,58 +64,25 @@ override the author's answer).
 When the cold-start discovery yields empty results — no on-disk
 artifacts AND the author answers the framing-shift question with
 "no signal yet" — Phase 1 short-circuits the rest of the
-discovery walk. The state file records `phase-1: empty-cold-start`
-and the chain proceeds with `/brief` at its head as always (the
-framing-shift answer is deferred to the BRIEF authoring
-conversation).
+discovery walk, and the chain proceeds with `/brief` at its head
+as always (the framing-shift answer is deferred to the BRIEF
+authoring conversation).
 
 ## Entering Phase 1 With an `/explore` Handoff
 
 When the resume ladder's Slot 7 clause fired, Phase 1 runs with the
 handoff at `wip/scope_<topic>_handoff.md` pre-loaded as discovery
-input. Four things change and nothing else does: the framing-shift
+input. Two things change and nothing else does: the framing-shift
 question is put as a confirmation of the answer the handoff carries
 rather than as a fresh ask, and the author's response is what gets
-recorded; the cold-start projection above is suppressed, because a
-handoff run is not a cold start; and P1 and P3 accept the handoff's
-estimate with its stated reasons while P2 is recomputed against the
-tree. The child-doc globs run as always — they are filesystem reads,
-and the handoff carries no filesystem state.
+recorded; and the cold-start projection above is suppressed, because
+a handoff run is not a cold start. The child-doc globs run as always
+— they are filesystem reads, and the handoff carries no filesystem
+state.
 
 The full clause, including what the handoff carries and what happens
 when it is malformed, is in
 `skills/scope/references/phases/phase-resume.md` (Slot 7).
-
-## Post-`/prd` Re-evaluation Gate
-
-After `/prd` returns Accepted, Phase 1 re-evaluates the R6 shape
-predicates against the real PRD body rather than the pre-PRD
-projection. If any P1/P2/P3 verdict changed, the gate re-narrates
-`/design`'s roster shape to the author and the chain proceeds.
-
-The re-narration is a notice, not a prompt. It adds no option, no
-default, and no decision point, and it follows the shape of the
-pre-authoring upstream notice below rather than the shape of the
-chain proposal. Phase 1 offers exactly one options block, the
-chain proposal's `Proceed / Adjust / Bail`, and this gate does not
-open a second one. An author who wants to act on what the
-re-narration says has the route they always had: re-invoke and
-answer the chain proposal differently.
-
-When the post-PRD predicates match the pre-PRD projection, nothing
-is narrated and the chain proceeds unchanged.
-
-The gate records nothing in the state file. No verdict here is
-one a resume needs, because the predicates are re-derivable from
-the PRD on disk, and a field this gate wrote would have no reader
-in `skills/scope/references/state-schema.md` to name. An earlier
-revision did write a chain-revision flag here. Nothing read it, the
-schema never carried it, and the behavior it was named for is the
-produce-or-skip reading this file retires.
-
-The re-evaluation changes `/design`'s roster size, never whether
-`/design` runs. `planned_chain:` is the whole chain on every run
-and is not revised here.
 
 ## Re-Entry Protection (R4, R5)
 
@@ -167,175 +110,11 @@ shifted fires `/brief` anyway. The override can only ever fire in
 the case the auto-skip would otherwise have closed, so a cold
 start fires `/brief` whatever the answer says.
 
-**This is not a worth-producing judgment.** The skip means "a
-settled document is already here, and re-running would clobber
-it." It does not mean "this artifact would not have been worth
-writing." Nothing at Phase 1 is in a position to make the second
-claim, because the artifact it would be about does not exist. An
-earlier revision of this file recorded the same behaviour under
-a rationale that read as reader economy; the reason it gives now
-is the reason it always had.
-
-An earlier revision also called `/brief`'s gate EITHER-signal, on
-the reading that the artifact state and the framing shift were
-independent routes into the child. They are not; the shape name
-changed 2026-08-08 and the gate fires on exactly the same runs it
-always did.
-
-## R6 Shape-Predicate Walk
-
-R6 walks three predicates inline. Each predicate emits a
-`fires` or `does-not-fire` verdict and a one-line reason. The
-verdicts have exactly one consumer: `/design`'s decision-roster
-shape — which decision-researcher roster fires, against which
-inputs.
-
-The predicates do **not** decide whether `/design` is invoked.
-`/design` runs on every chain. R7 previously read these verdicts
-as a produce-or-skip gate; that reading is retired, and
-"shape-dependent" now means what it says in the Gate Vocabulary —
-the gate governs *how* a child is invoked, not whether.
-
-At Phase 1 the PRD does not exist yet, so the predicates are
-evaluated against the projected PRD shape from the cold-start
-projection and the discovery conversation, then re-evaluated
-against the real PRD by the post-`/prd` gate above. That
-re-evaluation is why a Phase-1 estimate is safe here and would not
-be safe as a gate: it resizes a roster, and a wrong estimate is
-corrected the moment the PRD lands.
-
-### P1 — Architectural-Alternatives Count
-
-P1 fires when the PRD names at least one architectural
-alternative left open for the DESIGN to settle. Inspection
-walks the PRD's named requirements; any requirement that names
-multiple acceptable implementations (or leaves an
-implementation choice explicitly open) increments the count.
-
-Worked examples:
-
-- **Positive (P1 fires):** the PRD requirement reads "The PRD
-  SHALL use TLS for transport; cipher suite to be decided." →
-  1 architectural alternative left open (cipher suite). P1
-  fires.
-- **Positive (P1 fires):** "The system SHALL persist user
-  preferences across sessions; the storage backend may be
-  filesystem, SQLite, or remote KV." → 3 architectural
-  alternatives. P1 fires.
-- **Positive (P1 fires):** "Authentication may use either
-  OAuth2 or a self-hosted token service." → 2 architectural
-  alternatives. P1 fires.
-- **Negative (P1 does not fire):** "The PRD SHALL log to stderr
-  at INFO level." → 0 architectural alternatives left open. P1
-  does not fire.
-- **Negative (P1 does not fire):** "The CLI SHALL accept `--help`
-  and exit 0 with the help text." → 0 architectural alternatives.
-  P1 does not fire.
-
-### P2 — New-Component References
-
-P2 fires when the PRD names a new component (a binary, service,
-library, or runtime substrate) not already present in the repo.
-Inspection cross-references the PRD's component mentions against
-the repo's existing directory structure plus the components
-documented in upstream STRATEGY or VISION artifacts.
-
-Worked examples:
-
-- **Positive (P2 fires):** PRD mentions "a new ingest worker
-  binary at `cmd/ingestd/`" and the repo has no `cmd/ingestd/`
-  directory. → New component. P2 fires.
-- **Positive (P2 fires):** PRD mentions "a worker pool
-  substrate" and the upstream STRATEGY does not name a worker
-  pool. → New substrate. P2 fires.
-- **Positive (P2 fires):** PRD references "the message broker"
-  but no broker is documented anywhere upstream. → New
-  component implied. P2 fires.
-- **Negative (P2 does not fire):** PRD mentions "the existing
-  `internal/validate` package" and the package exists in the
-  repo. → Existing component, not new. P2 does not fire.
-- **Negative (P2 does not fire):** PRD names "the shirabe CLI"
-  and `cmd/shirabe/` is in the repo. → Existing component. P2
-  does not fire.
-
-### P3 — Complex Classification
-
-P3 fires when the PRD carries the explicit `complexity:
-Complex` (or analogous) frontmatter classification, or when the
-PRD's prose explicitly names architectural complexity warranting
-a DESIGN doc (e.g., "this requires a DESIGN per the project's
-complexity policy").
-
-Worked examples:
-
-- **Positive (P3 fires):** PRD frontmatter has
-  `complexity: Complex`. → Explicit classification. P3 fires.
-- **Positive (P3 fires):** PRD body contains "the
-  architectural shape of this feature warrants a DESIGN doc
-  before implementation". → Explicit prose. P3 fires.
-- **Positive (P3 fires):** PRD body contains "see the upcoming
-  DESIGN-<topic> for the chosen approach". → Forward reference
-  presupposing a DESIGN. P3 fires.
-- **Negative (P3 does not fire):** PRD frontmatter has
-  `complexity: Simple` or omits the field entirely, AND the
-  prose makes no architectural-complexity claim. → No
-  classification. P3 does not fire.
-- **Negative (P3 does not fire):** PRD body says "implementation
-  is mechanical given the requirements". → Explicit not-complex
-  statement. P3 does not fire.
-
-## R7 Shape-Dependent Evaluation for `/design`
-
-R7 sizes `/design`'s decision roster from the R6 per-predicate
-verdicts: which decision-researcher roster fires, with how many
-peers, against which inputs. All-negative verdicts still invoke
-`/design`; they size it down to the minimum roster, and the
-resulting DESIGN records the one live option and why no
-alternative was live. That is a shorter document than a
-contested design, and it is a better audit trail than the
-silence it replaces.
-
-The shape-dependent identifier is the Gate Vocabulary entry
-from `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`;
-the predicate verdicts feed both the chain-proposal narration
-and `/design`'s decision roster cardinality.
-
-## What Phase 1 Does Not Decide About the Artifact Set
-
-Nothing here bounds how many artifacts a run ends with. That is
-Phase 2's, decided per hop against two documents that exist.
-
-This section previously stated a durable-artifact floor: that the
-smallest set a run could end with was a PRD, a DESIGN and a PLAN,
-because no hop above BRIEF-to-PRD was absorbable. It also told
-maintainers not to guard the zero-artifact case, on the ground
-that its condition could not hold, and redirected an author who
-wanted no durable record to invoke `/plan` directly.
-
-All three of those rested on the type-level absorbability test,
-which is gone. Every hop is now decidable and a run can absorb its
-way down to nothing, so the no-durable-record redirect went with
-them: it pointed at an escape hatch from a floor that is no longer
-there.
-
-The prohibition on guarding the zero-artifact case survives, with
-a corrected reason, and lives beside the judgment in
-`phase-2-chain-orchestration.md` — because that is where the
-temptation now is. The Phase 1 form of the same temptation, an
-entry-altitude shortcut, is forbidden elsewhere and graded by
-eval 17.
-
-What survives with the redirect gone is direct invocation itself,
-narrowed. It is still how an author reaches the altitude they
-want, and what it buys is a shorter conversation rather than a
-smaller artifact set, per the head of this file.
-
 ## Chain-Proposal Output
 
 After the re-entry protections evaluate, Phase 1 emits a
 chain-proposal output naming the planned children, the re-entry
-verdict for each, the R6 per-predicate verdicts behind `/design`'s
-roster size, and the offered options. The output's options block
+verdict for each, and the offered options. The output's options block
 contains the literal substrings `Proceed`, `Adjust`, and `Bail`
 (case-sensitive, exact spelling per AC9).
 
@@ -350,8 +129,7 @@ Example output skeleton:
 >     candidate has been looked for; this is a notice, not a question,
 >     and the chain proceeds as proposed.
 >   /prd — runs (no settled artifact at the canonical path)
->   /design — runs; roster shape from P1 fires, P2 does-not-fire,
->     P3 fires
+>   /design — runs (no settled artifact at the canonical path)
 >   /plan — runs (ALWAYS)
 >
 > Any artifact that turns out to be redundant is absorbed after
@@ -483,11 +261,6 @@ planned_chain:
 chain_skipped: []
 ```
 
-That list is a constant, and now literally so: it is
-`[brief, prd, design, plan]` on every run, and re-entry protection
-no longer subtracts from it. Phase 1 has no input that can shorten
-it and no field that records a different shape.
-
 When re-entry protection holds a child back, the entry shape is:
 
 ```yaml
@@ -542,8 +315,8 @@ a re-framed topic, a corrected framing-shift answer, a different
 read on the problem. Adjust does not change chain membership,
 per the declaration in the Adjust option above: the planned chain
 is the same four children on every run, and a re-framed topic
-returns a proposal over the same four. Re-entry re-runs the R6
-predicates and re-emits the chain proposal; the loop continues
+returns a proposal over the same four. Re-entry re-runs the
+re-entry protections and re-emits the chain proposal; the loop continues
 until the author selects Proceed or Bail.
 There is no implicit limit on Adjust iterations; the
 `--max-rounds=N` flag governs re-evaluation iterations across

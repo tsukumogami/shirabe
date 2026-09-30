@@ -45,7 +45,8 @@ and each is written at the site it was already written at.
   `intent-mismatch`, and the file is left unchanged. The field is
   re-validated against `{continue, stop, none}` wherever it is read
   back (State-File Enum Re-Validation in `phase-2-chain-orchestration.md`).
-- **`phase_pointer`** — the pattern-level pointer, with one
+- **`phase_pointer`** — the pattern-level pointer, written as the
+  integer phase `0`-`4` (never `phase-N`), with one
   `/scope`-specific derivation rule. When a session exists the value
   is the phase of the state the session now occupies, read off that
   state's `# phase: N` comment in
@@ -185,20 +186,6 @@ and each is written at the site it was already written at.
   check that failed, so the abort is auditable rather than
   indistinguishable from a judgment that never considered
   absorbing.
-
-  `stage:` names where the verdict settled: `preflight` when the
-  citation guard refused, `judgment` when the content question
-  reached `keep`, `carry` when the carry check decided. It replaces
-  a boolean `absorbable:` that asked whether the required-section
-  mapping was total — the type-level question the judgment no
-  longer asks, and which under the current rule would be `true` at
-  every hop it could ever be written. The replacement is strictly
-  more informative: it answers the question a reader of the PR body
-  actually has, which is *why* this hop landed where it did.
-
-  Retiring it costs no migration. The absorb procedure has never
-  completed a run in this repository — no BRIEF has ever been
-  deleted — so there are no entries on disk carrying the old field.
 
   `reverted:` marks an absorb that completed and was then rolled
   back by the post-absorb re-validation. It is not a third verdict:

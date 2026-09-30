@@ -14,13 +14,6 @@ branch in a commit naming the hop.
 Phase-N Reject from `/prd` or `/design` is observed via
 `git log` against the discard commit.
 
-Two things make this phase different from the one it replaces.
-Children are invoked with the artifact this chain produced above
-them rather than with the bare topic slug, so each consumes its
-upstream instead of re-deriving it. And the artifact set is
-reduced *here*, after the artifacts exist, rather than at Phase 1
-before any of them do.
-
 ## Table of Contents
 
 - [Per-Child Invocation Loop Ordering](#per-child-invocation-loop-ordering)
@@ -54,8 +47,7 @@ eight steps in sequence:
    upstream artifact's path for every later child. When the state
    file carries `consumed_upstream:`, `/brief` and `/plan` also
    take `--upstream <that path>` — see the per-child invocation
-   forms below. The summary form omitted it and the flag was
-   silently dropped at the only site that could pass it.
+   forms below.
 4. **R20 structural file-existence check.** Confirm the child's
    canonical durable artifact exists after the child returns.
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
@@ -209,72 +201,6 @@ itself, and a header-derived flag would outrank the intent. On a run
 with no intent the hop is today's invocation, unchanged, so a no-intent
 chain produces exactly the PLAN it always did.
 
-The `plan_mode_consistent` gate on `hop_plan`'s `landed` edge checks the
-hop's result rather than its arguments, since koto cannot see a Skill
-call. `skills/scope/scripts/check-plan-mode.sh` exits 0 at once when the
-intent is `none`; otherwise it re-runs `/plan`'s
-`skills/plan/scripts/resolve-split-mode.sh` over the PLAN's split
-verdict (read from its `execution_mode`: `single-pr` is no split), the
-forwarded intent and coordination flag, and the repository's CLAUDE.md,
-and compares the answer with the PLAN's `execution_mode` and
-`split_mode_source`. A hop that dropped or invented a flag resolves
-differently, and the run routes to `bail` instead of on.
-
-These are input modes each child already ships: `/prd`'s Input
-Mode 2 takes a BRIEF path and transitions it Draft to Accepted,
-`/design`'s PRD mode reads the accepted PRD and bumps it to In
-Progress, `/plan` accepts a DESIGN path, and the `--upstream <path>`
-flag is authored in `/brief`'s and `/plan`'s own SKILL.md input modes
-and Phase 0 contracts, equally usable by an author invoking either
-directly. Passing the path is choosing among a child's shipped modes,
-not extending its input surface.
-
-**The roadmap travels to two children, for two different reasons.**
-`/scope` validates it once at Phase 0 and hands it to the first child
-and the last one. `/brief` **grounds** on it: the feature entry and the
-sequencing rationale supply the problem and outcome, and what the brief
-records is the roadmap's own durable ancestor, resolved by `/brief` at
-its Phase 0. `/plan` **records the roadmap itself**: the produced PLAN
-names the design first and the roadmap second.
-
-`/scope` hands over the roadmap path in both cases and resolves nothing
-itself. The walk up from an ephemeral document to its nearest durable
-ancestor is `/brief`'s own contract, so a standalone `/brief --upstream
-<roadmap>` behaves identically to one under this parent.
-
-Which child records is decided by the lifetime rule in
-`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, not by convenience.
-A link runs from the shorter-lived document to the longer-lived one. A
-ROADMAP is a working artifact the cascade deletes once its features
-land, so no durable document may name it — a BRIEF that did would hold a
-reference correct on the day it was written and dangling on the day the
-cascade ran. The PLAN is working too, and the same cascade deletes it
-first, so its link cannot outlive its target. The crossing from the
-strategic chain into the tactical one is therefore recorded on the PLAN
-and nowhere else.
-
-**A chain that ends before `/plan` records the roadmap nowhere, and that
-is the intended shape.** On a `re-evaluation` or `abandonment-forced`
-exit there is no PLAN, so there is no legal node to carry the link — and
-nothing downstream needs it, because the cascade only ever runs from a
-PLAN. What the chain owes the author instead is the record in Phase 3's
-durable artifact list (see `phase-3-exit-finalization.md`), so the
-roadmap the chain consumed is not lost with the state file.
-
-**Why the slug and the upstream travel separately.** `/brief`
-derives its topic slug from the BASENAME of a positional path it
-is handed. Handing it the ROADMAP positionally would therefore
-name the produced document after the ROADMAP — a brief for
-`payment-retries` under a `ROADMAP-billing.md` upstream would land
-at `docs/briefs/BRIEF-billing.md`, under a slug `/scope` never
-validated, and the R20 file-existence check that looks for
-`docs/briefs/BRIEF-<topic>.md` would then fail against the
-chain's own artifact. That has worked until now only because the
-two slugs coincided by construction; consuming an upstream this
-chain did not produce is defined by that coincidence not holding.
-The flag decouples them: the slug is the parent's, the upstream is
-a separate argument, and neither is derived from the other.
-
 R14 child-isolation is preserved — `/scope` reads only the
 child's durable artifact's frontmatter `status:` value plus the
 artifact's git blob hash; `/scope` does NOT extend the child's
@@ -285,12 +211,6 @@ sentinel is the pattern-level convention every child reads
 identically; the child's input surface is untouched, and
 `--upstream` is part of that surface rather than an addition to
 it.
-
-Invoking every child in its cold-start mode was the mechanical
-cause of the duplication this skill's consolidation judgment
-now reduces: a child handed a bare slug re-derives the framing
-its upstream already settled. The paths above are what let each
-artifact cite the one above it instead of repeating it.
 
 ## R20 Structural File-Existence Check
 
@@ -565,9 +485,12 @@ case "$BRANCH" in
   "${DEFAULT:-main}"|main|master)
     echo "refusing to commit the <hop> hop on the default branch [$BRANCH]"; exit 1 ;;
 esac
-git add -- "<artifact-path>"
-git commit -m "docs(scope): <hop> hop for <topic>" -- "<artifact-path>"
+git add -- <hop-pathspecs>
+git commit -m "docs(scope): <hop> hop for <topic>" -- <hop-pathspecs>
 ```
+
+`<hop-pathspecs>` is the hop's row in the table below, each path
+quoted.
 
 `main` and `master` are checked alongside the resolved default
 because `refs/remotes/origin/HEAD` is absent in a clone that never
@@ -576,16 +499,20 @@ precondition satisfied by every branch. `--quiet` is what makes the
 absent ref silent — the command exits 1 and prints nothing, so no
 diagnostic is discarded to reach the fallback.
 
-**One pathspec, and it is this hop's own artifact.**
+**The pathspec is this hop's own artifact, plus the upstream DESIGN
+on the plan hop.**
 
 | Hop | Pathspec |
 |---|---|
 | `brief` | `docs/briefs/BRIEF-<topic>.md` |
 | `prd` | `docs/prds/PRD-<topic>.md` |
 | `design` | `docs/designs/DESIGN-<topic>.md`, or `docs/designs/current/DESIGN-<topic>.md` when that is where the artifact is |
-| `plan` | `docs/plans/PLAN-<topic>.md` |
+| `plan` | `docs/plans/PLAN-<topic>.md`, and the DESIGN when one is on disk, at whichever of its two paths it sits |
 
-Staging is `git add --` on that one path. Never `-A`, never `-a` on
+The plan hop carries the DESIGN because `/plan` moves it from
+`Accepted` to `Planned` (its step 7.5), and an `Active` PLAN over an
+`Accepted` DESIGN fails the lifecycle check. Staging is `git add --`
+on the row's paths and nothing else. Never `-A`, never `-a` on
 the commit, and the pathspec is repeated on `git commit` so a change
 staged by something else does not ride along. A sweeping stage would
 put the run's own `wip/` intermediates into the tree, and the
@@ -612,23 +539,6 @@ the Commits group enumerated in SKILL.md's Security Considerations.
 
 ## Consolidation Judgment
 
-Step 8 is where the artifact set shrinks.
-
-**Why it is here.** "Does the upstream do work the downstream does
-not?" has an answer only against two bodies that exist. Asked at
-Phase 1, before either document is written, it has none, and
-answering it anyway is how content gets lost. That is what fixes
-the judgment at this point in the run rather than earlier.
-
-**The argument for reducing at all is not stated here.** It is
-delivered at the fold state, scoped to the pair in hand, where the
-agent weighing it is holding both documents. This file is read
-before the hops run, and a general case for ending with fewer
-documents, read by an agent holding none of them, is a case for not
-writing them — which is the substitution that produced the incident
-this whole contract exists to prevent. The narrow form is the only
-form, and the fold state is the only place it appears.
-
 ### Firing condition
 
 The judgment fires only when **both endpoints of the edge this run
@@ -640,24 +550,6 @@ and the judgment fires only if that artifact appears in
 When it does not hold there is no hop, no `consolidation_judgments:`
 entry, and no verdict. A held-back artifact was never a party to a
 judgment, and `chain_skipped:` already records why it was held back.
-
-This is **stricter than "this run produced both documents"**, and
-the difference is deliberate rather than a restatement. Re-entry
-protection can hold a middle child back, which makes
-`brief->design`, `prd->plan` and `brief->plan` reachable; the
-first of those is produced by a shipped eval. Under the looser
-reading those hops compose and reach the content question. Under
-this one they never compose at all.
-
-The justification is not caution about content loss but that the
-alternative question is **ill-posed**. Stage 2 asks whether the
-upstream does work the downstream does not, which presupposes the
-downstream could have incorporated it. Where the downstream never
-read the upstream, absence is evidence of nothing and `absorb`
-would be reached on a false inference. Non-adjacent hops therefore
-never compose, rather than composing and being refused — which is
-what keeps this rule clear of the requirement that no hop be
-unabsorbable because of the types involved.
 
 ### Two clauses bound the whole judgment
 
@@ -674,12 +566,6 @@ The test for a violation: **a condition that refuses one pair while
 permitting its structural twin under identical repository state is
 a type rule.** If two hops differ only in which types they join and
 the check answers differently, the check is reading the types.
-
-The restriction is repeated at the head of Stage 2 rather than
-stated once here, because Stage 2 is the stage that can return
-`absorb` and no ceiling applies there. A type-shaped shortcut is
-worse at that position, not better — which is the reason this
-position survives at all rather than the stage being deleted.
 
 ### Stage 1 — Citation preflight
 
@@ -707,17 +593,6 @@ backwards.
 A refusal here is a pure abort: nothing has been mutated, so there
 is nothing to undo. That is why the guard runs first rather than
 beside the deletion.
-
-**What this buys, stated because the guard's reach is narrower than
-its description suggests.** It protects citers that *pre-existed*
-the run, and structurally cannot protect a deletion target the run
-*created* — a document written before the run cannot cite one
-created during it. Under the firing condition every hop the
-judgment reaches has a run-produced upstream, so the live coverage
-is same-run citers: `/scope`'s own Decision Record templates, which
-write durable files citing artifact paths, and anything a child
-skill wrote naming the artifact. The check is required regardless;
-this states what it actually catches.
 
 ### Stage 2 — Judgment
 
@@ -750,12 +625,6 @@ only on `absorb`.
    contribution section from the **survivor's own body**, not from
    the document about to be deleted. Nothing is written to disk at
    this step.
-
-   Sourcing from the survivor is what makes a single unreviewed
-   authoring site tolerable: that material was already reviewed
-   when it landed in the survivor's ordinary sections, and an
-   under-distillation leaves the omitted content still visible in
-   the survivor rather than gone at the delete.
 
 4. **Carry check.** Itemize the ancestor's required sections *and*
    every contribution the ancestor itself carries — its own and any
@@ -841,11 +710,6 @@ consolidation_judgments:
     into: docs/prds/PRD-<topic>.md
 ```
 
-`stage:` names where the verdict settled — `preflight`, `judgment`
-or `carry`. It replaces the retired `absorbable:` boolean, which
-asked whether the required-section mapping was total: the question
-this judgment no longer asks.
-
 ### There is no durable-artifact floor
 
 A run can absorb its way down to a single surviving artifact, or to
@@ -876,16 +740,6 @@ so a later hop judging that survivor is judging a body that
 already includes everything absorbed into it. What does ride
 along is the `absorbed:` declaration, which accumulates: a
 survivor's list is its ancestor's list plus the ancestor.
-
-### Manual-fallback boundary
-
-Step 8 lives here and nowhere else. A child invoked directly,
-outside `/scope`, runs no consolidation judgment and writes no
-`/scope` state — not because a code path is suppressed, but
-because there is no consolidation code path inside a child. That
-is the same reason the judgment is not implemented in one: a
-child cannot see the chain, and a parent's invocation shape
-decides whether the child's branch is reachable at all.
 
 ## Per-Child Gates from `planned_chain:`, Not Re-Walked
 
@@ -923,13 +777,6 @@ any of:
 - a decision that gates a destructive operation,
 - serialization into a durable artifact.
 
-The scope sentence is stated this way deliberately. An earlier
-version reached only path interpolation, which meant each new
-consumer needed its own argument for why it counted — and the
-first field to gate a deletion rather than name a path slipped
-through on a paragraph that had been written about something else.
-One rule covers the category instead of six.
-
 The fields:
 
 - `boundary:` against `{prd, design}`.
@@ -964,22 +811,6 @@ The fields:
   `shirabe validate --format json --visibility=<value>`, so a
   tampered value crosses the interpolation surface and the
   visibility surface at once.
-
-**`chain_ran:` is the reason the previous paragraph here had to
-go.** It used to read that the chain shape needs no entry, because
-`planned_chain:` is a constant and each child's argument path is
-composed from the validated slug rather than from state — so a
-tampered file could not redirect an invocation. Every word of that
-is about *invocation redirection*, and it is still true about
-invocation redirection. It does not extend to this field's new job.
-The consolidation judgment's firing condition reads `chain_ran:`
-membership, and it is the only thing standing between the judgment
-and a document this run did not produce; a tampered entry puts a
-pre-existing document on the deletion path, where the citation
-preflight cannot help either, because that guard protects citers of
-targets that pre-existed the run. Leaving the old paragraph would
-have been worse than saying nothing: it read as a considered
-exemption for exactly the field that had stopped qualifying.
 
 Out-of-enum or unparseable values fail the operation closed — for
 the firing condition that means no hop, no verdict, and `keep` —
