@@ -110,8 +110,8 @@ COUNT=$(printf '%s' "$COUNT" | sed 's/^0*//')
 # `exists` is used only to find a record that is there; its "absent" is taken
 # as absent because koto offers nothing better (see the header).
 RECORD=""
-if koto context exists "$SESSION" "$KEY" >/dev/null 2>&1; then
-    RECORD=$(koto context get "$SESSION" "$KEY" 2>/dev/null) \
+if koto context exists "$SESSION" "$KEY" >/dev/null; then
+    RECORD=$(koto context get "$SESSION" "$KEY") \
         || no_answer "could not read the retry record ($KEY) for session $SESSION"
 fi
 
@@ -159,10 +159,10 @@ if [ -n "$RECORD" ]; then
 else
     NEW=$(printf '%s\n' "$LINE")
 fi
-printf '%s\n' "$NEW" | koto context add "$SESSION" "$KEY" >/dev/null 2>&1 \
+printf '%s\n' "$NEW" | koto context add "$SESSION" "$KEY" >/dev/null \
     || no_answer "could not write the retry record ($KEY) for session $SESSION"
 
-BACK=$(koto context get "$SESSION" "$KEY" 2>/dev/null) \
+BACK=$(koto context get "$SESSION" "$KEY") \
     || no_answer "could not read back the retry record ($KEY) for session $SESSION"
 BACK_LINES=$(printf '%s\n' "$BACK" | grep -c .)
 BACK_LAST=$(printf '%s\n' "$BACK" | grep . | tail -n 1)
