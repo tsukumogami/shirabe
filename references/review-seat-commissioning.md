@@ -43,8 +43,11 @@ problem statement smuggle a solution, does the implementation match the
 design's intent) stays on `sonnet`.
 
 No seat currently stays on the parent's model. A seat that needs to says why
-in its own row, next to the model, so the exception is reviewed with the
-spawn rather than discovered in a cost report.
+at its spawn site, beside the model, so the exception is reviewed with the
+spawn rather than discovered in a cost report. The registry below and its check
+in `scripts/review-packet_test.sh` accept only `sonnet` and `haiku`, so the
+same change adds the exception to that check's allowed models with the reason
+in a comment there; an exception can't land without someone reading why.
 
 ## Why a packet
 
