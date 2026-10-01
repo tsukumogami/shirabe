@@ -16,7 +16,7 @@ commissioning block placed immediately before its spawn instruction:
 | Field | What it says |
 |---|---|
 | Subagent type | The agent type the spawn names. `general-purpose` for every seat today. |
-| Tools | The tools the seat's brief may ask it to use. A brief never asks a seat to run something or write a file outside this grant. |
+| Tools | The tools the seat's brief may ask it to use. A brief never asks a seat to run something or write a file outside this grant. Like the turn cap, the grant is stated in the prompt: the Agent tool takes no per-spawn tool list, so a spawn that can restrict tools should, and one that can't still keeps the brief inside the grant. |
 | Model | `sonnet` by default; `haiku` where the seat's criteria are a closed checklist; anything else only with a written reason at the spawn site. |
 | Turn cap | The most tool calls the seat makes before it returns what it has. |
 | Packet | The fixed input the seat starts from, and the command that assembles it. |
@@ -128,8 +128,8 @@ spawn site in the same change.
 | work-on | `phases/phase-4b-review.md` | pragmatic, architect, maintainer | sonnet | 15 | Read, Grep, Glob, Bash | code |
 | work-on | `phases/phase-4c-qa.md` | tester | sonnet | 30 | Read, Grep, Glob, Bash | code |
 | work-on | `phases/phase-4-implementation.md` | security, performance, testing, architecture (as needed) | sonnet | 15 | Read, Grep, Glob, Bash | code |
-| brief | `phases/phase-4-validate.md` | content quality | sonnet | 8 | Read, Write | doc: BRIEF + `brief-format.md` |
-| brief | `phases/phase-4-validate.md` | structural format | haiku | 6 | Read, Write | doc: BRIEF + `brief-format.md` + context |
+| brief | `phases/phase-4-validate.md` | content quality | sonnet | 8 | Read, Write | doc: BRIEF + `brief-format.md` + context (one packet for both seats) |
+| brief | `phases/phase-4-validate.md` | structural format | haiku | 6 | Read, Write | doc: BRIEF + `brief-format.md` + context (the same packet) |
 | prd | `phases/phase-4-validate.md` | completeness, clarity, testability | sonnet | 8 | Read, Write | doc: PRD + `prd-format.md` + scope |
 | design | `phases/phase-5-security.md` | security researcher | sonnet | 12 | Read, Grep, Glob, Write | doc: DESIGN + `design-format.md` |
 | design | `phases/phase-6-final-review.md` | architecture, security | sonnet | 8 | Read, Write | doc: DESIGN + `design-format.md` |
@@ -145,6 +145,15 @@ spawn site in the same change.
 
 Spawn-site paths are relative to the skill's `references/` directory, except
 `review-plan`'s `SKILL.md`.
+
+Seats with no Write grant (the `/review-plan` validators and cross-examination
+agents) return their findings in their reply, in the `critical_findings` format
+their spawn site names, rather than writing a file.
+
+The issue's later measurements (per-seat token figures against the pre-change
+baseline, and no rise in defects caught after merge) are taken on the
+coordinator-driven features that run after this lands; see **Measuring the
+effect** below.
 
 Not review seats, and so not in the registry: research and discovery agents
 (the `/explore`, `/prd`, `/vision` and `/roadmap` discover phases, `/design`'s
