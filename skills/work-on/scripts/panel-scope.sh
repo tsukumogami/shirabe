@@ -67,9 +67,9 @@
 #                                no spawn.
 #   --recorded <panel> <session> the `<panel>_recorded` gate on the passed and
 #                                blocking_retry edges. Exit 1 while a seat the
-#                                scope spawned holds a verdict not given at
-#                                HEAD (this round was not recorded), or HEAD
-#                                moved since the scope was planned.
+#                                scope spawned holds a verdict recorded before
+#                                the scope was planned (this round was not
+#                                recorded), or HEAD moved since it was planned.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every seat it
 #                                spawned this round, passed or blocking. Stamps
@@ -119,11 +119,11 @@
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
-#          --recorded: every spawned seat is recorded at HEAD, or there is no
+#          --recorded: every spawned seat was recorded this round, or there is no
 #          scope or ledger to check.
 #   1   -- --carried: something has to run, the working tree is dirty, or
 #          the scope is missing, stale, unreadable or has no carried results
-#          beside it. --recorded: a spawned seat's verdict wasn't given at HEAD,
+#          beside it. --recorded: a spawned seat wasn't recorded this round, HEAD moved,
 #          or the keys can't be read. The gate modes exit nothing else: a gate
 #          exit the template does not route would hold the state, and the safe
 #          answer to every doubt is "run the panel" or "record the round".
@@ -206,12 +206,14 @@ fi
 
 # ---------------------------------------------------------------- --recorded --
 
-# Refuses while a seat this round spawned still holds a verdict from before
-# HEAD: that is a round whose --record was skipped, and the seat's old verdict
-# -- a pass, possibly, for a seat that has just blocked -- would be read as
-# current next round. A spawned seat with no entry at all passes: skipping its
-# record costs a full review next round, never a wrong carry. No scope (the
-# --plan fallback path) passes too, with nothing to compare.
+# Refuses while a seat this round spawned still holds a verdict recorded
+# before the scope was planned: that is a round whose --record was skipped,
+# and the seat's old verdict -- a pass, possibly, for a seat that has just
+# blocked -- would be read as current next round. A spawned seat with no entry
+# at all passes: skipping its record costs a full review next round, never a
+# wrong carry. No scope passes too, with nothing to compare; that is a first
+# round whose --plan failed. A later round whose --plan failed finds the
+# previous round's scope at another HEAD and is asked to re-plan.
 if [ "$MODE" = "--recorded" ]; then
     scope=$(ctx_get "${PANEL}_scope.json")
     [ -n "$scope" ] || exit 0
@@ -222,12 +224,15 @@ if [ "$MODE" = "--recorded" ]; then
         || refuse 1 "HEAD moved since ${PANEL}_scope.json was planned; tick koto without evidence to re-plan the round"
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || exit 0
-    stale=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" --arg head "$HEAD" '
+    # Compared by ledger revision, not by commit: a panel re-entered at an
+    # unchanged HEAD (a fix left uncommitted, say) would otherwise find the
+    # seat's previous verdict already "at HEAD" and let a skipped record by.
+    stale=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" '
         [$s.decisions[] | select(.decision != "keep") | .seat
          | select(($l.seats[$panel + "/" + .] // null) as $e
-                  | $e != null and $e.judged_at != $head)] | join(" ")' 2>/dev/null) \
+                  | $e != null and (($e.rev // -1) <= ($s.rev // -1)))] | join(" ")' 2>/dev/null) \
         || refuse 1 "could not read ${PANEL}_scope.json or $LEDGER"
-    [ -z "$stale" ] || refuse 1 "no verdict recorded at HEAD for: $stale (run panel-scope.sh --record $PANEL)"
+    [ -z "$stale" ] || refuse 1 "no verdict recorded this round for: $stale (run panel-scope.sh --record $PANEL)"
     exit 0
 fi
 
@@ -301,6 +306,7 @@ if [ "$MODE" = "--record" ]; then
                 seat: $s.seat,
                 verdict: (if ($s.blocking_count // 0) > 0 then "blocking" else "passed" end),
                 judged_at: $head,
+                rev: .rev,
                 ac_sha: $ac,
                 cited: ($old_cited + (($s.cited // []) | norm) | unique),
                 finding_locations: ($old_locs
@@ -447,7 +453,8 @@ for seat in $SEATS; do
     entry=""
 done
 
-jq -s --arg panel "$PANEL" --arg head "$HEAD" '{panel: $panel, head: $head, decisions: .}' \
+jq -s --arg panel "$PANEL" --arg head "$HEAD" --argjson rev "$(printf '%s' "$LEDGER_JSON" | jq '.rev // 0')" \
+    '{panel: $panel, head: $head, rev: $rev, decisions: .}' \
     "$WORK/decisions" > "$WORK/scope"
 
 # The history entry for this round. Replaced, not appended, when the previous

@@ -398,6 +398,18 @@ printf '[{"seat":"intent","blocking_count":0}]\n' > "$WORKDIR/round.json"
 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
 expect_rc "--record refuses to stamp a commit the round never saw" 68
 
+# Re-entered at an unchanged HEAD (the fix left uncommitted), a seat's
+# previous verdict is already "at HEAD"; a skipped record must still hold.
+fixture samehead
+record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && echo uncommitted >> docs/c.md)
+run --plan scrutiny "$SESSION"
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded at an unchanged HEAD with the re-run unrecorded" 1
+record scrutiny "$ALL_PASS"
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded at an unchanged HEAD once the re-run is recorded" 0
+
 echo "--- script: the history counts rounds, not ticks"
 
 fixture history
