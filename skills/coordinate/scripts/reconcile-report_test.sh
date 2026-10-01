@@ -300,7 +300,7 @@ facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\
   && ok "the held line says the merge is withheld by the human's direction" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
 facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "teardown" and (.waiting | length) == 0' >/dev/null \
-  && ok "a held holding whose pull request merged since is dropped, not waited on" || bad "a held holding whose pull request merged since is dropped"
+  && ok "a held holding whose pull request merged since goes to teardown, not waited on" || bad "a held holding whose pull request merged since goes to teardown"
 HELDF=$(holding tf "[$(pr OPEN "$VH"),$(board fails "$VH" "job lint")]" '{"phase":"HELD"}')
 facts "[$HELDF]" | report | jq -e '.holdings[0].next_code == "held"' >/dev/null \
   && ok "held is matched ignoring case, and the human's hold stands over the board" || bad "held is matched ignoring case"

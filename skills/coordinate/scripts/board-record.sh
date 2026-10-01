@@ -32,7 +32,8 @@
 #   not-run <pr> none            a job at the head never ran (it completed
 #                                red with no step: GitHub refused to start
 #                                it, as for an account billing block), and
-#                                nothing else failed: no verdict on the
+#                                nothing else failed or still runs: no
+#                                verdict on the
 #                                code, and not the worker's to fix; the
 #                                reasons in coord/board.json say why
 #   board-unreadable <pr> none   the board or the record couldn't be read, or

@@ -485,6 +485,17 @@ lib_pr_held() {
             | $p != null and $p.number == $n and ($p.repo | ascii_downcase) == ($r | ascii_downcase)))' "$4" > /dev/null
 }
 
+# lib_row_merged <row-json>: the row's merge was confirmed and it waits for
+# its worker's teardown: a Verified head kept and the Pull request cell
+# blank, which only the cleared cell after a confirmed merge writes
+# (record-confirm.sh; record-holding.sh's header keeps the rule). The one
+# definition pick, dispatch_check and the quiet check read. Reconcile's report
+# reads the same row more narrowly, as merged only when every pull request on
+# its branch is merged, because it reports what it measured.
+lib_row_merged() {
+    printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
 # each with `parked` and `merged` set. A row is parked when it has a Verified
 # head and its pull request is open and not a draft (gh pr view in the linked
@@ -503,7 +514,7 @@ lib_parked() {
         vh=$(printf '%s' "$row" | jq -r '.verified_head // ""')
         pr=$(printf '%s' "$row" | jq -r '.pull_request // ""')
         st=false mg=false
-        [ -n "$vh" ] && [ -z "$pr" ] && mg=true
+        lib_row_merged "$row" && mg=true
         if [ -n "$vh" ] && lib_pr_link "$pr"; then
             gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
             st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2

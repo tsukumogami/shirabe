@@ -50,7 +50,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
@@ -235,8 +235,8 @@ free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers and local agents don't count
-against the cap. When `--parked-bound` (default three) or more are parked,
+request waiting only on a merge; parked workers, merged ones waiting for their
+teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 

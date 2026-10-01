@@ -146,7 +146,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -2189,7 +2189,8 @@ to landed work.
   ({{CAP}}) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
-  merge) and local agents don't count against the cap.
+  merge), merged ones waiting for their teardown, and local agents don't count
+  against the cap.
 - **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
   nothing new until the human has worked through the merge-order table
   (`hold`).
@@ -2831,8 +2832,8 @@ answer, or a token that can read checks, is what lets it land.
 
 A job that completed red with no step at all never ran: GitHub refused to
 start it, as it does for an account billing block or a missing runner, or it
-was cancelled before it started. With
-nothing else red, the board is `not-run`: no verdict on the code, and not the
+was cancelled before it started. With nothing else red and nothing still
+running, the board is `not-run`: no verdict on the code, and not the
 worker's to fix, so don't send it back. It goes back to waiting; report it up
 as blocked on the person who holds the account (`--blocked <worker>=CI did not
 run: <the reason>`), with each `job-not-run` reason from `coord/board.json`,

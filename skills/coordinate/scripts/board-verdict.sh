@@ -70,8 +70,9 @@
 # error:head-moved with --head-only). Precedence: any read failure or the
 # deadline is an error; else any definite failure is unverified; else
 # anything still running is pending; else a job that never ran is not-run,
-# so a person is asked only once nothing else is running; else verified, which is printed only with no reasons, a 40-hex head and the
-# checks source. The same board judged from the Actions jobs is
+# so a person is asked only once nothing else is running; else verified,
+# which is printed only with no reasons, a 40-hex head and the checks
+# source. The same board judged from the Actions jobs is
 # actions-green, never verified.
 # A job never ran when it completed failure, cancelled or timed_out with no
 # step at all: GitHub refused to start it (an account billing block, no
