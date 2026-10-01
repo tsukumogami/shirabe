@@ -118,17 +118,18 @@ body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entr
 eq "a plain dispatch of a scoping-ahead row confirms as before" confirmed "$(confirm)"
 
 echo "== leg_spent: a spent leg replaced (shirabe#506) =="
-leg_spent_run() { # the wait read leg req-1:scope for alpha, spent; leg_spent replaced it
+LS_REPLACED='{"move":"replaced","topic":"alpha"}'
+leg_spent_run() { # leg_spent_run <evidence>: the wait read leg req-1:scope for alpha, spent; leg_spent replaced it
     session
     log_to "$S" wait leg_pick 2026-09-26T09:50:00.000Z
     log_capture "$S" WAIT_REQ req-1 2026-09-26T09:50:00.000Z
     log_to "$S" leg_pick wait_leg 2026-09-26T09:50:00.000Z
     log_capture "$S" WAIT_LEG scope 2026-09-26T09:50:00.000Z
     log_to "$S" wait_leg leg_spent 2026-09-26T09:50:00.000Z
-    log_evidence "$S" leg_spent "${1:-{\"move\":\"replaced\",\"topic\":\"alpha\"}}" "$EVT"
+    log_evidence "$S" leg_spent "$1" "$EVT"
     log_to "$S" leg_spent record "$EVT"
 }
-leg_spent_run
+leg_spent_run "$LS_REPLACED"
 body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-2:scope"}')" '.holdings = [$h]')"
 eq "leg_spent: the topic's row on a new leg confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-1:scope"}')" '.holdings = [$h]')"

@@ -2490,12 +2490,15 @@ refuses.
 
 <!-- details -->
 
-The holding stays and only its leg changes: the script keeps the holding's
+Before replacing it, make sure the worker isn't still running its entry
+point on the spent leg (ask it, or read its session): a replaced leg is for a
+worker that did no work. The holding stays and only its leg changes: the script keeps the holding's
 entry point, repository and flags, abandons any request still open under the
 worker's coordinator, opens a new leg, renders the brief with it and rewrites
 the Return path. It refuses (exit 9) a leg still open, a leg holding the
-worker's promoted result, and a holding that links a pull request: those
-aren't spent early. A refusal at preflight that names another entry point is
+worker's promoted result or resolved by hand as a success, a holding that
+links a pull request, and an entry point that takes no leg: those aren't spent
+early, so submit `move: surface` for them. A refusal at preflight that names another entry point is
 a dispatch question: fix the brief input for the entry point it names before
 you run the script, as at `dispatch`. `record` confirms the holding is on a
 new leg and no row is on the spent one; the next `leg` tick reads the new leg.

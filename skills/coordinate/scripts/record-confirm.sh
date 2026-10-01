@@ -325,7 +325,8 @@ dispatch)
     if [ -n "$PSEQ" ]; then
         evidence pick "$ESEQ"
         if [ -n "$EVJ" ] && [ "$(printf '%s' "$EVJ" | jq -r '.seq')" -gt "$PSEQ" ] \
-            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.choice // ""')" = send_execution ]; then
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.choice // ""')" = send_execution ] \
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.unit // ""')" = "$TOPIC" ]; then
             EXPECT="the Holdings row for topic $TOPIC at Phase executing: send_execution moves it from scoping-ahead, and a row still scoping ahead means no execution was sent"
             holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t') and .phase == \"executing\")" || OKX=0
         fi

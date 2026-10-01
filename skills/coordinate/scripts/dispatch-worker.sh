@@ -125,8 +125,10 @@
 # execution; reasons on stderr.
 #
 # Exit codes:
-#   0  dispatched, confirmed, already dispatched, or re-briefed
-#   1  brief refused; nothing written
+#   0  dispatched, confirmed, already dispatched, re-briefed, a leg
+#      replaced (--releg), or an execution sent
+#   1  brief refused, or a send_execution brief input that isn't the
+#      execution's; nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
 #   3  the topic already failed; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
@@ -135,8 +137,10 @@
 #   7  another run holds this topic's lock
 #   8  the record refused the write (no open record, or a directed transition
 #      in the run log): the run must restart before it writes again
-#   9  --releg on a leg that isn't spent early (still open, or holding the
-#      worker's promoted result), or on a holding that links a pull request;
+#   9  --releg on a leg that isn't spent early (still open, holding the
+#      worker's promoted result, or resolved by hand as a success), on a
+#      holding that links a pull request, or for an entry point that takes no
+#      leg; a send_execution whose scoping leg a worker is still bound to;
 #      nothing written
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
@@ -345,16 +349,41 @@ EOF
     RETURN_PATH="$req:$leg"
 }
 
-# rebind <input> <why> <row-jq>: open the worker's new
+# leg_state <request> <leg>: how koto holds a worker's leg, one word: open
+# (open, nobody attached), bound (open, the worker's session attached),
+# promoted (the worker's own result), succeeded (resolved by hand as a
+# success), spent (resolved otherwise: cancelled, refused at preflight; or
+# abandoned, or open on a closed request), or missing (the request or the leg
+# is gone). koto exits 2 for a request it doesn't hold, which reconcile-check.sh
+# reads the same way; any other failed read exits 2 here.
+leg_state() {
+    local view rc
+    view=$("$KOTO" request get "$1" </dev/null)
+    rc=$?
+    [ "$rc" = 2 ] && { printf 'missing\n'; return 0; }
+    [ "$rc" = 0 ] || die 2 "cannot read request $1 for $TOPIC"
+    printf '%s' "$view" | jq -r --arg l "$2" '(.request // .) as $r | ($r.legs[$l] // null) as $g
+        | if $g == null then "missing"
+          elif $g.disposition == "open" and (($r.request_state // "open") == "open") then
+            (if $g.bound_child != null then "bound" else "open" end)
+          elif $g.disposition == "resolved" and $g.result_source == "promoted" then "promoted"
+          elif $g.disposition == "resolved" and (($g.result.status // "") == "success") then "succeeded"
+          else "spent" end' || die 2 "koto's record of request $1 is not JSON"
+}
+
+# rebind <input> <why> <row-jq> <need-leg>: never returns. Open the worker's new
 # return path for the input's entry point, render its brief with it, and
 # rewrite the holding through <row-jq> (given $rp, $ep, $mode, $d). Prints
 # brief=, leg= and, when the listing finds the worker, session=. Launches
 # nothing: the coordinator messages the worker's session the brief.
 rebind() {
-    local input=$1 why=$2 rowjq=$3 ep pos mode brief name
+    local input=$1 why=$2 rowjq=$3 needleg=$4 ep pos mode brief name
     ep=$(jq -r '.entry_point // "" | strings' "$input")
     pos=$(jq -r '.entry_args[0] // "" | strings' "$input")
     mode=$(dc_mode "$input")
+    if [ "$needleg" = yes ] && [ "$(dc_entry_field "$ep" "$DC_F_LEG")" = - ]; then
+        die 9 "/shirabe:$ep takes no request leg: $TOPIC has no leg to replace"
+    fi
     # The brief is checked before the leg opens: a refused input opens nothing.
     bash "$HERE/render-brief.sh" --input "$input" --stdout >/dev/null
     case "$?" in
@@ -389,33 +418,22 @@ if [ "$RELEG" = 1 ]; then
     esac
     OLD_REQ=${OLD_RP%%:*}
     OLD_LEG=${OLD_RP#*:}
-    # The spent leg, as koto holds it: open (or bound) is not spent, and a
-    # promoted result is the worker's report, not an early end. A leg koto
-    # no longer has is missing, which counts as spent; a read that fails says
-    # nothing about the leg.
-    VIEW=$("$KOTO" request get "$OLD_REQ" </dev/null)
-    case "$?" in
-        0) ;;
-        2) VIEW="" ;;
-        *) die 2 "cannot read request $OLD_REQ for $TOPIC" ;;
+    # The spent leg, as koto holds it: open or bound is not spent, a
+    # promoted result is the worker's report, and a hand-made success means
+    # the work was done another way. A leg koto no longer has is missing,
+    # which counts as spent.
+    SPENT=$(leg_state "$OLD_REQ" "$OLD_LEG") || exit 2
+    case "$SPENT" in
+        open | bound) die 9 "the leg $OLD_RP of $TOPIC is still open: nothing to replace" ;;
+        promoted) die 9 "the leg $OLD_RP of $TOPIC holds the worker's promoted result: it reported, so its leg isn't spent early" ;;
+        succeeded) die 9 "the leg $OLD_RP of $TOPIC was resolved as a success: the work was done, so its leg isn't spent early" ;;
     esac
-    if [ -n "$VIEW" ]; then
-        SPENT=$(printf '%s' "$VIEW" | jq -r --arg l "$OLD_LEG" '(.request // .) as $r | ($r.legs[$l] // null) as $g
-            | if $g == null then "missing"
-              elif $g.disposition == "open" and (($r.request_state // "open") == "open") then "open"
-              elif $g.disposition == "resolved" and $g.result_source == "promoted" then "promoted"
-              else "spent" end') || die 2 "koto's record of request $OLD_REQ is not JSON"
-        case "$SPENT" in
-            open) die 9 "the leg $OLD_RP of $TOPIC is still open: nothing to replace" ;;
-            promoted) die 9 "the leg $OLD_RP of $TOPIC holds the worker's promoted result: it reported, so its leg isn't spent early" ;;
-        esac
-    fi
     # Entry point, repository and flags from the holding, as for --rebrief.
     jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point
         | .run_mode = $row.mode | .entry_args = [.entry_args[0]]' "$INPUT" >"$WORK/releg.json" ||
         die 2 "cannot build the re-bound brief input"
     rebind "$WORK/releg.json" "the leg $OLD_RP of $TOPIC was spent before the worker reported; it is replaced" \
-        '.return_path = $rp | .dispatched = $d'
+        '.return_path = $rp | .dispatched = $d' yes
 fi
 
 # --- --rebrief --------------------------------------------------------------------------------
@@ -453,12 +471,20 @@ fi
 
 # --- dispatch ---------------------------------------------------------------------------------
 
-# send_execution: the pick the run came from, read from the session log.
+# send_execution: the pick the run came from, read from the session log. A
+# log that can't be read exits 2 rather than reading as no send, which would
+# print already-dispatched for a send that never happened.
 pick_sends_execution() {
-    local ent ev choice unit
-    ent=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state pick 2>/dev/null) || return 1
+    local ent ev choice unit rc
+    ent=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state pick)
+    rc=$?
+    [ "$rc" = 1 ] && return 1
+    [ "$rc" = 0 ] || die 2 "cannot read the session log for $TOPIC's pick"
     [ -n "$ent" ] || return 1
-    ev=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state pick --after "${ent%% *}" 2>/dev/null) || return 1
+    ev=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state pick --after "${ent%% *}")
+    rc=$?
+    [ "$rc" = 1 ] && return 1
+    [ "$rc" = 0 ] || die 2 "cannot read the session log for $TOPIC's pick"
     choice=$(printf '%s' "$ev" | jq -r '.fields.choice // "" | tostring')
     unit=$(printf '%s' "$ev" | jq -r '.fields.unit // "" | tostring')
     [ "$choice" = send_execution ] && [ "$unit" = "$TOPIC" ]
@@ -473,11 +499,19 @@ case "$STATUS" in
                 { printf '%s: send_execution for %s: brief_input.json must be the execution'"'"'s (phase executing)\n' "$PROG" "$TOPIC" >&2; exit 1; }
             [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" != "$(printf '%s' "$ROW" | jq -r '.entry_point // "" | strings')" ] ||
                 { printf '%s: send_execution for %s: brief_input.json names the scoping entry point again\n' "$PROG" "$TOPIC" >&2; exit 1; }
+            # A worker still attached to its scoping leg is still scoping:
+            # its leg would be abandoned under it.
+            SRP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
+            case "$SRP" in
+                message | '') ;;
+                *) [ "$(leg_state "${SRP%%:*}" "${SRP#*:}")" = bound ] &&
+                       die 9 "send_execution for $TOPIC: its worker is still attached to its scoping leg $SRP" ;;
+            esac
             # The holding's unit and repository stay the holding's.
             jq --argjson row "$ROW" '.unit = $row.unit | .repo = $row.repo' "$INPUT" >"$WORK/execution.json" ||
                 die 2 "cannot build the execution's brief input"
             rebind "$WORK/execution.json" "$TOPIC is sent its execution; its scoping leg is done" \
-                '.entry_point = $ep | .mode = $mode | .phase = "executing" | .return_path = $rp | .dispatched = $d'
+                '.entry_point = $ep | .mode = $mode | .phase = "executing" | .return_path = $rp | .dispatched = $d' no
         fi
         printf 'already-dispatched\n'
         exit 0
