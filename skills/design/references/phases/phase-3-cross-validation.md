@@ -1,6 +1,7 @@
 # Phase 3: Cross-Validation
 
 Check assumptions across completed decisions. Single pass with bounded restart.
+This phase always runs after Phase 2, even with one decision; it is never skipped.
 
 ## Resume Check
 
