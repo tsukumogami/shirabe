@@ -53,6 +53,11 @@
 #      comment): a row still linking the pull request waits, the row written
 #      back with the cell empty confirms, and the run goes on to pick with
 #      the row in the record.
+#  18. send_execution for a scoping-ahead holding: dispatch-worker.sh, run as
+#      the agent runs it at dispatch, renders the execution brief, opens an
+#      /execute leg in koto's request store and rewrites the holding to
+#      executing; record confirms it and the run reaches pick. A dispatch
+#      that leaves the holding scoping ahead holds at record.
 #  19. a checkpoint report is progress (shirabe#491): on the message path
 #      it goes through take_report, report_facts and report_questions back to
 #      wait with no classification and no phase change; one naming a pull
@@ -566,6 +571,45 @@ else
     bad "17: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+# ---- 18. send_execution moves a scoping-ahead holding to executing ------------
+echo "== 18. send_execution moves a scoping-ahead holding to executing =="
+SCOPING_ROW=$(holding feat-1 "$(jq -nc '{unit: "Feature 1", entry_point: "scope", mode: "--auto --intent=continue", phase: "scoping-ahead",
+    pull_request: "", branch: "", return_path: "message"}')")
+cat > "$T/exec-brief.json" <<'EOF'
+{"topic": "feat-1", "repo": "acme/widgets", "unit": "Feature 1: first", "entry_point": "execute",
+ "entry_args": ["docs/plans/PLAN-feat-1.md"], "run_mode": "--auto", "phase": "executing",
+ "authority": "You are working for the owner on acme/widgets.", "goal": "Feature 1 ships.",
+ "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
+ "dispatcher_session": "coord-engine"}
+EOF
+send_exec_to_dispatch() { # send_exec_to_dispatch <name> <number>: a run at dispatch on send_execution
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$SCOPING_ROW" '.holdings = [$h]')" "$2" || return 1
+    [ "$(at --with-data '{"choice":"send_execution","unit":"feat-1"}')" = dispatch ]
+}
+if send_exec_to_dispatch execsend 118; then
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/exec-brief.json" >/dev/null)
+    # The workspace root the dispatch script renders briefs under, for this
+    # one run of it.
+    : > "$T/work/.niwa/workspace.toml"
+    OUT=$(cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$S" 2>"$T/dw.err"); rc=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+    eq "18: dispatch-worker.sh sends the execution (exit 0)" 0 "$rc"
+    case "$OUT" in *already-dispatched*) bad "18: never already-dispatched" "$OUT" ;; *brief=*) ok "18: it prints the execution brief" ;; *) bad "18: it prints the execution brief" "$OUT $(cat "$T/dw.err")" ;; esac
+    live_body 118 | jq -e '.holdings[0] | .phase == "executing" and .entry_point == "execute" and (.return_path | test("^leg [^:]+:execute$"))' >/dev/null \
+        && ok "18: the holding reads executing, on /execute's new leg" || bad "18: the holding reads executing, on /execute's new leg" "$(live_body 118 | jq -c '.holdings')"
+    eq "18: record confirms the moved phase and the run reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+else
+    bad "18: reach dispatch on send_execution" "at=$(now_at) $(cat "$T/open.err" "$T/tick.err" 2>/dev/null) $(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null)"
+fi
+if send_exec_to_dispatch execnone 119; then
+    # Nothing was sent: the holding is still scoping ahead, so record holds.
+    eq "18: a send that changed nothing holds at record" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+        *"means no execution was sent"*) ok "18: and says no execution was sent" ;;
+        *) bad "18: and says no execution was sent" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+    esac
+else
+    bad "18: reach dispatch on send_execution, unchanged" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 # ---- 19. a checkpoint report is progress --------------------------------------
 echo "== 19. a checkpoint report is progress, on either return path =="
 PROG_ROWS() {

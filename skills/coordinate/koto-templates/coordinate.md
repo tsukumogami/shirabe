@@ -762,7 +762,8 @@ states:
     # writes report_topic, and marks the leg taken once it is no longer open.
     # Only a result the worker's own session promoted reaches take_report; an
     # explicit or refused result, or an abandoned or missing leg, means the
-    # worker recorded no result, which goes to the human.
+    # worker recorded no result: the leg was spent early, and leg_spent
+    # decides whether to replace it or take it to the human.
     # Every edge that consumes the leg sets leg_consumed, and leg_pick marks
     # the leg taken from it: an evidence tick here doesn't run the action, so
     # the action alone can't mark a leg that resolved between two ticks.
@@ -793,24 +794,24 @@ states:
           worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.payload.outcome}; step ${gates.leg_result.payload.step}; reason ${gates.leg_result.payload.reason}; pull request ${gates.leg_result.payload.pr}"
           report_source: leg
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: explicit
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: refused
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: abandoned
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: missing
         context_assignments:
@@ -826,6 +827,29 @@ states:
         context_assignments:
           worker_report: ""
           report_topic: ""
+
+  leg_spent:
+    # A leg spent before its worker reported (cancelled, refused at the entry
+    # point's preflight, abandoned, missing): replace it for the same holding
+    # with dispatch-worker.sh --releg and confirm the new leg through record,
+    # or take it to the human. report_topic, written by wait-target.sh, names
+    # the worker.
+    accepts:
+      move:
+        type: enum
+        values: [replaced, surface]
+        required: true
+        description: replaced once dispatch-worker.sh --releg exited 0 and the worker was messaged its brief; surface when the leg can't be replaced (the worker is gone, or the script refused), which goes to the human.
+      topic:
+        type: string
+        description: With replaced, the worker's dispatch topic (report_topic); record refuses a row that isn't on a new leg.
+    transitions:
+      - target: record
+        when:
+          move: replaced
+      - target: surface
+        when:
+          move: surface
 
   take_report:
     # Both return paths meet here. report_present needs the report's text in
@@ -2405,6 +2429,19 @@ topic), 2 the record couldn't be read. The script's own exit codes are in its
 header; 5 means a live session already uses the topic, 8 the record refused the
 write.
 
+For `send_execution`, put the execution's brief input in context (entry point
+`/shirabe:execute` with the PLAN, phase `executing`) and run the same script:
+for a holding scoping ahead it renders the execution brief, opens a new leg
+when the entry point takes one (the scoping leg is spent), and rewrites the
+holding's entry point, mode, phase and return path. It launches nothing:
+message the worker's session the brief it printed, then submit `dispatched:
+sent`. The record step confirms the phase moved to `executing`, and holds
+while it didn't.
+
+A leg spent before its worker reports (a cancellation, a refusal at the entry
+point's preflight) doesn't retire the worker: `leg_spent` replaces the leg
+for the same holding with `--releg`.
+
 The worker's dispatch topic is its name everywhere, in the record and in every
 pull request: never a session id, instance path or job id.
 ## record
@@ -2499,9 +2536,37 @@ resolved, or `watch: back` to return to the hub.
 A promoted result moves on to `take_report` with the leg's status, final
 state, outcome, step, reason and pull request as the report. An explicit or
 refused result, or an abandoned or missing leg, means the worker's session
-recorded no result; it goes to the human as a blocker. A leg is read once:
+recorded no result: the leg was spent early, and `leg_spent` follows. A leg is read once:
 `wait-target.sh` marks it taken, so a report routed to a fix or to the human
 doesn't bring the same result back.
+
+## leg_spent
+
+The worker's leg was spent before it reported: cancelled, refused at its
+entry point's preflight, abandoned, or missing. When its session is still
+there, replace the leg rather than retire the worker: put the brief input it
+was dispatched with in context (`koto context add {{SESSION_NAME}}
+brief_input.json --from-file <file>`), run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
+"{{SESSION_NAME}}" --releg`, message the worker the brief it printed (it runs
+its entry point again, on the new leg), and submit `move: replaced` with the
+worker's `topic`. Submit `move: surface` when the worker is gone or the script
+refuses.
+
+<!-- details -->
+
+Before replacing it, make sure the worker isn't still running its entry
+point on the spent leg (ask it, or read its session): a replaced leg is for a
+worker that did no work. The holding stays and only its leg changes: the script keeps the holding's
+entry point, repository and flags, abandons any request still open under the
+worker's coordinator, opens a new leg, renders the brief with it and rewrites
+the Return path. It refuses (exit 9) a leg still open, a leg holding the
+worker's promoted result or resolved by hand as a success, a holding that
+links a pull request, and an entry point that takes no leg: those aren't spent
+early, so submit `move: surface` for them. A refusal at preflight that names another entry point is
+a dispatch question: fix the brief input for the entry point it names before
+you run the script, as at `dispatch`. `record` confirms the holding is on a
+new leg and no row is on the spent one; the next `leg` tick reads the new leg.
 
 ## take_report
 
