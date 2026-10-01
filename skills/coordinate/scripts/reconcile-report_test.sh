@@ -232,7 +232,7 @@ printf '%s' "$out" | jq -e '[.deferrals_disposed[] | {deferral, how}] == [{defer
   && ok "a disposed deferral is reported with how it was disposed of (shirabe#552)" || bad "a disposed deferral is reported with how it was disposed of (shirabe#552)" "$out"
 D2='[{"row":{"deferral":"d1","reason":"r1","raised":"2026-09-20","disposition":""},"disposed":false,"how":"empty","status":"ok"},{"row":{"deferral":"d2","reason":"r2","raised":"2026-09-21","disposition":"closed: done"},"disposed":true,"how":"closed","status":"ok"},{"row":{"deferral":"d4","reason":"r4","raised":"2026-09-23","disposition":""},"disposed":true,"how":"raised this run","status":"ok"},{"row":{"deferral":"d3","reason":"r3","raised":"2026-09-22"},"status":"not_verified","reason":"the run start is not a time this check reads"}]'
 md=$(facts '[]' '[]' "$D2" | render)
-printf '%s\n' "$md" | grep -qx -- '- d1 (raised 2026-09-20): r1; open because the disposition is empty (verified by reading).' \
+printf '%s\n' "$md" | grep -qx -- '- d1 (raised 2026-09-20): r1; open because it has no disposition (verified by reading).' \
   && ok "an undisposed deferral says why it is open" || bad "an undisposed deferral says why it is open" "$md"
 printf '%s\n' "$md" | grep -qx -- '- d2 (raised 2026-09-21): closed (verified by reading).' \
   && ok "a disposed deferral renders under Disposed deferrals with its disposition" || bad "a disposed deferral renders with its disposition" "$md"
@@ -299,7 +299,7 @@ printf '%s' "$out" | jq -e '.holdings[0].phase == "held" and .holdings[0].next_c
 facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge withheld by the human's direction, waiting on them" \
   && ok "the held line says the merge is withheld by the human's direction" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
-facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "drop" and (.waiting | length) == 0' >/dev/null \
+facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "teardown" and (.waiting | length) == 0' >/dev/null \
   && ok "a held holding whose pull request merged since is dropped, not waited on" || bad "a held holding whose pull request merged since is dropped"
 HELDF=$(holding tf "[$(pr OPEN "$VH"),$(board fails "$VH" "job lint")]" '{"phase":"HELD"}')
 facts "[$HELDF]" | report | jq -e '.holdings[0].next_code == "held"' >/dev/null \

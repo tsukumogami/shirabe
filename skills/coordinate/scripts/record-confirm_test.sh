@@ -4,7 +4,7 @@
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
 # row), surface (the unit's Verified head), merge_confirm and merged_facts
-# (merged: the unit's row no longer links the pull request; unconfirmed: a
+# (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
 # decision_apply (reversal and deferral), posture_ask, and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12

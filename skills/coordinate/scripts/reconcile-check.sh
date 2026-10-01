@@ -655,7 +655,7 @@ deferral)
     RAW=$(rd_deadline "$DEADLINE" "$RD_DEFERRAL_CHECK" --row-file "$ROWFILE" --run-start "$RUNSTART" ${CHAIN[@]+"${CHAIN[@]}"} 2>/dev/null)
     rc=$?
     [ "$rc" -eq 124 ] && refuse deferral "disposal check timed out after ${DEADLINE}s"
-    [ "$rc" -eq 64 ] && refuse deferral "the disposal check refused its input (exit 64): the row file or a start time"
+    [ "$rc" -eq 64 ] && refuse deferral "the disposal check refused its arguments (exit 64)"
     # The check prints one line; anything else is an answer this script
     # doesn't interpret.
     case "$RAW" in *$'\n'*) refuse deferral "disposal check printed more than one line" ;; esac

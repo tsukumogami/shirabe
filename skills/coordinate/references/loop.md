@@ -157,9 +157,9 @@ sections, in this order, each line carrying its grade:
   instance holds that no remote does.
 - **Side effects:** each side effect in flight, confirmed, not confirmed with
   the reason, or not re-checked.
-- **Undisposed deferrals:** every deferral still owed a disposition, and why
-  its disposition doesn't count (empty, malformed, carried before the chain
-  start, or past its decide-by).
+- **Undisposed deferrals:** every deferral still owed a disposition, and why:
+  it has none, it is malformed, it was carried before the chain start, or its
+  decide-by has passed.
 - **Disposed deferrals:** every other deferral, with how it was disposed of
   (filed, closed, carried, or raised in this run). A deferral the check
   couldn't read is under "Not verified", with what it couldn't read.

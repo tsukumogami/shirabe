@@ -68,9 +68,9 @@
 # verdict: verified | actions-green | pending | not-run | unverified |
 # error:board-read | error:pr-state | error:deadline (and head |
 # error:head-moved with --head-only). Precedence: any read failure or the
-# deadline is an error; else any definite failure is unverified; else a job
-# that never ran is not-run; else anything still running is pending; else
-# verified, which is printed only with no reasons, a 40-hex head and the
+# deadline is an error; else any definite failure is unverified; else
+# anything still running is pending; else a job that never ran is not-run,
+# so a person is asked only once nothing else is running; else verified, which is printed only with no reasons, a 40-hex head and the
 # checks source. The same board judged from the Actions jobs is
 # actions-green, never verified.
 # A job never ran when it completed failure, cancelled or timed_out with no
@@ -172,6 +172,11 @@ read_failed() {
 
 # ---- the judgement --------------------------------------------------------
 # Inputs are files in $TMPD; an absent file means the read didn't happen.
+# A job that never ran: it completed red with no step at all. One definition,
+# prepended to the judgement and used by the annotations read below, so the
+# jobs whose reason is read are the jobs judged not run.
+NOT_RUN_DEF='def not_run: .status == "completed" and ((.conclusion // "") | IN("failure", "cancelled", "timed_out"))
+  and ((.steps // []) | length) == 0;'
 read -r -d '' JUDGE <<'JQ'
 def slurp1($f): if ($f | length) > 0 then $f[0] else null end;
 def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
@@ -181,9 +186,6 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "run-pending":"p", "job-pending":"p", "required-pending":"p",
   "merge-state-unknown":"p", "head-moved":"p",
   "read-failed":"e", "required-set-unreadable":"e", "deadline":"e"};
-# A job that never ran: it completed red with no step at all.
-def not_run: .status == "completed" and ((.conclusion // "") | IN("failure", "cancelled", "timed_out"))
-  and ((.steps // []) | length) == 0;
 slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
 | (slurp1($ann) // {}) as $ann
@@ -211,8 +213,9 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
 | [ $J[] | select(.status == "completed" and .conclusion == "skipped") | {run, job: .id, name} ] as $jskip
 | [ $J[] | select(.status == "completed" and .conclusion != "skipped" and (not_run | not)) ] as $ran
 | [ $NR[] | {code: "job-not-run", run, job: .id, name,
-      detail: (($ann[.id | tostring] // "") as $m
-               | if $m != "" then $m else "no step ran (\(.conclusion))" end)} ] as $jnot
+      detail: ((.id | tostring) as $k
+               | if ($ann | has($k)) | not then "no step ran (\(.conclusion)); GitHub's reason was not read"
+                 elif $ann[$k] != "" then $ann[$k] else "no step ran (\(.conclusion))" end)} ] as $jnot
 # A required check answered only by jobs that never ran is not run either.
 | ([$NR[].name] - [$ran[].name]) as $nr_names
 | [ $ran[] | select(.conclusion != "success") | {code: "job-conclusion", run, job: .id, name, detail: (.conclusion // "null")} ] as $jc
@@ -266,8 +269,8 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
    elif any($allc[]; .code == "deadline") then "error:deadline"
    elif any($allc[]; .cls == "e") then "error:board-read"
    elif any($allc[]; .cls == "u") then "unverified"
-   elif any($allc[]; .cls == "n") then "not-run"
    elif any($allc[]; .cls == "p") then "pending"
+   elif any($allc[]; .cls == "n") then "not-run"
    elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then
      # Green from the Actions jobs alone isn't verified: the required set
      # read without the rollup may be short (below, in the header).
@@ -286,6 +289,8 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
    counts: {runs: ($R | length), jobs: ($J | length), jobs_ran: ($ran | length), required: ($reqj | length)},
    notes: ((if ($wf | length) > 0 then [{code: "workflows-changed", paths: ($wf | unique)}] else [] end) + $cnotes)}
 JQ
+JUDGE="$NOT_RUN_DEF
+$JUDGE"
 
 emit() {
     local f
@@ -476,16 +481,16 @@ for id in $IDS; do
 done
 mv "$TMPD/jobs.acc" "$TMPD/jobs.json"
 # The reason GitHub gives for each job that never ran, from its check run's
-# annotations: one read each, at most ten. It only words the reason, so a
-# read that fails leaves the job not run with no message.
-NOTRUN=$(jq -r '[.[][] | select(.status == "completed" and ((.conclusion // "") | IN("failure", "cancelled", "timed_out"))
-                 and ((.steps // []) | length) == 0) | .id] | .[0:10] | .[]' "$TMPD/jobs.json")
+# annotations: one read each, at most ten, inside the board's deadline. It
+# only words the reason: a job whose annotations weren't read (past the ten,
+# or a read that failed) is still not run, and its reason says GitHub's
+# wasn't read.
+NOTRUN=$(jq -r "$NOT_RUN_DEF"' [.[][] | select(not_run) | .id] | .[0:10] | .[]' "$TMPD/jobs.json")
 echo '{}' > "$TMPD/ann.json"
 for id in $NOTRUN; do
     bl_gh "$TMPD/ann-$id.raw" api --method GET "repos/$REPO/check-runs/$id/annotations?per_page=50" || continue
     msg=$(jq -r 'if type == "array" then ([.[] | select(type == "object") | .message // empty | tostring | select(. != "")] | first // "") else "" end' \
         "$TMPD/ann-$id.raw" 2>/dev/null | head -n 1 | bl_scrub | cut -c1-200)
-    [ -n "$msg" ] || continue
     jq -c --arg id "$id" --arg m "$msg" '. + {($id): $m}' "$TMPD/ann.json" > "$TMPD/ann.tmp" && mv "$TMPD/ann.tmp" "$TMPD/ann.json"
 done
 if [ "$MODE" = pr ] && [ "$SOURCE" = actions ]; then

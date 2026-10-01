@@ -777,7 +777,7 @@ new_case deferral-bad-chain
 expect "a chain start that isn't a time is not verified, and says so" '.status == "not_verified" and (.reason | test("chain start"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS --chain-start yesterday)"
 new_case deferral-usage
 fail_with deferral 1 64
-expect "a disposal check that refuses its input is not verified, and says so" '.status == "not_verified" and (.reason | test("refused its input"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
+expect "a disposal check that refuses its input is not verified, and says so" '.status == "not_verified" and (.reason | test("refused its arguments"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
 
 echo "== bad row values reach no command =="
 for args in "pr --repo a;b --number 1" "pr --repo -x/y --number 1" "pr --repo acme/widgets --number 0" "branch --repo acme/widgets --branch -x" "branch --repo acme/widgets --branch a;b" "board --repo acme/widgets --sha nothex --base main" "merge --repo acme/widgets --number 7 --verified-head nothex"; do

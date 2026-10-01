@@ -2830,7 +2830,8 @@ the head are green and the board couldn't read the required checks; their
 answer, or a token that can read checks, is what lets it land.
 
 A job that completed red with no step at all never ran: GitHub refused to
-start it, as it does for an account billing block or a missing runner. With
+start it, as it does for an account billing block or a missing runner, or it
+was cancelled before it started. With
 nothing else red, the board is `not-run`: no verdict on the code, and not the
 worker's to fix, so don't send it back. It goes back to waiting; report it up
 as blocked on the person who holds the account (`--blocked <worker>=CI did not

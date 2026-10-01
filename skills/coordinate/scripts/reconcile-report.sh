@@ -88,7 +88,7 @@
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
 #                   board, leg, next, next_code, source, read_at,
 #                   grade: {state, board, leg, phase, next}}
-#                  next_code is the token a reader routes on: drop, decide,
+#                  next_code is the token a reader routes on: teardown, decide,
 #                  fix_ci, not_run, land, held, wait, read_again, refused.
 #                  not_run is a board whose jobs GitHub never started: it
 #                  waits on a person, never on the worker. source is
@@ -250,7 +250,7 @@ def next_code_of:
   fact("pr") as $pr | fact("host") as $h
   | if .refused != null then "refused"
     elif ok($pr) then
-      (if $pr.state == "MERGED" then "drop"
+      (if $pr.state == "MERGED" then "teardown"
        elif $pr.state == "CLOSED" then "decide"
        elif phase_key == "held" then "held"
        elif ((board_of // "") | startswith("fails")) then "fix_ci"
@@ -258,12 +258,12 @@ def next_code_of:
        elif (board_of == "holds") and ((.row.verified_head // "") != "")
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
-    elif merged_awaiting_teardown then "drop"
+    elif merged_awaiting_teardown then "teardown"
     elif has_pr then "read_again"
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
-  {drop: "merged; tear down its worker, which removes the row", decide: "with me: re-dispatch or drop",
+  {teardown: "merged; tear down its worker, which removes the row", decide: "with me: re-dispatch or drop",
    fix_ci: "worker fixes CI",
    not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
    land: "ready to land",
@@ -491,7 +491,9 @@ def prcell: if . == null or . == "" then "N/A" elif startswith("[") then . else 
 section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic | code): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | . as $se | "- \(.action) \(.target | refs(if $se.action == "merge" then "pull" else "issues" end)): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
 section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason)"
-    + (if (.why // "") != "" then "; open because the disposition is \(.why | gsub("-"; " "))" else "" end) + " (\(.grade))."]),
+    + (if (.why // "") != "" then "; open because " + ({"empty": "it has no disposition", "malformed": "its disposition is malformed",
+         "carried-before-chain-start": "it was carried before the chain start", "decide-by-passed": "its decide-by has passed"}[.why] // .why) else "" end)
+    + " (\(.grade))."]),
 section("Disposed deferrals"; [(.deferrals_disposed // [])[] | "- \(.deferral) (raised \(.raised)): "
     + (if .how == "raised this run" then "raised in this run, so not a predecessor'"'"'s to dispose of" else .how end)
     + " (\(.grade))."]),

@@ -296,7 +296,9 @@ collect() {
             if [ -z "$fact" ] || ! printf '%s' "$fact" | jq -e '(.kind | type) == "string" and (.status | type) == "string"' >/dev/null 2>&1; then
                 # Say how it ended, so the report names what couldn't be read
                 # rather than only that nothing came back: its exit code and
-                # the last line it wrote to stderr, token-shaped text redacted.
+                # the last line it wrote to stderr (launch always creates the
+                # .err file), token-shaped text redacted by record-common.sh's
+                # lib_redact rule, copied since this pass doesn't source it.
                 why=$(tail -n 1 "$R/$id.err" | tr -d '\r' \
                     | sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' \
                     | tr -d '\000-\010\013\014\016-\037' | cut -c1-200)
