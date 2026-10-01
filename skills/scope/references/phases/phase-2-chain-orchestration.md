@@ -115,15 +115,21 @@ The check runs the three-phase flow defined in
   reason.
 
   An escalation goes to whoever holds deciding power over the
-  run. Under a coordinator (a run opened with `--koto-leg`) it
-  goes to the coordinator: the run stops at bail with the
-  escalation recorded, and the coordinator reads it from the
-  leg. Running solo and interactive, it goes to the author as a
+  run. Running solo and interactive, it goes to the author as a
   three-option prompt (re-author affected artifacts; proceed
   against original intent, recorded in `worktree_divergences:`;
-  bail per R8's bail-handling rule). Under `--auto` with no
-  coordinator, an escalation stops the run at bail with the
-  decision recorded; nothing is answered on the author's
+  bail per R8's bail-handling rule). In the other two setups
+  nobody can be asked, so the escalation stops the run: submit
+  `outcome: bail` at the hop and `bail_ack: force_materialize`
+  at `bail`, with `detail` naming the escalated change, so the
+  run ends at the abandonment exit with the chain's work kept
+  for a resumed run (no child is in flight, so the marker goes on
+  the last document the chain produced, and no PLAN is written). Under a coordinator (a run opened with
+  `--koto-leg`) that abandonment outcome is what the coordinator
+  reads on the leg, and the escalation's decision record stays
+  in the session, which the run keeps; the coordinator decides
+  and re-dispatches. Under `--auto` with no coordinator the stop
+  is the escalation: nothing is answered on the author's
   behalf.
 
 The check's recording fields follow the canonical schema:

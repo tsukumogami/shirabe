@@ -246,9 +246,10 @@ the Merge / Impact-analysis / Escalation flow in
 Informational classifications proceed silently. An Intent-changing one is
 judged by the agent running the chain: it settles in place what it can,
 records each such call as a decision with its classification and reason,
-and escalates the rest, to the coordinator under `--koto-leg`, to the
-author when running solo, and under `--auto` with no coordinator the
-escalation stops the run. The hop's own directive says so when it applies.
+and escalates the rest: to the author when running solo and interactive;
+under `--koto-leg` and under `--auto` with no coordinator the escalation
+stops the run at the abandonment exit, which a coordinator reads on the
+leg. The hop's own directive says so when it applies.
 
 ## Running the Workflow
 
