@@ -60,6 +60,8 @@ draft path to Read, and the exact verdict path to Write.
 
 ## 4.1 Spawn Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Competitive Framing and Content Quality run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/competitive/COMP-<topic>.md --format skills/comp/references/comp-format.md`.
+
 Spawn all three reviewers in parallel, each with the preamble, its
 rubric, the COMP path, and its pinned verdict path. The three rubrics —
 competitive-framing, content-quality, and structural-format — are defined

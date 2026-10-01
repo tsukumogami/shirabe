@@ -197,13 +197,15 @@
       "mode": "execute",
       "scenario": "review-panel-passed",
       "prompt": "/work-on #42",
-      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review.",
+      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review. Before spawning, it assembles the round's packet with scripts/review-packet.sh code and spawns each reviewer with model sonnet.",
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: passed when panel reviewers all approve",
         "Agent does not submit blocking_retry or blocking_escalate when issues are found to be correctable",
         "Agent checks scrutiny_results context-exists gate status before submitting evidence",
-        "Agent plans to run all three panel reviewers before submitting scrutiny outcome"
+        "Agent plans to run all three panel reviewers before submitting scrutiny outcome",
+        "Agent assembles the review packet with scripts/review-packet.sh code before spawning the panel reviewers",
+        "Agent spawns each panel reviewer with an explicit Sonnet model rather than inheriting the parent's model"
       ]
     },
     {
@@ -549,6 +551,24 @@
         "Agent does NOT plan to submit staleness_signal: override, since no one asked to skip the check",
         "Agent does NOT plan to submit staleness_signal: blocked or to stop the run at this gate",
         "Agent expects the run to continue to the analysis state"
+      ]
+    },
+    {
+      "id": 43,
+      "name": "scrutiny-scoped-retry-reentry",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "scrutiny-scoped-retry-reentry",
+      "prompt": "/work-on #42",
+      "expected_output": "Second scrutiny round after a retry. scrutiny_scope.json keeps the completeness and justification seats, whose cited scope the fix did not touch, and asks the intent seat to re-check its one finding. The agent spawns only the intent seat, gives it the finding plus the fix diff and asks only whether the finding is fixed, and records the round with panel-scope.sh --record scrutiny.",
+      "files": [],
+      "expectations": [
+        "Agent reads scrutiny_scope.json from koto context before spawning any reviewer",
+        "Agent spawns the intent reviewer and does not spawn the completeness or justification reviewers, whose decisions are keep",
+        "The intent reviewer's prompt carries the finding (login() returning a session token before the hash is verified, src/auth.go 41-48) and the fix diff from the fix_diff_from commit to HEAD",
+        "The intent reviewer is asked only whether that finding is fixed, not for a fresh full review of the implementation",
+        "Agent records the round with panel-scope.sh --record scrutiny, with a round file naming only the intent seat",
+        "Agent treats the kept seats as passed when aggregating, and does not re-run them on its own judgment"
       ]
     }
   ]

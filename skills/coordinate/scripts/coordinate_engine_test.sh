@@ -48,6 +48,11 @@
 #      design (the gate above keeps such a report out of verify), so its
 #      sealed verdict is board-record_test.sh's and its arm the structure
 #      test's.
+#  17. a merge confirmed at merge_confirm holds record until the unit's
+#      Pull request cell is cleared, and the row stays (the shirabe#490
+#      comment): a row still linking the pull request waits, the row written
+#      back with the cell empty confirms, and the run goes on to pick with
+#      the row in the record.
 #  19. a checkpoint report is progress (shirabe#491): on the message path
 #      it goes through take_report, report_facts and report_questions back to
 #      wait with no classification and no phase change; one naming a pull
@@ -93,7 +98,9 @@ mkdir -p "$GH_BOARD_DIR"
 # verify_board and land make, which go to testdata/gh-board when its case
 # directory holds a response for them: the board's GraphQL snapshot (any
 # GraphQL query but the author/editor one) and the REST reads only the board
-# makes (runs, jobs, rules, branch, the ref, files, checks).
+# makes (runs, jobs, rules, branch, the ref, files, checks), and the merge
+# confirmation's reads (the pull request's state and files, the repository,
+# each file's blob) when the case directory holds them.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 key=
@@ -110,7 +117,11 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/contents/*) ls "$GH_BOARD_DIR"/contents-* >/dev/null 2>&1 && exec "$COORD_TESTDATA/gh-board" "$@" ;;
+            repos/*/*/*) ;;
+            repos/*/*) key=repo ;;
         esac ;;
+    "pr view") key="prview-${3-}" ;;
 esac
 if [ -n "$key" ] && ls "$GH_BOARD_DIR/$key".* >/dev/null 2>&1; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
 exec "$COORD_TESTDATA/gh" "$@"
@@ -521,6 +532,40 @@ else
 fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
+# ---- 17. a confirmed merge clears the Pull request cell -----------------------
+echo "== 17. a confirmed merge clears the Pull request cell and keeps the row =="
+if land_run merging 112; then
+    record_verified
+    if [ "$(at)" = land_merge ]; then
+        # The merge landed the verified content: MERGED, and the one file's
+        # blob on main equals the head's.
+        bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+        eq "17: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
+        case "$(bash "$PS/coord-log.sh" capture --session "$S" --name MERGE_CONFIRM)" in
+            "merged 12 $H "*) ok "17: MERGE_CONFIRM reads merged" ;; *) bad "17: MERGE_CONFIRM reads merged" ;;
+        esac
+        rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+        eq "17: record holds while the row still links the pull request" record "$(at)"
+        case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+            *"kept, with its Pull request cell cleared of #12"*) ok "17: the expectation says to clear the cell and keep the row" ;;
+            *) bad "17: the expectation says to clear the cell and keep the row" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+        esac
+        # The agent clears the cell, as the directive says: the row read back,
+        # pull_request emptied, nothing else changed.
+        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+        eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
+        eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
+        live_body 112 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
+            | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \
+            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 112 | jq -c .holdings)"
+    else
+        bad "17: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "17: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 # ---- 19. a checkpoint report is progress --------------------------------------
 echo "== 19. a checkpoint report is progress, on either return path =="
 PROG_ROWS() {

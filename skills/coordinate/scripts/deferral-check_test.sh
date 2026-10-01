@@ -337,6 +337,14 @@ pr 31 OPEN false; pr 32 OPEN true; pr 33 MERGED false
 session "$(roadmap_vars plugin-system)" 7
 eq "a verified draft and a merged pull request aren't parked" "ok beta" "$(check)"
 eq "they count as active" "2 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+# A confirmed merge clears the row's Pull request cell and keeps it until
+# teardown: such a row holds no slot under the cap.
+merged() { holding "$1" "{\"pull_request\": \"\", \"verified_head\": \"$SHA_HEAD\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(merged m1)")"
+for n in 21 22 23 24; do pr $n OPEN true; done
+session "$(roadmap_vars plugin-system)" 7
+eq "a merged row waiting for teardown holds no slot under the cap" "ok beta" "$(check)"
+eq "it counts as neither active nor parked" "4 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 
 echo "== check mode: the predecessor's handoff (discipline) =="
 BR=coordinate/discipline-ci-health

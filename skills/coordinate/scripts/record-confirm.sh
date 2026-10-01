@@ -29,7 +29,9 @@
 #                   (the human directed a hold the workspace doesn't require),
 #                   the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
-#   merged_facts    the unit's Holdings row no longer links #<pr>;
+#   merged_facts    the unit's Holdings row is still there with its Pull
+#                   request cell blank: a confirmed merge clears the cell
+#                   and keeps the row until the teardown removes it;
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
@@ -397,8 +399,12 @@ merge_confirm|merged_facts)
     if [ "$KIND" = merged ]; then
         # The unit's own row: another unit's #$PR in another repository is
         # not this one.
-        EXPECT="the Holdings row for $UNIT no longer links #$PR"
-        [ -n "$ROW" ] && [ "$ROW_PR" = "$PR" ] && OKX=0
+        # The row stays until teardown (destroy removes it), so a row
+        # already gone is not what this step writes.
+        EXPECT="the Holdings row for $UNIT kept, with its Pull request cell cleared of #$PR"
+        if [ -z "$ROW" ]; then OKX=0
+        elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
+        fi
     elif [ -z "$ROW" ] || [ "$ROW_PR" != "$PR" ]; then
         # Without the unit's row linking it, #$PR's repository can't be told,
         # and a bare #$PR could be another unit's.

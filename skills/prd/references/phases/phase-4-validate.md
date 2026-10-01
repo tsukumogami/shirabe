@@ -33,6 +33,8 @@ dimension.
 
 ### 4.1 Launch Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:

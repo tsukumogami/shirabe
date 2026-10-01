@@ -56,7 +56,7 @@
       "id": 4,
       "name": "jury-two-reviewers",
       "prompt": "/brief checkout-flow",
-      "expected_output": "Phase 4 spawns exactly two reviewer agents in parallel via the Agent tool with run_in_background: true: content quality and structural format. No altitude reviewer. Each reviewer prompt opens with a fixed preamble framing the BRIEF as data-under-review. Each prompt pins the verdict file path. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by an all-PASS rule before Phase 5.",
+      "expected_output": "Phase 4 spawns exactly two reviewer agents in parallel via the Agent tool with run_in_background: true: content quality and structural format. No altitude reviewer. Each reviewer prompt opens with a fixed preamble framing the BRIEF as data-under-review. Each prompt pins the verdict file path. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by an all-PASS rule before Phase 5. Each reviewer is spawned with an explicit model (Sonnet for content quality, Haiku for structural format) and a turn cap, and reads a packet that scripts/review-packet.sh doc assembled rather than a BRIEF pasted into its prompt.",
       "files": [],
       "expectations": [
         "Plan describes Phase 4 spawning exactly two reviewer agents in parallel",
@@ -66,7 +66,10 @@
         "Plan mentions each reviewer prompt opens with a fixed preamble framing BRIEF content as data-under-review",
         "Plan mentions each verdict file path is pinned (subagent does not choose its output location)",
         "Plan mentions verdicts use a structured **Verdict:** PASS | FAIL marker",
-        "Plan aggregates verdicts by an all-PASS rule before proceeding to Phase 5"
+        "Plan aggregates verdicts by an all-PASS rule before proceeding to Phase 5",
+        "Plan passes an explicit model on each reviewer spawn: Sonnet for content quality and Haiku for structural format",
+        "Plan assembles one input packet with scripts/review-packet.sh doc before spawning and gives each reviewer the packet path instead of pasting the BRIEF into its prompt",
+        "Plan states a turn cap for each reviewer"
       ]
     },
     {

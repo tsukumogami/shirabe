@@ -1,0 +1,44 @@
+name: Check review packet
+
+# scripts/review-packet.sh assembles the input packet every review seat starts
+# from (references/review-seat-commissioning.md). Its suite builds a throwaway
+# repository with stand-in koto and gh, so it needs only bash and git: the
+# Linux leg runs it under bash 5, the macOS leg on the bash 3.2 floor.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/review-packet.sh'
+      - 'scripts/review-packet_test.sh'
+      # A relative --format resolves against the plugin root, and the suite
+      # reads a shipped format reference to prove it.
+      - 'skills/brief/references/brief-format.md'
+      # The spawn-site cases read every review spawn site.
+      - 'skills/*/references/phases/*.md'
+      - 'skills/review-plan/SKILL.md'
+      - '.github/workflows/check-review-packet.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  test-review-packet:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the suite (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/review-packet_test.sh
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2 (shirabe#416), and the runner is the one way onto it.
+      - name: Run the suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system review-packet

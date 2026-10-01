@@ -43,6 +43,10 @@
 #                   has-commits.sh, no flag
 #   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
 #                   no flag
+#   context exists/get/add are also panel-scope.sh's, which koto runs as each
+#                   panel state's default_action and gate: it reads and writes
+#                   verdict_ledger.json and the <panel>_scope.json and
+#                   <panel>_results.json keys, no flag
 #   decisions record  --with-data carries the decision object
 #
 # gh reads the issue and drives the PR; git merges main in, pushes, and inspects the

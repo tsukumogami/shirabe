@@ -65,6 +65,14 @@ sweep 08:45; eq "a sweep within 30 minutes of the last silent check doesn't coun
 sweep 09:02; eq "a second silent check is second-silence" "second-silence alpha beta" "$TOK"
 tok_shape "second-silence is in koto's capture alphabet" "$OUT"
 
+echo "== a merged row waiting for teardown isn't watched =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta "$(jq -nc --arg h "$SHA_HEAD" '{pull_request: "", verified_head: $h}')")" '[$a, $b]')
+seed; run
+sweep 08:31; eq "a merged row is never quiet; the other worker is" "first-silence alpha" "$TOK"
+HOLDINGS=$SAVED
+
 echo "== activity resets the count =="
 seed; run
 sweep 08:31; eq "first silence" "first-silence alpha beta" "$TOK"

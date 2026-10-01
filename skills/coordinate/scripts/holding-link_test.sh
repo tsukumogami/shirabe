@@ -111,6 +111,16 @@ seed "$(printf '%s' "$HOLD" | jq -c 'map(if .worker == "zeta" then .pull_request
 link
 eq "already linked, the repository in another case: nothing to do" "0 already linked" "$RC $OUT"
 
+echo "== the repository as GitHub spells it =="
+# The stand-in matches a repository in any case, as GitHub does, and spells
+# it back as GitHub does: the link takes GitHub's spelling, not the report's.
+seed "$HOLD"
+message zeta "ACME/Widgets#20"
+link
+eq "a report naming the repository in another case: written with GitHub's spelling" \
+    '0 {"branch":"feat/zeta-work","pull_request":"[#20](https://github.com/acme/widgets/pull/20)"}' "$RC $(row zeta)"
+grep -q -- '--repo ACME/Widgets' "$GH_DB.calls"; eq "and the pull request was read under the report's spelling" 0 $?
+
 echo "== a progress report's pull request (shirabe#491) =="
 seed "$HOLD"
 message zeta "acme/widgets#20" progress

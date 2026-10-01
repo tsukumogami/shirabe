@@ -115,7 +115,8 @@ jq -e '(.states.report_facts.transitions | any(.target == "report_link" and .whe
        and (.states.classify_report.gates.report_pr.command | test("report-pr\\.sh\" --session"))
        and ([.states.classify_report.transitions[] | select(.when.classification == "done") | [.target, .when["gates.report_pr.exit_code"]]]
             == [["verify", 0], ["wait", 1]])
-       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 77))' "$J" >/dev/null \
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 77))
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 78))' "$J" >/dev/null \
     && pass "report_link links a report's pull request; done needs one; verify_board leaves on no-pr" \
     || fail "report_link links a report's pull request; done needs one; verify_board leaves on no-pr"
 # The verdict arm waits on the entry decision-next.sh writes, as pick waits on pick_input.
