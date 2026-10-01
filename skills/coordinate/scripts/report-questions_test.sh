@@ -95,6 +95,9 @@ eq "a line ending in ?, a decision phrasing and a last line without a newline ar
 eq "the phrasing addressed to a person is marked" "false true false" "$(list | jq -r '[.[].addressed | tostring] | join(" ")')"
 run "holding none w1" "$(printf 'Should it ship?\r\nDone.\r\n')" "$WORKER"
 eq "a CRLF line is read without its carriage return" "Should it ship?" "$(list | jq -r '.[0].text')"
+# A checkpoint report's questions are read as a report's are (shirabe#491).
+VIA=progress run "progress none w1" "$(printf 'Checkpoint 1 reached.\nQuestions:\n1. Should the cap be 400 or 1000?\n')" "$WORKER"
+eq "a checkpoint report's question is read, with its holding" "0 questions Should the cap be 400 or 1000?" "$RC $(word) $(list | jq -r '.[0].text')"
 
 # --- verdicts --------------------------------------------------------------------------
 

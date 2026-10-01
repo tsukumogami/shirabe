@@ -923,13 +923,11 @@ states:
       - target: report_link
         when:
           gates.report_facts_verdict.exit_code: 63  # link
-      # A progress report changes no phase and is never classified.
-      - target: wait
+      # A checkpoint report: its questions are read like any report's, and
+      # it is never classified (report_questions sends it back to wait).
+      - target: report_questions
         when:
           gates.report_facts_verdict.exit_code: 64  # progress
-        context_assignments:
-          worker_report: ""
-          report_topic: ""
 
   report_link:
     # The report named a pull request its holding doesn't link yet, and
@@ -981,9 +979,36 @@ states:
         when:
           gates.report_questions_verdict.exit_code: 11  # none
           gates.report_holding.exit_code: 62
+      # A checkpoint report with no questions goes back to the hub, with no
+      # classification and no phase change.
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 11  # none
+          gates.report_holding.exit_code: 64
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: rebrief
         when:
           gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 60
+      - target: rebrief
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 61
+      - target: rebrief
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 62
+      # A checkpoint report's questions in the wrong shape: no re-brief, which
+      # would move a leg-bound worker off its leg; ask it again by message.
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 64
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: surface
         when:
           gates.report_questions_verdict.exit_code: 172  # unreadable
@@ -2499,9 +2524,10 @@ scope's repositories, a head from another repository, or a head branch that
 differs from the holding's Branch. When the holding links no pull request yet
 and the report names one (the leg result's pull request, or the message's
 `pull_request`), it checks that one the same way and goes to `report_link` to
-have it written onto the holding. A progress report goes back to `wait`
-(`progress`) once its holding carries any pull request it named; a pull
-request it named that is refused is in `coord/report.json`'s `refused`.
+have it written onto the holding. A progress report reads `progress` where a
+report would read `holding`: `report_questions` reads its questions as for any
+report, and then it goes back to `wait`, with or without a pull request, never
+to classification.
 
 <!-- details -->
 
@@ -2548,7 +2574,9 @@ dispatched, an escalation or a withdrawal, stored as `coord/questions.json`.
 <!-- details -->
 
 More than ten questions, or a worker's question over 400 characters, sends the
-report back to its worker to ask again in the brief's `Questions:` shape. A
+report back to its worker to ask again in the brief's `Questions:` shape; for a
+checkpoint report (`progress`) that is a message to the worker from `wait`,
+never a re-brief. A
 report that can't be read, or an escalation that doesn't hash to its digest,
 goes to the human. With no questions the report goes on to classification when
 it has a holding, and back to `wait` when it doesn't.

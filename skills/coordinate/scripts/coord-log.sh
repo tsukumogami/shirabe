@@ -399,7 +399,8 @@ entry|evidence|captures)
             select(.type == "evidence_submitted" and .payload.state == $s
                 and .seq > $a and ($b == "" or .seq < ($b | tonumber)))
             | (.payload.fields // {}) as $f
-            | select(all($w[]; ($f[.[0]] // "" | tostring) as $v | .[1] | split("|") | index([$v]) != null)
+            | select(all($w[]; ($f[.[0]] // "" | tostring) as $v
+                    | (.[1] | if . == "" then [""] else split("|") end) | index([$v]) != null)
                 and ($h == "" or ($f[$h] // null) != null))
             | {seq, timestamp, fields: $f}' "$LOG" | tail -1) || die "cannot read $LOG"
         ;;
@@ -423,7 +424,7 @@ unit)
             and .payload.to == "take_report")] | last) as $leg
         | ([$e[] | select(.type == "evidence_submitted" and .payload.state == "wait"
             and (if $ev == "" then (.payload.fields.unit // null) != null
-                 else ((.payload.fields.event // "") | tostring) as $e | ($ev | split("|") | index([$e]) != null) end))] | last) as $w
+                 else ((.payload.fields.event // "") | tostring) as $got | ($ev | split("|") | index([$got]) != null) end))] | last) as $w
         | if $leg != null and ($leg.payload.from // "") == "wait_leg" and ($w == null or $leg.seq > $w.seq) then
             cap("WAIT_REQ"; $leg.seq) as $r | cap("WAIT_LEG"; $leg.seq) as $l
             | if ($r | test("^[a-z0-9_][a-z0-9_-]{0,63}$")) and ($l | test("^[a-z0-9_-]+$")) then "leg \($r):\($l)" else "unusable" end

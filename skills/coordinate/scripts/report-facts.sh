@@ -28,19 +28,17 @@
 # A progress report (the hub's `progress` event: a checkpoint message, never
 # a result; shirabe#491) is read the same way, and a pull request it names
 # that its holding lacks still gives `link`, so report_link writes it onto
-# the holding through holding-link.sh. Every other verdict for it is
-# `progress <pr|none> <topic>`, which goes back to the hub: no
-# classification, no phase change. A pull request it named that was refused
-# is kept in the facts' `refused` field rather than routed.
+# the holding through holding-link.sh, and a refusal is `refused` as for any
+# report. Where a report reads `holding`, progress reads `progress <pr|none>
+# <topic>`: report_questions still reads its questions, and it then goes
+# back to the hub, never to classification, with no phase change.
 #
 # Verdict tokens: holding <pr|none> <topic> | link <pr> <topic> | progress
 # <pr|none> <topic> | unknown <topic> (no row, or `-` when the evidence names
 # no dispatch topic) | refused <topic> <why> (one of the codes above).
 # The facts go to context key coord/report.json as data (classify_report's
 # decider input): {unit, pull_request: {repo, number, url} or null, state,
-# draft, head, merge_state, holding, progress (bool), refused (the reason a
-# progress report's pull request was refused, or null)}. No worker message
-# text: the dispatch
+# draft, head, merge_state, holding}. No worker message text: the dispatch
 # path adds worker_report separately.
 #
 # Usage:
@@ -82,21 +80,13 @@ trap 'rm -rf "$T"' EXIT
 
 TOPIC=- ROW=null PRJ=null PRVIEW='{}' PROGRESS=0
 finish() {
-    local tok=$1 refused=
-    # A progress report goes back to the hub whatever its pull request's
-    # standing, unless its holding is to be linked first.
-    if [ "$PROGRESS" = 1 ]; then
-        set -- $1
-        case "$1" in
-            holding) tok="progress $2 $3" ;;
-            refused) refused=$3; tok="progress none $2" ;;
-        esac
-    fi
-    jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" \
-        --argjson pg "$([ "$PROGRESS" = 1 ] && echo true || echo false)" --arg rf "$refused" '
+    local tok=$1
+    # A checkpoint report is never classified: where a report reads holding,
+    # it reads progress.
+    [ "$PROGRESS" = 1 ] && case "$tok" in "holding "*) tok="progress ${tok#holding }" ;; esac
+    jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
-         head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row,
-         progress: $pg, refused: (if $rf == "" then null else $rf end)}' > "$T/report.json"
+         head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
     lib_emit report_facts "$tok" coord/report.json "$T/report.json"
 }
 

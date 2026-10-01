@@ -9,7 +9,8 @@
 # Reads only engine-written or gated values: the report text (the context key
 # worker_report, gated at take_report), how it arrived (report_source, written
 # on both edges into take_report), and report_facts' sealed REPORT capture,
-# which says whether the report has a holding (`holding <pr|none> <topic>`) or
+# which says whether the report has a holding (`holding <pr|none> <topic>`,
+# or `progress <pr|none> <topic>` for a checkpoint report) or
 # not (`unknown <topic>`, `refused <topic> <why>`) and names its topic. With a
 # holding, the holding's row (record-holding.sh --read) gives its entry point,
 # and the Decisions section (record-decision.sh --list) the entries a citation
@@ -118,7 +119,7 @@ case $? in 0) ;; 1) echo "$PROG: no sealed report_facts verdict from its latest 
 set -f; set -- $REPORT; set +f
 HOLDING=0
 case "${1-}" in
-    holding) HOLDING=1 TOPIC=${3-} ;;
+    holding|progress) HOLDING=1 TOPIC=${3-} ;;
     unknown|refused) TOPIC=${2-} ;;
     *) echo "$PROG: report_facts' verdict is not one this reads: ${1-}" >&2; verdict unreadable ;;
 esac
