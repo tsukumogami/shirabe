@@ -192,8 +192,14 @@ states never ask you to do these steps by hand.
   refusal names the entry point to use instead. At a new dispatch (not a
   re-brief) it also refuses a `unit` that pick wouldn't read as one of the
   units it listed, naming the
-  forms that would match (`Feature 2` or `Feature 2: <title>`, `#12`), since
-  a holding pick can't see leaves its unit open to a second dispatch;
+  forms that would match (`Feature 2` or `Feature 2: <title>`, `#12` or
+  `<host>#12`), since a holding pick can't see leaves its unit open to a
+  second dispatch. It reads those units from `coord/pick.json`, which a pick
+  pass in the same session writes; without it a new dispatch exits 2. When
+  the brief carries the workspace's own rules for
+  workers, its Reporting section says it wins over them where they name
+  another session for direction or for status reports, so the worker always
+  reports to you;
   `scripts/dispatch-worker.sh`
   renders it, writes the holding, runs the workspace manager's dispatch and
   confirms the holding. The `dispatch` state can't be left until

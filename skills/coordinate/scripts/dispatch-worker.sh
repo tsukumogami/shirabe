@@ -317,7 +317,8 @@ fi
 # The unit becomes the holding's Unit cell, and pick finds a unit's holding
 # only by the forms pick-facts.sh reads, so render-brief.sh --units refuses
 # any other form against the units pick_facts listed in this pass
-# (coord/pick.json, which only that check writes). A resumed dispatch's
+# (coord/pick.json, which only pick-facts.sh writes, as pick_facts' action).
+# A new dispatch with no coord/pick.json exits 2. A resumed dispatch's
 # holding already records its unit, so it isn't checked again.
 UNITS_FILE=""
 if [ "$STATUS" != dispatching ]; then

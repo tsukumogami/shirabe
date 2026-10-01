@@ -145,7 +145,7 @@ change: if a message to it bounces, list the sessions again before
 concluding it is gone.
 
 When the brief carries Workspace rules, this section wins over them: where
-they name another session for direction or for reports, the worker reports
+they name another session for direction or for status reports, the worker reports
 to the coordinator above.
 
 Each report leads with the verdict, then the paths or pull requests it

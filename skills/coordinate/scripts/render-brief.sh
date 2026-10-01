@@ -342,7 +342,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
   ( if ((.standing_rules // []) | length) > 0 then
-      "This section wins over the Workspace rules below: where they name another session for direction or for your reports, report to `\(.dispatcher_session)` as this section says.\n"
+      "This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `\(.dispatcher_session)` as this section says.\n"
     else empty end ),
   "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
   "",

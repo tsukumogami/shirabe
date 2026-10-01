@@ -117,7 +117,7 @@ has "standing rule 2 verbatim"   "$B" "Keep test runs targeted."
 has "keep-alive note"            "$B" "The workspace manager schedules your keep-alive at dispatch. Don't schedule one."
 # Workspace rules can name another session for direction; the brief's own
 # Reporting section says it wins, inside that section, before the rules.
-PREC='This section wins over the Workspace rules below: where they name another session for direction or for your reports, report to `coord-alpha` as this section says.'
+PREC='This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `coord-alpha` as this section says.'
 has "precedence: the Reporting section wins over the workspace rules" "$B" "$PREC"
 eq  "precedence: it sits in the Reporting section" "## Reporting" \
     "$(printf '%s\n' "$B" | awk -v p="$PREC" '/^## / { s = $0 } $0 == p { print s; exit }')"
