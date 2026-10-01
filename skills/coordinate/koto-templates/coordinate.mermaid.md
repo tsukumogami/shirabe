@@ -131,13 +131,18 @@ stateDiagram-v2
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 62
     report_facts --> report_link : gates.report_facts_verdict.exit_code: 63
+    report_facts --> report_questions : gates.report_facts_verdict.exit_code: 64
     report_link --> report_facts : linked: written
     report_link --> surface : linked: refused
     report_questions --> decision_open : gates.report_questions_verdict.exit_code: 170
     report_questions --> classify_report : gates.report_holding.exit_code: 60, gates.report_questions_verdict.exit_code: 11
     report_questions --> wait : gates.report_holding.exit_code: 61, gates.report_questions_verdict.exit_code: 11
     report_questions --> wait : gates.report_holding.exit_code: 62, gates.report_questions_verdict.exit_code: 11
-    report_questions --> rebrief : gates.report_questions_verdict.exit_code: 171
+    report_questions --> wait : gates.report_holding.exit_code: 64, gates.report_questions_verdict.exit_code: 11
+    report_questions --> rebrief : gates.report_holding.exit_code: 60, gates.report_questions_verdict.exit_code: 171
+    report_questions --> rebrief : gates.report_holding.exit_code: 61, gates.report_questions_verdict.exit_code: 171
+    report_questions --> rebrief : gates.report_holding.exit_code: 62, gates.report_questions_verdict.exit_code: 171
+    report_questions --> wait : gates.report_holding.exit_code: 64, gates.report_questions_verdict.exit_code: 171
     report_questions --> surface : gates.report_questions_verdict.exit_code: 172
     roadmap_blocked --> wait : noted: noted
     roadmap_close --> roadmap_close_step : gates.roadmap_close_verdict.exit_code: 130
@@ -195,6 +200,7 @@ stateDiagram-v2
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76
     verify_board --> wait : gates.verify_board_verdict.exit_code: 77
     wait --> take_report : event: report
+    wait --> take_report : event: progress
     wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet
     wait --> decision_apply : event: decision

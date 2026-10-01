@@ -102,7 +102,7 @@ NUM=$2 TOPIC=$3
 # checked against what the report said rather than trusted alone.
 hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 all_rows() { cat "$T/all.json"; }
-lib_unit "" report all_rows
+lib_unit "" 'report|progress' all_rows
 [ "$UNIT" = "$TOPIC" ] || { echo "$PROG: refused: the latest report is ${UNIT:-no worker}'s, not $TOPIC's" >&2; exit 10; }
 lib_report_pr
 lib_pr_ref "$REPORT_PR" || refuse "the report names [$REPORT_PR], not a pull request"

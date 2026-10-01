@@ -76,6 +76,11 @@ HOLDINGS=$SAVED
 echo "== activity resets the count =="
 seed; run
 sweep 08:31; eq "first silence" "first-silence alpha beta" "$TOK"
+log_evidence "$S" wait '{"event":"progress","unit":"beta","report":"checkpoint 1"}' 2026-09-26T08:40:00.000Z
+log_to "$S" wait take_report 2026-09-26T08:40:00.000Z; log_to "$S" take_report wait 2026-09-26T08:40:00.000Z
+sweep 09:02; eq "a progress report resets its worker too (shirabe#491)" "second-silence alpha" "$TOK"
+seed; run
+sweep 08:31; eq "first silence" "first-silence alpha beta" "$TOK"
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T08:40:00.000Z
 log_to "$S" wait report_facts 2026-09-26T08:40:00.000Z; log_to "$S" report_facts wait 2026-09-26T08:40:00.000Z
 sweep 09:02; eq "a report resets its worker; the other is on its second" "second-silence beta" "$TOK"

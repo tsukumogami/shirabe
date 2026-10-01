@@ -121,6 +121,9 @@ PREC='This section wins over the Workspace rules below: where they name another 
 has "precedence: the Reporting section wins over the workspace rules" "$B" "$PREC"
 eq  "precedence: it sits in the Reporting section" "## Reporting" \
     "$(printf '%s\n' "$B" | awk -v p="$PREC" '/^## / { s = $0 } $0 == p { print s; exit }')"
+has "progress: a checkpoint report is never the worker's result (shirabe#491)" "$B" "A report at a checkpoint is progress: it says where you are"
+eq  "progress: it sits in the Reporting section" "## Reporting" \
+    "$(printf '%s\n' "$B" | awk '/^## / { s = $0 } /^A report at a checkpoint is progress/ { print s; exit }')"
 lacks "no temporary file left"   "$(ls -A "$BRIEFS")" ".plugin-api."
 
 # --- optional fields absent -----------------------------------------------------------
@@ -306,6 +309,14 @@ units_refused() { # units_refused <label> <input> <want>
 units_refused "units: the old template example" "$(variant old-example '.unit = "Feature 2 of ROADMAP-plugin-system"')" \
     'unit: [Feature 2 of ROADMAP-plugin-system] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; use one of: "Feature 1", "Feature 1: the manifest", "Feature 2", "Feature 2: the plugin API"'
 units_refused "units: a feature not on the roadmap" "$(variant f9 '.unit = "Feature 9"')" '"Feature 2: the plugin API"'
+# A unit pick lists with no title is named by its tag alone, never
+# "Feature 3: null".
+jq -c '.units += [{unit: "Feature 3", number: 3, title: null}]' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
+NT=$(cd "$W/inst" && bash "$S" --input "$(variant f9b '.unit = "Feature 9"')" --units "$PICK" 2>&1 >/dev/null)
+has "units: a unit with no title is offered by its tag" "$NT" '"Feature 3"'
+lacks "units: and never as <tag>: null" "$NT" 'Feature 3: null'
+bash "$S" --input "$(variant tag3 '.unit = "Feature 3"')" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: the untitled unit's tag is taken" 0 "$?"
+jq -c '.units |= map(select(.unit != "Feature 3"))' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
 units_refused "units: a title in another case" "$(variant case '.unit = "Feature 2: The Plugin API"')" '"Feature 2"'
 units_refused "units: a unit over two lines" "$(variant two-lines '.unit = "Feature 2\nFeature 1"')" '"Feature 2"'
 bash "$S" --input "$(variant tag '.unit = "Feature 2"')" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: the bare tag is taken" 0 "$?"
