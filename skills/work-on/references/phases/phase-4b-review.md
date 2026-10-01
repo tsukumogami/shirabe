@@ -4,7 +4,7 @@ Run three parallel code reviewers after scrutiny passes. Each reviewer checks th
 
 ## Reviewers
 
-Spawn the seats this round needs simultaneously using the Task tool -- all three on the first round, and on a retry only those `review_scope.json` doesn't keep (see Which Seats Run):
+Spawn all three simultaneously using the Task tool:
 
 - **Pragmatic reviewer**: Is the implementation simple? Does it avoid over-engineering, dead code, and scope creep?
 - **Architect reviewer**: Does the implementation fit the design structure? Are interface contracts and dependency directions correct?
@@ -12,7 +12,7 @@ Spawn the seats this round needs simultaneously using the Task tool -- all three
 
 ## Which Seats Run
 
-On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep` (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on to `qa_validation` without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
+On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, whatever the Reviewers section above says about spawning all three (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on to `qa_validation` without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
 
 ```bash
 koto context get <WF> review_scope.json

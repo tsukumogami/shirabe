@@ -4,7 +4,7 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
-Spawn the seats this round needs simultaneously using the Task tool -- all three on the first round, and on a retry only those `scrutiny_scope.json` doesn't keep (see Which Seats Run):
+Spawn all three simultaneously using the Task tool:
 
 - **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation? Are evidence claims verifiable from the diff?
 - **Justification reviewer**: Are deviations genuinely explained? Do reasons reflect real trade-offs, not shortcuts?
@@ -29,7 +29,7 @@ Commit the fix before the run re-enters a panel. The scope is computed from comm
 
 When every seat is `keep` you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way.
 
-Spawn only the seats whose decision isn't `keep`. This holds for every round after a retry, whatever the Retry Loop below calls the next round: the seat that raised a finding re-checks it, and the others re-run only if the fix touched what they cited. The decisions are the script's, made from git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever seat is running, not a reason to override the scope.
+Spawn only the seats whose decision isn't `keep`. This holds for every round after a retry, whatever the Reviewers section above and the Retry Loop below say about spawning all three: the seat that raised a finding re-checks it, and the others re-run only if the fix touched what they cited. The decisions are the script's, made from git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever seat is running, not a reason to override the scope.
 
 ## Evidence Format
 
