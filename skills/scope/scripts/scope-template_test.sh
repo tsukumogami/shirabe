@@ -270,6 +270,17 @@ else
     ok "print-scope-exit.sh never reports a PLAN as the abandoned artifact"
 fi
 
+# An intent-changing upstream change is the running agent's call, recorded as a
+# decision, with a concrete escalation target for every way a run is set up.
+ESC=$(awk '/^- \*\*Escalation phase\.\*\*/{f=1} f&&/^The check.s recording fields/{exit} f' \
+    "$HERE/../references/phases/phase-2-chain-orchestration.md")
+for want in 'koto decisions record' '`--koto-leg`' 'coordinator' 'Running solo' 'Under `--auto` with no' 'escalation stops the run'; do
+    case "$ESC" in
+        *"$want"*) ok "Phase 2's escalation names: $want" ;;
+        *) bad "Phase 2's escalation names: $want" "Escalation phase text missing it" ;;
+    esac
+done
+
 # The child-dispatch contract the hops rely on: under the sentinel a child keeps
 # its verdict and skips every step that publishes or routes, so /scope's one
 # push at exit stays true. The dispatch reference once had children leave their

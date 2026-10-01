@@ -243,9 +243,12 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 Before each child invocation the loop runs a worktree-staleness check —
 the Merge / Impact-analysis / Escalation flow in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`. None and
-Informational classifications proceed silently; an Intent-changing one
-halts and puts the judgment to the author. The hop's own directive says
-so when it applies.
+Informational classifications proceed silently. An Intent-changing one is
+judged by the agent running the chain: it settles in place what it can,
+records each such call as a decision with its classification and reason,
+and escalates the rest, to the coordinator under `--koto-leg`, to the
+author when running solo, and under `--auto` with no coordinator the
+escalation stops the run. The hop's own directive says so when it applies.
 
 ## Running the Workflow
 

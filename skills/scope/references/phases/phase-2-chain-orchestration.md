@@ -102,15 +102,29 @@ The check runs the three-phase flow defined in
   expected recipe withdrawn).
 - **Escalation phase.** None / Informational proceeds silently;
   the rebase is recorded in `worktree_rebases:` and Phase 2
-  advances to step 2 (sentinel write). Intent-changing halts and
-  routes to the team lead for an intent judgment. The team
-  lead decides whether the original session intent still holds:
-  yes routes to in-place resolution (update the affected
-  citation or claim, then proceed; classification recorded as
-  `intent-changing-resolved-in-place`); no escalates to the
-  author with a three-option prompt (re-author affected
-  artifacts; proceed against original intent — recorded in
-  `worktree_divergences:`; bail per R8's bail-handling rule).
+  advances to step 2 (sentinel write). Intent-changing is judged
+  by the agent running the chain, as close to the change as it
+  can be decided. What it can settle itself it reconciles in
+  place: update the affected citation or claim, then proceed,
+  recorded in `worktree_rebases:` as
+  `intent-changing-resolved-in-place`. What it cannot settle it
+  escalates. Either way it records the call as a decision —
+  through `/decision` when the choice is contested, otherwise
+  `koto decisions record scope-<topic>` — naming the
+  classification (`resolved-in-place` or `escalated`) and the
+  reason.
+
+  An escalation goes to whoever holds deciding power over the
+  run. Under a coordinator (a run opened with `--koto-leg`) it
+  goes to the coordinator: the run stops at bail with the
+  escalation recorded, and the coordinator reads it from the
+  leg. Running solo and interactive, it goes to the author as a
+  three-option prompt (re-author affected artifacts; proceed
+  against original intent, recorded in `worktree_divergences:`;
+  bail per R8's bail-handling rule). Under `--auto` with no
+  coordinator, an escalation stops the run at bail with the
+  decision recorded; nothing is answered on the author's
+  behalf.
 
 The check's recording fields follow the canonical schema:
 
@@ -132,10 +146,10 @@ worktree_divergences:
 ```
 
 `worktree_divergences:` is the audit list — appended only when
-the team lead escalated and the author chose "proceed against
+the run escalated and the author chose "proceed against
 original intent." It is absent in the common case per I-5.
 
-Author-supplied prose (e.g., the team-lead's note about an
+Author-supplied prose (e.g., the agent's note about an
 in-place resolution, or the author's reason for choosing to
 proceed against original intent) is committed via the
 `git commit -F` discipline documented in Phase 3, never
