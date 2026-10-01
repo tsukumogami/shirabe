@@ -40,7 +40,11 @@
 #   no-pr none none              the report being verified names no pull
 #                                request (classify_report doesn't send such
 #                                a report here; this is the exit if one
-#                                arrives anyway)
+#                                arrives anyway); its reason code is
+#                                no-pull-request (`holding none`),
+#                                not-a-holding (another verdict) or no-report
+#                                (no capture sealed at report_facts' latest
+#                                visit)
 # (`board-unreadable`, not `unreadable`: the verdict table is one word list
 # for every check state.)
 # Only a verified token carries a head, so nothing downstream can land any
@@ -89,22 +93,23 @@ bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state verify --after "
 
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
 trap 'rm -f "$T"' EXIT
-# stopped <word> <code> <detail>: a verdict with no board read behind it,
-# written in board-verdict.sh's shape (nothing read: no head, source, state,
-# jobs or required set) so coord/board.json has one shape.
+# stopped <word> <code> <detail> [<pr>]: a verdict with no board read behind
+# it, written in board-verdict.sh's shape (nothing read: no head, source,
+# state, jobs or required set) so coord/board.json has one shape. The token's
+# pull request is <pr>, else $PR.
 stopped() {
     jq -nc --arg v "$1" --arg c "$2" --arg d "$3" \
         '{verdict: $v, head: null, source: null, pr_state: null, merge_state: null,
           reasons: [{code: $c, detail: $d}], skipped: [], superseded: [], required: [],
           counts: {runs: 0, jobs: 0, jobs_ran: 0, required: 0}, notes: []}' > "$T"
-    TOKEN="$1 $PR none"
+    TOKEN="$1 ${4:-$PR} none"
 }
 
 TOKEN=
 # no_pr <code> <detail>: nothing to verify. The state leaves on a sealed
 # verdict rather than failing its action on every tick, since what it read
 # (report_facts' sealed capture) can't change while the run stays here.
-no_pr() { stopped no-pr "$1" "$2"; TOKEN="no-pr none none"; }
+no_pr() { stopped no-pr "$1" "$2" none; }
 if [ -z "$PR" ]; then
     REP=$(bl_capture "$SESSION" REPORT report_facts)
     case $? in

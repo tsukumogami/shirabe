@@ -924,7 +924,7 @@ states:
         type: enum
         values: [written, refused]
         required: true
-        description: written once holding-link.sh exited 0; refused when it refuses the pull request (exit 65) or the record refuses the write (exit 10 or 13), which goes to the human.
+        description: written once holding-link.sh exited 0; refused when it refuses (any exit but 0 and the retried 2, 11 and 12), which goes to the human with the reason it printed.
     transitions:
       - target: report_facts
         when:
@@ -1301,7 +1301,10 @@ states:
         description: What in the report decided it.
     # report_pr reads report_facts' sealed verdict: `done` reaches verify only
     # with a pull request to verify (0); with none (1) it goes back to the
-    # hub, since verify_board would have nothing to read.
+    # hub, since verify_board would have nothing to read. A capture it can't
+    # read (2) has no `done` arm, so `done` holds here; every way into this
+    # state passes report_facts first, so that is a bug, not a route.
+    # blocked and needs_fix don't read the gate.
     gates:
       report_pr:
         type: command
@@ -1393,6 +1396,9 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 76  # actions-green
+      # Defensive: classify_report's report_pr gate keeps a report with no
+      # pull request out of verify, so only a route that skips it reaches
+      # this. Like pending and board-unreadable, it keeps the report.
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 77  # no-pr
@@ -2480,9 +2486,10 @@ watch for it, so the message is still what makes you tick.
 
 The report named a pull request its holding doesn't link yet. Run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/holding-link.sh" --session
-"{{SESSION_NAME}}"` and submit `linked: written` when it exits 0, or `linked:
-refused` when it exits 65, 10 or 13. On 12 (the record changed) or 2 (a read
-failed), run it again.
+"{{SESSION_NAME}}"` and submit `linked: written` when it exits 0. On 2, 11
+or 12 (a read or the write failed, or the record changed), run it again. On
+any other exit submit `linked: refused`, and put the reason it printed in
+front of the human at surface.
 
 <!-- details -->
 
@@ -2492,6 +2499,13 @@ pull request's own head branch through `record-holding.sh`. `report_facts`
 then reads the holding again, so a write that didn't land comes back here. A
 refusal goes to the human with its reason: the pull request stays unadopted
 until someone says whose it is.
+
+On the leg path the pull request is the one koto holds in the worker's own
+result. On the message path it is the one you passed as `pull_request`, so
+the binding of that pull request to this worker rests on your reading of the
+message: GitHub confirms only that it is in scope, not from a fork, and linked
+by no other holding. Pass it only when the worker's message names it as its
+own.
 
 ## report_questions
 
@@ -2731,8 +2745,9 @@ Classify the worker's report and submit `classification`: `done` when its pull
 request is ready to verify, `blocked` when it needs a decision or a step that
 isn't its own, `needs_fix` when the work has a problem it can fix. The report is
 in `worker_report` and the facts about it in `coord/report.json`. `done` for
-a holding with no pull request goes back to the hub: there is nothing to
-verify until the worker's report names one.
+a holding with no pull request goes back to the hub, since there is nothing
+to verify: message the worker to name its pull request, and pass it as
+`pull_request` with the report that does.
 
 <!-- details -->
 

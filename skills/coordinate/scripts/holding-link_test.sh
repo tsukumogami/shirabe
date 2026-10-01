@@ -4,8 +4,11 @@
 #
 # Covers: a message report's pull_request written with the headRefName GitHub
 # reports as Branch, never text from the report; a leg result's pr the same,
-# read from koto's record of the leg; running it again once linked (exit 0,
-# nothing written); refusals before any write: the run not at report_link or
+# read from koto's record of the leg; a Branch cell already set that agrees,
+# kept; running it again once linked, the link's repository in any case
+# (exit 0, nothing written); a failed write (11); refusals before any write:
+# the report's pull request in no readable form or outside the scope (65),
+# the run not at report_link or
 # report_facts' verdict not `link` (10), the latest report now another
 # worker's or naming another number (10), a holding already linking another
 # pull request, one another holding links, a fork head that appeared since
@@ -96,6 +99,18 @@ link
 eq "the leg's pull request is written" 0 "$RC"
 eq "with its head branch" '{"branch":"feat/kappa-work","pull_request":"[#21](https://github.com/acme/widgets/pull/21)"}' "$(row kappa)"
 
+echo "== a Branch cell already set =="
+seed "$(printf '%s' "$HOLD" | jq -c 'map(if .worker == "lambda" then .branch = "feat/zeta-work" else . end)')"
+message lambda "acme/widgets#20"
+link
+eq "a Branch that agrees with the head branch: written, Branch kept" \
+    '0 {"branch":"feat/zeta-work","pull_request":"[#20](https://github.com/acme/widgets/pull/20)"}' "$RC $(row lambda)"
+seed "$HOLD"
+message zeta "acme/widgets#20"
+seed "$(printf '%s' "$HOLD" | jq -c 'map(if .worker == "zeta" then .pull_request = "[#20](https://github.com/ACME/Widgets/pull/20)" else . end)')"
+link
+eq "already linked, the repository in another case: nothing to do" "0 already linked" "$RC $OUT"
+
 echo "== refusals =="
 seed "$HOLD"
 message zeta "acme/widgets#20"
@@ -127,6 +142,22 @@ message zeta "acme/widgets#20"
 seed "$(printf '%s' "$HOLD" | jq -c 'map(if .worker == "zeta" then .branch = "feat/other" else . end)')"
 link; eq "a Branch cell that disagrees with the head branch: refused" 65 "$RC"
 eq "nothing refused was written" '{"branch":"feat/other","pull_request":""}' "$(row zeta)"
+# The log's own report now names its pull request in a form that isn't one,
+# or one outside the scope: each is checked again here, not taken from the seal.
+seed "$HOLD"
+message zeta "acme/widgets#20"
+log_evidence "$S" wait '{"event":"report","unit":"zeta","pull_request":"PR 20"}'
+link; eq "the report's pull request in no form a repository can be read from: refused" 65 "$RC"
+message zeta "acme/widgets#20"
+db '.repos["acme/other"] = {private: false, default_branch: "main"}'
+log_evidence "$S" wait '{"event":"report","unit":"zeta","pull_request":"acme/other#20"}'
+link; eq "a pull request outside the scope's repositories: refused" 65 "$RC"
+eq "and nothing was written" '{"branch":"","pull_request":""}' "$(row zeta)"
+seed "$HOLD"
+message zeta "acme/widgets#20"
+db '.fail = [{match: "issue edit", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
+link; eq "a write that fails is record-holding.sh's 11, to run again" 11 "$RC"
+db '.fail = []'
 seed "$HOLD"
 message zeta "acme/widgets#20"
 db '.fail = [{match: "pr view 20", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'

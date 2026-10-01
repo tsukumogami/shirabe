@@ -34,11 +34,10 @@ done
 CAP=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name REPORT --state report_facts 2> /dev/null) || {
     printf '%s: no sealed report_facts verdict from its latest visit\n' "$PROG" >&2; exit 2; }
 set -f; set -- ${CAP% sealed:*}; set +f
+RE_PR='^[1-9][0-9]*$'
 if [ $# -eq 3 ] && [ "$1" = holding ]; then
-    case "$2" in
-        none) printf '%s: the holding for %s has no pull request, and the report named none\n' "$PROG" "$3" >&2; exit 1 ;;
-        [1-9]*) case "$2" in *[!0-9]*) ;; *) exit 0 ;; esac ;;
-    esac
+    [ "$2" = none ] && { printf '%s: the holding for %s has no pull request, and the report named none\n' "$PROG" "$3" >&2; exit 1; }
+    [[ $2 =~ $RE_PR ]] && exit 0
 fi
 printf '%s: report_facts'"'"' verdict is [%s], not a holding\n' "$PROG" "${CAP% sealed:*}" >&2
 exit 2

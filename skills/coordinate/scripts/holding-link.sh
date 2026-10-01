@@ -30,11 +30,14 @@
 #                   --ref N --skip-session-checks                    (tests)
 #
 # Exit codes: 0 written, or already linked (prints the record's URL, or
-# `already linked`); 10 refused (not at report_link, no sealed `link`, or
-# record-holding.sh's own refusal); 65 the pull request was refused (the
-# reason on stderr); 11, 12, 13 record-holding.sh's write failed, the record
-# changed since the read (run it again), the record is full; 2 a read failed;
-# 64 usage.
+# `already linked`); 10 refused, either because the session log doesn't show
+# this report's link (not at report_link, no sealed `link`, a later report, or
+# another number than the one sealed) or because record-holding.sh refused the
+# write (no open record, provenance, a directed transition); 65 the pull
+# request was refused (the reason on stderr); 11 the write failed and 12 the
+# record changed since the read (run it again for either); 13 the record is
+# full; 2 a read failed (run it again); 64 usage. Every refusal names its
+# reason on stderr.
 #
 # GitHub reads: record-holding.sh --list;
 # gh pr view <n> --repo <repo> --json headRefName,isCrossRepository.
@@ -109,6 +112,9 @@ jq -c --arg t "$TOPIC" '[.[] | select(.worker == $t)][0] // empty' "$T/all.json"
 [ -s "$T/row.json" ] || refuse "no holding for $TOPIC"
 CELL=$(jq -r '.pull_request // ""' "$T/row.json")
 BR=$(jq -r '.branch // ""' "$T/row.json")
+# Linked already (a second run after a write report_facts hasn't re-read yet):
+# nothing to do. A Branch cell is neither checked nor filled here: report_facts'
+# next read compares it with the head branch, as for any linked holding.
 if [ -n "$CELL" ]; then
     if lib_pr_link "$CELL" && [ "$LINK_NUM" = "$NUM" ] \
         && [ "$(printf '%s' "$LINK_REPO" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$PR_REPO" | tr '[:upper:]' '[:lower:]')" ]; then

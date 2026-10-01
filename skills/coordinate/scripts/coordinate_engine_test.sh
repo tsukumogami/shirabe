@@ -42,7 +42,11 @@
 #      headRefName, and on to verify_board reading that pull request with no
 #      hand write; a restart's reconcile then reports it open; `done` for a
 #      report naming none goes back to wait, never to verify, and the next
-#      report naming one gets through.
+#      report naming one gets through; blocked and needs_fix still route with
+#      no pull request. verify_board's no-pr arm is unreachable here by
+#      design (the gate above keeps such a report out of verify), so its
+#      sealed verdict is board-record_test.sh's and its arm the structure
+#      test's.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -620,6 +624,17 @@ if empty_run linknone 127; then
 else
     bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
+# blocked and needs_fix don't route on report_pr, so a holding with no pull
+# request still takes them.
+for c in "blocked surface 128" "needs_fix rebrief 129"; do
+    set -- $c
+    if empty_run "linkno$1" "$3"; then
+        at --with-data '{"event":"report","unit":"feat-1","report":"stuck before any PR"}' > /dev/null
+        eq "16 none: $1 with no pull request reaches $2" "$2" "$(at --with-data "{\"classification\":\"$1\"}")"
+    else
+        bad "16 none: reach wait for $1" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    fi
+done
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 # ---- 12 to 15. the decision loop ----------------------------------------------

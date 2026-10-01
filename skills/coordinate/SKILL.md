@@ -205,7 +205,8 @@ states never ask you to do these steps by hand.
   branch, as GitHub reports it, onto the holding. The report's
   classification is yours; the workflow's own suggestion is recorded next to
   it in shadow and never routes. `done` reaches verification only with a pull
-  request to verify.
+  request to verify; without one it goes back to the hub, and you ask the
+  worker to name its pull request.
 - **Teardown.** After the worker's session is stopped,
   `scripts/teardown-inventory.sh` inventories its instance by content and
   seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is
