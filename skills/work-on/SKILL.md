@@ -304,9 +304,16 @@ leg, since one leg answers one session.
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
+- `scripts/panel-scope.sh --plan|--carried|--record <panel> <session>` — which
+  review seats a panel round needs. koto runs `--plan` on entering `scrutiny`,
+  `review` and `qa_validation` and `--carried` as each one's gate; the agent runs
+  `--record` after each round. A seat whose passed verdict the fix didn't touch is
+  kept, a seat that raised a blocking finding re-checks only that finding against
+  the fix diff, and a panel with nothing to run is carried through by koto. The
+  phase files under `references/phases/phase-4*` say how to act on the scope.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/ci-monitor-role_test.sh`, `scripts/record-changed-paths_test.sh`,
-  `scripts/work-on-open_test.sh` — the harnesses; see each file's header.
+  `scripts/work-on-open_test.sh`, `scripts/panel-scope_test.sh` — the harnesses; see each file's header.
 
 ### Execution Loop
 

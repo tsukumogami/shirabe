@@ -10,6 +10,14 @@ Spawn the tester agent using the Task tool. The tester:
 3. Exercises the implementation against the acceptance criteria
 4. Reports pass/fail per AC with evidence
 
+## Whether the Tester Runs
+
+On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: it gets only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and checks whether each failing scenario now passes. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
+
+```bash
+koto context get <WF> qa_scope.json
+```
+
 ## Evidence Format
 
 The tester writes full results to a `mktemp`-produced file outside the repository and returns:
@@ -19,17 +27,31 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
   "scenarios_run": 3,
   "scenarios_passed": 3,
   "scenarios_failed": 0,
+  "cited": [{"path": "src/a.sh", "lines": "10-24"}],
+  "findings": [{"summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
   "detail_file": "<the tester's mktemp path>"
 }
 ```
+
+`cited` is the code the scenarios exercised; with nothing cited, any fix to a path in the diff re-runs QA. `findings` lists each failing scenario, which a re-check round gets back.
 
 Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
 ## Aggregation
 
-After the tester returns:
+After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and `blocking_count` set to `scenarios_failed`:
 
-- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
+```bash
+ROUND=$(mktemp)
+# write [{"seat": "tester", "blocking_count": <scenarios_failed>, "cited": [...], "findings": [...]}] to "$ROUND"
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"
+```
+
+If `--record` fails, fix it and run it again before submitting anything; if it can't be fixed, submit `qa_outcome: blocking_escalate`.
+
+Then:
+
+- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios. The run then walks forward through `scrutiny` and `review`, but those panels spawn nothing unless the fix touched what their seats cited: when every seat is untouched, koto carries their verdicts and the run goes from implementation straight to this phase's re-check. A fix that does touch their citations, or that crosses the size threshold in `panel-scope.sh`, re-runs exactly the seats it touched.
 - If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
 
 ```bash
@@ -63,7 +85,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
+All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried verdict for any panel the fix didn't touch, so the gate is satisfied by this round's artifact rather than the stale one. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 ## Escalation
 

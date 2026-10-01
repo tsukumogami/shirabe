@@ -87,6 +87,14 @@ case "$ARGS" in
     fi
     ;;
   *"context get"*)
+    # A scenario can pin one key's content as ctx/<key> (panel-scope's
+    # <panel>_scope.json, say). Checked first, and only when the file exists,
+    # so every scenario without a ctx/ directory gets the replies it always got.
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$SCENARIO_DIR/ctx/$4" ]; then
+      cat "$SCENARIO_DIR/ctx/$4"
+      exit 0
+    fi
     if [ -f "$SCENARIO_DIR/koto-context-batch-final-view.json" ]; then
       cat "$SCENARIO_DIR/koto-context-batch-final-view.json"
       exit 0
