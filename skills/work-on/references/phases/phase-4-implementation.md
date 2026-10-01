@@ -111,6 +111,19 @@ summary; if the script succeeds but the AC is not met, the script is wrong.
 needed: security, performance, testing, architecture. Check for scope shrinkage
 and design intent drift.
 
+**Seat commissioning.** Each agent is a review seat, declared per
+`${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Security, Performance, Testing, Architecture | `general-purpose` | `sonnet` | 15 | Read, Grep, Glob, Bash |
+
+Pass `model: "sonnet"` on each spawn. Assemble one packet for all of them with
+`PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)`
+(`--criteria <file>` for a PLAN-outline child), open each prompt with the seat
+preamble from the commissioning reference, and remove `$PACKET` once their
+findings are in.
+
 ## Evidence
 
 - `implementation_status: complete` — all steps done, tests pass. Submit it alone, with no `issue_type`: koto records the changed paths (`changed_paths_record`) and then asks for the type once, at `issue_type_routing`

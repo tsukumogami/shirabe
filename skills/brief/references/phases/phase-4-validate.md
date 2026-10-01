@@ -76,6 +76,24 @@ resolving outside the tool.
 
 ## 4.1 Spawn Jury Agents
 
+### Seat commissioning
+
+Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Content Quality | `general-purpose` | `sonnet` | 8 | Read, Write |
+| Structural Format | `general-purpose` | `haiku` | 6 | Read, Write |
+
+Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. Before spawning, assemble the packet once for every seat:
+
+```bash
+PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md \
+  --format skills/brief/references/brief-format.md --extra wip/brief_<topic>_context.md)
+```
+
+The `[Contents of ...]` sections in the prompts below are the packet: name `$PACKET` in their place rather than pasting the text. Each prompt follows its fixed preamble with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. Remove `$PACKET` once the verdicts are aggregated.
+
 Spawn both agents in parallel. Each prompt opens with the fixed preamble below to
 defuse prompt-injection attempts via the BRIEF body.
 

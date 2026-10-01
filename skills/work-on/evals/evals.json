@@ -197,13 +197,15 @@
       "mode": "execute",
       "scenario": "review-panel-passed",
       "prompt": "/work-on #42",
-      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review.",
+      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review. Before spawning, it assembles the round's packet with scripts/review-packet.sh code and spawns each reviewer with model sonnet.",
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: passed when panel reviewers all approve",
         "Agent does not submit blocking_retry or blocking_escalate when issues are found to be correctable",
         "Agent checks scrutiny_results context-exists gate status before submitting evidence",
-        "Agent plans to run all three panel reviewers before submitting scrutiny outcome"
+        "Agent plans to run all three panel reviewers before submitting scrutiny outcome",
+        "Agent assembles the review packet with scripts/review-packet.sh code before spawning the panel reviewers",
+        "Agent spawns each panel reviewer with an explicit Sonnet model rather than inheriting the parent's model"
       ]
     },
     {

@@ -4,6 +4,22 @@ Run three parallel code reviewers after scrutiny passes. Each reviewer checks th
 
 ## Reviewers
 
+### Seat commissioning
+
+Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Pragmatic, Architect, Maintainer | `general-purpose` | `sonnet` | 15 | Read, Grep, Glob, Bash |
+
+Pass `model: "sonnet"` on each spawn; a seat with no model inherits the parent's. Bash is for read-only git and the `mktemp` detail file. Before spawning, assemble the round's packet once, exactly as `phase-4a-scrutiny.md` does:
+
+```bash
+PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)
+```
+
+(`--criteria <file>` in place of `--issue` for a PLAN-outline child.) Every prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap. Remove `$PACKET` after aggregation, with the detail files.
+
 Spawn all three simultaneously using the Task tool:
 
 - **Pragmatic reviewer**: Is the implementation simple? Does it avoid over-engineering, dead code, and scope creep?

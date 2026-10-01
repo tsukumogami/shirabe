@@ -75,6 +75,24 @@ the tool.
 
 ## 4.1 Spawn Jury Agents
 
+### Seat commissioning
+
+Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Bet Quality, Altitude | `general-purpose` | `sonnet` | 8 | Read, Write |
+| Structural Format | `general-purpose` | `haiku` | 6 | Read, Write |
+
+Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. Before spawning, assemble the packet once for every seat:
+
+```bash
+PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/strategies/STRATEGY-<topic>.md \
+  --format skills/strategy/references/strategy-format.md --extra <upstream-doc>)
+```
+
+The `[Contents of ...]` sections in the prompts below are the packet: name `$PACKET` in their place rather than pasting the text. Each prompt follows its fixed preamble with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. `<upstream-doc>` is the grounding document the Altitude prompt names (the upstream VISION, or the grounding PRD); drop the `--extra` when there is none. Remove `$PACKET` once the verdicts are aggregated.
+
 Spawn all three agents in parallel. Each prompt opens with the fixed
 preamble below to defuse prompt-injection attempts via the STRATEGY body.
 

@@ -4,6 +4,22 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
+### Seat commissioning
+
+Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Completeness, Justification, Intent | `general-purpose` | `sonnet` | 15 | Read, Grep, Glob, Bash |
+
+Pass `model: "sonnet"` on each spawn; a seat with no model inherits the parent's. Bash is for read-only git and the `mktemp` detail file. Before spawning, assemble the round's packet once:
+
+```bash
+PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)
+```
+
+A plan-backed child whose criteria come from the PLAN outline passes `--criteria <file>` with the outline's acceptance criteria instead of `--issue`. Every prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap; don't paste the diff or the issue into the prompt. Remove `$PACKET` after aggregation, with the detail files.
+
 Spawn all three simultaneously using the Task tool:
 
 - **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation? Are evidence claims verifiable from the diff?

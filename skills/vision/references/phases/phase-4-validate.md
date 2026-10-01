@@ -22,6 +22,23 @@ dimension, all specific to what makes a VISION document effective.
 Load `skills/vision/references/vision-format.md` and pass the relevant quality
 guidance to each agent.
 
+#### Seat commissioning
+
+Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
+
+| Seat | Subagent type | Model | Turn cap | Tools |
+|---|---|---|---|---|
+| Thesis Quality, Content Boundary, Section Guidance | `general-purpose` | `sonnet` | 8 | Read, Write |
+
+Pass the model on each spawn (`model: "sonnet"`); a seat with no model inherits the parent's. Before spawning, assemble the packet once for every seat:
+
+```bash
+PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/visions/VISION-<topic>.md \
+  --format skills/vision/references/vision-format.md --extra wip/vision_<topic>_scope.md)
+```
+
+The `[Contents of ...]` sections in the prompts below are the packet: name `$PACKET` in their place rather than pasting the text. Each prompt follows its fixed preamble with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. The packet carries `vision-format.md` whole, so the prompts' quality-guidance and content-boundary sections point the seat at the part of it they need. Remove `$PACKET` once the verdicts are aggregated.
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
