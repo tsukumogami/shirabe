@@ -89,7 +89,7 @@ coord_lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 # not in a git repository: `cd ""` would succeed and answer with <dir> itself.
 coord_git_common_dir() {
     local d
-    d=$(CDPATH='' cd "$1" && git rev-parse --git-common-dir 2>/dev/null) || return 1
+    d=$(CDPATH='' cd "$1" && git rev-parse --git-common-dir) || return 1
     [ -n "$d" ] || return 1
     (CDPATH='' cd "$1" && CDPATH='' cd "$d" && pwd -P)
 }
