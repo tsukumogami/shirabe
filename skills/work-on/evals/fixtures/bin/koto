@@ -87,6 +87,15 @@ case "$ARGS" in
     fi
     ;;
   *"context get"*)
+    # A key this scenario wrote with `context add` reads back what was written.
+    # panel-retry-budget.sh reads its record back after every write and refuses
+    # a retry whose line didn't land, so a canned reply here would turn every
+    # granted retry into an escalation.
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')" ]; then
+      cat "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+      exit 0
+    fi
     if [ -f "$SCENARIO_DIR/koto-context-batch-final-view.json" ]; then
       cat "$SCENARIO_DIR/koto-context-batch-final-view.json"
       exit 0
@@ -101,14 +110,23 @@ case "$ARGS" in
   # the no-match exit 1 below would abort the block at its first key -- so an
   # agent that did exactly the right thing would look like it had failed.
   #
-  # State is a marker file per key, under a scenario-scoped directory. Presence
-  # starts empty: an eval that needs a key present writes it with `context add`
-  # first, the same way a real run does.
+  # State is one file per key, holding what was written, under a
+  # scenario-scoped directory. Presence starts empty: an eval that needs a key
+  # present writes it with `context add` first, the same way a real run does.
   *"context add"*)
-    cat >/dev/null 2>&1 || true   # drain the heredoc the caller pipes in
-    set -- $ARGS                  # context add <WF> <KEY> [--from-file ...]
+    set -- $ARGS                  # context add <WF> <KEY> [--from-file <path>]
     mkdir -p "$CTX_STATE"
-    [ -n "${4:-}" ] && : > "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+    if [ -n "${4:-}" ]; then
+      dest="$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+      if [ "${5:-}" = "--from-file" ] && [ -n "${6:-}" ]; then
+        cat "$6" > "$dest" 2>/dev/null || : > "$dest"
+        cat >/dev/null 2>&1 || true
+      else
+        cat > "$dest" 2>/dev/null || : > "$dest"
+      fi
+    else
+      cat >/dev/null 2>&1 || true # drain the heredoc the caller pipes in
+    fi
     exit 0
     ;;
   *"context remove"*)

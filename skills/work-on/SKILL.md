@@ -308,7 +308,8 @@ leg, since one leg answers one session.
   whether a review panel that found blocking issues may send the work back
   again, and records each retry it grants in `panel_retries`. The panel
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
-  64 the record could not be read or written (a refusal), 67 bad arguments.
+  64 the record could not be read or is malformed, 66 the grant could not be
+  recorded, 67 bad arguments; every exit but 0 means escalate.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/ci-monitor-role_test.sh`, `scripts/record-changed-paths_test.sh`,
   `scripts/work-on-open_test.sh`, `scripts/panel-retry-budget_test.sh` — the

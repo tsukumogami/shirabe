@@ -25,10 +25,11 @@
 # clear the panel result keys and summary.md, never this one, so it lasts the
 # whole run. A refusal records nothing.
 #
-# Fails closed where it can tell. A record koto lists as present but won't
-# return, a write that fails, or a read-back that doesn't show the new line is
-# a refusal (exit 64), never a grant: a retry nobody recorded would not count
-# against the ceiling. An absent record is the first retry of the run.
+# Fails closed where it can tell. A record koto reports present but won't
+# return, a record line this script didn't write, a write that fails, or a
+# read-back that doesn't show the new line is a refusal (exit 64 or 66), never
+# a grant: a retry nobody recorded would not count against the ceiling. An
+# absent record is the first retry of the run.
 #
 # What it can't tell: koto gives no way to separate an absent key from a store
 # it can't read. `get` fails the same way for both, and `exists` and `list`
@@ -56,12 +57,18 @@
 # Exit codes:
 #   0  -- retry granted and recorded; submit blocking_retry through the retry loop
 #   1  -- refused; submit blocking_escalate with the printed reason
-#   64 -- no answer: the record could not be read or written; escalate
+#   64 -- no answer: the record could not be read, or holds a line this script
+#         didn't write; escalate
+#   66 -- the grant could not be recorded: the write failed, or the read-back
+#         doesn't show it; escalate
 #   67 -- bad arguments; nothing was read or written
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
 
+# These two numbers are also stated in the three panel directives in
+# koto-templates/work-on.md, which settled-policy_test.sh pins, in this
+# script's tests, and in the decision record. Change them together.
 FLOOR=2
 CEILING=3
 KEY=panel_retries
@@ -77,6 +84,12 @@ no_answer() {
     echo "verdict=escalate reason=$1"
     echo "panel-retry-budget: $1" >&2
     exit 64
+}
+
+not_recorded() {
+    echo "verdict=escalate reason=$1"
+    echo "panel-retry-budget: $1" >&2
+    exit 66
 }
 
 refuse() {
@@ -145,7 +158,8 @@ if [ "$USED" -ge "$FLOOR" ]; then
     fi
     LAST_SAME=$(printf '%s' "$LAST_SAME" | sed 's/^0*//')
     LAST_SAME=${LAST_SAME:-0}
-    # Written as "not fewer" so a comparison `[` can't make refuses too.
+    # Written as "not fewer" rather than `-ge`: if `[` can't compare the two, it
+    # fails, and the negation turns that failure into a refusal, not a grant.
     if ! [ "$COUNT" -lt "$LAST_SAME" ]; then
         refuse "$USED blocking retries used and $PANEL found $COUNT, not fewer than its previous $LAST_SAME"
     fi
@@ -160,14 +174,14 @@ else
     NEW=$(printf '%s\n' "$LINE")
 fi
 printf '%s\n' "$NEW" | koto context add "$SESSION" "$KEY" >/dev/null \
-    || no_answer "could not write the retry record ($KEY) for session $SESSION"
+    || not_recorded "could not write the retry record ($KEY) for session $SESSION"
 
 BACK=$(koto context get "$SESSION" "$KEY") \
-    || no_answer "could not read back the retry record ($KEY) for session $SESSION"
+    || not_recorded "could not read back the retry record ($KEY) for session $SESSION"
 BACK_LINES=$(printf '%s\n' "$BACK" | grep -c .)
 BACK_LAST=$(printf '%s\n' "$BACK" | grep . | tail -n 1)
 if [ "$BACK_LINES" -ne $((USED + 1)) ] || [ "$BACK_LAST" != "$LINE" ]; then
-    no_answer "the retry record ($KEY) did not take this round's line"
+    not_recorded "the retry record ($KEY) did not take this round's line"
 fi
 
 echo "verdict=retry retry=$((USED + 1)) ceiling=$CEILING"

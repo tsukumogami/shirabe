@@ -179,18 +179,18 @@ esac
 # --- fail-closed cases -----------------------------------------------------------
 
 OUT=$(SHIM_FAIL_ADD=1 budget fc1 scrutiny 4 2>/dev/null); RC=$?
-[ "$RC" -eq 64 ] && [ "${OUT%% *}" = verdict=escalate ] \
-    && pass "a record that can't be written refuses (64)" \
+[ "$RC" -eq 66 ] && [ "${OUT%% *}" = verdict=escalate ] \
+    && pass "a record that can't be written refuses (66)" \
     || fail "failed write gave rc=$RC out=[$OUT]"
 
 OUT=$(SHIM_DROP_ADD=1 budget fc2 scrutiny 4 2>/dev/null); RC=$?
-[ "$RC" -eq 64 ] && pass "a write that reports success but didn't land refuses (64)" \
+[ "$RC" -eq 66 ] && pass "a write that reports success but didn't land refuses (66)" \
     || fail "dropped write gave rc=$RC out=[$OUT]"
 
 mkdir -p "$SHIM_STORE/fc3"
 printf 'scrutiny 7\nscrutiny 2\n' > "$SHIM_STORE/fc3/panel_retries"
 OUT=$(SHIM_DROP_ADD=1 budget fc3 scrutiny 1 2>/dev/null); RC=$?
-[ "$RC" -eq 64 ] && pass "a dropped write on a non-empty record refuses (64)" \
+[ "$RC" -eq 66 ] && pass "a dropped write on a non-empty record refuses (66)" \
     || fail "dropped write on a non-empty record gave rc=$RC out=[$OUT]"
 
 mkdir -p "$SHIM_STORE/fc4"

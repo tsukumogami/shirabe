@@ -146,7 +146,7 @@ cap_in ci_monitor 'Retry cap: 3 fix pushes'
 # directive must call the script with its own panel, or a panel would be judged
 # against another panel's counts.
 RECORD=docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md
-PANEL_NOTE="until koto enforces it from its own counts, with the same rule"
+PANEL_NOTE="until koto can count defects per round and enforce it, with the same rule"
 for panel in scrutiny review qa_validation; do
     cap_in "$panel" 'The first 2 are granted whatever the counts. A third is granted only when this panel' "$PANEL_NOTE"
     cap_in "$panel" 'and no run gets more than 3.' "$PANEL_NOTE"
