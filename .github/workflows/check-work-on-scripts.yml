@@ -183,6 +183,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-requires_test.sh
 
+      # panel-scope_test.sh runs the sticky-verdict script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives the
+      # shipped template through a QA retry whose fix touches nothing scrutiny
+      # or review cited and asserts koto carries both panels to the QA
+      # re-check. The engine half skips without koto, so it runs here.
+      - name: Run panel scope tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/panel-scope_test.sh
+
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine
       # needed; the macOS leg runs it on the floor through the work-on suite.
