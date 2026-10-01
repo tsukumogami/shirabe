@@ -25,7 +25,7 @@ koto decides this before you spawn anything. On entering `scrutiny` it runs `scr
 koto context get <WF> scrutiny_scope.json
 ```
 
-Commit the fix before the run re-enters a panel. The scope is computed from committed history, so on a working tree with uncommitted changes the script keeps nothing and every passed seat re-runs; commit and tick again to get the narrow round.
+Commit the fix before the run re-enters a panel. The scope is computed from committed history, so on a working tree with uncommitted changes (untracked files included) the script keeps nothing and every passed seat re-runs; commit and tick again to get the narrow round. This holds for every panel, not only this one.
 
 When every seat is `keep` you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way.
 

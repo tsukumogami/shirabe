@@ -328,6 +328,13 @@ record scrutiny "$ALL_PASS"
 run --plan scrutiny "$SESSION"
 expect_decision "no commits since impl_base" scrutiny completeness rerun
 
+fixture nobase
+record scrutiny "$ALL_PASS"
+rm -f "$SHIM_STORE/$SESSION/impl_base"
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_decision "impl_base unrecorded, where has_commits fails" scrutiny completeness rerun
+
 fixture nofindings
 record review '[{"seat":"architect","blocking_count":1}]'
 edit docs/c.md 1 fixed

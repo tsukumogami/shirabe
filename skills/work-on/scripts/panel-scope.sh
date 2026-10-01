@@ -299,12 +299,12 @@ touches() {
 
 # Two facts that hold for every seat this entry. A dirty tree means the fix
 # may not be committed yet, and the diff below would not see it. No commits
-# since impl_base means there is nothing to have passed: the has_commits gate
+# since impl_base, or none recorded, means there is nothing to have passed: the has_commits gate
 # on scrutiny's passed edge holds, and a carried verdict must not slip past it.
 DIRTY=""
 [ -n "$(git status --porcelain | head -1)" ] && DIRTY=1
 NOCOMMITS=""
-if [ -n "$IMPL_BASE" ] && [ "$(git rev-list --count "$IMPL_BASE..HEAD" || echo 0)" = 0 ]; then
+if [ -z "$IMPL_BASE" ] || [ "$(git rev-list --count "$IMPL_BASE..HEAD" || echo 0)" = 0 ]; then
     NOCOMMITS=1
 fi
 
@@ -332,7 +332,7 @@ for seat in $SEATS; do
             reason="the working tree has uncommitted changes, so the fix diff cannot be judged: commit the fix and tick again"
         elif [ -n "$NOCOMMITS" ]; then
             decision=rerun
-            reason="no commits since impl_base; nothing to carry a pass for"
+            reason="no commits since impl_base, or impl_base is unrecorded (has_commits fails either way); nothing to carry a pass for"
         elif [ "$ac" != "$AC_SHA" ]; then
             decision=rerun
             reason="acceptance criteria changed since it judged at $short"
@@ -363,7 +363,7 @@ for seat in $SEATS; do
                 reason="fix diff since $short changes $changed lines, over the $THRESHOLD_LINES-line threshold"
             elif [ ! -s "$WORK/cited" ]; then
                 decision=rerun
-                reason="cited nothing, and with no impl_base the diff it judged cannot be recovered"
+                reason="cited nothing, and the diff it judged is empty"
             elif hit=$(touches "$judged" < "$WORK/cited"); then
                 decision=rerun
                 reason="fix diff since $short touches $hit, in $cited_what"
