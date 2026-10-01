@@ -1,0 +1,387 @@
+---
+schema: design/v1
+status: Planned
+upstream: docs/prds/PRD-contradiction-settlement.md
+problem: |
+  The koto-templated skills and the references they and /scope's hops load
+  state the same rules in several places that disagree, often against the
+  script or template gate that decides what happens, and carry prose no run
+  acts on. Execution needs a located, reasoned list to edit from, and later
+  gate and ablation work needs stable identifiers to depend on.
+decision: |
+  A {{N_ITEMS}}-item inventory taken at 662f6ec ({{N_MECH}} mechanical, {{N_POL}} policy), each item
+  with a kebab-case identifier, every side located by line range and a
+  file-unique excerpt, and a winner chosen by one rule: the side the code
+  enforces wins, then the file the state directive points at, then the
+  file that owns the topic. Policy items stay open as decisions. A
+  dead-prose inventory by category with per-profile totals, and a list of
+  withholding candidates kept out of this feature.
+rationale: |
+  Code-first matches what runs today, so fixing the prose changes no
+  behavior; everything that would change behavior is by definition a
+  policy call and goes to a person. Excerpts rather than line numbers
+  survive the edits earlier work items make. Per-skill work items keep each
+  change reviewable and let a later feature wait on one identifier.
+---
+
+# DESIGN: Contradiction Settlement
+
+## Status
+
+Planned
+
+## Context and Problem Statement
+
+A run of `/work-on`, `/execute`, `/scope` or `/deliver` reads three kinds of
+text: the skill's SKILL.md, resident for the whole run; the koto template's
+directive for each state it visits; and whichever references those two
+name. Under `/scope`, each hop also loads `/brief`, `/prd`, `/design` or
+`/plan` and their phase files. The baseline pin (pull request #488) records
+which files each of five profiles loads and how many instruction tokens that
+comes to. Behind the prose sit scripts and template gates that decide what
+actually happens: `resume-probe.sh` decides whether a state file is valid,
+`push-and-record.sh` decides how a push is made, the validator's FC and L
+checks decide whether a document passes.
+
+Reading every loaded file against the others and against that code at
+`662f6ec` turns up {{N_ITEMS}} places where two statements disagree about the same
+situation. They fall into three shapes:
+
+- **Prose against code.** A reference says `phase_pointer: phase-0`; the
+  probe rejects anything but an integer. A format reference lists PLAN
+  complexity values the validator's FC05 rejects, and FC11's message sends
+  the agent to that reference.
+- **Prose against prose, one side stale.** A phase file says to commit a
+  plan that now lives only as a koto context key. `/execute`'s SKILL.md
+  describes a state-file projection nothing writes.
+- **Prose against prose where the choice is open.** Whether to force-push
+  after a rebase; how many retries before escalating; whether a child skill
+  opens its own pull request under `/scope`.
+
+The requirements this design answers:
+
+- Every loaded file for the five profiles is examined, and each disagreement
+  names every side as a path and line range at one commit, with an excerpt
+  that occurs once in its file so later work can find it after lines move
+  (PRD R1, R3).
+- Each item has a stable kebab-case identifier; the list is closed when this
+  design is accepted (R4).
+- A mechanical item names the surviving statement and why, naming the
+  enforcing script or gate when there is one; when code wins, one prose
+  statement is rewritten to match and the others go (R5).
+- An item is policy when its winner would change whether the workflow
+  pushes, force-pushes, merges, files issues, asks for or skips approval,
+  retries, or stops; when unsure, policy. Force-push after a rebase, retry
+  caps, child-skill steps under `/scope` (with `/design`'s inline-decision
+  fallback) and issue filing under `--auto` are policy (R6).
+- A policy item is a decision with context, problem, explained options and
+  one recommendation, and its winner stays `open` (R9, R10).
+- Dead prose is inventoried in four categories with every duplicate's
+  survivor named, per-profile totals in tokens and as a share of raw load,
+  and no deletion of a rule's only statement: those are withholding
+  candidates, out of this feature (R11 to R13).
+- Execution waits for the baseline pin, finds spans by excerpt, stops an item
+  whose excerpt is missing or ambiguous, and ends with a re-count (R14 to
+  R19).
+
+## Decision Drivers
+
+- **No behavior change without a person.** Settling a contradiction by
+  editing prose must not quietly change what the workflow does; anything that
+  would is a decision for the policy owner.
+- **Findable after edits.** Line numbers move as soon as the first work item
+  lands. Each location has to survive that.
+- **Citable one at a time.** A later gate feature must be able to wait on a
+  single item.
+- **Reviewable diffs.** Each work item should be small enough that a reviewer
+  can check every winner against its cited script.
+- **No silent withholding.** A rule loses its last loaded statement only in
+  the ablation feature, deliberately.
+- **Public content.** Nothing committed names anything outside the public
+  repositories.
+
+## Considered Options
+
+### Decision 1: How a winner is chosen
+
+**Option 1a: Code first, then the directive's file, then the topic owner
+(chosen).** If a script, validator check or template gate enforces one side,
+that side wins. Otherwise the file the state directive points the agent at
+wins, because it is what the agent reads at the moment of acting. Otherwise
+the file that owns the topic (the reference that says it is the single
+statement, or the shared reference several skills load) wins.
+
+**Option 1b: Newest statement wins.** Use git history to pick the side edited
+most recently. Rejected: several stale statements were touched recently for
+unrelated reasons, and recency says nothing about which side the code
+follows.
+
+**Option 1c: Decide each item on its merits with no rule.** Rejected: {{N_MECH}}
+mechanical items decided ad hoc would produce inconsistent winners, and a
+reviewer would have no rule to check a winner against.
+
+### Decision 2: How each location is recorded
+
+**Option 2a: Path, line range and a file-unique excerpt at one commit
+(chosen).** Matches the baseline pin's rule-key form (`<path>#L<start>-L<end>`)
+and adds text a work item can search for after lines move. For a span that
+is a verbatim copy of other text in the same file, the excerpt is the
+nearest unique line above it, marked `above:`.
+
+**Option 2b: Line ranges only.** Rejected: the first work item to land
+invalidates every later item's locations.
+
+**Option 2c: Wait for a rule registry and key everything by rule id.**
+Rejected: no registry exists, and the gate feature that would build one wants
+to cite these items first. When a registry lands, its ids replace these
+identifiers.
+
+### Decision 3: How work is split into work items
+
+**Option 3a: One work item per skill for its mechanical items and dead
+prose, one per policy decision, one for the final re-count (chosen).** A
+skill's SKILL.md, template and references change together, so one reviewer
+reads one skill's diff at a time; a policy item's edit waits only on its own
+decision.
+
+**Option 3b: One work item per contradiction.** Rejected: {{N_MECH}} pull requests
+for mechanical fixes, many of them one line, with heavy overlap in the same
+files and constant rebasing.
+
+**Option 3c: One work item per dead-prose category across all skills.**
+Rejected: a category-wide diff touches every skill at once, and a reviewer
+would have to hold all of them in mind.
+
+### Decision 4: What happens to a file several skills load
+
+`phase-6-pr.md` (loaded by `/work-on` and `/execute`),
+`worktree-discipline.md` (loaded by `/execute` and `/scope`) and
+`decision-protocol.md` (loaded under `--auto` by several skills) each carry
+statements that are wrong for one caller.
+
+**Option 4a: Drop the pointer from the caller the file does not fit
+(chosen).** `/execute` stops loading `phase-6-pr.md` and
+`worktree-discipline.md`; its own directives already state its rules. The
+files stay correct for their remaining callers.
+
+**Option 4b: Split each file per caller.** Rejected: two copies of shared
+rules is the duplication this feature removes.
+
+**Option 4c: Add caller-conditional paragraphs.** Rejected: every caller then
+loads every other caller's rules, which is the dead-prose problem again.
+
+## Decision Outcome
+
+The inventory below has {{N_ITEMS}} items: {{N_MECH}} mechanical, each with a winner chosen by
+the code-first rule, and {{N_POL}} policy items carried open with a recommendation.
+Every PRD R2 item maps to at least one identifier. Dead prose comes to
+{{SHARE_work-on}} of `/work-on`'s raw load, {{SHARE_execute-single-pr}} of `/execute`'s single-pr load, {{SHARE_execute-coordinated}} of
+its coordinated load, {{SHARE_deliver}} of `/deliver`'s and {{SHARE_scope}} of `/scope`'s, plus
+{{PARENT_TOKENS}} tokens of zero-weight plugin references that `scope-reference-table-vs-lazy-load`
+stops `/scope` from telling the agent to read. Five withholding candidates
+are listed and left alone.
+
+The pieces fit because each one answers a driver without weakening another:
+code-first means a mechanical fix never changes behavior, so the only
+behavior changes are the policy decisions a person makes; excerpts keep the
+locations valid across the per-skill work items; and per-skill work items
+keep diffs reviewable while the identifiers let later work cite one item.
+
+## Solution Architecture
+
+### Inventory commit
+
+Every location below is at `662f6ec` on `main`. Every file under `skills/`,
+`references/`, `scripts/` and `crates/` is identical there to the baseline
+pin's commit `2a3719e`, so a line number is the same at both.
+
+### Files examined
+
+A file counts as examined for a profile when the load manifest lists it or a
+loaded directive or SKILL.md instructs the agent to read or follow it. Files a
+skill only mentions (for example `/execute`'s SKILL.md naming the
+parent-skill references, or `/plan`'s SKILL.md naming its templates) were
+checked and are not listed.
+
+<!-- FILES -->
+
+### Coverage of the PRD's required items
+
+<!-- R2 -->
+
+### Contradictions
+
+Each item lists every statement, what the code does where it decides the
+matter, and the winner. Excerpts are verbatim and occur once in their file.
+
+<!-- CONTR -->
+
+### Dead prose
+
+A span is dead prose when the agent would lose nothing by not reading it:
+it contains no instruction, condition or value the agent uses at any state,
+or it repeats an instruction the same profile already loads from a named
+surviving copy. No span overlaps a statement of a policy item or the winner
+of a mechanical item, and no dropped pointer unloads a file holding a policy
+item's statement, unless the entry is marked blocked on that policy item; the
+renderer that produced this list refuses one that does. None of the spans below is the only statement of a rule in
+force; where a span restates a rule, its surviving statement is named.
+Spans that a mechanical item already removes are counted here once, so the
+totals are not added to anything in the contradictions list.
+
+A re-check during execution found ten rules inside
+`dp-<skill>-internal-restatements` spans that no other text states: six in
+`dp-brief-internal-restatements`, two in `dp-prd-internal-restatements`, one in
+`dp-plan-internal-restatements` and one in
+`dp-review-plan-internal-restatements`. The lines carrying them were taken
+out of those entries, by narrowing or splitting a span or by dropping it when
+the rule was all of it, so they stay. One of the two `/prd` rules, which
+routes a simple PRD to `/plan`, disagrees with the routing text in its Phase
+4 file rather than repeating it. The same re-check raised four more rules
+that turned out to be stated elsewhere in other words, and those spans are
+unchanged.
+
+<!-- DEAD -->
+
+### Per-profile totals
+
+Every figure in this document is regenerated by one command from committed
+files: `python3 docs/designs/contradiction-settlement/measure.py`, run from the
+repository root. It reads each cited file as it is at `662f6ec`, checks every
+location and excerpt, recomputes every byte count, total and share, rebuilds
+this document from `docs/designs/contradiction-settlement/design.md.tmpl` and
+`docs/designs/contradiction-settlement/inventory.json`, and exits non-zero if
+the result differs from the committed file. The raw loads and the load
+manifest's file list are copied into the data file from the baseline pin
+(#488), and are that pin's figures rather than this script's.
+
+Tokens are bytes divided by four, the baseline pin's method. Overlapping
+spans are counted once per profile, a pointer-loaded file counts in full, and
+a span loaded by several profiles counts toward each. The `scope` figure
+leaves out the plugin references its table tells the agent to read; those
+have weight 0 in the load manifest and are handled by
+`scope-reference-table-vs-lazy-load`.
+
+<!-- TOT -->
+
+**Why the `scope` share is lower than a whole-load estimate would suggest.**
+The table counts only text that can be deleted. Four more parts of `/scope`'s
+raw load are prose the agent does not need at runtime, and each is left out
+of the figure for a stated reason:
+
+- *Parent-skill references with no runtime role under `/scope`* (the five
+  `references/parent-skill-*.md` files and `references/worktree-discipline.md`):
+  {{PARENT_BYTES}} bytes, {{PARENT_TOKENS}} tokens or {{PARENT_SHARE}} of raw. The load manifest counts
+  them in raw at weight 0. `scope-reference-table-vs-lazy-load` removes the
+  instruction to read them; the files stay for `/charter` and for
+  maintainers, so this is a loading change, not a deletion, and Issue 19's
+  re-count reports it separately.
+- *Child-skill text restating a file from another skill or from `/scope`*:
+  not measured span by span, so no figure is given. Each copy is needed
+  when that child runs standalone, so removing it is per-caller loading, a
+  separate feature. Restatements inside one child's own files are redundant
+  standalone too, and are counted above as the
+  `dp-<skill>-internal-restatements` entries.
+- *Summary sections in child phase files* (Goal, Quality Checklist, Artifact
+  State, Success Criteria): not measured span by span. They repeat their
+  phase body, but a checklist also asks the agent to check its
+  work before moving on, so they are not treated as strictly redundant.
+- *Child text restating an open policy item's behavior*: {{HELD_BYTES}} bytes
+  over {{HELD_SPANS}} spans, listed in `held_for_policy` in the inventory data.
+  It goes with those items once they are decided.
+
+Counting the parent-skill references alongside the table's figure puts
+`scope` at {{SCOPE_WITH_PARENT}} of raw.
+
+### Withholding candidates (out of this feature)
+
+Each of these is the only loaded statement of a rule still in force. No work
+item in this feature deletes or moves them; they are inputs to the ablation
+feature.
+
+<!-- WH -->
+
+### Proposed follow-ups (not filed)
+
+Found while reading, outside this feature's scope or after the inventory
+closed. Each is a proposal for the maintainers, not a work item here.
+
+- Let `/execute`'s PR title take the type the directive describes, limited to
+  `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
+- Decide whether `/execute`'s children should receive an autonomy variable
+  (see `execute-sentinel-no-reader`).
+- `skills/design/references/phases/phase-3-cross-validation.md` points at
+  `phase-4-investigation.md`; the file is `phase-4-architecture.md`.
+- `/prd`'s SKILL.md and its phase 3 say a PRD's upstream is typically a
+  ROADMAP, while `prd-format.md` says a BRIEF is the only legal upstream.
+- `/charter`'s phase 0 writes the same `exit: UNSET` literal that
+  `scope-state-initial-values` fixes for `/scope`.
+- `skills/plan/references/quality/plan-doc-examples.md` nests
+  `### Dependency Graph` under Implementation Issues, which FC04 cannot see.
+- `docs/specs/decision-points.md` has stale line locators into
+  `/work-on`'s phase files.
+- Two `/scope` phase files name `cmd/shirabe/`, which does not exist; the
+  binary is built from `crates/shirabe`.
+- The resume rows in `/brief`, `/prd`, `/plan` and `/design` SKILL.md files
+  cite `references/fixes/sub-agent-dispatch.md` and
+  `references/decision-protocol.md` relative to the skill, where neither
+  file exists; both are at the plugin root.
+
+## Implementation Approach
+
+1. **Wait for the baseline pin.** No work item that touches `skills/`,
+   `references/`, `scripts/` or `crates/` starts before pull request #488
+   merges.
+2. **Mechanical work items, one per skill.** `/work-on`, `/execute`,
+   `/deliver`, `/scope`, `/brief`, `/prd`, `/plan`, `/design` and
+   `/review-plan`. A
+   mechanical item whose losing statement sits inside a policy statement
+   moves into that policy item. Each re-finds its spans by excerpt, stops and
+   reports an identifier whose excerpt is missing or found twice, applies the
+   winners and the dead-prose deletions it owns, and runs the skill's tests
+   and evals where the repository has them.
+3. **Policy work items, one per decision.** Each waits on its recorded
+   decision under `docs/decisions/`, then edits the losing statements to the
+   chosen option and applies the same excerpt and result checks.
+4. **Re-count.** A final item re-runs the baseline pin's count for all five
+   profiles and records before and after figures beside the estimates above,
+   explaining any shortfall over 10%.
+
+## Security Considerations
+
+This feature edits instructions an agent follows, so the risks are about
+what those instructions permit, not about data or credentials.
+
+- **Push, filing and approval permissions.** Several policy items change
+  whether a run force-pushes, files GitHub issues, opens pull requests or
+  approves its own continuation. Carrying them as decisions for a person,
+  and blocking their edits on a recorded decision, keeps an agent from
+  widening its own permissions by rewriting its instructions.
+- **Who records a decision.** A decision record carries the policy owner's
+  answer and is merged by a person. An agent may draft one but never merges
+  it, so no run with merge permission can unblock a policy edit by writing
+  and landing its own decision.
+- **Withholding.** Deleting the only statement of a safety rule would let an
+  agent act without it until a gate fails. The withholding list keeps every
+  such span in place for this feature.
+- **Public content.** Every path cited is repository-relative and public; the
+  inventory names no private repository, local path, session or job.
+
+No new code paths, inputs or dependencies are introduced by this design.
+
+## Consequences
+
+**Positive.** Each rule these skills load has one authoritative statement
+after execution, and the ones where choosing that statement is a real choice
+go to a person first. The loaded prose shrinks by a measured amount, and
+later gate work can cite individual identifiers.
+
+**Negative.** The inventory is a snapshot; anything that lands on `main`
+before execution can move or remove a span, and the excerpt check will stop
+those items. Policy items may wait a long time for decisions, leaving some
+contradictions in place.
+
+**Mitigations.** Items stop individually rather than failing the plan, and a
+stopped item is re-inventoried against the new text. The policy decisions
+are sent together, each with a recommendation, so they can be answered in
+one sitting.
