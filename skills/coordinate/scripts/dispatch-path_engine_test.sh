@@ -12,7 +12,9 @@
 # Proves: dispatch doesn't leave on `sent` until the record shows the holding
 # dispatched, and no override record can stand in for the gate. A unit whose
 # private target the entry point can't take is refused by dispatch-worker.sh
-# before any leg, holding or launch, naming the entry point to use instead; a leg-bound
+# before any leg, holding or launch, naming the entry point to use instead; so is
+# a unit pick wouldn't read, naming the forms that would match, and a dispatch
+# with no coord/pick.json in the session exits 2 with nothing written; a leg-bound
 # worker's promoted result reaches take_report and report_facts with the leg's
 # outcome as the report, an open leg holds until back or rescan, an explicit
 # result goes to surface, and a leg read once isn't read again; a message
@@ -262,6 +264,42 @@ eq  "private target: sent can't leave dispatch without the holding" dispatch "$(
 # The shipped table: the same unit passes the check.
 (cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
 eq  "private target: the shipped table's /deliver takes it" 0 "$?"
+
+# --- the unit pick reads -------------------------------------------------------------------------
+#
+# dispatch-worker.sh against this session's real context: a unit no form of
+# which pick listed is refused before any leg, holding or launch, naming the
+# forms; with no coord/pick.json in the session it exits 2, also with nothing
+# written.
+sed -e 's/"w9"/"w11"/g' -e 's/"Feature 9: the vault export"/"Feature 9 of ROADMAP-vault"/' -e 's|"acme/vault"|"acme/widgets"|' \
+    "$T/brief-private.json" >"$T/brief-unit.json"
+unit_dispatch() { # unit_dispatch <topic> <brief>: a fresh session at dispatch, then dispatch-worker.sh
+    start
+    put dispatch_topic "$1"
+    koto context add "$SESS" brief_input.json --from-file "$2" >/dev/null
+    rows '[]'
+    : >"$ST/niwa.log"
+    printf '[]\n' >"$ST/sessions.json"
+    tick --with-data '{"go":"dispatch"}'
+}
+unit_dispatch w11 "$T/brief-unit.json"
+put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
+DW_ERR=$( (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS") 2>&1 >/dev/null)
+eq  "unit: a unit pick wouldn't read is refused (exit 1)" 1 "$?"
+case "$DW_ERR" in
+    *'unit: [Feature 9 of ROADMAP-vault] matches no unit pick listed'*'"Feature 9", "Feature 9: the vault export"'*)
+        pass "unit: the refusal names the forms that would match" ;;
+    *) fail "unit: the refusal names the forms that would match" "$DW_ERR" ;;
+esac
+eq  "unit: no holding was written" '[]' "$(cat "$ST/rows.json")"
+eq  "unit: no request (and so no leg) was opened" 0 \
+    "$( (cd "$W" && koto request list --coordinator-of-record "$SESS") | jq '.requests | length')"
+eq  "unit: no worker was launched" "" "$(cat "$ST/niwa.log")"
+unit_dispatch w12 "$(sed 's/"w11"/"w12"/g' "$T/brief-unit.json" >"$T/brief-unit2.json"; printf '%s' "$T/brief-unit2.json")"
+(cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
+eq  "unit: with no coord/pick.json in the session, exit 2" 2 "$?"
+eq  "unit: and nothing was written" '[]' "$(cat "$ST/rows.json")"
+eq  "unit: nor launched" "" "$(cat "$ST/niwa.log")"
 
 # --- the leg path ----------------------------------------------------------------------------------
 
