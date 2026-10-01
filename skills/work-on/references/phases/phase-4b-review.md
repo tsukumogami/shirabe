@@ -30,7 +30,7 @@ Delete the detail files once the round is aggregated; anything worth keeping goe
 
 After all three return:
 
-- If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - If all `blocking_count: 0`: write `review_results.json` to koto context and submit `review_outcome: passed`.
 
 ```bash

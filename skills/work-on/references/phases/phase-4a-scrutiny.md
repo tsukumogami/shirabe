@@ -30,7 +30,7 @@ Delete the detail files once the round is aggregated; anything worth keeping goe
 
 After all three return:
 
-- If any `blocking_count > 0`: collect blocking findings and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- If any `blocking_count > 0`: collect blocking findings and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`.
 
 ```bash
@@ -74,7 +74,7 @@ That second case is why this is not caution for its own sake. The gate makes the
 
 The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
-The run then returns to `implementation`, and when it walks forward into this phase again, spawn all three reviewers for a fresh round. When that round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
+The run then returns to `implementation`, and when it walks forward into this phase again, spawn all three reviewers for a fresh round. When that round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run the retry budget again and then this block, or escalate as described below.
 
 ## Escalation
 

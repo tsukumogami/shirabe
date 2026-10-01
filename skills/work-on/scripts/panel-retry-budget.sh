@@ -25,13 +25,24 @@
 # clear the panel result keys and summary.md, never this one, so it lasts the
 # whole run. A refusal records nothing.
 #
-# Fails closed. A record that exists but can't be read, a write that fails, or
-# a read-back that doesn't show the new line is a refusal (exit 64), never a
-# grant: a retry nobody recorded would not count against the ceiling. An
-# absent record is the first retry of the run. `koto context exists` can't
-# tell an absent key from an unreadable store, so a store that can't be read
-# looks empty here; the write that follows a grant then fails, and that is
-# what refuses.
+# Fails closed where it can tell. A record koto lists as present but won't
+# return, a write that fails, or a read-back that doesn't show the new line is
+# a refusal (exit 64), never a grant: a retry nobody recorded would not count
+# against the ceiling. An absent record is the first retry of the run.
+#
+# What it can't tell: koto gives no way to separate an absent key from a store
+# it can't read. `get` fails the same way for both, and `exists` and `list`
+# report both as absent. On koto's local store an unreadable directory also
+# refuses the write, so the grant still fails closed; that is the case the
+# suite drives. On a store whose reads can fail while its writes succeed, a
+# failed read would look like an empty record and the write would replace the
+# real one, giving the run up to 3 more retries. That is reasoned from koto's
+# behaviour, not observed; if it happens, the run spends more panel rounds than
+# the ceiling allows rather than stopping early.
+#
+# One call per round. A second call for the same round records a second retry,
+# so a run that repeats a call counts against the ceiling early and may read a
+# repeated count as no progress. Both mistakes stop the run sooner, never later.
 #
 # Usage: panel-retry-budget.sh <koto-session-name> <panel> <blocking-count>
 #   <panel>           scrutiny | review | qa_validation
@@ -56,6 +67,7 @@ CEILING=3
 KEY=panel_retries
 
 usage() {
+    echo "verdict=escalate reason=panel-retry-budget.sh was called wrongly: $1"
     echo "panel-retry-budget: $1" >&2
     echo "usage: panel-retry-budget.sh <koto-session-name> <scrutiny|review|qa_validation> <blocking-count>" >&2
     exit 67
@@ -85,15 +97,21 @@ esac
 case "$COUNT" in
     ''|*[!0-9]*) usage "blocking count [$COUNT] is not a whole number" ;;
 esac
+# Six digits is far past any real round, and keeps the comparison below inside
+# what `[ -lt ]` can compare: a number it can't parse makes the test error,
+# which would read as "not refused" and grant.
+[ "${#COUNT}" -le 6 ] || usage "blocking count [$COUNT] is longer than 6 digits"
 # Strip leading zeros so the arithmetic below never reads the count as octal.
 COUNT=$(printf '%s' "$COUNT" | sed 's/^0*//')
 [ -n "$COUNT" ] || usage "blocking count is 0; a round with no blocking findings passes, it doesn't retry"
 
 # --- read the record ---------------------------------------------------------
 
+# `exists` is used only to find a record that is there; its "absent" is taken
+# as absent because koto offers nothing better (see the header).
 RECORD=""
 if koto context exists "$SESSION" "$KEY" >/dev/null 2>&1; then
-    RECORD=$(koto context get "$SESSION" "$KEY") \
+    RECORD=$(koto context get "$SESSION" "$KEY" 2>/dev/null) \
         || no_answer "could not read the retry record ($KEY) for session $SESSION"
 fi
 
@@ -108,6 +126,8 @@ while IFS=' ' read -r rec_panel rec_count rest; do
     case "$rec_count" in
         ''|*[!0-9]*) no_answer "the retry record ($KEY) has a malformed count: [$rec_panel $rec_count]" ;;
     esac
+    [ "${#rec_count}" -le 6 ] && [ -z "$rest" ] \
+        || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rest]"
     USED=$((USED + 1))
     [ "$rec_panel" = "$PANEL" ] && LAST_SAME=$rec_count
 done <<EOF
@@ -125,7 +145,8 @@ if [ "$USED" -ge "$FLOOR" ]; then
     fi
     LAST_SAME=$(printf '%s' "$LAST_SAME" | sed 's/^0*//')
     LAST_SAME=${LAST_SAME:-0}
-    if [ "$COUNT" -ge "$LAST_SAME" ]; then
+    # Written as "not fewer" so a comparison `[` can't make refuses too.
+    if ! [ "$COUNT" -lt "$LAST_SAME" ]; then
         refuse "$USED blocking retries used and $PANEL found $COUNT, not fewer than its previous $LAST_SAME"
     fi
 fi

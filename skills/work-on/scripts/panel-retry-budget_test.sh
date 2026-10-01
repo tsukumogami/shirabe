@@ -20,9 +20,10 @@
 #     key as a file. No engine, so they also run on the bash 3.2 floor leg.
 #   fail-closed cases -- a record that can't be written, can't be read back,
 #     or holds a line the script didn't write is a refusal, never a grant.
-#   shipped-text cases -- the retry loops in the three panel phase files must
-#     not clear `panel_retries`, or the record would reset on every retry;
-#     and, when koto is present, the same sequence against a real session.
+#   shipped-text cases -- no shipped /work-on file but the three panel
+#     directives (and SKILL.md's description of the script) names
+#     `panel_retries`, so no clearing site can reset it; and,
+#     when koto is present, the same sequences against a real session.
 #
 # Usage: panel-retry-budget_test.sh
 #
@@ -77,8 +78,8 @@ case "$2" in
         [ "${SHIM_FAIL_ADD:-0}" = 1 ] && { cat >/dev/null; exit 1; }
         [ "${SHIM_DROP_ADD:-0}" = 1 ] && { cat >/dev/null; exit 0; }
         mkdir -p "$SHIM_STORE/$3"; cat > "$f" ;;
-    get)    [ -f "$f" ] || { echo "koto shim: no key $4" >&2; exit 1; }; cat "$f" ;;
-    exists) [ -f "$f" ] ;;
+    get)    [ -e "$f" ] || { echo "koto shim: no key $4" >&2; exit 1; }; cat "$f" ;;
+    exists) [ -e "$f" ] ;;
     remove) rm -f "$f" ;;
     *) echo "koto shim: unsupported: $*" >&2; exit 2 ;;
 esac
@@ -198,16 +199,27 @@ OUT=$(budget fc4 scrutiny 1 2>/dev/null); RC=$?
 [ "$RC" -eq 64 ] && pass "a record line the script didn't write refuses (64)" \
     || fail "foreign record line gave rc=$RC out=[$OUT]"
 
-# An unreadable record: exists says yes, get fails.
+# An unreadable record: the stand-in's exists says yes (a directory is there)
+# and get fails (cat of a directory). The reason pins the read branch, so the
+# case can't pass through the write failure instead.
 mkdir -p "$SHIM_STORE/fc5/panel_retries"
 OUT=$(budget fc5 scrutiny 1 2>/dev/null); RC=$?
-[ "$RC" -eq 64 ] && pass "a record that can't be read refuses (64)" \
+[ "$RC" -eq 64 ] && [ "$OUT" = "verdict=escalate reason=could not read the retry record (panel_retries) for session fc5" ] \
+    && pass "a record that can't be read refuses (64)" \
     || fail "unreadable record gave rc=$RC out=[$OUT]"
 
-for args in "s scrutiny 0" "s scrutiny -1" "s scrutiny x" "s nope 3" "s scrutiny" "'' scrutiny 2"; do
+mkdir -p "$SHIM_STORE/fc6"
+printf 'scrutiny 7 extra\n' > "$SHIM_STORE/fc6/panel_retries"
+OUT=$(budget fc6 scrutiny 1 2>/dev/null); RC=$?
+[ "$RC" -eq 64 ] && pass "a record line with an extra field refuses (64)" \
+    || fail "record line with an extra field gave rc=$RC out=[$OUT]"
+
+for args in "s scrutiny 0" "s scrutiny -1" "s scrutiny x" "s nope 3" "s scrutiny" "'' scrutiny 2" \
+    "s scrutiny 1234567" "s scrutiny 99999999999999999999"; do
     eval "set -- $args"
-    budget "$@" >/dev/null 2>&1; RC=$?
-    [ "$RC" -eq 67 ] && pass "usage refused: [$args]" || fail "usage [$args] exited $RC"
+    OUT=$(budget "$@" 2>/dev/null); RC=$?
+    [ "$RC" -eq 67 ] && [ "${OUT%% *}" = verdict=escalate ] && pass "usage refused, with a verdict line: [$args]" \
+        || fail "usage [$args] exited $RC, printed [$OUT]"
 done
 [ -z "$(ls "$SHIM_STORE/s" 2>/dev/null)" ] && pass "a usage refusal writes nothing" \
     || fail "a usage refusal wrote to the store"
@@ -218,18 +230,30 @@ expect "a count with a leading zero is read as decimal" budget \
 
 # --- shipped-text cases ----------------------------------------------------------
 
-# Every bash block in the panel phase files that clears context must leave the
-# record alone, or a retry would reset the count it is about to be judged by.
+# Nothing that clears context may clear the record, or a retry would reset the
+# count it is about to be judged by. Every clearing site names its keys, so the
+# check is that the key's name appears in no shipped /work-on file except the
+# three panel directives that call the script, which say where the record
+# lives. The panel phase files are checked to still hold a clearing block, so
+# the absence can't come from a block that moved.
 for f in phase-4a-scrutiny.md phase-4b-review.md phase-4c-qa.md; do
-    blocks=$(awk '/^```bash$/{b=1;next} /^```$/{b=0} b' "$PHASES/$f")
-    if ! printf '%s\n' "$blocks" | grep -q 'koto context remove'; then
-        fail "$f: found no clearing block to check"
-    elif printf '%s\n' "$blocks" | grep -q 'panel_retries'; then
-        fail "$f: a bash block touches panel_retries"
+    if grep -q 'koto context remove' "$PHASES/$f"; then
+        pass "$f: still holds a clearing block"
     else
-        pass "$f: the retry loop does not clear panel_retries"
+        fail "$f: found no clearing block"
     fi
 done
+# SKILL.md's Scripts list describes the script and names the key; it runs
+# nothing, so it is left out with the script itself and the tests.
+HITS=$(grep -rn 'panel_retries' "$SKILL_DIR" --include='*.md' --include='*.sh' \
+    | grep -v '_test\.sh:' | grep -v '/scripts/panel-retry-budget\.sh:' | grep -v '/work-on/SKILL\.md:')
+OTHER=$(printf '%s\n' "$HITS" | grep . | grep -v 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
+DIRECTIVES=$(printf '%s\n' "$HITS" | grep -c 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
+if [ -z "$OTHER" ] && [ "$DIRECTIVES" -eq 3 ]; then
+    pass "panel_retries is named only by the three panel directives"
+else
+    fail "panel_retries is named outside the panel directives, or not by all three ($DIRECTIVES): $OTHER"
+fi
 
 if ! command -v koto >/dev/null 2>&1; then
     echo "SKIP: koto not on PATH -- the real-session case did not run"
@@ -257,8 +281,10 @@ real() {
     fi
     (cd "$RUN" && "$SCRIPT" "$@")
 }
-expect "real koto: falling count gets a third retry, the ceiling refuses a fourth" real \
-    scrutiny:7=retry scrutiny:2=retry scrutiny:1=retry review:1=escalate
+expect "real koto: falling count gets a third retry" real \
+    scrutiny:7=retry scrutiny:2=retry scrutiny:1=retry
+expect "real koto: the ceiling refuses a still-falling fourth" real \
+    scrutiny:9=retry scrutiny:5=retry scrutiny:3=retry scrutiny:1=escalate
 expect "real koto: flat count past the floor escalates" real \
     review:4=retry review:3=retry review:3=escalate
 

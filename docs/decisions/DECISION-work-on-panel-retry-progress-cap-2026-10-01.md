@@ -16,7 +16,7 @@ rationale: |
   the workflow. Raising the number would spend the extra rounds on stuck runs
   too. Comparing a panel against itself spends them only where the count is
   falling, and the ceiling caps the worst case at one traversal more than
-  today, which is what both observed runs needed.
+  today, the smallest step that would have let both observed runs continue.
 ---
 
 # DECISION: a panel retry cap that follows progress
@@ -24,8 +24,11 @@ rationale: |
 ## Status
 
 Accepted on 2026-10-01, for shirabe#548. The ceiling of 3 was chosen over 4
-because both observed runs needed exactly one round past the second retry. The
-gate-enforced form of the same rule is deferred, not rejected.
+on the observed runs: both escalated on their third blocking round with a
+falling count, so one round past the second retry is the smallest ceiling that
+would have let them continue. Whether that round would have been their last
+isn't known; a run that still finds a blocking issue on its fourth round
+escalates. The gate-enforced form of the same rule is deferred, not rejected.
 
 ## Context
 
@@ -103,7 +106,8 @@ clear, so the record survives every retry.
   panel sizing, which shirabe#521 covers.
 
 The ceiling is 3 retries rather than 4. Each extra traversal can cost 7 panel
-agents, and both observed runs needed exactly one more round.
+agents, and one more round is the smallest step that would have let both
+observed runs continue.
 
 ## Consequences
 
@@ -111,6 +115,13 @@ agents, and both observed runs needed exactly one more round.
   Runs whose counts don't fall after the second retry cost the same as today.
 - The agent no longer counts retries from memory: the record is in context, and
   the script refuses a retry once the ceiling is reached.
+- koto can't tell the script an absent record from one it can't read. On its
+  local store a record it can't read can't be written either, so the grant
+  still fails closed. On a store whose reads can fail while writes succeed, a
+  failed read would reset the record; that is reasoned, not observed, and it
+  errs toward more rounds, not fewer.
+- One call per round. A repeated call counts as another retry, which stops the
+  run sooner, never later.
 - The count that decides the extra round is the one the aggregating agent
   reports. A run could game it by splitting or merging findings; the ceiling
   bounds what that buys.
