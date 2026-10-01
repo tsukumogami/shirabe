@@ -456,6 +456,7 @@ def slice_pr_summary(pr):
     When no summary level fits the whole body, the body is cut instead, at the
     most detailed level that leaves MIN_BODY_KEPT bytes of it, and the slice
     says so. If even that can't fit, the slice stays over the bound."""
+    # Redact before cutting: a cut can split a credential so it no longer matches.
     body = redact(part1(pr["body"]))
     levels = (("files", None), ("dir3", 3), ("dir2", 2), ("dir1", 1))
     for level, depth in levels:
@@ -1043,7 +1044,7 @@ def run_jev(criteria, slices, send, batched):
     return verdicts, rounds, unread
 
 
-def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts=()):
+def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     """unanimous-pass, dissent, inconclusive, or not-graded when Jev had slices to
     grade and never answered, so an outage is never counted as agreement. A
     head whose every Jev slice was over the bound is not-graded too: nothing
@@ -1064,7 +1065,7 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts=()):
     return "unanimous-pass", None
 
 
-TOOL_VERSION = 2  # bump when grading behaviour changes; the hashes below catch the rest
+TOOL_VERSION = 3  # bump when grading behaviour changes; the hashes below catch the rest
 
 
 def tool_version():

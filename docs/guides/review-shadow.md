@@ -86,7 +86,7 @@ answer. Its reason says why:
 |---|---|---|
 | `no-key` | no Jev key in the environment | set the key and grade again |
 | `transport`, `provider` | Jev couldn't be reached, or answered with an error, twice | grade again later |
-| `over-bound` | every slice Jev would grade was still over 2,560 bytes after the body was cut (the file list alone is too long) | nothing; it's left out of the agreement rates |
+| `over-bound` | every slice Jev would grade was still over 2,560 bytes after the body was cut (the file list leaves under 512 bytes for the body) | nothing; it's left out of the agreement rates |
 | `no-changed-paths` | the head changes nothing | nothing; this head can't be graded |
 | `outcome-without-grade` | an outcome was recorded for a head nobody graded | nothing; it's counted as not graded |
 
