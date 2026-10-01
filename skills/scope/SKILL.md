@@ -378,7 +378,9 @@ Every run ends at exactly one, recorded in `exit:`:
 - **`re-evaluation`** — a settled upstream was rejected at a boundary (PRD or
   DESIGN). Writes a Decision Record under `docs/decisions/`.
 - **`abandonment-forced`** — the run stopped with a child mid-flight. Force-
-  materializes that child's intermediate as a Draft artifact.
+  materializes that child's intermediate as a Draft artifact, except that it
+  never writes a PLAN: when `/plan` was running it marks the nearest upstream
+  document instead and removes any PLAN `/plan` left at the canonical path.
 
 The R9 hard-finalization check refuses a run that cannot record a valid exit,
 in `--auto` as much as interactively. The per-path required fields, the
@@ -434,7 +436,8 @@ PLAN is the survivor at the terminal hop.
 **Phase 3 and Phase 4**: Decision Records under `docs/decisions/`,
 force-materialized partials under `docs/{briefs,prds,designs}/` and
 `docs/designs/current/` on `abandonment-forced` (never a PLAN: an abandoned
-run writes no PLAN, only the upstream documents), and state-file plus child-wip
+run writes no PLAN, only the upstream documents), the deletion of an
+uncommitted `docs/plans/PLAN-<topic>.md` `/plan` left behind on that exit, and state-file plus child-wip
 cleanup under `wip/`.
 
 **R8's clean cancel** deletes one further path, and carves one out:

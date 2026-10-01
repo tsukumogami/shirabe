@@ -176,7 +176,10 @@ never finished holds little a later run could reuse.
   marker to the END of its Status section.
 - When the triggering child is `/plan`, nothing is
   force-materialized and `docs/plans/PLAN-<topic>.md` is not
-  written. The marker goes at the END of the Status section of
+  written. If `/plan` already left a PLAN there, delete it: it is
+  uncommitted, because the plan hop commits only after its gate
+  passes, and a Draft PLAN on the pushed branch fails the
+  lifecycle check. The marker goes at the END of the Status section of
   the nearest upstream document the chain left on disk (the
   DESIGN, or the PRD or BRIEF when the DESIGN was absorbed), and
   `exit_artifacts:` lists the upstream documents at their current

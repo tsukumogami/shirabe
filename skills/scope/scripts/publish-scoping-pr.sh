@@ -446,12 +446,14 @@ render_body() {
         for p in "docs/briefs/BRIEF-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" \
                  "docs/designs/DESIGN-${TOPIC}.md" "docs/designs/current/DESIGN-${TOPIC}.md" \
                  "docs/plans/PLAN-${TOPIC}.md"; do
+            # An abandoned run writes no PLAN; never list one it left behind.
+            [ "$EXIT" = abandonment-forced ] && [ "$p" = "$PLAN" ] && continue
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
         for p in docs/decisions/DECISION-*-"${TOPIC}"-*.md; do
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
-        if [ -f "$PLAN" ]; then
+        if [ -f "$PLAN" ] && [ "$EXIT" != abandonment-forced ]; then
             # Issue numbers from the Implementation Issues table (the first
             # cell of each row), else the outline IDs.
             ids=$(awk '

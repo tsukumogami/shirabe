@@ -39,11 +39,12 @@ finalized. The exit-path matrix:
   (`wip/{brief,prd,design,plan}_<topic>_*` and
   `wip/research/{prd,design}_<topic>_*`) are PRESERVED so a
   future session that resumes the abandoned chain has the
-  child's intermediate state to read back. The force-
-  materialized Draft artifact at
-  `docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md` carries
-  the abandonment marker; the preserved wip files carry the
-  child's in-flight scratch the next session needs.
+  child's intermediate state to read back. The document at
+  `docs/{briefs|prds|designs}/<TYPE>-<topic>.md` that Phase 3
+  marked (a force-materialized Draft, or the nearest upstream
+  document when `/plan` was running) carries the abandonment
+  marker; the preserved wip files carry the child's in-flight
+  scratch the next session needs. No PLAN is left on disk.
 
 The terminal artifact always remains on disk and Phase 4 does
 not touch it:
@@ -52,8 +53,9 @@ not touch it:
 - `exit: re-evaluation` →
   `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`.
 - `exit: abandonment-forced` →
-  `docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md` (Draft,
-  marker in Status section).
+  `docs/{briefs|prds|designs}/<TYPE>-<topic>.md` (the marked
+  document; a Draft unless it is the upstream document `/plan`
+  was running against).
 
 ### Why Phase 4 Owns Child-Prefixed Removals
 

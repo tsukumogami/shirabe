@@ -322,6 +322,16 @@ for x in re-evaluation abandonment-forced; do
     setup multi-pr
     run --topic topic --exit "$x" --intent continue
     if grep '^pr create' "$GHF/calls" | grep -q -- '--draft'; then ok "$x: a draft, whatever the mode"; else bad "$x: a draft, whatever the mode" "$(cat "$GHF/calls")"; fi
+    if [ "$x" = abandonment-forced ]; then
+        # An abandoned run writes no PLAN, so a PLAN on disk is never part of
+        # the body's artifact chain or work items.
+        BODY=$(jq -r '.[0].body // ""' "$GHF/prs.json")
+        case "$BODY" in
+            *"docs/plans/PLAN-topic.md"*|*"## Work Items"*) bad "abandonment: the body names no PLAN and no work items" "$BODY" ;;
+            *"## Artifact Chain"*) ok "abandonment: the body names no PLAN and no work items" ;;
+            *) bad "abandonment: the body names no PLAN and no work items" "no body rendered: $BODY" ;;
+        esac
+    fi
 done
 setup coordinated
 run --topic topic --exit full-run --intent continue

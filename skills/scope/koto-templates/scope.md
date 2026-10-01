@@ -2639,9 +2639,10 @@ Force-materialize the most-recently-running child's intermediate as a Draft
 artifact at its canonical durable path, and append the marker to the END of that
 artifact's existing Status section, on one line, with the field order shown.
 **Never write a PLAN here.** When the triggering child is `/plan`, materialize
-nothing: put the marker on the nearest upstream document still on disk (the
-DESIGN, else the PRD, else the BRIEF) and list the upstream documents in
-`exit_artifacts`.
+nothing: delete any `docs/plans/PLAN-{{TOPIC}}.md` `/plan` left behind (it is
+uncommitted; the plan hop commits only after its gate), put the marker on the
+nearest upstream document still on disk (the DESIGN, else the PRD, else the
+BRIEF), and list the upstream documents in `exit_artifacts`.
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->
