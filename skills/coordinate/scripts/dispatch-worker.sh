@@ -355,7 +355,8 @@ EOF
 # success), spent (resolved otherwise: cancelled, refused at preflight; or
 # abandoned, or open on a closed request), or missing (the request or the leg
 # is gone). koto exits 2 for a request it doesn't hold, which reconcile-check.sh
-# reads the same way; any other failed read exits 2 here.
+# reads the same way; any other failed read exits 2 here. It runs in a
+# command substitution, so call it as `x=$(leg_state ...) || exit 2`.
 leg_state() {
     local view rc
     view=$("$KOTO" request get "$1" </dev/null)
@@ -504,7 +505,8 @@ case "$STATUS" in
             SRP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
             case "$SRP" in
                 message | '') ;;
-                *) [ "$(leg_state "${SRP%%:*}" "${SRP#*:}")" = bound ] &&
+                *) SST=$(leg_state "${SRP%%:*}" "${SRP#*:}") || exit 2
+                   [ "$SST" = bound ] &&
                        die 9 "send_execution for $TOPIC: its worker is still attached to its scoping leg $SRP" ;;
             esac
             # The holding's unit and repository stay the holding's.

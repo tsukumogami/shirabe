@@ -64,6 +64,7 @@ case "$1 $2" in
         ;;
     "request get")
         echo "koto request get $3" >>"$ST/calls.log"
+        [ -f "$ST/request_get.rc" ] && exit "$(cat "$ST/request_get.rc")"
         [ -f "$ST/request_get.json" ] || exit 2
         cat "$ST/request_get.json"
         ;;
@@ -626,7 +627,10 @@ jq -nc '{request_id: "req_1", request_state: "open", legs: {scope: {name: "scope
 : >"$ST/calls.log"
 run >/dev/null 2>&1; eq "send_execution while the worker is still attached to its scoping leg: exit 9" 9 "$?"
 eq  "and nothing written" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
-rm -f "$ST/request_get.json"
+echo 1 >"$ST/request_get.rc"; : >"$ST/calls.log"
+run >/dev/null 2>&1; eq "send_execution when the scoping leg can't be read: exit 2" 2 "$?"
+eq  "and nothing written or abandoned" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+rm -f "$ST/request_get.rc" "$ST/request_get.json"
 printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"' >"$ST/ctx/brief_input.json"; : >"$ST/calls.log"
 run >/dev/null 2>&1; eq "send_execution with the scoping brief again: refused, exit 1" 1 "$?"
 eq  "and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
