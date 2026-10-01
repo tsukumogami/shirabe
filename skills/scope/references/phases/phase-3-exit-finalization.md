@@ -319,8 +319,8 @@ Four contract rules bind the marker:
 - **(d) Enum constraint on `<name>`.** `<name>` MUST be one of
   `brief | prd | design | plan`, resolved by R8's tie-break.
 
-The marker uniformly applies to all four artifact types
-without per-child variation. The grep-checkable literal
+The marker uniformly applies to the three upstream artifact
+types without per-child variation. The grep-checkable literal
 substring downstream consumers assert against is
 `scope-status-block: abandonment-forced`.
 

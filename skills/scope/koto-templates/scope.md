@@ -2656,7 +2656,7 @@ chain, later winning. The tie-break is mechanical and prompts nobody.
 close`, the same `gh` surface that authored and posted its body. Abandonment
 never merges that PR and never leaves it open: an open coordination PR is
 merge-eligible, and merging it would land a plan the run just abandoned. The
-closed PR's durable body and the force-materialized Draft together record the
+closed PR's durable body and the marked document together record the
 partial state for a reviewer to audit. Skip this on a single-repo run, where
 there is no coordination PR to close. Skip it too on an intent run -- this run's
 intent is `{{RUN_INTENT}}`, and anything but `none` is one: an intent run never
@@ -2941,9 +2941,9 @@ The chain ended at a settled-upstream boundary. The Decision Record at
 
 ## done_abandonment
 
-The chain could not complete its terminal artifact. A child's intermediate was
-force-materialized as a Draft artifact carrying the abandonment marker in its
-Status section.
+The chain could not complete its terminal artifact. The abandonment marker sits
+in the Status section of a force-materialized Draft BRIEF, PRD or DESIGN, or,
+when `/plan` was running, of the nearest upstream document. No PLAN was written.
 
 ## done_cancelled
 
