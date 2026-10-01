@@ -263,6 +263,9 @@ suite_scripts() {
             # Same shape: its script cases run real clones through a koto
             # stand-in; its engine cases skip without koto.
             echo "skills/work-on/scripts/has-commits_test.sh"
+            # Its script cases run git fixtures through a koto stand-in and
+            # need only jq; its engine cases skip without koto.
+            echo "skills/work-on/scripts/panel-scope_test.sh"
             # Its script cases need only jq, git and a stubbed gh, so they run
             # on the floor; its engine cases skip without koto.
             echo "skills/work-on/scripts/check-staleness_test.sh"
@@ -274,9 +277,6 @@ suite_scripts() {
             echo "skills/work-on/scripts/work-on-requires_test.sh"
             # Reads shipped files only; every case runs on the floor.
             echo "skills/work-on/scripts/settled-policy_test.sh"
-            # Its script cases run git fixtures through a koto stand-in and
-            # need only jq; its engine cases skip without koto.
-            echo "skills/work-on/scripts/panel-scope_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

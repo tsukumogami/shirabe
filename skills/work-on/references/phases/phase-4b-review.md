@@ -12,7 +12,7 @@ Spawn the seats this round needs simultaneously using the Task tool -- all three
 
 ## Which Seats Run
 
-On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on to `qa_validation` without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
+On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep` (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on to `qa_validation` without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
 
 ```bash
 koto context get <WF> review_scope.json
@@ -53,7 +53,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 Then:
 
 - If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
-- If all `blocking_count: 0`: write `review_results.json` to koto context and submit `review_outcome: passed`. Seats that were `keep` count as passed.
+- If all `blocking_count: 0`: write `review_results.json` to koto context and submit `review_outcome: passed`.
 
 ```bash
 koto context add <WF> review_results.json < /dev/stdin <<EOF

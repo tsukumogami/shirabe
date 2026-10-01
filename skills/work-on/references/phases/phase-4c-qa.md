@@ -18,6 +18,8 @@ On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and wr
 koto context get <WF> qa_scope.json
 ```
 
+A QA failure therefore routes narrowly. The retry returns to `implementation`, and the run walks forward through `scrutiny` and `review` as always, but those panels spawn nothing unless the fix touched what their seats cited: when every seat is untouched, koto carries their verdicts and the run goes from implementation straight to this phase's re-check. A fix that touches a seat's citations re-runs that seat; a fix that crosses the size threshold in `panel-scope.sh` re-runs every passed seat.
+
 ## Evidence Format
 
 The tester writes full results to a `mktemp`-produced file outside the repository and returns:
@@ -51,7 +53,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then:
 
-- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios. The run then walks forward through `scrutiny` and `review`, but those panels spawn nothing unless the fix touched what their seats cited: when every seat is untouched, koto carries their verdicts and the run goes from implementation straight to this phase's re-check. A fix that touches a seat's citations re-runs that seat; a fix that crosses the size threshold in `panel-scope.sh` re-runs every passed seat.
+- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
 - If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
 
 ```bash

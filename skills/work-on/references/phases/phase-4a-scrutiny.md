@@ -19,7 +19,7 @@ koto decides this before you spawn anything. On entering `scrutiny` it runs `scr
 | `full` | The seat's normal full review. Every seat is `full` on the first round. |
 | `recheck` | The seat that raised a blocking finding last round. It gets only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and answers whether each finding is fixed. It does not review anything else, but it may raise a new blocking finding where the fix diff itself introduces a defect. A blocking seat is only offered this when the checks that would re-run a passed seat (a dirty tree, changed criteria or plan, a rewritten history, a fix over the size threshold) don't apply; otherwise it gets `rerun`. |
 | `rerun` | A seat that passed, but whose cited scope the fix touched. A fresh full review. |
-| `keep` | Nothing. The seat's earlier pass carries, and the scope says why. |
+| `keep` | Nothing. The seat's earlier pass carries, and the scope says why. At aggregation it counts as passed. |
 
 ```bash
 koto context get <WF> scrutiny_scope.json
@@ -29,7 +29,7 @@ Commit the fix before the run re-enters a panel. The scope is computed from comm
 
 When every seat is `keep` you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way.
 
-Spawn only the seats whose decision isn't `keep`. The decisions are the script's, made from git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever seat is running, not a reason to override the scope.
+Spawn only the seats whose decision isn't `keep`. This holds for every round after a retry, whatever the Retry Loop below calls the next round: the seat that raised a finding re-checks it, and the others re-run only if the fix touched what they cited. The decisions are the script's, made from git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever seat is running, not a reason to override the scope.
 
 ## Evidence Format
 
@@ -66,7 +66,7 @@ ROUND=$(mktemp)
 Then:
 
 - If any `blocking_count > 0`: collect blocking findings and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
-- If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`. Seats that were `keep` count as passed.
+- If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`.
 
 ```bash
 koto context add <WF> scrutiny_results.json <<EOF
@@ -109,7 +109,7 @@ That second case is why this is not caution for its own sake. The gate makes the
 
 The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
-The run then returns to `implementation`, and when it walks forward into this phase again, read `scrutiny_scope.json` and spawn what it says (see Which Seats Run). This panel's seat that raised the finding re-checks it; the other two re-run only if the fix touched what they cited. When that round comes back with every `blocking_count: 0`, record it and run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
+The run then returns to `implementation`, and when it walks forward into this phase again, spawn all three reviewers for a fresh round. When that round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
 
 ## Escalation
 
