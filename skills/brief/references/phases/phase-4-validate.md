@@ -85,11 +85,11 @@ Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissi
 | Content Quality | `general-purpose` | `sonnet` | 8 | Read, Write |
 | Structural Format | `general-purpose` | `haiku` | 6 | Read, Write |
 
-Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. Before spawning, assemble the packet once for every seat:
+Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. `<context-file>` is the context file the Structural Format prompt's Repo Visibility section names. Before spawning, assemble the packet once for every seat:
 
 ```bash
 PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md \
-  --format skills/brief/references/brief-format.md --extra wip/brief_<topic>_context.md)
+  --format skills/brief/references/brief-format.md --extra <context-file>)
 ```
 
 The `[Contents of ...]` sections in the prompts below are the packet: name `$PACKET` in their place rather than pasting the text. Each prompt follows its fixed preamble with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. Remove `$PACKET` once the verdicts are aggregated.

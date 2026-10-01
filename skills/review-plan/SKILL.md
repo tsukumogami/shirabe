@@ -112,18 +112,19 @@ validators read the same input:
 
 ```bash
 PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc \
-  --doc wip/plan_<topic>_decomposition.md \
+  --doc <decomposition-artifact> \
   --format skills/review-plan/references/phases/<category-phase-file> \
-  --extra wip/plan_<topic>_analysis.md --extra wip/plan_<topic>_dependencies.md \
-  --extra <upstream-design-doc> --extra wip/plan_<topic>_issue_<n>.md ...)
+  --extra <analysis-artifact> --extra <dependencies-artifact> \
+  --extra <upstream-design-doc> --extra <issue-body-file> ...)
 ```
 
-`<category-phase-file>` is the category's phase reference (`phase-1-scope-gate.md`
-through `phase-4-sequencing.md`), and the issue bodies are the ones
-`wip/plan_<topic>_manifest.json` lists. Each validator prompt opens with the
-seat preamble from the commissioning reference, filled with `$PACKET` and the
-cap. A cross-examination agent gets the disagreeing findings in its prompt and
-the same `$PACKET`. Remove each packet once its category's findings are final.
+The artifacts are the plan artifacts `references/phases/phase-0-setup.md`
+lists (decomposition, analysis, dependencies, and the issue bodies its manifest
+enumerates). `<category-phase-file>` is the category's phase reference
+(`phase-1-scope-gate.md` through `phase-4-sequencing.md`). Each validator
+prompt opens with the seat preamble from the commissioning reference, filled
+with `$PACKET` and the cap. A cross-examination agent gets the disagreeing
+findings in its prompt and the same `$PACKET`. Remove each packet once its category's findings are final.
 
 ### Step 2: Collect and Compare
 

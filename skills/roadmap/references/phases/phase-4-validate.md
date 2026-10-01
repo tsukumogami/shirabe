@@ -30,11 +30,11 @@ Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissi
 |---|---|---|---|---|
 | Theme Coherence, Sequencing and Dependency, Annotation and Boundary | `general-purpose` | `sonnet` | 8 | Read, Write |
 
-Pass the model on each spawn (`model: "sonnet"`); a seat with no model inherits the parent's. Before spawning, assemble the packet once for every seat:
+Pass the model on each spawn (`model: "sonnet"`); a seat with no model inherits the parent's. `<scope-file>` is the scope document listed under "Each agent receives" below. Before spawning, assemble the packet once for every seat:
 
 ```bash
 PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md \
-  --format skills/roadmap/references/roadmap-format.md --extra wip/roadmap_<topic>_scope.md)
+  --format skills/roadmap/references/roadmap-format.md --extra <scope-file>)
 ```
 
 The `[Contents of ...]` sections in the prompts below are the packet: name `$PACKET` in their place rather than pasting the text. Each prompt follows its fixed preamble with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. Remove `$PACKET` once the verdicts are aggregated.

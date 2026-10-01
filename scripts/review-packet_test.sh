@@ -128,7 +128,7 @@ FMT="$ROOT/format.md"
 printf '# Format\nRequired sections.\n' > "$FMT"
 printf 'scope notes\n' > "$REPO/scope.md"
 
-run "$ROOT/none" doc --doc a.txt --format "$FMT" --extra scope.md --extra wip/missing.md
+run "$ROOT/none" doc --doc a.txt --format "$FMT" --extra scope.md --extra scratch/missing.md
 if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
     pass "doc: exit 0 and a packet path on stdout"
     grep -q '^## Document under review: a.txt$' "$OUT" && grep -q '^changed$' "$OUT" \
@@ -137,7 +137,7 @@ if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
         && pass "doc: carries the format reference" || fail "doc: format section missing"
     grep -q '^## Supporting: scope.md$' "$OUT" && grep -q '^scope notes$' "$OUT" \
         && pass "doc: carries an extra" || fail "doc: extra missing"
-    grep -q '^\[absent: wip/missing.md does not exist in this checkout\]$' "$OUT" \
+    grep -q '^\[absent: scratch/missing.md does not exist in this checkout\]$' "$OUT" \
         && pass "doc: a missing extra is recorded as absent" || fail "doc: missing extra not recorded"
     rm -f "$OUT"
 else
