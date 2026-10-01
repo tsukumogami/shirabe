@@ -390,6 +390,13 @@ run --recorded scrutiny "$SESSION"
 expect_rc "--recorded after the re-check round is recorded" 0
 run --recorded bogus "$SESSION"
 expect_rc "--recorded never exits outside 0/1 (bad panel)" 1
+# A commit made while the panel is open is one no seat saw.
+edit docs/c.md 1 mid-round
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded after HEAD moved since the scope was planned" 1
+printf '[{"seat":"intent","blocking_count":0}]\n' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record refuses to stamp a commit the round never saw" 68
 
 echo "--- script: the history counts rounds, not ticks"
 

@@ -15,9 +15,6 @@
 #            whether that finding is fixed, given the finding and the fix diff.
 #            A blocking seat goes through checks 0-3 below first, and is rerun
 #            if any holds, or if it recorded no findings
-#
-# A later level choice (#591) that drops seats would add a decision value
-# here that --carried treats as carried, and a level input to --plan.
 #   rerun    the seat passed, but the fix touched what it judged: a fresh review
 #   keep     the seat passed and the fix touched nothing it judged: its verdict
 #            carries and the seat is not spawned
@@ -53,9 +50,9 @@
 # it. A pure insertion (`@@ -a,0 ...`) sits between lines a and a+1 and touches
 # a range containing either.
 #
-# The template runs --plan on each entry to a panel state and --carried as
-# that state's gate (evaluated on every tick there); the agent runs --record
-# once per round:
+# The template runs --plan on each entry to a panel state, and --carried and
+# --recorded as that state's gates (evaluated on every tick there); the agent
+# runs --record once per round:
 #
 #   --plan <panel> <session>     default_action on `scrutiny`, `review` and
 #                                `qa_validation`. Writes `<panel>_scope.json`
@@ -70,8 +67,9 @@
 #                                no spawn.
 #   --recorded <panel> <session> the `<panel>_recorded` gate on the passed and
 #                                blocking_retry edges. Exit 1 while a seat the
-#                                scope spawned still holds a verdict older
-#                                than HEAD, i.e. this round was not recorded.
+#                                scope spawned holds a verdict not given at
+#                                HEAD (this round was not recorded), or HEAD
+#                                moved since the scope was planned.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every seat it
 #                                spawned this round, passed or blocking. Stamps
@@ -121,18 +119,22 @@
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
+#          --recorded: every spawned seat is recorded at HEAD, or there is no
+#          scope or ledger to check.
 #   1   -- --carried: something has to run, the working tree is dirty, or
 #          the scope is missing, stale, unreadable or has no carried results
-#          beside it. --recorded: a spawned seat's verdict is older than HEAD,
+#          beside it. --recorded: a spawned seat's verdict wasn't given at HEAD,
 #          or the keys can't be read. The gate modes exit nothing else: a gate
 #          exit the template does not route would hold the state, and the safe
 #          answer to every doubt is "run the panel" or "record the round".
 #   64  -- not a git repository, HEAD names no commit, or mktemp failed
 #   65  -- a JSON step failed: --record's round file is missing, is not a
-#          JSON array of seats, or names a seat outside the panel, or (either
-#          mode) jq could not merge the result into the ledger
+#          JSON array of seats, or names a seat outside the panel, or (--plan
+#          or --record) jq could not merge the result into the ledger
 #   66  -- a `koto context add` failed; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
+#   68  -- --record only: HEAD moved since the panel's scope was planned, so
+#          the round's verdicts are about a commit that is no longer HEAD
 #   127 -- jq is not on PATH
 #
 # Bash 3.2: no associative arrays, no mapfile.
@@ -213,6 +215,11 @@ fi
 if [ "$MODE" = "--recorded" ]; then
     scope=$(ctx_get "${PANEL}_scope.json")
     [ -n "$scope" ] || exit 0
+    # A commit made while the panel was open is one no seat saw. Recording
+    # again would stamp their verdicts onto it, so ask for a re-plan instead.
+    scope_head=$(printf '%s' "$scope" | jq -r '.head // empty' 2>/dev/null)
+    [ "$scope_head" = "$HEAD" ] \
+        || refuse 1 "HEAD moved since ${PANEL}_scope.json was planned; tick koto without evidence to re-plan the round"
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || exit 0
     stale=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" --arg head "$HEAD" '
@@ -245,6 +252,12 @@ put() {
 
 if [ "$MODE" = "--record" ]; then
     ROUND_FILE="${4:-}"
+    # The seats judged the commit the scope was planned at. If HEAD has moved
+    # since, stamping their verdicts with it would vouch for a commit none of
+    # them saw. No scope (the --plan fallback path) has nothing to compare.
+    scope_head=$(ctx_get "${PANEL}_scope.json" | jq -r '.head // empty' 2>/dev/null)
+    [ -z "$scope_head" ] || [ "$scope_head" = "$HEAD" ] \
+        || die 68 "HEAD moved since ${PANEL}_scope.json was planned at $scope_head; tick koto without evidence to re-plan, then run the round again"
     [ -n "$ROUND_FILE" ] || die 67 "missing round file for --record"
     [ -f "$ROUND_FILE" ] || die 65 "round file [$ROUND_FILE] not found"
     jq -e 'type == "array" and length > 0 and all(.[]; (.seat | type) == "string")' \
@@ -341,8 +354,9 @@ touches() {
 
 # Two facts that hold for every seat this entry. A dirty tree means the fix
 # may not be committed yet, and the diff below would not see it. No commits
-# since impl_base, or none recorded, means there is nothing to have passed: the has_commits gate
-# on scrutiny's passed edge holds, and a carried verdict must not slip past it.
+# since impl_base, or none recorded, means there is nothing to have passed:
+# the has_commits gate on scrutiny's passed edge holds, and a carried verdict
+# must not slip past it.
 DIRTY=""
 [ -n "$(git status --porcelain | head -1)" ] && DIRTY=1
 NOCOMMITS=""
