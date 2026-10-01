@@ -44,7 +44,7 @@ koto next <WF> --with-data '{"scrutiny_outcome": "passed"}' --no-cleanup
 
 ## Retry Loop
 
-When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome
@@ -78,4 +78,4 @@ The run then returns to `implementation`, and when it walks forward into this ph
 
 ## Escalation
 
-If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry budget in the state's directive refuses the retry, submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.

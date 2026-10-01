@@ -113,15 +113,17 @@ directive_of() {
     ' "$ROOT/$TEMPLATE_REL"
 }
 
-# cap_in <state> <fixed-string>: the state's directive carries the cap and says
-# the prose is temporary.
+# cap_in <state> <fixed-string> [<temporary-note>]: the state's directive
+# carries the cap and says the prose is temporary. The note defaults to the
+# retry-caps record's wording; the panel cap carries its own record's.
 cap_in() {
     local state=$1 text=$2 body joined
+    local note=${3:-"until koto enforces it from its attempt counts, with the same number"}
     body=$(directive_of "$state")
     # Prose wraps anywhere, so the phrases are matched on the joined text.
     joined=$(printf '%s\n' "$body" | tr '\n' ' ')
     if printf '%s\n' "$joined" | grep -qF -- "$text" \
-        && printf '%s\n' "$joined" | grep -qF -- "until koto enforces it from its attempt counts, with the same number"; then
+        && printf '%s\n' "$joined" | grep -qF -- "$note"; then
         pass "$state states its cap once, as temporary"
     else
         fail "$state directive lacks its cap ($text) or the temporary note"
@@ -136,10 +138,21 @@ cap_in() {
 cap_in analysis '`scope_changed_retry` up to 3 times'
 cap_in implementation '`partial_tests_failing_retry` up to 3 times'
 cap_in pr_creation '`creation_failed_retry` up to 3 times'
-cap_in scrutiny '2 blocking retries per run, shared by scrutiny, review and qa_validation'
-cap_in review '2 blocking retries per run, shared by scrutiny, review and qa_validation'
-cap_in qa_validation '2 blocking retries per run, shared by scrutiny, review and qa_validation'
 cap_in ci_monitor 'Retry cap: 3 fix pushes'
+
+# The review panel cap. Its own record superseded the fixed 2 above: two
+# retries whatever the counts, a third only on a falling count, never a fourth,
+# applied by panel-retry-budget.sh, whose own suite drives the rule. Each
+# directive must call the script with its own panel, or a panel would be judged
+# against another panel's counts.
+RECORD=docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md
+PANEL_NOTE="until koto enforces it from its own counts, with the same rule"
+for panel in scrutiny review qa_validation; do
+    cap_in "$panel" 'The first 2 are granted whatever the counts. A third is granted only when this panel' "$PANEL_NOTE"
+    cap_in "$panel" 'and no run gets more than 3.' "$PANEL_NOTE"
+    cap_in "$panel" "panel-retry-budget.sh\" \"{{SESSION_NAME}}\" $panel <" "$PANEL_NOTE"
+done
+RECORD=docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md
 
 absent "no phase or reference file restates a retry number" \
     'up to 3\)|\(up to [0-9]|[0-9]\+ retry cycles|[0-9]-[0-9] iterations|capped at [0-9] cycles'
