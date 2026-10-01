@@ -193,6 +193,9 @@ at() { (cd "$W" && koto status "$SESS" 2>/dev/null) | jq -r '.current_state // .
 ctx() { koto context get "$SESS" "$1" 2>/dev/null; }
 put() { printf '%s' "$2" >"$T/v"; koto context add "$SESS" "$1" --from-file "$T/v" >/dev/null; }
 rows() { printf '%s\n' "$1" >"$ST/rows.json"; }
+# requests <topic>: how many koto requests name the topic's coordinator, the
+# coordinate-<topic> that dispatch-worker.sh opens a worker's leg under.
+requests() { (cd "$W" && koto request list --coordinator-of-record "coordinate-$1") | jq '.requests | length'; }
 
 # --- dispatch ------------------------------------------------------------------------------------
 
@@ -256,8 +259,7 @@ esac
 case "$DW_ERR" in *acme/vault*) fail "private target: the refusal names the private repository" "$DW_ERR" ;;
     *) pass "private target: the refusal never names the private repository" ;; esac
 eq  "private target: no holding was written" '[]' "$(cat "$ST/rows.json")"
-eq  "private target: no request (and so no leg) was opened" 0 \
-    "$( (cd "$W" && koto request list --coordinator-of-record "$SESS") | jq '.requests | length')"
+eq  "private target: no request (and so no leg) was opened" 0 "$(requests w9)"
 eq  "private target: no worker was launched" "" "$(cat "$ST/niwa.log")"
 tick --with-data '{"dispatched":"sent","topic":"w9"}'
 eq  "private target: sent can't leave dispatch without the holding" dispatch "$(at)"
@@ -292,14 +294,22 @@ case "$DW_ERR" in
     *) fail "unit: the refusal names the forms that would match" "$DW_ERR" ;;
 esac
 eq  "unit: no holding was written" '[]' "$(cat "$ST/rows.json")"
-eq  "unit: no request (and so no leg) was opened" 0 \
-    "$( (cd "$W" && koto request list --coordinator-of-record "$SESS") | jq '.requests | length')"
+eq  "unit: no request (and so no leg) was opened" 0 "$(requests w11)"
 eq  "unit: no worker was launched" "" "$(cat "$ST/niwa.log")"
 unit_dispatch w12 "$(sed 's/"w11"/"w12"/g' "$T/brief-unit.json" >"$T/brief-unit2.json"; printf '%s' "$T/brief-unit2.json")"
 (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
 eq  "unit: with no coord/pick.json in the session, exit 2" 2 "$?"
 eq  "unit: and nothing was written" '[]' "$(cat "$ST/rows.json")"
+eq  "unit: no request was opened" 0 "$(requests w12)"
 eq  "unit: nor launched" "" "$(cat "$ST/niwa.log")"
+# The control: the same query sees the request a dispatch past the check
+# opens (the stand-in launch then fails), so the zeros above can fail.
+sed -e 's/"w11"/"w13"/g' -e 's/"Feature 9 of ROADMAP-vault"/"Feature 9"/' "$T/brief-unit.json" >"$T/brief-unit3.json"
+unit_dispatch w13 "$T/brief-unit3.json"
+put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
+(cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
+[ "$(requests w13)" -ge 1 ] && pass "unit: control: a unit pick reads gets past the check and its request is seen" \
+    || fail "unit: control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
 
 # --- the leg path ----------------------------------------------------------------------------------
 
