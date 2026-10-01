@@ -18,7 +18,7 @@ Pass `model: "sonnet"` on each spawn; a seat with no model inherits the parent's
 PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)
 ```
 
-A plan-backed child whose criteria come from the PLAN outline passes `--criteria <file>` with the outline's acceptance criteria instead of `--issue`. Every prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap; don't paste the diff or the issue into the prompt. Remove `$PACKET` after aggregation, with the detail files.
+A plan-backed child whose criteria come from the PLAN outline passes `--criteria <file>` with the outline's acceptance criteria instead of `--issue`. A free-form run has no issue either: it writes the task description to a `mktemp` file and passes that as `--criteria`. The same substitutions apply in `phase-4b-review.md`, `phase-4c-qa.md` and the implementation agent review. Every prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap; don't paste the diff or the issue into the prompt. Remove `$PACKET` after aggregation, with the detail files.
 
 Spawn all three simultaneously using the Task tool:
 
