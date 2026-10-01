@@ -36,6 +36,18 @@
 #      roadmap_blocked, then wait;
 #  15. escalate_send to a person, both routes: the question tool's answer comes
 #      back from escalate_send, a message's from wait, each to decision_answer.
+#  16. from a holding with Branch and Pull request empty, a message report
+#      naming its pull request and a leg result carrying `pr` each go through
+#      report_link, where holding-link.sh writes the pull request and its
+#      headRefName, and on to verify_board reading that pull request with no
+#      hand write; a restart's reconcile then reports it open; `done` for a
+#      report naming none goes back to wait, never to verify, and the next
+#      report naming one gets through; blocked and needs_fix still route with
+#      no pull request, and a leg-bound worker whose result names none takes
+#      needs_fix to rebrief, the directive's route once its leg is spent. verify_board's no-pr arm is unreachable here by
+#      design (the gate above keeps such a report out of verify), so its
+#      sealed verdict is board-record_test.sh's and its arm the structure
+#      test's.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -498,6 +510,152 @@ if land_run moving 111; then
 else
     bad "11: reach verified_confirm for the moved head" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+
+# ---- 16. a report's pull request reaches the holding --------------------------
+echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="
+# empty_row [return path]: feat-1's holding with Branch and Pull request empty,
+# as dispatch-worker.sh writes it.
+empty_row() {
+    holding feat-1 "$(jq -nc --arg r "${1:-message}" '{unit: "Feature 1", branch: "", verified_head: "", pull_request: "", return_path: $r}')"
+}
+# empty_run <name> <number> [return path]: a run at wait whose one holding has
+# no pull request yet; acme/widgets#12 is open on feat/w-head, board complete.
+empty_run() {
+    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+        mergeStateStatus: "CLEAN"}]' --arg h "$H"
+    bt_board complete-board
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(empty_row "${3-}")" '.holdings = [$h]')" "$2" || return 1
+    [ "$(at --with-data '{"choice":"hold"}')" = wait ]
+}
+linked_row() { live_body "$1" | jq -c '.holdings[] | select(.worker == "feat-1") | {branch, pull_request}'; }
+LINKED='{"branch":"feat/w-head","pull_request":"[#12](https://github.com/acme/widgets/pull/12)"}'
+# link_through <label> <number>: at report_link, the agent runs holding-link.sh
+# and submits written; the run reads the holding again and reaches
+# classify_report, then verify_board reads #12's board.
+link_through() {
+    write_as_agent holding-link.sh
+    eq "16 $1: holding-link.sh (agent-run) writes the pull request" 0 $?
+    eq "16 $1: Branch is the headRefName GitHub reports, Pull request the link" "$LINKED" "$(linked_row "$2")"
+    eq "16 $1: written reads the holding again and reaches classify_report" classify_report "$(at --with-data '{"linked":"written"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "holding 12 feat-1 "*) ok "16 $1: report_facts now reads the holding's own pull request" ;;
+        *) bad "16 $1: report_facts now reads the holding's own pull request" ;;
+    esac
+    eq "16 $1: done reaches verify" verify "$(at --with-data '{"classification":"done"}')"
+    eq "16 $1: verify_board reads #12 with no hand write" verified_confirm "$(at --with-data '{"predicted":"recorded","prediction":"every job green"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name VERIFIED)" in
+        "verified 12 $H "*) ok "16 $1: VERIFIED is #12's head" ;; *) bad "16 $1: VERIFIED is #12's head" ;;
+    esac
+}
+if empty_run linkmsg 125; then
+    eq "16 message: a report naming its pull request goes to report_link" report_link \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is ready","pull_request":"https://github.com/acme/widgets/pull/12"}')"
+    link_through message 125
+    # A restart reads the pull request off the holding: reconcile reports its
+    # state, not "no pull request".
+    sleep 1
+    if open_run linkmsg && [ "$(at)" = reconcile ]; then
+        koto context get "$S" reconcile/report.md > "$T/rec.md" 2>/dev/null
+        grep -q '| `feat-1` | \[#12\](https://github.com/acme/widgets/pull/12) | executing; open (measured)' "$T/rec.md" && ok "16 message: a restart's reconcile reports the pull request open" \
+            || bad "16 message: a restart's reconcile reports the pull request open" "$(cat "$T/rec.md")"
+        grep -q 'no pull request' "$T/rec.md" && bad "16 message: and never says no pull request" "$(cat "$T/rec.md")" \
+            || ok "16 message: and never says no pull request"
+    else
+        bad "16 message: the restart reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "16 message: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# The leg path: a stand-in worker template whose result names #12.
+mkdir -p "$T/tpl"
+cat > "$T/tpl/deliver.md" <<'EOF'
+---
+name: deliver
+version: "1.0"
+description: a stand-in worker for coordinate_engine_test.sh
+initial_state: work
+states:
+  work:
+    accepts:
+      finish:
+        type: enum
+        values: [go]
+        required: true
+    transitions:
+      - target: done
+        when:
+          finish: go
+  done:
+    terminal: true
+    result:
+      outcome: ready
+      pr: https://github.com/acme/widgets/pull/12
+---
+## work
+Stand-in.
+## done
+Done.
+EOF
+LREQ=$(cd "$T/work" && koto request create --role deliver --template deliver.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linkleg | jq -r .request_id)
+if [ -n "$LREQ" ] && empty_run linkleg 126 "leg $LREQ:deliver"; then
+    (cd "$T" && koto init deliver-feat-1 --template "$T/tpl/deliver.md" --koto-leg "$LREQ:deliver" > /dev/null 2> "$T/child.err" \
+        && koto next deliver-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+        || bad "16 leg: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 leg: a leg result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
+    link_through leg 126
+else
+    bad "16 leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# done for a report naming no pull request goes back to the hub, never to a
+# verify_board that can't leave; the next report naming one gets through.
+if empty_run linknone 127; then
+    eq "16 none: a report naming no pull request reaches classify_report" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"all done"}')"
+    eq "16 none: done with no pull request goes back to wait" wait "$(at --with-data '{"classification":"done"}')"
+    eq "16 none: verify is never entered" 0 "$(entered verify)"
+    eq "16 none: verify_board is never entered" 0 "$(entered verify_board)"
+    eq "16 none: the worker's next report, naming it, reaches report_link" report_link \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is up","pull_request":"acme/widgets#12"}')"
+    link_through none 127
+else
+    bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A leg-bound worker whose result names no pull request: its leg is spent once
+# read, so `done` back at the hub has no way on, and the directive's route is
+# needs_fix, which reaches rebrief and moves the worker to the message path.
+sed -e 's/^name: deliver$/name: deliver-nopr/' -e '/^      pr: /d' "$T/tpl/deliver.md" > "$T/tpl/deliver-nopr.md"
+NREQ=$(cd "$T/work" && koto request create --role deliver --template deliver-nopr.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linklegnone | jq -r .request_id)
+if [ -n "$NREQ" ] && empty_run linklegnone 131 "leg $NREQ:deliver"; then
+    (cd "$T" && koto init deliver-nopr-feat-1 --template "$T/tpl/deliver-nopr.md" --koto-leg "$NREQ:deliver" > /dev/null 2> "$T/child.err" \
+        && koto next deliver-nopr-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+        || bad "16 leg, no pr: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 leg, no pr: a result naming no pull request reaches classify_report" classify_report "$(at --with-data '{"event":"leg"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "holding none feat-1 "*) ok "16 leg, no pr: report_facts reads holding none" ;;
+        *) bad "16 leg, no pr: report_facts reads holding none" ;;
+    esac
+    eq "16 leg, no pr: needs_fix, the directive's route, reaches rebrief" rebrief "$(at --with-data '{"classification":"needs_fix"}')"
+    eq "16 leg, no pr: verify is never entered" 0 "$(entered verify)"
+else
+    bad "16 leg, no pr: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# blocked and needs_fix don't route on report_pr, so a holding with no pull
+# request still takes them.
+for c in "blocked surface 128" "needs_fix rebrief 129"; do
+    set -- $c
+    if empty_run "linkno$1" "$3"; then
+        at --with-data '{"event":"report","unit":"feat-1","report":"stuck before any PR"}' > /dev/null
+        eq "16 none: $1 with no pull request reaches $2" "$2" "$(at --with-data "{\"classification\":\"$1\"}")"
+    else
+        bad "16 none: reach wait for $1" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    fi
+done
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 # ---- 12 to 15. the decision loop ----------------------------------------------
