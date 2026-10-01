@@ -2401,21 +2401,30 @@ it sits) with `git add --`, and name the hop.
 
 <!-- details -->
 
-**Filing needs a recorded approval.** If `/plan` is going to file GitHub issues
-or a milestone (its tracking level is `issues` or `issues-and-milestone`), record
-the approval before it files, as one line under the `plan_filing_approval` key:
+**Filing needs a recorded approval.** When `/plan` reaches its filing step (its
+tracking level is `issues` or `issues-and-milestone`), the approval is recorded
+at that moment, after the question and before the first `gh issue create`, as
+one line under the `plan_filing_approval` key. Never record it earlier: a line
+written before anyone was asked is an approval nobody gave.
 
-```bash
-printf 'approved: author\n' | koto context add scope-{{TOPIC}} plan_filing_approval
-```
+- **Interactive:** when `/plan` asks its filing question and the author answers
+  "file them", run, before letting `/plan` file:
 
-Interactively that is the author's answer to `/plan`'s filing question, and on
-"don't file" record nothing and let `/plan` write outlines. Under `--auto` there
-is nobody to ask: file only when the repository's CLAUDE.md declares
-`## Tracking Level: issues` or `issues-and-milestone`, and record
-`approved: tracking-level <that level>`; with no such header `/plan` files
-nothing and writes outlines. The `plan_filing` and `filing_approval` gates on the
-landed edge check this, and a PLAN that filed without it routes to `bail`.
+  ```bash
+  printf 'approved: author\n' | koto context add scope-{{TOPIC}} plan_filing_approval
+  ```
+
+  On "don't file", record nothing; `/plan` writes outlines instead.
+- **`--auto`:** nobody can be asked. File only when the repository's CLAUDE.md
+  declares `## Tracking Level: issues` or `issues-and-milestone` at or above the
+  level the PLAN files at (an `issues` header does not cover a milestone), and
+  record `approved: tracking-level <that header level>` before filing. With no
+  such header, `/plan` files nothing and writes outlines.
+
+The `plan_filing` and `filing_approval` gates on the landed edge check this after
+the call returns. They detect, they do not prevent: by the time a PLAN that
+filed without an approval routes to `bail`, its issues exist, so the rule above
+is the one to follow.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.

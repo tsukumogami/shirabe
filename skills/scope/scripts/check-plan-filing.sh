@@ -27,10 +27,11 @@
 # Exit codes:
 #   0  the PLAN files nothing: no approval is needed
 #   3  the PLAN files, and filing was permitted (an interactive run, or an
-#      --auto run whose CLAUDE.md declares `issues` or `issues-and-milestone`):
+#      --auto run whose CLAUDE.md declares a filing level that covers the
+#      PLAN's: `issues-and-milestone` covers both, `issues` only `issues`):
 #      the hop must also have recorded the approval
-#   1  the PLAN files under --auto and CLAUDE.md declares no filing level:
-#      nobody approved the filing; a line on stderr says so
+#   1  the PLAN files under --auto and CLAUDE.md declares no filing level that
+#      covers it: nobody approved the filing; a line on stderr says so
 #   2  cannot tell: a usage error, or a PLAN that cannot be read
 #
 # Read-only. bash 3.2.
@@ -124,9 +125,12 @@ HEADER=""
 if [ -n "$CLAUDE_MD" ] && [ -f "$CLAUDE_MD" ]; then
     HEADER=$(sed -n 's/^## Tracking Level:[[:space:]]*//p' "$CLAUDE_MD" | head -n 1 | sed 's/[[:space:]]*$//')
 fi
-case "$HEADER" in
-    issues|issues-and-milestone) exit 3 ;;
+# The header must cover what the PLAN filed: `issues` does not cover a
+# milestone. A PLAN with no level is read as issue-carrying at the default,
+# which files a milestone too.
+case "$HEADER:${LEVEL:-issues-and-milestone}" in
+    issues-and-milestone:*|issues:issues) exit 3 ;;
 esac
-printf '%s: the PLAN files issues (tracking level %s) under --auto, but CLAUDE.md declares no filing tracking level%s\n' \
+printf '%s: the PLAN files issues (tracking level %s) under --auto, but CLAUDE.md declares no filing tracking level that covers it%s\n' \
     "$PROG" "${LEVEL:-unset, read as issue-carrying}" "${HEADER:+ (it declares $HEADER)}" >&2
 exit 1

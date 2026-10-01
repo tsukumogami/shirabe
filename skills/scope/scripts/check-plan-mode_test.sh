@@ -146,6 +146,11 @@ fexpect "--auto filing with no header is refused"           1 --plan "$ISSUES" -
 fexpect "--auto filing under a none header is refused"      1 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-none.md"
 fexpect "multi-pr with no level reads as filing"            1 --plan "$MULTI_BARE" --exec-mode auto --claude-md "$T/claude-bare.md"
 fexpect "coordinated with no level reads as filing"         1 --plan "$COORD_BARE" --exec-mode auto --claude-md "$T/claude-bare.md"
+printf '# repo\n\n## Tracking Level: issues\n' >"$T/claude-issues.md"
+MILESTONE=$(fplan f-milestone multi-pr issues-and-milestone)
+fexpect "an issues header covers an issues PLAN"            3 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-issues.md"
+fexpect "an issues header does not cover a milestone"       1 --plan "$MILESTONE" --exec-mode auto --claude-md "$T/claude-issues.md"
+fexpect "an issues header does not cover a PLAN with no level" 1 --plan "$MULTI_BARE" --exec-mode auto --claude-md "$T/claude-issues.md"
 fexpect "an unknown tracking level cannot tell"             2 --plan "$ODD" --exec-mode auto --claude-md "$T/claude-bare.md"
 fexpect "a missing PLAN cannot tell"                        2 --plan docs/plans/PLAN-absent.md --exec-mode auto
 fexpect "an unknown exec mode is a usage error"             2 --plan "$ISSUES" --exec-mode sometimes
