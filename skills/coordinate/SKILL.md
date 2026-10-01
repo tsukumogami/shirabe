@@ -183,7 +183,10 @@ states never ask you to do these steps by hand.
 
 - **Dispatch.** A roadmap feature to be built goes to `/shirabe:deliver`; one
   scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
-  issue goes to `/shirabe:work-on`. The brief lists the checkpoints the worker
+  issue goes to `/shirabe:work-on`. A unit scoped ahead is sent its execution
+  by `scripts/dispatch-worker.sh` once its blocker lands: it renders the execution brief,
+  opens a new leg, and moves the holding to `executing`, which the record step
+  confirms. The brief lists the checkpoints the worker
   reports at and waits on no approval.
   `scripts/render-brief.sh` renders a worker's brief from one
   JSON input and refuses an incomplete one, or one whose target repositories
@@ -210,7 +213,10 @@ states never ask you to do these steps by hand.
 - **Wait.** A message report goes through the hub; a leg-bound worker's result
   is read from its leg by `scripts/wait-target.sh`, once. Both pass
   `take_report`, where `scripts/report-source.sh` refuses a message standing
-  in for a leg-bound worker. When a holding has no pull request yet and its
+  in for a leg-bound worker. A leg spent before its worker reported
+  (cancelled, refused at the entry point's preflight, abandoned or missing)
+  goes to `leg_spent`, where `scripts/dispatch-worker.sh --releg` replaces it
+  for the same holding, keeping the worker, or the human takes it. When a holding has no pull request yet and its
   report names one (a leg result's `pr`, or the `pull_request` you pass with a
   message), `scripts/holding-link.sh` writes that pull request and its head
   branch, as GitHub reports it, onto the holding. The report's

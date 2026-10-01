@@ -738,6 +738,7 @@ leg)
         | select($leg != null and ($leg.disposition | IN("open", "resolved", "abandoned")))
         | {kind: "leg", status: "ok",
            disposition: (if $leg.disposition == "open" and $leg.bound_child != null then "bound" else $leg.disposition end),
+           source: ($leg.result_source // null),
            result: (
              if $leg.result_source == "refused" then
                "refused:" + (($leg.result.payload.reason // $leg.result.summary // "unknown") | tostring)

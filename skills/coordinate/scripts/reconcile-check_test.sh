@@ -350,6 +350,12 @@ expect "a work-on leg carries the engine's status and final state" '.result == "
 new_case leg-refused
 serve koto-request 1 "$REQ_JSON"
 expect "a refused leg carries its reason" '.result == "refused:var-mismatch:TOPIC"' "$(run leg --return-path 'leg req1:refused')"
+new_case leg-source-refused
+serve koto-request 1 "$REQ_JSON"
+expect "the leg carries koto's result source, so a refusal reads as a leg spent early (shirabe#506)" '.source == "refused"' "$(run leg --return-path 'leg req1:refused')"
+new_case leg-source-promoted
+serve koto-request 1 "$REQ_JSON"
+expect "a promoted result reads promoted" '.source == "promoted"' "$(run leg --return-path 'leg req1:deliver')"
 new_case leg-bound
 serve koto-request 1 "$REQ_JSON"
 expect "an open leg with a bound child reads bound" '.disposition == "bound" and .result == ""' "$(run leg --return-path 'leg req1:waiting')"

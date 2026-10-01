@@ -58,9 +58,11 @@
 #                  item is a clone that couldn't be read, with the reason
 #                  as its path, and is listed as not verified, not unique
 #       leg        disposition (open|bound|resolved|abandoned; bound is an
-#                  open leg with a child attached), result: a short
-#                  token -- a result map's outcome, or the engine's own
-#                  terminal status and final state, or "refused:<reason>"
+#                  open leg with a child attached), source (koto's
+#                  result_source: promoted, explicit or refused; null with
+#                  no result), result: a short token -- a result map's
+#                  outcome, or the engine's own terminal status and final
+#                  state, or "refused:<reason>"
 #       settle     settled (bool), now (the row's status after it), reason:
 #                  the pass's one write, a row read `dispatching` whose
 #                  worker was found live (and its leg, if any, bound or
@@ -86,7 +88,9 @@
 #                   board, leg, next, next_code, source, read_at,
 #                   grade: {state, board, leg, phase, next}}
 #                  next_code is the token a reader routes on: drop, decide,
-#                  fix_ci, land, held, wait, read_again, refused. source is
+#                  fix_ci, land, held, wait, read_again, refused,
+#                  replace_leg (a leg spent before its worker reported,
+#                  the worker found: recoverable, not gone). source is
 #                  record or handoff, per row when a holding carries
 #                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
@@ -224,6 +228,16 @@ def board_of:
     elif any(.[]; .verdict == "pending") then "pending"
     else "holds" end;
 
+# A leg spent before its worker reported: abandoned, or resolved with a
+# result the session of its worker did not promote (a cancellation, a
+# refusal at the preflight of the entry point). With no pull request and the
+# worker found,
+# the holding is recoverable: its leg is replaced (dispatch-worker.sh
+# --releg), the worker kept.
+def leg_spent_early:
+  fact("leg") as $l
+  | ok($l) and ($l.disposition == "abandoned" or ($l.disposition == "resolved" and ($l.source // "") != "promoted"));
+
 # The next line is decided as a token, the one readers route on (the pick
 # side counts and routes on these); the sentence the agent reads is looked
 # up from it, so rewording a sentence cannot change what a reader sees.
@@ -239,6 +253,7 @@ def next_code_of:
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
     elif has_pr then "read_again"
+    elif leg_spent_early and ok($h) and $h.state == "found" then "replace_leg"
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
@@ -246,7 +261,8 @@ def next_text:
    fix_ci: "worker fixes CI", land: "ready to land",
    held: "verified; merge withheld by the human\u0027s direction, waiting on them",
    wait: "wait on worker",
-   read_again: "read again, then decide", refused: "refused by the record reader"}[.];
+   read_again: "read again, then decide", refused: "refused by the record reader",
+   replace_leg: "leg spent before the worker reported; replace the leg (dispatch-worker.sh --releg), keeping the worker"}[.];
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
@@ -388,7 +404,7 @@ def changes_of($written):
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
        | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
           next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
-    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again" or .next_code == "decide") | row("Ongoing")]
+    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again" or .next_code == "decide" or .next_code == "replace_leg") | row("Ongoing")]
     + [.decisions[] | select(.target != "a person")
        | {kind: "Ongoing", unit: .question, session: null, pr: null,
           status: ("with `" + (.target | sub("^coordinator "; "")) + "` for a decision"), next: null}])

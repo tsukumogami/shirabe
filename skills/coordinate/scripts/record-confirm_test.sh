@@ -91,6 +91,56 @@ log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "dispatch: a topic named only in the evidence, with no dispatch_check pass, is a conflict" conflict "$(confirm)"
 
+echo "== dispatch after send_execution (shirabe#553) =="
+send_exec() { # a run that picked send_execution for alpha, passed dispatch_check and dispatched it
+    session
+    log_to "$S" pick_facts pick 2026-09-26T09:50:00.000Z
+    log_evidence "$S" pick '{"choice":"send_execution","unit":"alpha"}' 2026-09-26T09:51:00.000Z
+    checked alpha
+    log_evidence "$S" dispatch '{"dispatched":"sent","topic":"alpha"}' "$EVT"
+    log_to "$S" dispatch record "$EVT"
+}
+send_exec
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"executing","entry_point":"/shirabe:execute"}')" '.holdings = [$h]')"
+eq "send_execution: the row moved to executing confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+eq "send_execution: a row still scoping ahead never confirms" waiting "$(confirm)"
+bash "$C" --session "$S" >/dev/null 2>&1
+jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'means no execution was sent' \
+    && ok "send_execution: the expectation says no execution was sent" || bad "send_execution: the expectation says no execution was sent" "$(cat "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+session
+log_to "$S" pick_facts pick 2026-09-26T09:50:00.000Z
+log_evidence "$S" pick '{"choice":"dispatch","unit":"alpha"}' 2026-09-26T09:51:00.000Z
+checked alpha
+log_evidence "$S" dispatch '{"dispatched":"sent","topic":"alpha"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+eq "a plain dispatch of a scoping-ahead row confirms as before" confirmed "$(confirm)"
+
+echo "== leg_spent: a spent leg replaced (shirabe#506) =="
+leg_spent_run() { # the wait read leg req-1:scope for alpha, spent; leg_spent replaced it
+    session
+    log_to "$S" wait leg_pick 2026-09-26T09:50:00.000Z
+    log_capture "$S" WAIT_REQ req-1 2026-09-26T09:50:00.000Z
+    log_to "$S" leg_pick wait_leg 2026-09-26T09:50:00.000Z
+    log_capture "$S" WAIT_LEG scope 2026-09-26T09:50:00.000Z
+    log_to "$S" wait_leg leg_spent 2026-09-26T09:50:00.000Z
+    log_evidence "$S" leg_spent "${1:-{\"move\":\"replaced\",\"topic\":\"alpha\"}}" "$EVT"
+    log_to "$S" leg_spent record "$EVT"
+}
+leg_spent_run
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-2:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: the topic's row on a new leg confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-1:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: the row still on the spent leg waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"message"}')" '.holdings = [$h]')"
+eq "leg_spent: a row moved to the message path isn't a replaced leg" waiting "$(confirm)"
+body "$(rec | jq -c --argjson a "$(holding alpha '{"return_path":"leg req-2:scope"}')" --argjson b "$(holding beta '{"return_path":"leg req-1:scope"}')" '.holdings = [$a, $b]')"
+eq "leg_spent: another row still on the spent leg waits" waiting "$(confirm)"
+leg_spent_run '{"move":"replaced"}'
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-2:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: replaced with no topic is a conflict" conflict "$(confirm)"
+
 echo "== surface =="
 session
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
