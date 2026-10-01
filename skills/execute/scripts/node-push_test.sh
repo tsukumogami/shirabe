@@ -66,6 +66,10 @@
 #     a clone whose origin spells the home's URL another way (ssh, https,
 #     case, .git, a trailing slash)              exit 79
 #     both origins written through one insteadOf rule   exit 79
+#     a clone of the home under a checkout whose origin has a pushurl
+#                                                exit 79
+#     a clone of the home under a checkout that fetches from a mirror and
+#     pushes to the home                         exit 79
 #     a --plan outside any git repository        exit 79, nothing pushed
 #     the node's own clone (control)             pushed
 #   coord_url_key                                one key per repository
@@ -717,6 +721,44 @@ else
     fail "insteadOf: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 git config --global --unset url."$REPO.origin.git".insteadOf
+
+# The coordination checkout's origin with a separate pushurl (its pushes go
+# to a fork): a clone of the home itself, the repository home_repo names,
+# is still refused.
+ct_case home-pushurl
+ct_write_db
+fresh_repo home-pushurl
+git init -q --bare "$CT_WORK/home-fork.git"
+(cd "$REPO" && git config remote.origin.pushurl "$CT_WORK/home-fork.git")
+NREPO="$CT_WORK/home-pushurl-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+home_push
+if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+    pass "a clone of the home under a checkout whose origin pushes elsewhere: exit 79, nothing pushed"
+else
+    fail "pushurl: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# The other way round: the checkout fetches from a mirror and pushes to the
+# home. A clone of the home is refused on the push URL.
+ct_case home-mirror
+ct_write_db
+fresh_repo home-mirror
+git clone -q --bare "$REPO.origin.git" "$CT_WORK/home-mirror.git"
+(cd "$REPO" && git remote set-url origin "$CT_WORK/home-mirror.git" \
+    && git config remote.origin.pushurl "$REPO.origin.git")
+NREPO="$CT_WORK/home-mirror-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+home_push
+if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$REPO.origin.git" "refs/heads/impl/*")" ] && ! gh_wrote; then
+    pass "a clone of the home under a checkout that fetches from a mirror and pushes to the home: exit 79, nothing pushed"
+else
+    fail "mirror: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
 
 # A --plan outside any git repository: the coordination checkout can't be
 # read, which refuses rather than passing.

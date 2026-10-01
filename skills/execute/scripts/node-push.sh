@@ -143,10 +143,11 @@
 #   79  node mode: the node names a repository other than the coordination
 #       PR's, but this worktree shares the coordination checkout's git
 #       directory (a node cut without node-cut.sh --repo-dir) or its push
-#       URL names the same repository as the checkout's origin push URL (a
-#       clone of the coordination PR's repository; network URLs compared by
-#       host and path, local paths as written), or either git directory could
-#       not be read; nothing was pushed or edited (execute:dispatch)
+#       URL names the same repository as the checkout's origin fetch or push
+#       URL (a clone of the coordination PR's repository; network URLs
+#       compared by host and path, local paths as written), or either git
+#       directory could not be read; nothing was pushed or edited
+#       (execute:dispatch)
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -287,26 +288,32 @@ if [ "$MODE" != order ]; then
     # 2b. A node in a repository other than the coordination PR's is pushed
     # from a clone of that repository (node-cut.sh --repo-dir), never from
     # the coordination checkout the PLAN sits in. A worktree sharing that
-    # checkout's git directory, or pushing to the same URL as its origin,
-    # would put the node branch in the home repository, which the run
+    # checkout's git directory, or pushing to the repository its origin
+    # names, would put the node branch in the home repository, which the run
     # writes only through the coordination PR's own paths.
     if [ "$MODE" = node ] && [ "$(coord_lower "$REPO")" != "$(coord_lower "$HOME_REPO")" ]; then
         PLAN_DIR=$(dirname -- "$PLAN")
         HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
         NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
-        # Both sides read the same way: where a push goes, with insteadOf,
-        # pushInsteadOf and pushurl applied.
+        # The node side is where its push goes (insteadOf, pushInsteadOf and
+        # pushurl applied). The home side is both of origin's URLs: the fetch
+        # URL, which home_repo was read from, and the push URL, which differ
+        # when origin has a pushurl.
+        HOME_FETCH=$(cd "$PLAN_DIR" && git remote get-url origin 2>/dev/null) || HOME_FETCH=""
         HOME_URL=$(cd "$PLAN_DIR" && git remote get-url --push origin 2>/dev/null) || HOME_URL=""
         NODE_URL=$(git remote get-url --push "$REMOTE" 2>/dev/null) || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
             echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
             exit 79
         fi
+        HOME_FETCH=$(coord_url_key "$HOME_FETCH")
         HOME_URL=$(coord_url_key "$HOME_URL")
         NODE_URL=$(coord_url_key "$NODE_URL")
-        if [ "$HOME_GIT" = "$NODE_GIT" ] || { [ -n "$HOME_URL" ] && [ "$HOME_URL" = "$NODE_URL" ]; }; then
-            # Named by node id only: either repository may be private.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(pwd -P)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
+        if [ "$HOME_GIT" = "$NODE_GIT" ] \
+            || { [ -n "$NODE_URL" ] && { [ "$NODE_URL" = "$HOME_FETCH" ] || [ "$NODE_URL" = "$HOME_URL" ]; }; }; then
+            # Names no repository, either of which may be private: only the
+            # node id and this worktree's local path and branch.
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(git rev-parse --show-toplevel 2>/dev/null)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
             exit 79
         fi
     fi
