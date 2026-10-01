@@ -78,8 +78,9 @@ hasn't shown progress on anything.
 `skills/work-on/scripts/panel-retry-budget.sh` carries the rule. It reads the
 run's record of granted retries from the koto context key `panel_retries`,
 decides, and on a grant appends this round before saying so. A refusal records
-nothing. A write that fails, or a record koto lists but won't return, is a
-refusal; the limit on what koto lets it tell apart is under Consequences. Each panel directive
+nothing. A record koto reports present but won't return, a malformed record,
+a write that fails, or a read-back without the new line is a refusal; the
+limit on what koto lets it tell apart is under Consequences. Each panel directive
 tells the agent to run it before the retry loop and to submit
 `blocking_escalate` when it refuses. The key is outside the set the retry loops
 clear, so the record survives every retry.
