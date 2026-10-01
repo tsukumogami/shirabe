@@ -68,8 +68,8 @@
 #   --recorded <panel> <session> the `<panel>_recorded` gate on the passed and
 #                                blocking_retry edges. Exit 1 while a seat the
 #                                scope spawned holds a verdict recorded before
-#                                the scope was planned (this round was not
-#                                recorded), or HEAD moved since it was planned.
+#                                the scope was planned: this round was not
+#                                recorded.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every seat it
 #                                spawned this round, passed or blocking. Stamps
@@ -123,7 +123,7 @@
 #          scope or ledger to check.
 #   1   -- --carried: something has to run, the working tree is dirty, or
 #          the scope is missing, stale, unreadable or has no carried results
-#          beside it. --recorded: a spawned seat wasn't recorded this round, HEAD moved,
+#          beside it. --recorded: a spawned seat wasn't recorded this round,
 #          or the keys can't be read. The gate modes exit nothing else: a gate
 #          exit the template does not route would hold the state, and the safe
 #          answer to every doubt is "run the panel" or "record the round".
@@ -211,17 +211,15 @@ fi
 # and the seat's old verdict -- a pass, possibly, for a seat that has just
 # blocked -- would be read as current next round. A spawned seat with no entry
 # at all passes: skipping its record costs a full review next round, never a
-# wrong carry. No scope passes too, with nothing to compare; that is a first
-# round whose --plan failed. A later round whose --plan failed finds the
-# previous round's scope at another HEAD and is asked to re-plan.
+# wrong carry. No scope passes too, with nothing to compare.
+#
+# HEAD moving while the panel is open is --record's concern, not this gate's:
+# --record refuses to stamp a round across a moved HEAD (68), and a round
+# recorded before the move keeps its own judged_at, so the next round's fix
+# diff includes the commit no seat saw.
 if [ "$MODE" = "--recorded" ]; then
     scope=$(ctx_get "${PANEL}_scope.json")
     [ -n "$scope" ] || exit 0
-    # A commit made while the panel was open is one no seat saw. Recording
-    # again would stamp their verdicts onto it, so ask for a re-plan instead.
-    scope_head=$(printf '%s' "$scope" | jq -r '.head // empty' 2>/dev/null)
-    [ "$scope_head" = "$HEAD" ] \
-        || refuse 1 "HEAD moved since ${PANEL}_scope.json was planned; tick koto without evidence to re-plan the round"
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || exit 0
     # Compared by ledger revision, not by commit: a panel re-entered at an
