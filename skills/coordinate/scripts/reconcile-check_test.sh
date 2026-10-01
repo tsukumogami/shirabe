@@ -198,6 +198,10 @@ expect "a verified board holds" '.verdict == "holds"' "$(run board --repo $R --s
 new_case board-pending
 serve board 1 '{"verdict":"pending","reasons":[{"code":"run-pending","name":"ci"}]}'
 expect "a pending board is pending" '.verdict == "pending"' "$(run board --repo $R --sha $VH --base main)"
+new_case board-not-run
+serve board 1 '{"verdict":"not-run","reasons":[{"code":"job-not-run","run":1,"job":2,"name":"Validate PR body","detail":"The job was not started because recent account payments have failed or your spending limit needs to be increased."}]}'
+expect "a board whose job never ran is not run, naming the job and GitHub's reason, never failing (shirabe#564)" \
+    '.status == "ok" and .verdict == "not-run" and (.detail | startswith("Validate PR body (The job was not started"))' "$(run board --repo $R --sha $VH --base main)"
 new_case board-error
 serve board 1 '{"verdict":"error:board-read","reasons":[]}'
 expect "a board read error is not verified" '.status == "not_verified" and (.reason | test("board-read"))' "$(run board --repo $R --sha $VH --base main)"
@@ -759,6 +763,21 @@ expect "an undisposed deferral is undisposed" '.disposed == false and .how == "e
 new_case deferral-two-lines
 serve deferral 1 "$(printf 'disposed closed\ndisposed filed 9')"
 expect "a two-line disposal answer is not verified" '.status == "not_verified"' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
+# koto's own run start carries milliseconds (shirabe#552: a check that
+# refused it printed nothing, and every deferral read "nothing readable").
+new_case deferral-millis
+serve deferral 1 "disposed closed"
+expect "a run start with milliseconds is a time" '.disposed == true and .how == "closed"' "$(run deferral --repo $R --row-file "$ROW" --run-start 2026-09-28T14:34:17.326Z --chain-start 2026-09-28T14:34:17.326Z)"
+# Every input this read can't take is a fact naming it, never a silent exit.
+new_case deferral-no-row
+expect "a missing row file is not verified, and says so" '.status == "not_verified" and (.reason | test("row file"))' "$(run deferral --repo $R --row-file "$T/no-such-row.json" --run-start $RS)"
+new_case deferral-bad-start
+expect "a run start that isn't a time is not verified, and says so" '.status == "not_verified" and (.reason | test("run start"))' "$(run deferral --repo $R --row-file "$ROW" --run-start 2026-09-27)"
+new_case deferral-bad-chain
+expect "a chain start that isn't a time is not verified, and says so" '.status == "not_verified" and (.reason | test("chain start"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS --chain-start yesterday)"
+new_case deferral-usage
+fail_with deferral 1 64
+expect "a disposal check that refuses its input is not verified, and says so" '.status == "not_verified" and (.reason | test("refused its input"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
 
 echo "== bad row values reach no command =="
 for args in "pr --repo a;b --number 1" "pr --repo -x/y --number 1" "pr --repo acme/widgets --number 0" "branch --repo acme/widgets --branch -x" "branch --repo acme/widgets --branch a;b" "board --repo acme/widgets --sha nothex --base main" "merge --repo acme/widgets --number 7 --verified-head nothex"; do
@@ -797,7 +816,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|gh auth git-credential get|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always -c protocol\.file\.allow=always -c core\.askPass= -c credential\.interactive=false -c credential\.helper= -c credential\.https://github\.com\.helper= -c credential\.helper=!gh auth git-credential ls-remote --symref https://github\.com/[^ ]+\.git( refs/heads/[^ ]+)?|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|gh auth git-credential get|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+( --chain-start [^ ]+)?|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always -c protocol\.file\.allow=always -c core\.askPass= -c credential\.interactive=false -c credential\.helper= -c credential\.https://github\.com\.helper= -c credential\.helper=!gh auth git-credential ls-remote --symref https://github\.com/[^ ]+\.git( refs/heads/[^ ]+)?|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 # --method is allowed only as `--method GET`, the merge check's reads.

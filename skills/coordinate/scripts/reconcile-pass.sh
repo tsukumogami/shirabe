@@ -284,7 +284,7 @@ RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=()
 
 # collect -- fold every finished read into the work file.
 collect() {
-    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new
+    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new why
     i=0
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
@@ -294,7 +294,15 @@ collect() {
             fact=$(jq -c '.' "$R/$id.out" 2>/dev/null | head -1)
             clipped=${RUN_CLIPPED[$i]}
             if [ -z "$fact" ] || ! printf '%s' "$fact" | jq -e '(.kind | type) == "string" and (.status | type) == "string"' >/dev/null 2>&1; then
-                fact=$(jq -nc --arg id "$id" '{kind: "unknown", status: "not_verified", reason: "the re-check printed nothing readable"}')
+                # Say how it ended, so the report names what couldn't be read
+                # rather than only that nothing came back: its exit code and
+                # the last line it wrote to stderr, token-shaped text redacted.
+                why=$(tail -n 1 "$R/$id.err" | tr -d '\r' \
+                    | sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' \
+                    | tr -d '\000-\010\013\014\016-\037' | cut -c1-200)
+                fact=$(jq -nc --arg rc "$(cat "$R/$id.rc")" --arg why "$why" \
+                    '{kind: "unknown", status: "not_verified",
+                      reason: ("the re-check printed nothing readable (exit " + $rc + (if $why == "" then "" else ": " + $why end) + ")")}')
             fi
             if [ "$clipped" = 1 ] && printf '%s' "$fact" | jq -e '.status != "ok" and ((.reason // "") | test("timed out"))' >/dev/null 2>&1; then
                 :   # cut short by this pass's budget, not by its own deadline: read again next pass

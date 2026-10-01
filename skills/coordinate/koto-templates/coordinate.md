@@ -1387,6 +1387,12 @@ states:
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 73  # board-unreadable
+      # A job that never ran (GitHub refused to start it) is no verdict on
+      # the code and not the worker's to fix: back to waiting, like a board
+      # that can't be read, with the reason in coord/board.json.
+      - target: wait
+        when:
+          gates.verify_board_verdict.exit_code: 78  # not-run
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 74  # not-open
@@ -2823,6 +2829,15 @@ passed, which they can see and the token can't. Tell them the Actions jobs at
 the head are green and the board couldn't read the required checks; their
 answer, or a token that can read checks, is what lets it land.
 
+A job that completed red with no step at all never ran: GitHub refused to
+start it, as it does for an account billing block or a missing runner. With
+nothing else red, the board is `not-run`: no verdict on the code, and not the
+worker's to fix, so don't send it back. It goes back to waiting; report it up
+as blocked on the person who holds the account (`--blocked <worker>=CI did not
+run: <the reason>`), with each `job-not-run` reason from `coord/board.json`,
+since only they can clear it and re-run the jobs. A re-run moves no head:
+bring the worker's report back through `wait` once the jobs have run.
+
 A board that couldn't be read at all (a refusal, a failed read or the deadline)
 is `board-unreadable`: no verdict on the code. It goes back to waiting with the
 reason in `coord/board.json`, so the rest of the run carries on; fix the cause,
@@ -2897,9 +2912,13 @@ changed file on the default branch with the verified head's version.
 
 <!-- details -->
 
-A merge confirmed drops the holding. A merge not confirmed keeps the holding and
-adds a Side effects row naming the pull request as `owner/repo#<n>` with the
-verified head, which a later reconcile settles. When a feature lands
+A merge confirmed keeps the holding until teardown and clears its Pull request
+cell: read the row with `record-holding.sh --read`, write it back with
+`pull_request` empty and nothing else changed (`--row-file`), and the record
+step waits for that. The row goes only at the teardown's destroy step. A merge
+not confirmed keeps the holding and its link and adds a Side effects row
+naming the pull request as `owner/repo#<n>` with the verified head, which a
+later reconcile settles. When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker
 for a small pull request that sets the feature's status line, as a holding;
 features that depend on it stay blocked until it merges.
@@ -2911,7 +2930,12 @@ the unit's own verified head.
 
 <!-- details -->
 
-As after any merge: when a feature lands on a roadmap whose repository doesn't
+As after a merge you made: a merge confirmed keeps the holding until teardown
+and clears its Pull request cell (`record-holding.sh --read`, then the row
+written back with `pull_request` empty and nothing else changed), which the
+record step waits for; the row goes only at the teardown's destroy step. A
+merge not confirmed keeps the link and adds a Side effects row for it at the
+verified head. When a feature lands on a roadmap whose repository doesn't
 hold that feature's PLAN, dispatch a worker for a small pull request that sets
 the feature's status line, as a holding; features that depend on it stay blocked
 until it merges.
@@ -3019,7 +3043,8 @@ since the inventory (koto#251), and refuses a verdict edited after sealing or
 taken for another worker; don't destroy then. `niwa destroy` refuses an
 instance whose branches were squash-merged (niwa#322); pass `--force` only
 because the sealed inventory just proved every repository durable. Then remove
-the worker's holding from the record. When the destroy is handed to a person,
+the worker's holding from the record: this is where the row goes, the merge
+having only cleared its Pull request cell. When the destroy is handed to a person,
 also add a Side effects row whose target is `instance of <topic>`: the record
 names a worker by its dispatch topic, never by its instance path.
 ## quiet_check

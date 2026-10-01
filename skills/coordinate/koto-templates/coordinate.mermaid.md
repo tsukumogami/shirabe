@@ -187,6 +187,7 @@ stateDiagram-v2
     verify_board --> failure : gates.verify_board_verdict.exit_code: 71
     verify_board --> wait : gates.verify_board_verdict.exit_code: 72
     verify_board --> wait : gates.verify_board_verdict.exit_code: 73
+    verify_board --> wait : gates.verify_board_verdict.exit_code: 78
     verify_board --> surface : gates.verify_board_verdict.exit_code: 74
     verify_board --> surface : gates.verify_board_verdict.exit_code: 75
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76

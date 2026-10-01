@@ -259,7 +259,10 @@ if the coordinator is to land anything itself. When GitHub refuses the checks,
 the board is judged from the Actions jobs and says so, but a green board read
 that way can't show every required check, so it goes to the human rather than
 to a merge. A board that can't be read at all, whether refused, failed or out of
-time, is no verdict on the code: it goes back to waiting with the reason. Don't
+time, is no verdict on the code: it goes back to waiting with the reason. So
+is a job GitHub never started (it finished red with no step, as under an
+account billing block): the board reads not run, and the reason goes to
+whoever holds the account, never to the worker as a CI failure. Don't
 work around the check; put a refusal to the human, since the token's
 permissions are theirs to change.
 

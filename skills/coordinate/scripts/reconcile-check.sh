@@ -542,6 +542,12 @@ board_fact() {
         elif .verdict == "verified" then {kind: "board", status: "ok", at: $sha, verdict: "holds", detail: "", read_at: $t}
         elif .verdict == "pending" then {kind: "board", status: "ok", at: $sha, verdict: "pending", detail: first_reason, read_at: $t}
         elif .verdict == "unverified" then {kind: "board", status: "ok", at: $sha, verdict: "fails", detail: first_reason, read_at: $t}
+        # A job GitHub never started is no verdict on the code (shirabe#564).
+        elif .verdict == "not-run" then
+          {kind: "board", status: "ok", at: $sha, verdict: "not-run",
+           detail: ([(.reasons // [])[] | select(.code == "job-not-run")
+                     | (.name // "") + (if (.detail // "") != "" then " (" + .detail + ")" else "" end)][0] // ""),
+           read_at: $t}
         else {kind: "board", status: "not_verified", at: $sha, reason: ("board " + .verdict), read_at: $t} end'
 }
 
@@ -631,16 +637,25 @@ close)
     ;;
 
 deferral)
+    # Every way this read can fail prints a fact that says which input it
+    # couldn't take: a deferral is reported verified with its disposition,
+    # or not verified with the reason, never as a re-check that printed
+    # nothing (shirabe#552).
     need_repo
-    [ -f "$ROWFILE" ] || usage
+    [ -n "$ROWFILE" ] || refuse deferral "no row file was given for the deferral"
+    [ -r "$ROWFILE" ] || refuse deferral "the deferral's row file can't be read"
     # koto's created_at carries milliseconds; both forms are a time.
     RE_START='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$'
-    [[ $RUNSTART =~ $RE_START ]] || usage
+    [[ $RUNSTART =~ $RE_START ]] || refuse deferral "the run start is not a time this check reads (YYYY-MM-DDTHH:MM:SS[.fff]Z)"
     CHAIN=()
-    if [ -n "$CHAINSTART" ]; then [[ $CHAINSTART =~ $RE_START ]] || usage; CHAIN=(--chain-start "$CHAINSTART"); fi
+    if [ -n "$CHAINSTART" ]; then
+        [[ $CHAINSTART =~ $RE_START ]] || refuse deferral "the chain start is not a time this check reads (YYYY-MM-DDTHH:MM:SS[.fff]Z)"
+        CHAIN=(--chain-start "$CHAINSTART")
+    fi
     RAW=$(rd_deadline "$DEADLINE" "$RD_DEFERRAL_CHECK" --row-file "$ROWFILE" --run-start "$RUNSTART" ${CHAIN[@]+"${CHAIN[@]}"} 2>/dev/null)
     rc=$?
     [ "$rc" -eq 124 ] && refuse deferral "disposal check timed out after ${DEADLINE}s"
+    [ "$rc" -eq 64 ] && refuse deferral "the disposal check refused its input (exit 64): the row file or a start time"
     # The check prints one line; anything else is an answer this script
     # doesn't interpret.
     case "$RAW" in *$'\n'*) refuse deferral "disposal check printed more than one line" ;; esac
