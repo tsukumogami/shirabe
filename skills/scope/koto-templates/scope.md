@@ -1253,10 +1253,12 @@ states:
       # appends to its Status section, not by mere existence at a canonical
       # path: an artifact that was produced normally sits at the same path and
       # means something else. Both DESIGN locations are listed for the same
-      # reason the design hop's gate reads the pair.
+      # reason the design hop's gate reads the pair. The PLAN's path is not
+      # listed: an abandoned run writes no PLAN, and when /plan triggered the
+      # marker goes on the nearest upstream document instead.
       forced_artifact_present:
         type: command
-        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" "docs/plans/PLAN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
+        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
       intent_declared:
         type: command
         command: 'test "{{RUN_INTENT}}" != none'
@@ -1268,7 +1270,7 @@ states:
       exit_artifacts:
         type: string
         required: true
-        description: The force-materialized artifact's path and status, as the state file records them.
+        description: The force-materialized artifact (or, when /plan triggered, the upstream documents) with path and status, as the state file records them.
       retry_or_cancel:
         type: enum
         values: [retry, cancel]
@@ -2635,7 +2637,11 @@ tick that reaches the terminal.
 
 Force-materialize the most-recently-running child's intermediate as a Draft
 artifact at its canonical durable path, and append the marker to the END of that
-artifact's existing Status section, on one line, with the field order shown:
+artifact's existing Status section, on one line, with the field order shown.
+**Never write a PLAN here.** When the triggering child is `/plan`, materialize
+nothing: put the marker on the nearest upstream document still on disk (the
+DESIGN, else the PRD, else the BRIEF) and list the upstream documents in
+`exit_artifacts`.
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->
@@ -2657,8 +2663,8 @@ intent is `{{RUN_INTENT}}`, and anything but `none` is one: an intent run never
 creates a coordination PR up front, so none exists before exit, and there is
 nothing to close.
 
-The `forced_artifact_present` gate looks for that marker in the five canonical
-artifact paths, both DESIGN locations included. It is the marker rather than the
+The `forced_artifact_present` gate looks for that marker in the four upstream
+artifact paths, both DESIGN locations included, and never in the PLAN's. It is the marker rather than the
 file that identifies a force-materialized artifact: a normally produced artifact
 sits at the same path and means something else.
 

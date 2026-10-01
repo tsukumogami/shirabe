@@ -163,13 +163,25 @@ tempfile, never interpolated into the commit message via
 
 ### Abandonment-Forced Exit
 
-The chain cannot complete the planned terminal artifact. Phase
-3 force-materializes the most-recently-running child's
-intermediate as a Draft artifact at its canonical durable path
-(`docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`,
-`docs/designs/DESIGN-<topic>.md`, or
-`docs/plans/PLAN-<topic>.md`) and appends the HTML-comment
-marker to the END of the artifact's Status section.
+The chain cannot complete the planned terminal artifact. An
+abandoned run writes no PLAN, only the upstream documents: a
+committed Draft PLAN fails the lifecycle check, and a PLAN that
+never finished holds little a later run could reuse.
+
+- When the triggering child is `/brief`, `/prd` or `/design`,
+  Phase 3 force-materializes that child's intermediate as a Draft
+  artifact at its canonical durable path
+  (`docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`, or
+  `docs/designs/DESIGN-<topic>.md`) and appends the HTML-comment
+  marker to the END of its Status section.
+- When the triggering child is `/plan`, nothing is
+  force-materialized and `docs/plans/PLAN-<topic>.md` is not
+  written. The marker goes at the END of the Status section of
+  the nearest upstream document the chain left on disk (the
+  DESIGN, or the PRD or BRIEF when the DESIGN was absorbed), and
+  `exit_artifacts:` lists the upstream documents at their current
+  status. `/plan`'s intermediate files stay where they are for a
+  resumed run, as every abandoned child's do.
 
 State file at abandonment-forced exit:
 
@@ -179,8 +191,8 @@ triggering_child: brief | prd | design | plan
 partial_phase_reached: <the parent's own Phase 2 loop position>
 chain_completed: <ISO-8601 timestamp>
 exit_artifacts:
-  - path: docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md
-    status: Draft
+  - path: docs/{briefs|prds|designs}/<TYPE>-<topic>.md
+    status: Draft   # or the upstream document's own status when /plan triggered
 ```
 
 #### Coordinated abandonment closes the coordination PR
@@ -282,7 +294,9 @@ down the empty state file is the whole of what it leaves behind.
 
 The abandonment-forced exit appends the uniform single-line
 HTML-comment marker to the END of the force-materialized
-artifact's existing Status section. The literal marker text:
+artifact's existing Status section, or, when `/plan` was the
+triggering child, of the nearest upstream document's. The literal
+marker text:
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->

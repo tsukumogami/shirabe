@@ -257,6 +257,19 @@ eq "hop_plan's landed edge requires plan_mode_consistent" 'true' \
 eq "a plan-mode mismatch routes to bail" 'true' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_mode_consistent.exit_code"] == 1)] | length == 1')"
 
+# An abandoned run writes no PLAN (a committed Draft PLAN fails the lifecycle
+# check), so the abandonment gate must not accept a marker on the PLAN's path.
+eq "exit_abandonment's marker gate never reads the PLAN's path" 'false' \
+    "$(q '.states.exit_abandonment.gates.forced_artifact_present.command | contains("docs/plans/")')"
+FORCED=$(awk '/^forced_artifact\(\)/{f=1} f{print} f&&/^}/{exit}' "$HERE/print-scope-exit.sh")
+if [ -z "$FORCED" ]; then
+    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() not found"
+elif printf '%s\n' "$FORCED" | grep -v '^[[:space:]]*#' | grep -q 'docs/plans/'; then
+    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() names docs/plans/"
+else
+    ok "print-scope-exit.sh never reports a PLAN as the abandoned artifact"
+fi
+
 # The child-dispatch contract the hops rely on: under the sentinel a child keeps
 # its verdict and skips every step that publishes or routes, so /scope's one
 # push at exit stays true. The dispatch reference once had children leave their

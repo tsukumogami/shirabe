@@ -432,8 +432,9 @@ survivor at either takes the same writes. `docs/plans/` appears because the
 PLAN is the survivor at the terminal hop.
 
 **Phase 3 and Phase 4**: Decision Records under `docs/decisions/`,
-force-materialized partials under `docs/{briefs,prds,designs,plans}/` and
-`docs/designs/current/` on `abandonment-forced`, and state-file plus child-wip
+force-materialized partials under `docs/{briefs,prds,designs}/` and
+`docs/designs/current/` on `abandonment-forced` (never a PLAN: an abandoned
+run writes no PLAN, only the upstream documents), and state-file plus child-wip
 cleanup under `wip/`.
 
 **R8's clean cancel** deletes one further path, and carves one out:
