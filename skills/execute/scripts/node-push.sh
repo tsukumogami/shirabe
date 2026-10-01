@@ -248,7 +248,7 @@ if [ "$MODE" != coordination ]; then
         echo "$PROG: plan-to-tasks.sh could not read [$PLAN] into a coordinated merge order; nothing was pushed or edited" >&2
         exit 76
     }
-    if [ "$MODE" = node ] && ! printf '%s\n' "$ORDER_LINES" | grep -q "^$NODE |"; then
+    if [ "$MODE" = node ] && ! grep -q "^$NODE |" <<<"$ORDER_LINES"; then
         echo "$PROG: the PLAN [$PLAN] has no node $NODE; nothing was pushed" >&2
         exit 76
     fi
@@ -299,8 +299,8 @@ if [ "$MODE" != order ]; then
         # pushurl applied). The home side is both of origin's URLs, insteadOf
         # applied: the fetch URL (the remote.origin.url home_repo was read
         # from) and the push URL, which differ when origin has a pushurl.
-        HOME_FETCH=$(cd "$PLAN_DIR" && git remote get-url origin 2>/dev/null) || HOME_FETCH=""
-        HOME_URL=$(cd "$PLAN_DIR" && git remote get-url --push origin 2>/dev/null) || HOME_URL=""
+        HOME_FETCH=$(CDPATH='' cd "$PLAN_DIR" && git remote get-url origin 2>/dev/null) || HOME_FETCH=""
+        HOME_URL=$(CDPATH='' cd "$PLAN_DIR" && git remote get-url --push origin 2>/dev/null) || HOME_URL=""
         NODE_URL=$(git remote get-url --push "$REMOTE" 2>/dev/null) || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
             echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
