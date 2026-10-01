@@ -386,24 +386,26 @@ reset "$INPUT_DELIVER"
 rm -f "$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "unit: no coord/pick.json to check against exits 2" 2 "$?"
 nothing_written "unit, no pick facts"
-# Discipline scope: an issue as #n, or as host#n when the run's host is known.
-PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
-cat >"$T/coord-log-vars" <<'EOF'
-#!/usr/bin/env bash
-[ "$1" = vars ] && { printf '{"HOST_REPO":"acme/widgets"}\n'; exit 0; }
-exit 2
-EOF
+# Discipline scope: an issue as #n, or as host#n with the host pick recorded.
+PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do
     reset "$(printf '%s' "$INPUT_DELIVER" | jq -c --arg u "$u" '.unit = $u')"
     printf '%s' "$PICK_DISCIPLINE" >"$ST/ctx/coord/pick.json"
-    (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-vars" bash "$S" --session coord >/dev/null 2>&1)
+    run >/dev/null 2>&1
     eq "unit: discipline issue $u is taken" 0 "$?"
 done
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "#13"')"
 printf '%s' "$PICK_DISCIPLINE" >"$ST/ctx/coord/pick.json"
-ERR=$( (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-vars" bash "$S" --session coord) 2>&1 >/dev/null); RC=$?
+ERR=$(run 2>&1 >/dev/null); RC=$?
 eq  "unit: an issue pick didn't list is refused" 1 "$RC"
 has "unit: naming the issue's forms" "$ERR" '"#12", "acme/widgets#12"'
+# A resumed dispatch: its holding already records the unit, so neither the
+# unit nor coord/pick.json is checked again, and the run settles the row.
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.unit = "Feature 2 of ROADMAP-plugin-system"')"
+rm -f "$ST/ctx/coord/pick.json"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue","unit":"Feature 2 of ROADMAP-plugin-system"}' >"$ST/rows/plugin-api.json"
+run >/dev/null 2>&1; eq "unit: a resumed dispatch isn't refused on its recorded unit" 0 "$?"
+eq  "unit: and its row is settled" dispatched "$(row dispatch_status)"
 
 # --- topic checks ------------------------------------------------------------------------------------
 
@@ -479,8 +481,9 @@ jq -c '.dispatched = "2000-01-01"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$S
 printf 'plugin-api' >"$ST/ctx/report_topic"
 jq -c '.goal = "The plugin API ships, and the loader tolerates a missing manifest." | .repo = "evil/elsewhere"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 : >"$ST/calls.log"
+rm -f "$ST/ctx/coord/pick.json"
 OUT=$(run --rebrief 2>/dev/null); RC=$?
-eq  "rebrief: exit 0" 0 "$RC"
+eq  "rebrief: exit 0, with no coord/pick.json to read" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")

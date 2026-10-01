@@ -24,8 +24,8 @@
 #       Prints the flags part of the invocation (run_mode, then entry_args
 #       flags), the holding's `mode` cell.
 #
-#   dc_unit_forms <pick-json-file> <host>
-#   dc_unit_matches <unit> <pick-json-file> <host>
+#   dc_unit_forms <pick-json-file>
+#   dc_unit_matches <unit> <pick-json-file>
 #       The Unit cell values pick_facts reads as covering a unit it listed
 #       (coord/pick.json), and whether <unit> is one: a roadmap feature's tag
 #       or `<tag>: <title>`, an issue's `#<n>` or `<host>#<n>`. A holding
@@ -185,26 +185,29 @@ dc_valid_topic() {
     [[ $1 =~ $DC_RE_TOPIC ]]
 }
 
-# dc_unit_forms <pick-json-file> <host>: print, one per line, every Unit cell
-# value that covers a unit pick_facts listed, by pick-facts.sh's own rule: a
-# roadmap feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
-# `<host>#<n>` (the `<host>` form only when a host is given). Returns 2 when
-# the file isn't pick_facts' JSON.
+# dc_unit_forms <pick-json-file>: print, one per line, every Unit cell value
+# that covers a unit pick_facts listed, by pick-facts.sh's own rule: a roadmap
+# feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
+# `<host>#<n>`, with the host pick_facts recorded. Returns 2 when the file
+# isn't pick_facts' JSON. pick-facts_test.sh holds the two rules together.
 dc_unit_forms() {
-    jq -r --arg h "$2" '
+    jq -r '
         if (.units | type) != "array" then error("no units") else . end
-        | .scope as $s | .units[]
+        | .scope as $s | (.host // "") as $h | .units[]
         | if $s == "roadmap" then .unit, "\(.unit): \(.title)"
           else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
 }
 
-# dc_unit_matches <unit> <pick-json-file> <host>: 0 when <unit> is a Unit cell
-# value pick would read as covering one of the units it listed (dc_unit_forms),
-# so a holding written with it is never invisible to pick; 1 when it isn't;
-# 2 when the file can't be read as pick_facts' JSON.
+# dc_unit_matches <unit> <pick-json-file>: 0 when <unit> is a Unit cell value
+# pick would read as covering one of the units it listed (dc_unit_forms), so
+# a holding written with it is never invisible to pick; 1 when it isn't (an
+# empty or multi-line unit never is); 2 when the file can't be read as
+# pick_facts' JSON.
 dc_unit_matches() {
     local forms
-    forms=$(dc_unit_forms "$2" "$3") || return 2
+    forms=$(dc_unit_forms "$2") || return 2
+    case "$1" in '' | *'
+'*) return 1 ;; esac
     printf '%s\n' "$forms" | grep -Fxq -- "$1"
 }
 

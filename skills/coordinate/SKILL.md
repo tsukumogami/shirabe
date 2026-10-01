@@ -189,8 +189,9 @@ states never ask you to do these steps by hand.
   JSON input and refuses an incomplete one, or one whose target repositories
   its entry point can't take: the requirement in `references/entry-points.tsv`
   is checked against each target's visibility, read live from GitHub, and the
-  refusal names the entry point to use instead. At dispatch it also refuses
-  a `unit` that pick wouldn't read as one of the units it listed, naming the
+  refusal names the entry point to use instead. At a new dispatch (not a
+  re-brief) it also refuses a `unit` that pick wouldn't read as one of the
+  units it listed, naming the
   forms that would match (`Feature 2` or `Feature 2: <title>`, `#12`), since
   a holding pick can't see leaves its unit open to a second dispatch;
   `scripts/dispatch-worker.sh`

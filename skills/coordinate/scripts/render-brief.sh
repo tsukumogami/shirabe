@@ -63,7 +63,7 @@
 # not an id.
 #
 # Usage:
-#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json> [--host <owner/repo>]] [--stdout]
+#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json>] [--stdout]
 #
 #   --workspace-root  where .niwa/dispatch-briefs/ lives; found with
 #                     dc_workspace_root when absent
@@ -76,9 +76,9 @@
 #                     must be a form pick reads as covering one of them
 #                     (dispatch-common.sh dc_unit_forms), else the input is
 #                     refused, naming the forms that would match.
-#                     dispatch-worker.sh passes it on every dispatch
-#   --host            the run's host, owner/repo: an issue's `<host>#<n>`
-#                     form is accepted only with it
+#                     dispatch-worker.sh passes it on every new dispatch;
+#                     a re-brief, or a resumed dispatch whose holding
+#                     already records the unit, isn't checked
 #   --targets-checked skip the entry point's target requirement: the caller
 #                     already checked this input (dispatch-worker.sh's second
 #                     render, after its leg is open, so a flaky read there
@@ -104,7 +104,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/dispatch-common.sh"
 
 usage() {
-    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json> [--host <owner/repo>]] [--stdout]\n' "$PROG" >&2
+    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json>] [--stdout]\n' "$PROG" >&2
     exit 2
 }
 
@@ -114,7 +114,6 @@ TO_STDOUT=0
 SKIP_TARGETS=0
 RETURN_PATH=message
 UNITS=""
-HOST=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --input) [ $# -ge 2 ] || usage; INPUT="$2"; shift 2 ;;
@@ -123,7 +122,6 @@ while [ $# -gt 0 ]; do
         --stdout) TO_STDOUT=1; shift ;;
         --targets-checked) SKIP_TARGETS=1; shift ;;
         --units) [ $# -ge 2 ] || usage; UNITS="$2"; shift 2 ;;
-        --host) [ $# -ge 2 ] || usage; HOST="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
@@ -269,12 +267,13 @@ fi
 if [ -n "$UNITS" ]; then
     [ -r "$UNITS" ] || { printf '%s: cannot read %s\n' "$PROG" "$UNITS" >&2; exit 2; }
     UNIT=$(jq -r '.unit // "" | strings' "$INPUT")
-    dc_unit_matches "$UNIT" "$UNITS" "$HOST"
+    dc_unit_matches "$UNIT" "$UNITS"
     case "$?" in
         0) ;;
-        1) FORMS=$(dc_unit_forms "$UNITS" "$HOST" | jq -R -s -r 'split("\n") | map(select(. != "")) | .[0:8] | map("\"\(.)\"") | join(", ")')
-           [ -n "$FORMS" ] || FORMS="none, since pick listed no units"
-           refuse "unit: [${UNIT:0:120}] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; use one of: $FORMS" ;;
+        1) FORMS=$(dc_unit_forms "$UNITS" | jq -R -s -r 'split("\n") | map(select(. != "")) | map("\"\(.)\"")
+               | if length > 12 then (.[0:12] | join(", ")) + ", and \(length - 12) more in coord/pick.json" else join(", ") end')
+           if [ -n "$FORMS" ]; then FORMS="use one of: $FORMS"; else FORMS="pick listed no units, so none can be dispatched"; fi
+           refuse "unit: [${UNIT:0:120}] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; $FORMS" ;;
         *) printf '%s: %s is not pick_facts'"'"' JSON\n' "$PROG" "$UNITS" >&2; exit 2 ;;
     esac
 fi
