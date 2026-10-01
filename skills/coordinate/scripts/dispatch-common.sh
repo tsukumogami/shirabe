@@ -24,6 +24,13 @@
 #       Prints the flags part of the invocation (run_mode, then entry_args
 #       flags), the holding's `mode` cell.
 #
+#   dc_unit_forms <pick-json-file> <host>
+#   dc_unit_matches <unit> <pick-json-file> <host>
+#       The Unit cell values pick_facts reads as covering a unit it listed
+#       (coord/pick.json), and whether <unit> is one: a roadmap feature's tag
+#       or `<tag>: <title>`, an issue's `#<n>` or `<host>#<n>`. A holding
+#       written with any other value is invisible to pick.
+#
 #   dc_niwa_slug <topic>
 #       Prints the slug niwa derives from `niwa dispatch --name <topic>`: the
 #       name is lowercased, each run of characters outside [a-z0-9] becomes `_`, leading and trailing
@@ -176,6 +183,29 @@ dc_valid_topic() {
     esac
     [ "${#1}" -le 64 ] || return 1
     [[ $1 =~ $DC_RE_TOPIC ]]
+}
+
+# dc_unit_forms <pick-json-file> <host>: print, one per line, every Unit cell
+# value that covers a unit pick_facts listed, by pick-facts.sh's own rule: a
+# roadmap feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
+# `<host>#<n>` (the `<host>` form only when a host is given). Returns 2 when
+# the file isn't pick_facts' JSON.
+dc_unit_forms() {
+    jq -r --arg h "$2" '
+        if (.units | type) != "array" then error("no units") else . end
+        | .scope as $s | .units[]
+        | if $s == "roadmap" then .unit, "\(.unit): \(.title)"
+          else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
+}
+
+# dc_unit_matches <unit> <pick-json-file> <host>: 0 when <unit> is a Unit cell
+# value pick would read as covering one of the units it listed (dc_unit_forms),
+# so a holding written with it is never invisible to pick; 1 when it isn't;
+# 2 when the file can't be read as pick_facts' JSON.
+dc_unit_matches() {
+    local forms
+    forms=$(dc_unit_forms "$2" "$3") || return 2
+    printf '%s\n' "$forms" | grep -Fxq -- "$1"
 }
 
 dc_niwa_slug() {

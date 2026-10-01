@@ -237,6 +237,8 @@ EOF
 start
 put dispatch_topic w9
 koto context add "$SESS" brief_input.json --from-file "$T/brief-private.json" >/dev/null
+# What pick_facts listed: the brief's unit is a form pick reads.
+put coord/pick.json '{"scope":"roadmap","name":"vault","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
 rows '[]'
 : >"$ST/niwa.log"
 printf '[]\n' >"$ST/sessions.json"

@@ -13,7 +13,11 @@
 #   topic               required  the dispatch topic, ^[a-z0-9][a-z0-9-]*$
 #   repo                required  owner/repo
 #   unit                required  the unit of work, one line, as the holding's
-#                                 Unit cell names it (a feature, an issue)
+#                                 Unit cell names it: a roadmap feature's
+#                                 heading tag ("Feature 2") or "<tag>:
+#                                 <title>", an issue's "#12" or
+#                                 "owner/repo#12", the forms pick reads.
+#                                 With --units, any other form is refused
 #   entry_point         required  a skill listed in references/entry-points.tsv
 #   entry_args          required  JSON array of tokens: the positional argument
 #                                 first, then flags from the entry point's
@@ -59,7 +63,7 @@
 # not an id.
 #
 # Usage:
-#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]
+#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json> [--host <owner/repo>]] [--stdout]
 #
 #   --workspace-root  where .niwa/dispatch-briefs/ lives; found with
 #                     dc_workspace_root when absent
@@ -68,6 +72,13 @@
 #                     invocation the brief shows, so the brief and the
 #                     dispatch prompt name the same command
 #   --stdout          print the brief instead of writing it
+#   --units           the units pick_facts listed (coord/pick.json): the unit
+#                     must be a form pick reads as covering one of them
+#                     (dispatch-common.sh dc_unit_forms), else the input is
+#                     refused, naming the forms that would match.
+#                     dispatch-worker.sh passes it on every dispatch
+#   --host            the run's host, owner/repo: an issue's `<host>#<n>`
+#                     form is accepted only with it
 #   --targets-checked skip the entry point's target requirement: the caller
 #                     already checked this input (dispatch-worker.sh's second
 #                     render, after its leg is open, so a flaky read there
@@ -93,7 +104,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/dispatch-common.sh"
 
 usage() {
-    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]\n' "$PROG" >&2
+    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json> [--host <owner/repo>]] [--stdout]\n' "$PROG" >&2
     exit 2
 }
 
@@ -102,6 +113,8 @@ ROOT=""
 TO_STDOUT=0
 SKIP_TARGETS=0
 RETURN_PATH=message
+UNITS=""
+HOST=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --input) [ $# -ge 2 ] || usage; INPUT="$2"; shift 2 ;;
@@ -109,6 +122,8 @@ while [ $# -gt 0 ]; do
         --return-path) [ $# -ge 2 ] || usage; RETURN_PATH="$2"; shift 2 ;;
         --stdout) TO_STDOUT=1; shift ;;
         --targets-checked) SKIP_TARGETS=1; shift ;;
+        --units) [ $# -ge 2 ] || usage; UNITS="$2"; shift 2 ;;
+        --host) [ $# -ge 2 ] || usage; HOST="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
@@ -248,6 +263,21 @@ $(jq -r '(["repo", .repo]), (.targets // [] | to_entries[] | ["targets[\(.key + 
 EOF
     fi
 fi
+# The unit becomes the holding's Unit cell, and pick finds a unit's holding
+# only by the forms pick-facts.sh reads (dc_unit_forms). With --units, any
+# other form is refused, naming the forms that would match.
+if [ -n "$UNITS" ]; then
+    [ -r "$UNITS" ] || { printf '%s: cannot read %s\n' "$PROG" "$UNITS" >&2; exit 2; }
+    UNIT=$(jq -r '.unit // "" | strings' "$INPUT")
+    dc_unit_matches "$UNIT" "$UNITS" "$HOST"
+    case "$?" in
+        0) ;;
+        1) FORMS=$(dc_unit_forms "$UNITS" "$HOST" | jq -R -s -r 'split("\n") | map(select(. != "")) | .[0:8] | map("\"\(.)\"") | join(", ")')
+           [ -n "$FORMS" ] || FORMS="none, since pick listed no units"
+           refuse "unit: [${UNIT:0:120}] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; use one of: $FORMS" ;;
+        *) printf '%s: %s is not pick_facts'"'"' JSON\n' "$PROG" "$UNITS" >&2; exit 2 ;;
+    esac
+fi
 case "$RETURN_PATH" in
     message) ;;
     *) printf '%s' "$RETURN_PATH" | grep -Eq '^[a-z0-9_][a-z0-9_-]{0,63}:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$' ||
@@ -312,6 +342,9 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
+  ( if ((.standing_rules // []) | length) > 0 then
+      "This section wins over the Workspace rules below: where they name another session for direction or for your reports, report to `\(.dispatcher_session)` as this section says.\n"
+    else empty end ),
   "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
   "",
   "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation. Write the part as a line reading exactly `Questions:` followed by one numbered question per line, and cite a decision you were already given by its number. Write it as plain lines, not in a code block, which the coordinator does not read for questions:",

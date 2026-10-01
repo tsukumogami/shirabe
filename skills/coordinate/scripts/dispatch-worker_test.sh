@@ -163,15 +163,20 @@ INPUT_DELIVER='{
   "checkpoints": ["The scoping PR is open.", "The PR is ready with CI green."],
   "acceptance": ["It loads a plugin."], "dispatcher_session": "coord-alpha"
 }'
+# What pick_facts listed (coord/pick.json): the unit must be a form pick reads
+# as covering one of these.
+PICK_ROADMAP='{"scope":"roadmap","name":"plugin-system","units":[
+  {"unit":"Feature 1","number":1,"title":"the manifest"},{"unit":"Feature 2","number":2,"title":"the plugin API"}]}'
 INPUT_SCOPE=$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "scope" | .entry_args = ["plugin-api", "--intent=continue"]')
 
 reset() {
     rm -rf "$ST"
-    mkdir -p "$ST/ctx" "$ST/rows"
+    mkdir -p "$ST/ctx/coord" "$ST/rows"
     printf '[]\n' >"$ST/sessions.json"
     : >"$ST/calls.log"
     printf '%s' "$1" >"$ST/ctx/brief_input.json"
     printf '%s' "${2:-plugin-api}" >"$ST/ctx/dispatch_topic"
+    printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
     unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP
@@ -353,6 +358,52 @@ run >/dev/null 2>&1; RC=$?
 ELAPSED=$(( $(date +%s) - START ))
 eq  "deadline: a hung launch fails as exit 4" 4 "$RC"
 if [ "$ELAPSED" -lt 15 ]; then ok "deadline: returns promptly"; else bad "deadline: returns promptly" "${ELAPSED}s"; fi
+
+# --- the unit must be one pick can find ----------------------------------------------------------------
+# A holding whose Unit cell pick can't read leaves its unit dispatchable twice,
+# so such a unit is refused before anything is written.
+
+nothing_written() { # nothing_written <label>
+    eq  "$1: no record write" 0 "$(grep -c 'record write' "$ST/calls.log")"
+    eq  "$1: no leg" 0 "$(grep -c 'request create' "$ST/calls.log")"
+    eq  "$1: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+    [ -e "$W/.niwa/dispatch-briefs/plugin-api.md" ] && bad "$1: no brief" || ok "$1: no brief"
+}
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 2 of ROADMAP-plugin-system"')"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "unit: the old template's example form is refused" 1 "$RC"
+has "unit: the refusal names the unit" "$ERR" "unit: [Feature 2 of ROADMAP-plugin-system] matches no unit pick listed"
+has "unit: and the forms that would match" "$ERR" '"Feature 2", "Feature 2: the plugin API"'
+nothing_written "unit"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 2: the plugin api"')"
+run >/dev/null 2>&1; eq "unit: a title that differs, even in case, is refused" 1 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 9"')"
+run >/dev/null 2>&1; eq "unit: a feature the roadmap doesn't list is refused" 1 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 2"')"
+run >/dev/null 2>&1; eq "unit: the bare tag is taken" 0 "$?"
+eq  "unit: and becomes the Unit cell" "Feature 2" "$(row unit)"
+reset "$INPUT_DELIVER"
+rm -f "$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "unit: no coord/pick.json to check against exits 2" 2 "$?"
+nothing_written "unit, no pick facts"
+# Discipline scope: an issue as #n, or as host#n when the run's host is known.
+PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
+cat >"$T/coord-log-vars" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = vars ] && { printf '{"HOST_REPO":"acme/widgets"}\n'; exit 0; }
+exit 2
+EOF
+for u in "#12" "acme/widgets#12"; do
+    reset "$(printf '%s' "$INPUT_DELIVER" | jq -c --arg u "$u" '.unit = $u')"
+    printf '%s' "$PICK_DISCIPLINE" >"$ST/ctx/coord/pick.json"
+    (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-vars" bash "$S" --session coord >/dev/null 2>&1)
+    eq "unit: discipline issue $u is taken" 0 "$?"
+done
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "#13"')"
+printf '%s' "$PICK_DISCIPLINE" >"$ST/ctx/coord/pick.json"
+ERR=$( (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-vars" bash "$S" --session coord) 2>&1 >/dev/null); RC=$?
+eq  "unit: an issue pick didn't list is refused" 1 "$RC"
+has "unit: naming the issue's forms" "$ERR" '"#12", "acme/widgets#12"'
 
 # --- topic checks ------------------------------------------------------------------------------------
 

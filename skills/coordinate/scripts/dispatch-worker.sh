@@ -22,6 +22,12 @@
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
 #                      equal dispatch_topic, or report_topic under --rebrief
 #   report_topic       --rebrief only: the worker whose report needs a fix
+#   coord/pick.json    the units pick_facts listed; the brief input's unit
+#                      must be a form pick reads as covering one of them
+#                      (dispatch-common.sh dc_unit_forms: a feature's tag or
+#                      `<tag>: <title>`, an issue's `#<n>` or
+#                      `<host>#<n>`), else exit 1 before anything is
+#                      written, naming the forms that would match
 #
 # The run, in order, under a per-topic lock:
 #
@@ -149,6 +155,15 @@ else
 fi
 dc_valid_topic "$TOPIC" || die 2 "the topic in context isn't a valid topic: $TOPIC"
 [ "$IN_TOPIC" = "$TOPIC" ] || die 2 "brief_input.json names topic [$IN_TOPIC], not [$TOPIC]"
+
+# The unit becomes the holding's Unit cell, and pick finds a unit's holding
+# only by the forms pick-facts.sh reads. render-brief.sh --units refuses any
+# other form at step 3, before anything is written, so the holding is never
+# invisible to pick and the unit never dispatched twice.
+if [ "$REBRIEF" = 0 ]; then
+    ctx coord/pick.json >"$WORK/pick.json" 2>/dev/null || die 2 "cannot read coord/pick.json, the units pick_facts listed"
+    HOST=$(bash "$DC_COORD_LOG" vars --session "$SESSION" 2>/dev/null | jq -r '.HOST_REPO // "" | strings')
+fi
 
 ROOT=$(dc_workspace_root) || die 2 "no workspace root found from $(pwd)"
 BRIEFS="$ROOT/.niwa/dispatch-briefs"
@@ -308,7 +323,7 @@ fi
 # Check the brief before anything else happens: a refused input opens no leg
 # and writes nothing. It's rendered for real once the return path is known,
 # so the brief shows the same invocation the prompt carries.
-bash "$HERE/render-brief.sh" --input "$INPUT" --stdout >/dev/null
+bash "$HERE/render-brief.sh" --input "$INPUT" --units "$WORK/pick.json" --host "$HOST" --stdout >/dev/null
 case "$?" in
     0) ;;
     1) exit 1 ;;
@@ -377,7 +392,7 @@ EOF
 fi
 
 # The brief, the worker's invocation and the prompt, all from the one builder.
-BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
+BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --units "$WORK/pick.json" --host "$HOST" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
 case "$?" in
     0) ;;
     1) exit 1 ;;
