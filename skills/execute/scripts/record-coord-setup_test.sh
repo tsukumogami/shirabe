@@ -11,7 +11,11 @@
 #   one repository, two groups     repos=acme/repo-a (one entry), home_repo,
 #                                  coord_branch, plan_abs; repos written last
 #   two repositories               repos sorted and comma-joined
-#   home_repo outside repos        exit 66, nothing written
+#   home_repo outside repos        recorded: a coordination PR whose
+#                                  repository holds no node (repos names only
+#                                  the node repositories, home_repo the
+#                                  checkout's), and a re-run is a no-op
+#   an invalid home_repo           exit 66, nothing written
 #   a detached HEAD                exit 65
 #   the default branch             exit 67
 #   a re-run with the same values  a no-op
@@ -82,13 +86,27 @@ run_setup
 [ "$RC" -eq 0 ] && [ "$(val repos)" = "acme/repo-a,acme/repo-b" ] \
     && pass "two repositories: repos sorted and comma-joined" || fail "two-repo: rc=$RC repos=[$(val repos)]"
 
+# The coordination PR lives in a planning repository that holds none of the
+# PLAN's nodes: every node names acme/repo-a, the checkout is acme/plans.
 setup_case outside
-jq '.default_repo = "acme/elsewhere"' "$CASE/scenario/gh/db.json" > "$CASE/db" && mv "$CASE/db" "$CASE/scenario/gh/db.json"
+jq '.default_repo = "acme/plans"' "$CASE/scenario/gh/db.json" > "$CASE/db" && mv "$CASE/db" "$CASE/scenario/gh/db.json"
+run_setup
+if [ "$RC" -eq 0 ] && [ "$(val repos)" = acme/repo-a ] && [ "$(val home_repo)" = acme/plans ] \
+    && [ "$(val coord_branch)" = "$CT_CB" ] && [ -n "$(val plan_abs)" ]; then
+    pass "a home repository outside the write set is recorded: repos=acme/repo-a, home_repo=acme/plans"
+else
+    fail "outside: rc=$RC repos=[$(val repos)] home=[$(val home_repo)] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+run_setup
+[ "$RC" -eq 0 ] && pass "a re-run with the home outside the write set is a no-op" || fail "outside re-run: rc=$RC"
+
+setup_case bad-home
+jq '.default_repo = "acme/../x"' "$CASE/scenario/gh/db.json" > "$CASE/db" && mv "$CASE/db" "$CASE/scenario/gh/db.json"
 run_setup
 if [ "$RC" -eq 66 ] && [ -z "$(ls "$CASE/ctx/$S" | grep -vx run_id)" ]; then
-    pass "a home repository outside the write set exits 66 with nothing written"
+    pass "a home repository outside owner/repo exits 66 with nothing written"
 else
-    fail "outside: rc=$RC"
+    fail "bad-home: rc=$RC"
 fi
 
 setup_case detached

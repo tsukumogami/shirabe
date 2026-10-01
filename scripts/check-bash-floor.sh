@@ -220,6 +220,7 @@ suite_scripts() {
             echo "skills/execute/scripts/repo-visibility_test.sh"
             echo "skills/execute/scripts/coordinated-visibility_test.sh"
             echo "skills/execute/scripts/coord-merge_test.sh"
+            echo "skills/execute/scripts/coordinated-home-outside_test.sh"
             echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
             echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
             # The "merged" wording check and its test: text only, so every

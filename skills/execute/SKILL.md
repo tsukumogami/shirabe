@@ -273,7 +273,16 @@ coordination PR) zero survivors end `step=execute:pr-adopt`, several, an
 ambiguous lookup, or another run's PR end `step=execute:pr-adopt`, and a failed
 read ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
 `_Repo:` row naming a repository outside `repos` ends the run `outcome=error` with
-`step=execute:write-set`.
+`step=execute:write-set`. The one exception is the coordination PR's own index
+entry (`coordination`), which must name `home_repo` and nothing else. `home_repo`
+need not be in `repos`: a PLAN whose nodes all land in other repositories, such as
+a private planning repository over public ones, keeps its coordination PR where it
+was scoped, and the run writes there only through the coordination PR's body edits,
+`gh pr ready`, and its merge, each given `home_repo` explicitly, and its branch's push
+from the coordination checkout, whose origin `home_repo` is read from. Every node then
+lives in another repository, so each is cut with `node-cut.sh --repo-dir <clone>`;
+`node-push.sh` refuses a node pushed from the coordination checkout or from a clone of
+the coordination PR's repository (exit 79, nothing pushed).
 
 **The pause.** When a node can't start because a predecessor's PR is unmerged,
 the run ends `paused_awaiting_merges`. The coordination PR is **left open**, never
@@ -429,8 +438,10 @@ against its chain shape:
    (`write_set_record`, `settled_branch_record`, `drift_facts`, `worktree_sync`,
    `merge_readiness`, `merge_confirm`, `coord_verdict`, `coord_merge_confirm`) read
    GitHub and write local state or koto context only. The repository write set is
-   fixed at start as `repos`, and every PR lookup and merge call receives its
-   repository from that record.
+   fixed at start as `repos`, and every PR lookup and merge call other than the
+   coordination PR's receives its repository from that record. On coordinated, the
+   coordination PR's lookups, body edits, ready call, and merge receive `home_repo`,
+   fixed at the same moment, which need not be in `repos`.
 3. **`execution_mode` enum re-validation at both consumers.** The PLAN's
    `execution_mode` is re-validated against `{single-pr, coordinated, multi-pr}` at
    `/execute` entry BEFORE it selects a path or interpolates into any branch name, and
@@ -438,7 +449,8 @@ against its chain shape:
    consumer and re-validates independently. The coordinated path likewise re-checks
    every index entry on every `coordinated-next.sh` read, since the index lives in an
    editable body: each line against a closed grammar, its repository against the
-   write set, and its PR against the ownership filter.
+   write set (the `coordination` line against `home_repo`), and its PR against the
+   ownership filter.
 4. **Visibility boundary.** `/execute` runs in public and private repositories, and a
    PLAN in either may drive pull requests in both. Visibility is checked against
    each pull request's own target, never against where the PLAN lives. Placement

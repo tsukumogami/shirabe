@@ -463,7 +463,13 @@ the gate never trusts it.
   across a repo boundary. The skill's own `gh pr create`/`gh pr edit`/`gh pr
   close` calls write only the coordination PR's own body/state in its own repo.
   Node PRs are opened by `/execute` in the repository each node names, which
-  must be in the write set `/execute` fixes when it starts.
+  must be in the write set `/execute` fixes when it starts. The coordination
+  PR's own repository need not hold a node: a PLAN scoped in a private planning
+  repository whose nodes all land in public ones keeps its coordination PR in
+  the planning repository. `/execute` records that repository separately and
+  writes to it only through the coordination PR's body, its branch's push, its
+  ready call, and its merge; the PR index's `coordination` line must name it,
+  and any other line naming a repository outside the write set is refused.
 - The only merge call is `skills/execute/scripts/merge-exec.sh`, run only under
   `/execute --merge`. It recomputes the merge verdict from live `gh` reads
   immediately before merging, never trusts a stored verdict or the PR body, and
