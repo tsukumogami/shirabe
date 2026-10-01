@@ -63,6 +63,10 @@
 #                                                neither repository
 #     a separate clone whose origin is the home's exit 79, nothing pushed
 #     the first, through a remote naming another URL   exit 79
+#     a clone whose origin spells the home's URL another way (ssh, https,
+#     case, .git, a trailing slash)              exit 79
+#     a --plan outside any git repository        exit 79, nothing pushed
+#   coord_url_key                                one key per repository
 #     the node's own clone (control)             pushed
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
@@ -671,6 +675,62 @@ if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$CT_WORK/alt-remote.git" "refs/hea
 else
     fail "alt remote: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
 fi
+
+# The home's origin spelled another way: the same repository over ssh in the
+# coordination checkout, over https in the node clone.
+ct_case home-url-spelling
+ct_write_db
+fresh_repo home-url-spelling
+(cd "$REPO" && git remote set-url origin git@git.invalid:Acme/repo-a.git)
+NREPO="$CT_WORK/home-url-spelling-clone"
+ct_repo "$NREPO"
+(cd "$NREPO" && git checkout -q main)
+WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+# Set after the cut, which fetches from the clone's origin.
+(cd "$NREPO" && git remote set-url origin https://git.invalid/acme/repo-a/)
+home_push
+if [ "$RC" -eq 79 ] && ! gh_wrote; then
+    pass "the home's origin over ssh and the node clone's over https: the same repository, exit 79"
+else
+    fail "url spelling: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# A --plan outside any git repository: the coordination checkout can't be
+# read, which refuses rather than passing.
+ct_case plan-outside-git
+ct_write_db
+fresh_repo plan-outside-git
+node_clone plan-outside-git
+mkdir -p "$CT_WORK/no-git/docs/plans"
+cp "$PLAN" "$CT_WORK/no-git/docs/plans/PLAN-t.md"
+PLAN="$CT_WORK/no-git/docs/plans/PLAN-t.md"
+home_push
+if [ "$RC" -eq 79 ] && [ -z "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] \
+    && grep -q "could not read the git directories" "$CASE/stderr"; then
+    pass "a --plan outside any git repository: exit 79, nothing pushed"
+else
+    fail "plan outside git: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# coord_url_key: one key for the spellings of one repository, and a local
+# path left as it is.
+url_keys=$(
+    PROG=t COORD_SELF_DIR="$SCRIPT_DIR"
+    . "$SCRIPT_DIR/coord-common.sh"
+    for u in https://github.com/Acme/Repo-A.git https://github.com/acme/repo-a/ git@github.com:acme/repo-a.git \
+             ssh://git@github.com:22/acme/repo-a https://github.com/acme/repo-b /tmp/x.origin.git; do
+        printf '%s\n' "$(coord_url_key "$u")"
+    done
+)
+want_keys='github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-b
+/tmp/x.origin.git'
+[ "$url_keys" = "$want_keys" ] && pass "coord_url_key: https, ssh and scp forms of one repository share a key; a path is kept" \
+    || fail "coord_url_key: [$url_keys]"
 
 ct_case own-clone
 ct_write_db

@@ -83,6 +83,41 @@ coord_in_list() {
 # coord_lower <s>
 coord_lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 
+# coord_git_common_dir <dir> -- the physical path of the git directory the
+# checkout or worktree at <dir> shares (its common dir), so two worktrees of
+# one clone print the same path. Returns 1, printing nothing, when <dir> is
+# not in a git repository: `cd ""` would succeed and answer with <dir> itself.
+coord_git_common_dir() {
+    local d
+    d=$(cd "$1" && git rev-parse --git-common-dir 2>/dev/null) || return 1
+    [ -n "$d" ] || return 1
+    (cd "$1" && cd "$d" && pwd -P)
+}
+
+# coord_url_key <url> -- a remote URL reduced to a comparison key, so the
+# https and ssh spellings of one repository, with or without .git or a
+# trailing slash, compare equal: <host>/<path>, lowercased, for the forms
+# scheme://[user@]host[:port]/path and user@host:path. Any other URL (a
+# local path) is its own key, unchanged.
+coord_url_key() {
+    local u="$1"
+    case "$u" in
+        *://*)
+            u="${u#*://}"
+            u="${u#*@}"
+            u=$(printf '%s' "$u" | sed -E 's#^([^/:]+):[0-9]+/#\1/#')
+            ;;
+        *@*:*)
+            u="${u#*@}"
+            u="${u%%:*}/${u#*:}"
+            ;;
+        *) printf '%s' "$u"; return 0 ;;
+    esac
+    u="${u%/}"
+    u="${u%.git}"
+    coord_lower "$u"
+}
+
 # coord_gh_read <outvar> <args...> -- one gh read with stdin from /dev/null,
 # retried once after 1 s. Sets the named variable on success.
 coord_gh_read() {

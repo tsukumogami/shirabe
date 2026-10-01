@@ -290,17 +290,19 @@ if [ "$MODE" != order ]; then
     # writes only through the coordination PR's own paths.
     if [ "$MODE" = node ] && [ "$(coord_lower "$REPO")" != "$(coord_lower "$HOME_REPO")" ]; then
         PLAN_DIR=$(dirname -- "$PLAN")
-        HOME_GIT=$(cd "$PLAN_DIR" && cd "$(git rev-parse --git-common-dir)" && pwd -P) || HOME_GIT=""
-        NODE_GIT=$(cd "$(git rev-parse --git-common-dir)" && pwd -P) || NODE_GIT=""
+        HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
+        NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
         HOME_URL=$(cd "$PLAN_DIR" && git config --get remote.origin.url) || HOME_URL=""
         NODE_URL=$(git config --get "remote.$REMOTE.url") || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
-            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout; nothing was pushed" >&2
+            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
             exit 79
         fi
+        HOME_URL=$(coord_url_key "$HOME_URL")
+        NODE_URL=$(coord_url_key "$NODE_URL")
         if [ "$HOME_GIT" = "$NODE_GIT" ] || { [ -n "$HOME_URL" ] && [ "$HOME_URL" = "$NODE_URL" ]; }; then
             # Named by node id only: either repository may be private.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed" >&2
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed; the node's commits stay on its branch in this worktree, to cherry-pick onto the re-cut branch before removing this one" >&2
             exit 79
         fi
     fi

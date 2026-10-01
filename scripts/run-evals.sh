@@ -654,6 +654,21 @@ setup_tier2_isolation() {
     git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1
   ) || return 1
 
+  # A second, independent repository for scenarios whose PLAN puts a node in
+  # another repository (the coordinated multi-repo ones): its own bare origin
+  # and a clone of it on main, so node-cut.sh --repo-dir cuts there and
+  # node-push.sh pushes there, never into the checkout above.
+  git init --bare --quiet "$iso_root/second-origin.git" >/dev/null 2>&1 || return 1
+  git clone --quiet "$iso_root/second-origin.git" "$iso_root/second-clone" >/dev/null 2>&1 || return 1
+  (
+    cd "$iso_root/second-clone" || exit 1
+    git config user.email "eval@shirabe.test"
+    git config user.name "Shirabe Eval Harness"
+    git checkout --quiet -b main
+    git commit --quiet --allow-empty -m "init"
+    git push --quiet --set-upstream origin main >/dev/null 2>&1
+  ) || return 1
+
   TIER2_CHECKOUT="$checkout"
 }
 
@@ -835,6 +850,10 @@ contains an identical copy of skills/execute/evals/fixtures/...). The clone has
 its own git remote (a local throwaway), so the workflow's git commit/push land in
 the sandbox. Do NOT run any tier-2 workflow command in the original repository
 checkout. Tier-1 evals are unaffected (they execute no commands).
+A scenario whose PLAN puts a node in a second repository uses the clone the
+harness provides for it, with its own throwaway origin, at:
+  $TIER2_ISOLATION_ROOT/second-clone
+Pass it to node-cut.sh with --repo-dir for that node.
 ISOBLOCK
 )
     else
