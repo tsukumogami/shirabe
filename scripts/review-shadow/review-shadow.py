@@ -433,16 +433,48 @@ def diffstat(files, depth=None):
     return "\n".join(f"{k}/ {n} files +{a} -{d}" for k, (n, a, d) in sorted(groups.items()))
 
 
+BODY_CUT_MARKER = "\n\n[Part 1 cut here to fit the size bound; the rest is not shown]"
+MIN_BODY_KEPT = 512  # bytes: a shorter cut says too little to judge against the file list
+
+
+def cut_body(body, room):
+    """The longest head of `body` that fits `room` bytes with the cut marker
+    appended, ending at a paragraph break, else a sentence end, else a word."""
+    keep = room - utf8_len(BODY_CUT_MARKER)
+    head = body.encode("utf-8")[:max(keep, 0)].decode("utf-8", "ignore")
+    for pattern in (r"\n\s*\n", r"[.!?](?=\s)", r"\s"):
+        ends = [m.start() + (1 if pattern.startswith("[") else 0) for m in re.finditer(pattern, head)]
+        if ends and ends[-1] > 0:
+            head = head[:ends[-1]]
+            break
+    return head.rstrip() + BODY_CUT_MARKER
+
+
 def slice_pr_summary(pr):
     """Part 1 with the file list. The list is summarized by directory before it
-    is ever cut: an "omits a change" question over part of the list is wrong."""
-    body = part1(pr["body"])
-    for level, depth in (("files", None), ("dir3", 3), ("dir2", 2), ("dir1", 1)):
+    is ever cut: an "omits a change" question over part of the list is wrong.
+    When no summary level fits the whole body, the body is cut instead, at the
+    most detailed level that leaves MIN_BODY_KEPT bytes of it, and the slice
+    says so. If even that can't fit, the slice stays over the bound."""
+    # Redact before cutting: a cut can split a credential so it no longer matches.
+    body = redact(part1(pr["body"]))
+    levels = (("files", None), ("dir3", 3), ("dir2", 2), ("dir1", 1))
+    for level, depth in levels:
         s = make_slice("pr-summary", 1, {"pr_body_part1": body, "diff_summary": diffstat(pr["files"], depth)},
                        {"summary_level": level})
         if not s["over_bound"]:
             return [s]
-    return [s]
+    for level, depth in levels:
+        summary = diffstat(pr["files"], depth)
+        room = BOUND - utf8_len(summary)
+        if room >= MIN_BODY_KEPT + utf8_len(BODY_CUT_MARKER):
+            cut = cut_body(body, room)
+            s = make_slice("pr-summary", 1, {"pr_body_part1": cut, "diff_summary": summary},
+                           {"summary_level": level, "body_cut": True})
+            if not s["over_bound"]:
+                return [s]
+    return [make_slice("pr-summary", 1, {"pr_body_part1": body, "diff_summary": diffstat(pr["files"], 1)},
+                       {"summary_level": "dir1"})]
 
 
 def split_hunks(patch):
@@ -1012,15 +1044,19 @@ def run_jev(criteria, slices, send, batched):
     return verdicts, rounds, unread
 
 
-def run_status(criterion_verdicts, rounds, jev_slices, no_key):
+def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     """unanimous-pass, dissent, inconclusive, or not-graded when Jev had slices to
-    grade and never answered, so an outage is never counted as agreement."""
+    grade and never answered, so an outage is never counted as agreement. A
+    head whose every Jev slice was over the bound is not-graded too: nothing
+    was ever sent, so it has no verdict to count as open."""
     if jev_slices and not any(r["answered"] for r in rounds):
         if no_key:
             return "not-graded", "no-key"
         if rounds:
             reasons = {r["reason"] for r in rounds}
             return "not-graded", "transport" if "transport" in reasons else "provider"
+        if jev_verdicts and all(v["reason"] == "over-bound" for v in jev_verdicts):
+            return "not-graded", "over-bound"
     vs = [c["verdict"] for c in criterion_verdicts]
     if "fail" in vs:
         return "dissent", None
@@ -1029,7 +1065,7 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key):
     return "unanimous-pass", None
 
 
-TOOL_VERSION = 2  # bump when grading behaviour changes; the hashes below catch the rest
+TOOL_VERSION = 3  # bump when grading behaviour changes; the hashes below catch the rest
 
 
 def tool_version():
@@ -1077,7 +1113,7 @@ def grade(criteria, pr, terms, send, batched=True):
             row.update(pair_meta)
         crit_rows.append(row)
     jev_slices = sum(len(slices.get(c["slice_kind"], [])) for c in active(criteria) if c["observer"] == "jev")
-    status, why = run_status(crit_rows, rounds, jev_slices, send is None)
+    status, why = run_status(crit_rows, rounds, jev_slices, send is None, jev_verdicts)
     all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")}, **s["meta"])
                   for kind in slices for s in slices[kind]]
     tokens = {"input": sum(r["input_tokens"] or 0 for r in rounds),

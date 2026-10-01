@@ -318,11 +318,41 @@ class TestSlices(unittest.TestCase):
         self.assertNotEqual(s["meta"]["summary_level"], "files")
         self.assertIn("src/pkg0/ 40 files +400 -0", s["inputs"]["diff_summary"])
 
-    def test_pr_summary_over_bound_when_part1_too_long(self):
+    def test_pr_summary_cuts_a_long_part1_at_a_paragraph(self):
+        pr = fetched()
+        para = "This paragraph explains one change in some detail. " * 10
+        pr["body"] = "\n\n".join([para] * 8) + "\n\n---\nTest plan"
+        (s,) = rs.slice_pr_summary(pr)
+        body = s["inputs"]["pr_body_part1"]
+        self.assertFalse(s["over_bound"])
+        self.assertTrue(s["meta"]["body_cut"])
+        self.assertTrue(body.endswith(rs.BODY_CUT_MARKER))
+        kept = body[:-len(rs.BODY_CUT_MARKER)]
+        self.assertTrue(kept.endswith(para.rstrip()))
+        self.assertLess(kept.count("\n\n") + 1, 8)
+        self.assertIn("M lib/fetch.py +4 -1", s["inputs"]["diff_summary"])
+
+    def test_pr_summary_cuts_a_single_long_paragraph_at_a_sentence(self):
+        pr = fetched()
+        pr["body"] = "A sentence of moderate length goes here. " * 100
+        (s,) = rs.slice_pr_summary(pr)
+        body = s["inputs"]["pr_body_part1"][:-len(rs.BODY_CUT_MARKER)]
+        self.assertFalse(s["over_bound"])
+        self.assertTrue(body.endswith("here."))
+
+    def test_pr_summary_leaves_a_fitting_body_whole(self):
+        (s,) = rs.slice_pr_summary(fetched())
+        self.assertNotIn("body_cut", s["meta"])
+        self.assertNotIn(rs.BODY_CUT_MARKER, s["inputs"]["pr_body_part1"])
+
+    def test_pr_summary_stays_over_bound_when_the_cut_cannot_fit(self):
         pr = fetched()
         pr["body"] = "word " * 700
+        pr["files"] = [{"path": f"d{i}/f.py", "status": "added", "additions": 1, "deletions": 0, "patch": ""}
+                       for i in range(400)]
         (s,) = rs.slice_pr_summary(pr)
         self.assertTrue(s["over_bound"])
+        self.assertNotIn("body_cut", s["meta"])
 
     def test_code_hunks_only_comment_hunks(self):
         slices = rs.slice_code_hunks(fetched())
@@ -798,13 +828,26 @@ class TestGrade(unittest.TestCase):
         b = self.graded(stub_send(raw=b"not json"))
         self.assertEqual(b["unread_usage_attempts"], 2 * len(b["rounds"]))
 
-    def test_over_bound_slice_is_never_sent(self):
+    def test_long_body_is_cut_and_still_graded(self):
         self.pr["body"] = "word " * 700
+        sent = []
+        b = self.graded(stub_send(log=sent))
+        self.assertTrue(any("rs-007" in q for _, q in sent))
+        self.assertNotEqual(b["status"], "not-graded")
+        (s,) = [x for x in b["slices"] if x["kind"] == "pr-summary"]
+        self.assertTrue(s["body_cut"])
+        self.assertFalse(s["over_bound"])
+
+    def test_over_bound_slice_is_never_sent_and_is_not_graded(self):
+        self.pr["body"] = "word " * 700
+        self.pr["files"] = [{"path": f"d{i}/f.py", "status": "added", "additions": 1, "deletions": 0, "patch": ""}
+                            for i in range(400)]
         sent = []
         b = self.graded(stub_send(log=sent))
         self.assertFalse(any("rs-007" in q for _, q in sent))
         v = [x for x in b["verdicts"] if x["rule_id"] == "rs-007"]
         self.assertEqual([(x["verdict"], x["reason"]) for x in v], [("unanswered", "over-bound")])
+        self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "over-bound"))
 
     def test_threshold_and_malformed_answers(self):
         c = next(c for c in self.crit["criteria"] if c["rule_id"] == "rs-010")

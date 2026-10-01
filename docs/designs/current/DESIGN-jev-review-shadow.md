@@ -371,7 +371,7 @@ A grade record (`schema: review-shadow/record/v1`):
 | `unread_usage_attempts` | billed answers whose usage couldn't be read, counted as koto counts them |
 | `tokens` | totals of input and output tokens over `rounds` |
 | `status` | `unanimous-pass`, `dissent`, `inconclusive` or `not-graded`; a run where no Jev request got an answer (no key, transport or provider failure on every request) is `not-graded`, so an outage never counts as agreement |
-| `not_graded_reason` | for `not-graded` runs: `no-key`, `transport`, `provider`, `outcome-without-grade`, or `no-changed-paths` for a head that changes nothing (a merge-only head or an empty diff), which is never counted as docs |
+| `not_graded_reason` | for `not-graded` runs: `no-key`, `transport`, `provider`, `outcome-without-grade`, `over-bound` (every Jev slice stayed over the bound after the body was cut), or `no-changed-paths` for a head that changes nothing (a merge-only head or an empty diff), which is never counted as docs |
 
 Every `reason` in a record comes from one closed list: `over-bound`,
 `no-key`, `transport`, `provider`, `unreadable-answer`, `missing-answer`,
