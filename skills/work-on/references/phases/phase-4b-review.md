@@ -4,7 +4,7 @@ Run three parallel code reviewers after scrutiny passes. Each reviewer checks th
 
 ## Reviewers
 
-Spawn all three simultaneously using the Task tool:
+Spawn the seats this round needs simultaneously using the Task tool -- all three on the first round, and on a retry only those `review_scope.json` doesn't keep (see Which Seats Run):
 
 - **Pragmatic reviewer**: Is the implementation simple? Does it avoid over-engineering, dead code, and scope creep?
 - **Architect reviewer**: Does the implementation fit the design structure? Are interface contracts and dependency directions correct?

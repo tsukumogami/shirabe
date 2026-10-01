@@ -762,9 +762,10 @@ states:
         description: Reason for blocking escalation (required when scrutiny_outcome is blocking_escalate)
     transitions:
       # Every seat kept its verdict: nothing to spawn, so koto advances.
-      # has_commits isn't repeated here: a carried verdict was passed in an
-      # earlier round, on the passed edge below, and the scope is only
-      # carried while that round's commit is still an ancestor of HEAD.
+      # has_commits can't be repeated here: with it failing, a carried scope
+      # would match no edge and the state would hold. panel-scope.sh enforces
+      # it instead -- --plan keeps no seat while there are no commits since
+      # impl_base, so the scope is never carried without them.
       - target: review
         when:
           gates.scrutiny_carried.exit_code: 0
@@ -1889,7 +1890,7 @@ Read `review_scope.json` and spawn only the seats whose decision isn't `keep`; a
 
 Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number. A panel koto carries never submits anything, so it neither spends nor resets the count, and koto's log still records its visit.
 
 ## qa_validation
 
@@ -1901,7 +1902,7 @@ Read `qa_scope.json` for whether the tester runs a full validation or re-checks 
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
+Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number. A panel koto carries never submits anything, so it neither spends nor resets the count, and koto's log still records its visit.
 
 ## verification
 

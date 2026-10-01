@@ -4,7 +4,7 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
-Spawn all three simultaneously using the Task tool:
+Spawn the seats this round needs simultaneously using the Task tool -- all three on the first round, and on a retry only those `scrutiny_scope.json` doesn't keep (see Which Seats Run):
 
 - **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation? Are evidence claims verifiable from the diff?
 - **Justification reviewer**: Are deviations genuinely explained? Do reasons reflect real trade-offs, not shortcuts?
@@ -24,6 +24,8 @@ koto decides this before you spawn anything. On entering `scrutiny` it runs `scr
 ```bash
 koto context get <WF> scrutiny_scope.json
 ```
+
+Commit the fix before the run re-enters a panel. The scope is computed from committed history, so on a working tree with uncommitted changes the script keeps nothing and every passed seat re-runs; commit and tick again to get the narrow round.
 
 When every seat is `keep` you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way.
 
@@ -59,7 +61,7 @@ ROUND=$(mktemp)
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record scrutiny <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
-`--record` stamps each verdict with the commit it was given at and the acceptance criteria it was judged against; that is what the next round's scope is computed from. A seat that wasn't spawned is left as it was. If `--record` fails, fix the cause its exit code names (65 a malformed round file, 66 a context write) and run it again before submitting anything. Don't go on without it: the ledger would still hold the seat's previous verdict, and a seat that just blocked could be carried as passed next round. If it can't be fixed, submit `scrutiny_outcome: blocking_escalate`.
+`--record` stamps each verdict with the commit it was given at and the acceptance criteria it was judged against; that is what the next round's scope is computed from. A seat that wasn't spawned is left as it was. If `--record` fails, fix the cause its exit code names (65 a malformed round file, 66 a context write) and run it again before submitting anything. Don't go on without it: the ledger would still hold the seat's previous verdict, and a seat that just blocked could be carried as passed next round. If it can't be fixed, submit `scrutiny_outcome: blocking_escalate`. This step is prose rather than a gate because nothing a gate could check distinguishes "recorded" from "this round had nothing new to record" without re-deriving the round from the seats' own output, which only the agent holds.
 
 Then:
 

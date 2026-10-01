@@ -13,6 +13,7 @@
 #   full     no verdict on record yet (the first round): a fresh full review
 #   recheck  the seat raised a blocking finding last time: it checks only
 #            whether that finding is fixed, given the finding and the fix diff
+#            (a blocking seat that recorded no findings is rerun instead)
 #   rerun    the seat passed, but the fix touched what it judged: a fresh review
 #   keep     the seat passed and the fix touched nothing it judged: its verdict
 #            carries and the seat is not spawned
@@ -21,17 +22,26 @@
 # judged_at is the commit the seat's verdict was given at. A passed seat is
 # rerun when any of these holds, checked in this order:
 #
-#   1. the acceptance criteria changed since it judged (the git hash of the
-#      `context.md` context key, the issue context every mode writes, differs)
+#   0. the working tree has uncommitted changes (the fix may not be committed,
+#      and the diff below would miss it), or there are no commits since
+#      impl_base (nothing for a pass to rest on; scrutiny's has_commits gate
+#      must not be slipped past by a carried verdict)
+#   1. the acceptance criteria or the plan changed since it judged (the git
+#      hash of the `context.md` and `plan.md` context keys differs). context.md
+#      is written at setup and plan.md at analysis, so in practice this fires
+#      when a scope_expanded_retry or scope_changed_retry rewrote the plan
 #   2. judged_at is no longer a commit, or no longer an ancestor of HEAD
 #      (a rebase or reset rewrote what it judged)
 #   3. the fix diff changes more than THRESHOLD_LINES lines in total -- a fix
-#      that large is new work, not a fix
+#      that large is new work, not a fix. It is also the only check that sees
+#      files a fix adds, since a new file was never cited. 200 is a judgment,
+#      not a measurement: about one screenful of diff per seat to re-read
 #   4. the fix diff overlaps what it cited: a cited path with a line range is
 #      touched when a fix hunk's old-side range overlaps it; a cited path with
 #      no range is touched when the fix changes the file at all; a seat that
 #      cited nothing is taken to have cited every path in the diff it reviewed
-#      (impl_base..judged_at)
+#      (impl_base..judged_at). The locations of findings the seat raised are
+#      checked too, on top of either.
 #
 # Renames are off (`--no-renames`), so moving a cited file counts as touching
 # it. A pure insertion (`@@ -a,0 ...`) sits between lines a and a+1 and touches
@@ -70,9 +80,12 @@
 #
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
-# locations are added to it, and so is whatever the seat cited in an earlier
-# round, so a seat's judged scope only grows. `blocking_count > 0` records the
-# seat as blocking.
+# locations are kept beside it, as `finding_locations`, so a seat that cited
+# nothing still falls back to the whole diff it judged. Both carry forward from
+# earlier rounds, so a seat's judged scope only grows; an earlier line range in
+# a file that has changed since is carried as the bare path, because its
+# numbers no longer name the same code. `blocking_count > 0` records the seat
+# as blocking.
 #
 # ## Context keys
 #
@@ -93,8 +106,8 @@
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
-#   1   -- --carried only: something has to run, or the scope is missing, stale
-#          or unreadable. --carried exits nothing else: a gate exit the template
+#   1   -- --carried only: something has to run, the working tree is dirty, or
+#          the scope is missing, stale or unreadable. --carried exits nothing else: a gate exit the template
 #          does not route would hold the state, and "run the panel" is the safe
 #          answer to every doubt.
 #   64  -- not a git repository, or HEAD names no commit
@@ -140,9 +153,9 @@ case "$PANEL" in
     *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review or qa" ;;
 esac
 [ -n "$SESSION" ] || refuse 67 "missing session argument for $MODE"
-command -v jq >/dev/null 2>&1 || refuse 127 "jq not on PATH"
+command -v jq >/dev/null || refuse 127 "jq not on PATH"
 
-HEAD=$(git rev-parse --verify -q "HEAD^{commit}" 2>/dev/null) \
+HEAD=$(git rev-parse --verify -q "HEAD^{commit}") \
     || refuse 64 "not a git repository, or HEAD names no commit"
 
 # A missing key reads as empty. `koto context exists` exits 1, silently, for an
@@ -156,6 +169,8 @@ ctx_get() {
 # ---------------------------------------------------------------- --carried ---
 
 if [ "$MODE" = "--carried" ]; then
+    [ -z "$(git status --porcelain | head -1)" ] \
+        || refuse 1 "the working tree has uncommitted changes"
     scope=$(ctx_get "${PANEL}_scope.json")
     [ -n "$scope" ] || refuse 1 "no ${PANEL}_scope.json for this round"
     printf '%s' "$scope" | jq -e --arg head "$HEAD" '
@@ -170,7 +185,7 @@ fi
 WORK=$(mktemp -d) || die 64 "could not create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
 
-AC_SHA=$(ctx_get context.md | git hash-object --stdin)
+AC_SHA=$( { ctx_get context.md; printf '\n--- plan ---\n'; ctx_get plan.md; } | git hash-object --stdin)
 
 LEDGER_JSON=$(ctx_get "$LEDGER")
 if [ -z "$LEDGER_JSON" ] || ! printf '%s' "$LEDGER_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
@@ -199,24 +214,42 @@ if [ "$MODE" = "--record" ]; then
             *) die 65 "seat [$s] is not a $PANEL seat (expected one of: $SEATS)" ;;
         esac
     done
+    # A seat's earlier citations carry forward, but their line ranges are in
+    # the numbering of the commit it judged then. Where the file has changed
+    # since, the range no longer names the same code, so only the path is
+    # carried: coarser, never wrong.
+    : > "$WORK/moved"
+    for s in $(jq -r '.[].seat' "$ROUND_FILE"); do
+        old=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$s" '.seats[$k].judged_at // empty')
+        [ -n "$old" ] || continue
+        if git rev-parse --verify -q "${old}^{commit}" >/dev/null; then
+            git diff --no-renames --name-only "$old" HEAD | jq -R --arg s "$s" '{seat: $s, path: .}'
+        else
+            jq -n --arg s "$s" '{seat: $s, path: "*"}'
+        fi >> "$WORK/moved"
+    done
     printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg head "$HEAD" \
-        --arg ac "$AC_SHA" --slurpfile round "$ROUND_FILE" '
+        --arg ac "$AC_SHA" --slurpfile round "$ROUND_FILE" --slurpfile moved "$WORK/moved" '
+        def norm: map(select(.path | type == "string")
+                      | {path} + (if .lines then {lines: (.lines | tostring)} else {} end));
+        def carry($seat): map(. as $c
+            | if any($moved[]; .seat == $seat and (.path == $c.path or .path == "*"))
+              then {path: $c.path} else $c end);
         .rev = ((.rev // 0) + 1)
         | .seats = (.seats // {})
         | reduce $round[0][] as $s (.;
             ($panel + "/" + $s.seat) as $k
-            | ([(.seats[$k].cited // [])[], ($s.cited // [])[],
-                (($s.findings // [])[] | select(.path) | {path, lines})]
-               | map(select(.path | type == "string")
-                     | {path} + (if .lines then {lines: (.lines | tostring)} else {} end))
-               | unique) as $cited
+            | ((.seats[$k].cited // []) | carry($s.seat)) as $old_cited
+            | ((.seats[$k].finding_locations // []) | carry($s.seat)) as $old_locs
             | .seats[$k] = {
                 panel: $panel,
                 seat: $s.seat,
                 verdict: (if ($s.blocking_count // 0) > 0 then "blocking" else "passed" end),
                 judged_at: $head,
                 ac_sha: $ac,
-                cited: $cited,
+                cited: ($old_cited + (($s.cited // []) | norm) | unique),
+                finding_locations: ($old_locs
+                    + ([($s.findings // [])[] | select(.path) | {path, lines}] | norm) | unique),
                 findings: ($s.findings // [])
               })' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     put "$LEDGER" "$WORK/ledger"
@@ -234,7 +267,7 @@ TAB=$(printf '\t')
 # counts as touching: the safe answer is to review again.
 touches() {
     local from="$1" path lines lo hi
-    git diff --no-renames --name-only "$from" HEAD > "$WORK/fixpaths" 2>/dev/null \
+    git diff --no-renames --name-only "$from" HEAD > "$WORK/fixpaths" \
         || { echo "(git diff failed)"; return 0; }
     while IFS="$TAB" read -r path lines; do
         [ -n "$path" ] || continue
@@ -248,7 +281,7 @@ touches() {
         case "$lo$hi" in *[!0-9]*|"") printf '%s\n' "$path"; return 0 ;; esac
         # Old-side range of each fix hunk in this file: `@@ -a,b +c,d @@`. A
         # missing b means 1; b == 0 is an insertion between lines a and a+1.
-        if git diff --no-renames -U0 "$from" HEAD -- "$path" 2>/dev/null | awk -v lo="$lo" -v hi="$hi" '
+        if git diff --no-renames -U0 "$from" HEAD -- "$path" | awk -v lo="$lo" -v hi="$hi" '
             /^@@ / {
                 n = split(substr($2, 2), o, ",")
                 a = o[1] + 0
@@ -264,6 +297,17 @@ touches() {
     return 1
 }
 
+# Two facts that hold for every seat this entry. A dirty tree means the fix
+# may not be committed yet, and the diff below would not see it. No commits
+# since impl_base means there is nothing to have passed: the has_commits gate
+# on scrutiny's passed edge holds, and a carried verdict must not slip past it.
+DIRTY=""
+[ -n "$(git status --porcelain | head -1)" ] && DIRTY=1
+NOCOMMITS=""
+if [ -n "$IMPL_BASE" ] && [ "$(git rev-list --count "$IMPL_BASE..HEAD" || echo 0)" = 0 ]; then
+    NOCOMMITS=1
+fi
+
 : > "$WORK/decisions"
 for seat in $SEATS; do
     entry=$(printf '%s' "$LEDGER_JSON" | jq -c --arg k "$PANEL/$seat" '.seats[$k] // empty')
@@ -275,27 +319,42 @@ for seat in $SEATS; do
         judged=$(printf '%s' "$entry" | jq -r '.judged_at // ""')
         ac=$(printf '%s' "$entry" | jq -r '.ac_sha // ""')
         short=$(printf '%.12s' "$judged")
-        if [ "$verdict" = "blocking" ]; then
+        nfind=$(printf '%s' "$entry" | jq '.findings | length')
+        if [ "$verdict" = "blocking" ] && [ "$nfind" -gt 0 ]; then
             decision=recheck
-            reason="raised $(printf '%s' "$entry" | jq '.findings | length') blocking finding(s) at $short; re-check them against the fix diff"
+            reason="raised $nfind blocking finding(s) at $short; re-check them against the fix diff"
+            [ -n "$DIRTY" ] && reason="$reason (the working tree has uncommitted changes the fix diff does not include: commit the fix first)"
+        elif [ "$verdict" = "blocking" ]; then
+            decision=rerun
+            reason="blocked at $short but recorded no findings to re-check"
+        elif [ -n "$DIRTY" ]; then
+            decision=rerun
+            reason="the working tree has uncommitted changes, so the fix diff cannot be judged: commit the fix and tick again"
+        elif [ -n "$NOCOMMITS" ]; then
+            decision=rerun
+            reason="no commits since impl_base; nothing to carry a pass for"
         elif [ "$ac" != "$AC_SHA" ]; then
             decision=rerun
             reason="acceptance criteria changed since it judged at $short"
-        elif ! git rev-parse --verify -q "${judged}^{commit}" >/dev/null 2>&1 \
-            || ! git merge-base --is-ancestor "$judged" HEAD 2>/dev/null; then
+        elif ! git rev-parse --verify -q "${judged}^{commit}" >/dev/null \
+            || ! git merge-base --is-ancestor "$judged" HEAD; then
             decision=rerun
             reason="the commit it judged ($short) is not an ancestor of HEAD"
         else
-            changed=$(git diff --no-renames --numstat "$judged" HEAD 2>/dev/null \
+            changed=$(git diff --no-renames --numstat "$judged" HEAD \
                 | awk '{ a = ($1 == "-") ? 1 : $1; d = ($2 == "-") ? 1 : $2; n += a + d } END { print n + 0 }')
-            nfiles=$(git diff --no-renames --name-only "$judged" HEAD 2>/dev/null | wc -l | tr -d ' ')
+            nfiles=$(git diff --no-renames --name-only "$judged" HEAD | wc -l | tr -d ' ')
+            # The seat's own citations decide whether it fell back to the diff
+            # it judged; the locations of findings it raised are added either
+            # way, so a fix near a finding re-checks the seat that raised it.
             printf '%s' "$entry" | jq -r '.cited[]? | [.path, (.lines // "" | tostring)] | @tsv' > "$WORK/cited"
             cited_what="what it cited"
             if [ ! -s "$WORK/cited" ] && [ -n "$IMPL_BASE" ]; then
-                git diff --no-renames --name-only "$IMPL_BASE" "$judged" 2>/dev/null \
+                git diff --no-renames --name-only "$IMPL_BASE" "$judged" \
                     | awk -v t="$TAB" '{ print $0 t }' > "$WORK/cited"
                 cited_what="the diff it judged"
             fi
+            printf '%s' "$entry" | jq -r '.finding_locations[]? | [.path, (.lines // "" | tostring)] | @tsv' >> "$WORK/cited"
             if [ "$changed" -eq 0 ]; then
                 decision=keep
                 reason="nothing changed since it passed at $short"

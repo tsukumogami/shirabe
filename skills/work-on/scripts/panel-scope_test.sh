@@ -220,11 +220,14 @@ jq -e '.passed == true and .carried == true and (.seats | length == 3)' \
     "$SHIM_STORE/$SESSION/scrutiny_results.json" >/dev/null 2>&1 \
     && pass "carried results record each seat's reason" \
     || fail "scrutiny_results.json is not a carried verdict: $(cat "$SHIM_STORE/$SESSION/scrutiny_results.json" 2>/dev/null)"
-# The re-check seat keeps the location of the finding it raised.
-jq -e '.seats["scrutiny/intent"].cited | any(.path == "src/b.sh" and .lines == "5")' \
+# The re-check seat keeps the location of the finding it raised. The fix
+# changed src/b.sh after line 5 was cited, so the range is carried as the bare
+# path: its numbers no longer name the same code.
+jq -e '.seats["scrutiny/intent"].finding_locations == [{"path": "src/b.sh"}]
+       and .seats["scrutiny/intent"].cited == []' \
     "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
-    && pass "a fixed finding's location stays in the seat's cited scope" \
-    || fail "intent's cited scope lost src/b.sh:5"
+    && pass "a fixed finding's location stays with the seat, as a path once the file moved" \
+    || fail "intent's ledger entry is $(jq -c '.seats["scrutiny/intent"] | {cited, finding_locations}' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
 edit docs/c.md 1 changed
 run --carried scrutiny "$SESSION"
 expect_rc "--carried after HEAD moves, before a new --plan" 1
@@ -280,6 +283,63 @@ fixture nochange
 record qa '[{"seat":"tester","blocking_count":0}]'
 run --plan qa "$SESSION"
 expect_decision "nothing committed since the verdict" qa tester keep
+
+echo "--- script: a carried scope stays safe across a re-check"
+
+# A range cited before a re-check is numbered against the old commit. A fix
+# that shifts lines above it must not leave the stored range pointing at other
+# code: an edit to the originally judged lines still re-runs the seat.
+fixture shifted
+record scrutiny '[{"seat":"completeness","blocking_count":1,"cited":[{"path":"src/b.sh","lines":"30-35"}],
+                   "findings":[{"summary":"x","path":"src/a.sh","lines":"45"}]}]'
+(cd "$FX/repo" && { seq 1 10 | sed 's/^/pre/'; cat src/b.sh; } > x && mv x src/b.sh \
+    && awk 'NR == 45 { print "fixed"; next } { print }' src/a.sh > y && mv y src/a.sh \
+    && git commit -q -am "fix: a.sh, shifting b.sh") >/dev/null 2>&1
+record scrutiny '[{"seat":"completeness","blocking_count":0}]'
+edit src/b.sh 42 changed     # the old line 32, inside the range first cited
+run --plan scrutiny "$SESSION"
+expect_decision "an edit to code cited before lines shifted" scrutiny completeness rerun
+
+# A seat that cited nothing and blocked once still falls back to the whole diff
+# it judged, rather than to its finding's location alone.
+fixture citeless
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+edit src/a.sh 41 fixed
+record scrutiny '[{"seat":"intent","blocking_count":0}]'
+edit src/a.sh 2 elsewhere
+run --plan scrutiny "$SESSION"
+expect_decision "a once-blocked seat that cited nothing, fix elsewhere in its diff" scrutiny intent rerun
+
+fixture dirty
+record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && echo uncommitted >> docs/c.md)
+run --plan scrutiny "$SESSION"
+expect_decision "an uncommitted fix" scrutiny completeness rerun
+(cd "$FX/repo" && git checkout -q docs/c.md)
+record scrutiny "$ALL_PASS"
+run --plan scrutiny "$SESSION"
+(cd "$FX/repo" && echo uncommitted >> docs/c.md)
+run --carried scrutiny "$SESSION"
+expect_rc "--carried on a dirty tree, even with every seat kept" 1
+
+fixture nocommits
+(cd "$FX/repo" && git rev-parse HEAD) > "$SHIM_STORE/$SESSION/impl_base"
+record scrutiny "$ALL_PASS"
+run --plan scrutiny "$SESSION"
+expect_decision "no commits since impl_base" scrutiny completeness rerun
+
+fixture nofindings
+record review '[{"seat":"architect","blocking_count":1}]'
+edit docs/c.md 1 fixed
+run --plan review "$SESSION"
+expect_decision "a blocking seat that recorded no findings" review architect rerun
+
+fixture plan
+printf 'plan v1\n' > "$SHIM_STORE/$SESSION/plan.md"
+record scrutiny "$ALL_PASS"
+printf 'plan v2, scope expanded\n' > "$SHIM_STORE/$SESSION/plan.md"
+run --plan scrutiny "$SESSION"
+expect_decision "the plan was rewritten" scrutiny completeness rerun
 
 echo "--- script: the history counts rounds, not ticks"
 
