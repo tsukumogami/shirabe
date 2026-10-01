@@ -76,7 +76,7 @@ esac
 [ -f "$PLAN" ] && [ -r "$PLAN" ] || die "the PLAN cannot be read: $PLAN"
 
 if [ "$SEEN_CLAUDE" -eq 0 ]; then
-    TOP=$(git rev-parse --show-toplevel 2>/dev/null) || TOP=""
+    TOP=$(git rev-parse --show-toplevel) || TOP=""
     if [ -n "$TOP" ] && [ -f "$TOP/CLAUDE.md" ]; then
         CLAUDE_MD="$TOP/CLAUDE.md"
     fi

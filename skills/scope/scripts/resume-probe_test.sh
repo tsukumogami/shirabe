@@ -193,15 +193,18 @@ echo "== the documented initial shape is the shape the probe reads =="
 # Phase 0's initial state-file block, with its placeholders filled in, has to
 # resume at pointer 0; the old phase-0 / UNSET spelling has to be malformed.
 P0="$HERE/../references/phases/phase-0-setup.md"
+# The state file's path for topic t, taken from the probe's own STATE= line.
+STATE_REL=$(sed -n 's/^STATE="\(.*\)"$/\1/p' "$S" | sed 's/\${TOPIC}/t/')
 repo
+SF="$R/$STATE_REL"
 awk '/^## Initial State-File Shape/{f=1} f&&/^```yaml/{y=1;next} y&&/^```/{exit} y' "$P0" |
     grep -v '^consumed_upstream:' |
     sed -e 's/<slug>/t/; s/scope-<topic>/scope-t/; s/<continue|stop|none>.*$/none/' \
-        -e "s/<ISO-8601 timestamp>/$FRESH/" >"$R/wip/scope_t_state.md"
-if grep -q '^phase_pointer: 0$' "$R/wip/scope_t_state.md" && grep -q '^exit:$' "$R/wip/scope_t_state.md"; then
+        -e "s/<ISO-8601 timestamp>/$FRESH/" >"$SF"
+if [ -n "$STATE_REL" ] && grep -q '^phase_pointer: 0$' "$SF" && grep -q '^exit:$' "$SF"; then
     ok "phase-0-setup.md writes phase_pointer: 0 and an empty exit:"
 else
-    bad "phase-0-setup.md writes phase_pointer: 0 and an empty exit:" "$(cat "$R/wip/scope_t_state.md")"
+    bad "phase-0-setup.md writes phase_pointer: 0 and an empty exit:" "[$STATE_REL] $(cat "$SF" 2>&1)"
 fi
 expect "the documented initial state file" 20 t none
 repo; PP=phase-0 state t "";            expect "a phase-0 pointer is malformed" 25 t none
