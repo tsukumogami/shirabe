@@ -28,8 +28,9 @@ fixed; semantics are pattern-level; serialization is substrate-bound.
   where to re-enter.
 - **`exit`** — parent-exit enum string from
   `{full-run, re-evaluation, abandonment-forced}` (the three pattern-level
-  exit paths). Unset — empty or absent — while the chain is in progress;
-  SET at finalization.
+  exit paths). Unset while the chain is in progress — empty or absent, or a
+  literal placeholder the parent's own schema names, such as `/charter`'s
+  `UNSET`; SET at finalization.
   The R9 hard-finalization check fires when this field is unset or
   invalid at termination.
 - **`exit_artifacts`** — list of `{path, status}` entries. The durable
@@ -57,8 +58,8 @@ The `phase_pointer` field is a parent-phase enum, not a free-text string.
 Each parent's SKILL.md names its phases; the field's allowed values are the
 parent's named phase identifiers.
 
-The `exit` field is conditional in a strict sense: unset (empty or absent)
-while the chain is in progress, SET to a valid enum value at finalization. The R9
+The `exit` field is conditional in a strict sense: unset (empty, absent, or
+the parent's own placeholder) while the chain is in progress, SET to a valid enum value at finalization. The R9
 hard-finalization check makes the conditional explicit (see R9 Hard-
 Finalization Check Spec below).
 

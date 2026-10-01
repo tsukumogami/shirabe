@@ -296,6 +296,26 @@ for want in 'koto decisions record' '`--koto-leg`' 'coordinator' 'Running solo' 
     esac
 done
 
+# /charter shares /scope's Phase 2 worktree flow, so the two must agree with the
+# merge-only reference: no /charter or /scope text tells the agent to rebase,
+# and /charter's citation of worktree-discipline.md names phases it has.
+WD="$HERE/../../../references/worktree-discipline.md"
+CHARTER="$HERE/../../charter"
+REBASE=$(grep -rniE '(^|[^_a-z])rebas(e|ing)' "$CHARTER" "$HERE/.." --include='*.md' 2>/dev/null \
+    | grep -v '/evals/' | grep -viE 'never (by )?rebas|worktree_rebases|rebased_at' || true)
+if [ -z "$REBASE" ]; then
+    ok "no /charter or /scope instruction tells the agent to rebase"
+else
+    bad "no /charter or /scope instruction tells the agent to rebase" "$REBASE"
+fi
+for phase in 'Merge phase' 'Impact-analysis phase' 'Escalation phase'; do
+    if grep -q "^## $phase\$" "$WD" && grep -F 'worktree-discipline.md' "$CHARTER/SKILL.md" | grep -q "$phase"; then
+        ok "/charter cites worktree-discipline.md's $phase, which exists"
+    else
+        bad "/charter cites worktree-discipline.md's $phase, which exists" "heading or citation missing"
+    fi
+done
+
 # The child-dispatch contract the hops rely on: under the sentinel a child keeps
 # its verdict and skips every step that publishes or routes, so /scope's one
 # push at exit stays true. The dispatch reference once had children leave their
