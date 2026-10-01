@@ -541,7 +541,7 @@ OUT=$(run --releg 2>"$ST/err"); RC=$?
 eq  "releg: a cancelled leg is replaced, exit 0" 0 "$RC"
 has "releg: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 has "releg: prints the new leg" "$OUT" "leg=req_2:scope"
-has "releg: prints the worker's session to message" "$OUT" "session=plugin_api-1a2b3c4d"
+has "releg: prints the worker's session to message" "$OUT" "session=$NIWA_NAME"
 eq  "releg: the holding is on the new leg" "leg req_2:scope" "$(row return_path)"
 eq  "releg: the holding stays dispatched" dispatched "$(row dispatch_status)"
 eq  "releg: its entry point stays" scope "$(row entry_point)"
