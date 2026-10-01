@@ -215,9 +215,10 @@
       "mode": "execute",
       "scenario": "scrutiny-blocking-retry-entry",
       "prompt": "/work-on #42",
-      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Before submitting, the agent clears every artifact the return trip invalidates -- all three panel result keys and summary.md -- and confirms each removal took. The retry routes to implementation rather than done_blocked.",
+      "expected_output": "Scrutiny panel finds blocking issues. The agent runs the retry budget first, which grants the run's first retry, then clears every artifact the return trip invalidates -- all three panel result keys and summary.md -- confirms each removal took, and emits blocking_retry. The retry routes to implementation rather than done_blocked.",
       "files": [],
       "expectations": [
+        "Agent runs panel-retry-budget.sh for scrutiny with the round's blocking count before the clearing block, and goes on to the retry because the budget grants it (this is the run's first retry)",
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
         "Agent runs koto context remove on scrutiny_results.json, review_results.json, qa_results.json and summary.md before submitting the retry",
         "Agent clears all four keys, not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",

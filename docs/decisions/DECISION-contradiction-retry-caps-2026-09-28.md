@@ -19,6 +19,11 @@ rationale: |
 Accepted on 2026-09-28. The policy owner answered this item of the
 contradiction-settlement inventory (coordination PR shirabe#507).
 
+The review panel cap is superseded by
+`DECISION-work-on-panel-retry-progress-cap-2026-10-01.md` (Accepted
+2026-10-01): 2 unconditional blocking retries, a third only when the panel's
+blocking count fell, and never more than 3. Everything else here stands.
+
 ## Context
 
 This is the `retry-caps` item. It touches /work-on and /execute's single-PR
