@@ -2709,7 +2709,10 @@ artifact's existing Status section, on one line, with the field order shown.
 nothing: delete any `docs/plans/PLAN-{{TOPIC}}.md` `/plan` left behind (it is
 uncommitted; the plan hop commits only after its gate), put the marker on the
 nearest upstream document still on disk (the DESIGN, else the PRD, else the
-BRIEF), and list the upstream documents in `exit_artifacts`.
+BRIEF), and list the upstream documents in `exit_artifacts`. When no child is in
+flight (the run stopped between hops on an escalated upstream change), likewise
+materialize nothing and re-draft nothing: put the marker on the last document the
+chain produced, at its current status.
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->

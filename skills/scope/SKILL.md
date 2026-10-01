@@ -490,7 +490,8 @@ The run makes two others, and no more:
 
 - **issue filing** — at the plan hop, `/plan` files the PLAN's GitHub issues
   (and, at `issues-and-milestone`, its milestone) only behind an approval
-  recorded under `plan_filing_approval`: the author's, or under `--auto` a
+  recorded under `plan_filing_approval` (per
+  `docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`): the author's, or under `--auto` a
   `## Tracking Level: issues|issues-and-milestone` header in CLAUDE.md. The
   hop's `plan_filing` and `filing_approval` gates route a PLAN that filed
   without one to `bail`. A child's own push, pull request and upstream-issue

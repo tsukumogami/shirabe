@@ -38,9 +38,14 @@ The three subfields are load-bearing:
     to reflect a downstream change (rare; reserved for tooling-driven
     re-emission).
 
-## What a child keeps and what it skips
+## What a child keeps and what it skips under /scope
 
-Under the sentinel a child still reaches its own verdict and makes its
+This section binds `/scope`'s children (`/brief`, `/prd`, `/design`,
+`/plan`), per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+`/charter`'s children keep the Parent-delegated-approval shape below.
+
+Under `/scope`'s sentinel a child still reaches its own verdict and makes its
 own status transition. `/design` and `/plan` require their upstream
 already `Accepted` when they start, and the parent never transitions
 anything, so each hop's approval has to happen inside the hop that
@@ -67,18 +72,17 @@ parent owns those:
   keeps only the verdict. Control returns to the parent, which
   decides the next hop.
 
-The parent publishes at most once, at its own exit (a `/scope` run with
-no intent publishes nothing), and its list of writes is the
-only one that applies while a child runs under it (for `/scope`, the
-Security Considerations section of `skills/scope/SKILL.md`; for
-`/charter`, its own closed write-target set).
+`/scope` publishes at most once, at its own exit (a run with no intent
+publishes nothing), and its list of writes, in the Security
+Considerations section of `skills/scope/SKILL.md`, is the only one that
+applies while a child runs under it.
 
-## The five canonical fallback shapes
+## The six canonical fallback shapes
 
 A child invoked under sub-agent dispatch cannot always perform the
 same review or approval mechanics it uses under direct human
 invocation (no interactive user, parent owns publishing, etc.).
-The five canonical fallback shapes encode the resolutions:
+The six canonical fallback shapes encode the resolutions:
 
 ### 1. Serial-self-jury
 
@@ -92,22 +96,23 @@ verdicts are folded into a single feedback table.
 **Bindings:** `/design` Phase 6, `/prd` Phase 4 jury, `/strategy`
 Phase 6.
 
-### 2. Parent-owned-publishing
+### 2. Parent-delegated-approval
 
-The child reaches its own verdict and makes its own status
-transition, as "What a child keeps and what it skips" above says,
-and leaves publishing to the parent: no push, no pull request, no
-branch creation, no cleanup commit, and no routing prompt. Under
-`--auto` it takes the recommended verdict and names it in its
-output.
+When the child would normally prompt the author for an Accepted/
+Reject verdict, but the parent chain owns the unified prompt at the
+chain boundary, the child writes its draft to disk in a non-Accepted
+state (`Draft` for BRIEF/PRD/PLAN; `Proposed` for DESIGN) and hands
+control back to the parent. The parent presents the chain-level
+prompt and triggers the Accepted transition on approval.
 
-**Bindings:** all seven authoring children (`/brief`, `/prd`,
-`/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`).
+**Bindings:** `/charter`'s children (`/vision`, `/strategy`,
+`/roadmap`). `/scope`'s children follow shape 6 instead.
 
 ### 3. Decision-bypass-with-inline-resolution
 
 Under the parent sentinel, `/design` routes each Phase 2 question by
-its tier, a condition it can check rather than a judgment about the
+its tier (per
+`docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`), a condition it can check rather than a judgment about the
 dispatch context:
 
 - a **standard**-tier question (`/decision`'s Tier 3) is resolved
@@ -146,6 +151,18 @@ deterministic transformation already complete.
 **Bindings:** `/plan` Phase 7 single-pr mode, `/roadmap` Phase 5
 single-pr populate.
 
+### 6. Parent-owned-publishing
+
+The child reaches its own verdict and makes its own status
+transition, as "What a child keeps and what it skips under /scope"
+above says, and leaves publishing to the parent: no push, no pull
+request, no branch creation, no cleanup commit, and no routing prompt.
+Under `--auto` it takes the recommended verdict and names it in its
+output.
+
+**Bindings:** `/scope`'s children (`/brief`, `/prd`, `/design`,
+`/plan`).
+
 ## Per-skill binding table
 
 The eight children bind to the fallback shapes as follows. Each row
@@ -161,9 +178,9 @@ does not need a fallback at that phase.
 | `/design` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
 | `/plan` | Phase 6 review | Inline-substitute-review |
 | `/plan` | Phase 7 emit | Deterministic-mode-bypass, Parent-owned-publishing |
-| `/vision` | Phase finalize | Parent-owned-publishing |
-| `/strategy` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
-| `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-owned-publishing |
+| `/vision` | Phase finalize | Parent-delegated-approval |
+| `/strategy` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
+| `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-delegated-approval |
 
 `/work-on` has no row: it reads no sentinel, at Phase 0 or anywhere else
 (R9 scopes the seven authoring children for the Resume Logic row). When

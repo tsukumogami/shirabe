@@ -166,7 +166,8 @@ tempfile, never interpolated into the commit message via
 The chain cannot complete the planned terminal artifact. An
 abandoned run writes no PLAN, only the upstream documents: a
 committed Draft PLAN fails the lifecycle check, and a PLAN that
-never finished holds little a later run could reuse.
+never finished holds little a later run could reuse (per
+`docs/decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md`).
 
 - When the triggering child is `/brief`, `/prd` or `/design`,
   Phase 3 force-materializes that child's intermediate as a Draft
@@ -185,6 +186,12 @@ never finished holds little a later run could reuse.
   `exit_artifacts:` lists the upstream documents at their current
   status. `/plan`'s intermediate files stay where they are for a
   resumed run, as every abandoned child's do.
+- When no child is in flight, because the run stopped between hops
+  (an escalated upstream change, per Phase 2's Escalation phase),
+  nothing is force-materialized and no document is re-drafted. The
+  marker goes at the END of the Status section of the last document
+  the chain produced, at its current status, and `exit_artifacts:`
+  lists the documents on disk.
 
 State file at abandonment-forced exit:
 

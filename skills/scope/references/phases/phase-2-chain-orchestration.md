@@ -81,7 +81,8 @@ The check runs the three-phase flow defined in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`:
 
 - **Merge phase.** Catch up by merging, never by rebasing, and
-  never force-push: execute the equivalent of `git fetch && git
+  never force-push (per
+  `docs/decisions/DECISION-contradiction-force-push-after-rebase-2026-09-28.md`): execute the equivalent of `git fetch && git
   merge origin/<tracking-branch>`. A gate that asks whether the
   branch has caught up tests ancestry, `git merge-base
   --is-ancestor origin/<tracking-branch> HEAD`, never linear
@@ -107,7 +108,8 @@ The check runs the three-phase flow defined in
 - **Escalation phase.** None / Informational proceeds silently;
   the merge is recorded in `worktree_rebases:` and Phase 2
   advances to step 2 (sentinel write). Intent-changing is judged
-  by the agent running the chain, as close to the change as it
+  by the agent running the chain (per
+  `docs/decisions/DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`), as close to the change as it
   can be decided. What it can settle itself it reconciles in
   place: update the affected citation or claim, then proceed,
   recorded in `worktree_rebases:` as
@@ -197,8 +199,9 @@ even when (as for every child but `/plan`) no mode flag is among its
 arguments. It skips its push, pull request, branch creation, cleanup
 commit and routing prompts: `/scope` makes each hop's commit here
 and, on an intent run, publishes once, at exit. The full list is in "What a child keeps
-and what it skips" in
-`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+and what it skips under /scope" in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 
 ## Child Invocation
 

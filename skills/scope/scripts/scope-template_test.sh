@@ -302,7 +302,7 @@ done
 WD="$HERE/../../../references/worktree-discipline.md"
 CHARTER="$HERE/../../charter"
 REBASE=$(grep -rniE '(^|[^_a-z])rebas(e|ing)' "$CHARTER" "$HERE/.." --include='*.md' 2>/dev/null \
-    | grep -v '/evals/' | grep -viE 'never (by )?rebas|worktree_rebases|rebased_at' || true)
+    | grep -v '/evals/' | grep -viE 'never (by )?rebas|worktree_rebases|rebased_at|force-push-after-rebase' || true)
 if [ -z "$REBASE" ]; then
     ok "no /charter or /scope instruction tells the agent to rebase"
 else
@@ -322,12 +322,13 @@ done
 # artifact unapproved for the parent, which /design and /plan cannot start from.
 DISPATCH="$HERE/../../../references/fixes/sub-agent-dispatch.md"
 PHASE2="$HERE/../references/phases/phase-2-chain-orchestration.md"
-if grep -q 'Parent-delegated-approval' "$DISPATCH"; then
-    bad "the dispatch reference no longer delegates a child's approval to the parent" "$(grep -n 'Parent-delegated-approval' "$DISPATCH")"
+SCOPE_ROWS=$(grep -E '^\| `/(brief|prd|design|plan)` \|' "$DISPATCH")
+if [ -n "$SCOPE_ROWS" ] && ! printf '%s\n' "$SCOPE_ROWS" | grep -q 'Parent-delegated-approval'; then
+    ok "the dispatch reference no longer delegates a /scope child's approval to the parent"
 else
-    ok "the dispatch reference no longer delegates a child's approval to the parent"
+    bad "the dispatch reference no longer delegates a /scope child's approval to the parent" "$SCOPE_ROWS"
 fi
-SKIPS=$(awk '/^## What a child keeps and what it skips/{f=1;next} f&&/^## /{exit} f' "$DISPATCH")
+SKIPS=$(awk '/^## What a child keeps and what it skips under \/scope/{f=1;next} f&&/^## /{exit} f' "$DISPATCH")
 for step in '**push**' '**pull request**' '**branch creation**' '**cleanup commit**' '**routing prompts**'; do
     case "$SKIPS" in
         *"$step"*) ok "the dispatch reference's skip list names $step" ;;
