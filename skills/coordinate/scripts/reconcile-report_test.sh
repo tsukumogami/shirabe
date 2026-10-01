@@ -218,6 +218,23 @@ L='{"kind":"leg","status":"ok","disposition":"resolved","result":"merged","read_
 out=$(facts "[$(holding a "[$P,$L]" '{"return_path":"leg req1:deliver"}')]" | render)
 printf '%s\n' "$out" | grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' \
   && ok "the holding line carries the merge state and the leg's result beside the pull request state" || bad "merge state and leg beside the pull request state" "$out"
+# A leg spent before its worker reported, with the worker found and no pull
+# request: recoverable by replacing the leg, never a worker gone (shirabe#506).
+HF='{"kind":"host","status":"ok","state":"found","reads":1,"read_at":"2026-09-27T09:58:00Z"}'
+for spent in '{"kind":"leg","status":"ok","disposition":"resolved","source":"refused","result":"refused:private-repo","read_at":"t"}' \
+             '{"kind":"leg","status":"ok","disposition":"resolved","source":"explicit","result":"cancelled","read_at":"t"}' \
+             '{"kind":"leg","status":"ok","disposition":"abandoned","source":null,"result":"","read_at":"t"}'; do
+    SP=$(facts "[$(holding sp "[$HF,$spent]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report)
+    printf '%s' "$SP" | jq -e '.holdings[0].next_code == "replace_leg" and ([.table[] | select(.session == "sp") | .kind] == ["Ongoing"])' >/dev/null \
+      && ok "a leg spent early ($(printf '%s' "$spent" | jq -r '.source // .disposition')) is recoverable: replace the leg" \
+      || bad "a leg spent early is recoverable" "$(printf '%s' "$SP" | jq -c '.holdings[0]')"
+done
+PROM='{"kind":"leg","status":"ok","disposition":"resolved","source":"promoted","result":"blocked","read_at":"t"}'
+facts "[$(holding pm "[$HF,$PROM]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report \
+  | jq -e '.holdings[0].next_code == "wait"' >/dev/null && ok "a promoted result is the worker's report, not a leg spent early" || bad "a promoted result is not a leg spent early"
+HM='{"kind":"host","status":"ok","state":"missed","reads":2,"read_at":"2026-09-27T09:58:00Z"}'
+facts "[$(holding gone "[$HM,$(printf '%s' "$PROM" | jq -c '.source = "refused"')]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report \
+  | jq -e '.holdings[0].next_code == "read_again"' >/dev/null && ok "a spent leg whose worker wasn't found is read again, not replaced" || bad "a spent leg with no worker found"
 LBAD='{"kind":"leg","status":"not_verified","reason":"request store not on this host"}'
 out=$(facts "[$(holding a "[$P,$LBAD]")]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].leg == null and (.not_verified | any(.what == "a: leg" and .reason == "request store not on this host"))' >/dev/null \

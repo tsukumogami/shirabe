@@ -12,8 +12,11 @@
 # appear confirmed; an unreadable listing leaving dispatching; the deadline; a
 # topic a live session uses; the exact session match; a concurrent run
 # refused by the lock; a mismatched topic; the record refusing a write;
-# --rebrief; no session id, instance path or job id in the holding; and every
-# exit code of holding-recorded.sh.
+# --rebrief; --releg replacing a spent leg (and refusing an open one, a
+# promoted one, a holding with a pull request); send_execution rewriting a
+# scoping-ahead holding with a new leg and the execution's entry point,
+# mode and phase; no session id, instance path or job id in the holding; and
+# every exit code of holding-recorded.sh.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -56,7 +59,17 @@ case "$1 $2" in
     "request create")
         echo "koto request create $*" >>"$ST/calls.log"
         [ "${KOTO_CREATE_FAIL:-}" = 1 ] && exit 1
-        printf '{"request_id":"req_1"}\n'
+        n=$(( $(cat "$ST/req_n" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$ST/req_n"
+        printf '{"request_id":"req_%s"}\n' "$n"
+        ;;
+    "request get")
+        echo "koto request get $3" >>"$ST/calls.log"
+        [ -f "$ST/request_get.rc" ] && exit "$(cat "$ST/request_get.rc")"
+        [ -f "$ST/request_get.json" ] || exit 2
+        cat "$ST/request_get.json"
+        ;;
+    "session dir")
+        printf '%s\n' "$ST/session"
         ;;
     "request abandon-request")
         echo "koto request abandon-request $3" >>"$ST/calls.log"
@@ -507,6 +520,120 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
+
+# --- --releg: a leg spent before the worker reported -------------------------------------------------------
+
+# A scope worker dispatched on leg req_1:scope; its leg is cancelled before
+# it reports. --releg opens req_2 for the same holding, keeps the worker.
+spent() { # spent <disposition> <result_source>: koto's view of req_1
+    jq -nc --arg d "$1" --arg s "$2" '{request_id: "req_1", request_state: (if $d == "open" then "open" else "closed" end),
+        legs: {scope: {name: "scope", disposition: $d, result: (if $s == "" then null else {status: "failure"} end),
+               result_source: (if $s == "" then null else $s end)}}}' >"$ST/request_get.json"
+}
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+rm -f "$ST/ctx/coord/pick.json"
+spent resolved explicit
+printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+: >"$ST/calls.log"
+OUT=$(run --releg 2>"$ST/err"); RC=$?
+eq  "releg: a cancelled leg is replaced, exit 0" 0 "$RC"
+has "releg: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
+has "releg: prints the new leg" "$OUT" "leg=req_2:scope"
+has "releg: prints the worker's session to message" "$OUT" "session=$NIWA_NAME"
+eq  "releg: the holding is on the new leg" "leg req_2:scope" "$(row return_path)"
+eq  "releg: the holding stays dispatched" dispatched "$(row dispatch_status)"
+eq  "releg: its entry point stays" scope "$(row entry_point)"
+has "releg: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
+has "releg: the new leg pins the same inputs" "$(calls)" '"name":"scope","role":"scope","template":"scope.md","inputs":{"TOPIC":"plugin-api"}'
+eq  "releg: no launch, the worker is kept" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "releg: the brief names the new leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg=req_2:scope"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+spent resolved refused; : >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: a leg refused at preflight is replaced" 0 "$?"
+eq  "releg: refused: the holding is on the new leg" "leg req_2:scope" "$(row return_path)"
+has "releg: refused: the new leg pins the same inputs" "$(calls)" '"inputs":{"TOPIC":"plugin-api"}'
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -nc '{request_id: "req_1", request_state: "closed", legs: {scope: {name: "scope", disposition: "open", bound_child: null, result: null, result_source: null}}}' >"$ST/request_get.json"
+: >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: a leg left open on a closed request is spent, and replaced" 0 "$?"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -nc '{request_id: "req_1", request_state: "closed", legs: {scope: {name: "scope", disposition: "resolved", result: {status: "success"}, result_source: "explicit"}}}' >"$ST/request_get.json"
+: >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: a leg resolved by hand as a success isn't spent early: exit 9" 9 "$?"
+eq  "releg: nothing written for it" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+rm -f "$ST/request_get.json"; : >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: a leg koto no longer has (missing) is replaced" 0 "$?"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+spent open ""; : >"$ST/calls.log"
+ERR=$(run --releg 2>&1 >/dev/null); RC=$?
+eq  "releg: an open leg isn't spent: exit 9" 9 "$RC"
+has "releg: and says so" "$ERR" "still open"
+eq  "releg: nothing written or opened" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+spent resolved promoted; : >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: a promoted result is the worker's report: exit 9" 9 "$?"
+eq  "releg: nothing written for a promoted result" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+spent resolved explicit
+jq -c '.pull_request = "[#9](https://github.com/acme/widgets/pull/9)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+run --releg >/dev/null 2>&1; eq "releg: a holding with a pull request isn't spent early: exit 9" 9 "$?"
+reset "$INPUT_DELIVER"; jq -c '.entry_point = "explore" | .entry_args = ["q"]' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+run --releg >/dev/null 2>&1; eq "releg: a message-path holding has no leg to replace: exit 9" 9 "$?"
+run --releg --rebrief >/dev/null 2>&1; eq "releg and rebrief together: usage" 2 "$?"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c '.entry_point = "explore"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+spent resolved explicit; : >"$ST/calls.log"
+run --releg >/dev/null 2>&1; eq "releg: an entry point that takes no leg has none to replace: exit 9" 9 "$?"
+eq  "releg: and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+
+# --- send_execution: a scoping-ahead holding sent its execution ------------------------------------------
+
+log_pick() { # log_pick <choice> <unit>: the session log's latest entry into pick and its evidence
+    mkdir -p "$ST/session"
+    { printf '{"schema_version":1,"workflow":"coord","created_at":"2026-09-26T10:00:00.000Z"}\n'
+      jq -nc '{seq: 1, timestamp: "2026-09-26T10:01:00.000Z", type: "transitioned", payload: {from: "pick_facts", to: "pick"}}'
+      jq -nc --arg c "$1" --arg u "$2" '{seq: 2, timestamp: "2026-09-26T10:02:00.000Z", type: "evidence_submitted", payload: {state: "pick", fields: {choice: $c, unit: $u}}}'
+    } >"$ST/session/koto-coord.state.jsonl"
+}
+INPUT_EXEC=$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"')
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"
+run >/dev/null 2>&1
+eq  "send_execution: the scoping holding starts scoping ahead" scoping-ahead "$(row phase)"
+printf '%s' "$INPUT_EXEC" >"$ST/ctx/brief_input.json"
+log_pick send_execution plugin-api
+: >"$ST/calls.log"
+OUT=$(run 2>"$ST/err"); RC=$?
+eq  "send_execution: exit 0" 0 "$RC"
+lacks "send_execution: never already-dispatched" "$OUT" "already-dispatched"
+has "send_execution: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
+eq  "send_execution: phase executing" executing "$(row phase)"
+eq  "send_execution: entry point execute" execute "$(row entry_point)"
+eq  "send_execution: mode from the execution's input" "--auto" "$(row mode)"
+eq  "send_execution: a new leg for /execute" "leg req_2:execute" "$(row return_path)"
+eq  "send_execution: the unit is kept" "Feature 2: the plugin API" "$(row unit)"
+has "send_execution: the leg pins the plan slug" "$(calls)" '"inputs":{"PLAN_SLUG":"plugin-api"}'
+eq  "send_execution: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "send_execution: the brief is the execution's" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "/shirabe:execute docs/plans/PLAN-plugin-api.md"
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
+printf '%s' "$INPUT_EXEC" >"$ST/ctx/brief_input.json"; log_pick dispatch plugin-api; : >"$ST/calls.log"
+eq  "a pick that isn't send_execution: already-dispatched, nothing changed" already-dispatched "$(run 2>/dev/null)"
+eq  "and the holding still scoping ahead" scoping-ahead "$(row phase)"
+log_pick send_execution another-topic; : >"$ST/calls.log"
+eq  "a send_execution pick for another unit: already-dispatched" already-dispatched "$(run 2>/dev/null)"
+log_pick send_execution plugin-api
+jq -nc '{request_id: "req_1", request_state: "open", legs: {scope: {name: "scope", disposition: "open", bound_child: "scope-plugin-api", result: null, result_source: null}}}' >"$ST/request_get.json"
+: >"$ST/calls.log"
+run >/dev/null 2>&1; eq "send_execution while the worker is still attached to its scoping leg: exit 9" 9 "$?"
+eq  "and nothing written" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+echo 1 >"$ST/request_get.rc"; : >"$ST/calls.log"
+run >/dev/null 2>&1; eq "send_execution when the scoping leg can't be read: exit 2" 2 "$?"
+eq  "and nothing written or abandoned" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+rm -f "$ST/request_get.rc" "$ST/request_get.json"
+printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"' >"$ST/ctx/brief_input.json"; : >"$ST/calls.log"
+run >/dev/null 2>&1; eq "send_execution with the scoping brief again: refused, exit 1" 1 "$?"
+eq  "and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
 
 # --- a lock left with no pid ---------------------------------------------------------------------------
 

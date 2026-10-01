@@ -73,6 +73,8 @@ stateDiagram-v2
     land_merge --> surface : merge: held
     leg_pick --> wait_leg : gates.leg_target.matches: true
     leg_pick --> wait : gates.leg_target.matches: false
+    leg_spent --> record : move: replaced
+    leg_spent --> surface : move: surface
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 90
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 91
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 90
@@ -205,10 +207,10 @@ stateDiagram-v2
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted
-    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
-    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: refused
-    wait_leg --> surface : gates.leg_result.disposition: abandoned
-    wait_leg --> surface : gates.leg_result.disposition: missing
+    wait_leg --> leg_spent : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
+    wait_leg --> leg_spent : gates.leg_result.disposition: resolved, gates.leg_result.source: refused
+    wait_leg --> leg_spent : gates.leg_result.disposition: abandoned
+    wait_leg --> leg_spent : gates.leg_result.disposition: missing
     wait_leg --> leg_pick : gates.leg_result.disposition: open, watch: rescan
     wait_leg --> wait : gates.leg_result.disposition: open, watch: back
     done --> [*]
