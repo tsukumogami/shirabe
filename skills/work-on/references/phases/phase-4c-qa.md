@@ -4,8 +4,10 @@ Run QA validation after code review passes. The tester agent validates that the 
 
 ## Tester Agent
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+
 Spawn the tester agent using the Task tool. The tester:
-1. Reads the implementation's acceptance criteria from the issue or PLAN doc
+1. Reads the implementation's acceptance criteria from the packet
 2. Reads any project test plan
 3. Exercises the implementation against the acceptance criteria
 4. Reports pass/fail per AC with evidence

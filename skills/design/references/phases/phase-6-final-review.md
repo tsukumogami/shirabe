@@ -20,6 +20,8 @@ If the design doc has YAML frontmatter with status "Proposed", skip to step 6.5
 
 ### 6.1 Launch Review Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
+
 Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
 
 **Architecture reviewer:**

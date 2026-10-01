@@ -4,6 +4,8 @@ Run three parallel code reviewers after scrutiny passes. Each reviewer checks th
 
 ## Reviewers
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Pragmatic, Architect and Maintainer run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+
 Spawn all three simultaneously using the Task tool:
 
 - **Pragmatic reviewer**: Is the implementation simple? Does it avoid over-engineering, dead code, and scope creep?

@@ -4,6 +4,8 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+
 Spawn all three simultaneously using the Task tool:
 
 - **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation? Are evidence claims verifiable from the diff?
