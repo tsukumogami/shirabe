@@ -65,6 +65,7 @@
 #     the first, through a remote naming another URL   exit 79
 #     a clone whose origin spells the home's URL another way (ssh, https,
 #     case, .git, a trailing slash)              exit 79
+#     both origins written through one insteadOf rule   exit 79
 #     a --plan outside any git repository        exit 79, nothing pushed
 #     the node's own clone (control)             pushed
 #   coord_url_key                                one key per repository
@@ -695,6 +696,27 @@ if [ "$RC" -eq 79 ] && ! gh_wrote; then
 else
     fail "url spelling: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
 fi
+
+# One insteadOf rule shared by both checkouts: the coordination checkout's
+# origin and the separate clone's are written gh:acme/repo-a, which both
+# resolve to the home's bare origin, so the push would land there.
+ct_case home-insteadof
+ct_write_db
+fresh_repo home-insteadof
+git config --global url."$REPO.origin.git".insteadOf gh:acme/repo-a
+(cd "$REPO" && git remote set-url origin gh:acme/repo-a)
+NREPO="$CT_WORK/home-insteadof-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+(cd "$NREPO" && git remote set-url origin gh:acme/repo-a)
+WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
+(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+home_push
+if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+    pass "a clone of the home whose origin and the checkout's share an insteadOf rule: exit 79, nothing pushed"
+else
+    fail "insteadOf: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+git config --global --unset url."$REPO.origin.git".insteadOf
 
 # A --plan outside any git repository: the coordination checkout can't be
 # read, which refuses rather than passing.

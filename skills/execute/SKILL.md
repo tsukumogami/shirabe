@@ -436,8 +436,8 @@ against its chain shape:
    (`write_set_record`, `settled_branch_record`, `drift_facts`, `worktree_sync`,
    `merge_readiness`, `merge_confirm`, `coord_verdict`, `coord_merge_confirm`) read
    GitHub and write local state or koto context only. The repository write set is
-   fixed at start as `repos`, and every node PR lookup and merge call receives its
-   repository from that record. On coordinated, the coordination PR's lookups, body
+   fixed at start as `repos`, and every PR lookup and merge call other than the
+   coordination PR's receives its repository from that record. On coordinated, the coordination PR's lookups, body
    edits, ready call, and merge receive `home_repo`, fixed at the same moment, which
    need not be in `repos`.
 3. **`execution_mode` enum re-validation at both consumers.** The PLAN's

@@ -142,10 +142,11 @@
 #       couldn't read; nothing was pushed or edited (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
 #       PR's, but this worktree shares the coordination checkout's git
-#       directory (a node cut without node-cut.sh --repo-dir) or pushes to
-#       the same repository as its origin (a clone of the coordination PR's
-#       repository; URLs compared by host and path), or either git directory
-#       could not be read; nothing was pushed or edited (execute:dispatch)
+#       directory (a node cut without node-cut.sh --repo-dir) or its push
+#       URL names the same repository as the checkout's origin push URL (a
+#       clone of the coordination PR's repository; network URLs compared by
+#       host and path, local paths as written), or either git directory could
+#       not be read; nothing was pushed or edited (execute:dispatch)
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -293,8 +294,9 @@ if [ "$MODE" != order ]; then
         PLAN_DIR=$(dirname -- "$PLAN")
         HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
         NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
-        HOME_URL=$(cd "$PLAN_DIR" && git config --get remote.origin.url) || HOME_URL=""
-        # Where the push goes, pushurl and pushInsteadOf applied.
+        # Both sides read the same way: where a push goes, with insteadOf,
+        # pushInsteadOf and pushurl applied.
+        HOME_URL=$(cd "$PLAN_DIR" && git remote get-url --push origin 2>/dev/null) || HOME_URL=""
         NODE_URL=$(git remote get-url --push "$REMOTE" 2>/dev/null) || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
             echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
@@ -304,7 +306,7 @@ if [ "$MODE" != order ]; then
         NODE_URL=$(coord_url_key "$NODE_URL")
         if [ "$HOME_GIT" = "$NODE_GIT" ] || { [ -n "$HOME_URL" ] && [ "$HOME_URL" = "$NODE_URL" ]; }; then
             # Named by node id only: either repository may be private.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree and its local branch (git worktree remove, git branch -D) from the coordination checkout" >&2
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(pwd -P)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
             exit 79
         fi
     fi
