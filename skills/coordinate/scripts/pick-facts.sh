@@ -18,8 +18,10 @@
 # pick-facts_test.sh holds the two to each other.
 #
 # Holdings come from the record (record-holding.sh --list), each marked
-# parked (a Verified head, and its pull request open and not a draft) or
-# active; local agents have no holding and are never counted. The counts sit
+# parked (a Verified head, and its pull request open and not a draft), merged
+# (a Verified head and its Pull request cell cleared by a confirmed merge,
+# waiting for its worker's teardown) or active; only active ones count
+# against the cap. Local agents have no holding and are never counted. The counts sit
 # beside CAP and PARKED_BOUND from the session's variables.
 #
 # Verdict tokens:
@@ -36,7 +38,7 @@
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, pull_request}], decisions: [{decision, question,
+#    dispatch_status, parked, merged, pull_request}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound}
 # decisions is the record's unsettled entries (record-decision.sh --list),
@@ -148,10 +150,10 @@ fi
 jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
     --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
     {scope: $scope, name: $name, host: $host, units: $u[0],
-     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, pull_request}],
+     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
-     active: ([$h[0][] | select(.parked | not)] | length), parked: ([$h[0][] | select(.parked)] | length),
+     active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb}' > "$T/pick.json" || lib_die2 "jq failed"
 lib_emit pick_facts "$VERDICT" coord/pick.json "$T/pick.json"

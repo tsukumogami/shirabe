@@ -4,7 +4,7 @@
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
 # row), surface (the unit's Verified head), merge_confirm and merged_facts
-# (merged: the unit's row no longer links the pull request; unconfirmed: a
+# (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
 # decision_apply (reversal and deferral), posture_ask, and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
@@ -181,15 +181,21 @@ for src in merge_confirm merged_facts; do
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "merged 12 $SHA_HEAD"
     log_to "$S" "$src" record "$EVT"
+    # A confirmed merge clears the unit's Pull request cell and keeps its row
+    # until teardown (the shirabe#490 comment of 2026-09-28).
+    body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":""}')" '.holdings = [$h]')"
+    eq "$src merged: the unit's row kept with its Pull request cell cleared confirms" confirmed "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding beta '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$h]')"
-    eq "$src merged: no row linking the pull request confirms" confirmed "$(confirm)"
+    eq "$src merged: the unit's row gone waits, since the row stays until teardown" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":"[#14](https://github.com/acme/widgets/pull/14)"}')" '.holdings = [$h]')"
+    eq "$src merged: the unit's row linking another pull request waits" waiting "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
     eq "$src merged: a row still linking #12 waits" waiting "$(confirm)"
     # Two units hold #12, in two repositories.
     body "$(rec | jq -c --argjson a "$(holding alpha)" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
     eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
-    body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g]')"
-    eq "$src merged: widgets#12's row gone confirms though gadgets#12's row stays" confirmed "$(confirm)"
+    body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":""}')" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
+    eq "$src merged: widgets#12's cell cleared confirms though gadgets#12's row stays" confirmed "$(confirm)"
     session
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "unconfirmed 12 $SHA_HEAD"
@@ -436,8 +442,10 @@ session
 leg_arrival req-1 execute
 sealed_capture merge_confirm MERGE_CONFIRM "merged 12 $SHA_HEAD"
 log_to "$S" merge_confirm record "$EVT"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$(printf '%s' "$THETA_X" | jq -c '.pull_request = ""')")" '.holdings = [$a, $t]')"
+eq "leg merge_confirm: the leg's unit with its cell cleared confirms though alpha links gadgets#12" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
-eq "leg merge_confirm: the leg's unit gone confirms though alpha links gadgets#12" confirmed "$(confirm)"
+eq "leg merge_confirm: the leg's unit gone waits" waiting "$(confirm)"
 body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
 eq "leg merge_confirm: the leg's holding still linking #12 waits" waiting "$(confirm)"
 

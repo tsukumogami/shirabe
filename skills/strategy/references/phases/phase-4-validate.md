@@ -75,6 +75,8 @@ the tool.
 
 ## 4.1 Spawn Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Bet Quality and Altitude run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/strategies/STRATEGY-<topic>.md --format skills/strategy/references/strategy-format.md --extra <upstream-doc>`. `<upstream-doc>` is the grounding document the Altitude prompt names; drop the `--extra` when there is none.
+
 Spawn all three agents in parallel. Each prompt opens with the fixed
 preamble below to defuse prompt-injection attempts via the STRATEGY body.
 

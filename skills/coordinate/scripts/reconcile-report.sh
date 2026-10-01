@@ -43,10 +43,12 @@
 #                  row carries no facts
 #     facts[]      {kind, status: ok|not_verified, read_at, reason, ...}:
 #       pr         state OPEN|MERGED|CLOSED, draft, head, merge_state
-#       board      at (sha), verdict holds|pending|fails (a pending board
-#                  is neither: it isn't ready to land and it isn't the
-#                  worker's to fix), detail (first failing job
-#                  or missing run)
+#       board      at (sha), verdict holds|pending|fails|not-run (a
+#                  pending board is neither: it isn't ready to land and it
+#                  isn't the worker's to fix; a not-run board had a job
+#                  GitHub never started, which a person clears), detail
+#                  (first failing job or missing run, or the job that never
+#                  ran with GitHub's reason)
 #       branch     state present|gone, tip
 #       appeared   prs[] {number, url, state}
 #       files      paths[] (the pull request's changed paths, both sides of
@@ -74,9 +76,10 @@
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
 #                          reason, status, read_at}}
-#   deferrals[]    {row: {deferral, reason, raised}, disposed (bool), how,
-#                   status: ok|not_verified, reason}; a deferral whose
-#                   disposal check failed is not reported either way
+#   deferrals[]    {row: {deferral, reason, raised, disposition}, disposed
+#                   (bool), how, status: ok|not_verified, reason}; a
+#                   deferral whose disposal check failed is reported under
+#                   not_verified with the reason, and in neither list
 #   reasoning      present|absent|not_recorded, or null at roadmap scope
 #   unparseable[]  {raw, reason}: rows the reader couldn't parse
 #
@@ -87,10 +90,12 @@
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
 #                   board, leg, next, next_code, source, read_at,
 #                   grade: {state, board, leg, phase, next}}
-#                  next_code is the token a reader routes on: drop, decide,
-#                  fix_ci, land, held, wait, read_again, refused,
-#                  replace_leg (a leg spent before its worker reported,
-#                  the worker found: recoverable, not gone). source is
+#                  next_code is the token a reader routes on: teardown, decide,
+#                  fix_ci, not_run, land, held, wait, read_again, refused,
+#                  replace_leg. not_run is a board whose jobs GitHub never
+#                  started: it waits on a person, never on the worker.
+#                  replace_leg is a leg spent before its worker reported,
+#                  the worker found: recoverable, not gone. source is
 #                  record or handoff, per row when a holding carries
 #                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
@@ -109,7 +114,12 @@
 #   side_effects[] {action, target, code, verdict, reason, grade}
 #                  code: confirmed, not_confirmed, not_rechecked, or
 #                  not_verified when the re-check itself failed
-#   deferrals[]    {deferral, reason, raised, grade}: undisposed only
+#   deferrals[]    {deferral, reason, raised, why, grade}: undisposed only;
+#                  why is the disposal check's verdict (empty, malformed,
+#                  carried-before-chain-start, decide-by-passed)
+#   deferrals_disposed[]  {deferral, raised, how, disposition, grade}: every
+#                  deferral the disposal check read as disposed, with how
+#                  (filed #<n>, closed, carried <time>, raised this run)
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
 #
@@ -204,12 +214,20 @@ def has_pr:
   | (no_pr_recorded | not)
     or ($ap != null and (ok($ap) | not))
     or (ok($ap) and (($ap.prs // []) | length) > 0);
+# A row whose merge was confirmed: its Pull request cell was cleared and its
+# Verified head kept, and every pull request on its branch is merged. It
+# waits for the teardown of its worker; the merged pull request is no news.
+def merged_awaiting_teardown:
+  fact("appeared") as $ap
+  | no_pr_recorded and ((.row.verified_head // "") != "")
+    and ok($ap) and (($ap.prs // []) | length) > 0 and all($ap.prs[]; .state == "MERGED");
 
 def state_of:
   if .refused != null then "refused"
   else fact("pr") as $pr
   | fact("host") as $h
   | if ok($pr) then ($pr.state | ascii_downcase)
+    elif merged_awaiting_teardown then "merged"
     elif has_pr then "pull request not verified"
     elif ok($h) then ("no pull request; worker " + (if $h.state == "found" then "found"
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
@@ -225,6 +243,7 @@ def board_of:
   [.facts // [] | .[] | select(.kind == "board" and .status == "ok")]
   | if length == 0 then null
     elif any(.[]; .verdict == "fails") then "fails" + (map(select(.verdict == "fails"))[0].detail // "" | if . == "" then "" else ": " + . end)
+    elif any(.[]; .verdict == "not-run") then "not run" + (map(select(.verdict == "not-run"))[0].detail // "" | if . == "" then "" else ": " + . end)
     elif any(.[]; .verdict == "pending") then "pending"
     else "holds" end;
 
@@ -245,20 +264,24 @@ def next_code_of:
   fact("pr") as $pr | fact("host") as $h
   | if .refused != null then "refused"
     elif ok($pr) then
-      (if $pr.state == "MERGED" then "drop"
+      (if $pr.state == "MERGED" then "teardown"
        elif $pr.state == "CLOSED" then "decide"
        elif phase_key == "held" then "held"
        elif ((board_of // "") | startswith("fails")) then "fix_ci"
+       elif ((board_of // "") | startswith("not run")) then "not_run"
        elif (board_of == "holds") and ((.row.verified_head // "") != "")
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
+    elif merged_awaiting_teardown then "teardown"
     elif has_pr then "read_again"
     elif leg_spent_early and ok($h) and $h.state == "found" then "replace_leg"
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
-  {drop: "drop from holdings", decide: "with me: re-dispatch or drop",
-   fix_ci: "worker fixes CI", land: "ready to land",
+  {teardown: "merged; tear down its worker, which removes the row", decide: "with me: re-dispatch or drop",
+   fix_ci: "worker fixes CI",
+   not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
+   land: "ready to land",
    held: "verified; merge withheld by the human\u0027s direction, waiting on them",
    wait: "wait on worker",
    read_again: "read again, then decide", refused: "refused by the record reader",
@@ -285,7 +308,8 @@ def changes_of($written):
        elif ok($br) and ok($pr) and ($br.tip // "") != ($pr.head // "") then
         {topic: $t, what: "branch tip differs", recorded: ($pr.head // ""), live: ($br.tip // ""), written: $written, grade: "measured"}
        else empty end),
-      (if ok($ap) and (($ap.prs // []) | length) == 1 then
+      (if merged_awaiting_teardown then empty
+       elif ok($ap) and (($ap.prs // []) | length) == 1 then
         {topic: $t, what: "pull request appeared", recorded: "none yet", live: ($ap.prs[0].url // ""), written: $written, grade: "measured"}
        elif ok($ap) and (($ap.prs // []) | length) > 1 then
         {topic: $t, what: "pull request ambiguous", recorded: "none yet", live: ([$ap.prs[].url] | join(", ")), written: $written, grade: "measured"}
@@ -351,7 +375,13 @@ def changes_of($written):
                 elif (.fact.verdict // "") == "not_rechecked" then "inferred"
                 else "verified by reading" end)}],
     deferrals: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed != true)
-      | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""), grade: "verified by reading"}],
+      | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""),
+         why: (.how // ""), grade: "verified by reading"}],
+    # Every deferral the disposal check read as disposed, with how, so the
+    # report accounts for each row it read and not only the open ones.
+    deferrals_disposed: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed == true)
+      | {deferral: (.row.deferral // ""), raised: (.row.raised // ""), how: (.how // ""),
+         disposition: (.row.disposition // ""), grade: "verified by reading"}],
     reasoning: (if $in.reasoning == null then null
                 else {status: $in.reasoning, key: (if $in.reasoning == "present" then "reconcile/reasoning.md" else null end)} end),
     # the report as a whole says which scope the phase marks are counted in
@@ -401,6 +431,8 @@ def changes_of($written):
     + [.decisions[] | select(.target == "a person")
        | {kind: "Blocked on you", unit: .question, session: null, pr: null, status: "decide",
           next: ("recommended: " + .recommendation + ", because " + .reason)}]
+    # CI that GitHub never started waits on whoever holds the account.
+    + [.holdings[] | select(.next_code == "not_run") | row("Blocked on you")]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
        | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
           next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
@@ -474,7 +506,13 @@ def prcell: if . == null or . == "" then "N/A" elif startswith("[") then . else 
 "",
 section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic | code): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | . as $se | "- \(.action) \(.target | refs(if $se.action == "merge" then "pull" else "issues" end)): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
-section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),
+section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason)"
+    + (if (.why // "") != "" then "; open because " + ({"empty": "it has no disposition", "malformed": "its disposition is malformed",
+         "carried-before-chain-start": "it was carried before the chain start", "decide-by-passed": "its decide-by has passed"}[.why] // .why) else "" end)
+    + " (\(.grade))."]),
+section("Disposed deferrals"; [(.deferrals_disposed // [])[] | "- \(.deferral) (raised \(.raised)): "
+    + (if .how == "raised this run" then "raised in this run, so not a predecessor'"'"'s to dispose of" else .how end)
+    + " (\(.grade))."]),
 (if .reasoning != null then
   section("Predecessor'"'"'s reasoning";
     [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in \(.reasoning.key), as its view; nothing here re-checked it."
