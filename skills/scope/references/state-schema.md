@@ -254,10 +254,12 @@ and each is written at the site it was already written at.
   Drift fires when EITHER status or fingerprint changes between
   resumes.
 - **`worktree_rebases`** — conditional list. Appended after every
-  rebase that brought new upstream commits in, per the worktree-
-  discipline reference. Records the post-rebase HEAD SHA and the
+  catch-up merge that brought new upstream commits in, per the
+  worktree-discipline reference; the name and its `rebased_at` key
+  are kept for compatibility, and each entry records a merge.
+  Records the post-merge HEAD SHA and the
   classification enum (`none | informational | intent-changing-resolved-in-place`).
-  Absent when no rebases have occurred.
+  Absent when no catch-up merges have occurred.
 - **`worktree_divergences`** — conditional list. Appended only
   when the worktree-discipline escalation phase produces a
   "proceed against original intent" decision. The list audits

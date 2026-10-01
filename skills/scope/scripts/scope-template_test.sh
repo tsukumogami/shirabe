@@ -253,9 +253,24 @@ else
     bad "every owned-pr.sh call resolves to skills/execute/scripts/owned-pr.sh" "$CALLS"
 fi
 eq "hop_plan's landed edge requires plan_mode_consistent" 'true' \
-    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_mode_consistent.exit_code"]] == [0]')"
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_mode_consistent.exit_code"]] | length > 0 and all(. == 0)')"
 eq "a plan-mode mismatch routes to bail" 'true' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_mode_consistent.exit_code"] == 1)] | length == 1')"
+
+# Filing issues needs an approval on every path: hop_plan reaches fold only when
+# the PLAN files nothing, or files with filing permitted and an approval
+# recorded; every other filing outcome routes to bail. Both gates refuse
+# overrides, and the filing gate reads the PLAN and the run's execution mode.
+eq "hop_plan: fold needs filing exit 0, or 3 with a recorded approval" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | [.when["gates.plan_filing.exit_code"], .when["gates.filing_approval.matches"]]] | sort == [[0,null],[3,true]]')"
+eq "hop_plan: filing without an approval, or under --auto without a header, bails" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_filing.exit_code"] != null) | [.when["gates.plan_filing.exit_code"], .when["gates.filing_approval.matches"]]] | sort == [[1,null],[3,false]]')"
+eq "hop_plan: the filing gates refuse overrides" 'false' \
+    "$(q '[.states.hop_plan.gates.plan_filing.overridable, .states.hop_plan.gates.filing_approval.overridable] | any')"
+eq "hop_plan: filing_approval reads plan_filing_approval" '"plan_filing_approval"' \
+    "$(q '.states.hop_plan.gates.filing_approval.key')"
+eq "hop_plan: plan_filing runs check-plan-filing.sh with EXEC_MODE" 'true' \
+    "$(q '.states.hop_plan.gates.plan_filing.command | contains("check-plan-filing.sh") and contains("--exec-mode \"{{EXEC_MODE}}\"")')"
 
 # An abandoned run writes no PLAN (a committed Draft PLAN fails the lifecycle
 # check), so the abandonment gate must not accept a marker on the PLAN's path.

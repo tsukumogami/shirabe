@@ -469,7 +469,7 @@ The preconditions and branch checks are in the Per-Hop Commit section of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
 **Publish**, on intent runs only (a run with no intent makes no push and no
-`gh` call), by `skills/scope/scripts/publish-scoping-pr.sh`, which the agent
+publish-step `gh` call), by `skills/scope/scripts/publish-scoping-pr.sh`, which the agent
 runs in the publish states and in `republish` and never as a default action:
 
 - **untrack** — `git rm --cached` of the topic's own
@@ -485,7 +485,21 @@ runs in the publish states and in `republish` and never as a default action:
 - **edit** — `gh pr edit --body-file` on the one owned PR, only to rewrite its
   `intent=` field
 
-`gh pr create` and that `gh pr edit` are the only `gh` writes. Every PR lookup
+`gh pr create` and that `gh pr edit` are the publish step's only `gh` writes.
+The run makes two others, and no more:
+
+- **issue filing** — at the plan hop, `/plan` files the PLAN's GitHub issues
+  (and, at `issues-and-milestone`, its milestone) only behind an approval
+  recorded under `plan_filing_approval`: the author's, or under `--auto` a
+  `## Tracking Level: issues|issues-and-milestone` header in CLAUDE.md. The
+  hop's `plan_filing` and `filing_approval` gates route a PLAN that filed
+  without one to `bail`. A child's own push, pull request and upstream-issue
+  edit are skipped under the sentinel.
+- **the coordination PR** — on a run with no intent whose coordination intent
+  resolved on, `gh pr create` opens it up front and an abandonment closes it
+  with `gh pr close` (see Coordination Intent).
+
+Every PR lookup
 goes through the ownership filter in `skills/execute/scripts/owned-pr.sh`
 (same repository, the authenticated author, the default base, the topic
 branch), so a fork's or another author's PR on the same branch name is never

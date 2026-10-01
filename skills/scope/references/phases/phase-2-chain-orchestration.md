@@ -37,7 +37,7 @@ For each child name in `planned_chain:` in order, Phase 2 runs
 eight steps in sequence:
 
 1. **Worktree-staleness check.** Run the three-phase flow
-   (Rebase phase → Impact-analysis phase → Escalation phase)
+   (Merge phase → Impact-analysis phase → Escalation phase)
    from
    `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
 2. **`parent_orchestration:` sentinel write.** Write the block
@@ -80,10 +80,14 @@ flight; cleared the moment the child returns.
 The check runs the three-phase flow defined in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`:
 
-- **Rebase phase.** Execute the equivalent of `git fetch && git
-  rebase origin/<tracking-branch>`. Clean rebase proceeds to
+- **Merge phase.** Catch up by merging, never by rebasing, and
+  never force-push: execute the equivalent of `git fetch && git
+  merge origin/<tracking-branch>`. A gate that asks whether the
+  branch has caught up tests ancestry, `git merge-base
+  --is-ancestor origin/<tracking-branch> HEAD`, never linear
+  history or the absence of merge commits. Clean merge proceeds to
   Impact-analysis with the list of upstream commits that
-  landed. Conflicted rebase invokes the conflict-resolution
+  landed. Conflicted merge invokes the conflict-resolution
   sub-agent (or the parent itself in solo mode), resolving from
   artifact context where the chain's BRIEF / PRD / DESIGN
   citations make the correct resolution obvious; unresolved
@@ -101,7 +105,7 @@ The check runs the three-phase flow defined in
   removed; doc cite no longer supports the chain's claim;
   expected recipe withdrawn).
 - **Escalation phase.** None / Informational proceeds silently;
-  the rebase is recorded in `worktree_rebases:` and Phase 2
+  the merge is recorded in `worktree_rebases:` and Phase 2
   advances to step 2 (sentinel write). Intent-changing is judged
   by the agent running the chain, as close to the change as it
   can be decided. What it can settle itself it reconciles in
@@ -136,7 +140,10 @@ The check runs the three-phase flow defined in
   is the escalation: nothing is answered on the author's
   behalf.
 
-The check's recording fields follow the canonical schema:
+The check's recording fields follow the canonical schema. The
+field `worktree_rebases:` and its `rebased_at` key keep their
+schema names for compatibility with state files already written;
+each entry records a catch-up merge.
 
 ```yaml
 worktree_rebases:
@@ -865,7 +872,7 @@ and route to R8 bail-handling.
   its window and patience budget do not apply to a `/scope` child
   invocation.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
-  — the three-phase Rebase / Impact-analysis / Escalation flow
+  — the three-phase Merge / Impact-analysis / Escalation flow
   the per-child loop runs before each invocation, the
   `worktree_rebases:` and `worktree_divergences:` recording
   schema.

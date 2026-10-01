@@ -106,12 +106,19 @@ output.
 
 ### 3. Decision-bypass-with-inline-resolution
 
-When `/design`'s decision-evaluation sub-flow would normally
-delegate to `/decision` for a contested 3+ alternatives choice, but
-the dispatch context routes the decision back through the parent,
-the design instead resolves the decision inline within its own Phase
-2 evaluation and records the rationale in the Considered Options
-section. The bypass is recorded in the design's frontmatter
+Under the parent sentinel, `/design` routes each Phase 2 question by
+its tier, a condition it can check rather than a judgment about the
+dispatch context:
+
+- a **standard**-tier question (`/decision`'s Tier 3) is resolved
+  inline, within `/design`'s own Phase 2 evaluation, with the
+  rationale in the Considered Options section;
+- a **critical**-tier question (`/decision`'s Tier 4) still goes to
+  `/decision`, under a parent as under a direct run.
+
+Each question's Considered Options entry records its provenance,
+inline or delegated to `/decision`. When any question was resolved
+inline, the design's frontmatter carries
 `decision_provenance: inline-resolved`.
 
 **Bindings:** `/design` Phase 2.

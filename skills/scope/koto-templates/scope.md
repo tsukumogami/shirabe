@@ -891,6 +891,23 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/check-plan-mode.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --intent "{{RUN_INTENT}}" --coordination "{{COORDINATION}}"'
         overridable: false
+      # Filing GitHub issues and a milestone needs an approval on every path.
+      # koto cannot see /plan file them, so the landed edge checks what it left:
+      # plan_filing reads the PLAN's tracking level and, under --auto, the
+      # repository's `## Tracking Level:` header (exit 0 files nothing, 3 files
+      # with filing permitted, 1 files under --auto with no header declaring a
+      # filing level, 2 cannot tell and matches no arm). filing_approval is the
+      # approval the hop recorded before /plan filed: the author's, or under
+      # --auto the CLAUDE.md level that stands in for it. Neither is overridable.
+      plan_filing:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/check-plan-filing.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --exec-mode "{{EXEC_MODE}}"'
+        overridable: false
+      filing_approval:
+        type: context-matches
+        key: plan_filing_approval
+        pattern: '^approved: (author|tracking-level (issues|issues-and-milestone))$'
+        overridable: false
     accepts:
       outcome:
         type: enum
@@ -905,6 +922,31 @@ states:
           outcome: landed
           gates.plan_complete.exit_code: 0
           gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 0
+      - target: fold
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 3
+          gates.filing_approval.matches: true
+      - target: bail
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 3
+          gates.filing_approval.matches: false
+        context_assignments:
+          failure_reason: "hop_plan: the PLAN files GitHub issues but no filing approval was recorded under plan_filing_approval"
+      - target: bail
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 1
+        context_assignments:
+          failure_reason: "hop_plan: the PLAN files GitHub issues under --auto, but CLAUDE.md declares no filing tracking level (plan_filing exit 1)"
       - target: bail
         when:
           outcome: landed
@@ -2358,6 +2400,22 @@ commit claiming the hop landed. Stage the PLAN's canonical path and the DESIGN
 it sits) with `git add --`, and name the hop.
 
 <!-- details -->
+
+**Filing needs a recorded approval.** If `/plan` is going to file GitHub issues
+or a milestone (its tracking level is `issues` or `issues-and-milestone`), record
+the approval before it files, as one line under the `plan_filing_approval` key:
+
+```bash
+printf 'approved: author\n' | koto context add scope-{{TOPIC}} plan_filing_approval
+```
+
+Interactively that is the author's answer to `/plan`'s filing question, and on
+"don't file" record nothing and let `/plan` write outlines. Under `--auto` there
+is nobody to ask: file only when the repository's CLAUDE.md declares
+`## Tracking Level: issues` or `issues-and-milestone`, and record
+`approved: tracking-level <that level>`; with no such header `/plan` files
+nothing and writes outlines. The `plan_filing` and `filing_approval` gates on the
+landed edge check this, and a PLAN that filed without it routes to `bail`.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
