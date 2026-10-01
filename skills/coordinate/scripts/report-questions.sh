@@ -8,7 +8,7 @@
 #
 # Reads only engine-written or gated values: the report text (the context key
 # worker_report, gated at take_report), how it arrived (report_source, written
-# on both edges into take_report), and report_facts' sealed REPORT capture,
+# on the edges into take_report), and report_facts' sealed REPORT capture,
 # which says whether the report has a holding (`holding <pr|none> <topic>`,
 # or `progress <pr|none> <topic>` for a checkpoint report) or
 # not (`unknown <topic>`, `refused <topic> <why>`) and names its topic. With a

@@ -1001,7 +1001,10 @@ states:
           gates.report_questions_verdict.exit_code: 171  # overflow
           gates.report_holding.exit_code: 62
       # A checkpoint report's questions in the wrong shape: no re-brief, which
-      # would move a leg-bound worker off its leg; ask it again by message.
+      # would move a leg-bound worker off its leg. The coordinator asks the
+      # worker again by message, by hand (the wait directive says so). A
+      # progress report whose pull request was refused reads 62 here and
+      # takes the re-brief arm, as any refused report does.
       - target: wait
         when:
           gates.report_questions_verdict.exit_code: 171  # overflow
@@ -2449,6 +2452,10 @@ need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `retire` to finish with a worker; `end` when the
 rotation or the scope ends.
 
+Arriving here from `report_questions` with a checkpoint report whose questions
+were over the bound (`overflow`), message the worker to send them again in its
+brief's `Questions:` shape; nothing else asks it to.
+
 Arriving here straight after `surface` with a blocker means `surface_check`
 accepted the need (its worded cell is in `coord/need.json`): before anything
 else, report it up with the progress table and `--blocked <session>=<the
@@ -2579,7 +2586,8 @@ checkpoint report (`progress`) that is a message to the worker from `wait`,
 never a re-brief. A
 report that can't be read, or an escalation that doesn't hash to its digest,
 goes to the human. With no questions the report goes on to classification when
-it has a holding, and back to `wait` when it doesn't.
+it has a holding, and back to `wait` when it doesn't or when it is a
+checkpoint report.
 
 ## decision_next
 
