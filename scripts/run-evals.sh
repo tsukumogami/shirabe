@@ -666,7 +666,12 @@ setup_tier2_isolation() {
     git config user.name "Shirabe Eval Harness"
     git checkout --quiet -b main
     git commit --quiet --allow-empty -m "init"
-    git push --quiet --set-upstream origin main >/dev/null 2>&1
+    git push --quiet --set-upstream origin main >/dev/null 2>&1 || exit 1
+    # The bare origin's HEAD names main, and the clone knows it: node-cut.sh
+    # cuts from the default branch it reads there, whatever init.defaultBranch
+    # this host has.
+    git --git-dir="$iso_root/second-origin.git" symbolic-ref HEAD refs/heads/main || exit 1
+    git remote set-head origin main >/dev/null 2>&1 || exit 1
   ) || return 1
 
   TIER2_CHECKOUT="$checkout"

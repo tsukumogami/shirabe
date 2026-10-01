@@ -142,9 +142,10 @@
 #       couldn't read; nothing was pushed or edited (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
 #       PR's, but this worktree shares the coordination checkout's git
-#       directory or pushes to its origin URL (a node cut without
-#       node-cut.sh --repo-dir), or those could not be read; nothing was
-#       pushed or edited (execute:dispatch)
+#       directory (a node cut without node-cut.sh --repo-dir) or pushes to
+#       the same repository as its origin (a clone of the coordination PR's
+#       repository; URLs compared by host and path), or either git directory
+#       could not be read; nothing was pushed or edited (execute:dispatch)
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -293,7 +294,8 @@ if [ "$MODE" != order ]; then
         HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
         NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
         HOME_URL=$(cd "$PLAN_DIR" && git config --get remote.origin.url) || HOME_URL=""
-        NODE_URL=$(git config --get "remote.$REMOTE.url") || NODE_URL=""
+        # Where the push goes, pushurl and pushInsteadOf applied.
+        NODE_URL=$(git remote get-url --push "$REMOTE" 2>/dev/null) || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
             echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
             exit 79
@@ -302,7 +304,7 @@ if [ "$MODE" != order ]; then
         NODE_URL=$(coord_url_key "$NODE_URL")
         if [ "$HOME_GIT" = "$NODE_GIT" ] || { [ -n "$HOME_URL" ] && [ "$HOME_URL" = "$NODE_URL" ]; }; then
             # Named by node id only: either repository may be private.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed; the node's commits stay on its branch in this worktree, to cherry-pick onto the re-cut branch before removing this one" >&2
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree and its local branch (git worktree remove, git branch -D) from the coordination checkout" >&2
             exit 79
         fi
     fi

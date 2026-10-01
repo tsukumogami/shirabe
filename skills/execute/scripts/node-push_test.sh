@@ -66,8 +66,8 @@
 #     a clone whose origin spells the home's URL another way (ssh, https,
 #     case, .git, a trailing slash)              exit 79
 #     a --plan outside any git repository        exit 79, nothing pushed
-#   coord_url_key                                one key per repository
 #     the node's own clone (control)             pushed
+#   coord_url_key                                one key per repository
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
 # Usage: node-push_test.sh
