@@ -115,6 +115,9 @@ execution waits on another feature landing (`scoping-ahead`), executing it, or
 holding a verified pull request whose merge the human directed held although the
 workspace permits it (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
+A Holdings row outlives its pull request's merge: a confirmed merge blanks
+its Pull request cell and keeps its Verified head, and the row goes when the
+worker is torn down.
 
 A deferral is disposed of when its Disposition reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the

@@ -34,6 +34,11 @@ printf '%s\n' "$OUT" | grep -qF '| blocked | credential: NPM_TOKEN |' \
     && ok "a blocked row says what it needs" || bad "a blocked row says what it needs" "$OUT"
 printf '%s\n' "$OUT" | grep -qF '| `plugin-docs` | [#15](https://github.com/acme/widgets/pull/15) | scoping ahead |' \
     && ok "an ongoing row carries its link and status" || bad "an ongoing row carries its link and status" "$OUT"
+# A merged row waiting for teardown: ongoing, merged, its worker torn down next.
+jq '.holdings += [{worker: "plugin-done", unit: "Feature 8: Hooks", phase: "executing", dispatch_status: "dispatched", parked: false, merged: true, pull_request: ""}]' "$F" > "$T/pick-merged.json"
+MOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-merged.json" 2> "$T/err")
+printf '%s\n' "$MOUT" | grep -qF '| Ongoing | Feature 8: Hooks | `plugin-done` | none yet | merged | tear down its worker |' \
+    && ok "a merged row reads merged, its worker to tear down" || bad "a merged row reads merged, its worker to tear down" "$MOUT $(cat "$T/err")"
 [ "$(col "$OUT" 2)" = "Feature 4: Plugin sandbox,Feature 1: Plugin manifest,Feature 6: CLI,Feature 7: Guides,Feature 3: Plugin registry,Feature 2: Plugin loader," ] \
     && ok "the queue is unblocked first, then blocked, and done or held units are left out" || bad "the queue order" "$(col "$OUT" 2)"
 printf '%s\n' "$OUT" | grep -qF '| Waiting to be assigned | Feature 2: Plugin loader | N/A | N/A | waits on feature 1 | assigned as the cap frees, 2 of 2 in line |' \

@@ -29,6 +29,13 @@
 #                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
+#   not-run <pr> none            a job at the head never ran (it completed
+#                                red with no step: GitHub refused to start
+#                                it, as for an account billing block), and
+#                                nothing else failed or still runs: no
+#                                verdict on the
+#                                code, and not the worker's to fix; the
+#                                reasons in coord/board.json say why
 #   board-unreadable <pr> none   the board or the record couldn't be read, or
 #                                the read ran out of time: no verdict on the
 #                                code
@@ -145,7 +152,7 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending|actions-green) TOKEN="$V $PR none" ;;
+        unverified|pending|actions-green|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
         error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;

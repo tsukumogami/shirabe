@@ -87,7 +87,16 @@ eq "Done and Dropped read done" "true true false" "$(facts | jq -r '[.units[0].d
 eq "each unit carries the holding that covers it" '{"worker":"alpha","phase":"executing"}|{"worker":"gamma","phase":"scoping-ahead"}|{"worker":"beta","phase":"executing"}|null' \
     "$(facts | jq -c -r '[.units[1].holding, .units[2].holding, .units[3].holding, .units[0].holding] | map(tojson) | join("|")')"
 eq "the holdings list which is parked" "alpha:false beta:false gamma:true" "$(facts | jq -r '[.holdings[] | "\(.worker):\(.parked)"] | join(" ")')"
+eq "no holding is merged" "alpha:false beta:false gamma:false" "$(facts | jq -r '[.holdings[] | "\(.worker):\(.merged)"] | join(" ")')"
 grep -q "contents/$RP?ref=main" "$GH_DB.calls" && ok "the roadmap is read from the default branch" || bad "the roadmap is read from the default branch" "$(calls)"
+# A confirmed merge clears a row's Pull request cell and keeps its Verified
+# head until teardown: the row is merged and holds no slot under the cap.
+X_M=$(jq -nc --arg h "$SHA_HEAD" '{unit: "Feature 2", pull_request: "", verified_head: $h}')
+seed "$(record_json roadmap plugin-system | jq -c --argjson m "$(holding alpha "$X_M")" --argjson b "$(holding beta '{"unit": "Feature 4", "pull_request": ""}')" '.holdings = [$m, $b]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "a merged row reads merged, neither active nor parked" "alpha:true:false 1 0" "$(facts | jq -r '([.holdings[] | select(.worker == "alpha") | "\(.worker):\(.merged):\(.parked)"] | join(" ")) + " \(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "it only reads" "$(calls)" || ok "it only reads"
 
 echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="

@@ -161,8 +161,10 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
       ($h[] | select((.parked != true) and (.worker as $w | $bk | index($w) == null)) | .worker as $w
         | row("Ongoing"; .unit; code($w); (.pull_request | link($w));
               ({"dispatching": "dispatching", "dispatch-failed": "dispatch failed"}[.dispatch_status]
+               // (if .merged == true then "merged" else null end)
                // {"scoping-ahead": "scoping ahead", "executing": "executing", "held": "held"}[.phase] // (.phase // "N/A"));
               ($next[$w] // (if .dispatch_status == "dispatch-failed" then "redispatch or escalate"
+                             elif .merged == true then "tear down its worker"
                              elif .phase == "scoping-ahead" then "its execution is sent when its blocker lands"
                              else "report at its next checkpoint" end)))),
       # Decisions nobody but a coordinator is asked: the reader is asked nothing.
