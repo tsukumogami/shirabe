@@ -183,8 +183,8 @@ HEAD=$(git rev-parse --verify -q "HEAD^{commit}") \
 # A missing key reads as empty. `koto context exists` exits 1, silently, for an
 # absent key.
 ctx_get() {
-    if koto context exists "$SESSION" "$1" 2>/dev/null; then
-        koto context get "$SESSION" "$1" 2>/dev/null
+    if koto context exists "$SESSION" "$1"; then
+        koto context get "$SESSION" "$1"
     fi
 }
 
@@ -197,9 +197,9 @@ if [ "$MODE" = "--carried" ]; then
     [ -n "$scope" ] || refuse 1 "no ${PANEL}_scope.json for this round"
     printf '%s' "$scope" | jq -e --arg head "$HEAD" '
         .head == $head and (.decisions | length > 0)
-        and all(.decisions[]; .decision == "keep")' >/dev/null 2>&1 \
+        and all(.decisions[]; .decision == "keep")' >/dev/null \
         || refuse 1 "${PANEL}_scope.json does not keep every seat at HEAD"
-    koto context exists "$SESSION" "${PANEL}_results.json" 2>/dev/null \
+    koto context exists "$SESSION" "${PANEL}_results.json" \
         || refuse 1 "every seat is kept but ${PANEL}_results.json is absent"
     exit 0
 fi
@@ -228,7 +228,7 @@ if [ "$MODE" = "--recorded" ]; then
     stale=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" '
         [$s.decisions[] | select(.decision != "keep") | .seat
          | select(($l.seats[$panel + "/" + .] // null) as $e
-                  | $e != null and (($e.rev // -1) <= ($s.rev // -1)))] | join(" ")' 2>/dev/null) \
+                  | $e != null and (($e.rev // -1) <= ($s.rev // -1)))] | join(" ")') \
         || refuse 1 "could not read ${PANEL}_scope.json or $LEDGER"
     [ -z "$stale" ] || refuse 1 "no verdict recorded this round for: $stale (run panel-scope.sh --record $PANEL)"
     exit 0
@@ -240,7 +240,7 @@ trap 'rm -rf "$WORK"' EXIT
 AC_SHA=$( { ctx_get context.md; printf '\n--- plan ---\n'; ctx_get plan.md; } | git hash-object --stdin)
 
 LEDGER_JSON=$(ctx_get "$LEDGER")
-if [ -z "$LEDGER_JSON" ] || ! printf '%s' "$LEDGER_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+if [ -z "$LEDGER_JSON" ] || ! printf '%s' "$LEDGER_JSON" | jq -e 'type == "object"' >/dev/null; then
     [ -n "$LEDGER_JSON" ] && echo "panel-scope: $LEDGER is unreadable; starting a new ledger" >&2
     LEDGER_JSON='{"rev": 0, "seats": {}, "history": []}'
 fi
@@ -258,13 +258,13 @@ if [ "$MODE" = "--record" ]; then
     # The seats judged the commit the scope was planned at. If HEAD has moved
     # since, stamping their verdicts with it would vouch for a commit none of
     # them saw. No scope (the --plan fallback path) has nothing to compare.
-    scope_head=$(ctx_get "${PANEL}_scope.json" | jq -r '.head // empty' 2>/dev/null)
+    scope_head=$(ctx_get "${PANEL}_scope.json" | jq -r '.head // empty')
     [ -z "$scope_head" ] || [ "$scope_head" = "$HEAD" ] \
         || die 68 "HEAD moved since ${PANEL}_scope.json was planned at $scope_head; tick koto without evidence to re-plan, then run the round again"
     [ -n "$ROUND_FILE" ] || die 67 "missing round file for --record"
     [ -f "$ROUND_FILE" ] || die 65 "round file [$ROUND_FILE] not found"
     jq -e 'type == "array" and length > 0 and all(.[]; (.seat | type) == "string")' \
-        "$ROUND_FILE" >/dev/null 2>&1 \
+        "$ROUND_FILE" >/dev/null \
         || die 65 "round file [$ROUND_FILE] is not a JSON array of seats"
     for s in $(jq -r '.[].seat' "$ROUND_FILE"); do
         case " $SEATS " in
