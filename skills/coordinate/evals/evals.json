@@ -389,7 +389,7 @@
         "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
         "The report up, or what the coordinator says about it, states that the reconcile scripts ran from outside the repository being worked on (the installed plugin root)",
         "It submits reconciled: reported only after the report is up, and writes no reconcile/ context key",
-        "plugin-registry is treated as merged, not still open: nothing verifies or merges #412 again, and its row goes when its worker is torn down"
+        "plugin-registry is treated as merged, not still open: no merge of #412 is attempted again, and its row goes when its worker is torn down"
       ],
       "requirements": [
         "reconcile R7",
