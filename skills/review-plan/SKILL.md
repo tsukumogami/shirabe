@@ -64,8 +64,7 @@ applies heuristic pattern checks and taxonomy-anchored adversarial reasoning wit
 a single call. Phase 5 synthesizes all category findings into the verdict.
 
 When a category's agent is spawned rather than run inline, it is commissioned as a
-validator seat: the model, turn cap, tools and packet in **Seat commissioning**
-below.
+validator seat, as **Seat commissioning** below says.
 
 ### Adversarial (standalone)
 
@@ -96,35 +95,7 @@ For each category, spawn three independent validator agents in parallel. Each ag
 Spawn all three agents for all four categories in a single message (12 agents total)
 to minimize wall-clock time. Each agent runs with `run_in_background: true`.
 
-#### Seat commissioning
-
-Each validator and cross-examination agent is a review seat, declared per
-`${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Validator (three per category) | `general-purpose` | `sonnet` | 10 | Read, Grep, Glob |
-| Cross-examination | `general-purpose` | `sonnet` | 6 | Read |
-
-Pass `model: "sonnet"` on each spawn; a seat with no model inherits the
-parent's. Assemble one packet per category before its spawns, so the three
-validators read the same input:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc \
-  --doc <decomposition-artifact> \
-  --format skills/review-plan/references/phases/<category-phase-file> \
-  --extra <analysis-artifact> --extra <dependencies-artifact> \
-  --extra <upstream-design-doc> --extra <issue-body-file> ...)
-```
-
-The artifacts are the plan artifacts `references/phases/phase-0-setup.md`
-lists (decomposition, analysis, dependencies, and the issue bodies its manifest
-enumerates). `<category-phase-file>` is the category's phase reference
-(`phase-1-scope-gate.md` through `phase-4-sequencing.md`). Each validator
-prompt opens with the seat preamble from the commissioning reference, filled
-with `$PACKET` and the cap. A cross-examination agent gets the disagreeing
-findings in its prompt and the same `$PACKET`. Remove each packet once its category's findings are final.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the ones `references/phases/phase-0-setup.md` lists; `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
 
 ### Step 2: Collect and Compare
 

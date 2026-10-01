@@ -13,9 +13,7 @@ on:
       # A relative --format resolves against the plugin root, and the suite
       # reads a shipped format reference to prove it.
       - 'skills/brief/references/brief-format.md'
-      # The registry cases read the commissioning reference and every spawn
-      # site it names.
-      - 'references/review-seat-commissioning.md'
+      # The spawn-site cases read every review spawn site.
       - 'skills/*/references/phases/*.md'
       - 'skills/review-plan/SKILL.md'
       - '.github/workflows/check-review-packet.yml'

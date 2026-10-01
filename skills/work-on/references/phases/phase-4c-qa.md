@@ -4,21 +4,7 @@ Run QA validation after code review passes. The tester agent validates that the 
 
 ## Tester Agent
 
-### Seat commissioning
-
-Declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Tester | `general-purpose` | `sonnet` | 30 | Read, Grep, Glob, Bash |
-
-Pass `model: "sonnet"` on the spawn. The tester is the one code seat that executes what it reviews, so Bash runs the implementation as well as git, and its cap is the largest. Before spawning, assemble the packet:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)
-```
-
-(`--criteria <file>` in place of `--issue` for a PLAN-outline child.) The prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap. Remove `$PACKET` after aggregation, with the detail file.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
 
 Spawn the tester agent using the Task tool. The tester:
 1. Reads the implementation's acceptance criteria from the packet

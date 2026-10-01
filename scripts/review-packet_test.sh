@@ -14,8 +14,8 @@
 # prints a canned issue body, so every case runs on a bare runner. The cases
 # pin the packet's sections, the base order (impl_base, then the merge-base),
 # the caps and their trailers, and that a failure leaves no packet behind.
-# The registry cases then check every spawn site that
-# references/review-seat-commissioning.md names still declares its seats.
+# The spawn-site cases then check that every review spawn site still names
+# a model, a call budget and the packet command.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -272,52 +272,60 @@ else
 fi
 [ "$CODE" -eq 0 ] && rm -f "$OUT"
 
-# ----------------------------------------------------------- registry --------
+# --------------------------------------------------------- spawn sites -------
 #
-# Every spawn site the commissioning reference's registry names carries a
-# commissioning block that names a model and a turn cap, and every model the
-# registry declares is one the reference allows without a written reason. This
-# is what keeps a spawn site from losing its declaration in a later edit.
+# Every review spawn site carries a Seat commissioning line that names a model
+# for each seat, a call budget, and the packet command. SITES is the list of
+# those sites; a file under skills/ that gains a commissioning line without
+# being added here fails, and so does a listed site that loses its line.
+# ALLOWED_MODELS is the models a seat may name without a written exception
+# (references/review-seat-commissioning.md, "Why a model is named").
 
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-REGISTRY="$REPO_ROOT/references/review-seat-commissioning.md"
-ROWS="$ROOT/registry"
-# Registry rows: | skill | `site` | seats | model | cap | tools | packet |
-awk -F'|' '
-    /^## Registry/ { on = 1; next }
-    /^## / { on = 0 }
-    on && /^\| [a-z-]+ \| `/ {
-        gsub(/[ `]/, "", $2); gsub(/[ `]/, "", $3); gsub(/ /, "", $5); gsub(/ /, "", $6)
-        print $2 "\t" $3 "\t" $5 "\t" $6
-    }
-' "$REGISTRY" > "$ROWS"
-ROW_COUNT=$(wc -l < "$ROWS" | tr -d '[:space:]')
-[ "$ROW_COUNT" -ge 15 ] && pass "registry: $ROW_COUNT seat rows read" || fail "registry: only $ROW_COUNT rows read"
+ALLOWED_MODELS="sonnet haiku"
+SITES="
+skills/work-on/references/phases/phase-4a-scrutiny.md
+skills/work-on/references/phases/phase-4b-review.md
+skills/work-on/references/phases/phase-4c-qa.md
+skills/work-on/references/phases/phase-4-implementation.md
+skills/brief/references/phases/phase-4-validate.md
+skills/prd/references/phases/phase-4-validate.md
+skills/design/references/phases/phase-5-security.md
+skills/design/references/phases/phase-6-final-review.md
+skills/vision/references/phases/phase-4-validate.md
+skills/strategy/references/phases/phase-4-validate.md
+skills/roadmap/references/phases/phase-4-validate.md
+skills/comp/references/phases/phase-4-validate.md
+skills/review-plan/SKILL.md
+"
 
-while IFS="	" read -r skill site model cap; do
-    case "$site" in
-        SKILL.md) file="$REPO_ROOT/skills/$skill/SKILL.md" ;;
-        *)        file="$REPO_ROOT/skills/$skill/references/$site" ;;
-    esac
-    label="registry: $skill $site"
-    if [ ! -f "$file" ]; then
-        fail "$label: spawn site does not exist"
+for site in $SITES; do
+    file="$REPO_ROOT/$site"
+    line=$(grep '^\*\*Seat commissioning\*\*' "$file" 2>/dev/null)
+    if [ -z "$line" ]; then
+        fail "spawn site $site: no Seat commissioning line"
         continue
     fi
-    case "$model" in
-        sonnet|haiku) ;;
-        *) fail "$label: model [$model] needs a written reason, not a registry default" ;;
-    esac
-    grep -q 'Seat commissioning' "$file" \
-        || fail "$label: no Seat commissioning block"
-    grep -q 'references/review-seat-commissioning.md' "$file" \
-        || fail "$label: does not cite the commissioning reference"
-    grep -q "| \`$model\` | $cap |" "$file" \
-        || fail "$label: no seat row declaring model $model with turn cap $cap"
-    grep -q 'scripts/review-packet.sh' "$file" \
-        || fail "$label: does not assemble its packet with review-packet.sh"
-done < "$ROWS"
-pass "registry: every spawn site checked"
+    models=$(printf '%s\n' "$line" | grep -o 'model: "[a-z0-9.-]*"' | sed 's/model: "\(.*\)"/\1/')
+    [ -n "$models" ] || fail "spawn site $site: names no model"
+    for m in $models; do
+        case " $ALLOWED_MODELS " in
+            *" $m "*) ;;
+            *) fail "spawn site $site: model [$m] is not in ALLOWED_MODELS" ;;
+        esac
+    done
+    printf '%s\n' "$line" | grep -q '[0-9][0-9]*-call budget' \
+        || fail "spawn site $site: names no call budget"
+    printf '%s\n' "$line" | grep -q 'scripts/review-packet.sh' \
+        || fail "spawn site $site: does not give the packet command"
+done
+pass "spawn sites: every listed site checked"
+
+# grep -vxF rather than a case inside $(...): bash 3.2 misparses the latter.
+unlisted=$(cd "$REPO_ROOT" && grep -rl '^\*\*Seat commissioning\*\*' skills \
+    | grep -vxF "$(printf '%s\n' $SITES)")
+[ -z "$unlisted" ] && pass "spawn sites: no commissioning line outside SITES" \
+    || fail "spawn sites: commissioning line in a file not in SITES: $unlisted"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

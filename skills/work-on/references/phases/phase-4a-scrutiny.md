@@ -4,21 +4,7 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
-### Seat commissioning
-
-Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Completeness, Justification, Intent | `general-purpose` | `sonnet` | 15 | Read, Grep, Glob, Bash |
-
-Pass `model: "sonnet"` on each spawn; a seat with no model inherits the parent's. Bash is for read-only git and the `mktemp` detail file. Before spawning, assemble the round's packet once:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>)
-```
-
-A plan-backed child whose criteria come from the PLAN outline passes `--criteria <file>` with the outline's acceptance criteria instead of `--issue`. A free-form run has no issue either: it writes the task description to a `mktemp` file and passes that as `--criteria`. The same substitutions apply in `phase-4b-review.md`, `phase-4c-qa.md` and the implementation agent review. If the script exits 64, no base resolved: record `impl_base` as `analysis`'s fallback says (the parent of this run's first commit) and run it again. Don't spawn a seat without a packet; a seat with nothing to read is the unbounded exploration the packet exists to prevent. Every prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap; don't paste the diff or the issue into the prompt. Remove `$PACKET` after aggregation, with the detail files.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
 
 Spawn all three simultaneously using the Task tool:
 

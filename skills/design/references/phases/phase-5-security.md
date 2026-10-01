@@ -27,22 +27,7 @@ recommended outcome. Skip to Phase 6.
 
 ### 5.1 Launch Security Researcher
 
-#### Seat commissioning
-
-Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Security Researcher | `general-purpose` | `sonnet` | 12 | Read, Grep, Glob, Write |
-
-Pass the model on each spawn (`model: "sonnet"`); a seat with no model inherits the parent's. Before spawning, assemble the packet once for every seat:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md \
-  --format skills/design/references/design-format.md)
-```
-
-The `[Full design doc content ...]` section of the prompt below is the packet: name `$PACKET` in its place, and open the prompt with the seat preamble from the commissioning reference, filled with `$PACKET` and the cap. Grep and Glob are for checking the design's claims against the repository it changes. Remove `$PACKET` once the verdicts are aggregated.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
 Launch a dedicated security agent using the Agent tool with `run_in_background: true`.
 

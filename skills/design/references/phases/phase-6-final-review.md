@@ -20,23 +20,7 @@ If the design doc has YAML frontmatter with status "Proposed", skip to step 6.5
 
 ### 6.1 Launch Review Agents
 
-#### Seat commissioning
-
-Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Architecture, Security | `general-purpose` | `sonnet` | 8 | Read, Write |
-| Structural Format | `general-purpose` | `haiku` | 6 | Read, Write |
-
-Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. Before spawning, assemble the packet once for every seat:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md \
-  --format skills/design/references/design-format.md)
-```
-
-Each prompt opens with the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap, and names `$PACKET` wherever it says to include the document or its sections, rather than pasting the text. Remove `$PACKET` once the verdicts are aggregated.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
 Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
 

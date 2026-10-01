@@ -60,23 +60,7 @@ draft path to Read, and the exact verdict path to Write.
 
 ## 4.1 Spawn Jury Agents
 
-### Seat commissioning
-
-Each seat is declared per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`:
-
-| Seat | Subagent type | Model | Turn cap | Tools |
-|---|---|---|---|---|
-| Competitive Framing, Content Quality | `general-purpose` | `sonnet` | 8 | Read, Write |
-| Structural Format | `general-purpose` | `haiku` | 6 | Read, Write |
-
-Pass the model on each spawn (`model: "sonnet"`, `model: "haiku"`); a seat with no model inherits the parent's. The structural-format seat runs on Haiku because its criteria are a closed checklist against the format reference. Before spawning, assemble the packet once for every seat:
-
-```bash
-PACKET=$("${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/competitive/COMP-<topic>.md \
-  --format skills/comp/references/comp-format.md)
-```
-
-Give each reviewer `$PACKET` in place of the COMP draft path; the preamble above still applies to the packet's content. After the preamble, add the seat preamble from the commissioning reference, filled with `$PACKET` and the seat's cap. Remove `$PACKET` once the verdicts are aggregated.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Competitive Framing and Content Quality run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/competitive/COMP-<topic>.md --format skills/comp/references/comp-format.md`.
 
 Spawn all three reviewers in parallel, each with the preamble, its
 rubric, the COMP path, and its pinned verdict path. The three rubrics —
