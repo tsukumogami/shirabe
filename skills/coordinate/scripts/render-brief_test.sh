@@ -115,6 +115,12 @@ questions_contract "channel" "$B"
 has "standing rule 1 verbatim"   "$B" "Enter a worktree before the first koto init of any run."
 has "standing rule 2 verbatim"   "$B" "Keep test runs targeted."
 has "keep-alive note"            "$B" "The workspace manager schedules your keep-alive at dispatch. Don't schedule one."
+# Workspace rules can name another session for direction; the brief's own
+# Reporting section says it wins, inside that section, before the rules.
+PREC='This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `coord-alpha` as this section says.'
+has "precedence: the Reporting section wins over the workspace rules" "$B" "$PREC"
+eq  "precedence: it sits in the Reporting section" "## Reporting" \
+    "$(printf '%s\n' "$B" | awk -v p="$PREC" '/^## / { s = $0 } $0 == p { print s; exit }')"
 lacks "no temporary file left"   "$(ls -A "$BRIEFS")" ".plugin-api."
 
 # --- optional fields absent -----------------------------------------------------------
@@ -123,6 +129,7 @@ MIN=$(variant min 'del(.decisions, .read_first, .out_of_scope, .surfaces, .stand
 M=$(bash "$S" --input "$MIN" --stdout)
 has "min: no decisions line"      "$M" "None beyond what the documents you read record."
 has "min: no pointers line"       "$M" "Nothing beyond the entry point's own inputs."
+lacks "min: no precedence line without workspace rules" "$M" "This section wins over the Workspace rules"
 has "min: no surfaces"            "$M" "no discipline coordinator is named for any surface"
 lacks "min: no workspace rules"   "$M" "## Workspace rules"
 has "min: scoping ahead"          "$M" "You are scoping ahead"
@@ -284,6 +291,42 @@ bash "$S" --input "$T/missing.json" >/dev/null 2>&1; eq "usage: unreadable input
 printf '[1]' >"$T/array.json"
 bash "$S" --input "$T/array.json" >/dev/null 2>&1; eq "usage: non-object input is exit 2" 2 "$?"
 mkdir -p "$T/nowhere"
+# --units: the unit must be a form pick reads as covering a unit it listed,
+# or the holding written with it is invisible to pick.
+PICK="$T/pick.json"
+printf '%s' '{"scope":"roadmap","name":"plugin-system","units":[{"unit":"Feature 1","number":1,"title":"the manifest"},{"unit":"Feature 2","number":2,"title":"the plugin API"}]}' >"$PICK"
+units_refused() { # units_refused <label> <input> <want>
+    local err rc
+    err=$(cd "$W/inst" && bash "$S" --input "$2" --units "$PICK" 2>&1 >/dev/null)
+    rc=$?
+    eq "$1: exit 1" 1 "$rc"
+    has "$1: names the forms that would match" "$err" "$3"
+    if [ -e "$BRIEFS" ]; then bad "$1: nothing written" "$(ls -A "$BRIEFS")"; else ok "$1: nothing written"; fi
+}
+units_refused "units: the old template example" "$(variant old-example '.unit = "Feature 2 of ROADMAP-plugin-system"')" \
+    'unit: [Feature 2 of ROADMAP-plugin-system] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; use one of: "Feature 1", "Feature 1: the manifest", "Feature 2", "Feature 2: the plugin API"'
+units_refused "units: a feature not on the roadmap" "$(variant f9 '.unit = "Feature 9"')" '"Feature 2: the plugin API"'
+units_refused "units: a title in another case" "$(variant case '.unit = "Feature 2: The Plugin API"')" '"Feature 2"'
+units_refused "units: a unit over two lines" "$(variant two-lines '.unit = "Feature 2\nFeature 1"')" '"Feature 2"'
+bash "$S" --input "$(variant tag '.unit = "Feature 2"')" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: the bare tag is taken" 0 "$?"
+bash "$S" --input "$BASE" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: <tag>: <title> is taken" 0 "$?"
+bash "$S" --input "$(variant tag2 '.unit = "Feature 2 of ROADMAP-plugin-system"')" --units "" --stdout >/dev/null 2>&1
+eq "units: an empty --units (a resumed dispatch) checks no unit" 0 "$?"
+jq -c '.units = [range(1; 9) as $n | {unit: "Feature \($n)", number: $n, title: "t\($n)"}]' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
+units_refused "units: a long list is cut and says so" "$(variant f20 '.unit = "Feature 20"')" '"Feature 6: t6", and 4 more in coord/pick.json'
+jq -c '.units = []' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
+units_refused "units: pick listed none" "$(variant none '.unit = "Feature 2"')" 'pick listed no units, so none can be dispatched'
+# Discipline scope: an issue as #n, or as host#n with the host pick recorded.
+printf '%s' '{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}' >"$PICK"
+bash "$S" --input "$(variant issue '.unit = "#12"')" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: an issue as #n is taken" 0 "$?"
+bash "$S" --input "$(variant issue2 '.unit = "acme/widgets#12"')" --units "$PICK" --stdout >/dev/null 2>&1
+eq "units: an issue as host#n is taken" 0 "$?"
+units_refused "units: an issue pick didn't list" "$(variant issue4 '.unit = "#13"')" '"#12", "acme/widgets#12"'
+units_refused "units: another repository's #n" "$(variant issue5 '.unit = "acme/gadgets#12"')" '"#12", "acme/widgets#12"'
+printf 'not json' >"$PICK"
+bash "$S" --input "$BASE" --units "$PICK" --stdout >/dev/null 2>&1; eq "units: a file that isn't pick_facts' JSON is exit 2" 2 "$?"
+bash "$S" --input "$BASE" --units "$T/absent.json" --stdout >/dev/null 2>&1; eq "units: an unreadable file is exit 2" 2 "$?"
+
 (cd "$T/nowhere" && bash "$S" --input "$BASE" >/dev/null 2>&1); eq "no workspace root is exit 2" 2 "$?"
 bash "$S" --input "$BASE" --workspace-root "$T/nowhere" >/dev/null 2>&1; eq "a root without workspace.toml is exit 2" 2 "$?"
 

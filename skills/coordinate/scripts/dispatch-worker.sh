@@ -22,6 +22,15 @@
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
 #                      equal dispatch_topic, or report_topic under --rebrief
 #   report_topic       --rebrief only: the worker whose report needs a fix
+#   coord/pick.json    the units pick_facts listed; the brief input's unit
+#                      must be a form pick reads as covering one of them
+#                      (dispatch-common.sh dc_unit_forms: a feature's tag or
+#                      `<tag>: <title>`, an issue's `#<n>` or
+#                      `<host>#<n>`), else exit 1 at step 3, before anything
+#                      is written, naming the forms that would match. Read
+#                      only for a new dispatch: a resumed one's holding
+#                      already records its unit, and --rebrief writes no
+#                      holding
 #
 # The run, in order, under a per-topic lock:
 #
@@ -305,10 +314,22 @@ else
     RETURN_PATH=""
 fi
 
+# The unit becomes the holding's Unit cell, and pick finds a unit's holding
+# only by the forms pick-facts.sh reads, so render-brief.sh --units refuses
+# any other form against the units pick_facts listed in this pass
+# (coord/pick.json, which only pick-facts.sh writes, as pick_facts' action).
+# A new dispatch with no coord/pick.json exits 2. A resumed dispatch's
+# holding already records its unit, so it isn't checked again.
+UNITS_FILE=""
+if [ "$STATUS" != dispatching ]; then
+    UNITS_FILE="$WORK/pick.json"
+    ctx coord/pick.json >"$UNITS_FILE" || die 2 "cannot read coord/pick.json, the units pick_facts listed"
+fi
+
 # Check the brief before anything else happens: a refused input opens no leg
 # and writes nothing. It's rendered for real once the return path is known,
 # so the brief shows the same invocation the prompt carries.
-bash "$HERE/render-brief.sh" --input "$INPUT" --stdout >/dev/null
+bash "$HERE/render-brief.sh" --input "$INPUT" --units "$UNITS_FILE" --stdout >/dev/null
 case "$?" in
     0) ;;
     1) exit 1 ;;
@@ -377,7 +398,7 @@ EOF
 fi
 
 # The brief, the worker's invocation and the prompt, all from the one builder.
-BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
+BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --units "$UNITS_FILE" --workspace-root "$ROOT" --return-path "$RETURN_PATH" --targets-checked)
 case "$?" in
     0) ;;
     1) exit 1 ;;

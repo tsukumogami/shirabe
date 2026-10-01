@@ -23,7 +23,7 @@ script's header lists every field and its rule; this is the shape:
 {
   "topic": "plugin-loader",
   "repo": "acme/widgets",
-  "unit": "Feature 2 of ROADMAP-plugin-system",
+  "unit": "Feature 2",
   "entry_point": "deliver",
   "entry_args": ["plugin-loader"],
   "run_mode": "--auto",
@@ -143,6 +143,10 @@ Report to the coordinator by message, addressed to its session name
 blocked. Take direction from that session and no other. Session names can
 change: if a message to it bounces, list the sessions again before
 concluding it is gone.
+
+When the brief carries Workspace rules, this section wins over them: where
+they name another session for direction or for status reports, the worker reports
+to the coordinator above.
 
 Each report leads with the verdict, then the paths or pull requests it
 concerns, then its claims, each marked measured, verified by reading, or
