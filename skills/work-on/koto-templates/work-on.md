@@ -729,8 +729,9 @@ states:
       fallback: >-
         koto could not decide which seats this round needs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
-        66 when a context write failed, 127 when jq is missing, and 127 or 126
-        also when PLUGIN_ROOT does not reach the plugin. Run every seat of the panel
+        65 when the ledger could not be updated, 66 when a context write
+        failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
+        does not reach the plugin. Run every seat of the panel
         as a full round, then aggregate and submit `scrutiny_outcome` as usual;
         the scrutiny_carried gate reads exit 1 without a scope, which is the
         edge your evidence takes.
@@ -738,6 +739,13 @@ states:
       scrutiny_carried:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --carried scrutiny "{{SESSION_NAME}}"'
+      # Holds the passed and blocking_retry edges until the round's spawned
+      # seats are recorded (panel-scope.sh --record): a skipped record leaves
+      # a seat's previous verdict in the ledger, and it would be read as
+      # current next round.
+      scrutiny_recorded:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded scrutiny "{{SESSION_NAME}}"'
       scrutiny_results:
         type: context-exists
         key: scrutiny_results.json
@@ -773,12 +781,14 @@ states:
         when:
           gates.scrutiny_carried.exit_code: 1
           scrutiny_outcome: passed
+          gates.scrutiny_recorded.exit_code: 0
           gates.scrutiny_results.exists: true
           gates.has_commits.exit_code: 0
       - target: implementation
         when:
           gates.scrutiny_carried.exit_code: 1
           scrutiny_outcome: blocking_retry
+          gates.scrutiny_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.scrutiny_carried.exit_code: 1
@@ -794,8 +804,9 @@ states:
       fallback: >-
         koto could not decide which seats this round needs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
-        66 when a context write failed, 127 when jq is missing, and 127 or 126
-        also when PLUGIN_ROOT does not reach the plugin. Run every seat of the panel
+        65 when the ledger could not be updated, 66 when a context write
+        failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
+        does not reach the plugin. Run every seat of the panel
         as a full round, then aggregate and submit `review_outcome` as usual;
         the review_carried gate reads exit 1 without a scope, which is the
         edge your evidence takes.
@@ -803,6 +814,13 @@ states:
       review_carried:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --carried review "{{SESSION_NAME}}"'
+      # Holds the passed and blocking_retry edges until the round's spawned
+      # seats are recorded (panel-scope.sh --record): a skipped record leaves
+      # a seat's previous verdict in the ledger, and it would be read as
+      # current next round.
+      review_recorded:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded review "{{SESSION_NAME}}"'
       review_results:
         type: context-exists
         key: review_results.json
@@ -826,11 +844,13 @@ states:
         when:
           gates.review_carried.exit_code: 1
           review_outcome: passed
+          gates.review_recorded.exit_code: 0
           gates.review_results.exists: true
       - target: implementation
         when:
           gates.review_carried.exit_code: 1
           review_outcome: blocking_retry
+          gates.review_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.review_carried.exit_code: 1
@@ -846,8 +866,9 @@ states:
       fallback: >-
         koto could not decide which seats this round needs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
-        66 when a context write failed, 127 when jq is missing, and 127 or 126
-        also when PLUGIN_ROOT does not reach the plugin. Run every seat of the panel
+        65 when the ledger could not be updated, 66 when a context write
+        failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
+        does not reach the plugin. Run every seat of the panel
         as a full round, then aggregate and submit `qa_outcome` as usual;
         the qa_carried gate reads exit 1 without a scope, which is the
         edge your evidence takes.
@@ -855,6 +876,13 @@ states:
       qa_carried:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --carried qa "{{SESSION_NAME}}"'
+      # Holds the passed and blocking_retry edges until the round's spawned
+      # seats are recorded (panel-scope.sh --record): a skipped record leaves
+      # a seat's previous verdict in the ledger, and it would be read as
+      # current next round.
+      qa_recorded:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded qa "{{SESSION_NAME}}"'
       qa_results:
         type: context-exists
         key: qa_results.json
@@ -878,11 +906,13 @@ states:
         when:
           gates.qa_carried.exit_code: 1
           qa_outcome: passed
+          gates.qa_recorded.exit_code: 0
           gates.qa_results.exists: true
       - target: implementation
         when:
           gates.qa_carried.exit_code: 1
           qa_outcome: blocking_retry
+          gates.qa_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.qa_carried.exit_code: 1

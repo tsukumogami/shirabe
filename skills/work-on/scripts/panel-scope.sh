@@ -12,8 +12,12 @@
 #
 #   full     no verdict on record yet (the first round): a fresh full review
 #   recheck  the seat raised a blocking finding last time: it checks only
-#            whether that finding is fixed, given the finding and the fix diff
-#            (a blocking seat that recorded no findings is rerun instead)
+#            whether that finding is fixed, given the finding and the fix diff.
+#            A blocking seat goes through checks 0-3 below first, and is rerun
+#            if any holds, or if it recorded no findings
+#
+# A later level choice (#591) that drops seats would add a decision value
+# here that --carried treats as carried, and a level input to --plan.
 #   rerun    the seat passed, but the fix touched what it judged: a fresh review
 #   keep     the seat passed and the fix touched nothing it judged: its verdict
 #            carries and the seat is not spawned
@@ -22,10 +26,11 @@
 # judged_at is the commit the seat's verdict was given at. A passed seat is
 # rerun when any of these holds, checked in this order:
 #
-#   0. the working tree has uncommitted changes (the fix may not be committed,
-#      and the diff below would miss it), or there are no commits since
-#      impl_base (nothing for a pass to rest on; scrutiny's has_commits gate
-#      must not be slipped past by a carried verdict)
+#   0. the working tree has uncommitted changes, untracked files included
+#      (the fix may not be committed, and the diff below would miss it), or
+#      there are no commits since impl_base or no impl_base recorded (nothing
+#      for a pass to rest on; scrutiny's has_commits gate must not be slipped
+#      past by a carried verdict)
 #   1. the acceptance criteria or the plan changed since it judged (the git
 #      hash of the `context.md` and `plan.md` context keys differs). context.md
 #      is written at setup and plan.md at analysis, so in practice this fires
@@ -40,14 +45,17 @@
 #      touched when a fix hunk's old-side range overlaps it; a cited path with
 #      no range is touched when the fix changes the file at all; a seat that
 #      cited nothing is taken to have cited every path in the diff it reviewed
-#      (impl_base..judged_at). The locations of findings the seat raised are
-#      checked too, on top of either.
+#      (impl_base..judged_at), and is rerun if that diff is empty. The
+#      locations of findings the seat raised are checked too, on top of
+#      either.
 #
 # Renames are off (`--no-renames`), so moving a cited file counts as touching
 # it. A pure insertion (`@@ -a,0 ...`) sits between lines a and a+1 and touches
 # a range containing either.
 #
-# The template runs it twice per panel state, and the agent once per round:
+# The template runs --plan on each entry to a panel state and --carried as
+# that state's gate (evaluated on every tick there); the agent runs --record
+# once per round:
 #
 #   --plan <panel> <session>     default_action on `scrutiny`, `review` and
 #                                `qa_validation`. Writes `<panel>_scope.json`
@@ -56,8 +64,14 @@
 #                                seat is `keep` it also writes
 #                                `<panel>_results.json`, marked carried.
 #   --carried <panel> <session>  the `<panel>_carried` gate. Exit 0 when the
-#                                scope written for this HEAD keeps every seat,
-#                                so koto advances the panel with no spawn.
+#                                tree is clean, the scope written for this
+#                                HEAD keeps every seat, and the carried results
+#                                are in place, so koto advances the panel with
+#                                no spawn.
+#   --recorded <panel> <session> the `<panel>_recorded` gate on the passed and
+#                                blocking_retry edges. Exit 1 while a seat the
+#                                scope spawned still holds a verdict older
+#                                than HEAD, i.e. this round was not recorded.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every seat it
 #                                spawned this round, passed or blocking. Stamps
@@ -66,6 +80,7 @@
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
+#        panel-scope.sh --recorded <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #
 # <panel> is scrutiny, review or qa (the qa_validation state).
@@ -106,12 +121,16 @@
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
-#   1   -- --carried only: something has to run, the working tree is dirty, or
-#          the scope is missing, stale or unreadable. --carried exits nothing else: a gate exit the template
-#          does not route would hold the state, and "run the panel" is the safe
-#          answer to every doubt.
-#   64  -- not a git repository, or HEAD names no commit
-#   65  -- the round file is missing or is not a JSON array of seats
+#   1   -- --carried: something has to run, the working tree is dirty, or
+#          the scope is missing, stale, unreadable or has no carried results
+#          beside it. --recorded: a spawned seat's verdict is older than HEAD,
+#          or the keys can't be read. The gate modes exit nothing else: a gate
+#          exit the template does not route would hold the state, and the safe
+#          answer to every doubt is "run the panel" or "record the round".
+#   64  -- not a git repository, HEAD names no commit, or mktemp failed
+#   65  -- a JSON step failed: --record's round file is missing, is not a
+#          JSON array of seats, or names a seat outside the panel, or (either
+#          mode) jq could not merge the result into the ledger
 #   66  -- a `koto context add` failed; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
 #   127 -- jq is not on PATH
@@ -132,17 +151,18 @@ MODE="${1:-}"
 PANEL="${2:-}"
 SESSION="${3:-}"
 
-# --carried answers 1 to every doubt, usage errors included; see Exit codes.
+# The two gate modes answer 1 to every doubt, usage errors included; see Exit
+# codes.
 refuse() {
     # $1 exit code for the other modes, $2 message
-    [ "$MODE" = "--carried" ] && { echo "panel-scope: $2" >&2; exit 1; }
+    case "$MODE" in --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;; esac
     die "$1" "$2"
 }
 
 case "$MODE" in
-    --plan|--carried|--record) ;;
-    "") die 67 "missing mode: expected --plan, --carried or --record" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried or --record" ;;
+    --plan|--carried|--recorded|--record) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded or --record" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded or --record" ;;
 esac
 
 case "$PANEL" in
@@ -179,6 +199,28 @@ if [ "$MODE" = "--carried" ]; then
         || refuse 1 "${PANEL}_scope.json does not keep every seat at HEAD"
     koto context exists "$SESSION" "${PANEL}_results.json" 2>/dev/null \
         || refuse 1 "every seat is kept but ${PANEL}_results.json is absent"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- --recorded --
+
+# Refuses while a seat this round spawned still holds a verdict from before
+# HEAD: that is a round whose --record was skipped, and the seat's old verdict
+# -- a pass, possibly, for a seat that has just blocked -- would be read as
+# current next round. A spawned seat with no entry at all passes: skipping its
+# record costs a full review next round, never a wrong carry. No scope (the
+# --plan fallback path) passes too, with nothing to compare.
+if [ "$MODE" = "--recorded" ]; then
+    scope=$(ctx_get "${PANEL}_scope.json")
+    [ -n "$scope" ] || exit 0
+    ledger=$(ctx_get "$LEDGER")
+    [ -n "$ledger" ] || exit 0
+    stale=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" --arg head "$HEAD" '
+        [$s.decisions[] | select(.decision != "keep") | .seat
+         | select(($l.seats[$panel + "/" + .] // null) as $e
+                  | $e != null and $e.judged_at != $head)] | join(" ")' 2>/dev/null) \
+        || refuse 1 "could not read ${PANEL}_scope.json or $LEDGER"
+    [ -z "$stale" ] || refuse 1 "no verdict recorded at HEAD for: $stale (run panel-scope.sh --record $PANEL)"
     exit 0
 fi
 
@@ -320,11 +362,11 @@ for seat in $SEATS; do
         ac=$(printf '%s' "$entry" | jq -r '.ac_sha // ""')
         short=$(printf '%.12s' "$judged")
         nfind=$(printf '%s' "$entry" | jq '.findings | length')
-        if [ "$verdict" = "blocking" ] && [ "$nfind" -gt 0 ]; then
-            decision=recheck
-            reason="raised $nfind blocking finding(s) at $short; re-check them against the fix diff"
-            [ -n "$DIRTY" ] && reason="$reason (the working tree has uncommitted changes the fix diff does not include: commit the fix first)"
-        elif [ "$verdict" = "blocking" ]; then
+        # A blocking seat goes through the same invalidation checks as a
+        # passed one before it is offered the narrow re-check: a re-check that
+        # passes stamps the seat passed at HEAD, so anything that would make a
+        # passed seat re-run must not reach it disguised as a fix.
+        if [ "$verdict" = "blocking" ] && [ "$nfind" -eq 0 ]; then
             decision=rerun
             reason="blocked at $short but recorded no findings to re-check"
         elif [ -n "$DIRTY" ]; then
@@ -344,32 +386,42 @@ for seat in $SEATS; do
             changed=$(git diff --no-renames --numstat "$judged" HEAD \
                 | awk '{ a = ($1 == "-") ? 1 : $1; d = ($2 == "-") ? 1 : $2; n += a + d } END { print n + 0 }')
             nfiles=$(git diff --no-renames --name-only "$judged" HEAD | wc -l | tr -d ' ')
-            # The seat's own citations decide whether it fell back to the diff
-            # it judged; the locations of findings it raised are added either
-            # way, so a fix near a finding re-checks the seat that raised it.
-            printf '%s' "$entry" | jq -r '.cited[]? | [.path, (.lines // "" | tostring)] | @tsv' > "$WORK/cited"
-            cited_what="what it cited"
-            if [ ! -s "$WORK/cited" ] && [ -n "$IMPL_BASE" ]; then
-                git diff --no-renames --name-only "$IMPL_BASE" "$judged" \
-                    | awk -v t="$TAB" '{ print $0 t }' > "$WORK/cited"
-                cited_what="the diff it judged"
-            fi
-            printf '%s' "$entry" | jq -r '.finding_locations[]? | [.path, (.lines // "" | tostring)] | @tsv' >> "$WORK/cited"
-            if [ "$changed" -eq 0 ]; then
-                decision=keep
-                reason="nothing changed since it passed at $short"
-            elif [ "$changed" -gt "$THRESHOLD_LINES" ]; then
-                decision=rerun
-                reason="fix diff since $short changes $changed lines, over the $THRESHOLD_LINES-line threshold"
-            elif [ ! -s "$WORK/cited" ]; then
-                decision=rerun
-                reason="cited nothing, and the diff it judged is empty"
-            elif hit=$(touches "$judged" < "$WORK/cited"); then
-                decision=rerun
-                reason="fix diff since $short touches $hit, in $cited_what"
+            if [ "$verdict" = "blocking" ]; then
+                if [ "$changed" -gt "$THRESHOLD_LINES" ]; then
+                    decision=rerun
+                    reason="raised $nfind blocking finding(s) at $short, but the fix diff changes $changed lines, over the $THRESHOLD_LINES-line threshold"
+                else
+                    decision=recheck
+                    reason="raised $nfind blocking finding(s) at $short; re-check them against the fix diff ($changed lines in $nfiles files)"
+                fi
             else
-                decision=keep
-                reason="fix diff since $short ($changed lines in $nfiles files) touches nothing in $cited_what"
+                # The seat's own citations decide whether it fell back to the diff
+                # it judged; the locations of findings it raised are added either
+                # way, so a fix near a finding re-checks the seat that raised it.
+                printf '%s' "$entry" | jq -r '.cited[]? | [.path, (.lines // "" | tostring)] | @tsv' > "$WORK/cited"
+                cited_what="what it cited"
+                if [ ! -s "$WORK/cited" ]; then
+                    git diff --no-renames --name-only "$IMPL_BASE" "$judged" \
+                        | awk -v t="$TAB" '{ print $0 t }' > "$WORK/cited"
+                    cited_what="the diff it judged"
+                fi
+                printf '%s' "$entry" | jq -r '.finding_locations[]? | [.path, (.lines // "" | tostring)] | @tsv' >> "$WORK/cited"
+                if [ "$changed" -eq 0 ]; then
+                    decision=keep
+                    reason="nothing changed since it passed at $short"
+                elif [ "$changed" -gt "$THRESHOLD_LINES" ]; then
+                    decision=rerun
+                    reason="fix diff since $short changes $changed lines, over the $THRESHOLD_LINES-line threshold"
+                elif [ ! -s "$WORK/cited" ]; then
+                    decision=rerun
+                    reason="cited nothing, and the diff it judged is empty"
+                elif hit=$(touches "$judged" < "$WORK/cited"); then
+                    decision=rerun
+                    reason="fix diff since $short touches $hit, in $cited_what"
+                else
+                    decision=keep
+                    reason="fix diff since $short ($changed lines in $nfiles files) touches nothing in $cited_what"
+                fi
             fi
         fi
     fi

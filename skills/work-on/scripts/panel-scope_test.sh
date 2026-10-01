@@ -348,6 +348,49 @@ printf 'plan v2, scope expanded\n' > "$SHIM_STORE/$SESSION/plan.md"
 run --plan scrutiny "$SESSION"
 expect_decision "the plan was rewritten" scrutiny completeness rerun
 
+echo "--- script: a blocking seat faces the same invalidation as a passed one"
+
+fixture blockac
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+printf 'AC: amended\n' > "$SHIM_STORE/$SESSION/context.md"
+edit src/a.sh 41 fixed
+run --plan scrutiny "$SESSION"
+expect_decision "a blocking seat after the criteria changed" scrutiny intent rerun
+
+fixture blockbig
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+(cd "$FX/repo" && seq 1 300 > docs/c.md && git commit -q -am big) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_decision "a blocking seat whose fix crosses the threshold" scrutiny intent rerun
+
+fixture blockdirty
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+(cd "$FX/repo" && echo uncommitted >> src/a.sh)
+run --plan scrutiny "$SESSION"
+expect_decision "a blocking seat with an uncommitted fix" scrutiny intent rerun
+
+echo "--- script: --recorded holds a round whose record was skipped"
+
+fixture recorded
+run --plan scrutiny "$SESSION"
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded on a first round with no ledger" 0
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]},
+                  {"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
+                  {"seat":"justification","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]'
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded once the round is recorded" 0
+edit src/a.sh 41 fixed
+run --plan scrutiny "$SESSION"
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded before the re-check round is recorded" 1
+grep -q "intent" "$WORKDIR/stderr" && pass "--recorded names the unrecorded seat" || fail "--recorded stderr: $(cat "$WORKDIR/stderr")"
+record scrutiny '[{"seat":"intent","blocking_count":0},{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0}]'
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded after the re-check round is recorded" 0
+run --recorded bogus "$SESSION"
+expect_rc "--recorded never exits outside 0/1 (bad panel)" 1
+
 echo "--- script: the history counts rounds, not ticks"
 
 fixture history
@@ -497,6 +540,18 @@ if engine_to_qa_retry "$S"; then
         N=$(visits "$S" "$st")
         [ "$N" = 2 ] && pass "koto's log records both $st rounds" || fail "koto's log has $N transitions into $st, expected 2"
     done
+    # The re-check passes, but its verdict isn't recorded: qa_recorded holds.
+    printf '{"passed": true, "round": 2}\n' | koto context add "$S" qa_results.json >/dev/null 2>&1
+    submit "$S" '{"qa_outcome":"passed"}'
+    [ "$NEXT_STATE" = qa_validation ] \
+        && pass "an unrecorded re-check holds qa_validation" \
+        || fail "an unrecorded re-check advanced to [$NEXT_STATE]"
+    printf '[{"seat":"tester","blocking_count":0}]\n' > "$WORKDIR/r.json"
+    "$SCRIPT" --record qa "$S" "$WORKDIR/r.json" || fail "$S: --record qa failed"
+    submit "$S" '{"qa_outcome":"passed"}'
+    [ "$NEXT_STATE" = verification ] \
+        && pass "the recorded re-check advances to verification" \
+        || fail "the recorded re-check went to [$NEXT_STATE]"
 fi
 
 echo "--- engine: a fix on cited lines re-runs the panels"

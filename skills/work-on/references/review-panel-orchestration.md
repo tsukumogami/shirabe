@@ -25,7 +25,8 @@ fix crosses the size threshold), and `keep` otherwise. Only seats that aren't `k
 are spawned. A panel whose every seat is `keep` is carried: the script writes its
 results key, the `<panel>_carried` gate passes, and koto advances with no evidence. The
 panel state is still entered, so koto's state log counts every round. After each
-round, the agent records the spawned seats with `panel-scope.sh --record`. The ledger's
+round, the agent records the spawned seats with `panel-scope.sh --record`; the
+`<panel>_recorded` gate holds the `passed` and `blocking_retry` edges until it has. The ledger's
 `history` keeps each round's decisions, reasons, and spawn count.
 
 `blocking_escalate` requires a `failure_reason`
