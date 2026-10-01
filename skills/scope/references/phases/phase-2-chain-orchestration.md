@@ -124,7 +124,11 @@ The check runs the three-phase flow defined in
   at `bail`, with `detail` naming the escalated change, so the
   run ends at the abandonment exit with the chain's work kept
   for a resumed run (no child is in flight, so the marker goes on
-  the last document the chain produced, and no PLAN is written). Under a coordinator (a run opened with
+  the last document the chain produced, and no PLAN is written).
+  Before the first child has produced a document there is nothing
+  to keep: submit `bail_ack: cancel` instead, and the run ends at
+  the clean cancel Phase 3 describes, with the escalation's
+  decision record in the session. Under a coordinator (a run opened with
   `--koto-leg`) that abandonment outcome is what the coordinator
   reads on the leg, and the escalation's decision record stays
   in the session, which the run keeps; the coordinator decides
