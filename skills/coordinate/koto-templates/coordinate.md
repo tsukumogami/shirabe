@@ -1398,10 +1398,14 @@ states:
           gates.verify_board_verdict.exit_code: 76  # actions-green
       # Defensive: classify_report's report_pr gate keeps a report with no
       # pull request out of verify, so only a route that skips it reaches
-      # this. Like pending and board-unreadable, it keeps the report.
+      # this. As at classify_report, a report with nothing to verify is
+      # cleared.
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 77  # no-pr
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
 
   verified_confirm:
     default_action:
@@ -2747,7 +2751,10 @@ isn't its own, `needs_fix` when the work has a problem it can fix. The report is
 in `worker_report` and the facts about it in `coord/report.json`. `done` for
 a holding with no pull request goes back to the hub, since there is nothing
 to verify: message the worker to name its pull request, and pass it as
-`pull_request` with the report that does.
+`pull_request` with the report that does. A leg-bound worker's leg is spent
+by now and a message from it is refused, so for one whose report names no
+pull request classify `needs_fix` instead: `rebrief` moves it to the message
+path, and the brief asks it to name its pull request.
 
 <!-- details -->
 

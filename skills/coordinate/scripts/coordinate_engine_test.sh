@@ -43,7 +43,8 @@
 #      hand write; a restart's reconcile then reports it open; `done` for a
 #      report naming none goes back to wait, never to verify, and the next
 #      report naming one gets through; blocked and needs_fix still route with
-#      no pull request. verify_board's no-pr arm is unreachable here by
+#      no pull request, and a leg-bound worker whose result names none takes
+#      needs_fix to rebrief, the directive's route once its leg is spent. verify_board's no-pr arm is unreachable here by
 #      design (the gate above keeps such a report out of verify), so its
 #      sealed verdict is board-record_test.sh's and its arm the structure
 #      test's.
@@ -623,6 +624,26 @@ if empty_run linknone 127; then
     link_through none 127
 else
     bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A leg-bound worker whose result names no pull request: its leg is spent once
+# read, so `done` back at the hub has no way on, and the directive's route is
+# needs_fix, which reaches rebrief and moves the worker to the message path.
+sed -e 's/^name: deliver$/name: deliver-nopr/' -e '/^      pr: /d' "$T/tpl/deliver.md" > "$T/tpl/deliver-nopr.md"
+NREQ=$(cd "$T/work" && koto request create --role deliver --template deliver-nopr.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linklegnone | jq -r .request_id)
+if [ -n "$NREQ" ] && empty_run linklegnone 131 "leg $NREQ:deliver"; then
+    (cd "$T" && koto init deliver-nopr-feat-1 --template "$T/tpl/deliver-nopr.md" --koto-leg "$NREQ:deliver" > /dev/null 2> "$T/child.err" \
+        && koto next deliver-nopr-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+        || bad "16 leg, no pr: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 leg, no pr: a result naming no pull request reaches classify_report" classify_report "$(at --with-data '{"event":"leg"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "holding none feat-1 "*) ok "16 leg, no pr: report_facts reads holding none" ;;
+        *) bad "16 leg, no pr: report_facts reads holding none" ;;
+    esac
+    eq "16 leg, no pr: needs_fix, the directive's route, reaches rebrief" rebrief "$(at --with-data '{"classification":"needs_fix"}')"
+    eq "16 leg, no pr: verify is never entered" 0 "$(entered verify)"
+else
+    bad "16 leg, no pr: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 # blocked and needs_fix don't route on report_pr, so a holding with no pull
 # request still takes them.

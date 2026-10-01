@@ -206,7 +206,10 @@ states never ask you to do these steps by hand.
   classification is yours; the workflow's own suggestion is recorded next to
   it in shadow and never routes. `done` reaches verification only with a pull
   request to verify; without one it goes back to the hub, and you ask the
-  worker to name its pull request.
+  worker to name its pull request. A leg-bound worker's leg is spent once
+  its result is read, so for one whose result names no pull request you
+  classify `needs_fix`: the re-brief moves it to the message path, where its
+  next report can name one.
 - **Teardown.** After the worker's session is stopped,
   `scripts/teardown-inventory.sh` inventories its instance by content and
   seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is

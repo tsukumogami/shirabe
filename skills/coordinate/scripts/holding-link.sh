@@ -40,7 +40,8 @@
 # reason on stderr.
 #
 # GitHub reads: record-holding.sh --list;
-# gh pr view <n> --repo <repo> --json headRefName,isCrossRepository.
+# gh pr view <n> --repo <repo> --json headRefName,isCrossRepository,url (the link
+# names the repository as that URL spells it).
 # GitHub writes: only through record-holding.sh (record-write.sh).
 set -uo pipefail
 
@@ -126,9 +127,13 @@ fi
 lib_in_scope "$PR_REPO" "$T/all.json" || refuse "$PR_REPO is neither the host nor the repository of any holding"
 ! lib_pr_held "$PR_REPO" "$NUM" "$TOPIC" "$T/all.json" || refuse "another holding links $PR_REPO#$NUM"
 
-gh pr view "$NUM" --repo "$PR_REPO" --json headRefName,isCrossRepository > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
+gh pr view "$NUM" --repo "$PR_REPO" --json headRefName,isCrossRepository,url > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
     || lib_die2 "cannot read $PR_REPO#$NUM: $(lib_scrub < "$T/pr.err")"
 [ "$(jq -r '.isCrossRepository' "$T/pr.json")" = false ] || refuse "$PR_REPO#$NUM's head is in another repository"
+# The link names the repository as GitHub spells it, whatever case the report used.
+lib_pr_ref "$(jq -r '.url // ""' "$T/pr.json")" && [ "$LINK_NUM" = "$NUM" ] \
+    || lib_die2 "$PR_REPO#$NUM's URL as GitHub reports it is not a pull request URL"
+PR_REPO=$LINK_REPO
 HEAD_BR=$(jq -r '.headRefName // ""' "$T/pr.json")
 [ -n "$HEAD_BR" ] || lib_die2 "$PR_REPO#$NUM has no head branch"
 [ -z "$BR" ] || [ "$BR" = "$HEAD_BR" ] || refuse "$PR_REPO#$NUM's head branch is $HEAD_BR, the holding's Branch is $BR"
