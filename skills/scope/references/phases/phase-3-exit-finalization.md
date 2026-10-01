@@ -208,7 +208,7 @@ coordination PR, and never leaves it open either: an open coordination
 PR is merge-eligible, and merging it lands the plan the run just
 abandoned. Closing it unmerged leaves the partial state auditable —
 the closed PR's durable body records what was coordinated, and the
-force-materialized Draft records how far the chain got.
+marked document records how far the chain got.
 
 A single-repo run has no coordination PR and skips this.
 
