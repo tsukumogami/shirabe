@@ -68,6 +68,8 @@ mkdir -p "$REPO"
     git init -q -b main
     git config user.email t@example.com
     git config user.name t
+    # A developer's global signing setup must not reach the fixture's commits.
+    git config commit.gpgsign false
     echo base > a.txt
     git add a.txt
     git commit -q -m base
