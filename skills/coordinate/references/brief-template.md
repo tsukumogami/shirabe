@@ -145,10 +145,10 @@ change: if a message to it bounces, list the sessions again before
 concluding it is gone.
 
 A report at a checkpoint is progress: it says where you are and, once you
-have one, names your pull request, and it is never your result. When you were
-dispatched with a request leg (`--koto-leg`), your result still comes through
-that leg when your entry point finishes; a checkpoint message doesn't stand
-in for it, so keep going to the end.
+have one, names your pull request, and it is never your result. When your
+invocation carries a request leg, your result still comes through that leg
+when your entry point finishes; a checkpoint message doesn't stand in for it,
+so keep going to the end.
 
 When the brief carries Workspace rules, this section wins over them: where
 they name another session for direction or for status reports, the worker reports
