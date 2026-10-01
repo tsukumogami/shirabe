@@ -86,6 +86,7 @@ answer. Its reason says why:
 |---|---|---|
 | `no-key` | no Jev key in the environment | set the key and grade again |
 | `transport`, `provider` | Jev couldn't be reached, or answered with an error, twice | grade again later |
+| `over-bound` | every slice Jev would grade was still over 2,560 bytes after the body was cut (the file list alone is too long) | nothing; it's left out of the agreement rates |
 | `no-changed-paths` | the head changes nothing | nothing; this head can't be graded |
 | `outcome-without-grade` | an outcome was recorded for a head nobody graded | nothing; it's counted as not graded |
 
@@ -93,7 +94,11 @@ Grading again is safe: each run writes a new record, and the report reads
 the latest one for each head. A record that says `inconclusive` isn't a
 failure of the tool: some criterion escaped or went unanswered (for example
 `no-denylist` when no term list was given, or `over-bound` for a slice over
-2,560 bytes).
+2,560 bytes that other graded slices sit beside).
+
+A pull request body over the 2,560-byte bound is cut, not skipped: Part 1 is
+trimmed at a paragraph or sentence end and ends with a "cut here" line, and
+the slice's record carries `body_cut`.
 
 ## After the panel: record its outcome
 
