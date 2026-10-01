@@ -550,6 +550,24 @@
         "Agent does NOT plan to submit staleness_signal: blocked or to stop the run at this gate",
         "Agent expects the run to continue to the analysis state"
       ]
+    },
+    {
+      "id": 43,
+      "name": "scrutiny-scoped-retry-reentry",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "scrutiny-scoped-retry-reentry",
+      "prompt": "/work-on #42",
+      "expected_output": "Second scrutiny round after a retry. scrutiny_scope.json keeps the completeness and justification seats, whose cited scope the fix did not touch, and asks the intent seat to re-check its one finding. The agent spawns only the intent seat, gives it the finding plus the fix diff and asks only whether the finding is fixed, and records the round with panel-scope.sh --record scrutiny.",
+      "files": [],
+      "expectations": [
+        "Agent reads scrutiny_scope.json from koto context before spawning any reviewer",
+        "Agent spawns the intent reviewer and does not spawn the completeness or justification reviewers, whose decisions are keep",
+        "The intent reviewer's prompt carries the finding (login() returning a session token before the hash is verified, src/auth.go 41-48) and the fix diff from the fix_diff_from commit to HEAD",
+        "The intent reviewer is asked only whether that finding is fixed, not for a fresh full review of the implementation",
+        "Agent records the round with panel-scope.sh --record scrutiny, with a round file naming only the intent seat",
+        "Agent treats the kept seats as passed when aggregating, and does not re-run them on its own judgment"
+      ]
     }
   ]
 }
