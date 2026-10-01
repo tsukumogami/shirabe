@@ -322,9 +322,7 @@ Run the following ordered actions; do not skip steps.
 
    Equivalent stdin form (`git commit -F -` reading from a here-document)
    is acceptable when scripting inline; the invariant is that the rationale
-   never transits a `-m "..."` shell argument. The discard commit lands on
-   the current branch and is the durable observable signal of rejection per
-   AC30c.
+   never transits a `-m "..."` shell argument.
 
 6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
    run the Approved-path complexity assessment or routing; do not run step

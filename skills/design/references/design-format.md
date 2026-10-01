@@ -31,7 +31,10 @@ decision: |
 rationale: |
   1 paragraph: why this approach over alternatives.
 upstream: docs/prds/PRD-<name>.md           # optional
-spawned_from: docs/designs/DESIGN-<parent>.md  # optional
+spawned_from:                               # optional
+  issue: <number>
+  repo: <owner/repo>
+  parent_design: <relative-path>
 motivating_context: |                       # optional
   Why this design exists -- the situation or signal that
   triggered the work. Distinct from `problem` (which states the
@@ -62,10 +65,10 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   private artifact a public DESIGN cannot name, or when Phase 0's
   cross-repo resolution returns "omit." See
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
-- **spawned_from** -- path to a parent DESIGN this design was
-  spawned from (the parent DESIGN's Phase 2 decision evaluation
-  produced this child). Triggers parent-doc update behavior at
-  Phase 6.8.
+- **spawned_from** -- for a child design created from a
+  needs-design issue: an object naming the source `issue` number,
+  its `repo` (`owner/repo`), and the `parent_design` path. Triggers
+  parent-doc update behavior at Phase 6.8.
 - **motivating_context** -- 1 paragraph naming the situation or
   signal that triggered the design. Optional; reach for it when the
   problem statement alone does not convey why the design exists
@@ -217,14 +220,15 @@ rule-statement prose.
 
 All transitions are executed by `shirabe transition`. Most
 transitions hold the DESIGN in `docs/designs/`; the `Planned ->
-Current` transition moves the file to `docs/designs/current/`.
+Current` transition moves the file to `docs/designs/current/`, and
+`any -> Superseded` moves it to `docs/designs/archive/`.
 
 | Transition | Preconditions | Directory Movement |
 |-----------|---------------|-------------------|
 | Proposed -> Accepted | Phase 6 jury all-PASS + human approval | None |
 | Accepted -> Planned | A PLAN names this DESIGN as `upstream:` | None |
 | Planned -> Current | The PLAN has shipped (all issues done) | Move to `docs/designs/current/` |
-| any -> Superseded | A successor DESIGN names this one as `superseded_by:` | None; the doc stays where it is |
+| any -> Superseded | A successor DESIGN names this one as `superseded_by:` | Move to `docs/designs/archive/` |
 
 The directory move on `Planned -> Current` is load-bearing: it
 distinguishes designs that documented historical decisions from
