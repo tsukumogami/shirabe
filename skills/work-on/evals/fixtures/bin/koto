@@ -21,9 +21,9 @@ fi
 # Normalize args for pattern matching
 ARGS="$*"
 
-# Where the stateful `context` verbs keep their markers. Scenario-scoped so two
-# scenarios in one run cannot see each other's keys. The runner may pin it; the
-# fallback is a per-scenario temp directory.
+# Where the stateful `context` verbs keep what was written, one file per key.
+# Scenario-scoped so two scenarios in one run cannot see each other's keys. The
+# runner may pin it; the fallback is a per-scenario temp directory.
 CTX_STATE="${KOTO_SHIM_CTX_STATE:-${TMPDIR:-/tmp}/koto-shim-ctx/$EVAL_SCENARIO}"
 
 case "$ARGS" in
@@ -104,7 +104,8 @@ case "$ARGS" in
     echo '{"children":[]}'
     exit 0
     ;;
-  # `context add` / `remove` / `exists` are stateful rather than canned, because
+  # `context add` / `remove` / `exists` are stateful rather than canned (and
+  # `context get`, above, reads a key written here before its canned reply), because
   # the retry clearing block reads `remove`'s exit status and then `exists`'s.
   # A canned reply cannot express "the key is gone now", and a fall-through to
   # the no-match exit 1 below would abort the block at its first key -- so an

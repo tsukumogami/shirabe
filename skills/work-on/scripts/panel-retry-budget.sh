@@ -66,9 +66,11 @@
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
 
-# These two numbers are also stated in the three panel directives in
-# koto-templates/work-on.md, which settled-policy_test.sh pins, in this
-# script's tests, and in the decision record. Change them together.
+# These two numbers are also stated in: the three panel directives and the
+# scrutiny directive's has_commits note in koto-templates/work-on.md (pinned by
+# settled-policy_test.sh); this script's header; its tests; the scrutiny retry
+# eval's fixture directive; this rule's decision record; and the supersession
+# note in DECISION-contradiction-retry-caps-2026-09-28.md. Change them together.
 FLOOR=2
 CEILING=3
 KEY=panel_retries
@@ -110,9 +112,10 @@ esac
 case "$COUNT" in
     ''|*[!0-9]*) usage "blocking count [$COUNT] is not a whole number" ;;
 esac
-# Six digits is far past any real round, and keeps the comparison below inside
-# what `[ -lt ]` can compare: a number it can't parse makes the test error,
-# which would read as "not refused" and grant.
+# Six digits is far past any real round. The cap has to match the one the
+# record reader below applies to each recorded count: a longer count granted
+# within the floor would be recorded, and the next call would then reject the
+# record as malformed (exit 64).
 [ "${#COUNT}" -le 6 ] || usage "blocking count [$COUNT] is longer than 6 digits"
 # Strip leading zeros so the arithmetic below never reads the count as octal.
 COUNT=$(printf '%s' "$COUNT" | sed 's/^0*//')

@@ -244,9 +244,12 @@ for f in phase-4a-scrutiny.md phase-4b-review.md phase-4c-qa.md; do
     fi
 done
 # SKILL.md's Scripts list describes the script and names the key; it runs
-# nothing, so it is left out with the script itself and the tests.
+# nothing, so it is left out with the script itself and the tests. So is
+# evals/, as in settled-policy_test.sh: its fixtures are scenario text, and its
+# gitignored workspace holds run transcripts that name the key.
 HITS=$(grep -rn 'panel_retries' "$SKILL_DIR" --include='*.md' --include='*.sh' \
-    | grep -v '_test\.sh:' | grep -v '/scripts/panel-retry-budget\.sh:' | grep -v '/work-on/SKILL\.md:')
+    | grep -v '_test\.sh:' | grep -v '/scripts/panel-retry-budget\.sh:' | grep -v '/work-on/SKILL\.md:' \
+    | grep -v '/work-on/evals/')
 OTHER=$(printf '%s\n' "$HITS" | grep . | grep -v 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
 DIRECTIVES=$(printf '%s\n' "$HITS" | grep -c 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
 if [ -z "$OTHER" ] && [ "$DIRECTIVES" -eq 3 ]; then
