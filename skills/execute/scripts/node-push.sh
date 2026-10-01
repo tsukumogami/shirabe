@@ -296,9 +296,9 @@ if [ "$MODE" != order ]; then
         HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
         NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
         # The node side is where its push goes (insteadOf, pushInsteadOf and
-        # pushurl applied). The home side is both of origin's URLs: the fetch
-        # URL, which home_repo was read from, and the push URL, which differ
-        # when origin has a pushurl.
+        # pushurl applied). The home side is both of origin's URLs, insteadOf
+        # applied: the fetch URL (the remote.origin.url home_repo was read
+        # from) and the push URL, which differ when origin has a pushurl.
         HOME_FETCH=$(cd "$PLAN_DIR" && git remote get-url origin 2>/dev/null) || HOME_FETCH=""
         HOME_URL=$(cd "$PLAN_DIR" && git remote get-url --push origin 2>/dev/null) || HOME_URL=""
         NODE_URL=$(git remote get-url --push "$REMOTE" 2>/dev/null) || NODE_URL=""

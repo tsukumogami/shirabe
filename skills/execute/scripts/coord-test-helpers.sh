@@ -24,8 +24,8 @@ trap 'rm -rf "$CT_WORK"' EXIT
 CT_BIN="$CT_WORK/bin"
 mkdir -p "$CT_BIN" "$CT_WORK/home"
 export HOME="$CT_WORK/home"
-# Global git config is this HOME's, never a file the caller's environment
-# names: some cases write --global settings.
+# --global writes land in this HOME's config, never a file the caller's
+# environment names: some cases write --global settings.
 unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
