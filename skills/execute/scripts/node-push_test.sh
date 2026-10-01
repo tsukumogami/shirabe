@@ -644,18 +644,19 @@ home_push() {
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
 }
-home_pushed() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+# home_has_node_branch -- the home's origin holds the node branch.
+home_has_node_branch() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
 gh_wrote() { ct_calls | grep -Eq '^pr (create|edit|ready|merge|close)'; }
 
 ct_case home-worktree
 ct_write_db
 fresh_repo home-worktree
 home_push
-if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote \
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote \
     && grep -q "cut it with node-cut.sh --repo-dir" "$CASE/stderr" && ! grep -q 'acme/' "$CASE/stderr"; then
     pass "a node in another repository, cut in the coordination checkout: exit 79, nothing pushed or written, no repository named"
 else
-    fail "home worktree: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+    fail "home worktree: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 
 ct_case home-url
@@ -665,15 +666,16 @@ NREPO="$CT_WORK/home-url-reclone"
 git clone -q "$REPO.origin.git" "$NREPO"
 cut_in "$NREPO" home-url
 home_push
-if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
     pass "a separate clone whose origin is the coordination checkout's: exit 79, nothing pushed"
 else
-    fail "home url: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+    fail "home url: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 
-# The same worktree, pushing through a remote that does point at acme/repo-b's
-# origin: the branch was still cut from the coordination checkout's default
-# branch, so the git directory alone refuses it.
+# The same worktree, pushing through a remote that names neither the home's
+# origin nor any URL the home uses (an unrelated bare repository): the branch
+# was still cut from the coordination checkout's default branch, so the git
+# directory alone refuses it.
 ct_case home-worktree-alt-remote
 ct_write_db
 fresh_repo home-worktree-alt-remote
@@ -720,10 +722,10 @@ git clone -q "$REPO.origin.git" "$NREPO"
 (cd "$NREPO" && git remote set-url origin gh:acme/repo-a)
 cut_in "$NREPO" home-insteadof
 home_push
-if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
     pass "a clone of the home whose origin and the checkout's share an insteadOf rule: exit 79, nothing pushed"
 else
-    fail "insteadOf: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+    fail "insteadOf: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 git config --global --unset url."$REPO.origin.git".insteadOf
 
@@ -739,10 +741,10 @@ NREPO="$CT_WORK/home-pushurl-clone"
 git clone -q "$REPO.origin.git" "$NREPO"
 cut_in "$NREPO" home-pushurl
 home_push
-if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
     pass "a clone of the home under a checkout whose origin pushes elsewhere: exit 79, nothing pushed"
 else
-    fail "pushurl: rc=$RC pushed=$(home_pushed && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+    fail "pushurl: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 
 # The other way round: the checkout fetches from a mirror and pushes to the
@@ -804,7 +806,7 @@ ct_write_db
 fresh_repo own-clone
 node_clone own-clone
 home_push
-if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] && ! home_pushed; then
+if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] && ! home_has_node_branch; then
     pass "the node's own clone (control): pushed to acme/repo-b's origin, never the home's"
 else
     fail "own clone: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"

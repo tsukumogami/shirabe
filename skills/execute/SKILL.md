@@ -281,8 +281,8 @@ was scoped, and the run writes there only through the coordination PR's body edi
 `gh pr ready`, and its merge, each given `home_repo` explicitly, and its branch's push
 from the coordination checkout, whose origin `home_repo` is read from. Every node then
 lives in another repository, so each is cut with `node-cut.sh --repo-dir <clone>`;
-`node-push.sh` refuses a node pushed from the coordination checkout (exit 79, nothing
-pushed).
+`node-push.sh` refuses a node pushed from the coordination checkout or from a clone of
+the coordination PR's repository (exit 79, nothing pushed).
 
 **The pause.** When a node can't start because a predecessor's PR is unmerged,
 the run ends `paused_awaiting_merges`. The coordination PR is **left open**, never

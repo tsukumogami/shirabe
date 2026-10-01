@@ -303,7 +303,7 @@ if [ "$MODE" != order ]; then
         HOME_URL=$(CDPATH='' cd "$PLAN_DIR" && git remote get-url --push origin) || HOME_URL=""
         NODE_URL=$(git remote get-url --push "$REMOTE") || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
-            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed" >&2
+            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed. Pass --plan as the PLAN inside the coordination checkout (the recorded plan_abs), and run this from a node worktree node-cut.sh made" >&2
             exit 79
         fi
         HOME_FETCH=$(coord_url_key "$HOME_FETCH")
