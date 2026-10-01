@@ -491,6 +491,26 @@
         "R7",
         "R9"
       ]
+    },
+    {
+      "id": 26,
+      "name": "report-names-a-pull-request-the-holding-lacks",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. The worker on topic plugin-loader reports by message, and its holding has empty Branch and Pull request cells, as dispatch left them. It writes: \"Done: https://github.com/acme/widgets/pull/412 is open and CI is green.\" Walk through how the workflow takes this report up to the board read, including what you submit at each step.",
+      "expected_output": "The coordinator ticks wait with event report, unit plugin-loader, the message as report, and the pull request the message names as pull_request. report_facts finds the holding with no pull request, checks the named one (in the scope's repositories, not from a fork, linked by no other holding) and routes to report_link. There the coordinator runs holding-link.sh, which writes the pull request and its head branch as GitHub reports it onto the holding, and submits linked: written; report_facts reads the holding again, now linking #412. The coordinator never edits the holding by hand or writes a branch name from the message. With the pull request on the holding, the report is classified done, the prediction is written at verify, and verify_board reads #412's board.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The wait tick carries the pull request the message names as pull_request, alongside the report event, the unit plugin-loader and the message",
+        "At report_link the coordinator runs holding-link.sh and submits linked: written once it exits 0",
+        "The holding is never edited by hand for this: no record-holding.sh or record-write.sh row written by the coordinator, and no branch name taken from the message",
+        "The report reaches classify_report only after report_facts reads the holding again with the pull request on it",
+        "Classified done, the report goes to verify, where the prediction is written before verify_board reads the board of #412"
+      ],
+      "requirements": [
+        "R13",
+        "R10"
+      ]
     }
   ]
 }

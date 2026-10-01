@@ -153,18 +153,30 @@ eq "without --pr, the latest REPORT capture names the pull request" "verified 12
 grep -q 'pulls/12/files' "$GH_BOARD_DIR/calls" && ok "and the board read is of #12" || bad "and the board read is of #12"
 bt_holdings "[#12](https://github.com/acme/widgets/pull/12)"
 eq "with neither --pr nor --repo, the session alone is enough" "verified 12 $H" "$(bash "$BR" --session "$S" --no-seal 2>"$T/err")"
+# Nothing to verify leaves verify_board on a sealed no-pr, never an action that
+# fails on every tick: what it read is sealed in report_facts' capture.
+no_pr() { # no_pr <label> <reason code>: the run at verify_board reads no-pr, sealed
+    : > "$GH_BOARD_DIR/calls"
+    OUT=$(bash "$BR" --session "$S" 2>"$T/err"); rc=$?
+    eq "$1: exit 0" 0 $rc
+    eq "$1: no-pr" "no-pr none none" "${OUT% sealed:*}"
+    bash "$CL" check --session "$S" --state verify_board --sealed "$OUT" >/dev/null 2>&1 \
+        && ok "$1: sealed to verify_board" || bad "$1: sealed to verify_board" "$OUT"
+    eq "$1: coord/board.json names why" "no-pr $2" "$(ctx | jq -r '"\(.verdict) \(.reasons[0].code)"')"
+    [ -s "$GH_BOARD_DIR/calls" ] && bad "$1: no board read" "$(cat "$GH_BOARD_DIR/calls")" || ok "$1: no board read"
+}
 reported "holding none plugin-registry"
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"; eq "a holding with no pull request yet: exit 2" 2 $?
+no_pr "a holding with no pull request yet" no-pull-request
 reported "unknown plugin-registry"
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a report capture that isn't a holding: exit 2" 2 $?
+no_pr "a report capture that isn't a holding" not-a-holding
 reported "holding 12 plugin-registry"; bt_enter "$S" report_facts
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a stale report capture (report_facts entered since): exit 2" 2 $?
+no_pr "a stale report capture (report_facts entered since)" no-report
 N=$((N + 1)); S="coordinate-demo-20260926T1200$(printf '%02d' "$N")Z"
 bt_run "$S" "$PERMIT"; bt_enter "$S" report_facts; bt_capture "$S" REPORT "holding 12 plugin-registry"
 bt_enter "$S" verify; bt_evidence "$S" verify '{"prediction":"green"}'; bt_enter "$S" verify_board
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "an unsealed report capture: exit 2" 2 $?
+no_pr "an unsealed report capture" no-report
 fresh
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "no report capture at all: exit 2" 2 $?
+no_pr "no report capture at all" no-report
 reported "holding 12 plugin-registry"
 eq "--pr still overrides the report" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 

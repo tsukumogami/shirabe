@@ -422,6 +422,69 @@ lib_pr_link() {
     [[ $LINK_NUM =~ $RE_NUM ]]
 }
 
+# lib_pr_ref <ref>: split a pull request as a report names it, its URL
+# `https://github.com/o/r/pull/n` (one trailing `/` allowed) or `o/r#n`, into
+# LINK_REPO and LINK_NUM. Returns 1 on any other shape.
+lib_pr_ref() {
+    local url='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)/?$'
+    local short='^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$'
+    LINK_REPO= LINK_NUM=
+    [[ $1 =~ $url ]] || [[ $1 =~ $short ]] || return 1
+    LINK_REPO=${BASH_REMATCH[1]}
+    LINK_NUM=${BASH_REMATCH[2]}
+}
+
+# lib_report_pr: set REPORT_PR to the pull request the run's latest report
+# names, as it names it; empty when it names none. Call it after lib_unit ""
+# report, whose UNIT_LEG says which path the report came by. On the leg path
+# it is the `pr` of the result koto holds for that leg, promoted by the
+# worker's own session: koto's record, never the worker_report text. On the
+# message path it is the `pull_request` field of the latest `wait` evidence
+# whose event is report, the arrival lib_unit read. A value that isn't a
+# string is kept as JSON, so it fails lib_pr_ref rather than reading as none.
+# Exits 2 on a failed read.
+lib_report_pr() {
+    local leg req out rc
+    REPORT_PR=
+    if [ -n "$UNIT_LEG" ]; then
+        leg=${UNIT_LEG#leg }
+        req=${leg%%:*}
+        leg=${leg#*:}
+        out=$("$KOTO" request get "$req" < /dev/null 2> /dev/null) || lib_die2 "cannot read request $req"
+        REPORT_PR=$(printf '%s' "$out" | jq -r --arg l "$leg" '
+            (.request // .) | .legs[$l] // empty
+            | select(.disposition == "resolved" and .result_source == "promoted")
+            | .result.payload | if type == "object" then .pr else null end
+            | if . == null then "" elif type == "string" then . else tojson end') \
+            || lib_die2 "koto's record of request $req is not JSON"
+    else
+        out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where event=report 2> /dev/null)
+        rc=$?
+        case $rc in 0) ;; 1) return 0 ;; *) lib_die2 "cannot read the session log" ;; esac
+        REPORT_PR=$(printf '%s' "$out" | jq -r '.fields.pull_request
+            | if . == null then "" elif type == "string" then . else tojson end') || lib_die2 "the wait evidence is not JSON"
+    fi
+    # Surrounding blanks are how a person types it, not part of the name.
+    REPORT_PR=$(printf '%s' "$REPORT_PR" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+}
+
+# lib_in_scope <repo> <holdings-json-file>: is <repo> the host ($REPO) or the
+# Repo of a Holdings row? Compared case-insensitively. The scope a report's
+# pull request must be in.
+lib_in_scope() {
+    jq -e --arg r "$1" --arg h "$REPO" '($r | ascii_downcase) as $l
+        | ($l == ($h | ascii_downcase)) or any(.[]; (.repo | ascii_downcase) == $l)' "$2" > /dev/null
+}
+
+# lib_pr_held <repo> <number> <topic> <holdings-json-file>: does a Holdings row
+# other than <topic>'s link <repo>#<number>? Such a pull request's owner is
+# ambiguous, so it is reported, never adopted.
+lib_pr_held() {
+    jq -e -L "$HERE" --arg r "$1" --arg n "$2" --arg t "$3" 'include "record-codec";
+        any(.[]; .worker != $t and ((.pull_request // "" | pr_link) as $p
+            | $p != null and $p.number == $n and ($p.repo | ascii_downcase) == ($r | ascii_downcase)))' "$4" > /dev/null
+}
+
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
 # each with `parked` set. A row is parked when it has a Verified head and its
 # pull request is open and not a draft (gh pr view in the linked repository);

@@ -85,7 +85,9 @@ UNDER="wait report_facts report_questions decision_next decision_carry decision_
 decision_open decision_raise decision_answer decision_evidence escalate escalate_send decision_withdraw
 decision_withdraw_send decision_reply decision_reply_send decision_redirect decision_redirect_send"
 PASSTHROUGH="take_report pick_facts classify_report"
-TERMINAL="record_conflict rebrief surface decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped"
+# Stand-ins where the run stops: states this suite doesn't drive, whatever
+# their real routes (report_link, for one, loops back to report_facts).
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {
