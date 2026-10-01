@@ -26,8 +26,10 @@ The three subfields are load-bearing:
   topic).
 - `suppress_status_aware_prompt` -- when `true`, the child skips its
   status-aware re-entry prompt (the question it asks when its artifact
-  already exists at a status it recognizes). It does not skip the
-  child's own verdict: see "What a child keeps and what it skips" below.
+  already exists at a status it recognizes). For `/scope`'s children
+  it does not skip the child's own verdict: see shape 6 and "What a
+  child keeps and what it skips under /scope" below. `/charter`'s
+  children hand back a Draft for the parent to approve (shape 2).
 - `rationale` -- routes how the child closes out:
   - `fresh-chain` -- this is the first pass through the chain; the
     child finalizes the artifact and hands control back to the parent.
@@ -68,7 +70,8 @@ parent owns those:
   files; the parent's cleanup phase owns that;
 - **routing prompts** -- no "what next" question (which skill to run
   next, whether to update an upstream issue); a prompt that pairs the
-  verdict with a next step, such as `/design`'s "Plan or Approve",
+  verdict with a next step, such as `/design`'s "Plan (Recommended)" /
+  "Approve only",
   keeps only the verdict. Control returns to the parent, which
   decides the next hop.
 
@@ -81,7 +84,8 @@ applies while a child runs under it.
 
 A child invoked under sub-agent dispatch cannot always perform the
 same review or approval mechanics it uses under direct human
-invocation (no interactive user, parent owns publishing, etc.).
+invocation (no interactive user, parent owns the prompt UX or
+publishing, etc.).
 The six canonical fallback shapes encode the resolutions:
 
 ### 1. Serial-self-jury
@@ -195,8 +199,10 @@ routing:
 - `rationale: fresh-chain` -- the child finalizes the artifact, the
   parent reads the child's terminal state, and the parent advances
   to the next chain step (e.g. BRIEF -> PRD, PRD -> DESIGN, DESIGN
-  -> PLAN). The child made its artifact's status transition; the
-  parent owns the move to the next step.
+  -> PLAN). For `/scope`'s children (shape 6) the child made its
+  artifact's status transition and the parent owns the move to the
+  next step; for `/charter`'s children (shape 2) the parent triggers
+  the Accepted transition on approval.
 - `rationale: revise` -- the child re-finalizes the revised artifact
   and returns control to the parent at the SAME chain step. The
   parent then re-evaluates whether downstream artifacts need

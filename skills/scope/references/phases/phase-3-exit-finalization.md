@@ -191,7 +191,11 @@ never finished holds little a later run could reuse (per
   nothing is force-materialized and no document is re-drafted. The
   marker goes at the END of the Status section of the last document
   the chain produced, at its current status, and `exit_artifacts:`
-  lists the documents on disk.
+  lists the documents on disk. `triggering_child:` (and the
+  marker's `triggering-child`) is the child the escalation stopped
+  before invoking: Phase 2's worktree check runs immediately before
+  a child is invoked, so that child is the one the stop belongs to,
+  and the field's enum has no value for "none".
 
 State file at abandonment-forced exit:
 
