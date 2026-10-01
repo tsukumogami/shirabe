@@ -89,16 +89,16 @@ coord_lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 # not in a git repository: `cd ""` would succeed and answer with <dir> itself.
 coord_git_common_dir() {
     local d
-    d=$(cd "$1" && git rev-parse --git-common-dir 2>/dev/null) || return 1
+    d=$(CDPATH='' cd "$1" && git rev-parse --git-common-dir 2>/dev/null) || return 1
     [ -n "$d" ] || return 1
-    (cd "$1" && cd "$d" && pwd -P)
+    (CDPATH='' cd "$1" && CDPATH='' cd "$d" && pwd -P)
 }
 
 # coord_url_key <url> -- a remote URL reduced to a comparison key, so the
 # https and ssh spellings of one repository, with or without .git or a
 # trailing slash, compare equal: <host>/<path>, lowercased, for the forms
-# scheme://[user@]host[:port]/path and user@host:path. Any other URL (a
-# local path) is its own key, unchanged.
+# scheme://[user@]host[:port]/path and user@host:path. Any other form (a
+# local path, or host:path with no user) is its own key, unchanged.
 coord_url_key() {
     local u="$1"
     case "$u" in
@@ -259,7 +259,11 @@ coord_find_pr() {
         || { echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
     printf '%s' "$C_JSON" | jq -e 'type == "object" and (.state | type) == "string"' >/dev/null \
         || { echo "$PROG: the coordination PR read is not a PR object" >&2; return 2; }
-    if ! printf '%s' "$C_JSON" | jq -r '.body // ""' | grep -qF "$COORD_MARKER"; then
+    # A here-string, not a pipe into grep -q: under pipefail an early grep
+    # exit can SIGPIPE the producer and fail a match that succeeded.
+    local c_body
+    c_body=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
+    if ! grep -qF "$COORD_MARKER" <<<"$c_body"; then
         echo "$PROG: $C_URL does not carry the coordination PR declaration marker" >&2
         return 3
     fi

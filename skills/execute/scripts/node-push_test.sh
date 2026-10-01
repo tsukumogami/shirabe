@@ -62,7 +62,8 @@
 #                                                gh write, the message naming
 #                                                neither repository
 #     a separate clone whose origin is the home's exit 79, nothing pushed
-#     the first, through a remote naming another URL   exit 79
+#     a worktree cut there, pushing through a remote naming another URL
+#                                                exit 79
 #     a clone whose origin spells the home's URL another way (ssh, https,
 #     case, .git, a trailing slash)              exit 79
 #     both origins written through one insteadOf rule   exit 79
@@ -521,8 +522,15 @@ node_clone() {
     NREPO="$CT_WORK/$1-node"
     ct_repo "$NREPO"
     (cd "$NREPO" && git checkout -q main)
-    WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no acme/repo-b worktree for case $1" >&2; exit 1; }
+    cut_in "$NREPO" "$1"
+}
+
+# cut_in <clone> <case> -- cut the node in <clone> with --repo-dir and commit
+# one file on it. Sets WT. Stops the suite when no worktree was made, so a
+# failed cut can never commit into the checkout running the test.
+cut_in() {
+    WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$1" 2>/dev/null | sed -n 's/^worktree=//p')
+    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no worktree in $1 for case $2" >&2; exit 1; }
     (cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
 }
 
@@ -655,8 +663,7 @@ ct_write_db
 fresh_repo home-url
 NREPO="$CT_WORK/home-url-reclone"
 git clone -q "$REPO.origin.git" "$NREPO"
-WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+cut_in "$NREPO" home-url
 home_push
 if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
     pass "a separate clone whose origin is the coordination checkout's: exit 79, nothing pushed"
@@ -690,8 +697,7 @@ fresh_repo home-url-spelling
 NREPO="$CT_WORK/home-url-spelling-clone"
 ct_repo "$NREPO"
 (cd "$NREPO" && git checkout -q main)
-WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+cut_in "$NREPO" home-url-spelling
 # Set after the cut, which fetches from the clone's origin.
 (cd "$NREPO" && git remote set-url origin https://git.invalid/acme/repo-a/)
 home_push
@@ -712,8 +718,7 @@ git config --global url."$REPO.origin.git".insteadOf gh:acme/repo-a
 NREPO="$CT_WORK/home-insteadof-clone"
 git clone -q "$REPO.origin.git" "$NREPO"
 (cd "$NREPO" && git remote set-url origin gh:acme/repo-a)
-WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+cut_in "$NREPO" home-insteadof
 home_push
 if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
     pass "a clone of the home whose origin and the checkout's share an insteadOf rule: exit 79, nothing pushed"
@@ -732,8 +737,7 @@ git init -q --bare "$CT_WORK/home-fork.git"
 (cd "$REPO" && git config remote.origin.pushurl "$CT_WORK/home-fork.git")
 NREPO="$CT_WORK/home-pushurl-clone"
 git clone -q "$REPO.origin.git" "$NREPO"
-WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+cut_in "$NREPO" home-pushurl
 home_push
 if [ "$RC" -eq 79 ] && ! home_pushed && ! gh_wrote; then
     pass "a clone of the home under a checkout whose origin pushes elsewhere: exit 79, nothing pushed"
@@ -751,8 +755,7 @@ git clone -q --bare "$REPO.origin.git" "$CT_WORK/home-mirror.git"
     && git config remote.origin.pushurl "$REPO.origin.git")
 NREPO="$CT_WORK/home-mirror-clone"
 git clone -q "$REPO.origin.git" "$NREPO"
-WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$NREPO" 2>/dev/null | sed -n 's/^worktree=//p')
-(cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+cut_in "$NREPO" home-mirror
 home_push
 if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$REPO.origin.git" "refs/heads/impl/*")" ] && ! gh_wrote; then
     pass "a clone of the home under a checkout that fetches from a mirror and pushes to the home: exit 79, nothing pushed"

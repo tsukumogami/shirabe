@@ -313,7 +313,7 @@ if [ "$MODE" != order ]; then
             || { [ -n "$NODE_URL" ] && { [ "$NODE_URL" = "$HOME_FETCH" ] || [ "$NODE_URL" = "$HOME_URL" ]; }; }; then
             # Names no repository, either of which may be private: only the
             # node id and this worktree's local path and branch.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree pushes to the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(git rev-parse --show-toplevel 2>/dev/null)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree belongs to, or pushes to, the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(git rev-parse --show-toplevel 2>/dev/null)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
             exit 79
         fi
     fi
