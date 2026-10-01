@@ -210,7 +210,10 @@ states never ask you to do these steps by hand.
 - **Wait.** A message report goes through the hub; a leg-bound worker's result
   is read from its leg by `scripts/wait-target.sh`, once. Both pass
   `take_report`, where `scripts/report-source.sh` refuses a message standing
-  in for a leg-bound worker. When a holding has no pull request yet and its
+  in for a leg-bound worker. A checkpoint report is `progress`, from a worker
+  on either path: it never stands for a result, so `report_facts` records it
+  and sends it back to the hub with no classification and no phase change,
+  writing a pull request it names onto a holding that has none. When a holding has no pull request yet and its
   report names one (a leg result's `pr`, or the `pull_request` you pass with a
   message), `scripts/holding-link.sh` writes that pull request and its head
   branch, as GitHub reports it, onto the holding. The report's

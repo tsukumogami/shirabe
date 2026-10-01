@@ -80,10 +80,10 @@ tok_shape "holding is in koto's capture alphabet" "$OUT"
 log_to "$S" wait report_facts
 bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "the token is sealed to report_facts" || bad "the token is sealed to report_facts"
 log_to "$S" report_facts wait
-eq "report.json carries the pull request's facts" '{"unit":"alpha","pull_request":{"repo":"acme/widgets","number":12,"url":"https://github.com/acme/widgets/pull/12"},"state":"OPEN","draft":false,"head":"2222222222222222222222222222222222222222","merge_state":"CLEAN"}' \
+eq "report.json carries the pull request's facts" '{"unit":"alpha","pull_request":{"repo":"acme/widgets","number":12,"url":"https://github.com/acme/widgets/pull/12"},"state":"OPEN","draft":false,"head":"2222222222222222222222222222222222222222","merge_state":"CLEAN","progress":false,"refused":null}' \
     "$(facts | jq -c 'del(.holding)')"
 eq "and the holding" "alpha feat/alpha" "$(facts | jq -r '"\(.holding.worker) \(.holding.branch)"')"
-eq "and no worker text" '["draft","head","holding","merge_state","pull_request","state","unit"]' "$(facts | jq -c 'keys')"
+eq "and no worker text" '["draft","head","holding","merge_state","progress","pull_request","refused","state","unit"]' "$(facts | jq -c 'keys')"
 report '{"event":"report","unit":"beta"}'
 eq "a pull request in another holding's repository is in scope" "holding 5 beta" "${OUT% sealed:*}"
 report '{"event":"report","unit":"eta"}'
@@ -185,6 +185,21 @@ log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
 log_to "$S" wait quiet_check; log_to "$S" quiet_check wait
 report '{"event":"quiet","unit":"beta"}'
 eq "only a report event names the reporting unit" "holding 12 alpha" "${OUT% sealed:*}"
+
+echo "== progress (a checkpoint report, shirabe#491) =="
+report '{"event":"progress","unit":"alpha","report":"checkpoint 1 reached"}'
+eq "progress for a linked holding goes back to the hub" "progress 12 alpha" "${OUT% sealed:*}"
+tok_shape "progress is in koto's capture alphabet" "$OUT"
+eq "report.json marks it progress" "true null" "$(facts | jq -r '"\(.progress) \(.refused)"')"
+report '{"event":"progress","unit":"zeta","report":"checkpoint 1 reached"}'
+eq "progress naming no pull request goes back to the hub" "progress none zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/widgets#20"}'
+eq "progress naming a pull request its holding lacks is linked first" "link 20 zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/other#3"}'
+eq "progress naming a pull request out of scope still goes back to the hub" "progress none zeta" "${OUT% sealed:*}"
+eq "and keeps the refusal in report.json" "true out-of-scope-repo" "$(facts | jq -r '"\(.progress) \(.refused)"')"
+report '{"event":"report","unit":"alpha"}'
+eq "a report after progress is classified as before" "holding 12 alpha" "${OUT% sealed:*}"
 
 echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'

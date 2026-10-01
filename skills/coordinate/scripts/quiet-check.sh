@@ -99,7 +99,7 @@ done < "$T/quiet.jsonl"
 latest_evidence() {
     local ts
     set -- --state "$1" --where "$2=$3"
-    [ "$2" = wait ] && set -- "$@" --where event=report
+    [ "$2" = wait ] && set -- "$@" --where 'event=report|progress'
     local out rc
     out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" "$@"); rc=$?
     case $rc in 0) ;; 1) return 0 ;; *) echo x > "$T/read-failed"; return 0 ;; esac

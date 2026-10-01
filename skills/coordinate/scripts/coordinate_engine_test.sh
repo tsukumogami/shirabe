@@ -48,6 +48,13 @@
 #      design (the gate above keeps such a report out of verify), so its
 #      sealed verdict is board-record_test.sh's and its arm the structure
 #      test's.
+#  19. a checkpoint report is progress (shirabe#491): on the message path
+#      it goes through take_report and report_facts back to wait with no
+#      classification and no phase change, and one naming a pull request its
+#      holding lacks goes through report_link, where holding-link.sh writes
+#      it; a leg-bound worker's progress message is accepted, not refused,
+#      and goes back to wait without touching its leg; the same worker's
+#      later terminal report is classified as before.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -511,6 +518,43 @@ else
     bad "11: reach verified_confirm for the moved head" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+
+# ---- 19. a checkpoint report is progress --------------------------------------
+echo "== 19. a checkpoint report is progress, on either return path =="
+PROG_ROWS() {
+    jq -nc --argjson a "$(holding feat-1 '{"unit": "Feature 1", "branch": "", "verified_head": "", "pull_request": "", "return_path": "message"}')" \
+        --argjson b "$(holding feat-2 '{"unit": "Feature 2", "branch": "", "verified_head": "", "pull_request": "", "return_path": "leg req-x:deliver"}')" '[$a, $b]'
+}
+db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+    mergeStateStatus: "CLEAN"}]' --arg h "$H"
+if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 191 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 message: progress naming no pull request goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 1 reached: scoping started."}')"
+    from_to take_report report_facts && from_to report_facts wait && ok "19 message: through take_report and report_facts" \
+        || bad "19 message: through take_report and report_facts"
+    eq "19 message: never classified" 0 "$(entered classify_report)"
+    eq "19 message: progress naming a pull request its holding lacks goes to report_link" report_link \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
+    write_as_agent holding-link.sh
+    eq "19 message: holding-link.sh writes it" 0 $?
+    eq "19 message: written goes back to wait through report_facts" wait "$(at --with-data '{"linked":"written"}')"
+    live_body 191 | jq -e '.holdings[] | select(.worker == "feat-1") | .pull_request == "[#12](https://github.com/acme/widgets/pull/12)" and .phase == "executing"' >/dev/null \
+        && ok "19 message: the holding carries the pull request, its phase unchanged" || bad "19 message: the holding carries the pull request" "$(live_body 191 | jq -c .holdings)"
+    eq "19 message: still never classified" 0 "$(entered classify_report)"
+    eq "19 leg: a leg-bound worker's progress is accepted and goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached."}')"
+    eq "19 leg: it never went to surface" 0 "$(entered surface)"
+    eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
+    eq "19 leg: a report message from it is still refused at take_report" wait \
+        "$(at --with-data '{"event":"report","unit":"feat-2","report":"Done."}')"
+    eq "19 leg: still not classified" 0 "$(entered classify_report)"
+    eq "19 terminal: the message worker's later report is classified" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"Done: PR #12 is ready.","pull_request":"acme/widgets#12"}')"
+else
+    bad "19: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
 
 # ---- 16. a report's pull request reaches the holding --------------------------
 echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="

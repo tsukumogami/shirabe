@@ -129,6 +129,7 @@ stateDiagram-v2
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 62
     report_facts --> report_link : gates.report_facts_verdict.exit_code: 63
+    report_facts --> wait : gates.report_facts_verdict.exit_code: 64
     report_link --> report_facts : linked: written
     report_link --> surface : linked: refused
     report_questions --> decision_open : gates.report_questions_verdict.exit_code: 170
@@ -192,6 +193,7 @@ stateDiagram-v2
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76
     verify_board --> wait : gates.verify_board_verdict.exit_code: 77
     wait --> take_report : event: report
+    wait --> take_report : event: progress
     wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet
     wait --> decision_apply : event: decision

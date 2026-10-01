@@ -440,7 +440,7 @@ lib_pr_ref() {
 # it is the `pr` of the result koto holds for that leg, promoted by the
 # worker's own session: koto's record, never the worker_report text. On the
 # message path it is the `pull_request` field of the latest `wait` evidence
-# whose event is report, the arrival lib_unit read. A value that isn't a
+# whose event is report or progress, the arrival lib_unit read. A value that isn't a
 # string is kept as JSON, so it fails lib_pr_ref rather than reading as none.
 # Exits 2 on a failed read.
 lib_report_pr() {
@@ -458,7 +458,7 @@ lib_report_pr() {
             | if . == null then "" elif type == "string" then . else tojson end') \
             || lib_die2 "koto's record of request $req is not JSON"
     else
-        out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where event=report 2> /dev/null)
+        out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=report|progress' 2> /dev/null)
         rc=$?
         case $rc in 0) ;; 1) return 0 ;; *) lib_die2 "cannot read the session log" ;; esac
         REPORT_PR=$(printf '%s' "$out" | jq -r '.fields.pull_request

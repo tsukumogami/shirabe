@@ -3,7 +3,7 @@
 # reporting worker's holding and check that its pull request may be verified.
 #
 # The unit is the `unit` of the latest `wait` evidence whose event is
-# `report`. Its holding is read with record-holding.sh --read (the row whose
+# `report` or `progress`. Its holding is read with record-holding.sh --read (the row whose
 # Worker is that topic). When the row links a pull request, it is refused when:
 #   out-of-scope-repo  the link's repository is neither the host nor the Repo
 #                      of any Holdings row
@@ -25,12 +25,22 @@
 #   pr-held            another Holdings row links it, so whose it is is
 #                      ambiguous: it is reported, never adopted
 #
-# Verdict tokens: holding <pr|none> <topic> | link <pr> <topic> | unknown
-# <topic> (no row, or `-` when the evidence names no dispatch topic) | refused
-# <topic> <why> (one of the codes above).
+# A progress report (the hub's `progress` event: a checkpoint message, never
+# a result; shirabe#491) is read the same way, and a pull request it names
+# that its holding lacks still gives `link`, so report_link writes it onto
+# the holding through holding-link.sh. Every other verdict for it is
+# `progress <pr|none> <topic>`, which goes back to the hub: no
+# classification, no phase change. A pull request it named that was refused
+# is kept in the facts' `refused` field rather than routed.
+#
+# Verdict tokens: holding <pr|none> <topic> | link <pr> <topic> | progress
+# <pr|none> <topic> | unknown <topic> (no row, or `-` when the evidence names
+# no dispatch topic) | refused <topic> <why> (one of the codes above).
 # The facts go to context key coord/report.json as data (classify_report's
 # decider input): {unit, pull_request: {repo, number, url} or null, state,
-# draft, head, merge_state, holding}. No worker message text: the dispatch
+# draft, head, merge_state, holding, progress (bool), refused (the reason a
+# progress report's pull request was refused, or null)}. No worker message
+# text: the dispatch
 # path adds worker_report separately.
 #
 # Usage:
@@ -70,12 +80,24 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-TOPIC=- ROW=null PRJ=null PRVIEW='{}'
+TOPIC=- ROW=null PRJ=null PRVIEW='{}' PROGRESS=0
 finish() {
-    jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
+    local tok=$1 refused=
+    # A progress report goes back to the hub whatever its pull request's
+    # standing, unless its holding is to be linked first.
+    if [ "$PROGRESS" = 1 ]; then
+        set -- $1
+        case "$1" in
+            holding) tok="progress $2 $3" ;;
+            refused) refused=$3; tok="progress none $2" ;;
+        esac
+    fi
+    jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" \
+        --argjson pg "$([ "$PROGRESS" = 1 ] && echo true || echo false)" --arg rf "$refused" '
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
-         head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
-    lib_emit report_facts "$1" coord/report.json "$T/report.json"
+         head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row,
+         progress: $pg, refused: (if $rf == "" then null else $rf end)}' > "$T/report.json"
+    lib_emit report_facts "$tok" coord/report.json "$T/report.json"
 }
 
 hold() { # hold <mode args...>: record-holding.sh with this run's facts
@@ -98,8 +120,15 @@ hold() { # hold <mode args...>: record-holding.sh with this run's facts
 leg_holdings() {
     hold --list 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 }
-lib_unit "" report leg_holdings || finish "unknown -"
+lib_unit "" 'report|progress' leg_holdings || finish "unknown -"
 TOPIC=$UNIT
+# Progress: the arrival is a `wait` evidence (never a leg's result) whose
+# event is progress, read from the log, never from a context key.
+if [ -z "$UNIT_LEG" ]; then
+    EVP=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=report|progress' 2> /dev/null)
+    case $? in 0|1) ;; *) lib_die2 "cannot read the session log" ;; esac
+    [ "$(printf '%s' "$EVP" | jq -r '.fields.event // ""')" = progress ] && PROGRESS=1
+fi
 ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
 case $? in
     0) ;;

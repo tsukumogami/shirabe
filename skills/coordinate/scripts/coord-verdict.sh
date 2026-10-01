@@ -57,7 +57,7 @@ case "$WORD" in
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts
-    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;;
+    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;; progress) exit 64 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
     board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
