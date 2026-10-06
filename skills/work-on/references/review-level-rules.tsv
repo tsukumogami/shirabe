@@ -1,0 +1,64 @@
+# review-level-rules.tsv -- the path classes and floor rules /work-on's review
+# level is checked against. review-levels.md says what the levels mean;
+# scripts/review-level.sh reads this file.
+#
+# A run reads the copy of this file `review-level.sh init` stored when its
+# level was first chosen, never the working tree's, so a change here applies to
+# runs that start after it lands. This file is in the `security` class below,
+# so a diff that edits it floors at `full`.
+#
+# Tab-separated. Blank lines and lines starting with `#` are ignored.
+#
+#   class <name> <glob>   a path is in <name> when it matches <glob>. A class
+#                         may have many globs. Globs are bash `case` patterns
+#                         matched on the repository-relative path; `*` also
+#                         matches `/`, and a leading `**/` also matches no
+#                         directory at all.
+#   rule <level> <fact>   the floor is at least <level> when <fact> holds.
+#                         <level> is light, standard or full. <fact> is one of
+#                           class:<name>       a changed path is in the class
+#                           lines><N>          changed lines (added + deleted)
+#                                              exceed N
+#                           files><N>          changed files exceed N
+#                           tests_changed      a path in the `test` class changed
+#                           criteria_changed   the acceptance criteria changed
+#
+# The floor is the highest level any rule yields, `light` when none fires.
+# review-level.sh refuses (exit 64) a file with an unknown record type, level
+# or fact, or a rule naming a class no `class` line defines.
+
+class	ci	.github/workflows/**
+class	ci	.github/actions/**
+
+class	security	install.sh
+class	security	skills/work-on/references/review-level-rules.tsv
+class	security	**/hooks/**
+class	security	.claude/**
+class	security	**/settings*.json
+class	security	*credential*
+class	security	*secret*
+class	security	*token*
+
+class	template	**/koto-templates/**
+
+class	executable	**/scripts/**
+class	executable	scripts/**
+class	executable	crates/**
+
+class	test	**/*_test.sh
+class	test	**/*_test.go
+class	test	**/*_test.py
+class	test	**/test_*.py
+class	test	**/tests/**
+class	test	**/evals/**
+
+rule	full	class:ci
+rule	full	class:security
+rule	full	lines>400
+rule	full	files>12
+
+rule	standard	class:template
+rule	standard	class:executable
+rule	standard	class:test
+rule	standard	criteria_changed
+rule	standard	lines>40

@@ -192,6 +192,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/panel-scope_test.sh
 
+      # review-level_test.sh runs the review level script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives
+      # real koto sessions of a scratch template that declares REVIEW_LEVEL:
+      # the rebind, the floor hold, the unset route and the reader. The engine
+      # half skips without koto, so it runs here.
+      - name: Run review level tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level_test.sh
+
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine
       # needed; the macOS leg runs it on the floor through the work-on suite.
