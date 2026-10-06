@@ -254,6 +254,25 @@ put() {
         || die 66 "koto context add failed for $1 on session [$SESSION]"
 }
 
+# The decider shadow for the round just recorded: review-shadow.py's site
+# command reads these verdicts from the ledger and records the decider's beside
+# them (docs/designs/DESIGN-jev-closed-criteria.md). It runs in the background
+# with its output discarded, so --record's status, ledger and timing are what
+# they would be without it; it runs whether or not REVIEW_SHADOW_SITES opts in,
+# because the site command records an unset opt-in rather than staying silent.
+# REVIEW_SHADOW_SITE_CMD replaces the command, for tests.
+shadow_site() {
+    local cmd root
+    case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
+    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/scripts/review-shadow/review-shadow.py}"
+    [ -x "$cmd" ] || return 0
+    [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
+        </dev/null >/dev/null 2>&1 & ) 2>/dev/null
+    return 0
+}
+
 # ---------------------------------------------------------------- --record ----
 
 if [ "$MODE" = "--record" ]; then
@@ -315,6 +334,7 @@ if [ "$MODE" = "--record" ]; then
                 findings: ($s.findings // [])
               })' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     put "$LEDGER" "$WORK/ledger"
+    shadow_site
     exit 0
 fi
 

@@ -496,9 +496,12 @@ Callers:
   verdict file is written.
 - `skills/work-on/scripts/panel-scope.sh`: once the ledger write succeeds,
   `--record` starts `site work-on --session <WF> --panel <panel> --head
-  <sha>` in the background for the `scrutiny`, `review` and `light` panels,
-  only when `REVIEW_SHADOW_SITES=1` is set and `python3` and the script are
-  present. Its own exit status and output are unchanged either way.
+  <sha> --repo-path <root>` in the background for the `scrutiny`, `review`
+  and `light` panels, when `python3` and the script are present. It runs
+  whatever `REVIEW_SHADOW_SITES` says, because the site command records an
+  unset opt-in as `not-opted-in` rather than writing nothing, so an empty
+  shadow record is never mistaken for agreement. Its own exit status and
+  output are unchanged either way.
 
 The work-on assembler reads the session's `impl_base` and criteria the way
 `review-packet.sh code` does, so the decider and the seat read the same
@@ -528,7 +531,7 @@ when `--issue` names one.
    before any caller exists so the record's attribution fields are settled
    first.
 5. **Callers and guide.** The phase-file lines for `/brief`, `/prd` and
-   `/review-plan`; the `panel-scope.sh --record` hook, gated as above, with
+   `/review-plan`; the `panel-scope.sh --record` hook, as above, with
    tests that `--record` returns at once and with the same status when the
    shadow fails or `python3`, the script or koto is missing; the guide
    `docs/guides/review-shadow.md` gains the site commands; the measured

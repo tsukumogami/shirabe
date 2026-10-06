@@ -299,6 +299,18 @@ If a verdict file is missing or its verdict marker cannot be parsed literally,
 treat that reviewer as FAIL with reason "verdict unparseable" and surface to the
 user.
 
+Then, before aggregating or fixing anything, run the decider shadow once:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site brief --topic <topic> >/dev/null 2>&1 || true
+```
+
+It reads the BRIEF and the two verdict files itself, asks the decider the
+brief's closed criteria when the user has opted in, and records both verdicts
+side by side outside the repository. Nothing reads its result: it changes no
+verdict, step or file here, and a failure or a missing key changes nothing
+either.
+
 ## 4.3 Aggregate Verdicts
 
 Apply the following aggregation table (the all-PASS rule, matching the strategy

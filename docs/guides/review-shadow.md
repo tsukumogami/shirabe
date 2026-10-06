@@ -15,7 +15,7 @@ in `docs/designs/current/DESIGN-jev-review-shadow.md`. The tool is
 `scripts/review-shadow/review-shadow.py`; it needs Python 3.8 or later and
 `gh`, logged in to an account that can read the repository.
 
-## The five commands
+## The six commands
 
 | Command | What it does | Writes |
 |---|---|---|
@@ -24,6 +24,7 @@ in `docs/designs/current/DESIGN-jev-review-shadow.md`. The tool is
 | `report` | prints agreement between grades and panel outcomes | nothing |
 | `scan` | runs the script criteria over your local branch | nothing |
 | `check` | loads the criteria and category files and reports problems | nothing |
+| `site` | shadows one review site's seats with the decider; `--measure` only sizes its input | one site record (none with `--measure`) |
 
 ## Before a panel: grade the head
 
@@ -213,3 +214,66 @@ about 14,000 and 240,000 Jev input tokens per pull request, median about
 32,000. The stale-comment criterion took 89% of it, which is why it ships
 off. With the default criteria, on the same twelve heads, a grade cost
 about 950 to 1,260 Jev input tokens and 83 output tokens.
+
+## Review sites in shadow
+
+`site` runs the same decider beside the seats of four review sites: the
+brief jury (`brief`), the PRD jury (`prd`), `/review-plan`'s category C
+(`review-plan`) and three `/work-on` panels (`work-on --panel
+scrutiny|review|light`). Each asks a few closed criteria (rs-011 to rs-017)
+of small units a script cuts from files on disk: one journey, one acceptance
+criterion, one issue's criteria, one criterion with the hunks that mention
+it. It reads each seat's verdict from where the seat already writes it and
+records both side by side. The skills run it for you: the brief, PRD and
+`/review-plan` phase files call it after their seats write their verdicts,
+and `panel-scope.sh --record` starts it in the background after each
+`/work-on` round. Nothing reads its result. The site table, the criteria
+and why each site is or isn't a candidate are in
+`docs/designs/DESIGN-jev-closed-criteria.md`.
+
+It takes identifiers only:
+
+```
+scripts/review-shadow/review-shadow.py site brief --topic <topic>
+scripts/review-shadow/review-shadow.py site work-on --session <koto-session> --panel scrutiny [--head <sha>] [--issue <n>]
+```
+
+`--repo-path` names the repository root when you aren't in it, and
+`--in-sample` marks a manual re-grade so the report keeps it out of the test.
+
+### Turning it on
+
+Nothing is sent to the decider unless all three hold: the repository's
+`CLAUDE.md` declares `## Repo Visibility: Public`, a key is set
+(`JEV_API_KEY` or `KOTO_DECIDER_API_KEY`), and `REVIEW_SHADOW_SITES=1` is
+set in the environment the skills run in. Otherwise every run still writes
+a record holding the seats' verdicts, with the decider's criteria
+`unanswered` and the reason (`private-repo`, `not-opted-in` or `no-key`), so
+an unset opt-in shows up in the report as runs not graded rather than as
+silence. A slice holding a term from your private-term list
+(`REVIEW_SHADOW_PRIVATE_TERMS`) is never sent, and a run sends at most 32
+slices within 60 seconds.
+
+### Measuring a site's input
+
+```
+scripts/review-shadow/review-shadow.py site prd --topic <topic> --measure
+```
+
+prints each slice's size in bytes and the size of the packet that site's
+seats read (`seat-packet <bytes>`), then exits. It sends nothing and writes
+nothing.
+
+### Reading the site tables
+
+`report` adds a section per population with one row per seat and one per
+criterion. A seat's verdict covers its whole checklist, while a criterion
+covers one closed question, so the comparison is directional: a decider
+fail beside a seat pass is a decider-only fail; a seat block beside a
+decider pass is an attributed false pass only when one of the seat's
+findings falls in a slice the decider graded (only `/review-plan` and
+`/work-on` can tell), and otherwise an unattributed seat block. The 95%
+upper bound counts both kinds of block against the decider's passes, so a
+site whose seats can't be attributed keeps a wide bound until outcomes say
+more. Runs not graded and seat verdicts that couldn't be read are counted
+apart.
