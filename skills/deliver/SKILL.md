@@ -12,7 +12,7 @@ description: >-
   knows where the topic stopped. Do NOT use it to write only the documents
   (`/scope`), to run a PLAN that already exists and needs no re-scoping
   (`/execute`), or to fix one known issue (`/work-on`).
-argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--koto-leg=<request-id>:deliver]'
+argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:deliver]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -48,11 +48,13 @@ between the two, and those live in its template,
 | `--auto` / `--interactive` | The execution mode, resolved once and passed to both children. With neither, the repository's `## Execution Mode:` header in CLAUDE.md decides, and without one the run is interactive. Interactive runs get one confirmation from `/deliver` before `/execute` starts, naming the PLAN's mode. |
 | `--no-merge` | `/execute` runs without `--merge`, so the run ends at best `ready-awaiting-merge`. Without it, `/execute` gets `--merge`. |
 | `--upstream <path>`, `--max-rounds=N`, `--coordinated` / `--no-coordinated` | Forwarded to `/scope` unchanged. |
+| `--review-floor=<level>`, `--review-ceiling=<level>` | The review-level bound (`light`, `standard` or `full`), forwarded to `/execute` unchanged, which hands it to every `/work-on` run it starts. Without them `/execute` gets neither. |
 | `--koto-leg=<request-id>:deliver` | Binds this run's `deliver-<topic>` session to a leg of a caller's koto request; see Answering a Caller's Leg. Not forwarded to either child. |
 
 koto checks every argument a koto variable can express, not this file: a
 repeated flag, both mode flags, both coordination flags, a malformed topic or
-upstream, or a `--max-rounds` outside 1 to 50 is refused at `koto init` with
+upstream, a `--max-rounds` outside 1 to 50, or a `--review-floor` or
+`--review-ceiling` that isn't `light`, `standard` or `full` is refused at `koto init` with
 exit 2 and no session. `--koto-leg` is the one exception: `deliver-open.sh`
 checks it before any koto call, because without a well-formed value there is
 no leg to record a refusal on (see Answering a Caller's Leg).

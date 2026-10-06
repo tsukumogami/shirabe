@@ -1,6 +1,6 @@
 # Phase 4b: Code Review
 
-Run three parallel code reviewers after scrutiny passes. Each reviewer checks the implementation from a different angle. All three must pass for the workflow to advance to QA validation.
+Run three parallel code reviewers after scrutiny passes. Each reviewer checks the implementation from a different angle. All three must pass for the workflow to advance: to QA validation at the `full` review level, to verification at `standard`.
 
 ## Reviewers
 
@@ -14,7 +14,7 @@ Spawn all three simultaneously using the Task tool:
 
 ## Which Seats Run
 
-On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, whatever the Reviewers section above says about spawning all three (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on to `qa_validation` without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
+On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, whatever the Reviewers section above says about spawning all three (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on (to `qa_validation`, or to `verification` at `standard`) without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
 
 ```bash
 koto context get <WF> review_scope.json
@@ -72,7 +72,7 @@ When a blocking finding sends the work back, clear every artifact the return tri
 
 ```bash
 OUTCOME_FIELD=review_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
@@ -88,7 +88,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 The `review_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All four keys go, not only this panel's — see `phase-4a-scrutiny.md` for why a retry raised anywhere invalidates every panel's verdict, and `summary.md` with them. The verdict ledger stays, so clearing a verdict doesn't mean re-running its seats: on the way back, scrutiny re-runs only seats whose cited scope the fix touched, and on re-entering this phase the seat that raised the finding re-checks it.
+Every key in the list goes, not only this panel's — see `phase-4a-scrutiny.md` for why a retry raised anywhere invalidates every panel's verdict, and `summary.md` with them. The verdict ledger stays, so clearing a verdict doesn't mean re-running its seats: on the way back, scrutiny re-runs only seats whose cited scope the fix touched, and on re-entering this phase the seat that raised the finding re-checks it.
 
 ## Escalation
 

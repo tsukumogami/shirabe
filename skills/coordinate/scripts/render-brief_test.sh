@@ -10,7 +10,11 @@
 # and every refusal (each missing required field, an approval-worded
 # checkpoint, a pointer that isn't one, a flag outside the entry point's set,
 # an unknown entry point, a bad topic, a UUID-shaped value) exits 1 and
-# writes nothing.
+# writes nothing. A review_level renders its Acceptance criteria line and
+# its flags before --koto-leg; without it the brief matches the goldens in
+# testdata/brief-golden/ byte for byte; a bad level, a floor above the
+# ceiling, an unknown key, an entry point that doesn't take the flags, or
+# the flags given in entry_args or run_mode is refused.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -158,6 +162,46 @@ I=$(bash "$S" --input "$(variant interactive '.run_mode = "--interactive"')" --s
 has "interactive: the caution is there too" "$I" 'Run mode: `--interactive`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.'
 has "checkpoints: never wait for approval" "$B" "don't wait for approval to go past it"
 
+# --- a review-level bound -----------------------------------------------------------
+#
+# Without review_level the brief is byte for byte the one rendered before the
+# field existed: testdata/brief-golden/ holds those renders of this file's
+# base, min and leg inputs. A deliberate change to the brief's wording updates
+# them with the same three renders.
+GOLD="$HERE/testdata/brief-golden"
+golden() { # golden <label> <golden file> <render-brief args...>
+    local label=$1 want=$2
+    shift 2
+    if bash "$S" "$@" --stdout | cmp -s - "$want"; then ok "$label"; else bad "$label" "differs from $want"; fi
+}
+golden "review level: absent, the base brief is unchanged" "$GOLD/base.txt" --input "$BASE"
+golden "review level: absent, the min brief is unchanged"  "$GOLD/min.txt"  --input "$MIN"
+golden "review level: absent, the leg brief is unchanged"  "$GOLD/leg.txt"  --input "$BASE" --return-path req_1:deliver
+
+RL=$(bash "$S" --input "$(variant rl-ceiling '.review_level = {"ceiling": "standard"}')" --stdout)
+has "review level: a ceiling's line in Acceptance criteria" "$RL" "- [ ] Review level: ceiling standard; /work-on's choice must fall inside it."
+eq  "review level: the line is in Acceptance criteria, after the given ones" "## Acceptance criteria" \
+    "$(printf '%s\n' "$RL" | awk '/^## / { s = $0 } /^- \[ \] Review level:/ { print s; exit }')"
+eq  "review level: after the given criteria" "- [ ] CI is green per job." \
+    "$(printf '%s\n' "$RL" | awk '/^- \[ \] Review level:/ { print prev; exit } { prev = $0 }')"
+has "review level: a ceiling's flag on the invocation" "$RL" 'Run `/shirabe:deliver plugin-api --auto --no-merge --review-ceiling=standard` in acme/widgets.'
+lacks "review level: a ceiling alone adds no floor" "$RL" "--review-floor"
+# Only the line and the flag differ from the brief without the field.
+eq  "review level: nothing else changes" "$(cat "$GOLD/base.txt")" \
+    "$(printf '%s\n' "$RL" | grep -v '^- \[ \] Review level:' | sed 's/ --review-ceiling=standard//')"
+RL=$(bash "$S" --input "$(variant rl-floor '.review_level = {"floor": "full"}')" --stdout)
+has "review level: a floor's line" "$RL" "- [ ] Review level: floor full; /work-on's choice must fall inside it."
+has "review level: a floor's flag" "$RL" "--no-merge --review-floor=full\`"
+RL=$(bash "$S" --input "$(variant rl-both '.review_level = {"ceiling": "full", "floor": "light"}')" --return-path req_1:deliver --stdout)
+has "review level: both, in one line" "$RL" "- [ ] Review level: floor light, ceiling full; /work-on's choice must fall inside it."
+has "review level: both flags, before the leg" "$RL" '--no-merge --review-floor=light --review-ceiling=full --koto-leg=req_1:deliver`'
+RL=$(bash "$S" --input "$(variant rl-equal '.review_level = {"floor": "standard", "ceiling": "standard"}')" --stdout); RC=$?
+eq  "review level: a floor equal to the ceiling is taken" 0 "$RC"
+for ep in work-on execute; do
+    bash "$S" --input "$(variant "rl-$ep" '.entry_point = "'"$ep"'" | .entry_args = ["#12"] | .review_level = {"ceiling": "light"}')" --stdout >/dev/null 2>&1
+    eq "review level: /shirabe:$ep takes it" 0 "$?"
+done
+
 # --- refusals write nothing ---------------------------------------------------------
 
 rm -rf "$BRIEFS"
@@ -200,6 +244,15 @@ refused "flag given twice"      "$(variant dup '.entry_args += ["--auto"]')"    
 refused "both modes"            "$(variant both '.run_mode = "--auto --interactive"')"      "--auto and --interactive together"
 refused "quote in positional"   "$(variant q '.entry_args = ["a\"b"]')"                     "may not contain a quote"
 refused "dollar in positional"  "$(variant d '.entry_args = ["$(x)"]')"                     "may not contain a quote"
+refused "review level: floor above ceiling" "$(variant rl-inv '.review_level = {"floor": "full", "ceiling": "light"}')" "review_level: the floor (full) is above the ceiling (light)"
+refused "review level: not a level"   "$(variant rl-bad '.review_level = {"ceiling": "heavy"}')"     "review_level: ceiling must be light, standard or full"
+refused "review level: not a string"  "$(variant rl-num '.review_level = {"floor": 1}')"             "review_level: floor must be light, standard or full"
+refused "review level: unknown key"   "$(variant rl-key '.review_level = {"ceiling": "full", "level": "light"}')" "review_level: unknown key level"
+refused "review level: empty object"  "$(variant rl-empty '.review_level = {}')"                     "review_level: must be an object with floor, ceiling or both"
+refused "review level: not an object" "$(variant rl-str '.review_level = "standard"')"               "review_level: must be an object"
+refused "review level: an entry point without the flags" "$(variant rl-scope '.entry_point = "scope" | .entry_args = ["plugin-api"] | .review_level = {"ceiling": "standard"}')" "review_level: /shirabe:scope doesn't take --review-ceiling"
+refused "review level: a flag in entry_args" "$(variant rl-arg '.entry_args += ["--review-ceiling=heavy"]')" "entry_args: --review-ceiling goes in review_level"
+refused "review level: a flag in run_mode"   "$(variant rl-mode '.run_mode = "--auto --review-floor=full"')" "run_mode: --review-floor goes in review_level"
 refused "session id"            "$(variant uuid '.goal = "Resume 3f2b8c1e-9a4d-4c2e-8f1a-2b3c4d5e6f70."')" "UUID-shaped token"
 
 ERR=$(cd "$W/inst" && bash "$S" --input "$BASE" --return-path 'nope; rm' 2>&1 >/dev/null); RC=$?

@@ -18,7 +18,9 @@
 #     others
 #   - TOPIC, PLUGIN_ROOT, COORDINATION, UPSTREAM and MAX_ROUNDS carry
 #     scope.md's constraints exactly; MODE is auto|interactive, MERGE
-#     true|false
+#     true|false; REVIEW_FLOOR and REVIEW_CEILING are optional, default
+#     empty, the level pattern ^(light|standard|full)?$, rebind like
+#     MAX_ROUNDS
 #   - scope_leg, scope_intent and exec_leg are request-leg gates on this run's
 #     REQ, declared overridable: false, with /scope's and /execute's outcome
 #     sets as `expect`; every context-matches gate in scoped_check,
@@ -37,7 +39,9 @@
 #     other merged_check arm ends ready-awaiting-merge
 #   - the three terminals declare the eleven-key result map, each read as
 #     ${context.<key>}; done_error is a failure
-#   - the child directives name --intent=continue and the legs
+#   - the child directives name --intent=continue and the legs; execute_run's
+#     appends --review-floor={{REVIEW_FLOOR}} and
+#     --review-ceiling={{REVIEW_CEILING}}, each only when not empty
 #
 # Usage: bash skills/deliver/scripts/deliver-template-structure_test.sh
 # Exit codes: 0 all pass (the compiled checks SKIP loudly without koto);
@@ -172,6 +176,8 @@ CHECKS=(
 "done_error is a failure; done and done_stopped are not|.states.done_error.failure == true and ((.states.done.failure // false) == false) and ((.states.done_stopped.failure // false) == false)"
 "scope_run's directive runs /scope --intent=continue on the scope leg|.states.scope_run.directive | (contains(\"--intent=continue\") and contains(\"--koto-leg={{REQ}}:scope\"))"
 "execute_run's directive runs /execute on the PLAN and the execute leg|.states.execute_run.directive | (contains(\"docs/plans/PLAN-{{TOPIC}}.md\") and contains(\"--koto-leg={{REQ}}:execute\") and contains(\"{{MERGE}}\"))"
+"execute_run's directive appends the review-level bound only when not empty|.states.execute_run.directive | (contains(\"\`--review-floor={{REVIEW_FLOOR}}\`, only when that value after \`=\` is not\") and contains(\"\`--review-ceiling={{REVIEW_CEILING}}\`, only when that value after \`=\` is not\"))"
+"REVIEW_FLOOR and REVIEW_CEILING are optional, default empty, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and (.default // \"\") == \"\" and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
 )
 
 run_checks() { # run_checks <json> -> the labels that fail

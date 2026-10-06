@@ -85,7 +85,7 @@ When a blocking finding sends the work back, clear every artifact the return tri
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
@@ -101,7 +101,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 Why removal rather than leaving the old verdict to be overwritten: the `scrutiny_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass, and the panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact — the refusal is the state machine's, not a matter of remembering to submit the right outcome.
 
-All four keys go, not only this panel's. A `blocking_retry` returns to `implementation` and the run walks forward from there through every panel, `verification` and `finalization`, and none of those gates may pass on a verdict written before the fix. Clearing a panel's verdict no longer means re-running its seats, though. `verdict_ledger.json` is deliberately not in the list: it holds each seat's last verdict, the commit it judged, and what it cited, and on re-entry `panel-scope.sh` uses it to decide which seats the fix actually touched. A panel whose every seat is untouched gets a fresh, carried `<panel>_results.json` written by the script, so the gate still demands this round's artifact, and the artifact says why no seat ran.
+Every key in the list goes, not only this panel's. A `blocking_retry` returns to `implementation` and the run walks forward from there through every panel, `verification` and `finalization`, and none of those gates may pass on a verdict written before the fix. `light_results.json` is in the list because the review-level check on the way back can change which panels the run reaches, and a stale light verdict must not satisfy the light panel's gate either. Clearing a panel's verdict no longer means re-running its seats, though. `review_level.jsonl`, the review-level ledger, is never in the list: it is the run's record of its level. `verdict_ledger.json` is deliberately not in the list: it holds each seat's last verdict, the commit it judged, and what it cited, and on re-entry `panel-scope.sh` uses it to decide which seats the fix actually touched. A panel whose every seat is untouched gets a fresh, carried `<panel>_results.json` written by the script, so the gate still demands this round's artifact, and the artifact says why no seat ran.
 
 `summary.md` is in the list as belt and braces rather than because a panel retry normally finds one: the only route from `finalization` back to a panel is the `issues_found` edge, which clears it there. It stays because removal is idempotent and costs nothing, and because it catches the case where the finalization step was skipped. `plan.md` is deliberately NOT in the list — a code change does not invalidate the plan, and clearing it would strand a run that later re-enters `analysis`.
 

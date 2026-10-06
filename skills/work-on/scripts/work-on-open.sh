@@ -43,13 +43,36 @@
 #                  through a shell.
 #   <tokens-file>  a JSON array of strings, the invocation's tokens in order,
 #                  written with the Write tool or jq into a directory from
-#                  `koto-open.sh --alloc-dir`. Only the --koto-leg tokens are
-#                  read from it: `--koto-leg=<v>` or `--koto-leg <v>`. This
-#                  script removes it, and koto-open.sh removes the pairs file
-#                  and the directory.
+#                  `koto-open.sh --alloc-dir`. Read from it: the --koto-leg
+#                  tokens (`--koto-leg=<v>` or `--koto-leg <v>`) and the
+#                  review-level bound, below. This script removes it, and
+#                  koto-open.sh removes the pairs file and the directory.
+#
+# The review-level bound, mapped from the tokens to pairs, one per occurrence,
+# so a repeat reaches koto and is refused there as duplicate_var:
+#
+#   --review-floor=<level>    REVIEW_FLOOR=<level>
+#   --review-ceiling=<level>  REVIEW_CEILING=<level>
+#
+# A bare --review-floor or --review-ceiling becomes the literal token, which
+# the variables' pattern ^(light|standard|full)?$ refuses (invalid_var), as
+# does any value outside the three names. Without the flags no pair is
+# written, so the session gets exactly the variables it got before the flags
+# existed. Both variables are not rebind in work-on.md: an attach that passes
+# a different bound than the session recorded is koto's var_mismatch, and one
+# that passes none keeps the recorded bound.
 #
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
+#
+# REVIEW_LEVEL is added when the session is live and its review_level.jsonl
+# ledger records a level (`review-level.sh level`, the last level event's
+# `to`). An attach resets every rebind variable it isn't passed, and without
+# this a resume through this script would empty the run's chosen level. With
+# no session or no ledger nothing is added, so a new session's variables are
+# unchanged. A ledger that exists but can't be read adds nothing either, with
+# a warning on stderr: the level check then holds on the empty level, which
+# `review-level.sh set <session> <level>` clears.
 #
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
 # failed=...), then `session=<name>` when a session was opened or attached.
@@ -178,10 +201,27 @@ TOKENS_EOF
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
+# The level the live session's ledger last recorded, or nothing.
+LEVEL=""
+if LEVEL=$(bash "$SELF_DIR/review-level.sh" level "$WORKFLOW" 2>"$DIR/level.err"); then
+    :
+else
+    LEVEL=""
+    echo "$PROG: could not read $WORKFLOW's review level ledger, so REVIEW_LEVEL is not passed and the level check will hold until review-level.sh set rebinds it: $(head -c 300 "$DIR/level.err")" >&2
+fi
+rm -f -- "$DIR/level.err"
+
 PAIRS_FILE="$DIR/work-on-vars.json"
-jq -nc --arg root "$ROOT" '$ARGS.positional
-    | map([(split("=")[0]), (.[(index("=") + 1):])])
-    + [["PLUGIN_ROOT", $root]]' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
+jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
+    def bound($t; $flag; $var):
+        if $t == $flag then [[$var, $t]]
+        elif ($t | startswith($flag + "=")) then [[$var, ($t | ltrimstr($flag + "="))]]
+        else [] end;
+    ($ARGS.positional | map([(split("=")[0]), (.[(index("=") + 1):])]))
+    + [ $tokens[] | bound(.; "--review-floor"; "REVIEW_FLOOR")[] ]
+    + [ $tokens[] | bound(.; "--review-ceiling"; "REVIEW_CEILING")[] ]
+    + [["PLUGIN_ROOT", $root]]
+    + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
 
 OUT=$(bash "$KOTO_OPEN" "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE" --attach-live --koto-leg "$LEG")

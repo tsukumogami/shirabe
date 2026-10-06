@@ -220,7 +220,7 @@
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
         "Agent runs koto context remove on scrutiny_results.json, review_results.json, qa_results.json and summary.md before submitting the retry",
-        "Agent clears all four keys, not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
+        "Agent clears every key the block lists (the four panels' results keys, light_results.json among them, and summary.md), not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
         "Agent does not clear plan.md, which a code change does not invalidate",
         "Agent treats the clearing as failed if either koto context remove reports failure or koto context exists still reports the key present",
         "Agent does not run koto context exists as a guard before removing",

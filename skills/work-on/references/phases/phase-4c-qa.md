@@ -73,7 +73,7 @@ When a defect sends the work back, clear every artifact the return trip invalida
 
 ```bash
 OUTCOME_FIELD=qa_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
@@ -89,7 +89,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried verdict for any panel the fix didn't touch, so the gate is satisfied by this round's artifact rather than the stale one. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
+Every key in the list goes, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried verdict for any panel the fix didn't touch, so the gate is satisfied by this round's artifact rather than the stale one. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 ## Escalation
 
