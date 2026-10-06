@@ -1926,26 +1926,26 @@ class TestSiteReport(unittest.TestCase):
     def test_figures(self):
         self.build()
         p = self.sites()["out-of-sample"]
-        g = p["seats"]["work-on:scrutiny|completeness"]
+        g = p["seats"]["work-on:scrutiny"]["completeness"]
         self.assertEqual(g["n"], 6)
         self.assertAlmostEqual(g["agreement"], 2 / 6)
         self.assertEqual((g["decider_passes"], g["decider_only_fails"]), (3, 1))
         self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (1, 1))
         self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(2, 3))
         self.assertEqual(g["no_verdict"], 1)
-        self.assertEqual(p["criteria"]["work-on:scrutiny|rs-015"], g)
+        self.assertEqual(p["criteria"]["work-on:scrutiny"]["rs-015"], g)
         self.assertEqual(p["not_graded"], {"work-on:scrutiny": 1})
-        self.assertEqual(p["seat_unreadable"], {"work-on:scrutiny|completeness": 1})
+        self.assertEqual(p["seat_unreadable"], {"work-on:scrutiny": {"completeness": 1}})
 
     def test_in_sample_is_apart(self):
         self.build()
         p = self.sites()["in-sample"]
-        g = p["seats"]["work-on:scrutiny|completeness"]
+        g = p["seats"]["work-on:scrutiny"]["completeness"]
         self.assertEqual((g["n"], g["unattributed_seat_blocks"]), (1, 1))
 
     def test_zero_blocks_and_no_runs(self):
         self.record(1, "pass", "pass")
-        g = self.sites()["out-of-sample"]["seats"]["work-on:scrutiny|completeness"]
+        g = self.sites()["out-of-sample"]["seats"]["work-on:scrutiny"]["completeness"]
         self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (0, 0))
         self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(0, 1))
         self.assertEqual(rs.site_rates([])["false_pass_upper95"], None)
@@ -1963,7 +1963,7 @@ class TestSiteReport(unittest.TestCase):
                 self.assertEqual(rs.main(argv), 0)
             text = out.getvalue()
             if argv[-1] == "--json":
-                self.assertIn("work-on:scrutiny|completeness", json.loads(text)["sites"]["out-of-sample"]["seats"])
+                self.assertIn("completeness", json.loads(text)["sites"]["out-of-sample"]["seats"]["work-on:scrutiny"])
             else:
                 self.assertIn("| work-on:scrutiny | completeness | 6 | 33% | 3 | 1 | 1 | 1 |", text)
                 self.assertIn("Runs not graded (no decider verdict), by site: work-on:scrutiny 1.", text)
@@ -1977,9 +1977,9 @@ class TestSiteReport(unittest.TestCase):
                                                                     {"rule_id": "rs-016", "verdict": "pass", "slices": 1}])
         rs.write_site_record(self.home, rec)
         p = self.sites()["out-of-sample"]
-        self.assertEqual(p["criteria"]["work-on:light|rs-015"]["unattributed_seat_blocks"], 1)
-        self.assertEqual(p["criteria"]["work-on:light|rs-016"]["attributed_false_passes"], 1)
-        self.assertEqual(p["seats"]["work-on:light|reviewer"]["attributed_false_passes"], 1)
+        self.assertEqual(p["criteria"]["work-on:light"]["rs-015"]["unattributed_seat_blocks"], 1)
+        self.assertEqual(p["criteria"]["work-on:light"]["rs-016"]["attributed_false_passes"], 1)
+        self.assertEqual(p["seats"]["work-on:light"]["reviewer"]["attributed_false_passes"], 1)
 
     def test_review_plan_reads_the_later_round(self):
         files = plan_files()
@@ -1989,13 +1989,11 @@ class TestSiteReport(unittest.TestCase):
             "review_result:\n  verdict: loop-back\n  round: 1\n  critical_findings:\n    - category: C\n"
             "      affected_issue_ids: [1]\n")
         root = site_repo(files)
-        loop = root / SCRATCH / "plan_demo_review_loopback.md"
-        os.utime(loop, (loop.stat().st_mtime + 60, loop.stat().st_mtime + 60))  # newer file, older round
         art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
         slices, _ = rs.build_site_slices(art)
         self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
 
-    def test_review_plan_reads_the_newer_verdict_file(self):
+    def test_review_plan_prefers_proceed_on_equal_rounds(self):
         files = plan_files()
         files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
         files[f"{SCRATCH}/plan_demo_review.md"] = "review_result:\n  verdict: proceed\n  critical_findings: []\n"
@@ -2003,17 +2001,13 @@ class TestSiteReport(unittest.TestCase):
             "review_result:\n  verdict: loop-back\n  critical_findings:\n    - category: C\n"
             "      affected_issue_ids: [1]\n")
         root = site_repo(files)
-        older = root / SCRATCH / "plan_demo_review.md"
-        os.utime(older, (older.stat().st_mtime - 60, older.stat().st_mtime - 60))
         art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
         slices, _ = rs.build_site_slices(art)
-        seat = rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]
-        self.assertEqual(seat["verdict"], "fail")
-        newer = root / SCRATCH / "plan_demo_review.md"
-        os.utime(newer, None)
-        loop = root / SCRATCH / "plan_demo_review_loopback.md"
-        os.utime(loop, (loop.stat().st_mtime - 120, loop.stat().st_mtime - 120))
         self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
+        (root / SCRATCH / "plan_demo_review_loopback.md").write_text(
+            "review_result:\n  verdict: loop-back\n  round: 2\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "fail")
 
 
 def _refuse_real_opener(*a, **k):

@@ -1833,18 +1833,15 @@ def read_plan_seat(art, files, slices):
     category C finding. Each finding's affected_issue_ids tie it to the issue slices."""
     topic, rule_ids = art["subject_id"], SITE_SEATS["review-plan"]["category-c"]
     # Both files can exist when a loop-back round was followed by a proceed round
-    # (or the reverse). The verdict on the plan as it stands is the one with the
-    # higher review_result round; on equal or missing rounds, the file modified
-    # last, and on a tie of both, the proceed file (the order /review-plan writes).
+    # (or the reverse). The verdict on the plan as it stands carries the higher
+    # review_result round; when the rounds are equal or absent, the proceed file.
     candidates = []
     for order, name in enumerate((f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md")):
-        rel = f"{SCRATCH_DIR}/{name}"
-        body = files.read(rel)
+        body = files.read(f"{SCRATCH_DIR}/{name}")
         if body is not None:
             m = re.search(r"^\s*round:\s*(\d+)\s*$", body, re.M)
-            mtime = files.resolve(rel).stat().st_mtime_ns
-            candidates.append((int(m.group(1)) if m else -1, mtime, -order, body))
-    text = max(candidates)[3] if candidates else None
+            candidates.append((int(m.group(1)) if m else -1, -order, body))
+    text = max(candidates)[2] if candidates else None
     if text is None:
         return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-missing")]
     if not re.search(r"^\s*verdict:\s*\"?(proceed|loop-back)\"?\s*$", text, re.M):
@@ -2278,21 +2275,22 @@ def site_report_data(site_records, criteria):
             verdict_of = {c["rule_id"]: VERDICT_OUTCOME[c["verdict"]] for c in r.get("criteria", [])}
             for seat in r.get("seats", []):
                 if seat["verdict"] not in ("pass", "fail"):
-                    unreadable[f"{site}|{seat['seat']}"] = unreadable.get(f"{site}|{seat['seat']}", 0) + 1
+                    per_site = unreadable.setdefault(site, {})
+                    per_site[seat["seat"]] = per_site.get(seat["seat"], 0) + 1
                     continue
                 outs = [verdict_of[rid] for rid in seat["rule_ids"] if rid in verdict_of]
                 if not outs:
                     continue
                 o = "fail" if "fail" in outs else ("pass" if all(x == "pass" for x in outs) else "none")
                 kinds = {slice_kind_of.get(rid) for rid in seat["rule_ids"]}
-                seats.setdefault(f"{site}|{seat['seat']}", []).append(
+                seats.setdefault(site, {}).setdefault(seat["seat"], []).append(
                     (o, seat["verdict"], attributed_in(seat, kinds)))
                 for rid in seat["rule_ids"]:
                     if rid in verdict_of:
-                        crits.setdefault(f"{site}|{rid}", []).append(
+                        crits.setdefault(site, {}).setdefault(rid, []).append(
                             (verdict_of[rid], seat["verdict"], attributed_in(seat, {slice_kind_of.get(rid)})))
-        out[pop] = {"seats": {k: site_rates(v) for k, v in seats.items()},
-                    "criteria": {k: site_rates(v) for k, v in crits.items()},
+        out[pop] = {"seats": {site: {k: site_rates(v) for k, v in by.items()} for site, by in seats.items()},
+                    "criteria": {site: {k: site_rates(v) for k, v in by.items()} for site, by in crits.items()},
                     "not_graded": not_graded, "seat_unreadable": unreadable}
     out["tokens"] = {"input": sum(r.get("tokens", {}).get("input", 0) for r in site_records),
                      "output": sum(r.get("tokens", {}).get("output", 0) for r in site_records),
@@ -2406,15 +2404,14 @@ def print_site_report(sites):
             print(f"{title}:\n")
             print(cols.format(name))
             print("|---|---|---|---|---|---|---|---|---|---|")
-            for k in sorted(p[key]):
-                a, b = k.split("|")
-                g = p[key][k]
+            for a, b, g in ((a, b, g) for a in sorted(p[key]) for b, g in sorted(p[key][a].items())):
                 print(f"| {a} | {b} | {g['n']} | {_pct(g['agreement'])} | {g['decider_passes']} "
                       f"| {g['decider_only_fails']} | {g['attributed_false_passes']} | {g['unattributed_seat_blocks']} "
                       f"| {_pct(g['false_pass_upper95'])} | {g['no_verdict']}/{g['n']} |")
             print()
         not_graded = ", ".join(f"{k} {v}" for k, v in sorted(p["not_graded"].items())) or "none"
-        unreadable = ", ".join(f"{k.replace('|', ' ')} {v}" for k, v in sorted(p["seat_unreadable"].items())) or "none"
+        unreadable = ", ".join(f"{site} {seat} {v}" for site in sorted(p["seat_unreadable"])
+                               for seat, v in sorted(p["seat_unreadable"][site].items())) or "none"
         print(f"Runs not graded (no decider verdict), by site: {not_graded}.")
         print(f"Seat verdicts unreadable, by seat: {unreadable}.\n")
     t = sites["tokens"]
