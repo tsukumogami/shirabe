@@ -24,17 +24,18 @@ those lines have in common, so it is said once.
    gets its own `recheck` packet, one per such seat, instead of the round's
    code packet; build the code packet only when a `full` or `rerun` seat is
    spawned. A seat with any other decision gets the code packet, unchanged.
-   An exit of 64 from a `recheck` packet means the scope doesn't mark that
-   seat `recheck` (or there is no scope): give the seat the code packet
-   instead, as its decision says.
+   An exit of 64 from a `recheck` packet means the scope can't give that
+   seat a re-check (no scope, an unreadable one, a decision other than
+   `recheck`, or no base to fall back to); its message names which. Give the
+   seat the code packet instead.
 2. Pass the model on every spawn (`model: "sonnet"` or `model: "haiku"`). A
    spawn with no model inherits the parent's.
 3. Open each prompt with the seat preamble below, after any fixed preamble the
    spawn site already has, with the packet path and the seat's budget filled
    in. Where a prompt template says to include the document or its sections
    (`[Contents of ...]`), name the packet path instead of pasting the text.
-   A `recheck` seat's prompt is the re-check prompt below, after the
-   preamble, in place of its panel's full-review prompt: its packet carries
+   A `recheck` seat's prompt is the re-check prompt below, with `<seat>`
+   filled in, after the preamble, in place of its panel's full-review prompt: its packet carries
    no acceptance criteria for that prompt to judge.
 4. Delete the packet once the round is aggregated, with the seats' detail
    files.
