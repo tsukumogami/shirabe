@@ -996,6 +996,16 @@ states:
         override_default:
           exists: true
           error: ""
+      # The level was checked against the facts at review_level_check, and
+      # every passed route below routes on it. level_unchanged holds those
+      # routes when REVIEW_LEVEL no longer matches the ledger's last level: a
+      # hand rebind (`koto init --attach-live --var REVIEW_LEVEL=...`) made
+      # while the run sits here would otherwise pick the route, skipping QA
+      # with the ledger untouched. review-level.sh agree exits 0 when the two
+      # match (both empty is the unset route) and 1 otherwise.
+      level_unchanged:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" agree "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
     accepts:
       review_outcome:
         type: enum
@@ -1007,22 +1017,26 @@ states:
     transitions:
       # Where a passed review goes depends on the review level: `standard`
       # stops before QA, `full` and an unset level (a session from an earlier
-      # template) go on to it. `light` never reaches this state; a hand rebind
-      # to it while the run sits here matches no passed route, so the state
-      # holds until review-level.sh set puts the level back.
+      # template) go on to it. `light` never reaches this state. A hand
+      # rebind while the run sits here fails level_unchanged, so no passed
+      # route matches and the state holds until review-level.sh set puts the
+      # level back to the ledger's.
       #
       # Every seat kept its verdict: nothing to spawn, so koto advances.
       - target: verification
         when:
           gates.review_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: full
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL:
             is_set: false
       - target: verification
@@ -1031,6 +1045,7 @@ states:
           review_outcome: passed
           gates.review_recorded.exit_code: 0
           gates.review_results.exists: true
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
       - target: qa_validation
         when:
@@ -1038,6 +1053,7 @@ states:
           review_outcome: passed
           gates.review_recorded.exit_code: 0
           gates.review_results.exists: true
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: full
       - target: qa_validation
         when:
@@ -1045,6 +1061,7 @@ states:
           review_outcome: passed
           gates.review_recorded.exit_code: 0
           gates.review_results.exists: true
+          gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL:
             is_set: false
       - target: implementation
@@ -1162,6 +1179,11 @@ states:
       has_commits:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
+      # Identical to review's copy: holds the passed routes when REVIEW_LEVEL
+      # no longer matches the ledger's last level.
+      level_unchanged:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" agree "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
     accepts:
       light_outcome:
         type: enum
@@ -1175,6 +1197,7 @@ states:
       - target: verification
         when:
           gates.light_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
       - target: verification
         when:
           gates.light_carried.exit_code: 1
@@ -1182,6 +1205,7 @@ states:
           gates.light_recorded.exit_code: 0
           gates.light_results.exists: true
           gates.has_commits.exit_code: 0
+          gates.level_unchanged.exit_code: 0
       - target: implementation
         when:
           gates.light_carried.exit_code: 1
@@ -2263,6 +2287,8 @@ Read `review_scope.json` and spawn only the seats whose decision isn't `keep`; a
 Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 Where `passed` goes depends on the run's review level: at `standard` it goes to `verification` with no QA panel; at `full`, or with no level recorded, to `qa_validation`.
 
+The `level_unchanged` gate holds every `passed` route, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level: the variable was changed by hand after the review-level check. Its `hold:` line names both levels. Put the variable back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <the ledger's level>` and submit again (or, with nothing to submit, tick again). A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
+
 Retry cap: 2 blocking retries per run, shared by scrutiny, review and qa_validation (sharing one count is this skill's reading of the retry-caps decision, which gives review panels 2). Once this run has submitted `blocking_retry` twice from any of the three, a panel that still finds a blocking issue submits `blocking_escalate`, which ends the run at `done_blocked`. The cap lives here until koto enforces it from its attempt counts, with the same number.
 
 ## qa_validation
@@ -2284,6 +2310,8 @@ Run the light panel, the one panel of the `light` review level: a single reviewe
 Note on gate discoverability: The gate name is `light_results`; the context key is `light_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
 
 Read `light_scope.json` for whether the seat runs a full review, re-checks only last round's findings against the fix diff, or keeps its verdict. Record the seat with `panel-scope.sh --record light` after the round; `light_recorded` holds `passed` and `blocking_retry` until you have. When the seat is `keep`, koto carries the verdict and advances without stopping here.
+
+The `level_unchanged` gate holds both `passed` routes, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level (`light`): the variable was changed by hand after the review-level check. Put it back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" light` and submit again (or, with nothing to submit, tick again). A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
 Submit `light_outcome: passed` when the reviewer clears the change (it goes to `verification`), `blocking_retry` when it finds correctable issues (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 

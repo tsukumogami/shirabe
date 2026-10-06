@@ -16,11 +16,13 @@
 #   review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
 #   review-level.sh facts  <session> [<level>]
 #   review-level.sh check  <session> <level>
+#   review-level.sh agree  <session> <level>
 #   review-level.sh slice  <session> <level>
 #   review-level.sh report [<session>...]
 #   review-level.sh level  <session>
+#   review-level.sh classify <path>...
 #
-# <floor>, <ceiling> and the <level> of facts/check/slice may be empty (an
+# <floor>, <ceiling> and the <level> of facts/check/agree/slice may be empty (an
 # unset template variable); <level> for set must be one of the three names.
 #
 #   init    run by the level-choice state's action. Stores the bound in
@@ -47,12 +49,23 @@
 #           an attach resets every rebind variable it doesn't pass), appends the
 #           ledger lines and reads them back. A failed rebind writes no line; a
 #           failed ledger write rebinds back to the ledger's level.
-#   facts   run by the level-check state's action. Diffs impl_base..HEAD,
-#           classifies every path (both sides of a rename) with the stored
-#           rules copy, writes `review_facts.json`, and appends a `check` line
-#           when the head, level or floor differs from the last one, or an
-#           `unset` line when the level is empty.
+#   facts   run by the level-check state's action. Diffs HEAD against two
+#           bases, the stored impl_base and the merge-base with the default
+#           branch (origin/HEAD's branch, else origin/main, else main), and
+#           keeps the larger diff (more changed lines, then more files; a tie
+#           keeps impl_base; with no merge-base, impl_base alone). Classifies
+#           every path (both sides of a rename) with the stored rules copy,
+#           writes `review_facts.json` (`base_source` names the base that
+#           won), and appends a `check` line when the head, level or floor
+#           differs from the last one, or an `unset` line when the level is
+#           empty.
 #   check   the level-check gate. Read-only.
+#   agree   the ledger-agreement gate on the states after the level check
+#           that route on the level (review, light_review). Read-only. Passes
+#           when the variable equals the ledger's last level (both empty is
+#           the unset route, and passes); holds otherwise, naming both, so a
+#           hand rebind made after the level check can't change where the run
+#           goes.
 #   slice   the decider check's command: a fixed projection of the facts
 #           (counts, class names, booleans, the floor) and a `level:` line.
 #           Never a path, a reason or criteria text.
@@ -65,6 +78,9 @@
 #           Read-only. work-on-open.sh passes it as REVIEW_LEVEL when it
 #           attaches a live session, because an attach resets every rebind
 #           variable it isn't passed.
+#   classify  one tab-separated row per path: the path, then the classes the
+#           shipped rules file puts it in, comma-separated, or `-` for none.
+#           Read-only; no session.
 #
 # The acceptance-criteria text is the session's `context.md` section headed
 # "Acceptance Criteria" or "Done when" (a markdown heading or a bold label),
@@ -83,7 +99,7 @@
 #         change; facts recorded; check passes; slice, report and level
 #         printed
 #   1  -- set refused (a `refused:` line on stdout names the rule; nothing
-#         changed), or check holds (a `hold:` line names why)
+#         changed), or check or agree holds (a `hold:` line names why)
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
 #         or couldn't be read
 #   3  -- check: the level is empty and the ledger records none (the unset
@@ -94,7 +110,7 @@
 #   66 -- a koto call failed: the rebind, or a context read or write (for
 #         level, a ledger that exists but can't be read). After
 #         set exits 66 neither the variable nor the ledger has changed. (check
-#         never exits 66: a read it can't make is a hold)
+#         and agree never exit 66: a read they can't make is a hold)
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
@@ -127,9 +143,11 @@ usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
        review-level.sh facts  <session> [<level>]
        review-level.sh check  <session> <level>
+       review-level.sh agree  <session> <level>
        review-level.sh slice  <session> <level>
        review-level.sh report [<session>...]
-       review-level.sh level  <session>"
+       review-level.sh level  <session>
+       review-level.sh classify <path>..."
 }
 
 # rank <level>: 1 light, 2 standard, 3 full, 0 empty or unknown.
@@ -239,7 +257,7 @@ load_rules() {
                     lines\>*|files\>*)
                         case "${b#*>}" in ""|*[!0-9]*) die 64 "rules line $n: bad threshold in [$b]" ;; esac
                         ;;
-                    tests_changed|criteria_changed) ;;
+                    tests_changed|criteria_changed|unclassified) ;;
                     *) die 64 "rules line $n: unknown fact [$b]" ;;
                 esac
                 RULE_LEVEL[$NRULE]="$a"
@@ -492,26 +510,78 @@ cmd_set() {
 
 # ---------------------------------------------------------------- facts -------
 
-resolve_base() {
-    # $1 session. Prints the base commit; 1 when none resolves.
-    local stored="" ref=""
+# stored_base <session>: prints the stored impl_base when it names a commit.
+stored_base() {
+    local stored=""
     if ctx_get "$1" impl_base "$WORK/impl_base"; then
         stored=$(tr -d '[:space:]' < "$WORK/impl_base")
     fi
-    if [ -n "$stored" ] && git rev-parse --verify -q "${stored}^{commit}"; then
-        return 0
-    fi
+    [ -n "$stored" ] && git rev-parse --verify -q "${stored}^{commit}"
+}
+
+# default_merge_base: prints the merge-base of HEAD with the default branch
+# (origin/HEAD's branch, else origin/main, else main). 1 when there is no such
+# branch or no shared history.
+default_merge_base() {
+    local ref=""
     ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
     if [ -z "$ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
         ref=origin/main
     fi
-    if [ -n "$ref" ] && git merge-base HEAD "$ref"; then
-        return 0
+    if [ -z "$ref" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
+        ref=main
     fi
-    if git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null && git merge-base HEAD main; then
-        return 0
-    fi
-    return 1
+    [ -n "$ref" ] && git merge-base HEAD "$ref"
+}
+
+# measure <base> <tag>: diffs <base>..HEAD, writes every changed path (both
+# sides of a rename) NUL-separated to $WORK/paths.<tag>, and sets M_LINES and
+# M_FILES. numstat -z: "<add>\t<del>\t<path>\0", or for a rename
+# "<add>\t<del>\t\0<old>\0<new>\0". Binary files count "-" as 0 lines.
+M_LINES=0
+M_FILES=0
+measure() {
+    local rec add del p p2
+    M_LINES=0
+    M_FILES=0
+    git diff -z --numstat -M "$1" HEAD > "$WORK/numstat.$2" || return 1
+    : > "$WORK/paths.$2"
+    while IFS= read -r -d '' rec; do
+        add="${rec%%$'\t'*}"
+        rec="${rec#*$'\t'}"
+        del="${rec%%$'\t'*}"
+        p="${rec#*$'\t'}"
+        case "$add" in ""|*[!0-9]*) add=0 ;; esac
+        case "$del" in ""|*[!0-9]*) del=0 ;; esac
+        M_LINES=$((M_LINES + add + del))
+        M_FILES=$((M_FILES + 1))
+        if [ -z "$p" ]; then
+            IFS= read -r -d '' p || break
+            IFS= read -r -d '' p2 || break
+            printf '%s\0%s\0' "$p" "$p2" >> "$WORK/paths.$2"
+        else
+            printf '%s\0' "$p" >> "$WORK/paths.$2"
+        fi
+    done < "$WORK/numstat.$2"
+    return 0
+}
+
+# path_classes <path>: the classes the path is in, one per line, in the rules
+# file's order, each once.
+path_classes() {
+    local i=0 seen=" "
+    while [ "$i" -lt "$NCLASS" ]; do
+        case "$seen" in
+            *" ${CLASS_NAME[$i]} "*) ;;
+            *)
+                if glob_match "$1" "${CLASS_GLOB[$i]}"; then
+                    seen="$seen${CLASS_NAME[$i]} "
+                    echo "${CLASS_NAME[$i]}"
+                fi
+                ;;
+        esac
+        i=$((i + 1))
+    done
 }
 
 cmd_facts() {
@@ -520,9 +590,8 @@ cmd_facts() {
     valid_session "$s" || usage "bad session name [$s]"
     level_or_empty "$level" level
     git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
-    local head base
+    local head
     head=$(git rev-parse --verify -q "HEAD^{commit}") || die 64 "HEAD does not name a commit"
-    base=$(resolve_base "$s") || die 64 "no base resolves: impl_base is unset and no merge-base with origin's default branch or main"
 
     # The stored copy, never the working tree's: a diff that edits the rules
     # can't change its own floor. A session init never ran for falls back to
@@ -534,31 +603,39 @@ cmd_facts() {
         load_rules "$RULES_SHIPPED"
     fi
 
-    git diff -z --numstat -M "$base" HEAD > "$WORK/numstat" || die 64 "git diff $base HEAD failed"
-
-    # numstat -z: "<add>\t<del>\t<path>\0", or for a rename
-    # "<add>\t<del>\t\0<old>\0<new>\0". Binary files count "-" as 0 lines.
-    local lines=0 files=0 rec add del p p2
-    : > "$WORK/paths"
-    while IFS= read -r -d '' rec; do
-        add="${rec%%$'\t'*}"
-        rec="${rec#*$'\t'}"
-        del="${rec%%$'\t'*}"
-        p="${rec#*$'\t'}"
-        case "$add" in ""|*[!0-9]*) add=0 ;; esac
-        case "$del" in ""|*[!0-9]*) del=0 ;; esac
-        lines=$((lines + add + del))
-        files=$((files + 1))
-        if [ -z "$p" ]; then
-            IFS= read -r -d '' p || break
-            IFS= read -r -d '' p2 || break
-            printf '%s\0%s\0' "$p" "$p2" >> "$WORK/paths"
-        else
-            printf '%s\0' "$p" >> "$WORK/paths"
+    # Two bases, and the larger diff wins (more changed lines, then more
+    # files): the stored impl_base, and the merge-base with the default
+    # branch. impl_base alone can be recorded after some of the work, which
+    # shrinks the diff and lowers the floor. With no shared history there is
+    # no merge-base, and impl_base is used alone. A tie keeps impl_base.
+    local ibase="" mbase="" base="" source="" lines=0 files=0
+    ibase=$(stored_base "$s") || ibase=""
+    mbase=$(default_merge_base) || mbase=""
+    [ -n "$ibase" ] || [ -n "$mbase" ] \
+        || die 64 "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or main"
+    if [ -n "$ibase" ]; then
+        measure "$ibase" impl || die 64 "git diff $ibase HEAD failed"
+        base="$ibase"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
+        cp "$WORK/paths.impl" "$WORK/paths"
+    fi
+    if [ -n "$mbase" ] && [ "$mbase" != "$ibase" ]; then
+        measure "$mbase" merge || die 64 "git diff $mbase HEAD failed"
+        if [ -z "$base" ] || [ "$M_LINES" -gt "$lines" ] \
+            || { [ "$M_LINES" -eq "$lines" ] && [ "$M_FILES" -gt "$files" ]; }; then
+            base="$mbase"; source=merge_base; lines="$M_LINES"; files="$M_FILES"
+            cp "$WORK/paths.merge" "$WORK/paths"
         fi
-    done < "$WORK/numstat"
+    fi
 
-    # Classes, in the rules file's order, each once.
+    # Every path's classes. A path in no class at all is `unclassified`.
+    local p unclassified=false
+    : > "$WORK/pathclasses"
+    while IFS= read -r -d '' p; do
+        path_classes "$p" > "$WORK/one"
+        [ -s "$WORK/one" ] || unclassified=true
+        cat "$WORK/one" >> "$WORK/pathclasses"
+    done < "$WORK/paths"
+    # The classes hit, in the rules file's order, each once.
     local i hit=""
     : > "$WORK/classes"
     i=0
@@ -566,13 +643,10 @@ cmd_facts() {
         case " $hit " in
             *" ${CLASS_NAME[$i]} "*) ;;
             *)
-                while IFS= read -r -d '' p; do
-                    if glob_match "$p" "${CLASS_GLOB[$i]}"; then
-                        hit="$hit ${CLASS_NAME[$i]}"
-                        echo "${CLASS_NAME[$i]}" >> "$WORK/classes"
-                        break
-                    fi
-                done < "$WORK/paths"
+                if grep -qxF "${CLASS_NAME[$i]}" "$WORK/pathclasses"; then
+                    hit="$hit ${CLASS_NAME[$i]}"
+                    echo "${CLASS_NAME[$i]}" >> "$WORK/classes"
+                fi
                 ;;
         esac
         i=$((i + 1))
@@ -603,6 +677,7 @@ cmd_facts() {
             files\>*) n="${fact#*>}"; [ "$files" -gt "$n" ] && fired=1 ;;
             tests_changed) [ "$tests_changed" = true ] && fired=1 ;;
             criteria_changed) [ "$criteria_changed" = true ] && fired=1 ;;
+            unclassified) [ "$unclassified" = true ] && fired=1 ;;
         esac
         if [ "$fired" -eq 1 ]; then
             echo "${RULE_LEVEL[$i]}:$fact" >> "$WORK/fired"
@@ -619,14 +694,19 @@ cmd_facts() {
     jq -n \
         --argjson lines "$lines" --argjson files "$files" \
         --argjson tests_changed "$tests_changed" --argjson criteria_changed "$criteria_changed" \
+        --argjson unclassified "$unclassified" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
+        --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
         --rawfile classes "$WORK/classes" --rawfile fired "$WORK/fired" '
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),
          tests_changed: $tests_changed, criteria_changed: $criteria_changed,
+         unclassified: $unclassified,
          floor: $floor, rule: (if $rule == "" then null else $rule end),
          rules_fired: ($fired | split("\n") | map(select(length > 0))),
-         head: $head, base: $base}
+         head: $head, base: $base, base_source: $base_source,
+         bases: {impl_base: (if $impl_base == "" then null else $impl_base end),
+                 merge_base: (if $merge_base == "" then null else $merge_base end)}}
     ' > "$WORK/facts.json" || die 66 "could not build $FACTS_KEY"
     ctx_put "$s" "$FACTS_KEY" "$WORK/facts.json" || die 66 "could not write $FACTS_KEY"
 
@@ -705,6 +785,38 @@ cmd_check() {
     exit 0
 }
 
+# ---------------------------------------------------------------- agree -------
+
+# The level is checked against the facts once, at the level check. The states
+# after it that route on the level run this, so a hand rebind made while the
+# run sits in one of them holds there instead of taking another route.
+cmd_agree() {
+    [ $# -eq 2 ] || { echo "hold: agree takes <session> <level>"; exit 1; }
+    local s="$1" level="$2" recorded
+    valid_session "$s" || hold "bad session name [$s]"
+    [ -z "$level" ] || valid_level "$level" || hold "REVIEW_LEVEL [$level] is not light, standard or full"
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || hold "could not read $LEDGER"
+    recorded=$(last_level "$WORK/ledger")
+    [ "$level" = "$recorded" ] && exit 0
+    if [ -z "$recorded" ]; then
+        hold "REVIEW_LEVEL is $level but the ledger records no level; it was set by hand after the level check. Clear it with koto init $s --attach-live without REVIEW_LEVEL"
+    fi
+    hold "REVIEW_LEVEL is ${level:-empty} but the ledger's last level is $recorded; it changed after the level check. Run review-level.sh set $s $recorded to put it back"
+}
+
+# ---------------------------------------------------------------- classify ----
+
+cmd_classify() {
+    [ $# -ge 1 ] || usage "classify takes <path>..."
+    local p c
+    load_rules "$RULES_SHIPPED"
+    for p in "$@"; do
+        c=$(path_classes "$p" | paste -sd, -)
+        printf '%s\t%s\n' "$p" "${c:--}"
+    done
+    exit 0
+}
+
 # ---------------------------------------------------------------- level -------
 
 # Prints only one of the three names: a ledger line whose `to` is anything else
@@ -730,6 +842,7 @@ cmd_slice() {
         jq -c '{lines: (.lines // 0), files: (.files // 0),
                 classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))]),
                 tests_changed: (.tests_changed == true), criteria_changed: (.criteria_changed == true),
+                unclassified: (.unclassified == true),
                 floor: (.floor | if . == "light" or . == "standard" or . == "full" then . else "unknown" end)}' \
             "$WORK/facts" || echo '{}'
     else
@@ -828,6 +941,8 @@ case "$SUB" in
     set)    cmd_set "$@" ;;
     facts)  cmd_facts "$@" ;;
     check)  cmd_check "$@" ;;
+    agree)  cmd_agree "$@" ;;
+    classify) cmd_classify "$@" ;;
     slice)  cmd_slice "$@" ;;
     report) cmd_report "$@" ;;
     level)  cmd_level "$@" ;;

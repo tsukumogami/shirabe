@@ -37,6 +37,13 @@ user_visible_surface: false
 
 Current
 
+Amended after review of the implementing pull request, before it merged: the
+path classes gained `engine`, `instruction` and `manifest`, `template` and
+`engine` floor at `full`, a path in no class floors at `standard`, `facts`
+diffs from the larger of `impl_base` and the merge-base with the default
+branch, and `review` and `light_review` re-check the variable against the
+ledger on their level routes. The sections below describe the amended shape.
+
 ## Context and Problem Statement
 
 The PRD asks for three named review levels in `/work-on` (`light`: one seat;
@@ -254,14 +261,20 @@ first routing criterion: with no level recorded the session doesn't reach
 
 `review_level_check`:
 - `default_action`: `review-level.sh facts "{{SESSION_NAME}}"
-  "{{REVIEW_LEVEL}}"`. Reads `impl_base`, runs `git diff -z --numstat -M
-  impl_base..HEAD` and `-z --name-status -M` (NUL-separated, so no path can
-  shift a field), classifies both sides of a rename with the rules copy
+  "{{REVIEW_LEVEL}}"`. Runs `git diff -z --numstat -M <base> HEAD`
+  (NUL-separated, so no path can shift a field) from two bases, the stored
+  `impl_base` and the merge-base of HEAD with the default branch
+  (origin/HEAD's branch, else `origin/main`, else `main`), and keeps the
+  larger diff: more changed lines, then more files, a tie keeping
+  `impl_base`. An `impl_base` recorded after some of the work can't hide that
+  work this way. With no merge-base (no shared history) `impl_base` is used
+  alone. Classifies both sides of a rename with the rules copy
   `init` stored (never the working tree's or the plugin's current file, so a
   diff that edits the rules can't lower its own floor), compares criteria
   text with the stored copy, writes `review_facts.json` (`lines`, `files`,
-  `classes`, `tests_changed`, `criteria_changed`, `floor`, `rules_fired` as
-  rule names only, `head`) and appends a `check` line when the head, level
+  `classes`, `tests_changed`, `criteria_changed`, `unclassified`, `floor`,
+  `rules_fired` as rule names only, `head`, `base`, `base_source` naming the
+  base that won, and `bases` holding both candidates) and appends a `check` line when the head, level
   or floor differs from the last one, or an `unset` line when the level is
   empty. koto runs a state's action again on every tick that reaches it
   without evidence, gate-blocked retries included, so after a hold and a
@@ -303,9 +316,15 @@ first routing criterion: with no level recorded the session doesn't reach
 
 `review` passed routes (both the carried one and the evidence one) gain one
 `vars.REVIEW_LEVEL` condition each: `standard` → `verification`; `full` →
-`qa_validation`; `{is_set: false}` → `qa_validation`. A hand rebind to
-`light` while the run sits in `review` matches no passed route, so the state
-holds until `set` puts the level back. `scrutiny`, `qa_validation` and their
+`qa_validation`; `{is_set: false}` → `qa_validation`. The level is checked
+against the facts only at `review_level_check`, so these routes, and
+`light_review`'s two passed routes, also require a `level_unchanged` command
+gate, `review-level.sh agree "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"`: exit 0
+when the variable equals the ledger's last level (both empty is the unset
+route), 1 otherwise. A hand rebind made while the run sits in either state
+then matches no passed route, so the state holds, its directive naming the
+`set` to the ledger's level that clears it, instead of skipping QA with the
+ledger untouched. `scrutiny`, `qa_validation` and their
 directives' retry-cap paragraphs are untouched. The `review` directive gets
 one sentence after its outcome paragraph saying where `passed` goes at each
 level, outside the lines #588 rewrites. Every retry clearing loop that
@@ -323,6 +342,7 @@ One script, subcommands:
 | `set <s> <level> [--reason t] [--cause veto:<c>]` | the agent | decide, rebind, append | 0, 1, 64, 66 |
 | `facts <s> [<level>]` | `review_level_check` action | facts key, `check`/`unset` line | 0, 64, 66 |
 | `check <s> <level>` | `level_floor` gate | read-only verdict | 0, 1, 3 |
+| `agree <s> <level>` | `level_unchanged` gate | variable matches the ledger | 0, 1 |
 | `slice <s> <level>` | decider check | prints facts and level | 0 |
 | `report [<s>...]` | a maintainer | TSV | 0, 2, 64 |
 
@@ -367,14 +387,32 @@ Tab-separated, `#` comments. Two record types:
 ```
 class	ci	.github/workflows/**
 class	security	**/hooks/**
+class	template	**/koto-templates/**
+class	engine	skills/work-on/scripts/review-level.sh
+class	instruction	**/SKILL.md
+class	docs	*.md
 ...
 rule	full	class:ci
+rule	full	class:template
+rule	full	class:engine
 rule	full	lines>400
 rule	full	files>12
-rule	standard	class:template
+rule	standard	class:instruction
+rule	standard	unclassified
 rule	standard	criteria_changed
 rule	standard	lines>40
 ```
+
+The shipped classes: `ci`; `security` (with secrets: `.env`, `.env.*`,
+`*.pem`, `*password*`); `template` and `engine` (every script a template
+names in a gate's or a `default_action`'s command, plus every `*-open.sh`,
+kept in step with the templates by a test), both at `full`; `instruction`
+(`SKILL.md`, `references/**` at any depth, `CLAUDE.md`, `AGENTS.md`),
+`executable`, `test` and `manifest` (lockfiles and package manifests,
+`requirements*.txt` among them) at `standard`; and `docs` (`*.md`, `docs/**`,
+`*.txt`, `LICENSE`), which no rule names. The `unclassified` fact fires when a
+changed path is in no class, so `light` is reachable only when every changed
+path is documentation or in a class no rule names.
 
 Globs are matched by bash `case` patterns on the path, with `**/` also
 matching zero directories. The floor is the highest level any rule yields;
@@ -498,9 +536,11 @@ about carrying a bound. Each step leaves CI green on its own.
 - **Ledger integrity.** The key is rewritten whole on each append, since
   koto has no append verb. Two writers at once could drop a line; only one
   agent drives a session, so this is accepted.
-- **Coverage gap, accepted.** A small change to a sensitive file outside the
-  listed classes is reviewed by one seat. The classes are data, so a path
-  that proves sensitive is added to the rules file.
+- **Coverage gap, narrowed.** A path in no class floors at `standard`, so
+  only documentation and paths in a class no rule names can be reviewed by
+  one seat. A sensitive file the `docs` globs happen to match is the gap
+  left; the classes are data, so a path that proves sensitive is added to
+  the rules file.
 
 ## Consequences
 

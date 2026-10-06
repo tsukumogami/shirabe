@@ -30,6 +30,10 @@ absorbed:
 
 Done
 
+R10 and R11 were amended after review of the implementing pull request,
+before it merged: the facts diff from the larger of two bases, and the
+default path classes and rules below replace the first list.
+
 The completeness and clarity reviewers passed it on a second round, the
 testability reviewer on the first.
 
@@ -191,12 +195,14 @@ Three things are missing around that one question:
 - **R10. Facts and the floor.** After implementation and before the first
   panel of a code-typed issue, on every lap, a script records the change's facts in the run's
   context and derives a minimum level, the floor, from them:
-  - the diff is `impl_base..HEAD`, the commits the run made, as the
-    existing changed-paths record measures it; uncommitted work is not
+  - the diff is the larger of `impl_base..HEAD`, the commits the run made,
+    and the diff from the merge-base with the default branch, so an
+    `impl_base` recorded late can't shrink it; uncommitted work is not
     counted; a rename counts as one file plus its changed lines; a deletion
     counts its deleted lines;
   - changed lines (added plus deleted) and changed files;
-  - which path classes the changed paths fall in;
+  - which path classes the changed paths fall in, and whether any path
+    falls in none;
   - whether a test file changed;
   - whether acceptance criteria changed: true when the diff touches a file
     under `docs/plans/` or `docs/prds/`, or when the acceptance-criteria
@@ -209,17 +215,26 @@ Three things are missing around that one question:
   floor is the highest level any matching rule yields. The shipped defaults
   are:
   - path classes: `ci` is `.github/workflows/**` and `.github/actions/**`;
-    `security` is `install.sh`, the rules data file itself, `**/hooks/**`, `.claude/**`,
-    `**/settings*.json`, and any path containing `credential`, `secret` or
-    `token`; `template` is `**/koto-templates/**`; `executable` is
-    `**/scripts/**`, `scripts/**` and `crates/**`; `test` is `**/*_test.sh`,
-    `**/*_test.go`, `**/*_test.py`, `**/test_*.py`, `**/tests/**` and
-    `**/evals/**`;
-  - `full` when any path is `ci` or `security`, or changed lines exceed 400,
-    or changed files exceed 12;
-  - `standard` when any path is `template`, `executable` or `test`, or
-    acceptance criteria changed, or changed lines exceed 40;
-  - `light` otherwise.
+    `security` is `install.sh`, the rules data file itself, `**/hooks/**`,
+    `.claude/**`, `**/settings*.json`, any path containing `credential`,
+    `secret`, `token` or `password`, `.env`, `.env.*` and `*.pem`;
+    `template` is `**/koto-templates/**`; `engine` is every script a koto
+    template names in a gate's or a `default_action`'s command, plus every
+    `*-open.sh`; `instruction` is `SKILL.md`, any path under a `references`
+    directory, `CLAUDE.md` and `AGENTS.md`; `executable` is `**/scripts/**`,
+    `scripts/**` and `crates/**`; `test` is `test/**`, `tests/**`, `spec/**`,
+    `*.spec.*`, `*_test.*`, `test_*.*` and `**/evals/**`; `manifest` is
+    `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+    `Cargo.toml`, `Cargo.lock`, `go.mod`, `go.sum`, `requirements*.txt`,
+    `pyproject.toml`, `poetry.lock`, `Gemfile` and `Gemfile.lock`; `docs` is
+    `*.md`, `docs/**`, `*.txt` and `LICENSE`;
+  - `full` when any path is `ci`, `security`, `template` or `engine`, or
+    changed lines exceed 400, or changed files exceed 12;
+  - `standard` when any path is `instruction`, `executable`, `test` or
+    `manifest`, or any path is in no class, or acceptance criteria changed,
+    or changed lines exceed 40;
+  - `light` otherwise: every changed path is documentation (`docs`, which
+    no rule names) and no other rule fired.
 - **R12. The floor only raises.** When the level is below the floor, the
   run doesn't reach any panel: the level check holds with a message naming
   the rule and the floor, until the level is raised to at least the floor.

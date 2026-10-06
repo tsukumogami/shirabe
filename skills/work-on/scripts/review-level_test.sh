@@ -251,7 +251,7 @@ badrules() {
 badrules "an unknown record type" "$(printf 'path\tci\tx/**')" type
 badrules "an unknown level" "$(printf 'rule\theavy\tlines>1')" level
 badrules "an unknown fact" "$(printf 'rule\tfull\tauthors>3')" fact
-badrules "a rule naming an undefined class" "$(printf 'rule\tfull\tclass:docs')" class
+badrules "a rule naming an undefined class" "$(printf 'rule\tfull\tclass:nosuch')" class
 badrules "a non-numeric threshold" "$(printf 'rule\tfull\tlines>many')" threshold
 
 # ==============================================================================
@@ -458,7 +458,7 @@ facts_case() {
 }
 
 facts_case docs 'printf "x\n" >> docs/readme.md' \
-    '{"lines":1,"files":1,"classes":[],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
+    '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 facts_case ci 'mkdir -p .github/workflows && printf "on: push\n" > .github/workflows/ci.yml' \
     '{"lines":1,"files":1,"classes":["ci"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case ci-action 'mkdir -p .github/actions/a && printf "x\n" > .github/actions/a/action.yml' \
@@ -468,25 +468,25 @@ facts_case security-hooks 'mkdir -p plug/hooks && printf "x\n" > plug/hooks/pre.
 facts_case security-settings 'printf "{}\n" > settings.local.json' \
     '{"lines":1,"files":1,"classes":["security"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case security-token 'printf "x\n" > docs/token-notes.md' \
-    '{"lines":1,"files":1,"classes":["security"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
+    '{"lines":1,"files":1,"classes":["security","docs"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case security-rules 'mkdir -p skills/work-on/references && printf "x\n" > skills/work-on/references/review-level-rules.tsv' \
-    '{"lines":1,"files":1,"classes":["security"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
+    '{"lines":1,"files":1,"classes":["security","instruction"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case template 'mkdir -p skills/a/koto-templates && printf "x\n" > skills/a/koto-templates/a.md' \
-    '{"lines":1,"files":1,"classes":["template"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
+    '{"lines":1,"files":1,"classes":["template","docs"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case executable 'printf "y\n" >> scripts/old.sh' \
     '{"lines":1,"files":1,"classes":["executable"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
 facts_case test 'mkdir -p lib && printf "x\n" > lib/a_test.go' \
     '{"lines":1,"files":1,"classes":["test"],"tests_changed":true,"criteria_changed":false,"floor":"standard"}'
 facts_case criteria-plan 'mkdir -p docs/plans && printf "x\n" > docs/plans/PLAN-x.md' \
-    '{"lines":1,"files":1,"classes":[],"tests_changed":false,"criteria_changed":true,"floor":"standard"}'
+    '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":true,"floor":"standard"}'
 # Both sides of a rename are classified: scripts/old.sh moved under docs/ is
 # still an executable change. A rename is one file plus its changed lines.
 facts_case rename 'git mv scripts/old.sh docs/old.txt' \
-    '{"lines":0,"files":1,"classes":["executable"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
+    '{"lines":0,"files":1,"classes":["executable","docs"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
 facts_case rename-edit 'git mv docs/readme.md docs/guide.md && printf "x\n" >> docs/guide.md' \
-    '{"lines":1,"files":1,"classes":[],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
+    '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 facts_case deletion 'git rm -q docs/other.md' \
-    '{"lines":10,"files":1,"classes":[],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
+    '{"lines":10,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 
 fixture facts-criteria-text
 run init "$SESSION" "" ""
@@ -512,6 +512,134 @@ sed 's/^rule	standard	lines>40$/rule	standard	lines>0/' "$RULES" > "$WORKDIR/edi
 OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_LEVEL_RULES="$WORKDIR/edited-rules.tsv" "$SCRIPT" facts "$SESSION" light 2>&1); RC=$?
 [ "$(fact .floor)" = '"light"' ] && pass "facts classifies with the stored rules copy, not the current file" \
     || fail "floor is $(fact .floor) with the rules file edited after init"
+
+echo "--- script: path classes and the unclassified floor"
+
+# floor_case <name> <setup command> <expected floor> <expected unclassified>
+floor_case() {
+    fixture "fl-$1"
+    run init "$SESSION" "" ""
+    commit "$1" "$2"
+    run facts "$SESSION" light
+    if [ "$RC" -ne 0 ]; then fail "floor $1: exit $RC ($ERR)"; return; fi
+    local got
+    got=$(fact '"\(.floor) \(.unclassified)"' | tr -d '"')
+    [ "$got" = "$3 $4" ] && pass "floor $1: $3 (unclassified $4)" \
+        || fail "floor $1: got [$got], expected [$3 $4] ($(fact '{classes, rule}'))"
+}
+
+# Only documentation, or a class no rule names, leaves `light` reachable.
+floor_case readme 'printf "x\n" > README.md' light false
+floor_case license 'printf "x\n" > LICENSE' light false
+floor_case notes-txt 'printf "x\n" > notes.txt' light false
+floor_case unclassified-sh 'printf "x\n" > tool.sh' standard true
+floor_case unclassified-py 'mkdir -p src && printf "x\n" > src/a.py' standard true
+floor_case unclassified-rs 'mkdir -p src && printf "x\n" > src/main.rs' standard true
+floor_case readme-and-rs 'mkdir -p src && printf "x\n" > README.md && printf "x\n" > src/main.rs' standard true
+# instruction files
+floor_case skill-md 'mkdir -p skills/x && printf "x\n" > skills/x/SKILL.md' standard false
+floor_case references 'mkdir -p skills/x/references && printf "x\n" > skills/x/references/guide.md' standard false
+floor_case claude-md 'printf "x\n" > CLAUDE.md' standard false
+floor_case agents-md 'mkdir -p pkg && printf "x\n" > pkg/AGENTS.md' standard false
+# manifests and lockfiles; requirements*.txt is a manifest, not documentation
+floor_case requirements 'printf "x\n" > requirements.txt' standard false
+floor_case requirements-dev 'printf "x\n" > requirements-dev.txt' standard false
+floor_case package-json 'mkdir -p web && printf "{}\n" > web/package.json' standard false
+floor_case go-sum 'printf "x\n" > go.sum' standard false
+floor_case cargo-lock 'printf "x\n" > Cargo.lock' standard false
+# tests
+floor_case test-dir 'mkdir -p test && printf "x\n" > test/a.js' standard false
+floor_case spec-dir 'mkdir -p spec && printf "x\n" > spec/a_spec.rb' standard false
+floor_case spec-file 'mkdir -p src && printf "x\n" > src/a.spec.ts' standard false
+floor_case test-prefix 'printf "x\n" > test_a.py' standard false
+floor_case test-suffix 'mkdir -p src && printf "x\n" > src/a_test.rs' standard false
+# secrets join security
+floor_case env 'printf "x\n" > .env' full false
+floor_case env-local 'mkdir -p app && printf "x\n" > app/.env.local' full false
+floor_case pem 'mkdir -p certs && printf "x\n" > certs/a.pem' full false
+floor_case password 'mkdir -p conf && printf "x\n" > conf/password.txt' full false
+# the engine: scripts the templates run, and the session openers
+floor_case engine-review-level 'mkdir -p skills/work-on/scripts && printf "x\n" > skills/work-on/scripts/review-level.sh' full false
+floor_case engine-panel-scope 'mkdir -p skills/work-on/scripts && printf "x\n" > skills/work-on/scripts/panel-scope.sh' full false
+floor_case engine-retry-budget 'mkdir -p skills/work-on/scripts && printf "x\n" > skills/work-on/scripts/panel-retry-budget.sh' full false
+floor_case engine-open 'mkdir -p skills/x/scripts && printf "x\n" > skills/x/scripts/x-open.sh' full false
+floor_case template-full 'mkdir -p skills/x/koto-templates && printf "x\n" > skills/x/koto-templates/x.md' full false
+
+echo "--- script: the engine class covers every script a template runs"
+
+# Every script a template names in a gate's or a default_action's command
+# line must be in the `engine` class, so the list in the rules file can't
+# fall behind the templates.
+PLUGIN_DIR=$(cd "$SKILL_DIR/../.." && pwd)
+NAMED=$(cat "$PLUGIN_DIR"/skills/*/koto-templates/*.md \
+    | grep -E '^[[:space:]]*command:' \
+    | grep -oE '\{\{PLUGIN_ROOT\}\}/[A-Za-z0-9_./-]+\.(sh|py|bash)' \
+    | sed 's|^{{PLUGIN_ROOT}}/||' | sort -u)
+N=$(printf '%s\n' "$NAMED" | grep -c .)
+[ "$N" -ge 40 ] && pass "the templates' commands name $N scripts" || fail "found only $N scripts in template commands"
+for want in skills/work-on/scripts/review-level.sh skills/work-on/scripts/panel-scope.sh; do
+    printf '%s\n' "$NAMED" | grep -qxF "$want" && pass "the extraction finds $want" || fail "the extraction misses $want"
+done
+# shellcheck disable=SC2086
+UNCOVERED=$(cd "$PLUGIN_DIR" && "$SCRIPT" classify $NAMED | awk -F'\t' '$2 !~ /(^|,)engine(,|$)/ { print $1 }')
+[ -z "$UNCOVERED" ] && pass "every script a template's gate or default_action names is in the engine class" \
+    || fail "scripts named by a template but not in the engine class: $(printf '%s' "$UNCOVERED" | tr '\n' ' ')"
+OPENERS=$(cd "$PLUGIN_DIR" && git ls-files -- '*-open.sh' 2>/dev/null)
+# shellcheck disable=SC2086
+UNCOVERED=$( [ -z "$OPENERS" ] || "$SCRIPT" classify $OPENERS | awk -F'\t' '$2 !~ /(^|,)engine(,|$)/ { print $1 }')
+[ -n "$OPENERS" ] && [ -z "$UNCOVERED" ] && pass "every *-open.sh is in the engine class" \
+    || fail "openers outside the engine class: [$UNCOVERED] (openers: [$OPENERS])"
+GOT=$("$SCRIPT" classify skills/work-on/scripts/not-a-gate.sh | cut -f2)
+[ "$GOT" = executable ] && pass "a script no template names is not in the engine class" || fail "not-a-gate.sh is [$GOT]"
+
+echo "--- script: the larger of the two bases"
+
+# base_case: the work is on a branch off main. An impl_base recorded after the
+# first commit hides that commit; the merge-base with main still sees it.
+fixture base-late
+(cd "$FX/repo" && git checkout -q -b work) || fail "setup: branch"
+commit exe 'printf "y\n" >> scripts/old.sh'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+commit docs 'printf "x\n" >> docs/readme.md'
+run init "$SESSION" "" ""
+run facts "$SESSION" light
+expect_rc "facts with impl_base recorded after a commit" 0
+[ "$(fact '[.floor, .base_source, .base, .lines, .files] | map(tostring) | join(" ")')" = "\"standard merge_base $BASE 2 2\"" ] \
+    && pass "the floor comes from the merge-base diff, the larger one" \
+    || fail "facts are $(fact '{floor, base_source, base, lines, files, classes}')"
+[ "$(fact '.bases.impl_base')" = "\"$(cat "$(store impl_base)")\"" ] && [ "$(fact '.bases.merge_base')" = "\"$BASE\"" ] \
+    && pass "both candidate bases are recorded" || fail "bases are $(fact .bases)"
+run check "$SESSION" light
+expect_rc "the light level is held below the merge-base floor" 1
+
+fixture base-same
+(cd "$FX/repo" && git checkout -q -b work) || fail "setup: branch"
+commit docs 'printf "x\n" >> docs/readme.md'
+run init "$SESSION" "" ""
+run facts "$SESSION" light
+[ "$(fact '[.floor, .base_source] | join(" ")')" = '"light impl_base"' ] \
+    && pass "an impl_base at the merge-base keeps impl_base" || fail "facts are $(fact '{floor, base_source}')"
+
+fixture base-unset
+(cd "$FX/repo" && git checkout -q -b work) || fail "setup: branch"
+commit exe 'printf "y\n" >> scripts/old.sh'
+rm -f "$(store impl_base)"
+run init "$SESSION" "" ""
+run facts "$SESSION" light
+[ "$RC" -eq 0 ] && [ "$(fact '[.floor, .base_source] | join(" ")')" = '"standard merge_base"' ] \
+    && pass "with no impl_base the merge-base is used" || fail "exit $RC, facts $(fact '{floor, base_source}') ($ERR)"
+
+# No shared history with main: impl_base alone.
+fixture base-orphan
+(cd "$FX/repo" && git checkout -q --orphan lone && git rm -rqf . && printf 'a\n' > a.md && git add a.md && git commit -q -m lone) >"$WORKDIR/orphan.log" 2>&1 \
+    || fail "setup: orphan branch: $(cat "$WORKDIR/orphan.log")"
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+commit docs 'printf "b\n" >> a.md'
+run init "$SESSION" "" ""
+run facts "$SESSION" light
+expect_rc "facts on a branch with no history shared with main" 0
+[ "$(fact '[.floor, .base_source, (.bases.merge_base | tostring), (.lines | tostring)] | join(" ")')" = '"light impl_base null 1"' ] \
+    && pass "with no merge-base, impl_base is used alone" || fail "facts are $(fact '{floor, base_source, bases, lines}')"
 
 echo "--- script: thresholds"
 
@@ -653,7 +781,7 @@ for leak in zzpathzz zzfilezz zzreasonzz zzcriteriazz "$BASE"; do
 done
 [ "$(printf '%s\n' "$OUT" | sed -n 2p)" = "level: light" ] && pass "slice ends with the level line" || fail "slice is [$OUT]"
 GOT=$(printf '%s\n' "$OUT" | sed -n 1p | jq -c 'keys')
-[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed"]' ] \
+[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","unclassified"]' ] \
     && pass "slice's first line is the fixed projection" || fail "slice keys are $GOT"
 [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 2 ] && pass "slice prints two lines" || fail "slice printed [$OUT]"
 

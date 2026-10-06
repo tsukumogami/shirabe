@@ -57,8 +57,8 @@ stateDiagram-v2
     issue_type_routing --> review_level_check : issue_type: code
     issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs
     issue_type_routing --> verification : issue_type: task
-    light_review --> verification : gates.light_carried.exit_code: 0
-    light_review --> verification : gates.has_commits.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_results.exists: true, light_outcome: passed
+    light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0
+    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_results.exists: true, light_outcome: passed
     light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, light_outcome: blocking_retry
     light_review --> done_blocked : gates.light_carried.exit_code: 1, light_outcome: blocking_escalate
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
@@ -90,12 +90,12 @@ stateDiagram-v2
     qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, qa_outcome: blocking_retry
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, qa_outcome: blocking_escalate
     research --> post_research_validation
-    review --> verification : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard
-    review --> qa_validation : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
-    review --> qa_validation : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
-    review --> verification : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: standard
-    review --> qa_validation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: full
-    review --> qa_validation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: {"is_set":false}
+    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
+    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: {"is_set":false}
     review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, review_outcome: blocking_retry
     review --> done_blocked : gates.review_carried.exit_code: 1, review_outcome: blocking_escalate
     review_level_check --> light_review : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: light
@@ -192,6 +192,9 @@ stateDiagram-v2
         gate: has_commits
     end note
     note left of light_review
+        gate: level_unchanged
+    end note
+    note left of light_review
         gate: light_carried
     end note
     note left of light_review
@@ -229,6 +232,9 @@ stateDiagram-v2
     end note
     note left of qa_validation
         gate: qa_results
+    end note
+    note left of review
+        gate: level_unchanged
     end note
     note left of review
         gate: review_carried

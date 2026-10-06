@@ -85,11 +85,19 @@ After implementation and before the first panel of a code change, on every
 lap, `review-level.sh facts` records the change's facts in
 `review_facts.json` and derives a floor from them:
 
-- the diff is `impl_base..HEAD`, the commits the run made; uncommitted work
-  isn't counted. A rename is one file plus its changed lines, and both of its
-  paths are classified; a deletion counts its deleted lines.
+- the diff is taken from two bases, the stored `impl_base` and the
+  merge-base of HEAD with the default branch (origin/HEAD's branch, else
+  `origin/main`, else `main`), and the larger one counts: more changed
+  lines, then more files, with a tie keeping `impl_base`. An `impl_base`
+  recorded after some of the work would otherwise hide that work and lower
+  the floor. With no merge-base (no shared history) `impl_base` is used
+  alone. `review_facts.json` names the winner in `base_source` and keeps
+  both candidates under `bases`. Uncommitted work isn't counted. A rename is
+  one file plus its changed lines, and both of its paths are classified; a
+  deletion counts its deleted lines.
 - changed lines (added plus deleted) and changed files;
-- which path classes the changed paths fall in;
+- which path classes the changed paths fall in, and whether any path falls in
+  none (`unclassified`);
 - whether a test file changed (a path in the `test` class);
 - whether the acceptance criteria changed: a path under `docs/plans/` or
   `docs/prds/` changed, or the acceptance-criteria section of `context.md`
@@ -98,13 +106,37 @@ lap, `review-level.sh facts` records the change's facts in
 The classes and thresholds live in
 [`review-level-rules.tsv`](review-level-rules.tsv), and changing one is a
 change to that file only. The floor is the highest level any rule yields,
-`light` when none does. The shipped rules:
+`light` when none does. A path can be in several classes, and each one
+counts. The shipped classes:
 
-- `full` when a path is in the `ci` or `security` class, or changed lines
-  exceed 400, or changed files exceed 12;
-- `standard` when a path is in the `template`, `executable` or `test` class,
-  or the acceptance criteria changed, or changed lines exceed 40;
+| Class | Paths | Floor |
+|-------|-------|-------|
+| `ci` | `.github/workflows/**`, `.github/actions/**` | `full` |
+| `security` | `install.sh`, the rules file, `**/hooks/**`, `.claude/**`, `**/settings*.json`, any path containing `credential`, `secret`, `token` or `password`, `.env`, `.env.*`, `*.pem` | `full` |
+| `template` | `**/koto-templates/**`, which hold the gates and the routing | `full` |
+| `engine` | every script a koto template names in a gate's or a `default_action`'s command, listed path by path, plus every `*-open.sh` | `full` |
+| `instruction` | `SKILL.md`, any path under a `references` directory, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` | `standard` |
+| `executable` | `**/scripts/**`, `scripts/**`, `crates/**` | `standard` |
+| `test` | `test/**`, `tests/**`, `spec/**` (at any depth), `*.spec.*`, `*_test.*`, `test_*.*`, `**/evals/**` | `standard` |
+| `manifest` | `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.toml`, `Cargo.lock`, `go.mod`, `go.sum`, `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Gemfile`, `Gemfile.lock` | `standard` |
+| `docs` | `*.md`, `docs/**`, `*.txt`, `LICENSE` | none |
+
+The rules:
+
+- `full` when a path is in the `ci`, `security`, `template` or `engine`
+  class, or changed lines exceed 400, or changed files exceed 12;
+- `standard` when a path is in the `instruction`, `executable`, `test` or
+  `manifest` class, or a path is in no class at all (`unclassified`), or the
+  acceptance criteria changed, or changed lines exceed 40;
 - `light` otherwise.
+
+So `light` is reachable only when every changed path is documentation or in a
+class no rule names. `docs` exists to keep a path out of `unclassified`: a
+`README.md` alone stays `light`, a `SKILL.md` is `instruction` too and floors
+at `standard`, `requirements.txt` is `manifest` too and floors at `standard`,
+and a `.sh`, `.py` or `.rs` file in no class floors at `standard`. A test in
+`review-level_test.sh` fails when a template names a script the `engine` class
+doesn't cover, so the list can't fall behind the templates.
 
 `facts` classifies with the copy of the rules `init` stored when the level
 was first chosen, never with a file the run's diff can change, and the rules
@@ -132,6 +164,15 @@ hold the run, never route it or lower the level.
 --attach-live --var REVIEW_LEVEL=<level>`. The level check holds whenever the
 variable differs from the ledger's last level, naming both; a `set` to the
 level the run should be at clears it.
+
+The level check runs once per lap, and two later states route on the level
+again: `review` (whether QA runs) and `light_review`. Each carries a
+`level_unchanged` gate, `review-level.sh agree`, on every route that depends
+on the level, its carried route included. It passes when the variable equals
+the ledger's last level (both empty is the unset route) and holds otherwise,
+so a hand rebind made while the run sits in one of those states can't skip
+QA or leave the light panel with the ledger untouched. A `set` to the
+ledger's level clears the hold.
 
 An attach re-applies every rebind variable from its own arguments, so one that
 doesn't pass `REVIEW_LEVEL` (a resume through `koto init --attach-live`, say)

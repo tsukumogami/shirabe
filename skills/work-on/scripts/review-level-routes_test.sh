@@ -27,7 +27,9 @@
 #   a retry             a blocking light round returns to implementation with
 #                       its seat in the verdict ledger; a fix past 40 changed
 #                       lines then holds the light run until it is raised
-#   a hand rebind       holds the check, naming both levels
+#   a hand rebind       holds the check, naming both levels; made later, in
+#                       review or light_review, it holds that state's passed
+#                       routes until `set` puts the ledger's level back
 #   unset               a session with no level at the check takes all three
 #                       panels and its ledger has an `unset` line
 #   clearing sites      every retry clearing loop that removes the panels'
@@ -476,6 +478,58 @@ if new_case "$S" "$SMALL"; then
     setlevel "$S" standard
     tick "$S"
     expect_state "after set rebinds it" scrutiny
+fi
+
+# ==============================================================================
+echo "--- engine: a hand rebind after the level check"
+
+# The level check is passed once; review and light_review route on the level
+# again. A hand rebind while the run sits in one of them must hold its passed
+# routes (level_unchanged), not route on the new value.
+hand_rebind() {
+    # $1 session, $2 level
+    koto init "$1" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" \
+        --var REVIEW_LEVEL="$2" >/dev/null 2>&1 || fail "$1: the hand rebind to $2 was refused"
+}
+
+S=rebind-review
+if new_case "$S" "$SMALL" && choose_and_implement "$S" full code; then
+    expect_state "a full code run" scrutiny
+    pass_scrutiny "$S"
+    expect_state "its passed scrutiny" review
+    hand_rebind "$S" standard
+    pass_review "$S"
+    expect_state "a passed review after a hand rebind from full to standard" review
+    expect_visits "$S" verification 0
+    expect_visits "$S" qa_validation 0
+    case "$NEXT_RESPONSE" in
+        *"REVIEW_LEVEL is standard but the ledger's last level is full"*) pass "the hold names both levels" ;;
+        *) fail "the held response doesn't name both levels: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-600)" ;;
+    esac
+    [ "$(events "$S")" = "bound choose check" ] && pass "the ledger is untouched by the hand rebind" \
+        || fail "ledger events are [$(events "$S")]"
+    tick "$S"
+    expect_state "a tick with the rebind still in place" review
+    setlevel "$S" full
+    tick "$S" '{"review_outcome":"passed"}'
+    expect_state "after set puts the ledger's level back" qa_validation
+    expect_visits "$S" verification 0
+fi
+
+S=rebind-light
+if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
+    expect_state "a light code run" light_review
+    hand_rebind "$S" standard
+    pass_light "$S"
+    expect_state "a passed light round after a hand rebind from light to standard" light_review
+    expect_visits "$S" verification 0
+    case "$NEXT_RESPONSE" in
+        *"REVIEW_LEVEL is standard but the ledger's last level is light"*) pass "the hold names both levels" ;;
+        *) fail "the held response doesn't name both levels: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-600)" ;;
+    esac
+    setlevel "$S" light
+    tick "$S" '{"light_outcome":"passed"}'
+    expect_state "after set puts the ledger's level back" verification
 fi
 
 # ==============================================================================
