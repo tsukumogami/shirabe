@@ -14,8 +14,9 @@ goals: |
   closed criteria to the decider in shadow, with input a script assembles
   from disk, and the decider's verdict lands in the review-shadow store next
   to the seat's own verdict, while every route, gate and seat stays as it is.
-upstream: docs/briefs/BRIEF-jev-closed-criteria.md
 source_issue: 592
+absorbed:
+  - docs/briefs/BRIEF-jev-closed-criteria.md
 ---
 
 # PRD: Closed-criteria review checks in decider shadow
@@ -23,6 +24,30 @@ source_issue: 592
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-jev-closed-criteria](docs/briefs/BRIEF-jev-closed-criteria.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because review seats that check closed criteria against
+documents and diffs already on disk run as full agents, and nobody has
+recorded which of them a one-shot decider could serve or whether it would
+agree with them. This document's Problem Statement states that, with the
+three gaps behind it: no classification, no side-by-side evidence, and no
+step that asks whether an artifact should exist before requirements are
+written against it.
+
+The outcome it asked for is a maintainer who rules on moving a seat to the
+decider from a recorded history of the seat's and the decider's verdicts on
+the same artifacts, an agent running a chain that writes nothing for the
+decider and sees no route move, a reviewer who judges a site change against a
+written classification, and a recorded answer on the framing seat. Those are
+this document's Goals, and the brief's four journeys are its User Stories.
+
+Its boundary kept everything in shadow: no flip to trust, no seat removed or
+resized, no change to the review-level rules, no release-time evals, and no
+decider question that repeats a `shirabe validate` check. This document's Out
+of Scope carries those exclusions.
 
 ## Problem Statement
 
