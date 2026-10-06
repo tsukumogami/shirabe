@@ -1494,7 +1494,9 @@ def slice_plan_ac_blocks(art):
     out = []
     for n, issue in enumerate(art["issues"], 1):
         items = [item for _, item in checklist(issue["criteria"])]
-        out.append(pack_unit("plan-ac-block", n, {"issue": issue["title"]}, "criteria", "", items, "\n"))
+        s = pack_unit("plan-ac-block", n, {"issue": issue["title"]}, "criteria", "", items, "\n")
+        s["meta"]["issue_id"] = issue.get("issue_id")  # ties a category C finding to this slice; not recorded
+        out.append(s)
     return out
 
 
@@ -1630,7 +1632,9 @@ def assemble_site(args):
             if body is None:
                 continue
             title = e.get("title") if isinstance(e.get("title"), str) else rel
-            art["issues"].append({"title": title, "criteria": sections(body).get("Acceptance Criteria", "")})
+            issue_id = str(e.get("issue_id")) if e.get("issue_id") is not None else None
+            art["issues"].append({"title": title, "issue_id": issue_id,
+                                  "criteria": sections(body).get("Acceptance Criteria", "")})
     else:
         session = check_identifier(args.session, "--session", SESSION_ARG)
         if args.panel not in WORK_ON_PANELS:
@@ -1728,20 +1732,300 @@ def seat_packet_bytes(art):
                 pass
 
 
-def cmd_site(args, criteria):
-    art = assemble_site(args)
-    slices, unmatched = build_site_slices(art)
-    if not args.measure:
-        raise ValueError("site grading isn't available yet; run with --measure")
-    for kind in slices:
-        for s in slices[kind]:
-            extra = f" over-bound" if s["over_bound"] else ""
-            dropped = s["meta"].get("dropped")
-            print(f"slice {s['id']} {s['bytes']}{extra}" + (f" dropped={dropped}" if dropped else ""))
+# --- Site grading ---------------------------------------------------------------
+#
+# Each shadowed seat and the decider criteria it is compared with. A seat
+# verdict covers its whole checklist and a criterion one closed question, so the
+# report compares them directionally; see the design's Decision 2.
+SITE_SEATS = {
+    "brief": {"content-quality": ("rs-011",), "structural-format": ("rs-012",)},
+    "prd": {"clarity": ("rs-013",), "testability": ("rs-013",)},
+    "review-plan": {"category-c": ("rs-014",)},
+    "work-on:scrutiny": {"completeness": ("rs-015",)},
+    "work-on:review": {"maintainer": ("rs-016", "rs-017")},
+    "work-on:light": {"reviewer": ("rs-015", "rs-016", "rs-017")},
+}
+SITE_SLICE_CAP = 32  # slices sent per run; the rest are unanswered with run-cap
+SITE_TIME_CAP = 60.0  # seconds from the first send; later slices are run-cap
+SEAT_MARKER = {"brief": re.compile(r"^\*\*Verdict:\*\*\s*(PASS|FAIL)\b", re.M),
+               "prd": re.compile(r"^##\s*Verdict:\s*(PASS|FAIL)\b", re.M)}
+SEAT_FILE = {"content-quality": "brief_{t}_phase4_content-quality.md",
+             "structural-format": "brief_{t}_phase4_structural-format.md",
+             "clarity": "prd_{t}_phase4_clarity.md", "testability": "prd_{t}_phase4_testability.md"}
+
+
+def site_key(art):
+    return f"work-on:{art['panel']}" if art["site"] == "work-on" else art["site"]
+
+
+def seat_entry(seat, rule_ids, verdict, reason=None, attributed=None, blocking=0):
+    return {"seat": seat, "rule_ids": list(rule_ids), "verdict": verdict, "reason": reason,
+            "blocking_findings": blocking, "attributed": attributed or {}}
+
+
+def hunk_spans(text):
+    """(path, first new line, last new line) for each hunk in an ac-hunks or code-hunks
+    slice, so a seat's finding can be tied to a slice without keeping its path."""
+    spans, path = [], None
+    for line in text.split("\n"):
+        if line.startswith("--- "):
+            path = line[4:].strip()
+            continue
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+        if m and path:
+            start = int(m.group(1))
+            spans.append((path, start, start + max(int(m.group(2) or 1), 1) - 1))
+    return spans
+
+
+def slice_spans(s):
+    if s["kind"] == "ac-hunks":
+        return hunk_spans(s["inputs"]["hunks"])
+    if s["kind"] == "code-hunks":
+        return hunk_spans(f"--- {s['inputs']['path']}\n{s['inputs']['hunks']}")
+    return []
+
+
+def finding_in_slice(finding, s):
+    path, lines = finding.get("path"), str(finding.get("lines") or "")
+    m = re.match(r"^(\d+)(?:-(\d+))?$", lines)
+    for p, a, b in slice_spans(s):
+        if p != path:
+            continue
+        if not m:
+            return True
+        lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
+        if lo <= b and hi >= a:
+            return True
+    return False
+
+
+def read_doc_seats(art, files, slices):
+    """The brief or PRD jury's verdicts, from the pinned verdict files its seats
+    write. A verdict file older than the document it judged is stale."""
+    seats, topic = [], art["subject_id"]
+    doc = files.resolve(f"docs/briefs/BRIEF-{topic}.md" if art["site"] == "brief" else f"docs/prds/PRD-{topic}.md")
+    for seat, rule_ids in SITE_SEATS[art["site"]].items():
+        rel = f"{SCRATCH_DIR}/research/" + SEAT_FILE[seat].format(t=topic)
+        text = files.read(rel)
+        if text is None:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-missing"))
+            continue
+        m = SEAT_MARKER[art["site"]].search(text)
+        if not m:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-unparsed"))
+        elif files.resolve(rel).stat().st_mtime < doc.stat().st_mtime:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-stale"))
+        else:
+            seats.append(seat_entry(seat, rule_ids, "pass" if m.group(1) == "PASS" else "fail"))
+    return seats
+
+
+def read_plan_seat(art, files, slices):
+    """/review-plan's category C verdict: fail when its review_result holds a
+    category C finding. Each finding's affected_issue_ids tie it to the issue slices."""
+    topic, rule_ids = art["subject_id"], SITE_SEATS["review-plan"]["category-c"]
+    text = None
+    for name in (f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md"):
+        text = files.read(f"{SCRATCH_DIR}/{name}")
+        if text is not None:
+            break
+    if text is None:
+        return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-missing")]
+    if not re.search(r"^\s*verdict:\s*\"?(proceed|loop-back)\"?\s*$", text, re.M):
+        return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-unparsed")]
+    findings = re.split(r"^\s*-\s+(?=category:)", text, flags=re.M)[1:]
+    c_findings = [f for f in findings if re.match(r"category:\s*\"?C\"?\s*$", f.split("\n", 1)[0].strip())]
+    affected = set()
+    for f in c_findings:
+        m = re.search(r"affected_issue_ids:\s*\[([^\]]*)\]", f)
+        if m:
+            affected |= {x.strip().strip("\"'#") for x in m.group(1).split(",") if x.strip()}
+    attributed = {s["id"]: (str(s["meta"].get("issue_id")) in affected) for s in slices.get("plan-ac-block", [])}
+    verdict = "fail" if c_findings else "pass"
+    return [seat_entry("category-c", rule_ids, verdict, attributed=attributed, blocking=len(c_findings))]
+
+
+def criteria_hash(session):
+    """The hash panel-scope.sh stamps as a verdict's ac_sha: context.md, a fixed
+    separator, then plan.md, hashed as a git blob."""
+    blob = (koto_context(session, "context.md") or "") + "\n--- plan ---\n" + (koto_context(session, "plan.md") or "")
+    data = blob.encode("utf-8")
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def read_ledger_seats(art, slices, slice_kind_of):
+    """The /work-on panel's verdicts from the session's verdict ledger, for the
+    seats spawned this round (a full or rerun decision); a kept seat was paired
+    when it ran, and a re-check judged only its own findings."""
+    panel, session = art["panel"], art["session"]
+    try:
+        ledger = json.loads(koto_context(session, "verdict_ledger.json") or "")
+        scope = json.loads(koto_context(session, f"{panel}_scope.json") or "")
+    except ValueError:
+        ledger, scope = None, None
+    decisions = {d.get("seat"): d.get("decision") for d in (scope or {}).get("decisions", []) if isinstance(d, dict)}
+    seats, ac_sha = [], None
+    for seat, rule_ids in SITE_SEATS[f"work-on:{panel}"].items():
+        if decisions.get(seat) not in ("full", "rerun"):
+            continue
+        entry = ((ledger or {}).get("seats") or {}).get(f"{panel}/{seat}")
+        if ledger is None or entry is None:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-missing"))
+            continue
+        if entry.get("verdict") not in ("passed", "blocking"):
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-unparsed"))
+            continue
+        if ac_sha is None:
+            ac_sha = criteria_hash(session)
+        if entry.get("judged_at") != art["head"] or (entry.get("ac_sha") and entry["ac_sha"] != ac_sha):
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-stale"))
+            continue
+        findings = [f for f in entry.get("findings") or [] if isinstance(f, dict)]
+        kinds = sorted({slice_kind_of[r] for r in rule_ids if r in slice_kind_of})
+        attributed = {s["id"]: any(finding_in_slice(f, s) for f in findings)
+                      for kind in kinds for s in slices.get(kind, [])}
+        seats.append(seat_entry(seat, rule_ids, "pass" if entry["verdict"] == "passed" else "fail",
+                                attributed=attributed, blocking=len(findings)))
+    return seats
+
+
+def read_site_seats(art, slices, criteria):
+    files = SiteFiles(art["root"])
+    if art["site"] in ("brief", "prd"):
+        return read_doc_seats(art, files, slices)
+    if art["site"] == "review-plan":
+        return read_plan_seat(art, files, slices)
+    return read_ledger_seats(art, slices, {c["rule_id"]: c["slice_kind"] for c in criteria["criteria"]})
+
+
+def declared_public(root):
+    """True only when the repository's CLAUDE.md declares itself public: a site
+    sends drafts and local commits, so an undeclared repository counts as private."""
+    p = Path(root) / "CLAUDE.md"
+    text = p.read_text(encoding="utf-8", errors="replace") if p.is_file() and not p.is_symlink() else ""
+    return bool(re.search(r"^##\s*Repo Visibility:\s*Public\b", text, re.M | re.I))
+
+
+def slice_has_private_term(s, terms):
+    if not terms:
+        return False
+    text = "\n".join(s["inputs"].values())
+    low = text.lower()
+    for t in terms:
+        folded, exact = term_forms(t)
+        if any(f in low for f in folded) or any(e in text for e in exact):
+            return True
+    return False
+
+
+def grade_site(criteria, art, slices, unmatched, send, terms, gate_reason=None, clock=None):
+    """Every site criterion over its slices, one slice at a time so the caps hold.
+    `gate_reason` (private-repo, not-opted-in, no-key) marks everything unanswered
+    without sending. Returns the record body."""
+    import time
+    clock = clock or time.monotonic
+    kind = art["artifact_kind"]
+    wanted = {r for rids in SITE_SEATS[site_key(art)].values() for r in rids}
+    crit = [c for c in active(criteria, kind) if c["rule_id"] in wanted]
+    one = dict(criteria, criteria=crit)
+    verdicts, rounds, unread, sent, started = [], [], 0, 0, None
+    for sk in sorted({c["slice_kind"] for c in crit}):
+        rule_ids = [c["rule_id"] for c in crit if c["slice_kind"] == sk]
+        for s in slices.get(sk, []):
+            reason = gate_reason
+            if reason is None and slice_has_private_term(s, terms):
+                reason = "private-term"  # after redaction (in make_slice), before the bound
+            if reason is None and not s["over_bound"]:
+                if sent >= SITE_SLICE_CAP or (started is not None and clock() - started > SITE_TIME_CAP):
+                    reason = "run-cap"
+            if reason is not None:
+                verdicts += [{"rule_id": r, "slice": s["id"], "verdict": "unanswered", "observer": "jev",
+                              "probabilities": None, "reason": reason} for r in rule_ids]
+                continue
+            if started is None:
+                started = clock()
+            if not s["over_bound"]:
+                sent += 1
+            v, r, u = run_jev(one, {sk: [s]}, send, True, kind)
+            verdicts += v
+            rounds += r
+            unread += u
     for u in unmatched:
-        print(f"unit {u['unit']} unanswered {u['reason']}")
-    size, why = seat_packet_bytes(art)
-    print(f"seat-packet {size}" if size is not None else f"seat-packet unavailable {why}")
+        verdicts += [{"rule_id": c["rule_id"], "slice": u["unit"], "verdict": "unanswered", "observer": "jev",
+                      "probabilities": None, "reason": u["reason"]} for c in crit if c["slice_kind"] == "ac-hunks"]
+    rows = []
+    for c in crit:
+        vs = [v["verdict"] for v in verdicts if v["rule_id"] == c["rule_id"]]
+        rows.append({"rule_id": c["rule_id"], "verdict": worst(vs), "slices": len(vs)})
+    if gate_reason:
+        status, why = "not-graded", gate_reason
+    else:
+        jev_slices = sum(len(slices.get(sk, [])) for sk in {c["slice_kind"] for c in crit})
+        status, why = run_status(rows, rounds, jev_slices, False, verdicts)
+    all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")},
+                       **{k: v for k, v in s["meta"].items() if k != "issue_id"})
+                  for sk in sorted(slices) for s in slices[sk]]
+    return {"mode": "batched", "slices": all_slices, "verdicts": verdicts, "criteria": rows, "rounds": rounds,
+            "models": sorted({r["model"] for r in rounds if r["model"]}), "unread_usage_attempts": unread,
+            "tokens": {"input": sum(r["input_tokens"] or 0 for r in rounds),
+                       "output": sum(r["output_tokens"] or 0 for r in rounds)},
+            "status": status, "not_graded_reason": why, "unanswered_units": unmatched}
+
+
+def site_gate(root):
+    """Why nothing may be sent, or None: the repository isn't declared public,
+    the user hasn't opted in with REVIEW_SHADOW_SITES=1, or there is no key."""
+    if not declared_public(root):
+        return "private-repo", None
+    if os.environ.get("REVIEW_SHADOW_SITES") != "1":
+        return "not-opted-in", None
+    key = os.environ.get("JEV_API_KEY") or os.environ.get("KOTO_DECIDER_API_KEY")
+    if not key:
+        return "no-key", None
+    return None, https_transport(JEV_ENDPOINT, key, 20.0)
+
+
+def cmd_site(args, criteria):
+    """Shadow one site. Every failure after the arguments are checked prints a
+    reason and exits 0: the caller never reads this command's result."""
+    try:
+        art = assemble_site(args)
+        slices, unmatched = build_site_slices(art)
+    except (FetchError, OSError, subprocess.TimeoutExpired) as e:
+        print(f"review-shadow: site {args.site}: nothing graded: {e}", file=sys.stderr)
+        return 0
+    if args.measure:
+        for kind in slices:
+            for s in slices[kind]:
+                extra = " over-bound" if s["over_bound"] else ""
+                dropped = s["meta"].get("dropped")
+                print(f"slice {s['id']} {s['bytes']}{extra}" + (f" dropped={dropped}" if dropped else ""))
+        for u in unmatched:
+            print(f"unit {u['unit']} unanswered {u['reason']}")
+        size, why = seat_packet_bytes(art)
+        print(f"seat-packet {size}" if size is not None else f"seat-packet unavailable {why}")
+        return 0
+    try:
+        seats = read_site_seats(art, slices, criteria)
+        if not seats:
+            print(f"review-shadow: site {args.site}: no seat ran this round; nothing recorded")
+            return 0
+        gate, send = site_gate(art["root"])
+        terms = load_private_terms(os.environ.get("REVIEW_SHADOW_PRIVATE_TERMS"))
+        body = grade_site(criteria, art, slices, unmatched, send, terms, gate)
+        rec = new_site_record(art["repo"], art["site"], art["subject_id"], artifact_sha(art, slices),
+                              panel=art.get("panel"), in_sample=bool(args.in_sample), seats=seats, **body)
+        path = write_site_record(store_home(), rec)
+    except (ConfigError, FetchError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+        print(f"review-shadow: site {args.site}: nothing recorded: {e}", file=sys.stderr)
+        return 0
+    line = f"{path} status={rec['status']}"
+    if rec.get("not_graded_reason"):
+        line += f" reason={rec['not_graded_reason']}"
+    if rec.get("not_graded_reason") == "not-opted-in":
+        line += " (decider not asked: set REVIEW_SHADOW_SITES=1 to collect decider verdicts)"
+    print(line)
     return 0
 
 

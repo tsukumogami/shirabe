@@ -364,7 +364,7 @@ seats) runs once and writes one record holding both seats' verdicts.
 | `--session <name>` | `work-on` | the koto session whose ledger, `impl_base` and criteria are read |
 | `--panel <panel>` | `work-on` | `scrutiny`, `review` or `light` |
 | `--head <sha>` | `work-on` | the commit the diff range ends at and the ledger verdicts must be judged at |
-| `--issue <n>` / `--criteria <path>` | `work-on` | passed through to the criteria lookup when the session has them |
+| `--issue <n>` | `work-on` | read the acceptance criteria from this issue instead of the session's `context.md` |
 | `--measure` | all | print slice and seat-packet sizes; send nothing, write nothing |
 | `--in-sample` | all | mark the record in-sample (a manual re-grade) |
 | `--repo-path <dir>` | all | the repository root; default the current directory |
@@ -428,7 +428,7 @@ escape.
 3. The slicer cuts units and packs them into slices of at most 2,560 bytes.
 4. With a key, `REVIEW_SHADOW_SITES=1` and a repository that declares itself
    public, one Jev request per slice carries every criterion of that slice
-   kind, up to 16 slices and 60 seconds. Otherwise every criterion is
+   kind, up to 32 slices and 60 seconds. Otherwise every criterion is
    `unanswered`, with `no-key`, `not-opted-in` or `private-repo`.
 5. One record is written with the seats' verdicts, the decider's verdicts
    per unit and criterion, slice hashes and sizes, and tokens.
@@ -502,8 +502,8 @@ Callers:
 
 The work-on assembler reads the session's `impl_base` and criteria the way
 `review-packet.sh code` does, so the decider and the seat read the same
-criteria and diff range; `--issue` and `--criteria` pass through when the
-session has them.
+criteria and diff range: the session's `context.md`, or the issue's body
+when `--issue` names one.
 
 ## Implementation Approach
 
@@ -521,7 +521,7 @@ session has them.
    before going further.
 3. **Grading and records.** rs-011 to rs-017, the verdict readers with the
    missing, unparsed and stale reasons, the send gates (key,
-   `REVIEW_SHADOW_SITES`, public visibility, private terms, the 16-slice and
+   `REVIEW_SHADOW_SITES`, public visibility, private terms, the 32-slice and
    60-second caps), finding attribution, the record writer, and boundary
    tests at 2,560 and 2,561 bytes.
 4. **Report.** Per-site tables with hand-computed fixture figures, built
@@ -553,7 +553,8 @@ private-term list, the list `rs-002` reads, is not sent and is recorded
 `unanswered` with reason `private-term`), then the size bound. `/work-on`
 diff slices skip paths that look like secrets (`.env*`, `*.pem`, `*.key`,
 `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `*.tfvars`,
-`*credentials*`, `*secret*`). A run sends at most 16 slices and stops sending
+`*credentials*`, `*secret*`). A run sends at most 32 slices (enough for one
+slice per acceptance criterion of a large PRD) and stops sending
 after 60 seconds; slices past either limit are recorded `unanswered` with
 reason `run-cap`. Records keep slice hashes and sizes, never text.
 
@@ -568,7 +569,7 @@ as it does for pull requests.
 an argument: topic slugs against `^[a-z0-9-]+$`, session names against
 koto's name grammar, issue numbers as digits, refs through `git
 check-ref-format` or as 40-hex SHAs. Every file read, including a
-`--criteria` file and each issue file a plan manifest lists, is resolved with
+verdict file and each issue file a plan manifest lists, is resolved with
 symlinks followed and must lie inside the repository root; a symlinked
 scratch file is refused, manifest entries must match the plan's issue-outline
 file pattern, and the count of files and bytes read is capped.
@@ -602,7 +603,7 @@ ending there, not the live tree, so a commit made while it runs can't change
 what a stamped verdict is paired with; a ledger entry whose `judged_at` no
 longer matches that HEAD by the time the child reads it (a later round
 landed first) is recorded `seat-verdict-stale`. It is bounded by the same
-16-slice and 60-second caps.
+32-slice and 60-second caps.
 
 **Residual risk.** Credential redaction is pattern-based and can miss an
 unprefixed secret in a diff's context lines. If a later ruling lets a

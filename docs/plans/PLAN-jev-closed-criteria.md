@@ -76,7 +76,7 @@ reader would use alone.
 - [ ] A test plants a credential-shaped string and a listed private term in one slice and shows redaction runs first, the private-term check second and the size bound last.
 - [ ] At `/work-on` only seats whose round decision is `full` or `rerun` are recorded, and a run with none writes nothing.
 - [ ] With a stub decider, one run writes exactly one record holding every shadowed seat's verdict and the decider's verdict per unit and criterion; a sentinel string planted in each fixture artifact appears nowhere in the record.
-- [ ] Nothing is sent, and every criterion is `unanswered` with the stated reason, when the key is absent (`no-key`), `REVIEW_SHADOW_SITES` isn't `1` (`not-opted-in`), the repository's `CLAUDE.md` doesn't declare `## Repo Visibility: Public` (`private-repo`), or a slice holds a listed private term (`private-term`); slices past 16 or past 60 seconds are `run-cap`.
+- [ ] Nothing is sent, and every criterion is `unanswered` with the stated reason, when the key is absent (`no-key`), `REVIEW_SHADOW_SITES` isn't `1` (`not-opted-in`), the repository's `CLAUDE.md` doesn't declare `## Repo Visibility: Public` (`private-repo`), or a slice holds a listed private term (`private-term`); slices past 32 or past 60 seconds are `run-cap`.
 - [ ] With a stub decider that errors and one that times out, the command exits 0 and records `provider` and `transport`; only a malformed argument exits 2.
 - [ ] Finding attribution sets a per-slice boolean for a `/review-plan` category C finding naming a graded issue and for a ledger finding whose path and lines fall inside a graded hunk, and the record holds no path or finding text.
 
