@@ -4,7 +4,7 @@ Run three parallel code reviewers after scrutiny passes. Each reviewer checks th
 
 ## Reviewers
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Pragmatic, Architect and Maintainer run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Pragmatic, Architect and Maintainer run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel review --seat <seat>`.
 
 Spawn all three simultaneously using the Task tool:
 
@@ -14,7 +14,7 @@ Spawn all three simultaneously using the Task tool:
 
 ## Which Seats Run
 
-On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, whatever the Reviewers section above says about spawning all three (a kept seat counts as passed at aggregation), and give a `recheck` seat only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on (to `qa_validation`, or to `verification` at `standard`) without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
+On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`, one decision per seat: `full`, `recheck`, `rerun` or `keep`. Spawn only the seats that aren't `keep`, whatever the Reviewers section above says about spawning all three (a kept seat counts as passed at aggregation), and give a `recheck` seat the `recheck` packet on the commissioning line above, which holds only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When every seat is `keep`, koto writes a carried `review_results.json` and moves on (to `qa_validation`, or to `verification` at `standard`) without stopping here. `phase-4a-scrutiny.md` explains each decision and why the scope is the script's to set.
 
 ```bash
 koto context get <WF> review_scope.json

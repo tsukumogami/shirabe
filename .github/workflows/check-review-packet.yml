@@ -2,7 +2,8 @@ name: Check review packet
 
 # scripts/review-packet.sh assembles the input packet every review seat starts
 # from (references/review-seat-commissioning.md). Its suite builds a throwaway
-# repository with stand-in koto and gh, so it needs only bash and git: the
+# repository with stand-in koto and gh, so it needs only bash, git and jq (the
+# recheck kind reads the panel scope with jq; both runner images ship it): the
 # Linux leg runs it under bash 5, the macOS leg on the bash 3.2 floor.
 
 on:

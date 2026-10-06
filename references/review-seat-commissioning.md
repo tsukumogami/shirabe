@@ -20,6 +20,10 @@ those lines have in common, so it is said once.
    `mktemp` file and pass `--criteria <file>` instead. An exit of 64 from a
    code packet means no base resolved: record `impl_base` as `analysis`'s
    fallback says and run it again. Don't spawn a seat without a packet.
+   A `/work-on` panel seat whose `<panel>_scope.json` decision is `recheck`
+   gets its own `recheck` packet, one per such seat, instead of the round's
+   code packet; build the code packet only when a `full` or `rerun` seat is
+   spawned. A seat with any other decision gets the code packet, unchanged.
 2. Pass the model on every spawn (`model: "sonnet"` or `model: "haiku"`). A
    spawn with no model inherits the parent's.
 3. Open each prompt with the seat preamble below, after any fixed preamble the
@@ -57,7 +61,10 @@ repository and design documents turn after turn, and each turn re-reads
 everything before it. [`scripts/review-packet.sh`](../scripts/review-packet.sh)
 assembles a bounded input instead. A `code` packet carries the acceptance
 criteria, the design context phase 0 recorded, the changed paths and the diff
-from `impl_base`. A `doc` packet carries the document under review, its format
+from `impl_base`. A `recheck` packet is for a seat that blocked last round
+and now checks only whether its findings are fixed: it carries those findings
+and the diff since the commit the seat judged, and nothing the seat already
+read. A `doc` packet carries the document under review, its format
 reference, and any supporting files the spawn site names. Each section is
 capped and says when it was cut; the script's header has the details.
 

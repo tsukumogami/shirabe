@@ -4,7 +4,7 @@ The one panel of the `light` review level (`../review-levels.md`): a single revi
 
 ## Reviewer
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel light --seat reviewer`.
 
 Spawn the one seat with the Task tool. After the seat preamble, its prompt:
 
@@ -29,7 +29,7 @@ code-review seat applies. Everything else is advisory.
 
 ## Which Seat Runs
 
-On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json` with the seat's decision: `full`, `recheck`, `rerun` or `keep`. They mean what they mean in `phase-4a-scrutiny.md`. A `recheck` seat gets only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When the decision is `keep`, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
+On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json` with the seat's decision: `full`, `recheck`, `rerun` or `keep`. They mean what they mean in `phase-4a-scrutiny.md`. A `recheck` seat gets the `recheck` packet on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When the decision is `keep`, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
 
 ```bash
 koto context get <WF> light_scope.json
