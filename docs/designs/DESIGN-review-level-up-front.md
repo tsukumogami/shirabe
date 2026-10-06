@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   /work-on routes every code-typed issue through scrutiny, review and QA, and
   nothing in its template carries an intended review level, checks a level
@@ -35,7 +35,7 @@ user_visible_surface: false
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
