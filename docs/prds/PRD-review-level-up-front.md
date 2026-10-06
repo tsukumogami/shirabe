@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A /work-on run sizes its review from the issue type alone. Every code issue
   runs scrutiny, review and QA, seven seats per round, and any skill or koto
@@ -28,7 +28,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness and clarity reviewers passed it on a second round, the
 testability reviewer on the first.
@@ -138,8 +138,8 @@ Three things are missing around that one question:
   koto `when` route on that variable's value. No new koto engine primitive
   is used.
 - **R3. Chosen before implementation.** Every `/work-on` run, whatever its
-  issue type, records a level before implementation: the analysis state's
-  `plan_ready` route requires the level variable to be set, and the
+  issue type, records a level before implementation: the run does not reach
+  `implementation` until the level variable is set, and the
   directive asks for a level and a one-line reason. A `docs` or `task` run
   records one too; its route skips the panels as today, so the level only
   appears in its ledger.
@@ -209,7 +209,7 @@ Three things are missing around that one question:
   floor is the highest level any matching rule yields. The shipped defaults
   are:
   - path classes: `ci` is `.github/workflows/**` and `.github/actions/**`;
-    `security` is `install.sh`, `**/hooks/**`, `.claude/**`,
+    `security` is `install.sh`, the rules data file itself, `**/hooks/**`, `.claude/**`,
     `**/settings*.json`, and any path containing `credential`, `secret` or
     `token`; `template` is `**/koto-templates/**`; `executable` is
     `**/scripts/**`, `scripts/**` and `crates/**`; `test` is `**/*_test.sh`,
@@ -266,10 +266,10 @@ Three things are missing around that one question:
   koto context key `review_level.jsonl`, next to the existing verdict ledger
   and retry record. Each line is one JSON object with `ts` (UTC, ISO-8601),
   `event`, and the fields the event needs: `from`, `to`, `reason`, `rule`,
-  `floor`, `ceiling`, `round`. The events are `bound` (the bound in force,
+  `floor`, `ceiling`, `level`, `head`. The events are `bound` (the bound in force,
   or none), `choose`, `raise`, `lower`, `floor_raise`, `veto`, `breach`,
-  `round` (the level a panel round ran at, written when the round is
-  recorded) and `unset` (a level check reached with no level). Each level
+  `check` (the level and the facts' floor each time the level check runs,
+  once per distinct head, level and floor) and `unset` (a level check reached with no level). Each level
   change writes exactly one of `choose`, `raise`, `lower`, `floor_raise`
   or `veto`, plus a `breach` line when it goes above the ceiling. Lines are
   only appended. No retry clearing step removes the key.
@@ -277,7 +277,7 @@ Three things are missing around that one question:
   one tab-separated line per `/work-on` session, after a header line, with
   the columns `session`, `chosen`, `final`, `floor`, `ceiling`, `raises`,
   `lowers`, `floor_raises`, `vetoes`, `breaches`, `overrides`, `seats`.
-  `chosen` is the first `choose`; `final` is the level of the last `round`,
+  `chosen` is the first `choose`; `final` is the level of the last `check` whose level is at or above its floor (the level the panels ran at),
   `-` when there is none (a docs or task run); each count column counts
   its own event only;
   `floor` and `ceiling` are the bound, `-` when absent; `seats` is the sum
@@ -316,8 +316,8 @@ Levels and routing
       check and the review panel's passed routes are `when` clauses on its
       value, and `koto template compile` succeeds on koto 0.15.0.
 - [ ] A real-koto test submits `plan_ready` at `analysis` with no level
-      recorded and the session stays in `analysis`; after
-      `review-level.sh set <session> light --reason x` the same submission
+      recorded and the session does not reach `implementation`; after
+      `review-level.sh set <session> light --reason x` the next tick
       reaches `implementation`.
 - [ ] Real-koto tests, one per level, with facts under every threshold:
       `light` enters `light` and then `verification` and never enters
@@ -416,7 +416,7 @@ Ledger and reader
       columns, for: a session with a full ledger, a named session, a session
       with no ledger (`none`), and a session with a corrupt line (`corrupt`,
       exit 2 after all rows).
-- [ ] A session where a round was recorded at `standard` reports
+- [ ] A session whose last passing check was at `standard` reports
       `final` as `standard` and `seats` equal to the verdict ledger's summed
       spawn counts.
 
