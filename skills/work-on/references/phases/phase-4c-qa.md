@@ -14,7 +14,7 @@ Spawn the tester agent using the Task tool. The tester:
 
 ## Whether the Tester Runs
 
-On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: its packet is the `recheck` kind on the commissioning line above, holding only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it checks whether each failing scenario now passes. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
+On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: its packet is the `recheck` kind on the commissioning line above, holding only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it checks whether each failing scenario now passes, prompted with the re-check prompt in `review-seat-commissioning.md` rather than the full validation steps. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
 
 ```bash
 koto context get <WF> qa_scope.json

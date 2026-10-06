@@ -29,7 +29,7 @@ code-review seat applies. Everything else is advisory.
 
 ## Which Seat Runs
 
-On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json` with the seat's decision: `full`, `recheck`, `rerun` or `keep`. They mean what they mean in `phase-4a-scrutiny.md`. A `recheck` seat gets the `recheck` packet on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`). When the decision is `keep`, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
+On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json` with the seat's decision: `full`, `recheck`, `rerun` or `keep`. They mean what they mean in `phase-4a-scrutiny.md`. A `recheck` seat gets the `recheck` packet on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and the re-check prompt in `review-seat-commissioning.md` in place of the prompt above. When the decision is `keep`, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
 
 ```bash
 koto context get <WF> light_scope.json

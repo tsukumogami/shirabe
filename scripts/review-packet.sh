@@ -33,7 +33,8 @@
 #       finding is fixed. <panel> is scrutiny, review, qa or light, as
 #       panel-scope.sh names them. The packet is read from the session's
 #       `<panel>_scope.json`, from the seat's own decision there. Sections:
-#         - findings to re-check: the seat's `findings`, verbatim JSON
+#         - findings to re-check: the seat's `findings` as the scope recorded
+#           them, every field kept, pretty-printed by jq
 #         - changed paths: `git diff --name-status -M <fix_diff_from> HEAD`
 #         - the fix diff: `git diff -M <fix_diff_from> HEAD`
 #       No acceptance criteria, design context or diff from impl_base: the

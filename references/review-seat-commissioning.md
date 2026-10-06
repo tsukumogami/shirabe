@@ -24,12 +24,18 @@ those lines have in common, so it is said once.
    gets its own `recheck` packet, one per such seat, instead of the round's
    code packet; build the code packet only when a `full` or `rerun` seat is
    spawned. A seat with any other decision gets the code packet, unchanged.
+   An exit of 64 from a `recheck` packet means the scope doesn't mark that
+   seat `recheck` (or there is no scope): give the seat the code packet
+   instead, as its decision says.
 2. Pass the model on every spawn (`model: "sonnet"` or `model: "haiku"`). A
    spawn with no model inherits the parent's.
 3. Open each prompt with the seat preamble below, after any fixed preamble the
    spawn site already has, with the packet path and the seat's budget filled
    in. Where a prompt template says to include the document or its sections
    (`[Contents of ...]`), name the packet path instead of pasting the text.
+   A `recheck` seat's prompt is the re-check prompt below, after the
+   preamble, in place of its panel's full-review prompt: its packet carries
+   no acceptance criteria for that prompt to judge.
 4. Delete the packet once the round is aggregated, with the seats' detail
    files.
 
@@ -42,6 +48,22 @@ it, and list each such read under "Reads beyond packet" in your output, with
 the finding it served. You have a budget of <cap> tool calls. When you reach
 it, stop and return your verdict on what you have, and say the budget ran out.
 ```
+
+## The re-check prompt
+
+```
+You raised the blocking findings in the packet last round, as the <seat>
+seat. Answer, for each one, whether the fix diff in the packet fixes it.
+Read the whole fix diff: a defect the fix itself introduces is a blocking
+finding too, because a passing re-check records this seat as passed at
+HEAD. Don't re-review anything else; the rest of the change kept its
+verdict. If the packet's `fix diff from:` line says `fallback:`, the diff
+is wider than the fix, from the start of the change; judge the same
+questions on it. An empty fix diff means nothing fixed the findings.
+```
+
+The QA tester's re-check also runs each failing scenario again, since its
+findings are failures it observed, not lines it read.
 
 ## Why a model is named
 
