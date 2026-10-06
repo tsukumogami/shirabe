@@ -1371,6 +1371,217 @@ class TestSiteKinds(unittest.TestCase):
         self.assertEqual(rendered(), before)
 
 
+SITE_FIXTURES = HERE / "fixtures" / "sites"
+SCRATCH = "wip"  # built, so this file names no path inside the scratch directory
+
+
+def git(repo, *args):
+    import subprocess
+    out = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise AssertionError(f"git {args} failed: {out.stderr}")
+    return out.stdout.strip()
+
+
+def site_repo(files):
+    """A throwaway git repository (outside this one) holding `files` {path: text}, committed."""
+    root = Path(os.path.realpath(tempfile.mkdtemp()))
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "t")
+    for rel, text in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base", "--allow-empty")
+    return root
+
+
+def site_args(site, root, **kw):
+    import argparse
+    base = {"site": site, "topic": None, "session": None, "panel": None, "head": None, "issue": None,
+            "repo_path": str(root), "measure": True, "in_sample": False}
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def plan_files(topic="demo"):
+    manifest = {"issues": [
+        {"issue_id": "1", "title": "feat(drafts): list open drafts", "file": f"{SCRATCH}/plan_{topic}_issue_1_body.md"},
+        {"issue_id": "2", "title": "feat(drafts): mark read drafts", "file": f"{SCRATCH}/plan_{topic}_issue_2_body.md"},
+        {"issue_id": "3", "title": "outside the plan's outlines", "file": "docs/elsewhere.md"}]}
+    return {f"{SCRATCH}/plan_{topic}_manifest.json": json.dumps(manifest),
+            f"{SCRATCH}/plan_{topic}_issue_1_body.md": (SITE_FIXTURES / "plan_demo_issue_1_body.md").read_text(),
+            f"{SCRATCH}/plan_{topic}_issue_2_body.md": (SITE_FIXTURES / "plan_demo_issue_2_body.md").read_text(),
+            "docs/elsewhere.md": "## Acceptance Criteria\n\n- [ ] never read\n"}
+
+
+class TestSiteInputs(unittest.TestCase):
+    """The site command's arguments, assemblers, slicers and measure mode."""
+
+    def slices(self, site, files, **kw):
+        root = site_repo(files)
+        art = rs.assemble_site(site_args(site, root, **kw))
+        return art, rs.build_site_slices(art)
+
+    def test_brief_units(self):
+        art, (slices, unmatched) = self.slices(
+            "brief", {"docs/briefs/BRIEF-demo.md": (SITE_FIXTURES / "BRIEF-demo.md").read_text()}, topic="demo")
+        journeys = slices["brief-journey"]
+        self.assertEqual([s["id"] for s in journeys], ["brief-journey-1", "brief-journey-2"])
+        self.assertTrue(journeys[0]["inputs"]["journey"].startswith("### The author checks the list"))
+        self.assertEqual([s["bytes"] for s in journeys], [151, 109])
+        pairs = slices["summary-pair"]
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(pairs[0]["inputs"]["summary"], "Authors lose track of which drafts a reviewer has already read.")
+        self.assertIn("They end up asking in chat.", pairs[0]["inputs"]["section"])
+        self.assertEqual([s["bytes"] for s in pairs], [179, 127])
+        self.assertEqual(unmatched, [])
+        self.assertEqual(art["subject_id"], "demo")
+
+    def test_prd_units_carry_their_group(self):
+        _, (slices, _) = self.slices(
+            "prd", {"docs/prds/PRD-demo.md": (SITE_FIXTURES / "PRD-demo.md").read_text()}, topic="demo")
+        acs = slices["prd-ac"]
+        self.assertEqual(len(acs), 3)
+        self.assertEqual(acs[0]["inputs"]["group"], "Listing (R1, R2):")
+        self.assertIn("and one nobody opened shows `unread`.", acs[1]["inputs"]["criterion"])
+        self.assertEqual(acs[2]["inputs"]["group"], "Errors (R3):")
+        self.assertEqual([s["bytes"] for s in acs], [68, 118, 75])
+
+    def test_plan_units_read_only_the_plan_outlines(self):
+        art, (slices, _) = self.slices("review-plan", plan_files(), topic="demo")
+        blocks = slices["plan-ac-block"]
+        self.assertEqual([s["inputs"]["issue"] for s in blocks],
+                         ["feat(drafts): list open drafts", "feat(drafts): mark read drafts"])
+        self.assertNotIn("docs/elsewhere.md", art["read_files"])
+        self.assertEqual(blocks[0]["inputs"]["criteria"].count("- [ ]"), 2)
+        self.assertEqual([s["bytes"] for s in blocks], [129, 93])
+
+    def test_bound_keeps_whole_sub_units(self):
+        exact = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["x" * rs.BOUND])
+        self.assertFalse(exact["over_bound"])
+        self.assertEqual(exact["bytes"], 2560)
+        one_over = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["x" * (rs.BOUND + 1)])
+        self.assertTrue(one_over["over_bound"])
+        self.assertEqual(one_over["inputs"]["criterion"], "x" * (rs.BOUND + 1))  # never truncated
+        parts = ["a" * 1000, "b" * 1000, "c" * 1000]  # 3,004 bytes with joiners: over by whole parts
+        cut = rs.pack_unit("brief-journey", 1, {}, "journey", "### J", parts)
+        self.assertFalse(cut["over_bound"])
+        self.assertEqual(cut["meta"]["dropped"], 1)
+        self.assertNotIn("c" * 1000, cut["inputs"]["journey"])
+        multibyte = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["é" * 1280])  # 2,560 bytes, 1,280 chars
+        self.assertFalse(multibyte["over_bound"])
+
+    def test_anchor_terms(self):
+        terms = rs.anchor_terms("- [ ] `drafts list` reads scripts/a.sh, takes --dry-run and edits config.toml.")
+        self.assertTrue({"drafts list", "scripts/a.sh", "--dry-run", "config.toml"} <= terms)
+        self.assertEqual(rs.anchor_terms("- [ ] It works well."), set())
+
+    def work_on(self, criteria, change, **kw):
+        root = site_repo({"scripts/a.sh": "#!/bin/sh\necho one\n", "README.md": "demo\n"})
+        base = git(root, "rev-parse", "HEAD")
+        for rel, text in change.items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "change")
+        ctx = {"impl_base": base + "\n", "context.md": criteria}
+        real = rs.koto_context
+        rs.koto_context = lambda session, key: ctx.get(key)
+        self.addCleanup(setattr, rs, "koto_context", real)
+        art = rs.assemble_site(site_args("work-on", root, session="wf.child", panel="scrutiny", **kw))
+        return art, rs.build_site_slices(art)
+
+    def test_ac_hunks_match_anchor_terms(self):
+        criteria = "## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n"
+        art, (slices, unmatched) = self.work_on(criteria, {"scripts/a.sh": "#!/bin/sh\necho two\n",
+                                                            "notes.txt": "unrelated\n"})
+        acs = slices["ac-hunks"]
+        self.assertEqual(len(acs), 1)
+        self.assertIn("--- scripts/a.sh", acs[0]["inputs"]["hunks"])
+        self.assertNotIn("notes.txt", acs[0]["inputs"]["hunks"])
+        self.assertEqual(unmatched, [{"unit": "ac-hunks-2", "reason": "no-anchor"}])
+        self.assertEqual(art["subject_id"], "wf-child")
+
+    def test_secret_paths_are_never_read(self):
+        criteria = "- [ ] `.env` and `scripts/a.sh` change.\n"
+        art, (slices, _) = self.work_on(criteria, {".env": "TOKEN=x\n", "keys/id_rsa": "k\n",
+                                                   "scripts/a.sh": "#!/bin/sh\necho two\n"})
+        self.assertEqual([f["path"] for f in art["files"]], ["scripts/a.sh"])
+        self.assertNotIn("TOKEN", json.dumps(slices))
+
+    def test_every_site_diff_disables_diff_drivers(self):
+        import subprocess
+        seen = []
+        real = rs.subprocess.run
+
+        def spy(cmd, **kw):
+            if cmd[:1] == ["git"] and "diff" in cmd:
+                seen.append(cmd)
+            return real(cmd, **kw)
+        rs.subprocess.run = spy
+        self.addCleanup(setattr, rs.subprocess, "run", real)
+        self.work_on("- [ ] `scripts/a.sh` prints two.\n", {"scripts/a.sh": "#!/bin/sh\necho two\n"})
+        self.assertTrue(seen)
+        for cmd in seen:
+            self.assertIn("--no-ext-diff", cmd)
+            self.assertIn("--no-textconv", cmd)
+
+    def test_arguments_are_refused(self):
+        root = site_repo({"docs/prds/PRD-demo.md": "x"})
+        cases = [dict(site="prd", topic="-demo"), dict(site="prd", topic="Demo"), dict(site="prd", topic="a/b"),
+                 dict(site="prd", topic=None),
+                 dict(site="work-on", session="-x", panel="scrutiny"),
+                 dict(site="work-on", session="wf", panel="qa"),
+                 dict(site="work-on", session="wf", panel="review", head="HEAD"),
+                 dict(site="work-on", session="wf", panel="review", issue="12a")]
+        for kw in cases:
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                rs.assemble_site(site_args(kw.pop("site"), root, **kw))
+        with self.assertRaises(ValueError):
+            rs.assemble_site(site_args("prd", root / "docs", topic="demo"))  # not the work-tree top
+
+    def test_paths_outside_the_repository_are_refused(self):
+        root = site_repo({"docs/x.md": "x"})
+        outside = Path(tempfile.mkdtemp()) / "secret.md"
+        outside.write_text("secret")
+        (root / "docs" / "link.md").symlink_to(outside)
+        files = rs.SiteFiles(root)
+        for rel in ("../x.md", "/etc/hosts", "docs/link.md"):
+            with self.subTest(rel=rel), self.assertRaises(ValueError):
+                files.read(rel)
+        self.assertEqual(files.read("docs/x.md"), "x")
+
+    def test_measure_prints_sizes_and_sends_and_writes_nothing(self):
+        import contextlib
+        import io
+        home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "PRD-demo.md").read_text()})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = rs.cmd_site(site_args("prd", root, topic="demo"), rs.load_criteria())
+        self.assertEqual(rc, 0)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(lines[:3], ["slice prd-ac-1 68", "slice prd-ac-2 118", "slice prd-ac-3 75"])
+        self.assertRegex(lines[-1], r"^seat-packet ([0-9]+|unavailable \S+)$")
+        self.assertFalse(home.exists())
+
+    def test_measure_on_this_repository(self):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = rs.main(["site", "prd", "--topic", "jev-closed-criteria", "--repo-path", str(rs.REPO_ROOT),
+                          "--measure"])
+        self.assertEqual(rc, 0)
+        self.assertIn("slice prd-ac-1 ", out.getvalue())
+
+
 def _refuse_real_opener(*a, **k):
     raise AssertionError("a test tried to open a real HTTP transport to Jev")
 

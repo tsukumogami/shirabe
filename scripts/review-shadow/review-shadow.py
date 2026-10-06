@@ -1261,6 +1261,490 @@ def write_site_record(home, rec):
     return path
 
 
+# --- Site inputs ---------------------------------------------------------------
+#
+# Every site's decider input is cut by a script from files on disk (and, for
+# /work-on, the run's koto context and git history). The commands take
+# identifiers only; nothing an agent writes reaches a slice.
+
+# The artifact kind each site grades. A site name is where a review happens; an
+# artifact kind is what is read, so /review-plan reads a plan and /work-on a
+# local change.
+SITE_ARTIFACT = {"brief": "brief", "prd": "prd", "review-plan": "plan", "work-on": "local-change"}
+WORK_ON_PANELS = ("scrutiny", "review", "light")
+TOPIC_ARG = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
+SESSION_ARG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+MAX_SITE_FILES = 64
+MAX_SITE_BYTES = 4 * 1024 * 1024
+# A path that looks like it holds a secret is never read into a slice.
+SECRET_PATH = re.compile(
+    r"(?:^|/)(?:\.env[^/]*|[^/]*\.(?:pem|key|p12|pfx|tfvars)|id_rsa[^/]*|id_ed25519[^/]*|\.npmrc|\.netrc"
+    r"|[^/]*credentials[^/]*|[^/]*secret[^/]*)$", re.I)
+# The diff options every site diff carries: a repository's own diff drivers
+# (diff.external, a textconv filter) must not run a command during assembly.
+GIT_DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
+# The workflows' scratch directory, where seats leave their verdict files. Built
+# from a constant so this file names no path inside it (the scratch-path check).
+SCRATCH_DIR = "wip"
+
+
+def check_identifier(value, name, pattern):
+    """An identifier argument: never empty, never option-shaped, and matching its grammar."""
+    if not value or value.startswith("-") or not pattern.fullmatch(value):
+        raise ValueError(f"{name} is not a valid identifier")
+    return value
+
+
+class SiteFiles:
+    """Reads files under one repository root and nothing outside it. A path is
+    joined to the root and resolved with symlinks followed; one that lands
+    outside the root, or that is itself a symlink, is refused. The number of
+    files and bytes read is capped, so a manifest can't make a run read the disk."""
+
+    def __init__(self, root):
+        self.root = Path(os.path.realpath(root))
+        self.read_files = {}
+        self.total = 0
+
+    def resolve(self, rel):
+        if not rel or rel.startswith("/") or ".." in rel.split("/"):
+            raise ValueError(f"path {rel!r} must be relative to the repository and stay inside it")
+        joined = self.root / rel
+        if joined.is_symlink():
+            raise ValueError(f"path {rel!r} is a symlink, which a site never reads")
+        real = Path(os.path.realpath(joined))
+        if os.path.commonpath([str(real), str(self.root)]) != str(self.root):
+            raise ValueError(f"path {rel!r} resolves outside the repository")
+        return real
+
+    def read(self, rel):
+        """The file's text, or None when it doesn't exist."""
+        path = self.resolve(rel)
+        if not path.is_file():
+            return None
+        if len(self.read_files) >= MAX_SITE_FILES:
+            raise ValueError("a site read more files than its cap allows")
+        data = path.read_bytes()
+        self.total += len(data)
+        if self.total > MAX_SITE_BYTES:
+            raise ValueError("a site read more bytes than its cap allows")
+        text = data.decode("utf-8", "replace").replace("\r\n", "\n")
+        self.read_files[rel] = text
+        return text
+
+
+def git_in(root, *args):
+    out = subprocess.run(["git", "-C", str(root), "-c", "core.quotepath=off", *args], capture_output=True,
+                         text=True, errors="replace", timeout=60)
+    if out.returncode != 0:
+        raise FetchError(f"git {args[0]} failed")
+    return out.stdout
+
+
+def work_tree_root(path):
+    """The repository root a site reads from: `path` must be the top of a git work tree."""
+    real = os.path.realpath(path)
+    try:
+        top = git_in(real, "rev-parse", "--show-toplevel").strip()
+    except (FetchError, OSError, subprocess.TimeoutExpired):
+        raise ValueError("--repo-path is not a git work tree")
+    if os.path.realpath(top) != real:
+        raise ValueError("--repo-path must be the top of its git work tree")
+    return Path(real)
+
+
+def repo_identity(root):
+    """owner/name from the origin remote, or local/<directory> when there is none."""
+    try:
+        url = git_in(root, "remote", "get-url", "origin").strip()
+    except (FetchError, OSError, subprocess.TimeoutExpired):
+        url = ""
+    m = re.search(r"[:/]([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$", url)
+    if m and REPO_ARG.fullmatch(f"{m.group(1)}/{m.group(2)}") and not {m.group(1), m.group(2)} & {".", ".."}:
+        return f"{m.group(1)}/{m.group(2)}"
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", root.name) or "repo"
+    return f"local/{name.strip('.') or 'repo'}"
+
+
+def frontmatter(text):
+    """Top-level keys of a document's YAML frontmatter that hold a plain scalar or a
+    literal block (`key: |` followed by indented lines). Anything else is skipped."""
+    if not text.startswith("---\n"):
+        return {}
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return {}
+    out, key, block = {}, None, []
+    for line in text[4:end].split("\n"):
+        if key is not None:
+            if line.startswith((" ", "\t")) or not line.strip():
+                block.append(line)
+                continue
+            out[key] = "\n".join(b.strip() for b in block).strip()
+            key, block = None, []
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$", line)
+        if not m:
+            continue
+        if m.group(2) in ("|", "|-", ">", ">-"):
+            key, block = m.group(1), []
+        else:
+            out[m.group(1)] = m.group(2).strip()
+    if key is not None:
+        out[key] = "\n".join(b.strip() for b in block).strip()
+    return out
+
+
+def sections(text, level="## "):
+    """{heading: body} for each heading at `level` outside fenced code."""
+    out, cur, body, fenced = {}, None, [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        if not fenced and line.startswith(level) and not line.startswith(level + "#"):
+            if cur is not None:
+                out[cur] = "\n".join(body).strip()
+            cur, body = line[len(level):].strip(), []
+        elif cur is not None:
+            body.append(line)
+    if cur is not None:
+        out[cur] = "\n".join(body).strip()
+    return out
+
+
+def prose_blocks(text):
+    """Blank-line-separated blocks: the whole sub-units a section is cut at."""
+    return [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+
+
+CHECKBOX = re.compile(r"^\s*[-*] \[[ xX]\] ")
+
+
+def checklist(text):
+    """(group label, item) for each checkbox item. An item runs on through its
+    indented continuation lines; its group is the nearest heading or plain line
+    above it (such as "Input assembly (R4, R9):")."""
+    items, group, cur = [], "", None
+    for line in text.split("\n"):
+        if CHECKBOX.match(line):
+            if cur is not None:
+                items.append((group, "\n".join(cur)))
+            cur = [line.rstrip()]
+        elif cur is not None and line.strip() and line.startswith((" ", "\t")):
+            cur.append(line.rstrip())
+        else:
+            if cur is not None:
+                items.append((group, "\n".join(cur)))
+                cur = None
+            if line.strip() and not line.lstrip().startswith(("- ", "* ", "```")):
+                group = line.strip().lstrip("#").strip()
+    if cur is not None:
+        items.append((group, "\n".join(cur)))
+    return items
+
+
+def pack_unit(kind, n, fixed, label, head, parts, joiner="\n\n"):
+    """One unit as one slice: `fixed` inputs, plus `label` holding `head` and as
+    many leading whole `parts` as fit the bound. Parts that don't fit are
+    dropped and counted; a unit whose head and first part can't fit stays one
+    over-bound slice holding all of it, which is never sent."""
+    def body(ps):
+        return joiner.join(x for x in [head] + ps if x)
+    whole = make_slice(kind, n, dict(fixed, **{label: body(parts)}), {"dropped": 0})
+    if not whole["over_bound"]:
+        return whole
+    for keep in range(len(parts) - 1, 0, -1):
+        s = make_slice(kind, n, dict(fixed, **{label: body(parts[:keep])}), {"dropped": len(parts) - keep})
+        if not s["over_bound"]:
+            return s
+    return whole
+
+
+def slice_brief_journeys(art):
+    """One slice per ### journey under User Journeys, cut at its paragraphs."""
+    journeys = sections(art["sections"].get("User Journeys", ""), "### ")
+    out = []
+    for n, (title, text) in enumerate(journeys.items(), 1):
+        out.append(pack_unit("brief-journey", n, {}, "journey", f"### {title}", prose_blocks(text)))
+    return out
+
+
+def slice_summary_pairs(art):
+    """Each frontmatter summary beside the section it summarizes, the section cut at
+    its paragraphs. A pair missing either half sends nothing."""
+    out = []
+    for field, heading in (("problem", "Problem Statement"), ("outcome", "User Outcome")):
+        summary, section = art["frontmatter"].get(field, ""), art["sections"].get(heading, "")
+        if summary and section:
+            out.append(pack_unit("summary-pair", len(out) + 1, {"summary": summary}, "section", "",
+                                 prose_blocks(section)))
+    return out
+
+
+def slice_prd_acs(art):
+    """One slice per acceptance criterion, with its group label."""
+    out = []
+    for n, (group, item) in enumerate(checklist(art["sections"].get("Acceptance Criteria", "")), 1):
+        fixed = {"group": group} if group else {}
+        out.append(pack_unit("prd-ac", n, fixed, "criterion", "", [item]))
+    return out
+
+
+def slice_plan_ac_blocks(art):
+    """One slice per issue outline: its title and its criteria, cut at whole items."""
+    out = []
+    for n, issue in enumerate(art["issues"], 1):
+        items = [item for _, item in checklist(issue["criteria"])]
+        out.append(pack_unit("plan-ac-block", n, {"issue": issue["title"]}, "criteria", "", items, "\n"))
+    return out
+
+
+ANCHOR = re.compile(r"`([^`\n]{3,120})`|(?<![\w/.-])(--[a-z][a-z0-9-]{2,})|"
+                    r"(?<![\w-])([A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.[A-Za-z][A-Za-z0-9]{0,5})\b")
+
+
+def anchor_terms(text):
+    """The literal terms a criterion is matched to hunks by: backticked tokens,
+    --flags, and tokens holding a / or a file extension."""
+    terms = set()
+    for m in ANCHOR.finditer(text):
+        t = next(g for g in m.groups() if g)
+        t = t.strip().rstrip(".,;:)")
+        if len(t) >= 3:
+            terms.add(t)
+    return terms
+
+
+def slice_ac_hunks(art):
+    """Each acceptance criterion with the hunks that mention one of its anchor
+    terms (in the path or a changed line), packed whole up to the bound. A
+    criterion with no anchor term or no matching hunk sends nothing and is listed
+    as unanswered with reason no-anchor."""
+    out, unmatched = [], []
+    for n, (_, item) in enumerate(art["criteria"], 1):
+        terms = anchor_terms(item)
+        units = []
+        for f in art["files"]:
+            if not f["patch"]:
+                continue
+            plen = utf8_len(f["path"])
+            for h in split_hunks(f["patch"]):
+                changed = "\n".join(line[1:] for line in h.split("\n")[1:] if line[:1] in "+-")
+                if terms and any(t in f["path"] or t in changed for t in terms):
+                    units += [f"--- {f['path']}\n{u}" for u in hunk_units(h, plen)]
+        if not units:
+            unmatched.append({"unit": f"ac-hunks-{n}", "reason": "no-anchor"})
+            continue
+        out.append(pack_unit("ac-hunks", n, {"criterion": item}, "hunks", "", units, "\n"))
+    return out, unmatched
+
+
+def build_site_slices(art):
+    """Slices per slice kind for one site artifact, plus units that sent nothing."""
+    kind = art["artifact_kind"]
+    if kind == "brief":
+        return {"brief-journey": slice_brief_journeys(art), "summary-pair": slice_summary_pairs(art)}, []
+    if kind == "prd":
+        return {"prd-ac": slice_prd_acs(art)}, []
+    if kind == "plan":
+        return {"plan-ac-block": slice_plan_ac_blocks(art)}, []
+    ac, unmatched = slice_ac_hunks(art)
+    return {"ac-hunks": ac, "code-hunks": slice_code_hunks({"files": art["files"]})}, unmatched
+
+
+def koto_context(session, key):
+    try:
+        out = subprocess.run(["koto", "context", "get", session, key], capture_output=True, text=True,
+                             errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def local_change_files(root, base, head):
+    """Changed files between two commits with their patches, secret-looking paths
+    left out. Every diff carries --no-ext-diff --no-textconv."""
+    fields = git_in(root, *GIT_DIFF, "--name-status", "-z", "-M", base, head).split("\0")
+    files, i = [], 0
+    status_word = {"A": "added", "D": "removed", "M": "modified", "R": "renamed", "C": "copied", "T": "modified"}
+    while i < len(fields) and fields[i]:
+        code = fields[i]
+        if code[0] in "RC":
+            old, path, i = fields[i + 1], fields[i + 2], i + 3
+        else:
+            old, path, i = None, fields[i + 1], i + 2
+        if SECRET_PATH.search(path) or (old and SECRET_PATH.search(old)):
+            continue
+        files.append({"path": path, "previous_path": old, "status": status_word.get(code[0], "modified"),
+                      "additions": 0, "deletions": 0, "patch": None})
+    for f in files[:MAX_SITE_FILES * 4]:
+        if f["status"] == "removed":
+            continue
+        diff = git_in(root, *GIT_DIFF, "-U3", "-M", base, head, "--", f["path"])
+        f["patch"] = (diff[diff.find("\n@@") + 1:] if "\n@@" in diff else "").rstrip("\n")
+    return files
+
+
+def resolve_commit(root, ref):
+    sha = git_in(root, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+    if not HEAD_ARG.fullmatch(sha):
+        raise FetchError("a commit could not be resolved")
+    return sha
+
+
+def assemble_site(args):
+    """Read one site's artifact from disk into the dict its slicers cut. Raises
+    ValueError for a bad argument and FetchError when an input can't be read."""
+    site = check_site(args.site)
+    root = work_tree_root(args.repo_path or ".")
+    files = SiteFiles(root)
+    art = {"site": site, "artifact_kind": SITE_ARTIFACT[site], "root": root, "repo": repo_identity(root)}
+    if site in ("brief", "prd", "review-plan"):
+        topic = check_identifier(args.topic, "--topic", TOPIC_ARG)
+        art["subject_id"] = topic
+    if site == "brief":
+        text = files.read(f"docs/briefs/BRIEF-{topic}.md")
+        if text is None:
+            raise FetchError("the brief isn't on disk")
+        art.update(frontmatter=frontmatter(text), sections=sections(text))
+    elif site == "prd":
+        text = files.read(f"docs/prds/PRD-{topic}.md")
+        if text is None:
+            raise FetchError("the PRD isn't on disk")
+        art.update(frontmatter=frontmatter(text), sections=sections(text))
+    elif site == "review-plan":
+        manifest = files.read(f"{SCRATCH_DIR}/plan_{topic}_manifest.json")
+        if manifest is None:
+            raise FetchError("the plan manifest isn't on disk")
+        try:
+            data = json.loads(manifest)
+        except ValueError:
+            raise FetchError("the plan manifest isn't JSON")
+        entries = data if isinstance(data, list) else (data.get("issues") or data.get("results") or [])
+        pattern = re.compile(rf"{SCRATCH_DIR}/plan_{re.escape(topic)}_issue_[A-Za-z0-9_-]+\.md")
+        art["issues"] = []
+        for e in entries[:MAX_SITE_FILES]:
+            rel = e.get("file") if isinstance(e, dict) else None
+            if not isinstance(rel, str) or not pattern.fullmatch(rel):
+                continue  # only the plan's own issue outlines are read
+            body = files.read(rel)
+            if body is None:
+                continue
+            title = e.get("title") if isinstance(e.get("title"), str) else rel
+            art["issues"].append({"title": title, "criteria": sections(body).get("Acceptance Criteria", "")})
+    else:
+        session = check_identifier(args.session, "--session", SESSION_ARG)
+        if args.panel not in WORK_ON_PANELS:
+            raise ValueError(f"--panel must be one of {WORK_ON_PANELS}")
+        if args.issue:
+            check_pr(args.issue)
+        head = check_head(args.head) if args.head else resolve_commit(root, "HEAD")
+        base = (koto_context(session, "impl_base") or "").strip()
+        if not HEAD_ARG.fullmatch(base):
+            raise FetchError("the session has no impl_base")
+        if args.issue:
+            out = subprocess.run(["gh", "issue", "view", str(int(args.issue)), "--json", "body", "-q", ".body"],
+                                 capture_output=True, text=True, errors="replace", timeout=60, cwd=str(root))
+            if out.returncode != 0:
+                raise FetchError(f"gh issue view failed: {gh_hint('issues', out.stderr)}")
+            criteria_text = out.stdout
+            art["subject_id"] = f"issue-{int(args.issue)}"
+        else:
+            criteria_text = koto_context(session, "context.md") or ""
+            art["subject_id"] = re.sub(r"[^a-z0-9-]", "-", session.lower()).strip("-")[-80:].lstrip("-") or "session"
+        acs = sections(criteria_text).get("Acceptance Criteria") or criteria_text
+        art.update(session=session, panel=args.panel, base=base, head=head, criteria=checklist(acs),
+                   criteria_text=criteria_text, files=local_change_files(root, base, head))
+    art["read_files"] = files.read_files
+    return art
+
+
+def artifact_sha(art, slices):
+    """A hash of what was graded: every slice's hash, in order, and the files read."""
+    h = hashlib.sha256()
+    for kind in sorted(slices):
+        for s in slices[kind]:
+            h.update(s["sha256"].encode())
+    for rel in sorted(art.get("read_files", {})):
+        h.update(rel.encode() + b"\0" + hashlib.sha256(art["read_files"][rel].encode()).hexdigest().encode())
+    return h.hexdigest()
+
+
+PACKET_SCRIPT = REPO_ROOT / "scripts" / "review-packet.sh"
+
+
+def seat_packet_args(art):
+    """The review-packet.sh arguments the site's seats are commissioned with."""
+    site, topic = art["site"], art.get("subject_id")
+    if site == "brief":
+        return ["doc", "--doc", f"docs/briefs/BRIEF-{topic}.md", "--format", "skills/brief/references/brief-format.md",
+                "--extra", f"{SCRATCH_DIR}/brief_{topic}_context.md"]
+    if site == "prd":
+        return ["doc", "--doc", f"docs/prds/PRD-{topic}.md", "--format", "skills/prd/references/prd-format.md",
+                "--extra", f"{SCRATCH_DIR}/prd_{topic}_scope.md"]
+    if site == "review-plan":
+        extras = [f"{SCRATCH_DIR}/plan_{topic}_analysis.md", f"{SCRATCH_DIR}/plan_{topic}_dependencies.md"]
+        analysis = art.get("read_files", {}).get(f"{SCRATCH_DIR}/plan_{topic}_analysis.md") or ""
+        m = re.search(r"^Path:\s*(docs/\S+\.md)\s*$", analysis, re.M)
+        if m:
+            extras.append(m.group(1))
+        out = ["doc", "--doc", f"{SCRATCH_DIR}/plan_{topic}_decomposition.md",
+               "--format", "skills/review-plan/references/phases/phase-3-ac-discriminability.md"]
+        for e in extras:
+            out += ["--extra", e]
+        return out
+    return None  # work-on: built in seat_packet_bytes, which needs a criteria file
+
+
+def seat_packet_bytes(art):
+    """The byte size of the packet the site's seats read, or (None, reason)."""
+    import tempfile
+    if not PACKET_SCRIPT.is_file():
+        return None, "no-packet-script"
+    tmp = None
+    try:
+        args = seat_packet_args(art)
+        if args is None:
+            fd, tmp = tempfile.mkstemp(prefix="review-shadow-criteria.")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(art.get("criteria_text") or "")
+            args = ["code", "--session", art["session"], "--criteria", tmp]
+        out = subprocess.run([str(PACKET_SCRIPT), *args], capture_output=True, text=True, errors="replace",
+                             timeout=120, cwd=str(art["root"]))
+        if out.returncode != 0:
+            return None, f"packet-exit-{out.returncode}"
+        path = Path(out.stdout.strip().splitlines()[-1]) if out.stdout.strip() else None
+        if path is None or not path.is_file():
+            return None, "packet-missing"
+        size = path.stat().st_size
+        path.unlink()
+        return size, None
+    except (OSError, subprocess.TimeoutExpired):
+        return None, "packet-unavailable"
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def cmd_site(args, criteria):
+    art = assemble_site(args)
+    slices, unmatched = build_site_slices(art)
+    if not args.measure:
+        raise ValueError("site grading isn't available yet; run with --measure")
+    for kind in slices:
+        for s in slices[kind]:
+            extra = f" over-bound" if s["over_bound"] else ""
+            dropped = s["meta"].get("dropped")
+            print(f"slice {s['id']} {s['bytes']}{extra}" + (f" dropped={dropped}" if dropped else ""))
+    for u in unmatched:
+        print(f"unit {u['unit']} unanswered {u['reason']}")
+    size, why = seat_packet_bytes(art)
+    print(f"seat-packet {size}" if size is not None else f"seat-packet unavailable {why}")
+    return 0
+
+
 def cmd_grade(args, criteria):
     repo, pr, head = check_repo(args.repo), check_pr(args.pr), check_head(args.head)
     panel_run = check_panel_run(args.panel_run)
@@ -1696,8 +2180,19 @@ def main(argv=None):
     sp.add_argument("--base", default="origin/main")
     sp.add_argument("--body-file")
     sp.add_argument("--private-terms")
+    st = sub.add_parser("site", help="shadow one review site's seats with the decider (--measure: sizes only)")
+    st.add_argument("site", choices=SITES)
+    st.add_argument("--topic", help="the topic slug (brief, prd, review-plan)")
+    st.add_argument("--session", help="the /work-on koto session (work-on)")
+    st.add_argument("--panel", choices=WORK_ON_PANELS, help="the /work-on panel (work-on)")
+    st.add_argument("--head", help="the commit the /work-on diff ends at (default HEAD)")
+    st.add_argument("--issue", help="read /work-on's acceptance criteria from this issue")
+    st.add_argument("--repo-path", help="the repository root (default: the current directory)")
+    st.add_argument("--measure", action="store_true", help="print slice and seat-packet sizes; send and write nothing")
+    st.add_argument("--in-sample", action="store_true", help="mark the record in-sample (a manual re-grade)")
     args = ap.parse_args(argv)
-    commands = {"scan": cmd_scan, "grade": cmd_grade, "outcome": cmd_outcome, "report": cmd_report}
+    commands = {"scan": cmd_scan, "grade": cmd_grade, "outcome": cmd_outcome, "report": cmd_report,
+                "site": cmd_site}
     if args.command in commands:
         try:
             criteria = load_criteria()
