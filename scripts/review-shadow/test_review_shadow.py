@@ -1371,16 +1371,19 @@ class TestSiteKinds(unittest.TestCase):
         rs.write_site_record(self.home, site)
         self.assertEqual(rendered(), before)
 
-    def test_a_pull_request_only_store_prints_no_site_section(self):
+    def test_an_empty_store_prints_zero_site_counts(self):
         import contextlib
         import io
         crit = rs.load_criteria()
         data = rs.report_data(self.home, crit, rs.load_categories(crit))
-        self.assertNotIn("sites", data)
+        self.assertEqual(data["sites"]["out-of-sample"],
+                         {"seats": {}, "criteria": {}, "not_graded": {}, "seat_unreadable": {}})
+        self.assertEqual(data["sites"]["tokens"], {"input": 0, "output": 0, "records": 0})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rs.print_report(data)
-        self.assertNotIn("Review sites", out.getvalue())
+        self.assertIn("No site runs.", out.getvalue())
+        self.assertIn("Site Jev spend: 0 input and 0 output tokens over 0 records.", out.getvalue())
 
 
 SITE_FIXTURES = HERE / "fixtures" / "sites"
@@ -1965,6 +1968,32 @@ class TestSiteReport(unittest.TestCase):
                 self.assertIn("| work-on:scrutiny | completeness | 6 | 33% | 3 | 1 | 1 | 1 |", text)
                 self.assertIn("Runs not graded (no decider verdict), by site: work-on:scrutiny 1.", text)
                 self.assertIn("Site Jev spend: 1000 input and 100 output tokens over 10 records.", text)
+
+    def test_per_criterion_attribution_reads_only_its_slices(self):
+        seat = {"seat": "reviewer", "rule_ids": ["rs-015", "rs-016"], "verdict": "fail", "reason": None,
+                "blocking_findings": 1, "attributed": {"ac-hunks-1": False, "code-hunks-1": True}}
+        rec = rs.new_site_record("octo/demo", "work-on", "issue-7", "e" * 64, panel="light", seats=[seat],
+                                 status="unanimous-pass", criteria=[{"rule_id": "rs-015", "verdict": "pass", "slices": 1},
+                                                                    {"rule_id": "rs-016", "verdict": "pass", "slices": 1}])
+        rs.write_site_record(self.home, rec)
+        p = self.sites()["out-of-sample"]
+        self.assertEqual(p["criteria"]["work-on:light|rs-015"]["unattributed_seat_blocks"], 1)
+        self.assertEqual(p["criteria"]["work-on:light|rs-016"]["attributed_false_passes"], 1)
+        self.assertEqual(p["seats"]["work-on:light|reviewer"]["attributed_false_passes"], 1)
+
+    def test_review_plan_reads_the_later_round(self):
+        files = plan_files()
+        files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
+        files[f"{SCRATCH}/plan_demo_review.md"] = "review_result:\n  verdict: proceed\n  round: 2\n  critical_findings: []\n"
+        files[f"{SCRATCH}/plan_demo_review_loopback.md"] = (
+            "review_result:\n  verdict: loop-back\n  round: 1\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        root = site_repo(files)
+        loop = root / SCRATCH / "plan_demo_review_loopback.md"
+        os.utime(loop, (loop.stat().st_mtime + 60, loop.stat().st_mtime + 60))  # newer file, older round
+        art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
+        slices, _ = rs.build_site_slices(art)
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
 
     def test_review_plan_reads_the_newer_verdict_file(self):
         files = plan_files()

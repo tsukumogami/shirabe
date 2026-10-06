@@ -1833,14 +1833,18 @@ def read_plan_seat(art, files, slices):
     category C finding. Each finding's affected_issue_ids tie it to the issue slices."""
     topic, rule_ids = art["subject_id"], SITE_SEATS["review-plan"]["category-c"]
     # Both files can exist when a loop-back round was followed by a proceed round
-    # (or the reverse); the newer one is the verdict on the plan as it stands.
+    # (or the reverse). The verdict on the plan as it stands is the one with the
+    # higher review_result round; on equal or missing rounds, the file modified
+    # last, and on a tie of both, the proceed file (the order /review-plan writes).
     candidates = []
-    for name in (f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md"):
+    for order, name in enumerate((f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md")):
         rel = f"{SCRATCH_DIR}/{name}"
-        path = files.resolve(rel)
-        if path.is_file():
-            candidates.append((path.stat().st_mtime_ns, rel))
-    text = files.read(max(candidates)[1]) if candidates else None
+        body = files.read(rel)
+        if body is not None:
+            m = re.search(r"^\s*round:\s*(\d+)\s*$", body, re.M)
+            mtime = files.resolve(rel).stat().st_mtime_ns
+            candidates.append((int(m.group(1)) if m else -1, mtime, -order, body))
+    text = max(candidates)[3] if candidates else None
     if text is None:
         return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-missing")]
     if not re.search(r"^\s*verdict:\s*\"?(proceed|loop-back)\"?\s*$", text, re.M):
@@ -2244,7 +2248,7 @@ def site_rates(rows):
             "no_verdict": sum(1 for o, s, a in rows if o == "none")}
 
 
-def site_report_data(site_records):
+def site_report_data(site_records, criteria):
     """Per-site and per-criterion agreement between seats and the decider, out-of-sample
     and in-sample apart, from the latest record per site, subject and artifact."""
     latest = {}
@@ -2253,6 +2257,14 @@ def site_report_data(site_records):
         key = (r["repo"], s["site"], r.get("panel"), s["subject_id"], s["artifact_sha"], bool(r.get("in_sample")))
         if key not in latest or r["recorded_at"] > latest[key]["recorded_at"]:
             latest[key] = r
+    slice_kind_of = {c["rule_id"]: c["slice_kind"] for c in criteria["criteria"]}
+
+    def attributed_in(seat, kinds):
+        # Attribution is per slice; a criterion is charged only with findings in
+        # the slices it graded (an ac-hunks criterion never with a code-hunks one).
+        return any(v for k, v in seat.get("attributed", {}).items()
+                   if any(k.startswith(f"{kind}-") for kind in kinds))
+
     out = {}
     for pop, in_sample in (("out-of-sample", False), ("in-sample", True)):
         seats, crits, not_graded, unreadable = {}, {}, {}, {}
@@ -2272,11 +2284,13 @@ def site_report_data(site_records):
                 if not outs:
                     continue
                 o = "fail" if "fail" in outs else ("pass" if all(x == "pass" for x in outs) else "none")
-                attributed = any(seat.get("attributed", {}).values())
-                seats.setdefault(f"{site}|{seat['seat']}", []).append((o, seat["verdict"], attributed))
+                kinds = {slice_kind_of.get(rid) for rid in seat["rule_ids"]}
+                seats.setdefault(f"{site}|{seat['seat']}", []).append(
+                    (o, seat["verdict"], attributed_in(seat, kinds)))
                 for rid in seat["rule_ids"]:
                     if rid in verdict_of:
-                        crits.setdefault(f"{site}|{rid}", []).append((verdict_of[rid], seat["verdict"], attributed))
+                        crits.setdefault(f"{site}|{rid}", []).append(
+                            (verdict_of[rid], seat["verdict"], attributed_in(seat, {slice_kind_of.get(rid)})))
         out[pop] = {"seats": {k: site_rates(v) for k, v in seats.items()},
                     "criteria": {k: site_rates(v) for k, v in crits.items()},
                     "not_graded": not_graded, "seat_unreadable": unreadable}
@@ -2370,8 +2384,7 @@ def report_data(home, criteria, categories, mode="batched"):
                     diffs.append({"repo": repo, "pr": pr, "head": head, "rule_id": rid,
                                   "batched": a.get(rid), "unbatched": b.get(rid)})
     result["mode_differences"] = diffs
-    if site_records:
-        result["sites"] = site_report_data(site_records)
+    result["sites"] = site_report_data(site_records, criteria)
     return result
 
 
@@ -2467,7 +2480,7 @@ def print_report(data):
         print()
     t = data["tokens"]
     print(f"Trial Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
-    if data.get("sites"):
+    if "sites" in data:
         print_site_report(data["sites"])
 
 
