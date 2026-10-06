@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   The scope chain and /work-on run a dozen or more review seats per feature
   as full agents, and some of what they check is closed and answerable from
@@ -36,7 +36,7 @@ upstream: docs/prds/PRD-jev-closed-criteria.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
