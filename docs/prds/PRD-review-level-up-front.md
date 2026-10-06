@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A /work-on run sizes its review from the issue type alone. Every code issue
   runs scrutiny, review and QA, seven seats per round, and any skill or koto
@@ -28,7 +28,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness and clarity reviewers passed it on a second round, the
 testability reviewer on the first.
