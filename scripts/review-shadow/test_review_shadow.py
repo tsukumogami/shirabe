@@ -1363,12 +1363,24 @@ class TestSiteKinds(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 rs.print_report(data)
-            return json.dumps(data, sort_keys=True), out.getvalue()
+            data.pop("sites", None)  # the site tables come after the pull-request ones
+            return json.dumps(data, sort_keys=True), out.getvalue().split("\n# Review sites")[0]
         before = rendered()
         site = rs.new_site_record("octo/demo", "prd", "topic", "c" * 64, status="dissent",
                                   tokens={"input": 500, "output": 50}, mode="batched")
         rs.write_site_record(self.home, site)
         self.assertEqual(rendered(), before)
+
+    def test_a_pull_request_only_store_prints_no_site_section(self):
+        import contextlib
+        import io
+        crit = rs.load_criteria()
+        data = rs.report_data(self.home, crit, rs.load_categories(crit))
+        self.assertNotIn("sites", data)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rs.print_report(data)
+        self.assertNotIn("Review sites", out.getvalue())
 
 
 SITE_FIXTURES = HERE / "fixtures" / "sites"
@@ -1856,6 +1868,123 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("nothing graded", err.getvalue())
         self.assertFalse(self.home.exists())
+
+
+class TestSiteReport(unittest.TestCase):
+    """A hand-built store of site records, figures worked out below run by run.
+
+    work-on:scrutiny, seat completeness, criterion rs-015, out-of-sample:
+      r1 decider pass, seat pass                       -> agreement
+      r2 decider fail, seat fail                       -> agreement
+      r3 decider fail, seat pass                       -> decider-only fail
+      r4 decider pass, seat fail, finding in a slice   -> attributed false pass
+      r5 decider pass, seat fail, nothing attributed   -> unattributed seat block
+      r6 decider unanswered, seat pass                 -> no verdict
+      r7 seat unreadable                               -> counted apart, not a run
+      r8 not graded (not-opted-in)                     -> counted apart, not a run
+    Runs 6; agreement 2/6; decider passes 3; decider-only fails 1; attributed 1;
+    unattributed 1; upper bound = binom_upper(2, 3); no verdict 1/6.
+    r1 also has an older record for the same artifact, which the latest replaces.
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        self.n = 0
+
+    def record(self, i, crit_verdict, seat_verdict, attributed=False, status="dissent", reason=None,
+               in_sample=False, stamp=None, seat_reason=None):
+        self.n += 1
+        seat = {"seat": "completeness", "rule_ids": ["rs-015"], "verdict": seat_verdict, "reason": seat_reason,
+                "blocking_findings": 1 if seat_verdict == "fail" else 0,
+                "attributed": {"ac-hunks-1": attributed}}
+        rec = rs.new_site_record("octo/demo", "work-on", "issue-7", f"{i:064x}", panel="scrutiny",
+                                 in_sample=in_sample, seats=[seat], status=status, not_graded_reason=reason,
+                                 criteria=[{"rule_id": "rs-015", "verdict": crit_verdict, "slices": 1}],
+                                 tokens={"input": 100, "output": 10})
+        rec["recorded_at"] = stamp or f"2026-10-06T00:00:{self.n:02d}Z"
+        rs.write_site_record(self.home, rec)
+
+    def build(self):
+        self.record(1, "fail", "fail", stamp="2026-10-05T00:00:00Z")  # replaced by the later r1
+        self.record(1, "pass", "pass")
+        self.record(2, "fail", "fail")
+        self.record(3, "fail", "pass")
+        self.record(4, "pass", "fail", attributed=True)
+        self.record(5, "pass", "fail")
+        self.record(6, "unanswered", "pass")
+        self.record(7, "pass", "unreadable", seat_reason="seat-verdict-stale")
+        self.record(8, "unanswered", "pass", status="not-graded", reason="not-opted-in")
+        self.record(9, "pass", "fail", in_sample=True)
+
+    def sites(self):
+        crit = rs.load_criteria()
+        return rs.report_data(self.home, crit, rs.load_categories(crit))["sites"]
+
+    def test_figures(self):
+        self.build()
+        p = self.sites()["out-of-sample"]
+        g = p["seats"]["work-on:scrutiny|completeness"]
+        self.assertEqual(g["n"], 6)
+        self.assertAlmostEqual(g["agreement"], 2 / 6)
+        self.assertEqual((g["decider_passes"], g["decider_only_fails"]), (3, 1))
+        self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (1, 1))
+        self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(2, 3))
+        self.assertEqual(g["no_verdict"], 1)
+        self.assertEqual(p["criteria"]["work-on:scrutiny|rs-015"], g)
+        self.assertEqual(p["not_graded"], {"work-on:scrutiny": 1})
+        self.assertEqual(p["seat_unreadable"], {"work-on:scrutiny|completeness": 1})
+
+    def test_in_sample_is_apart(self):
+        self.build()
+        p = self.sites()["in-sample"]
+        g = p["seats"]["work-on:scrutiny|completeness"]
+        self.assertEqual((g["n"], g["unattributed_seat_blocks"]), (1, 1))
+
+    def test_zero_blocks_and_no_runs(self):
+        self.record(1, "pass", "pass")
+        g = self.sites()["out-of-sample"]["seats"]["work-on:scrutiny|completeness"]
+        self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (0, 0))
+        self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(0, 1))
+        self.assertEqual(rs.site_rates([])["false_pass_upper95"], None)
+        self.assertEqual(self.sites()["in-sample"]["seats"], {})
+
+    def test_printed_and_json(self):
+        import contextlib
+        import io
+        self.build()
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        for argv in (["report"], ["report", "--json"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(rs.main(argv), 0)
+            text = out.getvalue()
+            if argv[-1] == "--json":
+                self.assertIn("work-on:scrutiny|completeness", json.loads(text)["sites"]["out-of-sample"]["seats"])
+            else:
+                self.assertIn("| work-on:scrutiny | completeness | 6 | 33% | 3 | 1 | 1 | 1 |", text)
+                self.assertIn("Runs not graded (no decider verdict), by site: work-on:scrutiny 1.", text)
+                self.assertIn("Site Jev spend: 1000 input and 100 output tokens over 10 records.", text)
+
+    def test_review_plan_reads_the_newer_verdict_file(self):
+        files = plan_files()
+        files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
+        files[f"{SCRATCH}/plan_demo_review.md"] = "review_result:\n  verdict: proceed\n  critical_findings: []\n"
+        files[f"{SCRATCH}/plan_demo_review_loopback.md"] = (
+            "review_result:\n  verdict: loop-back\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        root = site_repo(files)
+        older = root / SCRATCH / "plan_demo_review.md"
+        os.utime(older, (older.stat().st_mtime - 60, older.stat().st_mtime - 60))
+        art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
+        slices, _ = rs.build_site_slices(art)
+        seat = rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]
+        self.assertEqual(seat["verdict"], "fail")
+        newer = root / SCRATCH / "plan_demo_review.md"
+        os.utime(newer, None)
+        loop = root / SCRATCH / "plan_demo_review_loopback.md"
+        os.utime(loop, (loop.stat().st_mtime - 120, loop.stat().st_mtime - 120))
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
 
 
 def _refuse_real_opener(*a, **k):

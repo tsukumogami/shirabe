@@ -1832,11 +1832,15 @@ def read_plan_seat(art, files, slices):
     """/review-plan's category C verdict: fail when its review_result holds a
     category C finding. Each finding's affected_issue_ids tie it to the issue slices."""
     topic, rule_ids = art["subject_id"], SITE_SEATS["review-plan"]["category-c"]
-    text = None
+    # Both files can exist when a loop-back round was followed by a proceed round
+    # (or the reverse); the newer one is the verdict on the plan as it stands.
+    candidates = []
     for name in (f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md"):
-        text = files.read(f"{SCRATCH_DIR}/{name}")
-        if text is not None:
-            break
+        rel = f"{SCRATCH_DIR}/{name}"
+        path = files.resolve(rel)
+        if path.is_file():
+            candidates.append((path.stat().st_mtime_ns, rel))
+    text = files.read(max(candidates)[1]) if candidates else None
     if text is None:
         return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-missing")]
     if not re.search(r"^\s*verdict:\s*\"?(proceed|loop-back)\"?\s*$", text, re.M):
@@ -2222,10 +2226,72 @@ def rollups(kind, dk):
     return ((kind, dk), (kind, "all"), ("all", dk), ("all", "all"))
 
 
+def site_rates(rows):
+    """Figures over rows of (decider outcome, seat verdict, attributed) for one site
+    seat or criterion. The comparison is directional: a seat verdict covers its
+    whole checklist and a criterion one closed question, so a seat block the
+    decider passed is a false pass only when a seat finding falls in a graded
+    slice; the rest are unattributed and count only toward the upper bound."""
+    n = len(rows)
+    passes = sum(1 for o, s, a in rows if o == "pass")
+    agree = sum(1 for o, s, a in rows if (o, s) in (("pass", "pass"), ("fail", "fail")))
+    attributed = sum(1 for o, s, a in rows if o == "pass" and s == "fail" and a)
+    unattributed = sum(1 for o, s, a in rows if o == "pass" and s == "fail" and not a)
+    return {"n": n, "agreement": None if n == 0 else agree / n, "decider_passes": passes,
+            "decider_only_fails": sum(1 for o, s, a in rows if o == "fail" and s == "pass"),
+            "attributed_false_passes": attributed, "unattributed_seat_blocks": unattributed,
+            "false_pass_upper95": binom_upper(attributed + unattributed, passes),
+            "no_verdict": sum(1 for o, s, a in rows if o == "none")}
+
+
+def site_report_data(site_records):
+    """Per-site and per-criterion agreement between seats and the decider, out-of-sample
+    and in-sample apart, from the latest record per site, subject and artifact."""
+    latest = {}
+    for r in site_records:
+        s = r["subject"]
+        key = (r["repo"], s["site"], r.get("panel"), s["subject_id"], s["artifact_sha"], bool(r.get("in_sample")))
+        if key not in latest or r["recorded_at"] > latest[key]["recorded_at"]:
+            latest[key] = r
+    out = {}
+    for pop, in_sample in (("out-of-sample", False), ("in-sample", True)):
+        seats, crits, not_graded, unreadable = {}, {}, {}, {}
+        for key, r in sorted(latest.items()):
+            if key[5] != in_sample:
+                continue
+            site = r["subject"]["site"] + (f":{r['panel']}" if r.get("panel") else "")
+            if r.get("status") == "not-graded":
+                not_graded[site] = not_graded.get(site, 0) + 1
+                continue
+            verdict_of = {c["rule_id"]: VERDICT_OUTCOME[c["verdict"]] for c in r.get("criteria", [])}
+            for seat in r.get("seats", []):
+                if seat["verdict"] not in ("pass", "fail"):
+                    unreadable[f"{site}|{seat['seat']}"] = unreadable.get(f"{site}|{seat['seat']}", 0) + 1
+                    continue
+                outs = [verdict_of[rid] for rid in seat["rule_ids"] if rid in verdict_of]
+                if not outs:
+                    continue
+                o = "fail" if "fail" in outs else ("pass" if all(x == "pass" for x in outs) else "none")
+                attributed = any(seat.get("attributed", {}).values())
+                seats.setdefault(f"{site}|{seat['seat']}", []).append((o, seat["verdict"], attributed))
+                for rid in seat["rule_ids"]:
+                    if rid in verdict_of:
+                        crits.setdefault(f"{site}|{rid}", []).append((verdict_of[rid], seat["verdict"], attributed))
+        out[pop] = {"seats": {k: site_rates(v) for k, v in seats.items()},
+                    "criteria": {k: site_rates(v) for k, v in crits.items()},
+                    "not_graded": not_graded, "seat_unreadable": unreadable}
+    out["tokens"] = {"input": sum(r.get("tokens", {}).get("input", 0) for r in site_records),
+                     "output": sum(r.get("tokens", {}).get("output", 0) for r in site_records),
+                     "records": len(site_records)}
+    return out
+
+
 def report_data(home, criteria, categories, mode="batched"):
     records, outcomes = load_store(home)
     # Site records have no pull request or head; the pull-request tables, the
-    # mode comparison and the spend line read pull-request records only.
+    # mode comparison and the spend line read pull-request records only, and
+    # the site tables read the rest.
+    site_records = [r for r in records if is_site_record(r)]
     records = [r for r in records if not is_site_record(r)]
     by_head_kind = {}
     for o in outcomes:
@@ -2304,7 +2370,42 @@ def report_data(home, criteria, categories, mode="batched"):
                     diffs.append({"repo": repo, "pr": pr, "head": head, "rule_id": rid,
                                   "batched": a.get(rid), "unbatched": b.get(rid)})
     result["mode_differences"] = diffs
+    if site_records:
+        result["sites"] = site_report_data(site_records)
     return result
+
+
+def print_site_report(sites):
+    print("\n# Review sites in decider shadow\n")
+    print("A seat verdict covers the seat's whole checklist and a decider verdict one closed criterion, so a "
+          "seat block the decider passed is counted as a false pass only when a seat finding falls in a "
+          "graded slice; the 95% upper bound counts every such block.\n")
+    cols = ("| {} | runs | agreement | decider passes | decider-only fails | attributed false passes "
+            "| unattributed seat blocks | false-pass 95% upper bound | no verdict |")
+    for pop in ("out-of-sample", "in-sample"):
+        p = sites[pop]
+        label = "the test" if pop == "out-of-sample" else "manual re-grades; not the test"
+        print(f"## {pop} ({label})\n")
+        if not p["seats"] and not p["not_graded"] and not p["seat_unreadable"]:
+            print("No site runs.\n")
+            continue
+        for title, key, name in (("Per seat", "seats", "site | seat"), ("Per criterion", "criteria", "site | criterion")):
+            print(f"{title}:\n")
+            print(cols.format(name))
+            print("|---|---|---|---|---|---|---|---|---|---|")
+            for k in sorted(p[key]):
+                a, b = k.split("|")
+                g = p[key][k]
+                print(f"| {a} | {b} | {g['n']} | {_pct(g['agreement'])} | {g['decider_passes']} "
+                      f"| {g['decider_only_fails']} | {g['attributed_false_passes']} | {g['unattributed_seat_blocks']} "
+                      f"| {_pct(g['false_pass_upper95'])} | {g['no_verdict']}/{g['n']} |")
+            print()
+        not_graded = ", ".join(f"{k} {v}" for k, v in sorted(p["not_graded"].items())) or "none"
+        unreadable = ", ".join(f"{k.replace('|', ' ')} {v}" for k, v in sorted(p["seat_unreadable"].items())) or "none"
+        print(f"Runs not graded (no decider verdict), by site: {not_graded}.")
+        print(f"Seat verdicts unreadable, by seat: {unreadable}.\n")
+    t = sites["tokens"]
+    print(f"Site Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
 
 
 def _pct(x):
@@ -2366,6 +2467,8 @@ def print_report(data):
         print()
     t = data["tokens"]
     print(f"Trial Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
+    if data.get("sites"):
+        print_site_report(data["sites"])
 
 
 def cmd_report(args, criteria):
