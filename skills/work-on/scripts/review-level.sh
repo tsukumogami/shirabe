@@ -18,6 +18,7 @@
 #   review-level.sh check  <session> <level>
 #   review-level.sh slice  <session> <level>
 #   review-level.sh report [<session>...]
+#   review-level.sh level  <session>
 #
 # <floor>, <ceiling> and the <level> of facts/check/slice may be empty (an
 # unset template variable); <level> for set must be one of the three names.
@@ -59,6 +60,11 @@
 #           session chosen final floor ceiling raises lowers floor_raises
 #           vetoes breaches overrides seats. With no session named, every
 #           session `koto workflows` lists whose template is named work-on.
+#   level   the ledger's last level (the `to` of its last level event), or
+#           nothing when the session has no ledger or no level event in it.
+#           Read-only. work-on-open.sh passes it as REVIEW_LEVEL when it
+#           attaches a live session, because an attach resets every rebind
+#           variable it isn't passed.
 #
 # The acceptance-criteria text is the session's `context.md` section headed
 # "Acceptance Criteria" or "Done when" (a markdown heading or a bold label),
@@ -74,7 +80,8 @@
 #
 # Exit codes:
 #   0  -- done: init stored (or already had) the bound; set recorded the
-#         change; facts recorded; check passes; slice and report printed
+#         change; facts recorded; check passes; slice, report and level
+#         printed
 #   1  -- set refused (a `refused:` line on stdout names the rule; nothing
 #         changed), or check holds (a `hold:` line names why)
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
@@ -84,7 +91,8 @@
 #         ledger that has one holds (1): the variable was reset
 #   64 -- usage: unknown subcommand, a bad level, session name, flag or rules
 #         file, or no git base to diff
-#   66 -- a koto call failed: the rebind, or a context read or write. After
+#   66 -- a koto call failed: the rebind, or a context read or write (for
+#         level, a ledger that exists but can't be read). After
 #         set exits 66 neither the variable nor the ledger has changed. (check
 #         never exits 66: a read it can't make is a hold)
 #
@@ -120,7 +128,8 @@ usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh facts  <session> [<level>]
        review-level.sh check  <session> <level>
        review-level.sh slice  <session> <level>
-       review-level.sh report [<session>...]"
+       review-level.sh report [<session>...]
+       review-level.sh level  <session>"
 }
 
 # rank <level>: 1 light, 2 standard, 3 full, 0 empty or unknown.
@@ -696,6 +705,22 @@ cmd_check() {
     exit 0
 }
 
+# ---------------------------------------------------------------- level -------
+
+# Prints only one of the three names: a ledger line whose `to` is anything else
+# prints nothing, and the level check then holds on the empty variable.
+cmd_level() {
+    [ $# -eq 1 ] || usage "level takes <session>"
+    local s="$1" recorded
+    valid_session "$s" || usage "bad session name [$s]"
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER of $s"
+    recorded=$(last_level "$WORK/ledger")
+    if valid_level "$recorded"; then
+        printf '%s\n' "$recorded"
+    fi
+    exit 0
+}
+
 # ---------------------------------------------------------------- slice -------
 
 cmd_slice() {
@@ -805,6 +830,7 @@ case "$SUB" in
     check)  cmd_check "$@" ;;
     slice)  cmd_slice "$@" ;;
     report) cmd_report "$@" ;;
+    level)  cmd_level "$@" ;;
     "")     usage "missing subcommand" ;;
     *)      usage "unknown subcommand [$SUB]" ;;
 esac

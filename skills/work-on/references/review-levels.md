@@ -73,6 +73,12 @@ once, at the level-choice state, as a `bound` line and the
 A bound whose floor is above its ceiling refuses every `set`, naming both
 values, and the level check holds under it whatever the level.
 
+`/execute` and `/deliver` take the same two flags. `/deliver` forwards them to
+`/execute`, and `/execute` sets them on every child task it spawns, only when
+they aren't empty, so a run without the flags starts its children exactly as
+before. Inside a `/work-on` run the bound doesn't move: the two variables aren't
+rebind there, so a resume that passes a different bound is refused.
+
 ## The facts floor
 
 After implementation and before the first panel of a code change, on every

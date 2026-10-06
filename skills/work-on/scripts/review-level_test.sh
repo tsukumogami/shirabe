@@ -733,6 +733,41 @@ case "$OUT" in *"rep-full	light	standard"*) pass "report with no session lists w
 expect_rc "report of every session, one corrupt" 2
 
 # ==============================================================================
+echo "--- script: level"
+
+fixture lvl
+run level "$SESSION"
+expect_rc "level with no ledger" 0
+[ -z "$OUT" ] && pass "level with no ledger prints nothing" || fail "level with no ledger printed [$OUT]"
+{
+    printf '{"ts":"2026-01-01T00:00:00Z","event":"bound","floor":"light"}\n'
+    printf '{"ts":"2026-01-01T00:00:01Z","event":"choose","to":"light"}\n'
+    printf '{"ts":"2026-01-01T00:00:02Z","event":"floor_raise","from":"light","to":"standard"}\n'
+    printf '{"ts":"2026-01-01T00:00:03Z","event":"check","level":"standard"}\n'
+    printf 'not json\n'
+} > "$(store review_level.jsonl)"
+run level "$SESSION"
+expect_rc "level over a ledger" 0
+[ "$OUT" = standard ] && pass "level prints the last level event's to, past later non-level and non-JSON lines" \
+    || fail "level printed [$OUT], expected standard"
+printf '{"ts":"2026-01-01T00:00:04Z","event":"raise","from":"standard","to":"heavy"}\n' >> "$(store review_level.jsonl)"
+run level "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "a last level that isn't one of the three names prints nothing" \
+    || fail "level over a bad name: exit $RC, printed [$OUT]"
+OUT=$(cd "$FX/repo" && SHIM_FAIL_GET=review_level.jsonl PATH="$SHIM_BIN:$PATH" "$SCRIPT" level "$SESSION" 2>/dev/null)
+RC=$?
+[ "$RC" -eq 66 ] && [ -z "$OUT" ] && pass "level with an unreadable ledger: exit 66, nothing printed" \
+    || fail "level with an unreadable ledger: exit $RC, printed [$OUT]"
+run level no-such-session
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "level of a session with no store prints nothing" \
+    || fail "level of a missing session: exit $RC, printed [$OUT]"
+run level "bad name";      expect_rc "level of a session name koto wouldn't take" 64
+run level;                 expect_rc "level with no session" 64
+# The ledger above was written by hand, not by the script; the well-formedness
+# sweep below is about the script's own lines.
+rm -f "$(store review_level.jsonl)"
+
+# ==============================================================================
 echo "--- script: usage"
 
 run bogus;                 expect_rc "an unknown subcommand" 64
