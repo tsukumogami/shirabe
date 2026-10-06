@@ -1823,6 +1823,27 @@ class TestSiteGrading(unittest.TestCase):
         body = rs.grade_site(self.crit, art, slices, unmatched, stub_send(), None, clock=lambda: next(ticks))
         self.assertEqual([v["reason"] for v in body["verdicts"]].count("run-cap"), 3)
 
+    def test_a_large_prd_fits_one_run(self):
+        # The cap is 32 because a PRD's unit is one acceptance criterion; at 16, a
+        # 19-criterion PRD (this feature's own) would leave rs-013 without a verdict.
+        items = "\n".join(f"- [ ] `cmd {i}` exits {i}." for i in range(1, 20))
+        prd = f"---\nstatus: Draft\n---\n\n## Acceptance Criteria\n\n{items}\n"
+        root = site_repo({"docs/prds/PRD-demo.md": prd, "CLAUDE.md": PUBLIC_CLAUDE_MD})
+        for seat in ("clarity", "testability"):
+            p = root / SCRATCH / "research" / f"prd_demo_phase4_{seat}.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("## Verdict: PASS\n")
+        _, recs, _ = self.run_site("prd", root, topic="demo")
+        verdicts = recs[-1]["verdicts"]
+        self.assertEqual(len(verdicts), 19)
+        self.assertNotIn("run-cap", [v["reason"] for v in verdicts])
+        self.assertEqual(recs[-1]["criteria"], [{"rule_id": "rs-013", "verdict": "pass", "slices": 19}])
+
+    def test_issue_ids_never_reach_the_record(self):
+        review = "review_result:\n  verdict: proceed\n  critical_findings: []\n"
+        _, recs, paths = self.run_site("review-plan", self.plan_repo("plan_demo_review.md", review), topic="demo")
+        self.assertNotIn("issue_id", paths[-1].read_text())
+
     def test_bad_arguments_still_exit_two(self):
         self.assertEqual(rs.main(["site", "brief", "--topic", "Bad", "--repo-path", str(self.brief_repo())]), 2)
 

@@ -1745,7 +1745,14 @@ SITE_SEATS = {
     "work-on:review": {"maintainer": ("rs-016", "rs-017")},
     "work-on:light": {"reviewer": ("rs-015", "rs-016", "rs-017")},
 }
-SITE_SLICE_CAP = 32  # slices sent per run; the rest are unanswered with run-cap
+# Slices sent per run; the rest are unanswered with run-cap. 32 rather than 16
+# because one slice per acceptance criterion is the PRD site's unit and a large
+# PRD has more than 16 (this repository's own PRD for this feature has 19); at
+# 16, rs-013 could never reach a verdict on it. The time cap still bounds a run.
+SITE_SLICE_CAP = 32
+# Slice meta that ties a slice to its source for attribution and never reaches a
+# record (an issue id names what a private plan is about).
+UNRECORDED_META = ("issue_id",)
 SITE_TIME_CAP = 60.0  # seconds from the first send; later slices are run-cap
 SEAT_MARKER = {"brief": re.compile(r"^\*\*Verdict:\*\*\s*(PASS|FAIL)\b", re.M),
                "prd": re.compile(r"^##\s*Verdict:\s*(PASS|FAIL)\b", re.M)}
@@ -1878,6 +1885,8 @@ def read_ledger_seats(art, slices, slice_kind_of):
             continue
         if ac_sha is None:
             ac_sha = criteria_hash(session)
+        # A ledger entry written before panel-scope.sh stamped ac_sha has none; its
+        # judged_at still pins it to a commit, so it is compared on that alone.
         if entry.get("judged_at") != art["head"] or (entry.get("ac_sha") and entry["ac_sha"] != ac_sha):
             seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-stale"))
             continue
@@ -1964,7 +1973,7 @@ def grade_site(criteria, art, slices, unmatched, send, terms, gate_reason=None, 
         jev_slices = sum(len(slices.get(sk, [])) for sk in {c["slice_kind"] for c in crit})
         status, why = run_status(rows, rounds, jev_slices, False, verdicts)
     all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")},
-                       **{k: v for k, v in s["meta"].items() if k != "issue_id"})
+                       **{k: v for k, v in s["meta"].items() if k not in UNRECORDED_META})
                   for sk in sorted(slices) for s in slices[sk]]
     return {"mode": "batched", "slices": all_slices, "verdicts": verdicts, "criteria": rows, "rounds": rounds,
             "models": sorted({r["model"] for r in rounds if r["model"]}), "unread_usage_attempts": unread,
@@ -1974,7 +1983,9 @@ def grade_site(criteria, art, slices, unmatched, send, terms, gate_reason=None, 
 
 
 def site_gate(root):
-    """Why nothing may be sent, or None: the repository isn't declared public,
+    """(reason, transport). The reason nothing may be sent, or None with a
+    transport when the run may send. Checked in this order, so the most
+    fundamental refusal is the one recorded: the repository isn't declared public,
     the user hasn't opted in with REVIEW_SHADOW_SITES=1, or there is no key."""
     if not declared_public(root):
         return "private-repo", None
