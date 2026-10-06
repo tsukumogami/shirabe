@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The scope chain and /work-on run a dozen or more review seats per feature,
   each as a full agent, and many of their criteria are closed checks against
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-jev-closed-criteria](docs/briefs/BRIEF-jev-closed-criteria.md); carried in Absorbed Brief.
 
