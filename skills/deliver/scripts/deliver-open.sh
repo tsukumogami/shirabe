@@ -61,6 +61,14 @@
 #   --coordinated       COORDINATION=coordinated
 #   --no-coordinated    COORDINATION=no-coordinated
 #   --max-rounds=<n>    MAX_ROUNDS=<n>   (bare --max-rounds: the literal token)
+#   --review-floor=<level>
+#                       REVIEW_FLOOR=<level> (bare --review-floor: the literal
+#                       token, which the pattern refuses)
+#   --review-ceiling=<level>
+#                       REVIEW_CEILING=<level>, the same way. Both are the
+#                       review-level bound, forwarded to /execute; without the
+#                       flags no pair is written, so the session's variables
+#                       are the ones it got before the flags existed
 #   --upstream <path>   UPSTREAM=<path>, also --upstream=<path>; with no value
 #                       the literal token --upstream, which the pattern rejects
 #   --koto-leg <id>:deliver
@@ -202,6 +210,10 @@ def step($t):
   elif $t == "--no-coordinated" then .pairs += [["COORDINATION", "no-coordinated"]]
   elif $t == "--max-rounds" then .pairs += [["MAX_ROUNDS", "--max-rounds"]]
   elif ($t | startswith("--max-rounds=")) then .pairs += [["MAX_ROUNDS", $t[13:]]]
+  elif $t == "--review-floor" then .pairs += [["REVIEW_FLOOR", "--review-floor"]]
+  elif ($t | startswith("--review-floor=")) then .pairs += [["REVIEW_FLOOR", $t[15:]]]
+  elif $t == "--review-ceiling" then .pairs += [["REVIEW_CEILING", "--review-ceiling"]]
+  elif ($t | startswith("--review-ceiling=")) then .pairs += [["REVIEW_CEILING", $t[17:]]]
   elif $t == "--upstream" then .pending = "upstream"
   elif ($t | startswith("--upstream=")) then .pairs += [["UPSTREAM", $t[11:]]]
   elif $t == "--koto-leg" then .pending = "koto-leg"
