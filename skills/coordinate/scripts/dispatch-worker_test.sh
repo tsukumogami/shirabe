@@ -12,7 +12,8 @@
 # appear confirmed; an unreadable listing leaving dispatching; the deadline; a
 # topic a live session uses; the exact session match; a concurrent run
 # refused by the lock; a mismatched topic; the record refusing a write;
-# --rebrief; --releg replacing a spent leg (and refusing an open one, a
+# --rebrief; a review-level bound in the prompt and the brief, kept out of
+# the holding's mode and given once on a re-brief; --releg replacing a spent leg (and refusing an open one, a
 # promoted one, a holding with a pull request); send_execution rewriting a
 # scoping-ahead holding with a new leg and the execution's entry point,
 # mode and phase; no session id, instance path or job id in the holding; and
@@ -520,6 +521,33 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
+
+# --- a review-level bound ---------------------------------------------------------------------------------
+#
+# The brief and the dispatch prompt name the same command, the bound's flags
+# before --koto-leg; the holding's mode stays without them, so a re-brief,
+# which rebuilds run_mode from that cell and keeps review_level, gives them
+# once.
+
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.review_level = {"floor": "standard", "ceiling": "full"}')"
+run >/dev/null 2>&1; RC=$?
+eq  "review level: dispatched, exit 0" 0 "$RC"
+RL_INV='`/shirabe:deliver plugin-api --auto --no-merge --review-floor=standard --review-ceiling=full --koto-leg=req_1:deliver`'
+has "review level: the prompt carries the bound before the leg" "$(cat "$ST/prompt")" "$RL_INV"
+has "review level: the brief names the same command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "$RL_INV"
+eq  "review level: the holding's mode leaves the bound out" "--auto --no-merge" "$(row mode)"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+: >"$ST/calls.log"
+run --rebrief >/dev/null 2>&1; RC=$?
+eq  "review level: rebrief, exit 0" 0 "$RC"
+B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
+has "review level: rebrief keeps the bound" "$B" '`/shirabe:deliver plugin-api --auto --no-merge --review-floor=standard --review-ceiling=full`'
+eq  "review level: rebrief gives each flag once" 1 "$(printf '%s\n' "$B" | grep -o -- '--review-floor=' | wc -l | tr -d ' ')"
+eq  "review level: rebrief, the holding's mode still leaves it out" "--auto --no-merge" "$(row mode)"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.review_level = {"floor": "full", "ceiling": "light"}')"
+run >/dev/null 2>&1; RC=$?
+eq  "review level: a floor above the ceiling is refused, exit 1" 1 "$RC"
+eq  "review level: refused, nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|koto request' "$ST/calls.log")"
 
 # --- --releg: a leg spent before the worker reported -------------------------------------------------------
 
