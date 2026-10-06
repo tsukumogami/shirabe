@@ -1245,6 +1245,132 @@ class TestGhHints(unittest.TestCase):
             self.assertNotIn("api.github.com", hint)
 
 
+def site_criterion(rule_id="rs-900", artifact_kind="prd", slice_kind="prd-ac"):
+    """A Jev criterion for a site artifact, for tests that need one before any ships."""
+    return {"rule_id": rule_id, "rule_ref": "CLAUDE.md", "group": "correctness", "artifact_kind": artifact_kind,
+            "slice_kind": slice_kind, "observer": "jev", "question": "Is this criterion binary?",
+            "values": {"pass": "It is.", "fail": "It isn't."}, "escape": {"unclear": "Can't tell."},
+            "threshold": 0.9}
+
+
+class TestSiteKinds(unittest.TestCase):
+    """Site artifact kinds, the artifact-kind filter, and v2 site records."""
+
+    def setUp(self):
+        self.good = json.loads((HERE / "criteria.json").read_text(encoding="utf-8"))
+        self.tmp = tempfile.mkdtemp()
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+
+    def with_site(self, *extra):
+        data = copy.deepcopy(self.good)
+        data["criteria"] += list(extra)
+        crit = rs.load_criteria(_write(self.tmp, "c.json", data))
+        return crit
+
+    def test_every_site_kind_has_its_slicers(self):
+        for kind in ("brief", "prd", "plan", "local-change"):
+            self.assertIn(kind, rs.ARTIFACT_KINDS)
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["brief"], ("brief-journey", "summary-pair"))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["prd"], ("prd-ac",))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["plan"], ("plan-ac-block",))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["local-change"], ("ac-hunks", "code-hunks"))
+        for kind in ("brief-journey", "summary-pair", "prd-ac", "plan-ac-block", "ac-hunks"):
+            self.assertIn(kind, rs.SLICE_KINDS)
+
+    def test_a_slice_kind_from_another_artifact_is_refused(self):
+        cases = [("prd", "brief-journey"), ("brief", "prd-ac"), ("plan", "code-hunks"),
+                 ("local-change", "pr-summary"), ("pull-request", "ac-hunks")]
+        for artifact, slice_kind in cases:
+            with self.subTest(artifact=artifact, slice_kind=slice_kind):
+                data = copy.deepcopy(self.good)
+                data["criteria"].append(site_criterion(artifact_kind=artifact, slice_kind=slice_kind))
+                with self.assertRaises(rs.ConfigError) as cm:
+                    rs.load_criteria(_write(self.tmp, "c.json", data))
+                self.assertIn("doesn't read", str(cm.exception))
+
+    def test_a_script_criterion_on_a_site_artifact_is_refused(self):
+        bad = dict(site_criterion(), observer="script", check="attribution")
+        data = copy.deepcopy(self.good)
+        data["criteria"].append(bad)
+        with self.assertRaises(rs.ConfigError):
+            rs.load_criteria(_write(self.tmp, "c.json", data))
+
+    def test_active_selects_one_artifact_kind(self):
+        crit = self.with_site(site_criterion())
+        self.assertEqual([c["rule_id"] for c in rs.active(crit, "prd")], ["rs-900"])
+        self.assertNotIn("rs-900", [c["rule_id"] for c in rs.active(crit)])
+        self.assertEqual(rs.active(crit, "brief"), [])
+
+    def test_a_site_criterion_never_runs_on_a_pull_request(self):
+        crit = self.with_site(site_criterion(), site_criterion("rs-901", "local-change", "code-hunks"))
+        log = []
+        body = rs.grade(crit, fetched(), ("Zorblax",), stub_send(log=log))
+        asked = {rid for _, rids in log for rid in rids}
+        self.assertTrue(asked)
+        self.assertFalse(asked & {"rs-900", "rs-901"})
+        graded = {v["rule_id"] for v in body["verdicts"]} | {c["rule_id"] for c in body["criteria"]}
+        self.assertFalse(graded & {"rs-900", "rs-901"})
+
+    def test_no_pull_request_criterion_runs_for_a_site_kind(self):
+        crit = self.with_site(site_criterion())
+        log = []
+        slices = {"prd-ac": [rs.make_slice("prd-ac", 1, {"criterion": "- [ ] It exits 0."})],
+                  "pr-summary": [rs.make_slice("pr-summary", 1, {"pr_body_part1": "x", "diff_summary": "y"})]}
+        verdicts, _, _ = rs.run_jev(crit, slices, stub_send(log=log), True, "prd")
+        self.assertEqual({v["rule_id"] for v in verdicts}, {"rs-900"})
+        self.assertEqual(log, [("jev", ["rs-900"])])
+
+    def test_site_record_path_schema_and_modes(self):
+        home = rs.store_home()
+        sha = "b" * 64
+        rec = rs.new_site_record("octo/demo", "prd", "jev-closed-criteria", sha, status="not-graded")
+        self.assertEqual(rec["schema"], "review-shadow/record/v2")
+        self.assertEqual(rec["subject"], {"kind": "site", "site": "prd", "subject_id": "jev-closed-criteria",
+                                          "artifact_sha": sha})
+        self.assertEqual(rec["seats"], [])
+        path = rs.write_site_record(home, rec)
+        rel = path.relative_to(home)
+        self.assertEqual(rel.parts[:7], ("records", "octo", "demo", "site", "prd", "jev-closed-criteria", "b" * 12))
+        self.assertTrue(rel.parts[7].endswith(f"-{rec['run_id']}.json"))
+        self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+        d = path.parent
+        while d != home.parent:
+            self.assertEqual(oct(d.stat().st_mode & 0o777), "0o700", d)
+            d = d.parent
+        self.assertEqual(json.loads(path.read_text())["subject"]["site"], "prd")
+
+    def test_site_record_identity_is_checked(self):
+        for args in [("octo/demo", "qa", "t", "b" * 64), ("octo/demo", "prd", "../x", "b" * 64),
+                     ("octo/demo", "prd", "t", "abc"), ("../demo", "prd", "t", "b" * 64)]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                rs.new_site_record(*args)
+
+    def test_pull_request_report_ignores_site_records(self):
+        crit = rs.load_criteria()
+        cats = rs.load_categories(crit)
+        rec = rs.new_record("octo/demo", 1, HEAD, mode="batched", status="unanimous-pass", diff_kind="code",
+                            criteria=[{"rule_id": "rs-007", "verdict": "pass", "slices": 1}],
+                            tokens={"input": 10, "output": 1})
+        rs.write_record(self.home, rec)
+        rs.record_outcome(self.home, "octo/demo", 1, HEAD, "pre-merge", "claude:run-1", [])
+
+        def rendered():
+            import contextlib
+            import io
+            data = rs.report_data(self.home, crit, cats)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rs.print_report(data)
+            return json.dumps(data, sort_keys=True), out.getvalue()
+        before = rendered()
+        site = rs.new_site_record("octo/demo", "prd", "topic", "c" * 64, status="dissent",
+                                  tokens={"input": 500, "output": 50}, mode="batched")
+        rs.write_site_record(self.home, site)
+        self.assertEqual(rendered(), before)
+
+
 def _refuse_real_opener(*a, **k):
     raise AssertionError("a test tried to open a real HTTP transport to Jev")
 

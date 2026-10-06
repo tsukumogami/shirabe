@@ -36,8 +36,18 @@ CATEGORIES_FILE = HERE / "categories.json"
 
 VALUE_KEYS = ("pass", "fail")
 OBSERVERS = ("script", "jev")
-ARTIFACT_KINDS = ("pull-request",)
-SLICE_KINDS = ("pr-text", "pr-summary", "code-hunks", "doc-pairs")
+ARTIFACT_KINDS = ("pull-request", "brief", "prd", "plan", "local-change")
+# Which slicers can feed a criterion of each artifact kind. A site criterion
+# names the artifact it judges, so a pull-request criterion can never be asked
+# of a brief, or a brief criterion of a pull request.
+SLICE_KINDS_BY_ARTIFACT = {
+    "pull-request": ("pr-text", "pr-summary", "code-hunks", "doc-pairs"),
+    "brief": ("brief-journey", "summary-pair"),
+    "prd": ("prd-ac",),
+    "plan": ("plan-ac-block",),
+    "local-change": ("ac-hunks", "code-hunks"),
+}
+SLICE_KINDS = tuple(dict.fromkeys(k for kinds in SLICE_KINDS_BY_ARTIFACT.values() for k in kinds))
 CLASSES = ("covered", "closed-uncovered", "open-judgment")
 PANEL_KINDS = ("scrutiny", "review", "qa", "pre-merge")
 RULE_ID = re.compile(r"rs-[0-9]{3}")
@@ -96,6 +106,8 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
             raise ConfigError(f"{where}: unknown artifact_kind {c['artifact_kind']!r}")
         if c["slice_kind"] not in SLICE_KINDS:
             raise ConfigError(f"{where}: unknown slice_kind {c['slice_kind']!r}")
+        if c["slice_kind"] not in SLICE_KINDS_BY_ARTIFACT[c["artifact_kind"]]:
+            raise ConfigError(f"{where}: slice_kind {c['slice_kind']!r} doesn't read a {c['artifact_kind']} artifact")
         if c["observer"] not in OBSERVERS:
             raise ConfigError(f"{where}: observer must be script or jev")
         if c["observer"] == "script":
@@ -121,11 +133,13 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
     return data
 
 
-def active(criteria):
-    """The criteria a run grades: every criterion not shipped off, plus any the
-    caller turned on with --enable (recorded on the criteria object by grade)."""
+def active(criteria, artifact_kind="pull-request"):
+    """The criteria a run grades: every criterion of the artifact kind being
+    graded that isn't shipped off, plus any the caller turned on with --enable
+    (recorded on the criteria object by grade)."""
     on = set(criteria.get("_enabled", ()))
-    return [c for c in criteria["criteria"] if c.get("enabled", True) or c["rule_id"] in on]
+    return [c for c in criteria["criteria"]
+            if c["artifact_kind"] == artifact_kind and (c.get("enabled", True) or c["rule_id"] in on)]
 
 
 def load_categories(criteria, path=CATEGORIES_FILE):
@@ -883,9 +897,10 @@ CHECKS = {"attribution": check_attribution, "private_terms": check_private_terms
 
 
 def run_scripts(criteria, pt, terms):
-    """Every script criterion over the pr-text slice, in file order."""
+    """Every script criterion over the pr-text slice, in file order. Script
+    criteria exist only for pull requests (the loader refuses any other)."""
     out = []
-    for c in active(criteria):
+    for c in active(criteria, "pull-request"):
         if c["observer"] != "script":
             continue
         if c.get("applies_to") == "public" and not pt["public"]:
@@ -1007,12 +1022,13 @@ def worst(verdicts):
 
 # --- Grade -------------------------------------------------------------------
 
-def run_jev(criteria, slices, send, batched):
-    """Every Jev criterion over its slices. One request per slice carries every
-    criterion of that slice kind, or one per criterion when unbatched."""
+def run_jev(criteria, slices, send, batched, artifact_kind="pull-request"):
+    """Every Jev criterion of one artifact kind over its slices. One request per
+    slice carries every criterion of that slice kind, or one per criterion when
+    unbatched."""
     verdicts, rounds, unread = [], [], 0
     by_kind = {}
-    for c in active(criteria):
+    for c in active(criteria, artifact_kind):
         if c["observer"] == "jev":
             by_kind.setdefault(c["slice_kind"], []).append(c)
     for kind, crits in by_kind.items():
@@ -1178,6 +1194,71 @@ def new_record(repo, pr, head, **fields):
            "host": socket.gethostname(), "criteria_version": criteria_version(), "tool": tool_version()}
     rec.update(fields)
     return rec
+
+
+# --- Site records ------------------------------------------------------------
+#
+# A site record pairs the verdicts of a review site's seats (a jury in the scope
+# chain, a /work-on panel) with the decider's verdicts on the same artifact.
+# docs/designs/DESIGN-jev-closed-criteria.md is the design. Its identity is the
+# site, the subject (a topic slug or an issue) and a hash of the graded inputs,
+# which plays the part a head sha plays for a pull request.
+
+SITES = ("brief", "prd", "review-plan", "work-on")
+SITE_RECORD_SCHEMA = "review-shadow/record/v2"
+SUBJECT_ARG = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
+ARTIFACT_SHA_ARG = re.compile(r"[0-9a-f]{64}")
+
+
+def check_site(value):
+    if value not in SITES:
+        raise ValueError(f"site must be one of {SITES}")
+    return value
+
+
+def check_subject(value):
+    """A topic slug, or issue-<n> for /work-on: one path segment, never a path."""
+    if not SUBJECT_ARG.fullmatch(value or ""):
+        raise ValueError("a site subject must match [a-z0-9][a-z0-9-]*")
+    return value
+
+
+def is_site_record(rec):
+    return (rec.get("subject") or {}).get("kind") == "site"
+
+
+def new_site_record(repo, site, subject_id, artifact_sha, **fields):
+    """A v2 record for one shadow run of one site. `seats` holds every shadowed
+    seat's verdict; the caller adds the decider's verdicts beside it."""
+    import socket
+    import uuid
+    check_repo(repo)
+    check_site(site)
+    check_subject(subject_id)
+    if not ARTIFACT_SHA_ARG.fullmatch(artifact_sha or ""):
+        raise ValueError("artifact_sha must be a sha256 hex digest")
+    rec = {"schema": SITE_RECORD_SCHEMA, "trial": "jev-review-shadow", "run_id": uuid.uuid4().hex[:16],
+           "recorded_at": now_iso(), "repo": repo,
+           "subject": {"kind": "site", "site": site, "subject_id": subject_id, "artifact_sha": artifact_sha},
+           "seats": [], "in_sample": False,
+           "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
+           "host": socket.gethostname(), "criteria_version": criteria_version(), "tool": tool_version()}
+    rec.update(fields)
+    return rec
+
+
+def site_record_path(home, rec):
+    owner, name = rec["repo"].split("/", 1)
+    s = rec["subject"]
+    stamp = rec["recorded_at"].replace("-", "").replace(":", "")
+    return (home / "records" / owner / name / "site" / s["site"] / s["subject_id"] / s["artifact_sha"][:12]
+            / f"{stamp}-{rec['run_id']}.json")
+
+
+def write_site_record(home, rec):
+    path = site_record_path(home, rec)
+    write_private(path, rec, home)
+    return path
 
 
 def cmd_grade(args, criteria):
@@ -1364,6 +1445,9 @@ def rollups(kind, dk):
 
 def report_data(home, criteria, categories, mode="batched"):
     records, outcomes = load_store(home)
+    # Site records have no pull request or head; the pull-request tables, the
+    # mode comparison and the spend line read pull-request records only.
+    records = [r for r in records if not is_site_record(r)]
     by_head_kind = {}
     for o in outcomes:
         by_head_kind.setdefault((o["repo"], o["pr"], o["head_sha"], o["panel_kind"]), []).append(o)
