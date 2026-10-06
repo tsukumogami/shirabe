@@ -446,6 +446,11 @@ for seat in $SEATS; do
             fi
         fi
     fi
+    # scripts/review-packet.sh recheck reads a recheck decision's `findings`
+    # and `fix_diff_from` to build that seat's packet, and relies on
+    # fix_diff_from being an ancestor of HEAD (checked above). Renaming either
+    # field, or offering recheck on a commit off HEAD's history, changes what
+    # that packet holds; panel-scope_test.sh drives the two scripts together.
     jq -nc --arg seat "$seat" --arg d "$decision" --arg r "$reason" --argjson e "${entry:-null}" '
         {seat: $seat, decision: $d, reason: $r}
         + (if $d == "recheck" then {findings: ($e.findings // []), fix_diff_from: $e.judged_at} else {} end)

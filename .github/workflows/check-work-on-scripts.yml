@@ -12,6 +12,9 @@ on:
       - 'skills/work-on/**'
       # settled-policy_test.sh also reads the shared worktree reference.
       - 'references/worktree-discipline.md'
+      # panel-scope_test.sh builds a re-check seat's packet from the scope it
+      # plans, so a change to the packet script has to re-run it.
+      - 'scripts/review-packet.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'

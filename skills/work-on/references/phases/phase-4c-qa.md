@@ -4,7 +4,7 @@ Run QA validation after code review passes. The tester agent validates that the 
 
 ## Tester Agent
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel qa --seat tester`.
 
 Spawn the tester agent using the Task tool. The tester:
 1. Reads the implementation's acceptance criteria from the packet
@@ -14,7 +14,7 @@ Spawn the tester agent using the Task tool. The tester:
 
 ## Whether the Tester Runs
 
-On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: it gets only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and checks whether each failing scenario now passes. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
+On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: its packet is the `recheck` kind on the commissioning line above, holding only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it checks whether each failing scenario now passes, prompted with the re-check prompt in `review-seat-commissioning.md` rather than the full validation steps. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
 
 ```bash
 koto context get <WF> qa_scope.json

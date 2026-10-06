@@ -4,7 +4,7 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel scrutiny --seat <seat>`.
 
 Spawn all three simultaneously using the Task tool:
 
@@ -19,7 +19,7 @@ koto decides this before you spawn anything. On entering `scrutiny` it runs `scr
 | Decision | What you spawn |
 |----------|----------------|
 | `full` | The seat's normal full review. Every seat is `full` on the first round. |
-| `recheck` | The seat that raised a blocking finding last round. It gets only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and answers whether each finding is fixed. It does not re-review the rest of the implementation, but it must read the whole fix diff and block on any defect the fix itself introduces: a passing re-check records the seat as passed at HEAD. A blocking seat is only offered this when the checks that would re-run a passed seat (a dirty tree, changed criteria or plan, a rewritten history, a fix over the size threshold) don't apply; otherwise it gets `rerun`. |
+| `recheck` | The seat that raised a blocking finding last round. Its packet is the `recheck` kind on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it answers whether each finding is fixed, prompted with the re-check prompt in `review-seat-commissioning.md` rather than its role above. It does not re-review the rest of the implementation, but it must read the whole fix diff and block on any defect the fix itself introduces: a passing re-check records the seat as passed at HEAD. A blocking seat is only offered this when the checks that would re-run a passed seat (a dirty tree, changed criteria or plan, a rewritten history, a fix over the size threshold) don't apply; otherwise it gets `rerun`. |
 | `rerun` | A seat that passed, but whose cited scope the fix touched. A fresh full review. |
 | `keep` | Nothing. The seat's earlier pass carries, and the scope says why. At aggregation it counts as passed. |
 

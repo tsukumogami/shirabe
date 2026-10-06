@@ -40,7 +40,8 @@ Verdicts are sticky across retries. On entering each panel state koto runs
 `scripts/panel-scope.sh --plan <panel>`, which compares every seat's last verdict in
 `verdict_ledger.json` with the fix diff and writes `<panel>_scope.json`: `full` on a
 seat's first round, `recheck` for a seat that raised a blocking finding (it gets the
-finding plus the fix diff and checks only that), `rerun` for a passed seat whose cited
+finding plus the fix diff, in a `scripts/review-packet.sh recheck` packet built from
+that scope, and checks only that), `rerun` for a passed seat whose cited
 files or line ranges the fix touched (or when the acceptance criteria changed, or the
 fix crosses the size threshold), and `keep` otherwise. Only seats that aren't `keep`
 are spawned. A panel whose every seat is `keep` is carried: the script writes its
