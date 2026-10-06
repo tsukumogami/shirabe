@@ -137,8 +137,9 @@ for harness in $HARNESSES; do
         # session to re-apply its rebind variables (review-level.sh set rebinds
         # REVIEW_LEVEL that way), and koto refuses one that changes a
         # non-rebind variable. The session it attaches to was created by a
-        # site this check covers.
-        case "$cmd" in *--attach-live*) continue ;; esac
+        # site this check covers. An attach that also binds a --koto-leg can
+        # create the session, so it stays a site.
+        case "$cmd" in *--koto-leg*) ;; *--attach-live*) continue ;; esac
         case "$cmd" in
             *koto-templates/work-on.md*) ;;
             *'"$TEMPLATE"'*) [[ "$names_template" -eq 1 ]] || continue ;;

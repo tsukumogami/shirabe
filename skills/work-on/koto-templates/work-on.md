@@ -2132,8 +2132,10 @@ Record the choice:
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <level>
 ```
 
-It rebinds `REVIEW_LEVEL` and writes the ledger together; the next tick goes on
-to implementation. Exit 1 prints a `refused:` line naming the rule (outside the
+It rebinds `REVIEW_LEVEL` and writes the ledger together; then tick again with
+nothing submitted (`koto next {{SESSION_NAME}} --no-cleanup`) and the run goes on to
+implementation. A bound alone never picks the level, even one whose floor
+equals its ceiling: the choice is always a `set`. Exit 1 prints a `refused:` line naming the rule (outside the
 bound, or no bound recorded yet: tick again so the action records it). Exit 66
 means the rebind or a koto context read or write failed and nothing changed;
 read its message and run it again. If no level can be recorded, submit
@@ -2285,7 +2287,7 @@ Read `light_scope.json` for whether the seat runs a full review, re-checks only 
 
 Submit `light_outcome: passed` when the reviewer clears the change (it goes to `verification`), `blocking_retry` when it finds correctable issues (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
-A `blocking_retry` from this panel counts toward the same per-run blocking-retry cap the scrutiny directive states for the other panels; once that cap is spent, submit `blocking_escalate`.
+Retries from this panel share the per-run blocking-retry count of scrutiny, review and qa_validation: a `blocking_retry` here spends from the same cap, under the same rule, that the scrutiny directive states. Once that cap is spent, submit `blocking_escalate`.
 
 ## verification
 

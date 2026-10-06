@@ -103,4 +103,4 @@ Every panel's key goes, not only this one's: if the level is raised on the way b
 
 ## Escalation
 
-If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `light_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the shared retry cap (the `light_review` directive points at the scrutiny directive's statement of it) is spent, submit `light_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
