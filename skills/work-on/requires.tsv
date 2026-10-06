@@ -48,6 +48,19 @@
 #                   verdict_ledger.json and the <panel>_scope.json and
 #                   <panel>_results.json keys, no flag
 #   decisions record  --with-data carries the decision object
+#   init --attach-live  scripts/review-level.sh set rebinds REVIEW_LEVEL on the
+#                   live session with `koto init <s> --template <t>
+#                   --attach-live --var REVIEW_LEVEL=<level>`, on every run that
+#                   chooses a review level, so the flag is `always`, unlike the
+#                   other entry flags below. It shipped in koto 0.13.0, under
+#                   the floor
+#   context exists/get/add are also review-level.sh's: the review_level.jsonl
+#                   ledger and the bound, criteria, rules and facts keys
+#   overrides list  review-level.sh report counts the overrides recorded on
+#                   the level check's gates, no flag
+#   overrides record  --gate names the gate and --rationale says why: the
+#                   review_level_check directive's way past a hold or a wrong
+#                   veto without a raise
 #
 # gh reads the issue and drives the PR; git merges main in, pushes, and inspects the
 # worktree; jq builds the JSON in references/scripts/extract-context.sh.
@@ -81,8 +94,9 @@
 # in step with the script by hand.
 #not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 #
-# The koto floor. /work-on needs koto 0.14.1, shirabe's koto minimum
-# (scripts/assert-koto-floor.sh). 0.14.0 is the release from which a child's
+# The koto floor. /work-on needs koto 0.15.0, shirabe's koto minimum
+# (scripts/assert-koto-floor.sh), the release whose value routing and decider
+# checks the review level states use. 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no
 # record below can declare it. The preflight compares koto's version with the
@@ -104,7 +118,7 @@
 # every /work-on open could go through work-on-open.sh and koto-open.sh,
 # retiring the plain `koto init --var` path in SKILL.md, at which point the
 # mode:koto-leg record becomes the one `always` init record.
-koto	init	--template,--var	always
+koto	init	--template,--var,--attach-live	always
 koto	init	--template,--vars-file,--attach-live,--koto-leg	mode:koto-leg
 koto	next	--with-data,--no-cleanup	always
 koto	workflows	--children	always
@@ -117,6 +131,8 @@ koto	context get	-	always
 koto	context exists	-	always
 koto	context remove	-	always
 koto	decisions record	--with-data	always
+koto	overrides list	-	always
+koto	overrides record	--gate,--rationale	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

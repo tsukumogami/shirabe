@@ -201,6 +201,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/review-level_test.sh
 
+      # review-level-routes_test.sh drives the shipped work-on.md through a real
+      # koto at each review level: the choice before implementation, the light,
+      # standard, full and unset routes, the floor hold, a light retry and a
+      # hand rebind. Its clearing-site greps need no engine and run on both
+      # legs; the engine cases skip without koto, so they run here.
+      - name: Run review level route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level-routes_test.sh
+
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine
       # needed; the macOS leg runs it on the floor through the work-on suite.

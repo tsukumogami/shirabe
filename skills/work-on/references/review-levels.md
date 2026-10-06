@@ -40,7 +40,7 @@ The template variable `REVIEW_LEVEL` holds the level and koto routes on it.
 rebinds the variable on the live session and appends to the ledger in the
 same call. It exits 0 when the change is recorded, 1 with a `refused:` line
 when a rule below refuses it (nothing changes), 64 on a usage error, and 66
-when the rebind or the ledger write fails (neither changes).
+when the rebind or a context read or write fails (neither changes).
 
 - **Choose.** The first `set` chooses the level from the issue and the
   analysis plan. It must fall inside the bound. It is refused before the
@@ -71,7 +71,7 @@ three level names, through `--review-floor=<level>` and
 once, at the level-choice state, as a `bound` line and the
 `review_level_bound.json` key. The first choice must fall inside the bound.
 A bound whose floor is above its ceiling refuses every `set`, naming both
-values.
+values, and the level check holds under it whatever the level.
 
 ## The facts floor
 
@@ -111,8 +111,8 @@ the bound (or above the ceiling with a breach recorded), and the facts were
 gathered at HEAD. Otherwise it holds with a `hold:` line naming why, and the
 run reaches no panel until the level is raised. koto's override record is the
 only way past the hold without a raise, and the ledger reader counts each
-override. With the level unset (a session from an earlier template), the
-check exits 3 and the run takes the full path.
+override. With the level unset and no level in the ledger (a session from an
+earlier template), the check exits 3 and the run takes the full path.
 
 The level check also carries a veto-mode decider check whose command is
 `review-level.sh slice`: the counts, class names, booleans, the floor and the
@@ -126,6 +126,12 @@ hold the run, never route it or lower the level.
 --attach-live --var REVIEW_LEVEL=<level>`. The level check holds whenever the
 variable differs from the ledger's last level, naming both; a `set` to the
 level the run should be at clears it.
+
+An attach re-applies every rebind variable from its own arguments, so one that
+doesn't pass `REVIEW_LEVEL` (a resume through `koto init --attach-live`, say)
+empties it. With a level in the ledger that is a reset, not the unset route:
+the check holds, naming the ledger's level, until `set` rebinds it. For the
+same reason `set` passes `PLUGIN_ROOT` along with the level.
 
 ## The ledger
 
@@ -143,7 +149,7 @@ ISO-8601) and `event`, plus the fields the event needs from `from`, `to`,
 | `floor_raise` | `set` | a raise to the facts floor, naming the `rule` |
 | `veto` | `set` | a raise the decider check asked for, naming the criterion in `rule` |
 | `breach` | `set` | the level change on the line before went above the ceiling |
-| `check` | `facts` | the level and the facts floor at the check, once per distinct head, level and floor |
+| `check` | `facts` | the level and the facts floor at the check, written when the head, level or floor differs from the ledger's last `check` or `unset` line |
 | `unset` | `facts` | the check was reached with no level |
 
 Each level change writes exactly one of `choose`, `raise`, `lower`,
@@ -156,5 +162,6 @@ floor, `-` when there is none), `floor` and `ceiling` (the bound, `-` when
 absent), counts of `raise`, `lower`, `floor_raise`, `veto` and `breach`
 lines, `overrides` (koto overrides on the level check's gates) and `seats`
 (the summed spawn counts in the verdict ledger's history). A session with no
-ledger reads `none` in `chosen`; a ledger line that isn't JSON makes the row
-read `corrupt` and the script exit 2 after printing every row.
+ledger reads `none` in `chosen` and one whose ledger can't be read reads
+`unreadable`; a ledger line that isn't JSON makes the row read `corrupt`.
+Either of the last two makes the script exit 2 after printing every row.

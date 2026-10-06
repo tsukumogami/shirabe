@@ -41,7 +41,9 @@
 #             same          no event; the variable is rebound to it, which
 #                           clears a hand rebind's mismatch hold
 #           Then it rebinds REVIEW_LEVEL with `koto init <s> --template
-#           <template> --attach-live --var REVIEW_LEVEL=<level>`, appends the
+#           <template> --attach-live --var REVIEW_LEVEL=<level>` (plus
+#           PLUGIN_ROOT, this script's plugin, when the template declares it:
+#           an attach resets every rebind variable it doesn't pass), appends the
 #           ledger lines and reads them back. A failed rebind writes no line; a
 #           failed ledger write rebinds back to the ledger's level.
 #   facts   run by the level-check state's action. Diffs impl_base..HEAD,
@@ -76,17 +78,22 @@
 #   1  -- set refused (a `refused:` line on stdout names the rule; nothing
 #         changed), or check holds (a `hold:` line names why)
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
-#   3  -- check: the level is empty (the unset route)
+#         or couldn't be read
+#   3  -- check: the level is empty and the ledger records none (the unset
+#         route, a session from an earlier template). An empty level over a
+#         ledger that has one holds (1): the variable was reset
 #   64 -- usage: unknown subcommand, a bad level, session name, flag or rules
 #         file, or no git base to diff
-#   66 -- a koto write failed: the rebind, or a context write. After set
-#         exits 66 neither the variable nor the ledger has changed
+#   66 -- a koto call failed: the rebind, or a context read or write. After
+#         set exits 66 neither the variable nor the ledger has changed. (check
+#         never exits 66: a read it can't make is a hold)
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+PLUGIN_ROOT_SELF=$(cd "$SKILL_DIR/../.." && pwd)
 TEMPLATE="${REVIEW_LEVEL_TEMPLATE:-$SKILL_DIR/koto-templates/work-on.md}"
 RULES_SHIPPED="${REVIEW_LEVEL_RULES:-$SKILL_DIR/references/review-level-rules.tsv}"
 
@@ -327,9 +334,18 @@ cmd_init() {
 
 REBIND_ERR=""
 # rebind <session> <level>: 0 when koto reports the variable at <level>.
+#
+# An attach re-applies every rebind variable from its own arguments: one it
+# omits is reset to its default, and a required one it omits refuses the
+# attach. work-on.md's PLUGIN_ROOT is both, so it is passed too, as the plugin
+# this script ships in, which is the plugin the session's gates should reach.
 rebind() {
     local reply
-    reply=$(koto init "$1" --template "$TEMPLATE" --attach-live --var "REVIEW_LEVEL=$2" 2>"$WORK/rebind.err")
+    set -- "$1" "$2" --var "REVIEW_LEVEL=$2"
+    if grep -q '^  PLUGIN_ROOT:' "$TEMPLATE" 2>/dev/null; then
+        set -- "$@" --var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF"
+    fi
+    reply=$(koto init "$1" --template "$TEMPLATE" --attach-live "${@:3}" 2>"$WORK/rebind.err")
     local rc=$?
     if [ "$rc" -ne 0 ]; then
         REBIND_ERR="koto init --attach-live exited $rc: $(printf '%s' "$reply" | head -c 400) $(head -c 400 "$WORK/rebind.err")"
@@ -632,12 +648,19 @@ cmd_check() {
     [ $# -eq 2 ] || { echo "hold: check takes <session> <level>"; exit 1; }
     local s="$1" level="$2"
     valid_session "$s" || hold "bad session name [$s]"
-    [ -n "$level" ] || exit 3
-    valid_level "$level" || hold "REVIEW_LEVEL [$level] is not light, standard or full"
+    [ -z "$level" ] || valid_level "$level" || hold "REVIEW_LEVEL [$level] is not light, standard or full"
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || hold "could not read $LEDGER"
     local recorded
     recorded=$(last_level "$WORK/ledger")
+    # Empty is the unset route only for a session that never recorded a level
+    # (one from an earlier template). With a level in the ledger, an empty
+    # variable was reset, most likely by a `koto init --attach-live` that
+    # didn't pass it, and the run holds until `set` puts it back.
+    if [ -z "$level" ]; then
+        [ -n "$recorded" ] || exit 3
+        hold "REVIEW_LEVEL is empty but the ledger's last level is $recorded; run review-level.sh set $s $recorded to rebind it"
+    fi
     if [ "$recorded" != "$level" ]; then
         hold "REVIEW_LEVEL is $level but the ledger's last level is ${recorded:-none}; run review-level.sh set $s <level> to record the level the run should be at"
     fi
@@ -657,6 +680,11 @@ cmd_check() {
     local bfloor bceil
     bfloor=$(jq -r '.floor // ""' "$WORK/bound")
     bceil=$(jq -r '.ceiling // ""' "$WORK/bound")
+    # `set` refuses every choice under such a bound, so a level here got past
+    # it some other way; hold rather than judge it against a contradiction.
+    if [ -n "$bfloor" ] && [ -n "$bceil" ] && [ "$(rank "$bfloor")" -gt "$(rank "$bceil")" ]; then
+        hold "the bound's floor $bfloor is above its ceiling $bceil"
+    fi
     if [ -n "$bfloor" ] && [ "$(rank "$level")" -lt "$(rank "$bfloor")" ]; then
         hold "level $level is below the bound's floor $bfloor"
     fi
@@ -700,6 +728,7 @@ def rank: if . == "light" then 1 elif . == "standard" then 2 elif . == "full" th
 ($ledger | split("\n") | map(select(length > 0)) | map(try fromjson catch null)) as $lines
 | ($lines | map(select(type == "object"))) as $ev
 | (if $has_ledger == "0" then "none"
+   elif $has_ledger == "2" then "unreadable"
    elif ($lines | any(type != "object")) then "corrupt"
    else ([$ev[] | select(.event == "choose") | .to][0] // "-") end) as $chosen
 | ([$ev[] | select(.event == "bound")] | last // {}) as $bound
@@ -735,9 +764,15 @@ cmd_report() {
     while IFS= read -r s; do
         local has=0 overrides seats
         : > "$WORK/ledger"
+        # has: 0 no ledger, 1 read, 2 present but unreadable (a row of its
+        # own, not `none`, and exit 2).
         if koto context exists "$s" "$LEDGER"; then
             has=1
-            koto context get "$s" "$LEDGER" > "$WORK/ledger" || has=0
+            if ! koto context get "$s" "$LEDGER" > "$WORK/ledger"; then
+                has=2
+                : > "$WORK/ledger"
+                rc=2
+            fi
         fi
         overrides=$(koto overrides list "$s" \
             | jq -r '[.overrides.items[]? | select(.gate == "level_floor" or .gate == "level_fits_facts")] | length')

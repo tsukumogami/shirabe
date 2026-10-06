@@ -287,6 +287,7 @@ SITES="
 skills/work-on/references/phases/phase-4a-scrutiny.md
 skills/work-on/references/phases/phase-4b-review.md
 skills/work-on/references/phases/phase-4c-qa.md
+skills/work-on/references/phases/phase-4d-light.md
 skills/work-on/references/phases/phase-4-implementation.md
 skills/brief/references/phases/phase-4-validate.md
 skills/prd/references/phases/phase-4-validate.md

@@ -249,6 +249,10 @@ to_routing() {
     tick "$1" '{"staleness_signal":"override"}'
     printf 'plan\n' | ctx add "$1" plan.md
     tick "$1" '{"plan_outcome":"plan_ready"}'
+    # The review level, chosen before implementation; full keeps scrutiny on
+    # the code route.
+    (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
+    tick "$1"
 }
 
 for sh in plain nomain worktree; do

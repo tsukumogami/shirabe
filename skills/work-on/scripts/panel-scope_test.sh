@@ -441,6 +441,16 @@ printf '{"seat":"intent"}\n' > "$WORKDIR/obj.json"
 run --record scrutiny "$SESSION" "$WORKDIR/obj.json";    expect_rc "--record with a non-array round file" 65
 printf '[{"seat":"pragmatic","blocking_count":0}]\n' > "$WORKDIR/wrong.json"
 run --record scrutiny "$SESSION" "$WORKDIR/wrong.json";  expect_rc "--record with another panel's seat" 65
+
+# The light review level's panel: one seat, named reviewer.
+run --plan light "$SESSION";         expect_rc "--plan for the light panel" 0
+GOT=$(jq -r '[.decisions[] | .seat] | join(",")' "$SHIM_STORE/$SESSION/light_scope.json" 2>/dev/null)
+[ "$GOT" = reviewer ] && pass "the light panel's one seat is reviewer" || fail "light_scope.json seats are [$GOT]"
+run --record light "$SESSION" "$WORKDIR/wrong.json";     expect_rc "--record light with another panel's seat" 65
+printf '[{"seat":"reviewer","blocking_count":0}]\n' > "$WORKDIR/light.json"
+run --record light "$SESSION" "$WORKDIR/light.json";     expect_rc "--record light with its reviewer seat" 0
+jq -e '.seats["light/reviewer"].verdict == "passed"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "the light seat's verdict is in the verdict ledger" || fail "no light/reviewer entry in the verdict ledger"
 FAILSESSION=fail-write
 mkdir -p "$SHIM_STORE/$FAILSESSION"
 OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" --plan scrutiny "$FAILSESSION" 2>"$WORKDIR/stderr"); RC=$?
@@ -497,6 +507,10 @@ engine_to_qa_retry() {
     printf 'AC: the issue body\n' | koto context add "$s" context.md >/dev/null 2>&1
     submit "$s" '{"plan_outcome":"plan_ready"}'
     git rev-parse main | koto context add "$s" impl_base >/dev/null 2>&1
+    # The full review level keeps all three panels on the path.
+    "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
+        || { fail "$s: review-level.sh set full failed"; return 1; }
+    koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: walk stopped at [$NEXT_STATE] before scrutiny"; return 1; }

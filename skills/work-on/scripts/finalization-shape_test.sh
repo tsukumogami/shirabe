@@ -116,6 +116,9 @@ to_finalization() {
     # analysis recorded HEAD, which already carries the fixture's work commit;
     # the run's base is the commit before it.
     put "$1" impl_base "$BASE_SHA"
+    # The full review level keeps all three panels on the path.
+    "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
+    koto next "$1" --no-cleanup >/dev/null 2>&1
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
     put "$1" scrutiny_results.json '{}'

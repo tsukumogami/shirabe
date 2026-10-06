@@ -2,7 +2,7 @@
 stateDiagram-v2
     direction LR
     [*] --> entry
-    analysis --> implementation : gates.plan_artifact.exists: true, plan_outcome: plan_ready
+    analysis --> review_level_choice : gates.plan_artifact.exists: true, plan_outcome: plan_ready
     analysis --> done_already_complete : plan_outcome: already_complete
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
@@ -54,9 +54,13 @@ stateDiagram-v2
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
-    issue_type_routing --> scrutiny : issue_type: code
+    issue_type_routing --> review_level_check : issue_type: code
     issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs
     issue_type_routing --> verification : issue_type: task
+    light_review --> verification : gates.light_carried.exit_code: 0
+    light_review --> verification : gates.has_commits.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_results.exists: true, light_outcome: passed
+    light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, light_outcome: blocking_retry
+    light_review --> done_blocked : gates.light_carried.exit_code: 1, light_outcome: blocking_escalate
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -86,10 +90,21 @@ stateDiagram-v2
     qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, qa_outcome: blocking_retry
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, qa_outcome: blocking_escalate
     research --> post_research_validation
-    review --> qa_validation : gates.review_carried.exit_code: 0
-    review --> qa_validation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed
+    review --> verification : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
+    review --> verification : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: {"is_set":false}
     review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, review_outcome: blocking_retry
     review --> done_blocked : gates.review_carried.exit_code: 1, review_outcome: blocking_escalate
+    review_level_check --> light_review : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: light
+    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: standard
+    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: full
+    review_level_check --> scrutiny : gates.level_floor.exit_code: 3, vars.REVIEW_LEVEL: {"is_set":false}
+    review_level_check --> done_blocked : gates.level_floor.exit_code: 1, level_status: blocked
+    review_level_choice --> implementation : vars.REVIEW_LEVEL: {"is_set":true}
+    review_level_choice --> done_blocked : level_status: blocked, vars.REVIEW_LEVEL: {"is_set":false}
     scrutiny --> review : gates.scrutiny_carried.exit_code: 0
     scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_results.exists: true, scrutiny_outcome: passed
     scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, scrutiny_outcome: blocking_retry
@@ -173,6 +188,18 @@ stateDiagram-v2
     note left of issue_type_routing
         gate: has_commits
     end note
+    note left of light_review
+        gate: has_commits
+    end note
+    note left of light_review
+        gate: light_carried
+    end note
+    note left of light_review
+        gate: light_recorded
+    end note
+    note left of light_review
+        gate: light_results
+    end note
     note left of plan_context_injection
         gate: context_artifact
     end note
@@ -211,6 +238,12 @@ stateDiagram-v2
     end note
     note left of review
         gate: review_results
+    end note
+    note left of review_level_check
+        gate: level_fits_facts
+    end note
+    note left of review_level_check
+        gate: level_floor
     end note
     note left of scrutiny
         gate: has_commits

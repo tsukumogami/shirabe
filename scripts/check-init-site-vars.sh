@@ -133,6 +133,12 @@ for harness in $HARNESSES; do
     inits=$(sed ':a; /\\$/ { N; s/\\\n//; ba; }' "$harness" | grep 'koto init' || true)
     [[ -n "$inits" ]] || continue
     while IFS= read -r cmd; do
+        # An --attach-live call is not an init site: it attaches to a live
+        # session to re-apply its rebind variables (review-level.sh set rebinds
+        # REVIEW_LEVEL that way), and koto refuses one that changes a
+        # non-rebind variable. The session it attaches to was created by a
+        # site this check covers.
+        case "$cmd" in *--attach-live*) continue ;; esac
         case "$cmd" in
             *koto-templates/work-on.md*) ;;
             *'"$TEMPLATE"'*) [[ "$names_template" -eq 1 ]] || continue ;;

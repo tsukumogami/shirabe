@@ -54,8 +54,9 @@
 # --recorded as that state's gates (evaluated on every tick there); the agent
 # runs --record once per round:
 #
-#   --plan <panel> <session>     default_action on `scrutiny`, `review` and
-#                                `qa_validation`. Writes `<panel>_scope.json`
+#   --plan <panel> <session>     default_action on `scrutiny`, `review`,
+#                                `qa_validation` and `light_review`. Writes
+#                                `<panel>_scope.json`
 #                                and appends the round's decisions, with their
 #                                reasons, to the ledger's history. When every
 #                                seat is `keep` it also writes
@@ -81,7 +82,8 @@
 #        panel-scope.sh --recorded <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #
-# <panel> is scrutiny, review or qa (the qa_validation state).
+# <panel> is scrutiny, review, qa (the qa_validation state) or light (the
+# light_review state, the `light` review level's one seat).
 #
 # ## The round file
 #
@@ -171,8 +173,9 @@ case "$PANEL" in
     scrutiny) SEATS="completeness justification intent" ;;
     review)   SEATS="pragmatic architect maintainer" ;;
     qa)       SEATS="tester" ;;
+    light)    SEATS="reviewer" ;;
     "") refuse 67 "missing panel" ;;
-    *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review or qa" ;;
+    *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light" ;;
 esac
 [ -n "$SESSION" ] || refuse 67 "missing session argument for $MODE"
 command -v jq >/dev/null || refuse 127 "jq not on PATH"

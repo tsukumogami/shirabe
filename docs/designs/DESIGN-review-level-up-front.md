@@ -62,6 +62,9 @@ shape every decision here:
   session and a child materialized by a parent both accept the attach with
   only the rebind variable passed, report `rebound`, and the next tick routes
   on the new value. A session's template path is readable from `koto status`.
+  On the shipped `work-on.md` the attach must also pass `PLUGIN_ROOT`, which
+  is required and rebindable: an attach re-applies every rebind variable from
+  its own arguments, resetting one it omits (found wiring the template in).
 - **What the panels already keep.** Since shirabe#596, each panel state runs
   `panel-scope.sh --plan <panel>` on entry, keeps `verdict_ledger.json` with a
   per-round spawn count, and gates its edges on `--carried` and `--recorded`.
@@ -316,12 +319,17 @@ One script, subcommands:
 
 | Subcommand | Called by | Effect | Exits |
 |---|---|---|---|
-| `init <s> <floor> <ceiling>` | `review_level_choice` action | bound line, bound and criteria keys | 0, 66 |
+| `init <s> <floor> <ceiling>` | `review_level_choice` action | bound line; bound, criteria and rules-copy keys | 0, 64, 66 |
 | `set <s> <level> [--reason t] [--cause veto:<c>]` | the agent | decide, rebind, append | 0, 1, 64, 66 |
-| `facts <s>` | `review_level_check` action | facts key, `check`/`unset` line | 0, 64, 66 |
+| `facts <s> [<level>]` | `review_level_check` action | facts key, `check`/`unset` line | 0, 64, 66 |
 | `check <s> <level>` | `level_floor` gate | read-only verdict | 0, 1, 3 |
 | `slice <s> <level>` | decider check | prints facts and level | 0 |
-| `report [<s>...]` | a maintainer | TSV | 0, 2 |
+| `report [<s>...]` | a maintainer | TSV | 0, 2, 64 |
+
+Exit 64 is a usage error (a bad level, session name, flag or rules file, or
+no git base for `facts`); 66 is a koto call that failed, the rebind or a
+context read or write. `check` holds with 1 on anything it can't read or
+judge, so the gate never exits a code no route reads.
 
 `set` decides from the current level (the ledger's last `to`), the bound key,
 the facts key when present, and its arguments:
@@ -513,6 +521,9 @@ about carrying a bound. Each step leaves CI green on its own.
 - A level change costs a `koto init --attach-live` and two context writes;
   a run makes a handful of them at most.
 - The default thresholds are guesses until the ledger has data.
+- Value routing and decider checks shipped in koto 0.15.0, so shirabe's koto
+  minimum (`scripts/assert-koto-floor.sh`) moves from 0.14.1 to 0.15.0 with
+  the template wiring.
 - `light` catches less than three seats would; the floor rules are what keep
   it to small changes outside the risky classes.
 

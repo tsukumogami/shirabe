@@ -300,13 +300,22 @@ leg, since one leg answers one session.
   missing argument. The script's header has the base rules and the caps.
 - `scripts/panel-scope.sh --plan|--carried|--recorded|--record <panel> <session>`
   — which review seats a panel round needs. koto runs `--plan` on entering
-  `scrutiny`, `review` and `qa_validation`, and `--carried` and `--recorded` as
-  each one's gates; the agent runs `--record` after each round. A seat whose
+  `scrutiny`, `review`, `qa_validation` and `light_review`, and `--carried` and
+  `--recorded` as each one's gates; the agent runs `--record` after each round. A seat whose
   passed verdict the fix didn't touch is kept, a seat that raised a blocking
   finding re-checks only that finding against the fix diff, and a panel with
   nothing to run is carried through by koto. The phase files under
   `references/phases/phase-4*` say how to act on the scope;
   `scripts/panel-scope_test.sh` is its harness.
+- `scripts/review-level.sh init|set|facts|check|slice|report` — the run's
+  review level (`references/review-levels.md`). koto runs `init` on entering
+  `review_level_choice`, and `facts`, `check` and `slice` at
+  `review_level_check`; the agent runs `set <session> <level>` to choose,
+  raise or lower the level, which rebinds `REVIEW_LEVEL` and appends to the
+  `review_level.jsonl` ledger together, and a maintainer runs `report` to read
+  the ledgers of retained sessions. The script's header has every subcommand's
+  exit codes; `scripts/review-level_test.sh` and `scripts/review-level-routes_test.sh`
+  are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
   then makes one `koto init --attach-live --koto-leg` through the shared
@@ -342,9 +351,27 @@ reaches its parent on that tick. `scripts/terminal-retention_test.sh` pins the b
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
 
+### Review Level
+
+Every run chooses a review level after `analysis` and before implementing,
+at `review_level_choice`, with `scripts/review-level.sh set`:
+
+- `light` — one panel, `light_review`, of one reviewer seat.
+- `standard` — `scrutiny` then `review`, no QA.
+- `full` — `scrutiny`, `review` and `qa_validation`.
+
+A code change passes `review_level_check` before its first panel, on every
+lap: the facts of the change (its size, the path classes it touched, whether
+tests or acceptance criteria changed) set a floor, and koto holds the run
+until the level is at or above it. Facts can raise the level, never lower it;
+a lower needs a recorded reason and never goes below the floor. A session from
+an earlier template has no level and takes the full path. `docs` and `task`
+runs record a level too, and their routes skip the panels as before.
+`references/review-levels.md` has the rules, the bound and the ledger.
+
 ### Review Panel
 
-Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
+Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
 
 ### Resume
 

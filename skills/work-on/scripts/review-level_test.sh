@@ -68,7 +68,8 @@ git config --global init.defaultBranch main
 #   context add|get|exists|remove <s> <key>   $SHIM_STORE/<s>/<key>; get and
 #                                             exists exit 1 for an absent key.
 #                                             SHIM_FAIL_ADD=<key> fails that
-#                                             key's add. Every add is logged.
+#                                             key's add, SHIM_FAIL_GET=<key>
+#                                             its get. Every add is logged.
 #   init <s> ... --attach-live --var REVIEW_LEVEL=<v>
 #                                             records <v> in
 #                                             $SHIM_STORE/<s>/.var and replies
@@ -95,7 +96,11 @@ case "$1" in
                 cat > "$f"
                 echo "$4" >> "$SHIM_STORE/$3/.addlog"
                 ;;
-            get)    [ -f "$f" ] || { echo "koto shim: no key $4" >&2; exit 1; }; cat "$f" ;;
+            get)
+                if [ -n "${SHIM_FAIL_GET:-}" ] && [ "$4" = "$SHIM_FAIL_GET" ]; then
+                    echo "koto shim: cannot read $4" >&2; exit 9
+                fi
+                [ -f "$f" ] || { echo "koto shim: no key $4" >&2; exit 1; }; cat "$f" ;;
             exists) [ -f "$f" ] ;;
             remove) rm -f "$f" ;;
             *) echo "koto shim: unsupported: $*" >&2; exit 2 ;;
@@ -586,8 +591,14 @@ run check "$SESSION" full
 expect_rc "check when the level differs from the ledger" 1
 expect_out "the hold names both levels" "REVIEW_LEVEL is full but the ledger's last level is standard"
 run check "$SESSION" ""
-expect_rc "check with an empty level" 3
+expect_rc "check with an empty level over a ledger that has one" 1
+expect_out "the hold names the ledger's level" "REVIEW_LEVEL is empty but the ledger's last level is standard"
+cp "$(store review_level.jsonl)" "$WORKDIR/ledger.keep"
+grep '"event":"bound"' "$WORKDIR/ledger.keep" > "$(store review_level.jsonl)"
+run check "$SESSION" ""
+expect_rc "check with an empty level and no level in the ledger" 3
 [ -z "$OUT" ] && pass "the unset exit prints nothing" || fail "the unset exit printed [$OUT]"
+cp "$WORKDIR/ledger.keep" "$(store review_level.jsonl)"
 commit later 'printf "z\n" >> docs/readme.md'
 run check "$SESSION" standard
 expect_rc "check when the facts were gathered at another head" 1
@@ -603,6 +614,19 @@ run facts "$SESSION" standard
 run check "$SESSION" standard
 expect_rc "check above the ceiling with no breach" 1
 expect_out "the hold names the ceiling" "above the bound's ceiling light with no breach recorded"
+
+fixture check-crossed
+run init "$SESSION" full light
+run set "$SESSION" light
+expect_rc "set under a floor-above-ceiling bound" 1
+# A level that got past set some other way: the check holds rather than judge
+# it against a contradictory bound.
+printf '{"ts":"2026-01-01T00:00:00Z","event":"choose","to":"full"}\n' >> "$(store review_level.jsonl)"
+commit docs 'printf "x\n" >> docs/readme.md'
+run facts "$SESSION" full
+run check "$SESSION" full
+expect_rc "check under a bound whose floor is above its ceiling" 1
+expect_out "the hold names both bound values" "hold: the bound's floor full is above its ceiling light"
 
 fixture check-above-breach
 run init "$SESSION" "" light
@@ -681,6 +705,14 @@ GOT=$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-5)
 [ "$GOT" = "$(printf 'rep-none\tnone\t-\t-\t-')" ] && pass "a session with no ledger reads none" || fail "row is [$GOT]"
 GOT=$(printf '%s\n' "$OUT" | sed -n 3p | cut -f1-5)
 [ "$GOT" = "$(printf 'rep-docs\tlight\t-\t-\t-')" ] && pass "a run with no passing check reports final as -" || fail "row is [$GOT]"
+
+OUT=$(cd "$FX/repo" && SHIM_FAIL_GET=review_level.jsonl PATH="$SHIM_BIN:$PATH" "$SCRIPT" report rep-docs rep-full 2>/dev/null)
+RC=$?
+expect_rc "report with a ledger it can't read" 2
+[ "$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-2)" = "$(printf 'rep-docs\tunreadable')" ] \
+    && pass "an unreadable ledger reads unreadable, not none" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 2p)]"
+[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 3 ] && pass "the rows after an unreadable one still print" \
+    || fail "report printed [$OUT]"
 
 run report rep-corrupt rep-full
 expect_rc "report with a corrupt ledger" 2
