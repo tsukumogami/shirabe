@@ -226,6 +226,60 @@ its own time on what it writes. Every pull request in the record is a
 link. Follow the host repository's conventions (its CLAUDE.md) for commit
 messages and bodies.
 
+## Entries
+
+The body is the record's state: what is true now, rewritten whole. Its account,
+what happened and why, is a stream of entries, each one comment on the same
+issue or pull request, written only by `scripts/record-append.sh`:
+
+```
+record-append.sh --session <session> --text-file <file>
+```
+
+It re-reads the record first and refuses one that is closed or isn't this
+scope's, stamps the entry from the host clock in UTC to the second, and posts:
+
+```markdown
+<!-- coordinator-record-entry v1 kind=entry -->
+**<YYYY-MM-DDTHH:MM:SSZ>** (host clock) entry
+
+<the text>
+```
+
+An entry never grows and is never rewritten, so the record needs no archive
+however long the run. Write one when something happens that a successor would
+need the story of: what you dispatched and why, what a person told you, what
+you decided and on what evidence. On a public host the text gets the checks the
+Decisions section's text gets (no private repository, home-directory path or
+token-shaped string), and `@` is written encoded, so an entry never mentions
+anyone.
+
+`record-append.sh --session <session> --list` reads the stream back as JSON,
+oldest first by GitHub's creation time, with each entry's stamp, author, kind,
+text and whether it was edited after it was posted. Only comments carrying the
+marker and written by an author with write access to the host count; anything
+else on the thread, a person's own comment included, is not an entry. When a
+person tells you something on the thread, write it into the record yourself.
+
+Anything a check or a successor acts on stays in the body as state; an entry is
+its account, never its only copy, because a deleted comment leaves no trace in
+the stream. The addressed form, `--scope --name --repo --ref` in place of
+`--session`, writes an entry when no run is open, such as after a run ended.
+GitHub limits how fast comments are created; one post per entry stays far
+inside it, and a refused post (exit 11) is retried once, later, never in a
+loop.
+
+## Where State Lives
+
+A coordinator's state lives outside its session and outside any directory the
+workspace manager converges, and what must outlive the host lives on GitHub.
+Here that is two places: the koto session, the journal on the host between
+checkpoints, and this record, everything else. Keep no tools directory beside
+it. A local script for record entries, a snapshot copy of the body, archive
+files, standing answers in a file and progress facts all have homes in the
+skill: `record-append.sh`, the body and its revisions on GitHub, the entries,
+the record's tables, and `progress-view.sh` over pick's facts.
+
 ## Closing a Roadmap Record
 
 When every feature reads Done or Dropped on the roadmap, Holdings and Side

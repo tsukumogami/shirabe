@@ -171,6 +171,16 @@ sections, then Holds once the record holds a merge, then Decisions once it holds
 a decision; a candidate without the declaration line is never adopted.
 `references/record-template.md` has the shape.
 
+The body is the record's state. Its account, what happened and why, goes in
+entries: each one comment on the same issue or pull request, written with
+`scripts/record-append.sh`, which stamps it from the host clock. Never write an
+entry into the body, a table cell or a local file, and never post one by hand.
+
+A coordinator's state lives in two places: the koto session, the journal on
+this host between checkpoints, and the record on GitHub. Keep no tools
+directory, no snapshot of the body, no standing answers or progress facts in a
+local file: what has to outlive this session goes in the record.
+
 A deferral is the successor's to dispose of before its first dispatch: file it
 as an issue, close it, or carry it forward with a reason. A roadmap coordinator
 that finishes files or closes every open deferral, because nobody succeeds it.

@@ -21,6 +21,11 @@
 #    "files": {"acme/widgets": {"main:docs/x.md": "text"}},
 #    "fail": [{"match": "<substring of the call>", "rc": 1, "stderr": "..."}]}
 #
+# Issue comments (on an issue or a pull request, as GitHub serves both) live in
+# "comments": [{"repo", "number", "id", "body", "user", "created_at",
+# "updated_at"}]; GET repos/R/issues/N/comments pages them, and POST adds one
+# from --input's JSON body, stamped with "now" when the DB sets it.
+#
 # Served: api (GET issues listing with --paginate, repos/R, branches, collaborator
 # permission, contents, git/ref, git/commits; POST git/commits, git/refs;
 # DELETE git/refs; graphql author/editor queries), issue create|edit|close|view,
@@ -72,7 +77,7 @@ W1=${1:-} W2=${2:-}
 shift 2 2>/dev/null || shift $#
 [ "$W1" = api ] && set -- "$W2" "$@" && W2=
 
-METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL=
+METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL= INPUT=
 FIELDS=
 POS=
 while [ $# -gt 0 ]; do
@@ -91,6 +96,7 @@ while [ $# -gt 0 ]; do
         -f|--raw-field|--field) FIELDS="$FIELDS$2"$'\n'; shift 2 ;;
         --paginate) PAGINATE=1; shift ;;
         --draft|-d) DRAFT=1; shift ;;
+        --input) INPUT=$2; shift 2 ;;
         -*) unexpected ;;
         *) POS="$POS$1"$'\n'; shift ;;
     esac
@@ -219,6 +225,37 @@ case "$W1 $W2" in
         tree=$(jq -r --arg s "$sha" '.commits[$s].tree // empty' "$GH_DB")
         [ -n "$tree" ] || notfound
         emit "$(jq -nc --arg s "$sha" --arg t "$tree" '{sha: $s, tree: {sha: $t}}')"
+        ;;
+    "GET repos/"*/issues/*/comments*)
+        r=${path#repos/}; r=${r%%/issues/*}
+        n=${path#*/issues/}; n=${n%%/comments*}
+        need_repo "$r"
+        per=$(printf '%s' "$path" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p'); [ -n "$per" ] || per=30
+        items=$(jq -c --arg r "$r" --argjson n "$n" '[(.comments // [])[] | select(.repo == $r and .number == $n)
+            | {id, body, created_at, updated_at, user: {login: .user},
+               html_url: "https://github.com/\(.repo)/issues/\(.number)#issuecomment-\(.id)"}]' "$GH_DB")
+        total=$(printf '%s' "$items" | jq length)
+        p=0
+        while :; do
+            emit "$(printf '%s' "$items" | jq -c --argjson o $((p * per)) --argjson k "$per" '.[$o:$o + $k]')"
+            p=$((p + 1))
+            [ "$PAGINATE" = 1 ] && [ $((p * per)) -lt "$total" ] || break
+        done
+        ;;
+    "POST repos/"*/issues/*/comments)
+        r=${path#repos/}; r=${r%%/issues/*}
+        n=${path#*/issues/}; n=${n%%/comments}
+        need_repo "$r"
+        [ -n "$INPUT" ] && [ -r "$INPUT" ] || unexpected
+        [ -n "$(jq -r --arg r "$r" --argjson n "$n" '[.issues[]?, .prs[]? | select(.repo == $r and .number == $n)][0] // empty' "$GH_DB")" ] || notfound
+        id=$(jq '((.comments // []) | map(.id) | max // 1000) + 1' "$GH_DB")
+        now=$(jq -r --argjson i "$id" '.now // empty | if . == "" then empty else . end' "$GH_DB")
+        [ -n "$now" ] || now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        dbset '.comments = ((.comments // []) + [{repo: $r, number: $n, id: $i, body: $in[0].body, user: $l,
+                created_at: $t, updated_at: $t}])' \
+            --arg r "$r" --argjson n "$n" --argjson i "$id" --slurpfile in "$INPUT" --arg l "$LOGIN" --arg t "$now"
+        emit "$(jq -nc --arg r "$r" --argjson n "$n" --argjson i "$id" '{id: $i,
+            html_url: "https://github.com/\($r)/issues/\($n)#issuecomment-\($i)"}')"
         ;;
     "GET repos/"*/issues/*)
         r=${path#repos/}; r=${r%%/issues/*}
