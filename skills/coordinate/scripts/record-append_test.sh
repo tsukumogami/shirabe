@@ -5,12 +5,16 @@
 # Covers: two entries appended to a roadmap record and read back in order with
 # their host-clock stamps, author, kind and text, nothing else written (no body
 # edit); `@` written encoded and read back decoded; the edited flag; comments
-# without the marker, and marked comments by an author without write access,
-# left out of the list; an entry on a discipline rotation's pull request; the
-# refusals: a closed record, a target without this scope's declaration line, an
-# empty entry, a control character, an entry over the budget, an unknown kind,
-# and on a public host a private repository, a home-directory path and a
-# token-shaped string; a failed post (11); usage errors.
+# without the marker, marked comments by an author without write access, and
+# one by a login that isn't a collaborator (GitHub's 404), left out of the
+# list; a failed access read listing nothing (2); an entry on a discipline
+# rotation's pull request; the refusals: a closed record, a target without the
+# declaration line, another scope's record, an empty entry, a control
+# character, an entry over the budget, an unknown kind, and on a public host a
+# private repository (as owner/repo#n and as a link), a home-directory path
+# and a token-shaped string, without echoing it; what is fine: a tab and CRLF
+# line endings, a public repository, and a private repository on a private
+# host; a failed post (11); usage errors.
 #
 # Usage: bash skills/coordinate/scripts/record-append_test.sh
 set -uo pipefail
@@ -49,6 +53,10 @@ eq "  ... the author and kind" "coord entry coord entry" "$(printf '%s' "$L" | j
 eq "  ... the text as written" "Dispatched Feature 2 to worker-f2; the brief names the cap of two." "$(printf '%s' "$L" | jq -r '.[0].text')"
 eq "  ... a multi-line text kept whole, @ decoded" "$(printf 'Asked @alice about the release.\n\nShe said go.')" "$(printf '%s' "$L" | jq -r '.[1].text')"
 eq "  ... neither edited" "false false" "$(printf '%s' "$L" | jq -r 'map(.edited | tostring) | join(" ")')"
+eq "  ... the text carries no trailing newline" '"Dispatched Feature 2 to worker-f2; the brief names the cap of two."' "$(printf '%s' "$L" | jq -c '.[0].text')"
+printf '  \n\t\nkeep &#64;this & @that\n \n' > "$T/amp.txt"
+bash "$RA" "${RM[@]}" --text-file "$T/amp.txt" >/dev/null 2>"$T/err"
+eq "blank-only edge lines are trimmed, and & and @ come back exactly" "keep &#64;this & @that" "$(list "${RM[@]}" | jq -r '.[-1].text')"
 jq -r '.comments[1].body' "$GH_DB" | grep -q '&#64;alice' && ! jq -r '.comments[1].body' "$GH_DB" | grep -q '@alice' \
     && ok "an @ is posted encoded, so the entry mentions no one" || bad "an @ is posted encoded, so the entry mentions no one" "$(jq -r '.comments[1].body' "$GH_DB")"
 eq "the comment opens with the marker" "<!-- coordinator-record-entry v1 kind=entry -->" "$(jq -r '.comments[0].body' "$GH_DB" | head -1)"
@@ -64,9 +72,13 @@ db '.comments += [{repo: "acme/widgets", number: 7, id: 2001, body: "A remark wi
     user: "bob", created_at: "2026-10-07T23:11:00Z", updated_at: "2026-10-07T23:11:00Z"},
   {repo: "acme/widgets", number: 7, id: 2003, body: "<!-- coordinator-record-entry v1 kind=answer -->\n**2026-10-07T23:12:00Z** (host clock) answer\n\nRelayed by hand.",
     user: "carol", created_at: "2026-10-07T23:12:00Z", updated_at: "2026-10-07T23:12:00Z"}]'
-eq "an unmarked comment and a read-only author's marked one are left out" "1001 1002 2003" \
+eq "an unmarked comment and a read-only author's marked one are left out" "1001 1002 1003 2003" \
     "$(list "${RM[@]}" | jq -r 'map(.id | tostring) | join(" ")')"
-eq "  ... a write-access author's marked comment counts, with its kind" "answer" "$(list "${RM[@]}" | jq -r '.[2].kind')"
+eq "  ... a write-access author's marked comment counts, with its kind" "answer" "$(list "${RM[@]}" | jq -r '.[3].kind')"
+db '.comments += [{repo: "acme/widgets", number: 7, id: 2004, body: "<!-- coordinator-record-entry v1 kind=entry -->\n**2026-10-07T23:13:00Z** (host clock) entry\n\nFrom outside.",
+    user: "mallory", created_at: "2026-10-07T23:13:00Z", updated_at: "2026-10-07T23:13:00Z"}]'
+eq "a login that isn't a collaborator (GitHub's 404) is left out, not an error" "1001 1002 1003 2003" \
+    "$(list "${RM[@]}" 2>"$T/err" | jq -r 'map(.id | tostring) | join(" ")')"
 db '.fail = [{match: "collaborators/carol/permission", rc: 1, stderr: "gh: rate limited"}]'
 list "${RM[@]}" >/dev/null 2>"$T/err"; eq "a failed access read lists nothing" 2 $?
 db '.fail = []'

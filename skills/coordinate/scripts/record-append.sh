@@ -21,7 +21,8 @@
 # needs no session check, because an entry changes nothing a check reads.
 #
 # Before posting, a fresh read must show the target open and carrying the
-# scope's declaration line (exit 10). The entry is stamped from the host clock
+# scope's declaration line (exit 10). --list needs only the declaration line,
+# so a closed record's entries stay readable after its run ended. The entry is stamped from the host clock
 # in UTC to the second and posted as one comment:
 #
 #   <!-- coordinator-record-entry v1 kind=<kind> -->
@@ -29,20 +30,22 @@
 #
 #   <the text>
 #
-# K is entry (the default), or one of the kinds the stored set's writer
-# appends: run, told, pause, go-ahead, approval, answer, end, work,
-# roadmap-status. The text may not be empty, may hold no control character
+# K is entry (the default), or one of the kinds the record's other writers
+# append for what they change (the design's Decisions 3 and 4): run, told,
+# pause, go-ahead, approval, answer, end, work, roadmap-status. The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host the text may not name a private or unreadable
 # repository (as owner/repo#n or a github.com link), a home-directory path or
 # a token-shaped string (exit 65), the checks the Decisions section's text
-# columns get. `@` is written as `&#64;`, so an entry never mentions anyone.
+# columns get. `@` is written as `&#64;`, so an entry never mentions anyone,
+# and `&` as `&amp;`, so the reader gives the text back exactly.
 #
 # --list prints the entries as a JSON array, oldest first: {id, created,
 # stamp, author, kind, text, edited}. Only comments carrying the marker whose
 # author has write access to the host count, since anyone can comment on a
-# public repository; `edited` is true when GitHub says the comment changed
-# after it was posted. The text comes back as written, `@` decoded.
+# public repository (a login GitHub doesn't know as a collaborator is left
+# out; a failed access read lists nothing, exit 2); `edited` is true when
+# GitHub says the comment changed after it was posted. The text comes back as written, `@` decoded.
 #
 # Exit codes: 0 posted (prints the comment's URL) or listed; 2 a read failed;
 # 10 refused (not an open record of this scope, or no found record); 11 the
@@ -84,25 +87,12 @@ case "$MODE" in
         ;;
     list) [ -z "$TEXTFILE" ] || usage ;;
 esac
-# ENTRY_MARKER_PREFIX is the entry's first line up to its kind; the one
-# definition the writer and the reader share.
-ENTRY_MARKER_PREFIX='<!-- coordinator-record-entry v1 kind='
+# The largest entry posted, in bytes: the record body's own budget.
 ENTRY_BUDGET=60000
 
 . "$HERE/record-common.sh"
 lib_facts
-if [ "$OVERRIDE" = 1 ]; then
-    [[ $REF =~ $RE_NUM ]] || { echo "$PROG: the addressed form needs --ref N" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-    [[ $REF =~ $RE_NUM ]] || lib_die2 "the run's record number is not a number"
-fi
+lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-append.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
@@ -126,10 +116,12 @@ if [ "$MODE" = list ]; then
     # Write access per author, read once each; a failed read lists nothing.
     : > "$WD/writers"
     for login in $(jq -r '.user' "$WD/marked.jsonl" | sort -u); do
-        [[ $login =~ $RE_LOGIN ]] || continue
-        perm=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission < /dev/null 2> "$WD/p.err") \
-            || lib_die2 "cannot read $login's access to $REPO: $(lib_scrub < "$WD/p.err")"
-        case "$perm" in admin|maintain|write) printf '%s\n' "$login" >> "$WD/writers" ;; esac
+        lib_has_write_access "$login"
+        case $? in
+            0) printf '%s\n' "$login" >> "$WD/writers" ;;
+            1) ;;
+            *) lib_die2 "cannot read $login's access to $REPO" ;;
+        esac
     done
     jq -s -c --rawfile w "$WD/writers" --arg m "$ENTRY_MARKER_PREFIX" '
         ($w | split("\n") | map(select(. != ""))) as $writers
@@ -140,7 +132,7 @@ if [ "$MODE" = list ]; then
                stamp: ($l[1] // "" | capture("^\\*\\*(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)\\*\\*").s // ""),
                author: .user,
                kind: ($l[0] | ltrimstr($m) | sub(" -->$"; "")),
-               text: ($l[3:] | join("\n") | gsub("&#64;"; "@")),
+               text: ($l[3:] | join("\n") | rtrimstr("\n") | gsub("&#64;"; "@") | gsub("&amp;"; "&")),
                edited: (.updated_at != .created_at)})' "$WD/marked.jsonl" || lib_die2 "jq failed"
     exit 0
 fi
@@ -149,9 +141,9 @@ fi
 
 # The text, as the coordinator wrote it, line endings normalised.
 tr -d '\r' < "$TEXTFILE" > "$WD/text"
-TEXT=$(cat "$WD/text"; printf x); TEXT=${TEXT%x}
-# Leading and trailing blank lines carry nothing.
-TEXT=$(printf '%s' "$TEXT" | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+# Leading and trailing lines that hold nothing but blanks carry nothing.
+TEXT=$(awk '{ l[NR] = $0 } END { s = 1; while (s <= NR && l[s] ~ /^[ \t]*$/) s++
+    e = NR; while (e >= s && l[e] ~ /^[ \t]*$/) e--; for (i = s; i <= e; i++) print l[i] }' "$WD/text")
 [ -n "$(printf '%s' "$TEXT" | tr -d ' \t\n')" ] || { echo "$PROG: refused: the entry is empty" >&2; exit 65; }
 if printf '%s' "$TEXT" | LC_ALL=C grep -q '[[:cntrl:]]' 2>/dev/null \
     && printf '%s' "$TEXT" | LC_ALL=C tr -d '\n\t' | LC_ALL=C grep -q '[[:cntrl:]]'; then
@@ -187,7 +179,8 @@ STAMP=$(lib_now)
 {
     printf '%s%s -->\n' "$ENTRY_MARKER_PREFIX" "$KIND"
     printf '**%s** (host clock) %s\n\n' "$STAMP" "$KIND"
-    printf '%s\n' "$TEXT" | sed 's/@/\&#64;/g'
+    # `&` first, so the reader's decoding gives back exactly what was written.
+    printf '%s\n' "$TEXT" | sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g'
 } > "$WD/comment.md"
 SIZE=$(wc -c < "$WD/comment.md" | tr -d ' ')
 if [ "$SIZE" -gt "$ENTRY_BUDGET" ]; then

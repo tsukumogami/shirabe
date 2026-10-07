@@ -343,8 +343,8 @@ loop.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub.
-Here that is two places: the koto session, the journal on the host between
-checkpoints, and this record, everything else. Keep no tools directory beside
+Here that is two places: the koto session (its journal on the host between
+checkpoints) and this record, for everything else. Keep no tools directory beside
 it. A local script for record entries, a snapshot copy of the body, archive
 files, standing answers in a file and progress facts all have homes in the
 skill: `record-append.sh`, the body and its revisions on GitHub, the entries,
