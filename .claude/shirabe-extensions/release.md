@@ -1,7 +1,7 @@
 # release extension: shirabe
 
 shirabe's declarations for `/shirabe:release`, imported by
-`skills/release/SKILL.md`. Design: `docs/designs/DESIGN-evals-at-release.md`.
+`skills/release/SKILL.md`. Design: `docs/designs/current/DESIGN-evals-at-release.md`.
 
 ## Release checks
 

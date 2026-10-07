@@ -6,7 +6,7 @@
 # pass rates with the previous release's eval-pass-rates.json asset, and leaves
 # a record for the release to attach. Declared in
 # .claude/shirabe-extensions/release.md; see
-# docs/designs/DESIGN-evals-at-release.md (Decision 3).
+# docs/designs/current/DESIGN-evals-at-release.md (Decision 3).
 #
 # Usage:
 #   scripts/release-eval-check.sh --critical <a,b> --critical-runs <N>

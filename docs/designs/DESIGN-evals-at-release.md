@@ -433,7 +433,7 @@ work-on DoD gate ──> .claude/shirabe-extensions/work-on.md
 | Component | Interface | Exit codes |
 |---|---|---|
 | `scripts/check-skill.sh` | `<skill>` | 0 passed; 1 a check failed; 2 usage or missing tool |
-| `scripts/lib/check-evals-shape.py` | `<evals.json>` | 0 sound; 1 malformed, file and eval named |
+| `scripts/lib/check-evals-shape.py` | `<evals.json> <SKILL.md>` | 0 sound; 1 malformed, file and eval named; 2 usage |
 | `scripts/release-eval-check.sh` | `--critical <a,b> --critical-runs <N>`, or `--finalize`; env `RELEASE_*` | check: 0; 1 infrastructure failure; 5 unconfirmed drops; 2 usage. finalize: 0 with an `asset:` line; 1 when the marker doesn't match |
 | `scripts/lib/eval-pass-rates.py` | `merge --previous <file or -> --summary <file>... --version <v> --last-tag <t> --out <file>`; `stamp --record <file> --version <v> --measured <skill>...` | merge 0, 1, 5; stamp 0, or 1 on an invalid record |
 | `scripts/run-evals.sh` | adds no-arg default, `--list-changed`, `--summary-out <file>`, `EVAL_MODEL`, `RUN_EVALS_REPO_ROOT` | unchanged codes; `--runs` now returns 2 |

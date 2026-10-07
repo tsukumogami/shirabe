@@ -3,7 +3,7 @@
 
 The record (schema eval-pass-rates/v1) is the release asset
 eval-pass-rates.json. scripts/release-eval-check.sh calls this script; see
-docs/designs/DESIGN-evals-at-release.md (Decision 3, Security Considerations).
+docs/designs/current/DESIGN-evals-at-release.md (Decision 3, Security Considerations).
 
 Usage:
   eval-pass-rates.py merge --previous <file or -> [--no-baseline-reason <text>]
