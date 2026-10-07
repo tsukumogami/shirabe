@@ -87,6 +87,27 @@ def names_repo($r):
   ascii_downcase as $v | ($r | ascii_downcase | gsub("\\."; "\\.")) as $l
   | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "(\\.git)?\\.*($|[^A-Za-z0-9_.-])");
 
+# Free text a person reads on a public host: a Decisions text column, or a
+# record entry (record-append.sh). text_named_repos lists the repositories the
+# text names unambiguously, a github.com/<owner>/<repo> link or
+# <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
+# the caller reads each one's visibility. text_problem($private) is null, or
+# what makes the text unfit: a repository on the $private list, a
+# home-directory path or a token-shaped string.
+def text_named_repos:
+  def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
+  [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
+    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
+     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) ]
+  | map(select(. != "")) | unique;
+def text_problem($private):
+  . as $v
+  | ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
+  | if $hit != null then "names \($hit), a repository that isn't public"
+    elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then "a home-directory path"
+    elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then "a token-shaped string"
+    else null end;
+
 def check_cell($key; $private):
   . as $v
   | if ($v | type) != "string" then refuse("\($key): not a string")
@@ -205,6 +226,124 @@ def parse_holds($p):
         else [range(0; holds_cols | length) as $i | {(holds_cols[$i][0]): $cells[$i]}] | add end)
     end;
 
+# ---- the stored set: Run, Standing and Work ---------------------------------
+#
+# What a replacement coordinator needs to continue from the record alone
+# (docs/designs/DESIGN-coordinate-record-container.md, Decision 3). Each sits
+# after Holds and before Decisions, in this order, and renders only once it
+# has a row, so a record written before them keeps its bytes. Only
+# record-state.sh changes them.
+#
+# Run, one row per key from a closed set; `told` is the one key that repeats:
+#   Key      arguments | cap | coordinator | told
+#   Value    arguments: the run's arguments as given; cap: a number;
+#            coordinator: the address messages to the coordinator reach;
+#            told: a party that has been sent that address. Both of the last
+#            two are dispatch topics, the Worker cell's grammar.
+#   Set by   who set it, in words
+#   Set      when, YYYY-MM-DDTHH:MMZ
+# Standing, the events only a person owns that still bind the run:
+#   Standing s<n>, unique
+#   Kind     pause | go-ahead | approval | answer
+#   What     what it says, one line
+#   Owner    who decided it
+#   Relayed by  who carried it to this coordinator, blank when nobody did
+#   Set      when, YYYY-MM-DDTHH:MMZ
+# Work, a next step for each holding and a row for work no holding covers:
+#   Item     a holding's Unit, or what the work is; unique
+#   Kind     holding | local-agent
+#   Who      a holding's Worker (a dispatch topic), or who does the work
+#   Next step  what happens next, one line
+#   Updated  when, YYYY-MM-DDTHH:MMZ
+#
+# The text cells (Run's arguments, Set by, Standing's What, Owner and Relayed
+# by, Work's Item, Who and Next step) get text_problem on a public host.
+
+def state_secs: [
+  {key: "run", title: "Run", cols: [["key", "Key"], ["value", "Value"], ["set_by", "Set by"], ["set", "Set"]]},
+  {key: "standing", title: "Standing", cols: [["standing", "Standing"], ["kind", "Kind"], ["what", "What"],
+    ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
+  {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
+    ["updated", "Updated"]]}];
+def run_keys: ["arguments", "cap", "coordinator", "told"];
+def standing_kinds: ["pause", "go-ahead", "approval", "answer"];
+def work_kinds: ["holding", "local-agent"];
+def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
+
+def check_scell($sk; $key; $private):
+  . as $v
+  | "\($sk).\($key)" as $n
+  | if ($v | type) != "string" then refuse("\($n): not a string")
+    elif $v | test("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]") then refuse("\($n): a control character")
+    elif ($v | test("[\r\n]")) then refuse("\($n): a line break")
+    elif $v == "" and ($sk != "standing" or $key != "relayed_by") then refuse("\($n): empty")
+    elif $v == "" then $v
+    elif ($key == "set" or $key == "updated") then (if test(re_time_min) then . else refuse("\($n): not YYYY-MM-DDTHH:MMZ") end)
+    elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
+    elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
+    elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
+    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding or local-agent") end)
+    else . end
+  | if ($v != "") and any(s_text_cols[$sk][]; . == $key) then
+      ($v | text_problem($private)) as $why
+      | if $why != null then refuse("\($n): \($why)") else . end
+    else . end;
+
+def check_srow($sec; $private):
+  . as $row
+  | if type != "object" then refuse("\($sec.key): a row that isn't an object") else . end
+  | ([keys[] | . as $k | select(any($sec.cols[]; .[0] == $k) | not)]) as $extra
+  | if ($extra | length) > 0 then refuse("\($sec.key).\($extra[0]): not a column of this section") else . end
+  | reduce $sec.cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") | check_scell($sec.key; $c[0]; $private)))
+  | if $sec.key == "run" then
+      (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
+       elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
+       else . end)
+    elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
+    else . end;
+
+def check_state($sec; $rows; $private):
+  if $rows == null then null
+  elif ($rows | type) != "array" then refuse("\($sec.key): not a list")
+  else ($rows | map(check_srow($sec; $private))) as $r
+    | if $sec.key == "run" then
+        ($r | map(select(.key != "told") | .key)) as $once
+        | ($r | map(select(.key == "told") | .value)) as $told
+        | if ($once | unique | length) != ($once | length) then refuse("run: a key other than told is used twice")
+          elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
+          else $r end
+      elif $sec.key == "standing" then
+        (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)
+      else
+        (if ($r | map(.item) | unique | length) != ($r | length) then refuse("work: an item is listed twice") else $r end)
+      end
+  end;
+
+def render_opt($sec; $rows):
+  if $rows == null or ($rows | length) == 0 then ""
+  else
+    "\n\n## \($sec.title)\n\n"
+    + ("| " + ($sec.cols | map(.[1]) | join(" | ")) + " |") + "\n"
+    + ("|" + ($sec.cols | map("---") | join("|")) + "|")
+    + ($rows | map(. as $r | "\n| " + ($sec.cols | map($r[.[0]] | enc) | join(" | ")) + " |") | join(""))
+  end;
+
+def render_state($in; $private):
+  state_secs | map(. as $sec | render_opt($sec; check_state($sec; $in[$sec.key]; $private))) | join("");
+
+def parse_opt($sec; $p):
+  ($p[($sec.title | length) + 2:]) as $body
+  | ($body | split("\n")) as $lines
+  | ("| " + ($sec.cols | map(.[1]) | join(" | ")) + " |") as $header
+  | if ($lines | length) < 3 then refuse("\($sec.title): a table needs a header, a separator and a row")
+    elif $lines[0] != $header then refuse("\($sec.title): header row differs from the fixed columns")
+    else $lines[2:] | map(
+      (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
+       | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec)) as $cells
+      | if ($cells | length) != ($sec.cols | length) then refuse("\($sec.title): a row with \($cells | length) cells, not \($sec.cols | length)")
+        else [range(0; $sec.cols | length) as $i | {($sec.cols[$i][0]): $cells[$i]}] | add end)
+    end;
+
 # ---- the Decisions section --------------------------------------------------
 #
 # A fifth section, after Reversals, rendered only when it has something to
@@ -244,26 +383,6 @@ def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect|ask) [1-9]
 def enc_d: enc | gsub("@"; "&#64;");
 def dec_d: gsub("&#64;"; "@") | dec;
 
-# Free text a person reads on a public host: a Decisions text column, or a
-# record entry (record-append.sh). text_named_repos lists the repositories the
-# text names unambiguously, a github.com/<owner>/<repo> link or
-# <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
-# the caller reads each one's visibility. text_problem($private) is null, or
-# what makes the text unfit: a repository on the $private list, a
-# home-directory path or a token-shaped string.
-def text_named_repos:
-  def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
-  [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
-    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
-     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) ]
-  | map(select(. != "")) | unique;
-def text_problem($private):
-  . as $v
-  | ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
-  | if $hit != null then "names \($hit), a repository that isn't public"
-    elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then "a home-directory path"
-    elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then "a token-shaped string"
-    else null end;
 
 # check_dcell($key; $private): one Decisions cell, by this section's grammars.
 def check_dcell($key; $private):
@@ -446,19 +565,20 @@ def check_top($in; $allowed):
 
 def render_record($container; $written; $private):
   . as $in
-  | check_top($in; ["scope", "written", "holdings", "deferrals", "side_effects", "reversals", "holds", "decisions"])
+  | check_top($in; ["scope", "written", "holdings", "deferrals", "side_effects", "reversals", "holds", "run", "standing", "work", "decisions"])
   | if ($written | test(re_time_sec) | not) then refuse("written: not YYYY-MM-DDTHH:MM:SSZ") else . end
   | (if $container == "pr" then pr_prefix($in.scope) elif $container == "issue" then "" else refuse("container: not issue or pr") end) as $prefix
   | $prefix + declaration($in.scope) + "\n\nWritten: \($written)\n\n"
     + (checked_sections($in; $private) | map(render_table(.sec; .rows)) | join("\n\n"))
     + render_holds(check_holds($in.holds; $private))
+    + render_state($in; $private)
     + render_decisions(check_decisions($in.decisions; $private)) + "\n";
 
 def predecessor_sentence: "The outgoing rotation's reasoning was not recorded.";
 
 def render_handoff($private):
   . as $in
-  | check_top($in; ["scope", "rotation", "holdings", "deferrals", "side_effects", "reversals", "holds", "decisions", "reasoning", "predecessor_copy"])
+  | check_top($in; ["scope", "rotation", "holdings", "deferrals", "side_effects", "reversals", "holds", "run", "standing", "work", "decisions", "reasoning", "predecessor_copy"])
   | if ($in.scope.kind // "") != "discipline" then refuse("handoff: only a discipline has a handoff") else . end
   | scope_text($in.scope) as $_
   | ($in.rotation // refuse("rotation: missing")) as $r
@@ -481,6 +601,9 @@ def render_handoff($private):
     + (checked_sections($in; $private) | map(render_table(.sec; .rows)) | join("\n\n"))
     # Holds carry over as they stand: a hold outlives the rotation that set it.
     + render_holds(check_holds($in.holds; $private))
+    # So do the stored set's sections: they are what the next rotation
+    # continues from.
+    + render_state($in; $private)
     # The handoff carries only the unsettled entries, with the same Next
     # decision, so the next rotation's record continues the numbering; a
     # predecessor copy is copied as it stands.
@@ -522,21 +645,27 @@ def parse_scope($line):
     elif ($s | test("^the [A-Za-z0-9._-]+ discipline$")) then {kind: "discipline", name: ($s | capture("^the (?<n>.*) discipline$").n)}
     else refuse("declaration line: unknown scope") end;
 
-# optional_tail($rest): the parts after the four sections, each an optional
-# Holds then an optional Decisions, in that order, as {holds?, decisions?}.
+# optional_titles: the optional sections after the four, in their one order.
+def optional_titles: [holds_title] + (state_secs | map(.title)) + [decisions_title];
+def optional_index: . as $p | [optional_titles | to_entries[] | select(. as $e | $p | startswith($e.value + "\n\n")) | .key] | first;
+
+# optional_tail($rest): the parts after the four sections, each one of the
+# optional sections at most once, in optional_titles' order, as
+# {holds?, run?, standing?, work?, decisions?}.
 def optional_tail($rest):
-  ($rest | map(select(startswith(holds_title + "\n\n")))) as $h
-  | ($rest | map(select(startswith(decisions_title + "\n\n")))) as $d
-  | if ($h | length) + ($d | length) != ($rest | length) or ($h | length) > 1 or ($d | length) > 1
-    then refuse("after Reversals, only ## \(holds_title) and then ## \(decisions_title) may follow")
-    elif ($h | length) == 1 and ($d | length) == 1 and ($rest[0] | startswith(holds_title + "\n\n") | not)
-    then refuse("## \(holds_title) comes before ## \(decisions_title)")
-    else (if ($h | length) == 1 then {holds: parse_holds($h[0])} else {} end)
-         + (if ($d | length) == 1 then {decisions: parse_decisions($d[0])} else {} end) end;
+  ($rest | map(optional_index)) as $ix
+  | if any($ix[]; . == null)
+    then refuse("after Reversals, only \(optional_titles | map("## " + .) | join(", ")) may follow, in that order")
+    elif ($ix | . != (sort | unique))
+    then refuse("the sections after Reversals come at most once each, in the order \(optional_titles | join(", "))")
+    else [$rest[] | . as $p | optional_index as $i
+      | if $i == 0 then {holds: parse_holds($p)}
+        elif $i == (optional_titles | length) - 1 then {decisions: parse_decisions($p)}
+        else state_secs[$i - 1] as $sec | {($sec.key): parse_opt($sec; $p)} end] | add // {} end;
 
 def parse_record:
   normalized | split("\n\n## ") as $parts
-  | if ($parts | length) < 5 or ($parts | length) > 7 then refuse("expected four sections, then an optional Holds and an optional Decisions, found \(($parts | length) - 1)") else . end
+  | if ($parts | length) < 5 or ($parts | length) > 5 + (optional_titles | length) then refuse("expected four sections, then the optional \(optional_titles | join(", ")), found \(($parts | length) - 1)") else . end
   | ($parts[0] | split("\n")) as $head
   | ([$head | to_entries[] | select(.value | startswith("> This is a **coordinator record** for ")) | .key]) as $at
   | if ($at | length) != 1 then refuse("expected one declaration line") else . end
@@ -548,7 +677,7 @@ def parse_record:
 def parse_handoff:
   normalized | split("\n\n## ") as $parts
   | if ($parts | length) < 6 then refuse("expected four sections and the reasoning") else . end
-  | ([$parts[5:] | to_entries[] | select((.value | startswith(holds_title + "\n\n") or startswith(decisions_title + "\n\n")) | not) | .key] | first // ($parts[5:] | length)) as $n_opt
+  | ([$parts[5:] | to_entries[] | select(.value | optional_index == null) | .key] | first // ($parts[5:] | length)) as $n_opt
   | ($parts[5:5 + $n_opt]) as $opt
   | if ($parts | length) < 6 + $n_opt then refuse("expected the reasoning after the record's sections") else . end
   | ($parts[5 + $n_opt:] | join("\n\n## ")) as $rp

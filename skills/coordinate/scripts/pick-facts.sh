@@ -22,7 +22,8 @@
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
 # waiting for its worker's teardown) or active; only active ones count
 # against the cap. Local agents have no holding and are never counted. The counts sit
-# beside CAP and PARKED_BOUND from the session's variables.
+# beside CAP and PARKED_BOUND from the session's variables, the cap from the
+# record's Run section when it has one.
 #
 # Verdict tokens:
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded
@@ -96,6 +97,11 @@ else set -- "$@" --session "$SESSION"; fi
 bash "$HERE/record-holding.sh" "$@" > "$T/holdings.json" 2> "$T/holdings.err" \
     || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/holdings.err")"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
+# The cap a person set in the record's Run section wins over the session's
+# (record-state.sh, the one reader of the stored set).
+bash "$HERE/record-state.sh" "$@" > "$T/state.json" 2> "$T/state.err" \
+    || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/state.err")"
+lib_bounds "$T/state.json"
 # The unsettled decision entries, through record-decision.sh, the one reader of the section.
 set -- --list
 if [ "$OVERRIDE" = 1 ]; then set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"

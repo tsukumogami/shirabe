@@ -401,6 +401,13 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session "{{SESSION_NAME}}" --check'
         overridable: false
+      # The handover gate: the record holds the run's arguments, its cap and
+      # this coordinator's address, a next step for every live holding, and
+      # every live worker has been told the current address.
+      reconcile_handover:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-handover.sh" --session "{{SESSION_NAME}}" --check'
+        overridable: false
     accepts:
       reconciled:
         type: enum
@@ -413,11 +420,13 @@ states:
           reconciled: reported
           gates.reconcile_posture.exit_code: 25
           gates.reconcile_report.exit_code: 0
+          gates.reconcile_handover.exit_code: 0
       - target: posture_ask
         when:
           reconciled: reported
           gates.reconcile_posture.exit_code: 26
           gates.reconcile_report.exit_code: 0
+          gates.reconcile_handover.exit_code: 0
 
   posture_ask:
     accepts:
@@ -479,7 +488,8 @@ states:
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
     # Inputs: coord/pick.json, written and gated (pick_input) by pick_facts,
-    # and the CAP and PARKED_BOUND variables. Fixtures:
+    # which carries the cap in force (the record's Run section's, when it has
+    # one, over the CAP variable), and the PARKED_BOUND variable. Fixtures:
     # coordinate.pick.choice.decider.jsonl; declarations:
     # scripts/decider-declarations.tsv.
     accepts:
@@ -498,7 +508,6 @@ states:
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
           inputs:
             - {context: coord/pick.json, label: pick_facts, max_bytes: 12000}
-            - {var: CAP, label: cap}
             - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
@@ -2259,6 +2268,14 @@ Print the report the reconcile pass sealed, checked against its seal, with
 and report it up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
 Reconcile, in Order", for how to present it.
 
+Before you submit, make the record one a replacement could continue from: run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-handover.sh" --session {{SESSION_NAME}} --check`
+and close every gap it names with the `record-state.sh` call it gives. Write
+this run's arguments and the cap if the record has neither, and your own address
+(`--run coordinator`) if the record names another coordinator's or none. A new
+address leaves every live worker untold: send each one a line naming it, then
+record it with `--told`. The workflow stays here until the check passes.
+
 <!-- details -->
 
 Report three things: what changed since the record was written, what you
@@ -2282,9 +2299,14 @@ verified or inferred, and it doesn't go among the re-checked claims.
 
 This state's gate re-checks that `reconcile/report.json` is the report the pass
 sealed in this visit; a report written or changed by anyone else holds the
-workflow here. This full reconcile runs once per run, on this path. Later turns
-re-check only the holdings they are about to act on, which each spoke's read
-already does.
+workflow here. Its handover gate re-reads the record's stored set (Run, Standing,
+Work, `references/record-template.md`) and holds the workflow while the record
+lacks the run's arguments, the cap or the coordinator's address, while a live
+holding has no Work row, or while a live worker hasn't been told the current
+address; a holding merged and waiting for its teardown is exempt. This full
+reconcile runs at every start and restart, and again whenever the record is
+found anew after a conflict. Later turns re-check only the holdings they are
+about to act on, which each spoke's read already does.
 
 ## posture_ask
 
@@ -2321,15 +2343,16 @@ entries, the rows the progress table renders.
 ## pick
 
 Pick the next move for one free slot and submit `choice` (with `unit` when it
-dispatches). Keep the cap of {{CAP}} active workers full, and drive every worker
-to landed work.
+dispatches). Keep the cap of active workers (`cap` in `coord/pick.json`) full,
+and drive every worker to landed work.
 
 <!-- details -->
 
 `coord/pick.json` has the facts. The rules:
 
 - **Fill every free slot.** Dispatch until active workers equal the cap
-  ({{CAP}}) or nothing is left; each pass through pick fills one slot and comes
+  (`cap` in `coord/pick.json`: the record's, when a person changed it, else
+  the run's) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
@@ -2435,7 +2458,12 @@ the record step refuses a dispatch under any other. The input names the entry
 point: `/shirabe:deliver` for a roadmap feature to be built, `/shirabe:scope`
 for one scoped ahead, with its execution sent later. The brief lists the
 checkpoints the worker reports at, and tells it to report and continue at each
-one: it waits on no approval.
+one: it waits on no approval. Once it is sent, write the holding's next step,
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+{{SESSION_NAME}} --work "<the unit>" --kind holding --who <topic> --next "<what
+happens next>"`: the record step waits for it, since a successor reads each
+holding's next step there. It also records the worker as told your address,
+which its brief names.
 
 <!-- details -->
 
@@ -2568,6 +2596,20 @@ entry, naming its `decision` (a held entry's fact included); `raise` when you
 need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `retire` to finish with a worker; `end` when the
 rotation or the scope ends.
+
+Two writes come before acting, whatever event follows. When a person's word
+arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a
+release go-ahead, an approval relayed from another session, a standing
+answer), write it with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session {{SESSION_NAME}}`:
+`--standing <pause|go-ahead|approval|answer> --what "<what it says>" --owner
+"<the person>" --relayed-by "<who carried it>"` (no relayer when they told you
+directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
+"<who>"` for a cap. A person's own comment on the record is not an entry until
+you write it. And before a local agent starts work in flight (a fix round, a
+pull request it builds), write its row, `--work "<what>" --kind local-agent
+--who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
+without the row a successor can't see the work.
 
 Arriving here from `report_questions` with a checkpoint report whose questions
 were over the bound (`overflow`), message the worker to send them again in its

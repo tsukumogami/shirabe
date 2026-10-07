@@ -15,6 +15,8 @@
 #   - the Holds section likewise, through HOLDS_WRITER=1, which only
 #     record-hold.sh sets; even it may only add a hold or stamp a blank
 #     Lifted cell, never drop or change a hold (exit 65);
+#   - the stored set's sections (Run, Standing, Work) likewise, through
+#     STATE_WRITER=1, which only record-state.sh sets (exit 65);
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
@@ -43,6 +45,7 @@ RECORD_BUDGET=60000
 # environment never counts; the decision writer opens it after sourcing.
 DECISIONS_WRITER=0
 HOLDS_WRITER=0
+STATE_WRITER=0
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -133,6 +136,17 @@ core_write() {
         exit 65
     fi
 
+    # The stored set's sections change only through record-state.sh.
+    if [ "$STATE_WRITER" != 1 ]; then
+        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/parsed.json") \
+            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/live.json") \
+            || lib_die2 "cannot compare the stored set's sections"
+        if [ "$NEW_S" != "$LIVE_S" ]; then
+            echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
+            exit 65
+        fi
+    fi
+
     # A public host never names a private repository: not in a Holdings Repo,
     # not in a Pull request link, not in a hold's On or Until, not in a Side
     # effects Target (an owner/repo token, owner/repo#n, or a github.com URL). A named repository the host can't read
@@ -160,7 +174,8 @@ core_write() {
               (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
-                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) )) ]
+                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) )),
+              (. as $rec | state_secs[] | .key as $k | (($rec[$k] // [])[] | .[s_text_cols[$k][]] // "") | text_named_repos[]) ]
             | map(select(. != "")) | unique | .[]' "$T/parsed.json" > "$T/named" || lib_die2 "jq failed"
         while IFS= read -r r; do
             [[ $r =~ $RE_REPO ]] || { echo "$PROG: refused: $r is not owner/repo" >&2; exit 65; }

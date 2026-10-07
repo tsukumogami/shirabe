@@ -16,7 +16,8 @@
 # and each is reported with its disposition (shirabe#552); reconcile_pass refuses evidence; in reconcile, the
 # evidence alone doesn't pass while the report key is absent, agent-written,
 # or from an earlier visit, and passes once the sealed report is back; then
-# the posture routes to pick_facts. Also: no gate names
+# the posture routes to pick_facts, once the handover gate passes (a gap in
+# the stored set holds it). Also: no gate names
 # reconcile/reasoning.md, both reconcile commands run from the plugin root,
 # and the directive doesn't name RECONCILE_SEAL.
 #
@@ -82,6 +83,16 @@ case "\$sub" in
     *) echo '{"kind":"'"\$sub"'","status":"not_verified","reason":"not served","read_at":"t"}' ;;
 esac
 EOF
+# The handover read the reconcile gate runs: a stand-in whose exit code is
+# $STUB/handover.rc (0 when absent), so the gate's own routing is what's tested
+# here; record-state_test.sh tests the read itself.
+cat > "$SC/record-handover.sh" <<EOF
+#!/usr/bin/env bash
+rc=\$(cat "$STUB/handover.rc" 2>/dev/null || echo 0)
+[ "\$rc" = 0 ] || echo "record-handover: a gap (the stand-in says so)" >&2
+exit "\$rc"
+EOF
+chmod +x "$SC/record-handover.sh"
 # Only the stand-ins are made executable here; the copied scripts keep the
 # modes they are committed with, so a script the template can't run fails.
 chmod +x "$SC/reconcile-read.sh" "$SC/reconcile-check.sh"
@@ -219,6 +230,9 @@ eq "with the report key absent, the evidence does not pass" reconcile "$(next --
 jq -c '.holdings = []' "$T/good.json" | koto context add "$S" reconcile/report.json >/dev/null
 eq "with a report the agent wrote, the evidence does not pass" reconcile "$(next --with-data '{"reconciled":"reported"}')"
 koto context add "$S" reconcile/report.json --from-file "$T/good.json" >/dev/null
+echo 1 > "$STUB/handover.rc"
+eq "with the sealed report back but a gap in the stored set, the handover gate holds" reconcile "$(next --with-data '{"reconciled":"reported"}')"
+rm -f "$STUB/handover.rc"
 eq "with the sealed report back, the evidence passes and the posture routes to pick_facts" pick_facts "$(next --with-data '{"reconciled":"reported"}')"
 
 # A report sealed in an earlier visit fails once the state is entered again.

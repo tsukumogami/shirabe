@@ -165,9 +165,79 @@ while held` and who merged it, as GitHub names them; the record step waits for
 it. The section's grammars are the codec's (`scripts/record-codec.jq`), and the
 write core refuses any other writer's change to it.
 
+### The stored set: Run, Standing and Work
+
+What a replacement coordinator needs to continue from the record alone, and
+nothing else, sits in three more sections after Holds and before Decisions,
+each rendered only once it has a row:
+
+```markdown
+## Run
+
+| Key | Value | Set by | Set |
+|---|---|---|---|
+| <arguments, cap, coordinator or told> | <the value> | <who set it> | <YYYY-MM-DDTHH:MMZ> |
+
+## Standing
+
+| Standing | Kind | What | Owner | Relayed by | Set |
+|---|---|---|---|---|---|
+| <s<n>> | <pause, go-ahead, approval or answer> | <what it says> | <the person who decided it> | <who carried it here, or blank> | <YYYY-MM-DDTHH:MMZ> |
+
+## Work
+
+| Item | Kind | Who | Next step | Updated |
+|---|---|---|---|---|
+| <a holding's Unit, or what the work is> | <holding or local-agent> | <its Worker, or who does it> | <what happens next> | <YYYY-MM-DDTHH:MMZ> |
+```
+
+**Run** holds the run's arguments, the cap in force (the readers of the cap
+take it over the `--cap` the session was opened with), this coordinator's
+address (a dispatch topic, never a session id) and one `told` row per party
+that has been sent that address. A new address clears the `told` rows.
+**Standing** holds the events only a person owns while they still bind: a
+pause, a go-ahead (a release or another step allowed once), a relayed approval,
+a standing answer. Owner is the person who decided it; Relayed by is who
+carried it to you, blank when they told you directly. A resume, a used
+go-ahead or approval, or a withdrawn answer ends the row. **Work** has a next
+step for every holding and a row for any work no holding covers, a local
+agent's above all: without its row a successor can't see it.
+
+`scripts/record-state.sh` is the only writer, and every change it makes is
+written to the body and then told as an entry:
+
+```
+record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
+record-state.sh --session S --told <topic> --by <who>
+record-state.sh --session S --standing <kind> --what <text> --owner <who> [--relayed-by <who>]
+record-state.sh --session S --end <s<n>> --by <who>
+record-state.sh --session S --work <item> --kind holding|local-agent --who <who> --next <text>
+record-state.sh --session S --done <item>
+record-state.sh --session S --list
+```
+
+Write each when it happens: the arguments, the cap and your address at your
+first start; a Standing row or a cap when a person's word arrives, wherever it
+arrives (a person's own comment on the record is not an entry, and the reader
+never counts it, so you write it, the person as owner and yourself as
+relayer); a holding's Work row once its dispatch is sent, which the record step
+waits for and which also records its worker as told your address; a
+local-agent row before the agent starts, `--done` when it lands. A Work row
+whose holding is gone is dropped at the next write.
+
+`scripts/record-handover.sh` reads the stored set back, with the holds, and
+names its gaps: no arguments, cap or address; a live holding (dispatched, and
+not merged and waiting for its teardown) with no Work row, or whose worker
+hasn't been told the current address. The reconcile step's gate runs it at
+every start, so a replacement that writes its own address can't go on until
+it has told each live worker. A record written before these sections existed
+has every gap at its first start under this version; fill them once. A
+rotation's handoff carries the three sections as they stand.
+
 ### The Decisions section
 
-After Reversals and any Holds, once the record holds a decision, comes one
+After Reversals, any Holds and any of the stored set, once the record holds a
+decision, comes one
 more section. It
 opens with the identifier the next decision takes, and has one row per decision
 the scope opened:

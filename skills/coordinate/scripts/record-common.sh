@@ -527,15 +527,25 @@ lib_parked() {
     jq -s -c '.' "$2.rows" > "$2" || return 2
 }
 
-# lib_bounds: CAP and PARKED_BOUND from the session's variables (defaults 5
-# and 3 without a session, or when a variable is unset).
+# lib_bounds [record-json]: CAP and PARKED_BOUND from the session's variables
+# (defaults 5 and 3 without a session, or when a variable is unset). Given the
+# record as JSON (parsed, or record-state.sh --list), a `cap` row in its Run
+# section wins over the variable: a cap a person changed is in the record, and
+# survives a restart that didn't pass it. Every reader of the cap comes here,
+# so they agree on it.
 lib_bounds() {
     CAP=5 PARKED_BOUND=3
-    [ -n "$SESSION" ] || return 0
-    local vars
-    vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
-    CAP=$(printf '%s' "$vars" | jq -r '.CAP // "5"')
-    PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
+    if [ -n "$SESSION" ]; then
+        local vars
+        vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
+        CAP=$(printf '%s' "$vars" | jq -r '.CAP // "5"')
+        PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
+    fi
+    if [ -n "${1-}" ]; then
+        local rc
+        rc=$(jq -r '[(.run // [])[] | select(.key == "cap") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
+        [ -z "$rc" ] || CAP=$rc
+    fi
     [[ $CAP =~ $RE_NUM ]] && [[ $PARKED_BOUND =~ $RE_NUM ]] || lib_die2 "CAP or PARKED_BOUND is not a number"
 }
 
