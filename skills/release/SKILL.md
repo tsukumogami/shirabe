@@ -241,9 +241,10 @@ All must pass before proceeding:
         Show the check's output and ask with AskUserQuestion whether to
         proceed, naming what the check reported. On a yes, run the same
         command again with `<NAME>=<value>` set in place of the empty value
-        (do not ask again about a local check already approved), and act on
-        that run's exit code. On a no, or when the question can't be put to a
-        person, stop the release.
+        (do not ask again about a local check already approved). That run's
+        exit 0 continues; any other exit, 5 included, stops the release as
+        below, so a confirmation is asked for once per check. On a no, or when
+        the question can't be put to a person, stop the release.
       - **Anything else**: stop the release. Name the check (its command and
         file) and repeat the last lines of its output.
 
@@ -321,10 +322,13 @@ run, run each bullet under `## Release assets` in the release extension
 step 7). No heading means nothing to attach. Print each command and its file,
 then run it from the repository root with `RELEASE_VERSION` set to the
 version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
-Phase 2, `RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
+Phase 2 (recompute it with Phase 1's `git describe` line in this new shell),
+`RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
 string, as in Phase 2.
 
-- Exit 0 with a last output line `asset: <path>` names a file to attach:
+- Exit 0 with a last output line `asset: <path>` names a file to attach. The
+  path must name an existing regular file and hold no quotes, `$`, backticks
+  or line breaks; anything else is reported as a failed asset, not uploaded.
 
   ```bash
   gh release upload "v<version>" "<path>" --clobber
@@ -333,8 +337,8 @@ string, as in Phase 2.
 - Exit 0 without an `asset:` line means there is nothing to attach.
 - A non-zero exit, or a failed upload, does not stop the release: the draft
   already exists. Report it with the command to retry (the item's command, or
-  the `gh release upload` line above), and repeat whatever the extension says
-  that failure costs.
+  the `gh release upload` line above), and quote the extension's note on what
+  that item's failure costs, if it gives one.
 
 This file and Phase 1's three release-contents files
 (`wip/release-range.txt`, `wip/release-prs.txt`,
@@ -404,7 +408,7 @@ When `--dry-run` is passed:
 | 2 | Tag exists | `git push --delete origin v<version>` |
 | 2 | Draft exists | `gh release delete v<version> --yes` |
 | 2 | Blockers open | Resolve the listed issues first |
-| 2 | A declared release check exits non-zero (other than 5) | Read the tail of its output the step repeated, fix the cause, and run the release again; the check is named with the file that declared it |
+| 2 | A declared release check exits non-zero (other than 5) | The step repeated the last lines of the check's output; fix what they report, and run the release again; the check is named with the file that declared it |
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
 | 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
 | 4 | Draft creation fails | Check `gh auth status` |
