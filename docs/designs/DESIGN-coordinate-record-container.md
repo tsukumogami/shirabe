@@ -66,8 +66,8 @@ nothing: no branch to maintain, no merges from the default branch to absorb.
 
 What the coordinators that ran the skill kept outside the record is the problem
 this design solves. It is the coordinator roadmap's Feature 7, amended on
-2026-10-01, and the strategy's dated decision of 2026-10-07 settles its first
-question, the container. Every claim below traces to the process owner's
+2026-10-01, and the coordinator strategy's dated entry of 2026-10-07 settles
+its first question, the container. Every claim below traces to the process owner's
 coordinator-session record (cited as the record, with the entry's date and
 subject), the surveys of three coordinators taken on 2026-09-30, or an issue or
 pull request.
@@ -85,8 +85,8 @@ seven of them on 2026-09-29. The tables fit; the account doesn't.
 **Every entry was a script.** Until 2026-09-29 the process owner wrote each
 entry with a throwaway script, about ten that day, until the human asked why;
 then a local append script took over: it stamps the host clock, inserts before
-an anchor, keeps a snapshot copy and pushes the body, with no size check and no
-compare-and-swap (the record, 2026-09-29 22:08, the record append). Every
+an anchor, keeps a snapshot copy and pushes the body (the record, 2026-09-29
+22:08 and 22:09, the record append). Every
 progress table, by contrast, is one call to the skill's `progress-view.sh`, by
 the human's ruling of the same day.
 
@@ -105,7 +105,7 @@ cap, the worker ids, a next step per holding and the standing decisions, and the
 replacement still lost what neither held: a pull request built by a local agent
 existed only as prose (tsukumogami/shirabe#571), the human's standing answers
 were in a local file, and workers kept reporting to the old session until the
-replacement sent each a line (the record, 2026-09-29 22:01 and 2026-09-30 12:56,
+replacement sent each a line (the record, 2026-09-29 22:19 and 2026-09-30 12:56,
 the handover; the survey of that coordinator, 2026-09-30). The roadmap makes
 that handover Feature 7's acceptance test.
 
@@ -147,8 +147,14 @@ survey of that lane's coordinator, 2026-09-30).
 
 ### Decision 1: The container, and what goes where in it
 
-The strategy's dated decision of 2026-10-07 settled this, and this design
-carries it out. The container is unchanged: the issue at roadmap scope, the
+The coordinator strategy's dated entry of 2026-10-07 settled this, and this
+design carries it out. It amends two merged designs.
+`DESIGN-coordinate-record.md` made the body's visible tables the record's only
+representation and checked for four sections; the body stays the only
+representation of the state, gains three optional sections the way the merge
+policy added Holds, and the account moves to a comment stream beside it.
+`DESIGN-coordinate-merge-policy.md`'s one-writer pattern for Holds is reused
+for the new sections. The container is unchanged: the issue at roadmap scope, the
 rotation's pull request at discipline scope. The body holds what is true now,
 the tables every check reads, and stays canonical and under the budget. The
 container's comments hold the record's entries: the coordinator's dated
@@ -165,6 +171,32 @@ marker, `<!-- coordinator-record-entry v1 kind=<kind> -->`, and the reader count
 only comments carrying the marker whose author has write access to the host,
 the same authorisation the record find applies to the record itself, since
 anyone can comment on a public repository.
+
+What the comment stream can't be trusted with, and how each is handled:
+
+- **A comment can be deleted, and leaves no trace in the stream.** So nothing a
+  replacement acts on lives only in a comment. Every event a person owns is
+  body state first (a Run or Standing row, Decision 3) and an entry second; an
+  entry is the account of the change, never its only copy. A deleted entry
+  loses history, not state, and the body's revisions still show the change.
+- **A person's own comment carries no marker, so the reader drops it.** That is
+  deliberate, since the reader can't tell a person's standing answer from a
+  passing remark. The coordinator has a relay duty: when a person answers,
+  pauses or approves in a comment on the record, or anywhere else, the
+  coordinator writes it with `record-state.sh`, naming the person as owner and
+  itself as who relayed it. The skill's text says so where it says when to
+  write each row.
+- **Order is GitHub's creation order.** The stream is read oldest first by
+  creation time. Each entry also carries the coordinator's host-clock stamp, so
+  a reader sees both; the two can differ by the post's latency and the host's
+  clock drift, and where they disagree, creation order is the order of record.
+- **GitHub limits how fast content is created.** Its documented secondary rate
+  limits allow no more than 80 content-creating requests a minute and 500 an
+  hour. The process owner's record wrote 100 entries on its busiest day,
+  2026-09-28 (the record, 2026-09-29 21:23, the second archive split), so one
+  post per entry stays far inside them. A refused post exits with GitHub's message and writes nothing;
+  the coordinator retries it once, later, and never in a loop, as the workspace
+  already treats any load signature.
 
 On the history the roadmap asked for: GitHub keeps each revision of an issue or
 pull request body, readable through GraphQL `userContentEdits` (98 revisions for
@@ -267,14 +299,19 @@ each rendered only once it has a row, so existing records keep their bytes:
 | fix for the ablation check | local-agent | local agent | ready report, then the merge | 2026-09-29T21:49Z |
 ```
 
-**Run** is the run's facts a replacement needs before its first pick: the
-arguments it was started with, the cap in force, the parked bound if a person
-changed it, the coordinator's address (the name messages to it reach, held to
-the Worker cell's grammar, so no session id, path or job id is written) and one
-`told` row per party that has been sent that address. Writing a new
-`coordinator` row clears the `told` rows. `pick-facts.sh` reads the cap and
-parked bound from Run over the session's variables when Run has them, so a cap
-a person changed survives a restart that didn't pass it.
+**Run** is the run's facts a replacement needs before its first pick, under a
+closed set of keys: `arguments` (what it was started with), `cap` (in force,
+when a person changed it), `coordinator` (its
+address: the name messages to it reach, held to the Worker cell's grammar, so no
+session id, path or job id is written) and `told`, the one key that repeats, one
+row per party that has been sent that address. Writing a new `coordinator` row
+clears the `told` rows. The cap is read in one place, `record-common.sh`'s
+`lib_bounds`, which takes Run's value over the session's variable when Run has
+one; `pick-facts.sh` and `deferral-check.sh` (the
+`dispatch_check` state, which enforces the cap) both read through it, and the
+`pick` decider and the directives that print the cap read it from
+`coord/pick.json` instead of the `CAP` variable. So a cap a person changed survives a restart that didn't pass it,
+and every reader agrees on it.
 
 **Standing** holds the events only a person owns while they still bind:
 `pause`, `go-ahead` (a release or another step a person allowed once),
@@ -289,7 +326,9 @@ a Run row with the same who and when.
 **Work** has one row per holding (Item is the holding's Unit, Who its Worker)
 and one per piece of work no holding covers, with a next step a successor can
 act on. Local agents stay outside the cap, as the skill already says; the row is
-how they stop being invisible.
+how they stop being invisible. Work is a section of its own rather than a
+column on Holdings so that every record written before it keeps its bytes, and
+because its other rows have no holding.
 
 `skills/coordinate/scripts/record-state.sh` is the one writer of the three
 sections, the way `record-hold.sh` is of Holds: `--run KEY VALUE --by WHO`,
@@ -299,30 +338,46 @@ WHO]`, `--end ID --by WHO`, `--work ITEM --kind K --who W --next TEXT`,
 (`STATE_WRITER=1`, so any other writer must carry the sections as the live
 record has them) and then appends the matching entry, kind `run`, `told`, the
 standing kind, `end` or `work`, with the same who and when. The body is written
-first: an entry that fails to post after a written body exits 11 with the
-change named, and `record-append.sh` posts it by hand, so the account never
-claims a change the state doesn't hold.
+first: an entry that fails to post after a written body exits 14 (11 stays "the
+write failed") with the change named, and `record-append.sh` posts it by hand,
+so the account never claims a change the state doesn't hold. Every write also
+drops a `holding` Work row whose holding is gone, so a teardown, which removes
+the holding through the holding writers, leaves no orphan.
 
 The skill tells the coordinator when to write each: the arguments and its
 address at its first start, a cap or Standing row when a person's message
-arrives, a Work row with every dispatch, report or local-agent launch, and a
+arrives (on the record as a comment or anywhere else, the relay duty of
+Decision 1), a Work row with every dispatch, report or local-agent launch, and a
 `told` row after each line sent. A worker's brief already names the address of
 the coordinator that dispatched it, so the Work row written for a new holding
-writes that worker's `told` row too.
+writes that worker's `told` row too. `record-confirm.sh`'s `dispatch` case
+requires that Work row beside the holding, so a dispatch isn't confirmed
+without it.
 
 **The handover gate.** `record-handover.sh` reads the record and reports the
 stored set as JSON with its gaps: a missing `arguments`, `cap` or `coordinator`
-row, a holding with no Work row, and a holding whose Worker has no `told` row.
-The `reconcile` state gets one more non-overridable command gate over it, so a
-start, a restart or a replacement can't leave reconcile while the stored set has
-a gap. A replacement writes its own address, which clears the `told` rows, and
-the gate then lists every live worker until the replacement has told each. That
-closes the third loss of the handover with a gate rather than a habit. A record
-written before these sections existed has every gap at its first start under
-this release, and the coordinator fills them once.
+row; an active or parked holding with no Work row; and an active or parked
+holding whose Worker has no `told` row. A holding merged and waiting for its
+teardown is exempt, since its worker has nothing left to report. The
+`reconcile` state gets one more non-overridable command gate over it. Reconcile
+is entered at every start and restart, and also mid-run when `record_find` runs
+again after a record conflict; the gate applies on each entry, which costs
+nothing mid-run because the dispatch confirm already holds the Work and `told`
+rows a new holding needs. A replacement writes its own address, which clears the
+`told` rows, and the gate then lists every live worker until the replacement has
+told each. That closes the third loss of the handover with a gate rather than a
+habit. A record written before these sections existed has every gap at its
+first start under this release, and the coordinator fills them once; the gate's
+report names each gap and the command that fills it.
 
 What a pause does to the loop is Feature 9's paused state; this design stores
 it with its who and when, and changes no routing for it.
+
+A discipline rotation's handoff file carries Run, Standing and Work the way it
+already carries Holds and the unsettled decisions. That file is committed, which
+the strategy's entry counts against committing entries; these rows are state,
+not the account, and go through the same codec checks on a public host as every
+other cell.
 
 ### Decision 4: The write-back
 
@@ -345,7 +400,9 @@ coordinator run `skills/coordinate/scripts/roadmap-status.sh --session S --unit
    (replacing one that's there), removes its `**Needs:**` line, and runs
    `shirabe roadmap populate` over the result so the generated sections agree;
    nothing else in the roadmap changes, so the rule that an Active roadmap's
-   feature text is locked holds;
+   feature text is locked holds. Since the generated sections would conflict
+   between two such pull requests, the script refuses while another
+   `roadmap-status` row is pending: they go one at a time;
 3. pushes it on a new branch through the git data API (no checkout needed, as
    with the record's other writes) and opens the pull request, titled
    `docs(roadmap): record <tag>, <title>, as done`, with a Part 1 naming the
@@ -355,7 +412,10 @@ coordinator run `skills/coordinate/scripts/roadmap-status.sh --session S --unit
    Done`, through the write core.
 
 `roadmap_status` accepts `status: opened | failed`; `opened` goes to `record`,
-whose confirm reads the new row, and `failed` to `failure`. The skill never
+whose confirm reads the new row, and `failed` back to `wait` with the script's
+reason reported up, since a failed roadmap pull request isn't a failed
+dispatch and `failure`'s re-dispatch doesn't fit it. `landed` is a roadmap
+event: at discipline scope the template has no edge for it. The skill never
 merges the pull request: it goes to whoever merges roadmap changes, in the
 merge-order table, as any reserved merge does, and the Active roadmap's rules
 are reviewed there.
@@ -437,8 +497,8 @@ What the roadmap's Feature 7 block asks for that this declines:
 ### The template
 
 ```
-wait --landed--> roadmap_status --opened--> record --> pick_facts
-                                --failed--> failure
+wait --landed (roadmap scope)--> roadmap_status --opened--> record --> pick_facts
+                                               --failed--> wait
 reconcile: + gate reconcile_handover (record-handover.sh --check)
 ```
 
@@ -458,12 +518,14 @@ after the step became due.
 | `skills/coordinate/scripts/record-state.sh` | new: the sections' one writer | 2 |
 | `skills/coordinate/scripts/record-write-core.sh` | `STATE_WRITER`; the new sections in the private-repository scan | 2 |
 | `skills/coordinate/scripts/record-handover.sh` | new: the stored set and its gaps | 2 |
-| `skills/coordinate/scripts/pick-facts.sh` | the cap and parked bound from Run | 2 |
+| `skills/coordinate/scripts/record-common.sh`, `pick-facts.sh`, `deferral-check.sh` | `lib_bounds` takes the cap from Run; both readers go through it | 2 |
+| `skills/coordinate/koto-templates/coordinate.md` (`pick`'s decider input and the directives that print the cap), `coordinate.pick.choice.decider.jsonl`, `evals/evals.json` | the cap from pick's facts, not the variable; fixtures carry it | 2 |
+| `skills/coordinate/scripts/record-confirm.sh` | the `dispatch` case requires the holding's Work row | 2 |
 | `skills/coordinate/scripts/predecessor-handoff.sh`, `rotation-close.sh` | a handoff carries Run, Standing and Work | 2 |
 | `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `references/loop.md` | the reconcile gate and directives | 2 |
 | `skills/coordinate/scripts/roadmap-status.sh` | new: open, confirm and drop the roadmap pull request | 3 |
 | `skills/coordinate/scripts/pick-facts.sh` | `landed` units from `roadmap-status` rows | 3 |
-| `skills/coordinate/scripts/record-confirm.sh`, `coord-verdict.sh` | the `roadmap_status` case | 3 |
+| `skills/coordinate/scripts/record-confirm.sh` | the `roadmap_status` case | 3 |
 | `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md` | `landed`, `roadmap_status` | 3 |
 | `skills/coordinate/requires.tsv` | `shirabe roadmap populate` | 3 |
 | tests | `record-append_test.sh`, `record-state_test.sh`, `record-handover_test.sh`, `roadmap-status_test.sh`, codec and pick cases, and an engine test of the handover | 1 to 3 |
@@ -471,6 +533,11 @@ after the step became due.
 ## Implementation Approach
 
 Three pull requests after this design, each landing before the next opens.
+The split is the repository's reviewability trigger: each is a working
+deliverable alone (the append retires the local scripts; the stored set closes
+the handover; the write-back closes #497), the second and third each change the
+template and need their own evals, and together they would touch most of the
+record's scripts in one review.
 
 1. **The append.** `record-append.sh` and the reference text. A test appends
    two entries to a stubbed record and reads both back in order with their
@@ -491,7 +558,8 @@ Three pull requests after this design, each landing before the next opens.
 3. **The write-back.** `roadmap-status.sh`, the `landed` event and its state,
    pick's `landed` units. An engine test lands a unit, confirms the merge, sends
    `landed`, sees the roadmap pull request opened against a stubbed roadmap
-   with the Status, Outcome and Needs changes and nothing else, and asserts the
+   with the Status, Outcome and Needs changes and the regenerated sections and
+   nothing else, and asserts the
    next pick doesn't offer the unit; then the stubbed roadmap reads Done,
    `--confirm` removes the row, and pick sees the unit Done.
 
