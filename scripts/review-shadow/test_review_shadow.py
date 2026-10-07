@@ -1442,7 +1442,7 @@ class TestSiteInputs(unittest.TestCase):
 
     def test_brief_units(self):
         art, (slices, unmatched) = self.slices(
-            "brief", {"docs/briefs/BRIEF-demo.md": (SITE_FIXTURES / "BRIEF-demo.md").read_text()}, topic="demo")
+            "brief", {"docs/briefs/BRIEF-demo.md": (SITE_FIXTURES / "demo-brief.md").read_text()}, topic="demo")
         journeys = slices["brief-journey"]
         self.assertEqual([s["id"] for s in journeys], ["brief-journey-1", "brief-journey-2"])
         self.assertTrue(journeys[0]["inputs"]["journey"].startswith("### The author checks the list"))
@@ -1457,7 +1457,7 @@ class TestSiteInputs(unittest.TestCase):
 
     def test_prd_units_carry_their_group(self):
         _, (slices, _) = self.slices(
-            "prd", {"docs/prds/PRD-demo.md": (SITE_FIXTURES / "PRD-demo.md").read_text()}, topic="demo")
+            "prd", {"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text()}, topic="demo")
         acs = slices["prd-ac"]
         self.assertEqual(len(acs), 3)
         self.assertEqual(acs[0]["inputs"]["group"], "Listing (R1, R2):")
@@ -1592,7 +1592,7 @@ class TestSiteInputs(unittest.TestCase):
         home = Path(tempfile.mkdtemp()) / "store"
         os.environ["REVIEW_SHADOW_HOME"] = str(home)
         self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
-        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "PRD-demo.md").read_text()})
+        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text()})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = rs.cmd_site(site_args("prd", root, topic="demo"), rs.load_criteria())
@@ -1648,7 +1648,7 @@ class TestSiteGrading(unittest.TestCase):
         return out.getvalue(), [json.loads(p.read_text()) for p in recs], recs
 
     def brief_repo(self, verdicts=None, brief=None, claude_md=PUBLIC_CLAUDE_MD):
-        text = brief or (SITE_FIXTURES / "BRIEF-demo.md").read_text()
+        text = brief or (SITE_FIXTURES / "demo-brief.md").read_text()
         files = {"docs/briefs/BRIEF-demo.md": text}
         if claude_md is not None:
             files["CLAUDE.md"] = claude_md
@@ -1660,7 +1660,7 @@ class TestSiteGrading(unittest.TestCase):
         return root
 
     def test_one_record_pairs_seat_and_decider_verdicts(self):
-        brief = (SITE_FIXTURES / "BRIEF-demo.md").read_text().replace("before standup", f"before {SENTINEL}")
+        brief = (SITE_FIXTURES / "demo-brief.md").read_text().replace("before standup", f"before {SENTINEL}")
         root = self.brief_repo({"content-quality": "# Review\n\n**Verdict:** PASS\n",
                                 "structural-format": "# Review\n\n**Verdict:** FAIL\n"}, brief=brief)
         out, recs, paths = self.run_site("brief", root, topic="demo")
@@ -1694,7 +1694,7 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(seats["content-quality"], ("unreadable", "seat-verdict-stale"))
 
     def test_prd_reader_reads_the_heading_marker(self):
-        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "PRD-demo.md").read_text(),
+        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text(),
                           "CLAUDE.md": PUBLIC_CLAUDE_MD})
         for seat, v in (("clarity", "PASS"), ("testability", "FAIL")):
             p = root / SCRATCH / "research" / f"prd_demo_phase4_{seat}.md"
@@ -1813,7 +1813,7 @@ class TestSiteGrading(unittest.TestCase):
             return stub_send(verdict_for=lambda r: verdict)(body)
         self.use_send(send)
         long_journey = "### The long journey\n\n" + "word " * 700
-        brief = (SITE_FIXTURES / "BRIEF-demo.md").read_text().replace("## Scope Boundary", long_journey + "\n\n## Scope Boundary")
+        brief = (SITE_FIXTURES / "demo-brief.md").read_text().replace("## Scope Boundary", long_journey + "\n\n## Scope Boundary")
         _, recs, _ = self.run_site("brief", self.brief_repo(brief=brief), topic="demo")
         rec = recs[-1]
         rows = {c["rule_id"]: c["verdict"] for c in rec["criteria"]}
@@ -1828,7 +1828,7 @@ class TestSiteGrading(unittest.TestCase):
         self.addCleanup(os.environ.pop, "REVIEW_SHADOW_PRIVATE_TERMS", None)
         token = "ghp_" + "Zorblax" + "A" * 20  # a credential holding the term: redaction removes both
         over_with_term = "### Over the bound\n\nZorblax " + "word " * 700
-        brief = ((SITE_FIXTURES / "BRIEF-demo.md").read_text()
+        brief = ((SITE_FIXTURES / "demo-brief.md").read_text()
                  .replace("before standup", f"before standup with {token}")
                  .replace("## Scope Boundary", over_with_term + "\n\n## Scope Boundary"))
         bodies = []

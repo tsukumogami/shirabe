@@ -265,13 +265,16 @@ shadow_site() {
     local cmd root
     case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
     # This script lives at skills/work-on/scripts/ under the plugin root.
-    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/scripts/review-shadow/review-shadow.py}"
+    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." && pwd)/scripts/review-shadow/review-shadow.py}"
     [ -x "$cmd" ] || return 0
     # A stand-in command needs no python3; the real script does.
     [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    # HEAD resolved above, so this is a work tree and the call can't fail here.
+    root=$(git rev-parse --show-toplevel) || return 0
+    # The shadow's own output is discarded on purpose: nothing reads it, and its
+    # result is the record it writes.
     ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
-        </dev/null >/dev/null 2>&1 & ) 2>/dev/null
+        </dev/null >/dev/null 2>&1 & )
     return 0
 }
 
