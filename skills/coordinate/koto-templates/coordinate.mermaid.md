@@ -66,6 +66,9 @@ stateDiagram-v2
     goal_fit --> land_merge : fit: fits, gates.goal_fit_land.exit_code: 80
     goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 81
     goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 82
+    goal_fit --> land_merge : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 80
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 81
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 82
     goal_fit --> rebrief : fit: gap
     land --> goal_fit : gates.land_verdict.exit_code: 80
     land --> goal_fit : gates.land_verdict.exit_code: 81

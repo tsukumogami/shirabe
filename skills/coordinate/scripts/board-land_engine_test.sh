@@ -179,7 +179,7 @@ states:
     accepts:
       fit:
         type: enum
-        values: [fits, gap]
+        values: [fits, fits_with_follow_ups, gap]
         required: true
       rationale:
         type: string
@@ -201,6 +201,18 @@ states:
       - target: surface
         when:
           fit: fits
+          gates.goal_fit_land.exit_code: 82
+      - target: land_merge
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
           gates.goal_fit_land.exit_code: 82
       - target: rebrief
         when:
@@ -344,6 +356,10 @@ eq "and a fit one is handed to the person (surface), not merged" surface "$(stat
 start coordinate-demo-20260926T150011Z complete-board "readable merge:confirm close:permit teardown:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a merge behind a person's confirmation is handed over too" surface "$(state "$(tick "$S" --with-data "$FITS")")"
+start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit"
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "a fit with follow-ups under a denied merge is handed to the person too" surface \
+    "$(state "$(tick "$S" --with-data '{"fit":"fits_with_follow_ups","rationale":"follow-up: docs"}')")"
 start coordinate-demo-20260926T150012Z complete-board
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a goal-fit gap goes to rebrief, whatever the posture" rebrief "$(state "$(tick "$S" --with-data '{"fit":"gap","rationale":"stops short of the loader"}')")"

@@ -491,9 +491,10 @@ land_row() { # land_row [verified-head]
         pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}')"
 }
 land_run() {
-    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    # The body carries the worker's Review panel at the head, which land reads.
+    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: the loader", body: $b, state: "OPEN", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
-        mergeStateStatus: "CLEAN"}]' --arg h "$H"
+        mergeStateStatus: "CLEAN"}]' --arg h "$H" --arg b "$(bt_body)"
     bt_board complete-board
     to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" "$2" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
@@ -514,10 +515,11 @@ if land_run landing 110; then
     eq "11: land is not entered before the head is recorded" 0 "$(entered land)"
     record_verified
     eq "11: record-holding.sh (agent-run) records the verified head" 0 $?
-    eq "11: with the head recorded, land permits and reaches land_merge" land_merge "$(at)"
+    eq "11: with the head recorded, land reads the round and permits, to goal_fit" goal_fit "$(at)"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name LAND)" in
         "permit 12 $H "*) ok "11: LAND is the sealed permit" ;; *) bad "11: LAND is the sealed permit" ;;
     esac
+    eq "11: a fit pull request reaches land_merge" land_merge "$(at --with-data '{"fit":"fits","rationale":"delivers Feature 1"}')"
 else
     bad "11: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -590,7 +592,9 @@ fi
 echo "== 17. a confirmed merge clears the Pull request cell and keeps the row =="
 if land_run merging 112; then
     record_verified
-    if [ "$(at)" = land_merge ]; then
+    # A fit with follow-ups goes on exactly as a fit does.
+    if [ "$(at)" = goal_fit ] \
+        && [ "$(at --with-data '{"fit":"fits_with_follow_ups","rationale":"delivers Feature 1; follow-up: document the loader flags"}')" = land_merge ]; then
         # The merge landed the verified content: MERGED, and the one file's
         # blob on main equals the head's.
         bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa

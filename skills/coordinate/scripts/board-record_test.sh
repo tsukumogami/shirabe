@@ -29,6 +29,8 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/board-record-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
+# A body with no Review panel yet: verify_board reads the board, not the round.
+BT_PRVIEW_BODY=$(printf 'Part one.\n\n---\n\nNo panel yet.\n')
 BR="$PS/board-record.sh"
 CL="$PS/coord-log.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"

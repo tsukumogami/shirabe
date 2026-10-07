@@ -1562,13 +1562,13 @@ states:
     accepts:
       fit:
         type: enum
-        values: [fits, gap]
+        values: [fits, fits_with_follow_ups, gap]
         required: true
-        description: fits when the pull request delivers what its unit asked, in the way intended, without stopping short, drifting or deciding what the lane didn't; gap otherwise.
+        description: fits when the pull request delivers what its unit asked, in the way intended, without stopping short, drifting or deciding what the lane didn't; fits_with_follow_ups when it does and what it leaves is follow-up work, not a defect; gap when the worker must correct it first.
       rationale:
         type: string
         required: true
-        description: What in the pull request, against the brief, decided it; for gap, what to correct or what follow-up to propose.
+        description: What in the pull request, against the brief, decided it; for fits_with_follow_ups, each follow-up; for gap, what to correct.
     gates:
       goal_fit_land:
         type: command
@@ -1586,6 +1586,20 @@ states:
       - target: surface
         when:
           fit: fits
+          gates.goal_fit_land.exit_code: 82
+      # A fit with follow-ups lands the same way; the follow-ups are filed or
+      # proposed (the directive) and named in the hand-over.
+      - target: land_merge
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
           gates.goal_fit_land.exit_code: 82
       - target: rebrief
         when:
@@ -2978,6 +2992,7 @@ comes after it, so a leg-bound worker reports by message from here: the
 script moves its holding to the message path and abandons the spent request.
 A worker that's gone goes back through pick, dispatched under a new topic with
 what it pushed as what was learned.
+
 ## verify
 
 Before the board is read, write down which reds you would report and which you
@@ -2993,8 +3008,16 @@ report is shaped.
 
 Reading the pull request's board. koto runs `board-record.sh` itself: it reads
 the head from the remote and judges every workflow run and job at that head.
+On a green board it also reads the body's Review panel table, and a malformed
+one is `unevidenced`, which sends you to `rebrief`.
 
 <!-- details -->
+
+`unevidenced` means the worker's panel claim can't be read: a table whose seats
+share a Seat or a Run, or that breaks another rule `panel-evidence.sh` lists.
+The rule broken is in `coord/board.json` (`evidence.reason`) and on the
+action's output. Fixing the table is the worker's: put the rule in the re-brief.
+A body with no table yet passes here; the land step asks for it.
 
 A head is verified only when the board is non-empty, every run finished and none
 failed at startup, every job that ran concluded success on a named runner with at
@@ -3084,17 +3107,22 @@ permits.
 The pull request passed the closed checks. Judge goal fit, your one call at
 this step: read it against the unit's brief and submit `fit: fits` when it
 delivers what the unit asked, in the way intended, without stopping short,
-drifting or deciding what the lane didn't; `fit: gap` otherwise. Give the
-`rationale`; for a gap, say what to correct or what follow-up to propose.
+drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
+does and what it leaves is follow-up work rather than a defect; `fit: gap` when
+the worker must correct it first. Give the `rationale`: each follow-up, or for a
+gap, what to correct.
 
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
 brief you dispatched. Code quality is the seats' question, already answered in
-the body; don't re-review it and don't launch reviewers. A fit pull request goes
-on by the land check's own verdict: to `land_merge` where the workspace permits
-the merge, and to the person, with the merge-order table, where it doesn't. A
-gap goes to `rebrief`.
+the body; don't re-review it and don't launch reviewers. A fit pull request,
+with or without follow-ups, goes on by the land check's own verdict: to
+`land_merge` where the workspace permits the merge, and to the person, with the
+merge-order table, where it doesn't. Before it goes on, file each follow-up as
+an issue where the workspace lets you, or raise it as a proposed issue in your
+report up, and name it beside the pull request in the merge-order table. A gap
+goes to `rebrief`.
 
 ## land_merge
 

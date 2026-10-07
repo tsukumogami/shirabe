@@ -6,7 +6,8 @@
 # Usage: squash-message.sh --title T <body-file|->
 #
 # Part 1 is everything above the body's first top-level `---` line outside a
-# code fence; fence lines are dropped and their contents kept. Markdown goes:
+# code fence (the whole body when it has none, as panel-evidence.sh reads it);
+# fence lines are dropped and their contents kept. Markdown goes:
 # heading markers, blockquote markers, list markers, task boxes, table rules
 # (a row's cells are joined with ", "), images (their alt text stays), bold,
 # italic, code ticks and HTML comments; a link becomes `text (url)`. Runs of
@@ -14,8 +15,8 @@
 #
 # Prints the message on stdout: the title, a blank line, then Part 1 as plain
 # text, ending in one newline. Refuses (exit 1, the reason on stderr) when
-# Part 1 is empty or the message carries an attribution line, a session
-# trailer or a claude.ai or anthropic.com link.
+# the title spans lines, Part 1 is empty, or the message carries an
+# attribution line, a session trailer or a claude.ai or anthropic.com link.
 #
 # Exit codes: 0 printed; 1 refused; 2 the body couldn't be read; 64 usage.
 set -uo pipefail

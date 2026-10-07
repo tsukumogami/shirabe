@@ -81,7 +81,7 @@ PR="$2"
 EXPECTED="$3"
 MSGFILE="${4-}"
 SUBJECT=
-if [ -n "$MSGFILE" ] || [ $# -eq 4 ]; then
+if [ $# -eq 4 ]; then
     case "$MSGFILE" in -*|"") usage_error "[$MSGFILE] is not a message file" ;; esac
     [ -f "$MSGFILE" ] && [ -r "$MSGFILE" ] || usage_error "[$MSGFILE] is not a readable regular file"
     SUBJECT=$(head -1 "$MSGFILE")

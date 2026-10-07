@@ -33,7 +33,10 @@
 # repeated Seat or Run is a panel claim whose seats can't be told apart.
 #
 # Output, one JSON object on stdout:
-#   {"status":"absent"}                         no heading in Part 2
+#   {"status":"absent"}                         no heading in Part 2, or no
+#                                               `---` at all, so no Part 2: a
+#                                               table under a body with no
+#                                               separator isn't read
 #   {"status":"malformed","reason":R,"row":N}   N is the 1-based seat row, or 0
 #   {"status":"ok","reviewed_head":S,"seats":[{seat,model,run,verdict}],
 #    "count":N,"passes":P}

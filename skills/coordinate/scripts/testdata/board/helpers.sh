@@ -63,7 +63,18 @@ bt_materialize() {
 }
 
 # bt_board <name>: materialize a case into $GH_BOARD_DIR.
-bt_board() { bt_case "$1" > "$T/case.json" && bt_materialize "$T/case.json" "$GH_BOARD_DIR"; }
+# With BT_PRVIEW_BODY set, it also writes pull request #12's view: the
+# merge state CLEAN, a title, and that body (board-record.sh reads the body
+# for its Review panel; land-merge.sh reads title and body for the message).
+# A suite whose own gh stand-in answers `gh pr view` leaves it unset, since a
+# prview file routes every `pr view` to gh-board.
+bt_board() {
+    bt_case "$1" > "$T/case.json" && bt_materialize "$T/case.json" "$GH_BOARD_DIR" || return 1
+    if [ -n "${BT_PRVIEW_BODY-}" ]; then
+        printf '%s' "$BT_PRVIEW_BODY" > "$T/prview-body"
+        bt_prview CLEAN "$T/prview-body"
+    fi
+}
 
 bt_logf() { printf '%s\n' "$KOTO_BOARD_DIR/sessions/$1/koto-$1.state.jsonl"; }
 bt_append() { # bt_append <S> <type> <payload-json> [timestamp]

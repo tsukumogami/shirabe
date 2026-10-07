@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-# land-check_test.sh -- land-check.sh prints permit, deny, confirm, dirty and
-# moved for their fixtures, judging the live head against the unit's own
-# verify capture, and narrowing the start's posture with a fresh read.
+# land-check_test.sh -- land-check.sh prints permit, deny, confirm, dirty,
+# moved and unready for their fixtures, judging the live head against the
+# unit's own verify capture, reading the worker's Review panel and the body,
+# and narrowing the start's posture with a fresh read.
+#
+# The worker's round: no table (no-evidence), seats sharing a Run or a Seat,
+# too few seats, a failing seat (each unready with its reason), and a ready
+# one under deny with coord/land.json's message and files. The reviewed head:
+# fresh one main merge-in behind; stale for a file main didn't touch, a
+# non-merge commit, a second parent not on main, more than ten merge-ins, a
+# comparison at the 300-file limit; a failed read (exit 2). The body: failing
+# PR-body checks, and a Part 1 the message builder refuses.
 #
 # Covers: each token; a head that moved before or during the re-read; the
 # posture's narrowing both ways (a start deny isn't widened by a permit now,
@@ -167,7 +176,6 @@ scenario "$PERMIT" "$PERMIT"
 body "$H" fail
 eq "a failing seat is not unanimous" "unready 12 $H" "$(token)"
 eq "  ... for not-unanimous" not-unanimous "$(reason)"
-grep -q 'shirabe.calls' /dev/null; [ -f "$BT_STATE/shirabe.calls" ] && rm -f "$BT_STATE/shirabe.calls"
 scenario "$PERMIT" "readable merge:deny close:permit teardown:permit"
 eq "a ready pull request under a denied merge is deny" "deny 12 $H" "$(token)"
 OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>/dev/null)
@@ -205,6 +213,19 @@ eq "a commit after the round that isn't a merge is stale:not-a-merge" stale:not-
 fresh_case '["a.md"]' '["a.md"]'
 echo '{"status":"ahead","files":[]}' > "$GH_BOARD_DIR/compare-main...$MAINC.out"
 eq "a second parent not on main is stale:not-on-base" stale:not-on-base "$(token >/dev/null; reason)"
+fresh_case '["a.md"]' "$(jq -nc '[range(300) | "f\(.).md"]')"
+eq "a comparison at the 300-file limit is stale:too-many-files" stale:too-many-files "$(token >/dev/null; reason)"
+# A chain of eleven main merge-ins, each fresh on its own: past the cap of ten.
+fresh_case '["a.md"]' '["a.md"]'
+prev=$H
+for i in 1 2 3 4 5 6 7 8 9 10 11; do
+    p=$(printf '%040d' "$i")
+    jq -nc --arg a "$p" --arg b "$MAINC" '{parents: [{sha: $a}, {sha: $b}]}' > "$GH_BOARD_DIR/commit-$prev.out"
+    echo '{"status":"ahead","files":[{"filename":"a.md"}]}' > "$GH_BOARD_DIR/compare-$p...$MAINC.out"
+    echo '{"status":"ahead","files":[{"filename":"a.md"}]}' > "$GH_BOARD_DIR/compare-$p...$prev.out"
+    prev=$p
+done
+eq "more than ten merge-ins is stale:too-many-merges" stale:too-many-merges "$(token >/dev/null; reason)"
 fresh_case '["a.md"]' '["a.md"]'
 echo 1 > "$GH_BOARD_DIR/commit-$H.rc"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/commit-$H.err"; rm -f "$GH_BOARD_DIR/commit-$H.out"
 bash "$LC" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a failed commit read: exit 2" 2 $?

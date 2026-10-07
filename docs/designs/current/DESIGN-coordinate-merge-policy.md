@@ -461,10 +461,14 @@ Alternatives considered:
 
 A new state, `goal_fit`, follows `land` on `permit`, `deny` and `confirm`. The
 coordinator reads the pull request against the unit's brief and submits `fit:
-fits` or `fit: gap` with a rationale. `fits` goes on by the land verdict it
+fits`, `fit: fits_with_follow_ups` or `fit: gap` with a rationale, the three
+outcomes of the repository owner's ruling: merge, merge and file the follow-ups,
+or correct first. `fits` and `fits_with_follow_ups` go on by the land verdict it
 already has: a gate on `goal_fit` re-reads the sealed LAND capture through
 `coord-verdict.sh`, the way `reconcile` re-reads the start's posture, and routes
-`permit` to `land_merge` and `deny` or `confirm` to `surface`. `gap` goes to
+`permit` to `land_merge` and `deny` or `confirm` to `surface`; with follow-ups,
+the coordinator files each as an issue where the workspace lets it, or proposes
+it in its report up, and names it in the hand-over. `gap` goes to
 `rebrief`, whose brief says what to correct or what follow-up to propose.
 
 The question is decider-shaped, so the field is meant to carry a decider in
@@ -522,12 +526,13 @@ What the roadmap's Feature 8 asks for that this declines:
 the merge state's `dirty`), then:
 
 1. reads the body, title and base branch at the head (`gh pr view --json
-   mergeStateStatus,body,title,baseRefName`, the read it already makes, widened);
+   mergeStateStatus,body,title,baseRefName,files`, the read it already makes,
+   widened);
 2. `panel-evidence.sh` over the body: not `ok`, fewer than three seats, or a
    `fail` verdict is `unready <pr> <sha>`;
 3. freshness (Decision 2): `unready` with reason `stale`;
 4. `shirabe validate --pr-body` with the title, then `squash-message.sh`: a
-   failure is `unready` with reason `message`;
+   failure is `unready` with reason `body-checks` or `message`;
 5. holds (Decision 6, second implementation pull request): `held <pr> <sha>`;
 6. the posture: `permit`, `deny` or `confirm <pr> <sha>`.
 
@@ -545,8 +550,8 @@ worker whose report was verified.
 ```
 verify_board --verified--> verified_confirm --> land
 verify_board --unevidenced--> rebrief
-land --permit|deny|confirm--> goal_fit --fits+permit--> land_merge
-                                      --fits+deny|confirm--> surface
+land --permit|deny|confirm--> goal_fit --fits(+follow-ups),permit--> land_merge
+                                      --fits(+follow-ups),deny|confirm--> surface
                                       --gap--> rebrief
 land --unready--> rebrief
 land --held--> surface
@@ -576,7 +581,7 @@ The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
 | `skills/coordinate/scripts/land-merge.sh` | rebuild and carry the message, close-outs included | 1 |
 | `skills/coordinate/scripts/coord-verdict.sh` and `coord-verdict-table_test.sh` | the new words | 1 |
 | `skills/coordinate/koto-templates/coordinate.md` and `coordinate.mermaid.md` | the new arms, `goal_fit`, the land directives | 1 |
-| `skills/coordinate/SKILL.md`, `references/loop.md`, `references/verification-checklist.md`, `references/brief-template.md` | the merge-order table names the evidence and message; the worker's body carries the table; `goal_fit` | 1 |
+| `skills/coordinate/references/verification-checklist.md`, `references/brief-template.md`, `scripts/render-brief.sh` | the merge-order table names the evidence and message; the worker's body carries the table | 1 |
 | `skills/coordinate/requires.tsv` | `shirabe validate --pr-body` | 1 |
 | `skills/execute/scripts/merge-exec.sh` and its test | an optional message file, approved as the one change outside `skills/coordinate/` | 1 |
 | `skills/coordinate/scripts/record-codec.jq`, `record-render.sh`, `record-parse.sh`, `references/record-template.md` | the Holds section | 2 |

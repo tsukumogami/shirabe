@@ -14,6 +14,8 @@
 #   the verdict script is found by directory, never PATH        (location case)
 #   every refusal prints merge-refused:<verdict>, no merge      (refusal cases)
 #   the merge call, byte for byte, per method                   (merge cases)
+#   a message file: --subject and --body-file for squash and
+#   merge, ignored for rebase; a malformed file refused         (message cases)
 #   a failing merge call is not retried                         (row 18)
 #   merge-called is never read as merged                        (end to end)
 #   no merge call carries --admin, --auto, or --delete-branch

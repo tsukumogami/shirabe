@@ -28,7 +28,12 @@
 #                                panel table is malformed (panel-evidence.sh):
 #                                a panel claim with seats that can't be told
 #                                apart never becomes a verified head; the
-#                                reason is in coord/board.json
+#                                parsed table is coord/board.json's
+#                                `evidence` and its rule a reason coded
+#                                `unevidenced` (that file's `verdict` stays
+#                                the board's own, `verified`). A body that
+#                                can't be read is board-unreadable, reason
+#                                `evidence-read`
 #   actions-green <pr> none      the board is green judged from the Actions
 #                                jobs, because the token can't read checks;
 #                                the required set may be short, so it is for
