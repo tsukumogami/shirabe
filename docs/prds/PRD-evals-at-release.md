@@ -178,8 +178,8 @@ scenario graded zero assertions), 3 (prerequisites or suite missing) and 4
   `assertions_passed`, `assertions_graded`, `pass_rate`, the models its
   scenarios ran on, and `measured_at` (the version the numbers were measured
   at). Skills not run in this release are carried forward unchanged from the
-  previous record, keeping their original `measured_at`, so every release's
-  record holds the latest rate for every skill ever measured.
+  baseline R14 composes, keeping their original `measured_at`, so every
+  release's record holds the latest rate for every skill ever measured.
 - **R13.** In a real release, the release skill uploads the record to the
   draft release as the asset `eval-pass-rates.json` after creating the draft,
   replacing an existing asset of that name, and only when the record's
@@ -187,13 +187,16 @@ scenario graded zero assertions), 3 (prerequisites or suite missing) and 4
   record's version, and the `measured_at` of the skills measured in this run,
   to the version confirmed in Phase 3. In a dry run nothing is uploaded.
 - **R14.** Before notes are drafted, the eval check downloads
-  `eval-pass-rates.json` from the release for the last tag and prints, per
-  skill run in this release, the current pass rate, the previous one and the
-  version it was measured at. A skill is a **drop** when its pass rate is
-  strictly lower than the previous one. A previous release with no such
-  asset, or an asset that doesn't parse or has an unknown `schema`, gives
-  every skill "no baseline", with a warning naming the reason; "no baseline"
-  is not a failure.
+  `eval-pass-rates.json` from the release for the last tag and from up to
+  nine releases before it, and composes the baseline per skill: each skill's
+  previous rate is the one in the newest of those records that measured it,
+  so a release that measured only some skills still leaves a baseline for the
+  rest. It prints, per skill run in this release, the current pass rate, the
+  previous one and the version it was measured at. A skill is a **drop** when
+  its pass rate is strictly lower than the previous one. A release with no
+  such asset, or an asset that doesn't parse or has an unknown `schema`, is
+  skipped with a warning naming the reason; when no record is usable every
+  skill has "no baseline", which is not a failure.
 - **R15.** When any skill dropped, the eval check exits non-zero unless the
   maintainer has confirmed the drop for that release. The release skill asks
   for that confirmation, naming each dropped skill and both rates, and on a

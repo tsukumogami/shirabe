@@ -14,16 +14,19 @@ shirabe's declarations for `/shirabe:release`, imported by
 ## About the eval check
 
 The check runs the evals of every skill changed since the last release tag and
-compares each one's pass rate with the previous release's
-`eval-pass-rates.json` asset. A skill that hasn't changed since the last tag
+compares each one's pass rate with the newest earlier release whose
+`eval-pass-rates.json` asset measured that skill. It reads the asset from the
+last tag and up to nine releases before it, so a release that measured only
+some skills still leaves a baseline for the rest. A skill that hasn't changed since the last tag
 doesn't run, the critical ones (work-on, scope, execute) included; when a
 critical skill has changed, it runs three times. A drop exits 5 and asks for
 confirmation; a harness or setup failure exits 1 and stops the release.
 
 The `--finalize` item stamps the record with the confirmed version and names
 it for upload as the release asset `eval-pass-rates.json`. If that command or
-its upload fails, the next release has no baseline to compare against: retry
-the upload before the release is published.
+its upload fails, the next release falls back to older records, and the skills
+this release measured have no baseline newer than those: retry the upload
+before the release is published.
 
 The release host needs `claude` with the skill-creator plugin, `python3`,
 `git`, `gh`, and bash 4 or later, since the eval harness doesn't run on
