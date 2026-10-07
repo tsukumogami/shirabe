@@ -280,13 +280,20 @@ fi
 # The baseline is composed per skill from the records of the last tag and the
 # releases before it (eval-pass-rates.py merge takes them newest first), so a
 # release that measured only some skills leaves the rest compared with the
-# newest older release that measured them. The walk follows the v* tags
-# merged into HEAD, oldest-last, and stops after BASELINE_DEPTH releases.
+# newest older release that measured them. The walk takes the last tag, then
+# the older v* tags merged into HEAD, newest first, BASELINE_DEPTH releases in
+# all. Every record carries forward the skills it didn't measure, so a deep
+# walk is only needed after a release whose record went missing or was cut
+# short; the cap keeps a long history from costing a download per release.
+# Tags have to be fetched for the walk to see them: in a clone without them it
+# shrinks to the last tag.
 BASELINE_DEPTH=10
 
-# A sortable key for vX.Y.Z, compared as a string.
-version_key() {
-  printf '%s\n' "$1" | awk -F'[v.]' '{ printf "%06d%06d%06d\n", $2, $3, $4 }'
+# Reads vX.Y.Z tags, one per line, and prints "<key> <tag>". The key is
+# fixed-width and zero-padded, so string order is version order. Compare keys
+# as strings: as numbers an 18-digit key loses precision in awk.
+version_keys() {
+  awk -F'[v.]' '{ printf "%06d%06d%06d %s\n", $2, $3, $4, $0 }'
 }
 
 FOUND=""
@@ -300,19 +307,22 @@ trap cleanup EXIT
 if [ -z "$LAST_TAG" ]; then
   REASON="no last tag, so no previous release"
 else
-  LAST_KEY=$(version_key "$LAST_TAG")
+  LAST_KEY=$(printf '%s\n' "$LAST_TAG" | version_keys | cut -d' ' -f1)
   OLDER=$(git tag --merged HEAD --list 'v*' |
     { grep -E "$TAG_RE" || true; } |
-    awk -F'[v.]' '{ printf "%06d%06d%06d %s\n", $2, $3, $4, $0 }' |
+    version_keys |
     sort -r |
     awk -v k="$LAST_KEY" -v n=$((BASELINE_DEPTH - 1)) \
       'c < n && ($1 "") < (k "") { print $2; c++ }')
   DOWNLOAD_DIR=$(mktemp -d) || fail "could not create a temporary directory"
   DOWNLOAD_ERR="$DOWNLOAD_DIR/gh-stderr"
   TRIED=0
+  # Each release downloads into a directory named for its tag, and FOUND lists
+  # the tags that had a record, newest first: the merge below passes records
+  # in FOUND's order, which is the order the baseline is composed in.
   for tag in $LAST_TAG $OLDER; do
     TRIED=$((TRIED + 1))
-    dir="$DOWNLOAD_DIR/$TRIED"
+    dir="$DOWNLOAD_DIR/$tag"
     mkdir "$dir" || fail "could not create a temporary directory"
     # Only "there is nothing to download" skips a release: it doesn't exist,
     # or it has no such asset. gh says those two in fixed words. Any other
@@ -333,7 +343,15 @@ else
       REASON="no $ASSET_NAME on the $LAST_TAG release or the $((TRIED - 1)) before it"
     fi
   else
-    echo "Baseline records, newest first:$FOUND"
+    # Numbered, because the merge's warnings name a skipped record by its
+    # position among the records passed to it.
+    i=0
+    LISTED=""
+    for tag in $FOUND; do
+      i=$((i + 1))
+      LISTED="$LISTED $i=$tag"
+    done
+    echo "Baseline records, newest first:$LISTED"
   fi
 fi
 
@@ -344,12 +362,8 @@ set -- merge --no-baseline-reason "$REASON" \
 if [ -z "$FOUND" ]; then
   set -- "$@" --previous -
 fi
-i=0
-for tag in $LAST_TAG ${OLDER:-}; do
-  i=$((i + 1))
-  if [ -f "$DOWNLOAD_DIR/$i/$ASSET_NAME" ]; then
-    set -- "$@" --previous "$DOWNLOAD_DIR/$i/$ASSET_NAME"
-  fi
+for tag in $FOUND; do
+  set -- "$@" --previous "$DOWNLOAD_DIR/$tag/$ASSET_NAME"
 done
 for name in $SKILLS; do
   set -- "$@" --selected "$name"

@@ -195,6 +195,8 @@ def compose_baseline(paths, reason):
         if record is not None:
             records.append(record)
         elif len(paths) > 1:
+            # Among several, a "-" (no record for that release) is nothing to
+            # report; with one path, its reason is the whole baseline's.
             if path != "-":
                 warnings.append("previous record %d ignored: %s" % (index + 1, warning))
         else:

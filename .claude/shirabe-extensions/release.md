@@ -17,8 +17,9 @@ The check runs the evals of every skill changed since the last release tag and
 compares each one's pass rate with the newest earlier release whose
 `eval-pass-rates.json` asset measured that skill. It reads the asset from the
 last tag and up to nine releases before it, so a release that measured only
-some skills still leaves a baseline for the rest. A skill that hasn't changed since the last tag
-doesn't run, the critical ones (work-on, scope, execute) included; when a
+some skills still leaves a baseline for the rest. A skill that hasn't changed
+since the last tag doesn't run, the critical ones (work-on, scope, execute)
+included; when a
 critical skill has changed, it runs three times. A drop exits 5 and asks for
 confirmation; a harness or setup failure exits 1 and stops the release.
 

@@ -427,7 +427,7 @@ else
   fail "download order: $(download_tags)"
 fi
 if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=scope" ] \
-  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: v0.24.0 v0.22.0'; then
+  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.22.0'; then
   pass "a skill the last release didn't measure is compared with an older release that did"
 else
   fail "per-skill fallback (rc=$RC): $OUT"
@@ -449,6 +449,21 @@ if [ "$RC" -eq 0 ] \
   pass "the walk stops after ten releases, in version order, and none found is no baseline"
 else
   fail "depth cap (rc=$RC): $(download_tags) $OUT"
+fi
+
+new_case
+tag_head v0.23.0 v0.24.0
+echo brief >"$STUB_DIR/selection"
+echo "1 8 10" >"$STUB_DIR/result.brief"
+echo '{not json' >"$STUB_DIR/asset.v0.24.0"
+tag_asset v0.23.0 0.23.0 brief:9:10:0.23.0
+run_check v0.24.0 0.25.0
+if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=brief" ] \
+  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.23.0' \
+  && printf '%s\n' "$OUT" | grep -q 'warning: previous record 1 ignored: the file does not parse as JSON'; then
+  pass "an unusable record on the last tag is skipped for an older release's"
+else
+  fail "unusable newest record (rc=$RC): $OUT"
 fi
 
 new_case
