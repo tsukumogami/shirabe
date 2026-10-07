@@ -229,7 +229,7 @@ records both side by side. The skills run it for you: the brief, PRD and
 and `panel-scope.sh --record` starts it in the background after each
 `/work-on` round. Nothing reads its result. The site table, the criteria
 and why each site is or isn't a candidate are in
-`docs/designs/DESIGN-jev-closed-criteria.md`.
+`docs/designs/current/DESIGN-jev-closed-criteria.md`.
 
 It takes identifiers only:
 
