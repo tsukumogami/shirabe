@@ -25,6 +25,10 @@
 #            transcript (some grades exist, so the session ran whatever the
 #            transcript says)
 #
+# When $STUB_CLAUDE_HOOK names an executable, it runs first, with the prompt
+# file as its argument and the stub's environment, while the runner's tier-2
+# clone still exists; a test uses it to look at that clone.
+#
 # The workspace is read from the prompt line "The eval workspace is prepared
 # at: <dir>" that run-evals.sh writes; if that line changes, the grade and
 # partial modes find no workspace and their tests fail.
@@ -54,6 +58,10 @@ printf '%s\n' "${TMPDIR:-}" > "$log/tmpdir"
   if [ -n "${SSH_AUTH_SOCK+x}" ]; then echo SSH_AUTH_SOCK=set; else echo SSH_AUTH_SOCK=unset; fi
 } > "$log/env"
 echo call >> "$log/calls"
+
+if [ -n "${STUB_CLAUDE_HOOK:-}" ]; then
+  "$STUB_CLAUDE_HOOK" "$log/prompt"
+fi
 
 mode="${STUB_CLAUDE_MODE:-plan}"
 if [ -n "${STUB_CLAUDE_SEQUENCE:-}" ]; then

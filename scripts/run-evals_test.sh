@@ -726,6 +726,64 @@ else
   fail "selection, unreadable root (rc=$RC): $OUT"
 fi
 
+# -- tier-2 isolation -------------------------------------------------------
+
+# The tier-2 clone's throwaway origin has a default branch, so node-cut.sh can
+# cut a node in it (#585), on a host whose init.defaultBranch is master. A
+# detached or shallow CI checkout can't be cloned and pushed the way the
+# runner does, so this runs a copy of the runner from a throwaway repository on
+# a feature branch; the stub's hook cuts a node in the clone and in the second
+# clone while they exist.
+ISO="$T/iso-src"
+mkdir -p "$ISO/scripts" "$ISO/skills/execute/scripts"
+cp "$RUNNER" "$ISO/scripts/"
+cp -R "$SCRIPT_DIR/lib" "$ISO/scripts/lib"
+cp "$REPO_ROOT/skills/execute/scripts/node-cut.sh" "$ISO/skills/execute/scripts/"
+(cd "$ISO" && git -c init.defaultBranch=master init -q . && git add -A \
+  && git -c user.email=t@example.com -c user.name=t commit -q -m runner \
+  && git checkout -q -b feature/under-test) >/dev/null 2>&1
+ISO_HEAD=$(git -C "$ISO" rev-parse HEAD)
+mkdir -p "$T/iso-suite/isoskill/evals"
+echo "# isoskill" > "$T/iso-suite/isoskill/SKILL.md"
+cat > "$T/iso-suite/isoskill/evals/evals.json" <<'EOF'
+{"skill_name": "isoskill", "evals": [
+  {"id": 1, "name": "iso-scenario", "tier": 2, "mode": "execute", "prompt": "cut a node",
+   "expected_output": "a node", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+PROBE_OUT="$T/iso-probe.out"
+cat > "$T/iso-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Cut one node in the tier-2 clone and one in the second clone.
+co=$(sed -n '/^An isolated, throwaway clone of this repository has been prepared at:$/{n;s/^ *//;p;}' "$1")
+{
+  echo "checkout=$co"
+  (cd "$co" && bash skills/execute/scripts/node-cut.sh iso-test pr-core)
+  echo "home_rc=$?"
+  echo "head=$(git -C "$co" rev-parse HEAD)"
+  echo "origin_head=$(git -C "$co" symbolic-ref --short refs/remotes/origin/HEAD)"
+  (cd "$(dirname "$co")/second-clone" && bash "$co/skills/execute/scripts/node-cut.sh" iso-test pr-app)
+  echo "second_rc=$?"
+} > "$PROBE_OUT" 2>&1
+EOF
+chmod +x "$T/iso-probe.sh"
+rm -rf "$LOG" "$PROBE_OUT"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
+  STUB_CLAUDE_HOOK="$T/iso-probe.sh" PROBE_OUT="$PROBE_OUT" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master \
+  bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
+probe() { sed -n "s/^$1=//p" "$PROBE_OUT" 2>/dev/null | head -n 1; }
+if [ "$RC" -eq 0 ] && [ -n "$(probe checkout)" ] \
+  && [ "$(probe home_rc)" = 0 ] && [ "$(probe cut)" = new ] \
+  && [ "$(probe base)" = "$ISO_HEAD" ] && [ "$(probe head)" = "$ISO_HEAD" ] \
+  && [ "$(probe origin_head)" = origin/main ] \
+  && [ "$(probe second_rc)" = 0 ]; then
+  pass "tier-2: under init.defaultBranch=master, node-cut.sh cuts from the clone's origin main, at the commit under test"
+else
+  fail "tier-2 origin default (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
+fi
+
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

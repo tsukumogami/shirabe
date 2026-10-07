@@ -84,6 +84,15 @@ emit_fixture() {
 # and @BRANCH@ that checkout's branch. A created PR's headRefOid is the commit
 # checked out where `gh pr create` runs, which is the commit just pushed.
 #
+# After that, an open PR's head follows its branch, as on GitHub. Each PR
+# remembers a remote: a seeded PR in default_repo gets the push URL of origin
+# where the shim first runs (the checkout @BRANCH@ came from), and a created PR
+# the push URL of origin where `gh pr create` runs. Every call first reads each
+# open PR's branch tip from its remote and makes that its headRefOid, so a push
+# after the PR was seeded or created moves the head the merge step compares
+# with. A PR with no remote, or whose branch that remote doesn't have, keeps
+# its recorded head; a merged or closed PR never moves.
+#
 # What each call does: `pr list`, `pr view`, `pr checks`, and the `api` reads
 # answer from the database (a head commit's committedDate is ten minutes ago,
 # so no grace window is open; `api repos/<r>/issues/<n>` is the state read
@@ -104,10 +113,27 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
   STATE_DIR="$GH_CALL_LOG.d"
   mkdir -p "$STATE_DIR"
   DB="$STATE_DIR/db.json"
+
+  origin_url() { # the push URL of origin where the shim runs, absolute when it is a local path
+    local u
+    u=$(git remote get-url --push origin 2>/dev/null) || return 1
+    case "$u" in
+      /*) ;;
+      *) [ -d "$u" ] && u=$(CDPATH='' cd -- "$u" && pwd) ;;
+    esac
+    printf '%s' "$u"
+  }
+
   if [ ! -f "$DB" ]; then
     seed_head=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
     seed_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)
-    sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" > "$DB"
+    seed_origin=$(origin_url) || seed_origin=""
+    sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" \
+      | jq --arg o "$seed_origin" '
+          .default_repo as $home
+          | .prs |= map(if $o != "" and .repo == $home and (has("origin") | not)
+                        then . + {origin: $o} else . end)' > "$DB.tmp.$$" \
+      && mv "$DB.tmp.$$" "$DB"
   fi
 
   # The value after a flag in the original arguments.
@@ -143,6 +169,21 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
     done
     return 1
   }
+
+  refresh_heads() { # each open PR's headRefOid becomes its branch's tip on its remote
+    local rows r n b o tip
+    rows=$(jq -r '.prs[] | select(.state == "OPEN" and (.origin // "") != "")
+                  | [.repo, (.number | tostring), .headRefName, .origin] | @tsv' "$DB")
+    [ -n "$rows" ] || return 0
+    while IFS=$'\t' read -r r n b o; do
+      tip=$(git ls-remote "$o" "refs/heads/$b" </dev/null 2>/dev/null \
+        | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }') || tip=""
+      [[ $tip =~ ^[0-9a-f]{40}$ ]] || continue
+      db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .headRefOid) = $tip' \
+        --arg r "$r" --arg n "$n" --arg tip "$tip"
+    done <<< "$rows"
+  }
+  refresh_heads
 
   if [ "${1:-}" = "shim-mark-merged" ]; then
     db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "MERGED"' \
@@ -233,12 +274,14 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
       body=""
       [ -n "$bodyf" ] && [ -f "$bodyf" ] && body=$(cat -- "$bodyf")
       sha=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+      origin=$(origin_url) || origin=""
       n=$(jq -r '.next_number' "$DB")
       db_update '.next_number += 1 | .prs += [(.created_defaults + {repo: $r, number: ($n | tonumber),
                    headRefName: $h, baseRefName: $b, author: .login, isCrossRepository: false,
-                   state: "OPEN", isDraft: true, title: $t, body: $body, headRefOid: $sha})]' \
+                   state: "OPEN", isDraft: true, title: $t, body: $body, headRefOid: $sha}
+                   + (if $o == "" then {} else {origin: $o} end))]' \
         --arg r "$repo" --arg n "$n" --arg h "$head" --arg b "$base" --arg t "$title" \
-        --arg body "$body" --arg sha "$sha"
+        --arg body "$body" --arg sha "$sha" --arg o "$origin"
       echo "https://github.com/$repo/pull/$n"
       exit 0
       ;;

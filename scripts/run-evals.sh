@@ -875,7 +875,18 @@ setup_tier2_isolation() {
     git remote remove origin >/dev/null 2>&1 || true
     git remote add origin "$bare"
     branch=$(git rev-parse --abbrev-ref HEAD)
-    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1
+    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1 || exit 1
+    # origin needs a default branch, or node-cut.sh, which cuts every node
+    # from it, has nothing to cut from (#585). It is main, at the commit this
+    # checkout starts on, so a node runs the scripts of the tree under test.
+    # The bare origin's HEAD names it and the checkout knows it, whatever
+    # init.defaultBranch this host has, as for the second clone below.
+    if [ "$branch" != main ]; then
+      git push --quiet origin HEAD:refs/heads/main >/dev/null 2>&1 || exit 1
+    fi
+    git --git-dir="$bare" symbolic-ref HEAD refs/heads/main || exit 1
+    git fetch --quiet origin >/dev/null 2>&1 || exit 1
+    git remote set-head origin main >/dev/null 2>&1 || exit 1
   ) || return 1
 
   # A second, independent repository for scenarios whose PLAN puts a node in

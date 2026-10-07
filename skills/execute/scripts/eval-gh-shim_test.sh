@@ -302,6 +302,97 @@ mshim gh pr view 11 --repo "$R" --json state --jq .state
 [ "$RC1" -eq 0 ] && [ "$OUT" = OPEN ] && pass "model: a stays-open merge exits 0 and the PR stays OPEN" \
     || fail "model: stays-open rc=$RC1 state=[$OUT]"
 
+# An open PR's head follows its branch on the remote it came from (#415): the
+# finalization cascade pushes the coordination branch after the PR was seeded,
+# and a node branch can be pushed again after its PR was created. Each repo
+# here has its own bare origin, as the tier-2 checkout and second clone do.
+gitc() { git -c user.email=t@example.com -c user.name=t "$@"; }
+PUSH="$WORK/push"
+mkdir -p "$PUSH"
+git init -q --bare "$PUSH/origin.git"
+git init -q --bare "$PUSH/second-origin.git"
+git init -q "$PUSH/checkout"
+(cd "$PUSH/checkout" && gitc commit -q --allow-empty -m init && git checkout -q -b docs/coord \
+    && git remote add origin "$PUSH/origin.git" && git push -q origin docs/coord) >/dev/null 2>&1
+git clone -q "$PUSH/second-origin.git" "$PUSH/second-clone" 2>/dev/null
+(cd "$PUSH/second-clone" && gitc commit -q --allow-empty -m "init app" && git checkout -q -b impl/x-pr-eval-app-default \
+    && git push -q origin impl/x-pr-eval-app-default) >/dev/null 2>&1
+pshim() { # pshim <dir> <command...> -- the model scenario run from <dir>, sets OUT, RC
+    local d="$1"
+    shift
+    OUT=$(cd "$d" && env EVAL_SCENARIO=model EVAL_SCENARIO_DIR="$MODEL" GH_CALL_LOG="$LOG" \
+        PATH="$SHIM_BIN:$PATH" "$@" 2>/dev/null)
+    RC=$?
+}
+head_of() { # head_of <dir> <repo> <number> -> OUT, the PR's headRefOid as the shim serves it
+    pshim "$1" gh pr view "$3" --repo "$2" --json headRefOid --jq .headRefOid
+}
+new_log
+cp "$FIXTURES/scenarios/coord-outline-one-repo/gh/db.json" "$MODEL/gh/db.json"
+SEED=$(git -C "$PUSH/checkout" rev-parse HEAD)
+head_of "$PUSH/checkout" "$R" 10
+[ "$OUT" = "$SEED" ] && pass "head: the seeded coordination PR's head is the checked-out commit" \
+    || fail "head: seeded [$OUT], want $SEED"
+(cd "$PUSH/checkout" && gitc commit -q --allow-empty -m cascade && git push -q origin docs/coord) >/dev/null 2>&1
+CASCADE=$(git -C "$PUSH/checkout" rev-parse HEAD)
+head_of "$PUSH/checkout" "$R" 10
+[ "$OUT" = "$CASCADE" ] && [ "$CASCADE" != "$SEED" ] \
+    && pass "head: a push to the coordination branch after seeding moves its PR's head" \
+    || fail "head: after the cascade push [$OUT], want $CASCADE (seed $SEED)"
+# From another directory too: the remote is the PR's, not the caller's.
+head_of "$PUSH/second-clone" "$R" 10
+[ "$OUT" = "$CASCADE" ] && pass "head: ... whichever directory reads it" || fail "head: read elsewhere [$OUT]"
+# The merge step the coordinated scenarios end on: the pushed head is the
+# recorded one, so the verdict is mergeable, not head-moved.
+pshim "$PUSH/checkout" gh pr ready 10 --repo "$R"
+pshim "$PUSH/checkout" env EXECUTE_CI_WAIT_LIMIT_SECS=1800 \
+    bash "$SCRIPT_DIR/merge-verdict.sh" --repo "$R" --pr 10 --merge true --expected-head "$CASCADE"
+[ "$OUT" = "mergeable:squash:$CASCADE" ] && pass "head: merge-verdict.sh finds the coordination PR mergeable at the pushed head" \
+    || fail "head: verdict after the cascade push [$OUT]"
+pshim "$PUSH/checkout" env EXECUTE_CI_WAIT_LIMIT_SECS=1800 \
+    bash "$SCRIPT_DIR/merge-verdict.sh" --repo "$R" --pr 10 --merge true --expected-head "$SEED"
+[ "$OUT" = "awaiting:head-moved" ] && pass "head: ... and a stale expected head still reads head-moved" \
+    || fail "head: verdict with the stale head [$OUT]"
+
+# A node PR in the second repository, created from its clone and pushed again.
+FIRST=$(git -C "$PUSH/second-clone" rev-parse HEAD)
+pshim "$PUSH/second-clone" gh pr create --repo eval-org/eval-app --draft --base main \
+    --head impl/x-pr-eval-app-default --title t --body-file "$WORK/body.md"
+APP_N=${OUT##*/}
+(cd "$PUSH/second-clone" && gitc commit -q --allow-empty -m fix && git push -q origin impl/x-pr-eval-app-default) >/dev/null 2>&1
+SECOND=$(git -C "$PUSH/second-clone" rev-parse HEAD)
+head_of "$PUSH/checkout" eval-org/eval-app "$APP_N"
+[ "$OUT" = "$SECOND" ] && [ "$SECOND" != "$FIRST" ] \
+    && pass "head: a push after pr create moves a node PR's head, in its own repository" \
+    || fail "head: second-repo node [$OUT], want $SECOND (created at $FIRST)"
+# Merged, it stays where it merged.
+pshim "$PUSH/second-clone" gh pr merge "$APP_N" --repo eval-org/eval-app --squash --match-head-commit "$SECOND"
+(cd "$PUSH/second-clone" && gitc commit -q --allow-empty -m late && git push -q origin impl/x-pr-eval-app-default) >/dev/null 2>&1
+head_of "$PUSH/checkout" eval-org/eval-app "$APP_N"
+[ "$OUT" = "$SECOND" ] && pass "head: a merged PR's head no longer follows its branch" \
+    || fail "head: merged PR moved to [$OUT], want $SECOND"
+# A branch its remote doesn't have keeps the head recorded at creation.
+pshim "$PUSH/checkout" gh pr create --repo "$R" --draft --base main --head impl/never-pushed --title t --body-file "$WORK/body.md"
+NP_N=${OUT##*/}
+(cd "$PUSH/checkout" && gitc commit -q --allow-empty -m local) >/dev/null 2>&1
+head_of "$PUSH/checkout" "$R" "$NP_N"
+[ "$OUT" = "$CASCADE" ] && pass "head: a PR whose branch isn't on its remote keeps its recorded head" \
+    || fail "head: unpushed branch [$OUT], want $CASCADE"
+# A run with no origin at all keeps the old behaviour: the seed stands.
+new_log
+cp "$FIXTURES/scenarios/coord-outline-one-repo/gh/db.json" "$MODEL/gh/db.json"
+mshim gh pr view 10 --repo "$R" --json headRefOid --jq .headRefOid
+[ "$OUT" = "$HEAD_SHA" ] && pass "head: with no origin the seeded head stands" || fail "head: no origin [$OUT]"
+# coord-head-moved's index names a literal head no real tip equals, so its PR
+# reads head-moved even after its branch is pushed.
+new_log
+cp "$FIXTURES/scenarios/coord-head-moved/gh/db.json" "$MODEL/gh/db.json"
+(cd "$PUSH/checkout" && git push -q origin HEAD:refs/heads/impl/coord-outline-test-pr-eval-repo-core) >/dev/null 2>&1
+pshim "$PUSH/checkout" env EXECUTE_CI_WAIT_LIMIT_SECS=1800 \
+    bash "$SCRIPT_DIR/merge-verdict.sh" --repo "$R" --pr 11 --merge true --expected-head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+[ "$OUT" = "awaiting:head-moved" ] && pass "head: coord-head-moved's node still reads head-moved after its branch is pushed" \
+    || fail "head: coord-head-moved [$OUT]"
+
 # The verdict each coordinated scenario makes coordinated-next.sh reach, from a
 # checkout holding the scenario's PLAN. The outline PLANs need the shirabe
 # binary (plan-to-tasks.sh's outline path); without one these cases skip.
