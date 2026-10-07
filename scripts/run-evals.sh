@@ -31,8 +31,9 @@
 #      (infrastructure failure -- see "Grading nothing is a failure" below).
 #      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
 #      runs that only failed assertions. Also: git could not answer the
-#      changed-since-tag selection, or the --summary-out file could not be
-#      written.
+#      changed-since-tag selection, the --summary-out file could not be
+#      written, or the run left files naming its scratch root in $HOME/.koto
+#      (see setup_eval_koto).
 #   3  Missing prerequisites, or a model or suite the harness refuses (an
 #      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
 #   4  The nested claude session stopped in plan mode or ran no command and
@@ -280,7 +281,15 @@ export SHIRABE_PREFLIGHT_DISABLE
 # ---------------------------------------------------------------------------
 # shellcheck source=lib/koto-legacy-env.sh
 . "$SCRIPT_DIR/lib/koto-legacy-env.sh"
-koto_legacy_env_enable
+# The probe asks koto for its init help only, but it runs under a throwaway
+# HOME all the same: nothing this runner starts reaches $HOME/.koto (see
+# setup_eval_koto).
+koto_probe_home=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-koto-probe.XXXXXX") || {
+  echo "Error: could not create a directory for the koto probe"
+  exit 3
+}
+HOME="$koto_probe_home" koto_legacy_env_enable
+rm -rf "$koto_probe_home"
 
 # Prerequisite checks
 command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
@@ -875,7 +884,18 @@ setup_tier2_isolation() {
     git remote remove origin >/dev/null 2>&1 || true
     git remote add origin "$bare"
     branch=$(git rev-parse --abbrev-ref HEAD)
-    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1
+    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1 || exit 1
+    # origin needs a default branch, or node-cut.sh, which cuts every node
+    # from it, has nothing to cut from (#585). It is main, at the commit this
+    # checkout starts on, so a node runs the scripts of the tree under test.
+    # The bare origin's HEAD names it and the checkout knows it, whatever
+    # init.defaultBranch this host has, as for the second clone below.
+    if [ "$branch" != main ]; then
+      git push --quiet origin HEAD:refs/heads/main >/dev/null 2>&1 || exit 1
+    fi
+    git --git-dir="$bare" symbolic-ref HEAD refs/heads/main || exit 1
+    git fetch --quiet origin >/dev/null 2>&1 || exit 1
+    git remote set-head origin main >/dev/null 2>&1 || exit 1
   ) || return 1
 
   # A second, independent repository for scenarios whose PLAN puts a node in
@@ -918,6 +938,95 @@ setup_eval_scratch() {
     EVAL_SCRATCH_ROOT=""
     return 1
   }
+}
+
+# The run's own koto store. koto keeps its sessions, config, coordinator
+# records and terminal index under $HOME/.koto, which on a shared host holds
+# live sessions of other work. An eval run must never read or write that: a
+# session a killed run leaves there refuses the next run of the same scenario
+# (origin_mismatch), and a real coordinator's session must not be visible to,
+# or touched by, a scenario. The recipe is the one the ablation harness uses
+# (scripts/ablation/koto-intercept): every real koto call runs with HOME inside
+# the run's own directory.
+#
+# Here that is a wrapper, $scratch/koto-bin/koto, which runs the real koto
+# (KOTO_BIN when the caller set it, else the koto on PATH) with HOME set to
+# $scratch/koto-home. KOTO_SESSIONS_BASE would move the sessions somewhere
+# else again, so the wrapper clears it. The nested session reaches the wrapper
+# three ways:
+#   - the session's PATH has the wrapper's directory first;
+#   - KOTO_BIN is unset in the session, so koto-open.sh's ${KOTO_BIN:-koto}
+#     resolves through PATH like every other call;
+#   - EVAL_KOTO_WRAPPER names the wrapper, and the eval koto shim's passthrough
+#     execs it before it looks at PATH at all.
+# Only the last holds whatever PATH order the session ends up with. A
+# login-shell snapshot that puts another koto ahead of the wrapper would send a
+# direct `koto` call, or koto-open.sh's, to that koto and the real HOME; an
+# execute scenario puts the shim first on every command, so its calls take the
+# third route, and koto_store_tripwire is the backstop for the rest. With no
+# koto to wrap, the wrapper refuses instead of letting some other PATH entry
+# supply one. Every command koto runs (gates, default actions) inherits the
+# scratch HOME too: a gate that reads git or gh config sees none, which is why
+# the tier-2 clones carry a local git identity.
+#
+# The store goes when the scratch root does. Sets EVAL_KOTO_BIN to the
+# wrapper's directory; call it directly, not in $(...). Returns 1 when
+# KOTO_BIN names nothing executable, or resolves to the wrapper itself.
+EVAL_KOTO_BIN=""
+setup_eval_koto() {
+  local scratch="$1" real wrapper
+  EVAL_KOTO_BIN=""
+  mkdir -p "$scratch/koto-home" "$scratch/koto-bin" || return 1
+  wrapper="$scratch/koto-bin/koto"
+  if [ -n "${KOTO_BIN:-}" ]; then
+    # A bare name resolves through PATH now, before the wrapper's directory is
+    # put in front of it, so the wrapper never execs itself.
+    real=$(command -v -- "$KOTO_BIN" 2>/dev/null) || real=""
+    case "$real" in /*) ;; *) echo "  Error: KOTO_BIN [$KOTO_BIN] names no executable koto." >&2; return 1 ;; esac
+  else
+    real=$(command -v koto 2>/dev/null) || real=""
+  fi
+  case "$real" in "$scratch/koto-bin/"*) echo "  Error: koto resolves to this run's own wrapper." >&2; return 1 ;; esac
+  {
+    printf '#!/bin/sh\n'
+    if [ -n "$real" ]; then
+      printf '# This eval run'"'"'s koto: the real one, with its store in the run'"'"'s scratch root.\n'
+      printf 'unset KOTO_SESSIONS_BASE\n'
+      printf 'HOME=%s exec %s "$@"\n' "$(shell_quote "$scratch/koto-home")" "$(shell_quote "$real")"
+    else
+      printf 'echo "koto: this eval run found no koto to wrap (KOTO_BIN unset, none on PATH); refusing rather than run one under the real HOME" >&2\n'
+      printf 'exit 127\n'
+    fi
+  } > "$wrapper" || return 1
+  chmod +x "$wrapper" || return 1
+  EVAL_KOTO_BIN="$scratch/koto-bin"
+}
+
+# koto_store_tripwire <scratch> <marker>: return 1, naming the files, when
+# anything under $HOME/.koto changed since <marker> was made and mentions the
+# run's scratch root, which every path a tier-2 scenario works in sits under.
+# Other work on the host writes there too, so a change alone proves nothing; a
+# mention of this run's own directory does. It sees only such writes: not
+# reads, not a write from a session working in the live tree (where tier-1
+# scenarios start), and not one that records no path. The wrapper above is
+# what keeps those out.
+koto_store_tripwire() {
+  local scratch="$1" marker="$2" hits
+  [ -d "$HOME/.koto" ] || return 0
+  hits=$(find "$HOME/.koto" -type f -newer "$marker" -exec grep -lF -- "$scratch" {} + 2>/dev/null) || true
+  [ -n "$hits" ] || return 0
+  echo ""
+  echo "  EVAL RUN REACHED \$HOME/.koto"
+  echo "  The run's koto was meant to keep its store in the scratch root, but these"
+  echo "  files under \$HOME/.koto changed during the run and name it. The run's"
+  echo "  results are not trusted; remove the files once you have looked at them."
+  printf '%s\n' "$hits" | sed 's/^/    /'
+  return 1
+}
+
+# shell_quote <string>: the string as one single-quoted sh word.
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 cleanup_eval_scratch() {
@@ -1050,6 +1159,14 @@ run_skill_evals() {
     return 2
   fi
   local scratch="$EVAL_SCRATCH_ROOT"
+
+  # Every koto the nested session runs keeps its store in the scratch root,
+  # never in $HOME/.koto. Refuse rather than run against the real store.
+  if ! setup_eval_koto "$scratch"; then
+    echo "  Error: could not set up the run's own koto store; refusing to run against \$HOME/.koto." >&2
+    cleanup_run_dirs
+    return 2
+  fi
 
   # Step 1b: For skills with tier-2 evals, stand up an isolated clone so the
   # real workflow (run-cascade.sh --push, folder moves, git mv) executes against
@@ -1193,6 +1310,9 @@ PYEOF
   echo ""
 
   local claude_exit=0
+  # What koto_store_tripwire compares $HOME/.koto against.
+  local koto_marker="$scratch/koto-marker"
+  : > "$koto_marker"
   local transcript="$iter_dir/runner_session.jsonl"
   local prompt=""
   # read -d '' for the same bash 3.2 reason as the isolation block above.
@@ -1265,6 +1385,7 @@ skill file and describe its planned execution sequence.
 
 Follow the skill-creator's "Running and evaluating test cases" workflow:
 - Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
+  - WAIT FOR EVERY AGENT: launch each agent in the foreground, with run_in_background set to false (put both of an eval's Agent calls in one message so they still run side by side). This session is non-interactive: when you end your turn the session ends, and any agent still running is stopped with its scenario ungraded. Never end your turn, and never grade, while an agent you launched is still running; one agent finishing first is not the other finishing.
   - IMPORTANT: If eval_metadata.json contains "has_fixtures": true, an inputs/ directory exists alongside it with pre-defined plan artifact files (e.g. plan_my-feature_analysis.md, plan_my-feature_issue_1.md, etc.). Before running the with-skill agent for that eval, treat those files as already present in wip/ — the skill should read them rather than improvising fixture content. The agent must use the provided fixture files as the plan artifacts under review, not invent new ones.
 - Step 2: Grade each with-skill run against the assertions in eval_metadata.json. Write grading.json in each with_skill/ directory. Grade EVERY assertion listed there — one entry in grading.json per assertion. A scenario whose grading.json comes back empty fails the run.
 - Step 3: Capture timing data (total_tokens, duration_ms) to timing.json in each run directory.
@@ -1283,6 +1404,11 @@ PROMPT
   (
     cd "$REPO_ROOT" || exit 1
     unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
+    # The run's koto, by every route (see setup_eval_koto).
+    unset KOTO_BIN
+    PATH="$EVAL_KOTO_BIN:$PATH"
+    EVAL_KOTO_WRAPPER="$EVAL_KOTO_BIN/koto"
+    export EVAL_KOTO_WRAPPER
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
       ${EVAL_SESSION_MODEL_ARGS[@]+"${EVAL_SESSION_MODEL_ARGS[@]}"} \
@@ -1327,6 +1453,16 @@ print(json.load(open(sys.argv[1]))['graded'])
     if [ "$classify_rc" -eq 4 ]; then
       validate_rc=4
     fi
+  elif [ "$validate_rc" -eq 2 ]; then
+    # Some scenarios graded and some didn't: the session ran, but an agent of
+    # one it launched may have been stopped before it finished. Name it.
+    python3 "$CLASSIFY_SESSION" unfinished "$transcript" || true
+  fi
+
+  # Step 4c: A run that reached the real koto store is an infrastructure
+  # failure, whatever it graded.
+  if ! koto_store_tripwire "$scratch" "$koto_marker"; then
+    validate_rc=2
   fi
 
   # Step 5: Open viewer if it was generated

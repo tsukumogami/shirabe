@@ -1,0 +1,19 @@
+# A real graded run: the session launched its with-skill and baseline agents
+# in the foreground (run_in_background false) and waited for both.
+# Captured from Claude Code 2.1.292 with --output-format stream-json --verbose,
+# trimmed to the top-level lines and keys scripts/lib/classify-eval-session.py
+# reads. Session ids are dropped, prompts, commands and texts replaced, and the
+# init tools list cut; tool_use and task ids, field names and the values the
+# classifier reads are as emitted.
+{"type":"system","subtype":"init","cwd":"/repo","tools":["Agent","Bash","Edit","Read","Write"],"permissionMode":"acceptEdits"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01NtFAmeU5Ck5HZDYoJhCenY","name":"Bash","input":{"command":"ls /scratch"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01NtFAmeU5Ck5HZDYoJhCenY","content":"checkout"}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01Dcuyd5vmfjBkMUxmLZ1SXB","name":"Agent","input":{"description":"with-skill execute eval","prompt":"(clipped)"}}]},"parent_tool_use_id":null}
+{"type":"system","subtype":"task_started","task_id":"aabface46c6da27dc","tool_use_id":"toolu_01Dcuyd5vmfjBkMUxmLZ1SXB","description":"with-skill execute eval","is_backgrounded":false,"spawn_depth":1,"task_type":"local_agent"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01Vr8sJYxPuhBrEKVZqJohqn","name":"Agent","input":{"description":"baseline execute eval","prompt":"(clipped)"}}]},"parent_tool_use_id":null}
+{"type":"system","subtype":"task_started","task_id":"a063d6a4edfec1dc5","tool_use_id":"toolu_01Vr8sJYxPuhBrEKVZqJohqn","description":"baseline execute eval","is_backgrounded":false,"spawn_depth":1,"task_type":"local_agent"}
+{"type":"system","subtype":"task_notification","task_id":"a063d6a4edfec1dc5","tool_use_id":"toolu_01Vr8sJYxPuhBrEKVZqJohqn","status":"completed","summary":"(clipped)"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01Vr8sJYxPuhBrEKVZqJohqn","content":"(agent report, clipped)"}]},"parent_tool_use_id":null}
+{"type":"system","subtype":"task_notification","task_id":"aabface46c6da27dc","tool_use_id":"toolu_01Dcuyd5vmfjBkMUxmLZ1SXB","status":"completed","summary":"(clipped)"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01Dcuyd5vmfjBkMUxmLZ1SXB","content":"(agent report, clipped)"}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false,"num_turns":21,"result":"Both runs finished and are graded.","permission_denials":[]}
