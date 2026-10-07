@@ -301,16 +301,18 @@ def cmd_merge(args):
         prev = previous["skills"].get(name) if previous else None
         prev_at = prev["measured_at"] if prev else "-"
         print("%-24s %-10s %-10s %s" % (name, fmt_rate(entry), fmt_rate(prev), prev_at))
-        if "exit_code" in entry:
-            infra.append((name, entry["exit_code"]))
+        if name not in summaries:
+            infra.append((name, "no summary, recorded as exit 2"))
+        elif "exit_code" in entry:
+            infra.append((name, "harness exit %d" % entry["exit_code"]))
         elif prev is not None and "pass_rate" in prev and entry["pass_rate"] < prev["pass_rate"]:
             drops.append(name)
     print("record: %s" % args.out)
 
     if infra:
         print("")
-        for name, code in infra:
-            print("infrastructure failure: %s (harness exit %d)" % (name, code))
+        for name, why in infra:
+            print("infrastructure failure: %s (%s)" % (name, why))
         return 1
     unconfirmed = [n for n in drops if n not in confirmed]
     if unconfirmed:

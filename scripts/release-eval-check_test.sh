@@ -291,10 +291,21 @@ new_case
 echo brief >"$STUB_DIR/selection"
 touch "$STUB_DIR/nosummary.brief"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | grep -q 'infrastructure failure: brief (harness exit 2)'; then
+if [ "$RC" -eq 1 ] && [ "$(harness_calls)" = 1 ] \
+  && printf '%s\n' "$OUT" | grep -q 'infrastructure failure: brief (no summary, recorded as exit 2)'; then
   pass "a selected skill with no summary is an infrastructure failure"
 else
   fail "missing summary (rc=$RC): $OUT"
+fi
+
+new_case
+echo brief >"$STUB_DIR/selection"
+git -C "$REPO" remote set-url origin https://example.com/example-org/example-repo.git
+run_check v0.23.0 0.24.0
+if [ "$RC" -eq 1 ] && [ "$(harness_calls)" = 0 ] && [ "$(list_calls)" = 0 ]; then
+  pass "an origin that isn't on GitHub fails before any eval runs"
+else
+  fail "non-GitHub origin (rc=$RC): $OUT"
 fi
 
 new_case

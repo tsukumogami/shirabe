@@ -208,6 +208,18 @@ is_critical() {
   return 1
 }
 
+# The repository the previous record is downloaded from, settled before any
+# eval runs so an origin it can't read fails fast rather than after the evals.
+REPO=""
+if [ -n "$LAST_TAG" ]; then
+  ORIGIN=$(git remote get-url origin || true)
+  REPO=$(printf '%s\n' "$ORIGIN" |
+    sed -n -E 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' |
+    sed 's/\.git$//')
+  printf '%s\n' "$REPO" | grep -Eq "$REPO_RE" ||
+    fail "cannot tell the GitHub repository from the origin remote"
+fi
+
 if [ -n "$CONFIRMED" ] && marker_matches; then
   echo "Confirmation re-run: comparing the saved summaries, running no eval."
   read_marker_skills
@@ -270,12 +282,6 @@ trap cleanup EXIT
 if [ -z "$LAST_TAG" ]; then
   REASON="no last tag, so no previous release"
 else
-  ORIGIN=$(git remote get-url origin || true)
-  REPO=$(printf '%s\n' "$ORIGIN" |
-    sed -n -E 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' |
-    sed 's/\.git$//')
-  printf '%s\n' "$REPO" | grep -Eq "$REPO_RE" ||
-    fail "cannot tell the GitHub repository from the origin remote"
   DOWNLOAD_DIR=$(mktemp -d) || fail "could not create a temporary directory"
   if gh release download "$LAST_TAG" --repo "$REPO" --pattern "$ASSET_NAME" \
     --dir "$DOWNLOAD_DIR" >/dev/null; then
