@@ -177,7 +177,7 @@ case "$TOKEN" in
     verified\ *)
         if bl_gh "$T.pr" pr view "$PR" --repo "$REPO" --json body; then
             EV=$(jq -r '.body // ""' "$T.pr" | bash "$HERE/panel-evidence.sh" -) || EV=
-            case "$(printf '%s' "$EV" | jq -r '.status // ""' 2>/dev/null)" in
+            case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
                 ok|absent) ;;
                 malformed)
                     jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ("the Review panel table is malformed: " + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"

@@ -132,6 +132,9 @@ if [ -n "$key" ] && ls "$GH_BOARD_DIR/$key".* >/dev/null 2>&1; then exec "$COORD
 exec "$COORD_TESTDATA/gh" "$@"
 EOF
 chmod +x "$T/bin/gh"
+# The land check runs the repository's PR-body rule through the shirabe
+# binary; the stand-in answers clean, so the run never needs a real one.
+ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
 # A clock the quiet case can move forward: with $T/clock holding a number of
 # seconds, `date` without -d/-r reads that much later. Every other case runs

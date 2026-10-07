@@ -151,12 +151,13 @@ case "$FRESH" in
 esac
 
 shirabe validate --pr-body "$MS.body" --pr-title "$TITLE" --format json > "$MS.pb" 2> "$MS.pb.err"
-case "$(jq -r '.outcome // ""' "$MS.pb" 2>/dev/null)" in
+case "$(jq -r '.outcome // ""' "$MS.pb")" in
     clean) ;;
     violations)
         detail '.body_checks = $f' --argjson f "$(jq -c '[.findings[]?.message]' "$MS.pb")"
         unready body-checks ;;
-    *) echo "$PROG: shirabe validate --pr-body gave no outcome: $(head -3 "$MS.pb.err")" >&2; exit 2 ;;
+    *) sed 's/^/  /' "$MS.pb.err" | head -n 3 >&2
+       echo "$PROG: the PR-body check gave no outcome (its stderr above)" >&2; exit 2 ;;
 esac
 MSG=$(bash "$HERE/squash-message.sh" --title "$TITLE" "$MS.body" 2> "$MS.msg.err")
 case $? in
