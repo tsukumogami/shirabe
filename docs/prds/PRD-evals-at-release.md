@@ -12,8 +12,9 @@ goals: |
   release session runs the evals of every skill changed since the last tag,
   records pass rates the next release reads, compares them with the last
   recorded ones, and stops when the harness grades nothing.
-upstream: docs/briefs/BRIEF-evals-at-release.md
 source_issue: 593
+absorbed:
+  - docs/briefs/BRIEF-evals-at-release.md
 ---
 
 # PRD: evals-at-release
@@ -21,6 +22,28 @@ source_issue: 593
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-evals-at-release](docs/briefs/BRIEF-evals-at-release.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because the only behavioral test shirabe has for its
+skills is asked for at the most expensive point it could be: every pull
+request that touches a skill. There it is costly, noisy from one run to the
+next, and today impossible to meet from CI or from the bash 3.2 hosts workers
+run on, so agents stop on it and waive it by hand, while the release, where a
+full pass is worth paying for, checks nothing about skill behavior. This
+document's Problem Statement states that in full.
+
+The outcome it asked for is a worker or coordinator who finishes a skill
+change on checks it can run anywhere, with no waiver, and a maintainer who
+pays for the behavioral signal once, at release, seeing each changed skill's
+pass rate beside the last one and a harness that cannot grade stopping the
+release instead of passing it. Those are this document's Goals. The brief's
+four journeys, a worker finishing a skill change, a maintainer cutting a
+release, the harness breaking on release day and an author adding a scenario
+on a stronger model, are its User Stories 1 to 4, and its scope boundary is
+the Requirements and Out of Scope below.
 
 ## Problem Statement
 
