@@ -173,7 +173,9 @@ then the seat rows, up to the first line that doesn't start with `|`. Cells are
 trimmed, and a cell wrapped in backticks is read without them.
 
 It prints JSON: `absent` (no heading), `ok` with the seats, or `malformed` with
-the first rule broken:
+the first rule broken. Rows are checked in order, and within a row the rules in
+the order below; the table-wide rules (the last three) come after every row
+passes:
 
 | Reason | Rule broken |
 |---|---|
@@ -189,7 +191,8 @@ the first rule broken:
 | `run-repeated` | two rows name the same Run |
 | `heads-differ` | the rows name different reviewed heads |
 
-Distinct seats means distinct Seat and distinct Run. A table with a repeated
+Distinct seats means distinct Seat, compared without case, and distinct Run,
+compared exactly. A table with a repeated
 Seat or Run is a panel claim whose seats can't be told apart, the
 tsukumogami/niwa#346 case.
 
@@ -246,7 +249,7 @@ Alternatives considered:
   merge-in of main, the commonest move after a round and the one the
   2026-10-01 rule let through as is. Rejected.
 - **Accept any merge commit.** An edit to a file main never touched can ride
-  in with a merge-in. The file rule catches that for three reads per merge-in.
+  in with a merge-in. The file rule catches that for four reads per merge-in.
   Rejected.
 - **Read the comparison of R with H as one list.** It lists every commit
   reachable from H and not from R, including the base branch's own commits
@@ -316,7 +319,9 @@ because `land-merge.sh` and `merge-confirm.sh` both read it that way.
 immediately before the merge, and hands it to `merge-exec.sh` as a file. The
 body can change between the check and the merge; the rebuilt message is the
 one the person reading the pull request sees at that moment, and the builder's
-refusals apply again. The close-out merges (`land-merge.sh --closeout`, for a
+refusals apply again: a refusal there is `land-merge.sh` refusing (exit 10), so
+the coordinator submits `merge: failed` and the run goes to `failure`, as any
+refused merge does today. The close-out merges (`land-merge.sh --closeout`, for a
 rotation's or a predecessor's record pull request) build theirs the same way:
 the record's renderer writes a fixed Part 1 and a single `---`, and those pull
 requests carry no panel, since they hold the coordinator's own record, not a
@@ -360,7 +365,7 @@ reads it a third time before it calls anything.
 | Merge posture at `land` | What the land step does |
 |---|---|
 | `permit` | goal fit, then `land_merge`: `land-merge.sh` merges at the verified head with the built message |
-| `deny` | goal fit, then ready and held: `surface` with the merge-order table, the message and where the evidence is; the holding parks |
+| `deny` | goal fit, then ready and handed to the person: `surface` with the merge-order table, the message and where the evidence is; the holding parks |
 | `confirm` | the same as `deny`: a step behind a person's confirmation is a person's |
 
 An unreadable posture never reaches `land` as such. At the start it sends the
@@ -373,8 +378,8 @@ every applied instance unless the instance is the one named as exempt (the
 record, 2026-09-28, the gate-online hook; the exemption is
 tsukumogami/dot-niwa#22). The reader can't evaluate an exemption held in the
 environment, and a hook that names the merge command is read as `confirm`, so
-every coordinator in this workspace reports a ready pull request as held and
-never merges. The evidence and message checks run before the posture read, so a
+every coordinator in this workspace hands a ready pull request to the person
+and never merges. The evidence and message checks run before the posture read, so a
 `deny` or `confirm` verdict now means the pull request is ready, not just that
 its board is green.
 
@@ -415,8 +420,12 @@ with who and when.
 It's a verdict of `land`'s own check, so it is a gate in the template's sense:
 the same sealed capture and the same non-overridable gate every check state
 uses. A separate gate on `land` would be a second reader of the same facts.
-`land_merge`'s `merge: held` goes; a hold the human directs becomes a Holds row
-with `lifted`, written through the record's scripts like any other row.
+`land_merge`'s `merge: held` goes in the same pull request that adds the hold
+read, never before it; a hold the human directs becomes a Holds row with
+`lifted`, written through the record's scripts like any other row.
+`record-confirm.sh`, which today sets Phase `held` only for a `surface` entered
+from `land_merge` on `merge: held`, takes the new origin, `land` on `held`, in
+that same change.
 
 When `merge_confirm` or `merged_facts` confirms a merge, it reads who merged it
 (`mergedBy`), and if a hold on that pull request was unmet, the coordinator
@@ -453,7 +462,8 @@ already has: a gate on `goal_fit` re-reads the sealed LAND capture through
 The question is decider-shaped, so the field carries a decider in shadow mode,
 as `classify_report`'s does: its answer is recorded beside the coordinator's
 and never acted on, with the brief input and the pull request's Part 1 and file
-list as its inputs. The coordinator's answer routes.
+list as its inputs, both read from `coord/land.json`, which `land-check.sh`
+writes. The coordinator's answer routes.
 
 It runs after the closed checks, so the judgment is spent only on a pull
 request that is otherwise ready, and before the posture's routes, so a merge
@@ -531,7 +541,9 @@ land --unready--> rebrief
 land --held--> surface
 ```
 
-`land_merge` keeps `attempted` and `failed` and loses `held`.
+The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
+`land_merge` keeps `attempted`, `failed` and, until the hold read lands,
+`held`.
 
 ### New verdict words
 
@@ -554,12 +566,13 @@ land --held--> surface
 | `skills/coordinate/scripts/coord-verdict.sh` and `coord-verdict-table_test.sh` | the new words | 1 |
 | `skills/coordinate/koto-templates/coordinate.md` and `coordinate.mermaid.md` | the new arms, `goal_fit`, the land directives | 1 |
 | `skills/coordinate/koto-templates/coordinate.goal_fit.fit.decider.jsonl` | the shadow decider's fixtures | 1 |
-| `skills/coordinate/SKILL.md`, `references/loop.md`, `references/verification-checklist.md`, `references/brief-template.md` | `merge: held` goes; the merge-order table names the evidence and message; the worker's body carries the table | 1 |
+| `skills/coordinate/SKILL.md`, `references/loop.md`, `references/verification-checklist.md`, `references/brief-template.md` | the merge-order table names the evidence and message; the worker's body carries the table; `goal_fit` | 1 |
 | `skills/coordinate/requires.tsv` | `shirabe validate --pr-body` | 1 |
 | `skills/execute/scripts/merge-exec.sh` and its test | an optional message file (asked for separately) | 1 |
 | `skills/coordinate/scripts/record-codec.jq`, `record-render.sh`, `record-parse.sh`, `references/record-template.md` | the Holds section | 2 |
 | `skills/coordinate/scripts/land-check.sh` | the hold read | 2 |
-| `skills/coordinate/scripts/merge-confirm.sh`, `merged-facts.sh`, `record-confirm.sh` | the merger, and the Reversals row for a merge made while held | 2 |
+| `skills/coordinate/scripts/merge-confirm.sh`, `merged-facts.sh`, `record-confirm.sh` | the merger, and the Reversals row for a merge made while held; Phase `held` from `land` | 2 |
+| `skills/coordinate/koto-templates/coordinate.md`, `SKILL.md`, `references/loop.md`, `scripts/reconcile-report.sh`, `scripts/testdata/rule-coverage.tsv` | `land_merge`'s `merge: held` goes | 2 |
 
 ## Implementation Approach
 
@@ -571,7 +584,7 @@ Two pull requests after this one.
    no evidence, an unidentified seat, a `fail` verdict and a stale reviewed
    head each refuse with their reason; a reviewed head one main merge-in behind
    passes; the message equals the fixture's Part 1; a denied or confirm-only
-   posture reports ready and held.
+   posture hands the ready pull request to the person.
 2. **Holds.** Decision 6: the record section and its codec, the land read,
    the Reversals write after a merge made while held, and engine cases for each
    condition. It lands after the first, and coordinates with Feature 7's
