@@ -378,20 +378,42 @@ NP_N=${OUT##*/}
 head_of "$PUSH/checkout" "$R" "$NP_N"
 [ "$OUT" = "$CASCADE" ] && pass "head: a PR whose branch isn't on its remote keeps its recorded head" \
     || fail "head: unpushed branch [$OUT], want $CASCADE"
-# A run with no origin at all keeps the old behaviour: the seed stands.
+# A read that finds no head moved leaves the database file alone, so a read
+# never races a concurrent write. Every write replaces the file (a new inode),
+# so the inode shows whether one happened even when the content is the same.
+DB_FILE="$LOG.d/db.json"
+DB_INODE=$(ls -i "$DB_FILE" | awk '{print $1}')
+head_of "$PUSH/checkout" "$R" 10
+[ "$(ls -i "$DB_FILE" | awk '{print $1}')" = "$DB_INODE" ] && pass "head: a read with no head moved leaves the database unwritten" \
+    || fail "head: an idle read rewrote the database"
+# A run with no origin at all keeps the old behaviour: no PR gets a
+# remote_url, and the seed stands.
 new_log
 cp "$FIXTURES/scenarios/coord-outline-one-repo/gh/db.json" "$MODEL/gh/db.json"
 mshim gh pr view 10 --repo "$R" --json headRefOid --jq .headRefOid
-[ "$OUT" = "$HEAD_SHA" ] && pass "head: with no origin the seeded head stands" || fail "head: no origin [$OUT]"
+if [ "$OUT" = "$HEAD_SHA" ] && [ "$(jq '[.prs[] | select(has("remote_url"))] | length' "$LOG.d/db.json")" = 0 ]; then
+    pass "head: with no origin no PR records a remote_url, and the seeded head stands"
+else
+    fail "head: no origin [$OUT], remote_urls $(jq -c '[.prs[].remote_url]' "$LOG.d/db.json")"
+fi
 # coord-head-moved's index names a literal head no real tip equals, so its PR
-# reads head-moved even after its branch is pushed.
+# reads head-moved even after its branch really moves.
 new_log
 cp "$FIXTURES/scenarios/coord-head-moved/gh/db.json" "$MODEL/gh/db.json"
-(cd "$PUSH/checkout" && git push -q origin HEAD:refs/heads/impl/coord-outline-test-pr-eval-repo-core) >/dev/null 2>&1
+head_of "$PUSH/checkout" "$R" 11
+HM_SEED="$OUT"
+(cd "$PUSH/checkout" && gitc commit -q --allow-empty -m moved \
+    && git push -q origin HEAD:refs/heads/impl/coord-outline-test-pr-eval-repo-core) >/dev/null 2>&1
+HM_TIP=$(git -C "$PUSH/checkout" rev-parse HEAD)
+head_of "$PUSH/checkout" "$R" 11
+HM_READ="$OUT"
 pshim "$PUSH/checkout" env EXECUTE_CI_WAIT_LIMIT_SECS=1800 \
     bash "$SCRIPT_DIR/merge-verdict.sh" --repo "$R" --pr 11 --merge true --expected-head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-[ "$OUT" = "awaiting:head-moved" ] && pass "head: coord-head-moved's node still reads head-moved after its branch is pushed" \
-    || fail "head: coord-head-moved [$OUT]"
+if [ "$HM_READ" = "$HM_TIP" ] && [ "$HM_TIP" != "$HM_SEED" ] && [ "$OUT" = "awaiting:head-moved" ]; then
+    pass "head: coord-head-moved's node follows its pushed branch and still reads head-moved"
+else
+    fail "head: coord-head-moved read [$HM_READ] want $HM_TIP (seed $HM_SEED), verdict [$OUT]"
+fi
 
 # The verdict each coordinated scenario makes coordinated-next.sh reach, from a
 # checkout holding the scenario's PLAN. The outline PLANs need the shirabe

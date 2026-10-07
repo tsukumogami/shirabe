@@ -78,20 +78,24 @@ emit_fixture() {
 #                      isCrossRepository, state, isDraft, title, body,
 #                      headRefOid, mergeStateStatus, reviewDecision, checks
 #                      ([{name, bucket}]), files ([path]), merge
-#                      (ok | fail | stays-open)
+#                      (ok | fail | stays-open), and remote_url, which the
+#                      shim fills in itself (see below); a seed never sets it
 #
 # In the seed, @HEAD_SHA@ is the commit checked out where the shim first runs
 # and @BRANCH@ that checkout's branch. A created PR's headRefOid is the commit
 # checked out where `gh pr create` runs, which is the commit just pushed.
 #
 # After that, an open PR's head follows its branch, as on GitHub. Each PR
-# remembers a remote: a seeded PR in default_repo gets the push URL of origin
-# where the shim first runs (the checkout @BRANCH@ came from), and a created PR
-# the push URL of origin where `gh pr create` runs. Every call first reads each
-# open PR's branch tip from its remote and makes that its headRefOid, so a push
-# after the PR was seeded or created moves the head the merge step compares
-# with. A PR with no remote, or whose branch that remote doesn't have, keeps
-# its recorded head; a merged or closed PR never moves.
+# records remote_url, the push URL of the repository its branch lives in: a
+# seeded PR in default_repo gets that of origin where the shim first runs (the
+# checkout @BRANCH@ came from, so the two always agree), and a created PR that
+# of origin where `gh pr create` runs, where node-push.sh has just pushed it.
+# Every call first reads each open PR's branch tip from its remote_url and
+# makes that its headRefOid, so a push after the PR was seeded or created moves
+# the head the merge step compares with. A PR with no remote_url (a seeded PR
+# in another repository, or a run whose origin is not an absolute path), or
+# whose branch that remote doesn't have, keeps its recorded head; a merged or
+# closed PR never moves.
 #
 # What each call does: `pr list`, `pr view`, `pr checks`, and the `api` reads
 # answer from the database (a head commit's committedDate is ten minutes ago,
@@ -114,25 +118,24 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
   mkdir -p "$STATE_DIR"
   DB="$STATE_DIR/db.json"
 
-  origin_url() { # the push URL of origin where the shim runs, absolute when it is a local path
+  # The push URL of origin where the shim runs. The harness's origins are bare
+  # repositories named by absolute path; a relative URL would be read from
+  # whatever directory a later call runs in, so it is not recorded.
+  origin_url() {
     local u
     u=$(git remote get-url --push origin 2>/dev/null) || return 1
-    case "$u" in
-      /*) ;;
-      *) [ -d "$u" ] && u=$(CDPATH='' cd -- "$u" && pwd) ;;
-    esac
-    printf '%s' "$u"
+    case "$u" in /*|*://*|*@*:*) printf '%s' "$u" ;; *) return 1 ;; esac
   }
 
   if [ ! -f "$DB" ]; then
     seed_head=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
     seed_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)
-    seed_origin=$(origin_url) || seed_origin=""
+    seed_url=$(origin_url) || seed_url=""
     sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" \
-      | jq --arg o "$seed_origin" '
+      | jq --arg u "$seed_url" '
           .default_repo as $home
-          | .prs |= map(if $o != "" and .repo == $home and (has("origin") | not)
-                        then . + {origin: $o} else . end)' > "$DB.tmp.$$" \
+          | .prs |= map(if $u != "" and .repo == $home then . + {remote_url: $u} else . end)' \
+        > "$DB.tmp.$$" \
       && mv "$DB.tmp.$$" "$DB"
   fi
 
@@ -170,18 +173,25 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
     return 1
   }
 
-  refresh_heads() { # each open PR's headRefOid becomes its branch's tip on its remote
-    local rows r n b o tip
-    rows=$(jq -r '.prs[] | select(.state == "OPEN" and (.origin // "") != "")
-                  | [.repo, (.number | tostring), .headRefName, .origin] | @tsv' "$DB")
+  # Each open PR's headRefOid becomes its branch's tip on its remote_url. The
+  # database is rewritten only when some head actually moved, in one pass, so
+  # a read-only call leaves it as it found it.
+  refresh_heads() {
+    local rows r n b u cur tip moves=""
+    rows=$(jq -r '.prs[] | select(.state == "OPEN" and (.remote_url // "") != "")
+                  | [.repo, (.number | tostring), .headRefName, .remote_url, .headRefOid] | @tsv' "$DB")
     [ -n "$rows" ] || return 0
-    while IFS=$'\t' read -r r n b o; do
-      tip=$(git ls-remote "$o" "refs/heads/$b" </dev/null 2>/dev/null \
+    while IFS=$'\t' read -r r n b u cur; do
+      tip=$(git ls-remote "$u" "refs/heads/$b" </dev/null 2>/dev/null \
         | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }') || tip=""
       [[ $tip =~ ^[0-9a-f]{40}$ ]] || continue
-      db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .headRefOid) = $tip' \
-        --arg r "$r" --arg n "$n" --arg tip "$tip"
+      [ "$tip" != "$cur" ] || continue
+      moves="$moves$r"$'\t'"$n"$'\t'"$tip"$'\n'
     done <<< "$rows"
+    [ -n "$moves" ] || return 0
+    db_update 'reduce ($moves | split("\n")[] | select(length > 0) | split("\t")) as $m (.;
+                 (.prs[] | select(.repo == $m[0] and .number == ($m[1] | tonumber)) | .headRefOid) = $m[2])' \
+      --arg moves "$moves"
   }
   refresh_heads
 
@@ -274,14 +284,14 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
       body=""
       [ -n "$bodyf" ] && [ -f "$bodyf" ] && body=$(cat -- "$bodyf")
       sha=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
-      origin=$(origin_url) || origin=""
+      url=$(origin_url) || url=""
       n=$(jq -r '.next_number' "$DB")
       db_update '.next_number += 1 | .prs += [(.created_defaults + {repo: $r, number: ($n | tonumber),
                    headRefName: $h, baseRefName: $b, author: .login, isCrossRepository: false,
                    state: "OPEN", isDraft: true, title: $t, body: $body, headRefOid: $sha}
-                   + (if $o == "" then {} else {origin: $o} end))]' \
+                   + (if $u == "" then {} else {remote_url: $u} end))]' \
         --arg r "$repo" --arg n "$n" --arg h "$head" --arg b "$base" --arg t "$title" \
-        --arg body "$body" --arg sha "$sha" --arg o "$origin"
+        --arg body "$body" --arg sha "$sha" --arg u "$url"
       echo "https://github.com/$repo/pull/$n"
       exit 0
       ;;
