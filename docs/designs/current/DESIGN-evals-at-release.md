@@ -283,8 +283,11 @@ lives in the extension):
    otherwise, and keeps going after a failure so every skill is reported.
 6. With a non-empty `RELEASE_LAST_TAG`, downloads the previous record with
    `gh release download "$RELEASE_LAST_TAG" --repo <owner/repo> --pattern
-   eval-pass-rates.json` into a `mktemp -d` directory; an empty tag or a
-   failed download means no baseline, with the reason passed on.
+   eval-pass-rates.json` into a `mktemp -d` directory. An empty tag, or a
+   release or asset `gh` reports as not found, means no baseline, with the
+   reason passed on; a missing baseline passes by design. Any other download
+   failure (network, auth, a wrong repository) exits 1 with `gh`'s reason,
+   since it says nothing about whether a baseline exists.
 7. Calls `scripts/lib/eval-pass-rates.py merge` with the previous record (or
    none), the summaries, the version and the last tag. It writes
    `<state>/eval-pass-rates.json`, prints the comparison table, and exits:

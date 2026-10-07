@@ -53,7 +53,11 @@ if [ "$1" = release ] && [ "$2" = download ]; then
     if [ "$1" = --dir ]; then dir="$2"; fi
     shift
   done
-  [ -f "$STUB_DIR/asset" ] || { echo "release asset not found" >&2; exit 1; }
+  # gh's own words for the two not-found cases; gh-error stands in for any
+  # other failure (network, auth).
+  if [ -f "$STUB_DIR/gh-error" ]; then cat "$STUB_DIR/gh-error" >&2; exit 1; fi
+  if [ -f "$STUB_DIR/no-release" ]; then echo "release not found" >&2; exit 1; fi
+  [ -f "$STUB_DIR/asset" ] || { echo "no assets match the file pattern" >&2; exit 1; }
   cp "$STUB_DIR/asset" "$dir/eval-pass-rates.json"
   exit 0
 fi
@@ -319,10 +323,34 @@ new_case
 echo brief >"$STUB_DIR/selection"
 echo "0 1 10" >"$STUB_DIR/result.brief"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json could be downloaded from v0.23.0'; then
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release'; then
   pass "no asset: no baseline with a warning, exit 0"
 else
   fail "no asset (rc=$RC): $OUT"
+fi
+
+new_case
+echo brief >"$STUB_DIR/selection"
+echo "0 1 10" >"$STUB_DIR/result.brief"
+: >"$STUB_DIR/no-release"
+run_check v0.23.0 0.24.0
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release'; then
+  pass "no release for the last tag: no baseline with a warning, exit 0"
+else
+  fail "no release (rc=$RC): $OUT"
+fi
+
+new_case
+echo brief >"$STUB_DIR/selection"
+echo "0 1 10" >"$STUB_DIR/result.brief"
+echo 'error connecting to api.github.com' >"$STUB_DIR/gh-error"
+run_check v0.23.0 0.24.0
+if [ "$RC" -eq 1 ] \
+  && printf '%s\n' "$OUT" | grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: error connecting to api.github.com' \
+  && ! printf '%s\n' "$OUT" | grep -q 'no baseline'; then
+  pass "a download error that is not not-found exits 1 with gh's reason, not no baseline"
+else
+  fail "download error (rc=$RC): $OUT"
 fi
 
 new_case

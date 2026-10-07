@@ -25,7 +25,9 @@
 #      <skill> per selected skill: N is --critical-runs for a skill in
 #      --critical and 1 otherwise. A failing skill doesn't stop the others.
 #   6. With a non-empty last tag, downloads that release's eval-pass-rates.json
-#      with gh into a mktemp -d directory; a failed download means no baseline.
+#      with gh into a mktemp -d directory. A release or asset gh reports as not
+#      found means no baseline (a missing baseline passes, by design); any
+#      other download failure exits 1 with gh's reason.
 #   7. Runs scripts/lib/eval-pass-rates.py merge, which writes
 #      <state>/eval-pass-rates.json, prints the comparison, and decides the
 #      exit code.
@@ -283,11 +285,19 @@ if [ -z "$LAST_TAG" ]; then
   REASON="no last tag, so no previous release"
 else
   DOWNLOAD_DIR=$(mktemp -d) || fail "could not create a temporary directory"
+  # Only "there is nothing to download" is no baseline: the release for the
+  # last tag doesn't exist, or it has no such asset. gh says those two in
+  # fixed words. Any other failure (network, auth, a wrong repository) is not
+  # evidence that no baseline exists, and passing the comparison on it would
+  # let a regression through on a warning, so it stops the check.
+  DOWNLOAD_ERR="$DOWNLOAD_DIR/gh-stderr"
   if gh release download "$LAST_TAG" --repo "$REPO" --pattern "$ASSET_NAME" \
-    --dir "$DOWNLOAD_DIR" >/dev/null; then
+    --dir "$DOWNLOAD_DIR" >/dev/null 2>"$DOWNLOAD_ERR"; then
     PREVIOUS="$DOWNLOAD_DIR/$ASSET_NAME"
+  elif grep -qxE 'no assets match the file pattern|release not found' "$DOWNLOAD_ERR"; then
+    REASON="no $ASSET_NAME on the $LAST_TAG release"
   else
-    REASON="no $ASSET_NAME could be downloaded from $LAST_TAG"
+    fail "could not download $ASSET_NAME from the $LAST_TAG release: $(head -n 3 "$DOWNLOAD_ERR" | tr -d '\r' | tr '\n' ' ')"
   fi
 fi
 
