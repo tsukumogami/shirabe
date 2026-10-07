@@ -61,7 +61,7 @@ case "$WORD" in
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
     board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
-    no-pr) exit 77 ;;
+    no-pr) exit 77 ;; not-run) exit 78 ;;
     # land
     permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; dirty) exit 84 ;;
     # merge_confirm, merged_facts

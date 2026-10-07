@@ -58,7 +58,9 @@
 #                         unknown-topic or unresolved-topic. record-confirm.sh holds the
 #                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
-# not a draft; every other Holdings row is active. CAP and PARKED_BOUND are the
+# not a draft; a row with a Verified head and a cleared Pull request cell is
+# merged, waiting for its worker's teardown, and counts as neither; every
+# other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
@@ -387,7 +389,7 @@ fi
 # The cap and the parked bound.
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
-ACTIVE=$(jq '[.[] | select(.parked | not)] | length' "$T/counted.json")
+ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not))] | length' "$T/counted.json")
 ATCAP=0
 # send_execution moves a worker already counted only when the unit really is
 # a scoping-ahead holding; otherwise it would start a worker, and is judged as

@@ -11,7 +11,9 @@
 # missing roadmap (2); discipline units from the host's open issues with the
 # discipline's label in issue-number order (never a search); `rotation-over`
 # only after the title's end date; CAP and PARKED_BOUND from the session; the
-# sealed token; every token in koto's capture alphabet.
+# sealed token; every token in koto's capture alphabet; pick.json's host; every
+# Unit cell form dispatch-common.sh dc_unit_forms lists from pick.json is one
+# this script reads as covering its unit, and the old template's form isn't.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -85,7 +87,16 @@ eq "Done and Dropped read done" "true true false" "$(facts | jq -r '[.units[0].d
 eq "each unit carries the holding that covers it" '{"worker":"alpha","phase":"executing"}|{"worker":"gamma","phase":"scoping-ahead"}|{"worker":"beta","phase":"executing"}|null' \
     "$(facts | jq -c -r '[.units[1].holding, .units[2].holding, .units[3].holding, .units[0].holding] | map(tojson) | join("|")')"
 eq "the holdings list which is parked" "alpha:false beta:false gamma:true" "$(facts | jq -r '[.holdings[] | "\(.worker):\(.parked)"] | join(" ")')"
+eq "no holding is merged" "alpha:false beta:false gamma:false" "$(facts | jq -r '[.holdings[] | "\(.worker):\(.merged)"] | join(" ")')"
 grep -q "contents/$RP?ref=main" "$GH_DB.calls" && ok "the roadmap is read from the default branch" || bad "the roadmap is read from the default branch" "$(calls)"
+# A confirmed merge clears a row's Pull request cell and keeps its Verified
+# head until teardown: the row is merged and holds no slot under the cap.
+X_M=$(jq -nc --arg h "$SHA_HEAD" '{unit: "Feature 2", pull_request: "", verified_head: $h}')
+seed "$(record_json roadmap plugin-system | jq -c --argjson m "$(holding alpha "$X_M")" --argjson b "$(holding beta '{"unit": "Feature 4", "pull_request": ""}')" '.holdings = [$m, $b]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "a merged row reads merged, neither active nor parked" "alpha:true:false 1 0" "$(facts | jq -r '([.holdings[] | select(.worker == "alpha") | "\(.worker):\(.merged):\(.parked)"] | join(" ")) + " \(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "it only reads" "$(calls)" || ok "it only reads"
 
 echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="
@@ -180,5 +191,39 @@ db '.files["acme/widgets"]["main:docs/disciplines/ci-health.md"] = $t' --arg t "
 session "$(discipline_vars ci-health)" 22 discipline-ci-health
 OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
 eq "a carry owed is decisions" "decisions carry" "${OUT% sealed:*}"
+
+echo "== the dispatch path's unit forms are the ones pick reads =="
+# dispatch-common.sh dc_unit_forms lists, from coord/pick.json, the Unit cells
+# the dispatch path accepts for a brief. Each must be one this script reads as
+# covering its unit, and a form it doesn't list must not be, or the two rules
+# have drifted and a holding can go invisible to pick (#493).
+. "$HERE/dispatch-common.sh"
+covered_by() { # covered_by <scope> <unit-cell>: the unit pick reads the one holding as covering, or none
+    if [ "$1" = roadmap ]; then
+        seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding solo "$(jq -nc --arg u "$2" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')"
+        db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+        session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+        bash "$PF" --session "$S" > /dev/null 2>&1
+    else
+        dseed "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29"
+        db '.prs[0].body = $b' --arg b "$(render "$(record_json discipline ci-health | jq -c --argjson h "$(holding solo "$(jq -nc --arg u "$2" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')" pr)"
+        session "$(discipline_vars ci-health)" 22 discipline-ci-health
+        bash "$PF" --session "$S" --today 2026-09-29 > /dev/null 2>&1
+    fi
+    facts | jq -r '[.units[] | select(.holding.worker == "solo") | .unit][0] // "none"'
+}
+for scope in roadmap discipline; do
+    covered_by "$scope" "nothing" > /dev/null
+    facts > "$T/forms-pick.json"
+    [ "$scope" = discipline ] && eq "discipline: pick.json records the host" acme/widgets "$(jq -r '.host' "$T/forms-pick.json")"
+    dc_unit_forms "$T/forms-pick.json" > "$T/forms"
+    [ -s "$T/forms" ] && ok "$scope: the dispatch path lists forms" || bad "$scope: the dispatch path lists forms"
+    while IFS= read -r form; do
+        got=$(covered_by "$scope" "$form")
+        [ "$got" != none ] && ok "$scope: pick reads [$form] as covering $got" || bad "$scope: pick reads [$form] as covering a unit"
+    done < "$T/forms"
+done
+eq "roadmap: the old template example covers nothing" none "$(covered_by roadmap "Feature 2 of ROADMAP-plugin-system")"
+eq "discipline: another repository's #n covers nothing" none "$(covered_by discipline "acme/gadgets#5")"
 
 done_tests pick-facts

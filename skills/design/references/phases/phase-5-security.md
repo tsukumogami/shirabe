@@ -27,6 +27,8 @@ recommended outcome. Skip to Phase 6.
 
 ### 5.1 Launch Security Researcher
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
+
 Launch a dedicated security agent using the Agent tool with `run_in_background: true`.
 
 **Security researcher prompt:**

@@ -31,7 +31,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX"); trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure land land_merge leg_pick merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_inventory verified_confirm verify verify_board wait wait_leg"
+WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure land land_merge leg_pick leg_spent merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
@@ -91,7 +91,8 @@ decision_raise>decision_next decision_answer>decision_next decision_answer>decis
 decision_evidence>decision_next surface_check>wait surface_check>surface
 wait>decision_answer wait>decision_evidence wait>decision_raise pick_facts>decision_next
 roadmap_close>roadmap_blocked roadmap_blocked>wait report_facts>report_questions
-failure>decision_raise surface>decision_raise surface>surface_check dispatch_check>decision_next'
+failure>decision_raise surface>decision_raise surface>surface_check dispatch_check>decision_next
+wait_leg>leg_spent leg_spent>record leg_spent>surface'
 MISSING=$(for e in $EDGES; do
     jq -e --arg f "${e%%>*}" --arg t "${e#*>}" 'any(.states[$f].transitions[]?; .target == $t)' "$J" >/dev/null || echo "$e"
 done)
@@ -108,7 +109,8 @@ jq -e '(.states.report_facts.transitions | any(.target == "report_link" and .whe
        and (.states.classify_report.gates.report_pr.command | test("report-pr\\.sh\" --session"))
        and ([.states.classify_report.transitions[] | select(.when.classification == "done") | [.target, .when["gates.report_pr.exit_code"]]]
             == [["verify", 0], ["wait", 1]])
-       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 77))' "$J" >/dev/null \
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 77))
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 78))' "$J" >/dev/null \
     && pass "report_link links a report's pull request; done needs one; verify_board leaves on no-pr" \
     || fail "report_link links a report's pull request; done needs one; verify_board leaves on no-pr"
 # The verdict arm waits on the entry decision-next.sh writes, as pick waits on pick_input.

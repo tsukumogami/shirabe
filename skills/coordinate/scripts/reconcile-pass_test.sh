@@ -105,6 +105,8 @@ if [ -f "$STUB_DIR/garble.$sub" ]; then
     tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
     echo 0x10 > "$tmp" && mv "$tmp" "$CLOCK"
 fi
+# A re-check that prints nothing: the file's text to stderr, exit 64.
+[ -f "$STUB_DIR/silent.$sub" ] && { cat "$STUB_DIR/silent.$sub" >&2; exit 64; }
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
 done
@@ -459,6 +461,14 @@ printf '{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","
 pass
 jq -e -s 'length >= 1 and all(.disposition == "")' "$CASE/rows-seen" >/dev/null 2>&1; check "each deferral is checked from the work document's own row" $? "$(cat "$CASE/rows-seen" 2>&1)"
 grep ' deferral ' "$CASE/checks" | grep -q -- "--row-file $SDIR" && bad "no deferral row is read from the session directory" || ok "no deferral row is read from the session directory"
+# A re-check that prints nothing still says how it ended (shirabe#552): its
+# exit code and the last line it wrote to stderr, with a token redacted.
+new_case silent-check
+record "[]" '[]' '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
+printf 'deferral-check: usage\nrun start ghp_abcdefghijklmnop refused\n' > "$CASE/silent.deferral"
+pass
+ctx reconcile/report.json | jq -e '.not_verified | any(.what == "deferral flaky test" and .reason == "the re-check printed nothing readable (exit 64: run start [redacted] refused)")' >/dev/null
+check "a re-check that printed nothing is reported with its exit and its last stderr line" $? "$(ctx reconcile/report.json | jq -c .not_verified)"
 new_case edited-mid-pass
 record "[$(hold with-pr "$PR12")]"
 : > "$CASE/inject.branch"

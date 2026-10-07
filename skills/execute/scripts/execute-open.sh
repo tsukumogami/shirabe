@@ -51,6 +51,18 @@
 #                          CLAUDE.md, else interactive (true). A resume of a
 #                          session retained at paused_for_review passes false:
 #                          re-invoking a paused run is the finalize invocation.
+#   REVIEW_FLOOR           `--review-floor=<level>` -> <level>, one pair per
+#                          occurrence (a bare --review-floor is the literal
+#                          token, which the pattern refuses); none -> no pair.
+#   REVIEW_CEILING         `--review-ceiling=<level>`, the same way.
+#
+# The two review-level bound variables are passed only when their flag is, so a
+# run without the flags initialises exactly the variables it did before they
+# existed. Both are rebind in the templates, like MERGE: an attach that doesn't
+# pass one resets it to empty, so a resumed run bounds the children it spawns
+# from then on by this invocation's flags, never an earlier one's. koto refuses
+# a value outside light, standard and full (invalid_var) and a repeat
+# (duplicate_var).
 #
 # `--koto-leg=<request-id>:<leg>` (or `--koto-leg <request-id>:<leg>`) is passed
 # through once. The leg must be `execute`, the one leg /execute answers; the
@@ -209,7 +221,12 @@ printf '%s' "$TOKENS" | jq -c \
     --arg plan "$PLAN" --arg slug "$SLUG" --arg root "$ROOT" \
     --arg header "$HEADER_MODE" --argjson resuming "$RESUMING_PAUSE" '
     def pause_of($m): if $resuming == 1 then "false" elif $m == "auto" then "false" else "true" end;
-    [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
+    def bound($flag; $var):
+        [ .[] | select(. == $flag or startswith($flag + "="))
+          | [$var, (if . == $flag then . else ltrimstr($flag + "=") end)] ];
+    bound("--review-floor"; "REVIEW_FLOOR") as $floors
+    | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
+    | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
       + [["PLUGIN_ROOT", $root]]
@@ -217,6 +234,7 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $merges[] | ["MERGE", (if . == "--merge" then "true" else ltrimstr("--merge=") end)] ] end)
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
+      + $floors + $ceilings
     ' > "$PAIRS_FILE" || own_refusal "could not write the variables file"
 
 set -- "$SESSION" "$TEMPLATE" "$PAIRS_FILE" --attach-live --replace-terminal --wording "$WORDING"

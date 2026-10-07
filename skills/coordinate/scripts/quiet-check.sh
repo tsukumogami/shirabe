@@ -116,6 +116,10 @@ while [ "$i" -lt "$N" ]; do
     i=$((i + 1))
     W=$(printf '%s' "$ROW" | jq -r .worker)
     [[ $W =~ $RE_TOPIC ]] || continue
+    # A merged row (lib_row_merged) waits for its worker's teardown: its
+    # silence is expected until the teardown removes the row, not a sign of
+    # a stalled worker.
+    lib_row_merged "$ROW" && continue
     LAST=$START_S
     for S in "$(latest_evidence wait unit "$W")" "$(latest_evidence dispatch topic "$W")"; do
         [ -n "$S" ] && [ "$S" -gt "$LAST" ] && LAST=$S

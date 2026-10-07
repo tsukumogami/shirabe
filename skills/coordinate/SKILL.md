@@ -50,7 +50,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
@@ -183,13 +183,27 @@ states never ask you to do these steps by hand.
 
 - **Dispatch.** A roadmap feature to be built goes to `/shirabe:deliver`; one
   scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
-  issue goes to `/shirabe:work-on`. The brief lists the checkpoints the worker
+  issue goes to `/shirabe:work-on`. A unit scoped ahead is sent its execution
+  by `scripts/dispatch-worker.sh` once its blocker lands: it renders the execution brief,
+  opens a new leg, and moves the holding to `executing`, which the record step
+  confirms. The brief lists the checkpoints the worker
   reports at and waits on no approval.
   `scripts/render-brief.sh` renders a worker's brief from one
   JSON input and refuses an incomplete one, or one whose target repositories
   its entry point can't take: the requirement in `references/entry-points.tsv`
   is checked against each target's visibility, read live from GitHub, and the
-  refusal names the entry point to use instead; `scripts/dispatch-worker.sh`
+  refusal names the entry point to use instead. At a new dispatch (not a
+  re-brief) it also refuses a `unit` that pick wouldn't read as one of the
+  units it listed, naming the
+  forms that would match (`Feature 2` or `Feature 2: <title>`, `#12` or
+  `<host>#12`), since a holding pick can't see leaves its unit open to a
+  second dispatch. It reads those units from `coord/pick.json`, which a pick
+  pass in the same session writes; without it a new dispatch exits 2. When
+  the brief carries the workspace's own rules for
+  workers, its Reporting section says it wins over them where they name
+  another session for direction or for status reports, so the worker always
+  reports to you;
+  `scripts/dispatch-worker.sh`
   renders it, writes the holding, runs the workspace manager's dispatch and
   confirms the holding. The `dispatch` state can't be left until
   `scripts/holding-recorded.sh` reads the holding on the record as
@@ -199,7 +213,10 @@ states never ask you to do these steps by hand.
 - **Wait.** A message report goes through the hub; a leg-bound worker's result
   is read from its leg by `scripts/wait-target.sh`, once. Both pass
   `take_report`, where `scripts/report-source.sh` refuses a message standing
-  in for a leg-bound worker. When a holding has no pull request yet and its
+  in for a leg-bound worker. A leg spent before its worker reported
+  (cancelled, refused at the entry point's preflight, abandoned or missing)
+  goes to `leg_spent`, where `scripts/dispatch-worker.sh --releg` replaces it
+  for the same holding, keeping the worker, or the human takes it. When a holding has no pull request yet and its
   report names one (a leg result's `pr`, or the `pull_request` you pass with a
   message), `scripts/holding-link.sh` writes that pull request and its head
   branch, as GitHub reports it, onto the holding. The report's
@@ -224,8 +241,8 @@ free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers and local agents don't count
-against the cap. When `--parked-bound` (default three) or more are parked,
+request waiting only on a merge; parked workers, merged ones waiting for their
+teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
@@ -248,7 +265,10 @@ if the coordinator is to land anything itself. When GitHub refuses the checks,
 the board is judged from the Actions jobs and says so, but a green board read
 that way can't show every required check, so it goes to the human rather than
 to a merge. A board that can't be read at all, whether refused, failed or out of
-time, is no verdict on the code: it goes back to waiting with the reason. Don't
+time, is no verdict on the code: it goes back to waiting with the reason. So
+is a job GitHub never started (it finished red with no step, as under an
+account billing block): the board reads not run, and the reason goes to
+whoever holds the account, never to the worker as a CI failure. Don't
 work around the check; put a refusal to the human, since the token's
 permissions are theirs to change.
 

@@ -20,6 +20,7 @@
 #   api --method GET repos/R/pulls/<n>/files...             files
 #   api --method GET repos/R/commits/<sha>/check-runs...    checkruns
 #   api --method GET repos/R/commits/<sha>/status...        statuses
+#   api --method GET repos/R/check-runs/<id>/annotations... annotations-<id>
 #   api --method GET repos/R/contents/<path>?ref=<ref>      contents-<ref>-<path, / as __>
 #   api --method GET repos/R/issues/<n>                     issue-<n>
 #   api --method GET repos/R                                repo
@@ -73,6 +74,7 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/check-runs/*/annotations) id=${path_noq%/annotations}; key="annotations-${id##*/}" ;;
             repos/*/*/contents/*)
                 rest=${path_noq#repos/*/*/contents/}
                 ref=${path#*\?ref=}

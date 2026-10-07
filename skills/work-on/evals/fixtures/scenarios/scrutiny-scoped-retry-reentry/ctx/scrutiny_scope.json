@@ -1,0 +1,4 @@
+{"panel":"scrutiny","head":"9f3c2a1b7d4e5f60718293a4b5c6d7e8f9012345","decisions":[
+{"seat":"completeness","decision":"keep","reason":"fix diff since 1a2b3c4d5e6f (6 lines in 1 files) touches nothing in what it cited","judged_at":"1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"},
+{"seat":"justification","decision":"keep","reason":"fix diff since 1a2b3c4d5e6f (6 lines in 1 files) touches nothing in the diff it judged","judged_at":"1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"},
+{"seat":"intent","decision":"recheck","reason":"raised 1 blocking finding(s) at 1a2b3c4d5e6f; re-check them against the fix diff","findings":[{"summary":"login() returns a session token before the password hash is verified","path":"src/auth.go","lines":"41-48"}],"fix_diff_from":"1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"}]}

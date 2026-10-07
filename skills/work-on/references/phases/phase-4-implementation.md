@@ -111,6 +111,8 @@ summary; if the script succeeds but the AC is not met, the script is wrong.
 needed: security, performance, testing, architecture. Check for scope shrinkage
 and design intent drift.
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): each agent runs on `model: "sonnet"` with a 15-call budget, sharing one packet. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+
 ## Evidence
 
 - `implementation_status: complete` — all steps done, tests pass. Submit it alone, with no `issue_type`: koto records the changed paths (`changed_paths_record`) and then asks for the type once, at `issue_type_routing`
@@ -131,7 +133,7 @@ The rewind lands on `analysis`, whose `plan_artifact` gate holds the `plan.md` t
 
 ```bash
 OUTCOME_FIELD=implementation_status
-for KEY in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in plan.md scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then

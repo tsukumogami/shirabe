@@ -53,11 +53,11 @@ eq "coord/board.json's verdict, head, reasons and skipped match the read" \
     "$(jq -c '{verdict, head, reasons, skipped}' "$T/direct")" "$(ctx | jq -c '{verdict, head, reasons, skipped}')"
 eq "and it lists the skipped job" '[{"run":101,"job":1003,"name":"LLM Quality Gate"}]' "$(ctx | jq -c .skipped)"
 
-echo "== unverified and pending record no head =="
+echo "== unverified, pending and not-run record no head =="
 for cf in "$TD"/board/cases/*.jq; do
     name=$(basename "$cf" .jq)
     set -- $(sed -n 's/^# expect: //p' "$cf")
-    [ "$1" = unverified ] || [ "$1" = pending ] || continue
+    [ "$1" = unverified ] || [ "$1" = pending ] || [ "$1" = not-run ] || continue
     sed -n 's/^# args: //p' "$cf" | grep -q . && continue
     sed -n 's/^# env: //p' "$cf" | grep -q . && continue
     want=$1; shift

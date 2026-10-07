@@ -130,7 +130,7 @@ Clear them before submitting:
 
 ```bash
 OUTCOME_FIELD=finalization_status
-for KEY in scrutiny_results.json review_results.json qa_results.json summary.md pre_pr.md; do
+for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md pre_pr.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then

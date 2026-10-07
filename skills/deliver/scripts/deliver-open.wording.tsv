@@ -10,6 +10,10 @@ duplicate_var:MERGE	`--no-merge` may be given at most once.
 duplicate_var:COORDINATION	`--coordinated` and `--no-coordinated` are mutually exclusive, and neither may be repeated.\nRe-invoke with at most one of them.
 invalid_var:MAX_ROUNDS	`--max-rounds` must be an integer from 1 to 50, got `{value}`.\nRe-invoke with `--max-rounds=N`, or omit it for /scope's default.
 duplicate_var:MAX_ROUNDS	`--max-rounds` may be given at most once.
+invalid_var:REVIEW_FLOOR	`--review-floor` must be `light`, `standard` or `full`, got `{value}`.\nRe-invoke with `--review-floor=<level>`, or omit it for no floor.
+duplicate_var:REVIEW_FLOOR	`--review-floor` may be given at most once.
+invalid_var:REVIEW_CEILING	`--review-ceiling` must be `light`, `standard` or `full`, got `{value}`.\nRe-invoke with `--review-ceiling=<level>`, or omit it for no ceiling.
+duplicate_var:REVIEW_CEILING	`--review-ceiling` may be given at most once.
 invalid_var:UPSTREAM	`--upstream` requires a path argument naming the upstream artifact the chain consumes, for example `--upstream docs/roadmaps/ROADMAP-<name>.md` (or `owner/repo:docs/roadmaps/ROADMAP-<name>.md`), with no `..` segment; got `{value}`.\nRe-invoke `/deliver <topic-slug> --upstream <path>`.
 duplicate_var:UPSTREAM	`--upstream` may appear at most once.\nRe-invoke with a single `--upstream <path>`.
 invalid_var:PLUGIN_ROOT	The shirabe plugin root `{value}` is not usable: it must be an absolute path with no `..` segment, written only in koto's allowed characters ({constraint}).\nInstall or link the plugin at such a path and re-invoke `/deliver`.

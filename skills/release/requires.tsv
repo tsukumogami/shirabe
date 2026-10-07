@@ -2,9 +2,11 @@
 # Split rule: references/tool-declaration-policy.md
 #
 # The heaviest gh user in the corpus after /execute: release create, release
-# view, release delete, workflow run, run list, run view, api, issue list, pr
-# list, auth status. Version analysis reads `git describe` and `git log`, and
-# the no-workflow fallback tags and pushes.
+# view, release delete, release upload, workflow run, run list, run view, api,
+# issue list, pr list, auth status. Version analysis reads `git describe` and
+# `git log`, the declared-check step prints `git diff --stat`, and the
+# no-workflow fallback tags and pushes. A repository's declared release checks
+# bring their own host needs, stated in its release extension, not here.
 #
 # Both are independent-cadence, so each is one tool-only record however many
 # subcommands the skill calls.

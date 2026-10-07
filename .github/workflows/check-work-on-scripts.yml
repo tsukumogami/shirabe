@@ -12,6 +12,9 @@ on:
       - 'skills/work-on/**'
       # settled-policy_test.sh also reads the shared worktree reference.
       - 'references/worktree-discipline.md'
+      # panel-scope_test.sh builds a re-check seat's packet from the scope it
+      # plans, so a change to the packet script has to re-run it.
+      - 'scripts/review-packet.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -182,6 +185,33 @@ jobs:
       - name: Run koto floor declaration tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-requires_test.sh
+
+      # panel-scope_test.sh runs the sticky-verdict script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives the
+      # shipped template through a QA retry whose fix touches nothing scrutiny
+      # or review cited and asserts koto carries both panels to the QA
+      # re-check. The engine half skips without koto, so it runs here.
+      - name: Run panel scope tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/panel-scope_test.sh
+
+      # review-level_test.sh runs the review level script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives
+      # real koto sessions of a scratch template that declares REVIEW_LEVEL:
+      # the rebind, the floor hold, the unset route and the reader. The engine
+      # half skips without koto, so it runs here.
+      - name: Run review level tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level_test.sh
+
+      # review-level-routes_test.sh drives the shipped work-on.md through a real
+      # koto at each review level: the choice before implementation, the light,
+      # standard, full and unset routes, the floor hold, a light retry and a
+      # hand rebind. Its clearing-site greps need no engine and run on both
+      # legs; the engine cases skip without koto, so they run here.
+      - name: Run review level route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level-routes_test.sh
 
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine

@@ -146,7 +146,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -751,7 +751,8 @@ states:
     # writes report_topic, and marks the leg taken once it is no longer open.
     # Only a result the worker's own session promoted reaches take_report; an
     # explicit or refused result, or an abandoned or missing leg, means the
-    # worker recorded no result, which goes to the human.
+    # worker recorded no result: the leg was spent early, and leg_spent
+    # decides whether to replace it or take it to the human.
     # Every edge that consumes the leg sets leg_consumed, and leg_pick marks
     # the leg taken from it: an evidence tick here doesn't run the action, so
     # the action alone can't mark a leg that resolved between two ticks.
@@ -782,24 +783,24 @@ states:
           worker_report: "leg result: status ${gates.leg_result.status}; final state ${gates.leg_result.final_state}; outcome ${gates.leg_result.payload.outcome}; step ${gates.leg_result.payload.step}; reason ${gates.leg_result.payload.reason}; pull request ${gates.leg_result.payload.pr}"
           report_source: leg
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: explicit
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: resolved
           gates.leg_result.source: refused
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: abandoned
         context_assignments:
           leg_consumed: "yes"
-      - target: surface
+      - target: leg_spent
         when:
           gates.leg_result.disposition: missing
         context_assignments:
@@ -815,6 +816,29 @@ states:
         context_assignments:
           worker_report: ""
           report_topic: ""
+
+  leg_spent:
+    # A leg spent before its worker reported (cancelled, refused at the entry
+    # point's preflight, abandoned, missing): replace it for the same holding
+    # with dispatch-worker.sh --releg and confirm the new leg through record,
+    # or take it to the human. report_topic, written by wait-target.sh, names
+    # the worker.
+    accepts:
+      move:
+        type: enum
+        values: [replaced, surface]
+        required: true
+        description: replaced once dispatch-worker.sh --releg exited 0 and the worker was messaged its brief; surface when the leg can't be replaced (the worker is gone, or the script refused), which goes to the human.
+      topic:
+        type: string
+        description: With replaced, the worker's dispatch topic (report_topic); record refuses a row that isn't on a new leg.
+    transitions:
+      - target: record
+        when:
+          move: replaced
+      - target: surface
+        when:
+          move: surface
 
   take_report:
     # Both return paths meet here. report_present needs the report's text in
@@ -1387,6 +1411,12 @@ states:
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 73  # board-unreadable
+      # A job that never ran (GitHub refused to start it) is no verdict on
+      # the code and not the worker's to fix: back to waiting, like a board
+      # that can't be read, with the reason in coord/board.json.
+      - target: wait
+        when:
+          gates.verify_board_verdict.exit_code: 78  # not-run
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 74  # not-open
@@ -2183,7 +2213,8 @@ to landed work.
   ({{CAP}}) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
-  merge) and local agents don't count against the cap.
+  merge), merged ones waiting for their teardown, and local agents don't count
+  against the cap.
 - **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
   nothing new until the human has worked through the merge-order table
   (`hold`).
@@ -2352,6 +2383,19 @@ topic), 2 the record couldn't be read. The script's own exit codes are in its
 header; 5 means a live session already uses the topic, 8 the record refused the
 write.
 
+For `send_execution`, put the execution's brief input in context (entry point
+`/shirabe:execute` with the PLAN, phase `executing`) and run the same script:
+for a holding scoping ahead it renders the execution brief, opens a new leg
+when the entry point takes one (the scoping leg is spent), and rewrites the
+holding's entry point, mode, phase and return path. It launches nothing:
+message the worker's session the brief it printed, then submit `dispatched:
+sent`. The record step confirms the phase moved to `executing`, and holds
+while it didn't.
+
+A leg spent before its worker reports (a cancellation, a refusal at the entry
+point's preflight) doesn't retire the worker: `leg_spent` replaces the leg
+for the same holding with `--releg`.
+
 The worker's dispatch topic is its name everywhere, in the record and in every
 pull request: never a session id, instance path or job id.
 ## record
@@ -2434,9 +2478,37 @@ resolved, or `watch: back` to return to the hub.
 A promoted result moves on to `take_report` with the leg's status, final
 state, outcome, step, reason and pull request as the report. An explicit or
 refused result, or an abandoned or missing leg, means the worker's session
-recorded no result; it goes to the human as a blocker. A leg is read once:
+recorded no result: the leg was spent early, and `leg_spent` follows. A leg is read once:
 `wait-target.sh` marks it taken, so a report routed to a fix or to the human
 doesn't bring the same result back.
+
+## leg_spent
+
+The worker's leg was spent before it reported: cancelled, refused at its
+entry point's preflight, abandoned, or missing. When its session is still
+there, replace the leg rather than retire the worker: put the brief input it
+was dispatched with in context (`koto context add {{SESSION_NAME}}
+brief_input.json --from-file <file>`), run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
+"{{SESSION_NAME}}" --releg`, message the worker the brief it printed (it runs
+its entry point again, on the new leg), and submit `move: replaced` with the
+worker's `topic`. Submit `move: surface` when the worker is gone or the script
+refuses.
+
+<!-- details -->
+
+Before replacing it, make sure the worker isn't still running its entry
+point on the spent leg (ask it, or read its session): a replaced leg is for a
+worker that did no work. The holding stays and only its leg changes: the script keeps the holding's
+entry point, repository and flags, abandons any request still open under the
+worker's coordinator, opens a new leg, renders the brief with it and rewrites
+the Return path. It refuses (exit 9) a leg still open, a leg holding the
+worker's promoted result or resolved by hand as a success, a holding that
+links a pull request, and an entry point that takes no leg: those aren't spent
+early, so submit `move: surface` for them. A refusal at preflight that names another entry point is
+a dispatch question: fix the brief input for the entry point it names before
+you run the script, as at `dispatch`. `record` confirms the holding is on a
+new leg and no row is on the spent one; the next `leg` tick reads the new leg.
 
 ## take_report
 
@@ -2823,6 +2895,16 @@ passed, which they can see and the token can't. Tell them the Actions jobs at
 the head are green and the board couldn't read the required checks; their
 answer, or a token that can read checks, is what lets it land.
 
+A job that completed red with no step at all never ran: GitHub refused to
+start it, as it does for an account billing block or a missing runner, or it
+was cancelled before it started. With nothing else red and nothing still
+running, the board is `not-run`: no verdict on the code, and not the
+worker's to fix, so don't send it back. It goes back to waiting; report it up
+as blocked on the person who holds the account (`--blocked <worker>=CI did not
+run: <the reason>`), with each `job-not-run` reason from `coord/board.json`,
+since only they can clear it and re-run the jobs. A re-run moves no head:
+bring the worker's report back through `wait` once the jobs have run.
+
 A board that couldn't be read at all (a refusal, a failed read or the deadline)
 is `board-unreadable`: no verdict on the code. It goes back to waiting with the
 reason in `coord/board.json`, so the rest of the run carries on; fix the cause,
@@ -2897,9 +2979,13 @@ changed file on the default branch with the verified head's version.
 
 <!-- details -->
 
-A merge confirmed drops the holding. A merge not confirmed keeps the holding and
-adds a Side effects row naming the pull request as `owner/repo#<n>` with the
-verified head, which a later reconcile settles. When a feature lands
+A merge confirmed keeps the holding until teardown and clears its Pull request
+cell: read the row with `record-holding.sh --read`, write it back with
+`pull_request` empty and nothing else changed (`--row-file`), and the record
+step waits for that. The row goes only at the teardown's destroy step. A merge
+not confirmed keeps the holding and its link and adds a Side effects row
+naming the pull request as `owner/repo#<n>` with the verified head, which a
+later reconcile settles. When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker
 for a small pull request that sets the feature's status line, as a holding;
 features that depend on it stay blocked until it merges.
@@ -2911,7 +2997,12 @@ the unit's own verified head.
 
 <!-- details -->
 
-As after any merge: when a feature lands on a roadmap whose repository doesn't
+As after a merge you made: a merge confirmed keeps the holding until teardown
+and clears its Pull request cell (`record-holding.sh --read`, then the row
+written back with `pull_request` empty and nothing else changed), which the
+record step waits for; the row goes only at the teardown's destroy step. A
+merge not confirmed keeps the link and adds a Side effects row for it at the
+verified head. When a feature lands on a roadmap whose repository doesn't
 hold that feature's PLAN, dispatch a worker for a small pull request that sets
 the feature's status line, as a holding; features that depend on it stay blocked
 until it merges.
@@ -3019,7 +3110,8 @@ since the inventory (koto#251), and refuses a verdict edited after sealing or
 taken for another worker; don't destroy then. `niwa destroy` refuses an
 instance whose branches were squash-merged (niwa#322); pass `--force` only
 because the sealed inventory just proved every repository durable. Then remove
-the worker's holding from the record. When the destroy is handed to a person,
+the worker's holding from the record: this is where the row goes, the merge
+having only cleared its Pull request cell. When the destroy is handed to a person,
 also add a Side effects row whose target is `instance of <topic>`: the record
 names a worker by its dispatch topic, never by its instance path.
 ## quiet_check

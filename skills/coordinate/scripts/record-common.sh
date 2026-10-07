@@ -485,13 +485,27 @@ lib_pr_held() {
             | $p != null and $p.number == $n and ($p.repo | ascii_downcase) == ($r | ascii_downcase)))' "$4" > /dev/null
 }
 
+# lib_row_merged <row-json>: the row's merge was confirmed and it waits for
+# its worker's teardown: a Verified head kept and the Pull request cell
+# blank, which only the cleared cell after a confirmed merge writes
+# (record-confirm.sh; record-holding.sh's header keeps the rule). The one
+# definition pick, dispatch_check and the quiet check read. Reconcile's report
+# reads the same row more narrowly, as merged only when every pull request on
+# its branch is merged, because it reports what it measured.
+lib_row_merged() {
+    printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
-# each with `parked` set. A row is parked when it has a Verified head and its
-# pull request is open and not a draft (gh pr view in the linked repository);
-# every other row is active. Local agents never have a row, so they are never
+# each with `parked` and `merged` set. A row is parked when it has a Verified
+# head and its pull request is open and not a draft (gh pr view in the linked
+# repository). A row is merged when it has a Verified head and a blank Pull
+# request cell: a confirmed merge clears the cell and keeps the row until its
+# worker's teardown (record-confirm.sh), and nothing else writes that pair.
+# Every other row is active. Local agents never have a row, so they are never
 # counted. Returns 2 on a failed read.
 lib_parked() {
-    local n i row vh pr st
+    local n i row vh pr st mg
     n=$(jq length "$1") || return 2
     : > "$2.rows"
     i=0
@@ -499,12 +513,13 @@ lib_parked() {
         row=$(jq -c --argjson i "$i" '.[$i]' "$1")
         vh=$(printf '%s' "$row" | jq -r '.verified_head // ""')
         pr=$(printf '%s' "$row" | jq -r '.pull_request // ""')
-        st=false
+        st=false mg=false
+        lib_row_merged "$row" && mg=true
         if [ -n "$vh" ] && lib_pr_link "$pr"; then
             gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
             st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2
         fi
-        printf '%s' "$row" | jq -c --argjson p "$st" '. + {parked: $p}' >> "$2.rows"
+        printf '%s' "$row" | jq -c --argjson p "$st" --argjson m "$mg" '. + {parked: $p, merged: $m}' >> "$2.rows"
         i=$((i + 1))
     done
     jq -s -c '.' "$2.rows" > "$2" || return 2

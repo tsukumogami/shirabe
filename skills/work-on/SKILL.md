@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -129,8 +129,10 @@ When invoked as `/work-on <argument>`:
 Detect the mode on `$ARGUMENTS` with any `--koto-leg` token (and its value, when
 given separately) set aside: it names a caller's request leg (see **Answering a
 Caller's Leg**) and is never part of an issue reference, a PLAN path, or a task
-description. Set aside only for detection: the tokens file `work-on-open.sh` reads
-is the original `$ARGUMENTS`, `--koto-leg` included.
+description. Set aside the review-level bound the same way, `--review-floor=<level>`
+and `--review-ceiling=<level>` (see **Review Level**). Set aside only for
+detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
+`--koto-leg` and the bound included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
@@ -186,8 +188,25 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
   --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 ```
 
+**The review-level bound.** When `$ARGUMENTS` carries `--review-floor=<level>` or
+`--review-ceiling=<level>`, add `--var REVIEW_FLOOR=<level>` or
+`--var REVIEW_CEILING=<level>` to either init above, one `--var` per flag given and
+the value exactly as typed. Without the flags add nothing: the init is the one
+above, unchanged. koto checks the value against `^(light|standard|full)?$` and
+refuses anything else at init (`invalid_var`), and a flag given twice is its
+`duplicate_var`; report the refusal and stop. For example:
+
+```bash
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+  --var ISSUE_NUMBER=<N> \
+  --var ARTIFACT_PREFIX=issue_<N> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
+  --var REVIEW_FLOOR=standard
+```
+
 **Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
-`SHARED_BRANCH`, `ISSUE_TYPE`) and enters with `mode: plan_backed` (see **Plan-Backed Child
+`SHARED_BRANCH`, `ISSUE_TYPE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
+run was given a bound) and enters with `mode: plan_backed` (see **Plan-Backed Child
 Mode**), which routes to `plan_context_injection`.
 
 **Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open
@@ -225,8 +244,12 @@ below applies and the run is unchanged.
    ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
      --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
-   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. The script adds
-   `PLUGIN_ROOT` and makes one `koto init` with `--attach-live --koto-leg`: no
+   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
+   review-level bound as `--var`: the script reads `--review-floor=` and
+   `--review-ceiling=` from the tokens itself. It adds `PLUGIN_ROOT`, and on a
+   live session the `REVIEW_LEVEL` its ledger last recorded (an attach resets
+   every rebind variable it isn't passed), and makes one `koto init` with
+   `--attach-live --koto-leg`: no
    session means a new one bound to the leg, and a live one (a resume) is attached
    and bound. It removes the tokens file on every path. `session=<WF>` means the run
    is bound. Go on with the entry evidence, or, on a resume, with `koto next`.
@@ -298,9 +321,30 @@ leg, since one leg answers one session.
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--record <panel> <session>`
+  — which review seats a panel round needs. koto runs `--plan` on entering
+  `scrutiny`, `review`, `qa_validation` and `light_review`, and `--carried` and
+  `--recorded` as each one's gates; the agent runs `--record` after each round. A seat whose
+  passed verdict the fix didn't touch is kept, a seat that raised a blocking
+  finding re-checks only that finding against the fix diff, and a panel with
+  nothing to run is carried through by koto. The phase files under
+  `references/phases/phase-4*` say how to act on the scope;
+  `scripts/panel-scope_test.sh` is its harness.
+- `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
+  review level (`references/review-levels.md`). koto runs `init` on entering
+  `review_level_choice`, and `facts`, `check` and `slice` at
+  `review_level_check`; the agent runs `set <session> <level>` to choose,
+  raise or lower the level, which rebinds `REVIEW_LEVEL` and appends to the
+  `review_level.jsonl` ledger together, and a maintainer runs `report` to read
+  the ledgers of retained sessions. `work-on-open.sh` runs `level` to read the
+  ledger's last level before it attaches a live session. The script's header has every subcommand's
+  exit codes; `scripts/review-level_test.sh` and `scripts/review-level-routes_test.sh`
+  are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
-  then makes one `koto init --attach-live --koto-leg` through the shared
+  maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live
+  session's recorded `REVIEW_LEVEL` back, then makes one
+  `koto init --attach-live --koto-leg` through the shared
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
@@ -340,9 +384,39 @@ reaches its parent on that tick. `scripts/terminal-retention_test.sh` pins the b
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
 
+### Review Level
+
+Every run chooses a review level after `analysis` and before implementing,
+at `review_level_choice`, with `scripts/review-level.sh set`:
+
+- `light` — one panel, `light_review`, of one reviewer seat.
+- `standard` — `scrutiny` then `review`, no QA.
+- `full` — `scrutiny`, `review` and `qa_validation`.
+
+A code change passes `review_level_check` before its first panel, on every
+lap: the facts of the change (its size, the path classes it touched, whether
+tests or acceptance criteria changed) set a floor, and koto holds the run
+until the level is at or above it. Facts can raise the level, never lower it;
+a lower needs a recorded reason and never goes below the floor. A session from
+an earlier template has no level and takes the full path. `docs` and `task`
+runs record a level too, and their routes skip the panels as before.
+`references/review-levels.md` has the rules, the bound and the ledger.
+
+A caller can bound the choice with `--review-floor=<level>` and
+`--review-ceiling=<level>`, which become `REVIEW_FLOOR` and `REVIEW_CEILING` at
+init (see **Initialize**); `/execute` and `/deliver` take the same two flags and
+pass them to every `/work-on` run they start. `review_level_choice` records the
+bound in the ledger's `bound` line before the first `choose`, and the bound doesn't
+move inside a run.
+
+| Flag | Variable | Values |
+|------|----------|--------|
+| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run may choose |
+| `--review-ceiling=<level>` | `REVIEW_CEILING` | `light`, `standard` or `full`; a raise past it needs a recorded reason, except a raise to the facts floor |
+
 ### Review Panel
 
-Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
+Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
 
 ### Resume
 

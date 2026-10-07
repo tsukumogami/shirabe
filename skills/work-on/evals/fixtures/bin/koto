@@ -26,6 +26,20 @@ ARGS="$*"
 # runner may pin it; the fallback is a per-scenario temp directory.
 CTX_STATE="${KOTO_SHIM_CTX_STATE:-${TMPDIR:-/tmp}/koto-shim-ctx/$EVAL_SCENARIO}"
 
+# A scenario can pin one key's content as ctx/<key> (panel-scope's
+# <panel>_scope.json, say). Checked before every arm, and only when the file
+# exists, so every scenario without a ctx/ directory gets the replies it
+# always got.
+case "$ARGS" in
+  "context get "*)
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$SCENARIO_DIR/ctx/$4" ]; then
+      cat "$SCENARIO_DIR/ctx/$4"
+      exit 0
+    fi
+    ;;
+esac
+
 case "$ARGS" in
   "version"|*"--version"*)
     echo '{"version":"0.2.1"}'

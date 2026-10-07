@@ -126,8 +126,8 @@ eq "a bare invocation resumes under the recorded intent" "stop" "$OUT"
 verdict s-bare ok "" "" "bare invocation"
 
 state_file pre 'topic: pre
-phase_pointer: phase-1
-exit: UNSET
+phase_pointer: 1
+exit:
 '
 run s-pre pre "" ""
 eq "a pre-change state file (no intent: field) reads as none" "none" "$OUT"

@@ -4,11 +4,23 @@ Run QA validation after code review passes. The tester agent validates that the 
 
 ## Tester Agent
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel qa --seat tester`.
+
 Spawn the tester agent using the Task tool. The tester:
-1. Reads the implementation's acceptance criteria from the issue or PLAN doc
+1. Reads the implementation's acceptance criteria from the packet
 2. Reads any project test plan
 3. Exercises the implementation against the acceptance criteria
 4. Reports pass/fail per AC with evidence
+
+## Whether the Tester Runs
+
+On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: its packet is the `recheck` kind on the commissioning line above, holding only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it checks whether each failing scenario now passes, prompted with the re-check prompt in `review-seat-commissioning.md` rather than the full validation steps. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
+
+```bash
+koto context get <WF> qa_scope.json
+```
+
+A QA failure therefore routes narrowly. The retry returns to `implementation`, and the run walks forward through `scrutiny` and `review` as always, but those panels spawn nothing unless the fix touched what their seats cited: when every seat is untouched, koto carries their verdicts and the run goes from implementation straight to this phase's re-check. A fix that touches a seat's citations re-runs that seat; a fix that crosses the size threshold in `panel-scope.sh` re-runs every passed seat.
 
 ## Evidence Format
 
@@ -19,15 +31,29 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
   "scenarios_run": 3,
   "scenarios_passed": 3,
   "scenarios_failed": 0,
+  "cited": [{"path": "src/a.sh", "lines": "10-24"}],
+  "findings": [{"summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
   "detail_file": "<the tester's mktemp path>"
 }
 ```
+
+`cited` is the code the scenarios exercised; with nothing cited, any fix to a path in the diff re-runs QA. `findings` lists each failing scenario, which a re-check round gets back.
 
 Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
 ## Aggregation
 
-After the tester returns:
+After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and `blocking_count` set to `scenarios_failed`:
+
+```bash
+ROUND=$(mktemp)
+# write [{"seat": "tester", "blocking_count": <scenarios_failed>, "cited": [...], "findings": [...]}] to "$ROUND"
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"
+```
+
+If `--record` fails, fix it and run it again before submitting anything; if it can't be fixed, submit `qa_outcome: blocking_escalate`.
+
+Then:
 
 - If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
 - If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
@@ -47,7 +73,7 @@ Run this only once the retry budget in the state's directive has granted the ret
 
 ```bash
 OUTCOME_FIELD=qa_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
@@ -63,7 +89,7 @@ koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-clean
 
 The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
 
-All four keys go, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
+Every key in the list goes, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried verdict for any panel the fix didn't touch, so the gate is satisfied by this round's artifact rather than the stale one. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 ## Escalation
 

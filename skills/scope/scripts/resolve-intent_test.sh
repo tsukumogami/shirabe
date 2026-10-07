@@ -33,13 +33,13 @@ state() { # state <name> <content>
 NOFILE="$T/absent_state.md"
 PRE=$(state pre.md 'topic: demo
 last_updated: 2026-01-01T00:00:00Z
-phase_pointer: phase-1
-exit: UNSET
+phase_pointer: 1
+exit:
 exit_artifacts: []
 ')
 STOP=$(state stop.md 'topic: demo
 intent: stop
-exit: UNSET
+exit:
 ')
 CONT=$(state cont.md 'topic: demo
 intent: continue
