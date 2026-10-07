@@ -444,7 +444,7 @@ else
 fi
 
 EVAL_MODEL="-x" run_runner grade demo
-if [ "$RC" -eq 1 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "EVAL_MODEL must match"; then
+if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "EVAL_MODEL must match"; then
   pass "model: an EVAL_MODEL that does not match the pattern is refused before any session"
 else
   fail "EVAL_MODEL=-x (rc=$RC): $OUT"
@@ -635,6 +635,18 @@ if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta de
   pass "selection: a rename selects both the skill the file left and the one it joined"
 else
   fail "selection, rename (rc=$RC): $OUT"
+fi
+
+# A root git cannot read is an error, not "no tag" selecting every skill.
+mkdir -p "$T/not-a-repo"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$T/not-a-repo" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
+  PATH="$FIXTURES/bin:$PATH" GIT_CEILING_DIRECTORIES="$T" bash "$RUNNER" --list-changed 2>&1) || RC=$?
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "is not a git repository" \
+  && ! printf '%s' "$OUT" | grep -q "No v\* tag found"; then
+  pass "selection: a repository root git cannot read exits 2 instead of selecting everything"
+else
+  fail "selection, unreadable root (rc=$RC): $OUT"
 fi
 
 echo ""

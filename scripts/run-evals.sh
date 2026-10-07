@@ -24,13 +24,15 @@
 #
 # Exit codes:
 #   0  All assertions passed
-#   1  One or more assertions failed
+#   1  One or more assertions failed, or a usage error in the arguments
 #   2  No results produced, or a scenario graded zero assertions
 #      (infrastructure failure -- see "Grading nothing is a failure" below).
 #      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
-#      runs that only failed assertions.
-#   3  Missing prerequisites, or a suite the harness refuses (no evals, an
-#      invalid scenario model)
+#      runs that only failed assertions. Also: git could not answer the
+#      changed-since-tag selection, or the --summary-out file could not be
+#      written.
+#   3  Missing prerequisites, or a model or suite the harness refuses (an
+#      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
 #   4  The nested claude session stopped in plan mode or ran no command and
 #      wrote no file, so no scenario ran (runner or host failure -- see "Nested
 #      session permission mode" below)
@@ -139,7 +141,8 @@
 #   validation_summary.json), models (the distinct values in the iterations'
 #   eval_metadata.json) and exit_code. It is written when --runs stops early on
 #   3 or 4 too, and when the default selection finds nothing to run, so a caller
-#   never has to parse the report above.
+#   never has to parse the report above. A summary that cannot be written turns
+#   an exit 0 into 2, so a caller never reads success with no summary behind it.
 #
 # Credentials
 #   The nested session starts with GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK
@@ -318,8 +321,10 @@ valid_model() {
 
 EVAL_MODEL="${EVAL_MODEL:-sonnet}"
 if ! valid_model "$EVAL_MODEL"; then
+  # 3, like a refused suite, and not 1: a caller reading 1 as "assertions
+  # failed" would record a rate for a run that never started.
   echo "Error: EVAL_MODEL must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$; refusing to run"
-  exit 1
+  exit 3
 fi
 # Prep's Python reads it from the environment.
 export EVAL_MODEL
@@ -400,6 +405,13 @@ select_changed_skills() {
   CHANGED_TAG=""
   CHANGED_SKILLS=()
   local tag="" names="" name rest path
+  # Checked first so a root git can't read is an error, not a silent "no tag"
+  # that would select every skill.
+  if ! git -C "$GIT_ROOT" rev-parse --verify --quiet HEAD >/dev/null; then
+    echo "Error: $GIT_ROOT is not a git repository with a HEAD commit" >&2
+    return 2
+  fi
+  # describe exits nonzero when no v* tag is reachable; that is the no-tag case.
   tag=$(git -C "$GIT_ROOT" describe --tags --abbrev=0 --match 'v*' 2>/dev/null) || tag=""
 
   if [ -z "$tag" ]; then
