@@ -29,7 +29,10 @@ Usage:
       its default text mode. Exit 0.
   classify-eval-session.py report <transcript> [<requested-mode>]
       Print the named failure when the session did not execute, and a note
-      when it executed in a mode other than the one requested.
+      when it executed in a mode other than the one requested. When it
+      executed, also name each agent the session launched that was stopped
+      before it finished: the session ended while that agent still ran, so
+      the agent's scenario has no grades.
       Exit 0 when it executed, 4 when it did not, 2 when the transcript holds
       nothing to decide from.
 """
@@ -97,6 +100,9 @@ def classify(events):
     # Subagents can end with result messages of their own, so every result's
     # denials count, and the final message is the top-level session's.
     result_event = None
+    # Agents the session itself launched (spawn depth 1), by task id: their
+    # description, and the status of the last notification about them.
+    agents = {}
 
     for index, event in enumerate(events):
         kind = event.get("type")
@@ -105,6 +111,13 @@ def classify(events):
             # A background agent's turn emits an init of its own, with its own
             # cwd; the first init is the session the runner started.
             mode = event.get("permissionMode")
+        elif kind == "system" and subtype == "task_started":
+            if (event.get("task_type") == "local_agent"
+                    and event.get("spawn_depth", 1) == 1 and event.get("task_id")):
+                agents[event["task_id"]] = [event.get("description") or event["task_id"], None]
+        elif kind == "system" and subtype == "task_notification":
+            if event.get("task_id") in agents:
+                agents[event["task_id"]][1] = event.get("status")
         elif kind == "system" and subtype == "permission_denied":
             if event.get("tool_use_id"):
                 denied.add(event["tool_use_id"])
@@ -160,6 +173,11 @@ def classify(events):
     else:
         verdict = "executed"
 
+    # An agent whose last word is not "completed" was stopped (or failed)
+    # before it finished; one with no notification at all was still running
+    # when the transcript ended. Either way its work never came back.
+    stopped_agents = [desc for desc, status in agents.values() if status != "completed"]
+
     return {
         "verdict": verdict,
         "permission_mode": mode,
@@ -171,6 +189,8 @@ def classify(events):
         "result_subtype": (result_event or {}).get("subtype"),
         "result_is_error": bool((result_event or {}).get("is_error")),
         "result_text": (result_event or {}).get("result") or "",
+        "agents_launched": len(agents),
+        "stopped_agents": stopped_agents,
     }
 
 
@@ -188,6 +208,15 @@ def report(summary, transcript, requested):
             print("")
             print(f"  Note: the nested session ran in permission mode"
                   f" {summary['permission_mode']}, not the {requested} the runner requested.")
+            print(f"    Transcript: {transcript}")
+        if summary["stopped_agents"]:
+            print("")
+            print("  EVAL AGENT STOPPED BEFORE IT FINISHED")
+            print("  The session ended while an agent it launched was still running, so")
+            print("  that agent's scenario never produced its outputs or grades. The runner")
+            print("  is at fault, not the skill under test.")
+            for desc in summary["stopped_agents"]:
+                print(f"    Stopped: {desc}")
             print(f"    Transcript: {transcript}")
         return EXIT_EXECUTED
     if summary["verdict"] == "unknown":

@@ -195,6 +195,25 @@ else
   fail "report on a mode mismatch (rc=$RC): $OUT"
 fi
 
+# The session ended while its with-skill agent still ran: it executed, so the
+# exit stays 0, but the stopped agent is named, and the one that completed
+# is not.
+classify verdict "$FIXTURES/agent-stopped.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] && [ "$(field agents_launched)" = 2 ] \
+  && [ "$(field stopped_agents)" = "['With-skill execute eval run']" ]; then
+  pass "real stopped-agent session: two agents launched, only the stopped one is listed"
+else
+  fail "agent-stopped verdict (rc=$RC): $OUT"
+fi
+classify report "$FIXTURES/agent-stopped.jsonl" acceptEdits
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "EVAL AGENT STOPPED BEFORE IT FINISHED" \
+  && printf '%s' "$OUT" | grep -q "Stopped: With-skill execute eval run" \
+  && ! printf '%s' "$OUT" | grep -q "Stopped: Baseline"; then
+  pass "report on a stopped agent: exit 0, named failure, the stopped agent named"
+else
+  fail "report on a stopped agent (rc=$RC): $OUT"
+fi
+
 classify report "$T/missing.jsonl" acceptEdits
 if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
   pass "report on a missing transcript: exit 2, no not-executed claim"
@@ -348,6 +367,14 @@ if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
   pass "runner: a graded run exits 0 and prints the session's final message"
 else
   fail "runner, graded session (rc=$RC): $OUT"
+fi
+# The session is told to run its agents in the foreground and wait for all of
+# them: a -p session that ends its turn stops any agent still running.
+if grep -q "run_in_background set to false" "$LOG/prompt" \
+  && grep -q "Never end your turn, and never grade, while an agent you launched is still running" "$LOG/prompt"; then
+  pass "runner: the prompt has the session run its agents in the foreground and wait for every one"
+else
+  fail "runner prompt: no foreground/wait instruction"
 fi
 
 run_runner plan --runs 3 demo
