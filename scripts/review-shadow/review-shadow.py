@@ -1443,20 +1443,25 @@ def checklist(text):
 
 
 def pack_unit(kind, n, fixed, label, head, parts, joiner="\n\n"):
-    """One unit as one slice: `fixed` inputs, plus `label` holding `head` and as
-    many leading whole `parts` as fit the bound. Parts that don't fit are
-    dropped and counted; a unit whose head and first part can't fit stays one
-    over-bound slice holding all of it, which is never sent."""
+    """One unit as one slice: `fixed` inputs, plus `label` holding `head` and the
+    whole `parts`, in order, that fit the bound. A part that doesn't fit is
+    dropped and counted, and the next is still tried, so one large hunk or
+    paragraph doesn't cost the unit everything after it. A unit none of whose
+    parts fits stays one over-bound slice holding all of it, which is never sent."""
     def body(ps):
         return joiner.join(x for x in [head] + ps if x)
     whole = make_slice(kind, n, dict(fixed, **{label: body(parts)}), {"dropped": 0})
     if not whole["over_bound"]:
         return whole
-    for keep in range(len(parts) - 1, 0, -1):
-        s = make_slice(kind, n, dict(fixed, **{label: body(parts[:keep])}), {"dropped": len(parts) - keep})
-        if not s["over_bound"]:
-            return s
-    return whole
+    kept, dropped = [], 0
+    for part in parts:
+        if make_slice(kind, n, dict(fixed, **{label: body(kept + [part])}))["over_bound"]:
+            dropped += 1
+        else:
+            kept.append(part)
+    if not kept:
+        return whole
+    return make_slice(kind, n, dict(fixed, **{label: body(kept)}), {"dropped": dropped})
 
 
 def slice_brief_journeys(art):
@@ -1528,7 +1533,9 @@ def slice_ac_hunks(art):
         for f in art["files"]:
             if not f["patch"]:
                 continue
-            plen = utf8_len(f["path"])
+            # Room for the criterion and the path header beside each hunk unit, so a
+            # unit that fits on its own also fits in the slice it is sent in.
+            plen = utf8_len(item) + 2 * utf8_len(f["path"]) + 8
             for h in split_hunks(f["patch"]):
                 changed = "\n".join(line[1:] for line in h.split("\n")[1:] if line[:1] in "+-")
                 if terms and any(t in f["path"] or t in changed for t in terms):
@@ -2012,7 +2019,9 @@ def cmd_site(args, criteria):
         print(f"review-shadow: site {args.site}: nothing graded: {e}", file=sys.stderr)
         return 0
     if args.measure:
-        for kind in slices:
+        wanted = {r for rids in SITE_SEATS[site_key(art)].values() for r in rids}
+        kinds = {c["slice_kind"] for c in criteria["criteria"] if c["rule_id"] in wanted}
+        for kind in (k for k in slices if k in kinds):
             for s in slices[kind]:
                 extra = " over-bound" if s["over_bound"] else ""
                 dropped = s["meta"].get("dropped")

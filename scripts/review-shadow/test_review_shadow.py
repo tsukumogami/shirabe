@@ -1489,6 +1489,22 @@ class TestSiteInputs(unittest.TestCase):
         multibyte = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["é" * 1280])  # 2,560 bytes, 1,280 chars
         self.assertFalse(multibyte["over_bound"])
 
+    def test_a_large_part_does_not_cost_the_parts_after_it(self):
+        parts = ["a" * 300, "b" * 3000, "c" * 300]
+        s = rs.pack_unit("ac-hunks", 1, {"criterion": "- [ ] x"}, "hunks", "", parts, "\n")
+        self.assertFalse(s["over_bound"])
+        self.assertEqual(s["meta"]["dropped"], 1)
+        self.assertIn("c" * 300, s["inputs"]["hunks"])
+        none_fit = rs.pack_unit("ac-hunks", 1, {}, "hunks", "", ["d" * 3000], "\n")
+        self.assertTrue(none_fit["over_bound"])
+
+    def test_ac_hunks_slices_fit_beside_a_long_criterion(self):
+        criterion = "## Acceptance Criteria\n\n- [ ] `scripts/a.sh` " + "explains the long behaviour " * 30 + "\n"
+        body = "#!/bin/sh\n" + "".join(f"# step {i}\necho {i}\n\n" for i in range(400))
+        _, (slices, _) = self.work_on(criterion, {"scripts/a.sh": body})
+        self.assertTrue(slices["ac-hunks"])
+        self.assertTrue(all(not s["over_bound"] for s in slices["ac-hunks"]))
+
     def test_anchor_terms(self):
         terms = rs.anchor_terms("- [ ] `drafts list` reads scripts/a.sh, takes --dry-run and edits config.toml.")
         self.assertTrue({"drafts list", "scripts/a.sh", "--dry-run", "config.toml"} <= terms)
