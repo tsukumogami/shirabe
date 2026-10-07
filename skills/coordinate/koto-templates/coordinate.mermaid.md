@@ -63,9 +63,17 @@ stateDiagram-v2
     escalate_send --> decision_answer : evidence.decision: present, evidence.round: present, sent: answered
     failure --> dispatch_check : move: redispatch
     failure --> decision_raise : move: escalate
-    land --> land_merge : gates.land_verdict.exit_code: 80
-    land --> surface : gates.land_verdict.exit_code: 81
-    land --> surface : gates.land_verdict.exit_code: 82
+    goal_fit --> land_merge : fit: fits, gates.goal_fit_land.exit_code: 80
+    goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 81
+    goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 82
+    goal_fit --> land_merge : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 80
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 81
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 82
+    goal_fit --> rebrief : fit: gap
+    land --> goal_fit : gates.land_verdict.exit_code: 80
+    land --> goal_fit : gates.land_verdict.exit_code: 81
+    land --> goal_fit : gates.land_verdict.exit_code: 82
+    land --> rebrief : gates.land_verdict.exit_code: 83
     land --> verify : gates.land_verdict.exit_code: 53
     land --> failure : gates.land_verdict.exit_code: 84
     land_merge --> merge_confirm : merge: attempted
@@ -195,6 +203,7 @@ stateDiagram-v2
     verify_board --> wait : gates.verify_board_verdict.exit_code: 72
     verify_board --> wait : gates.verify_board_verdict.exit_code: 73
     verify_board --> wait : gates.verify_board_verdict.exit_code: 78
+    verify_board --> rebrief : gates.verify_board_verdict.exit_code: 79
     verify_board --> surface : gates.verify_board_verdict.exit_code: 74
     verify_board --> surface : gates.verify_board_verdict.exit_code: 75
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76
@@ -249,6 +258,9 @@ stateDiagram-v2
     end note
     note left of escalate
         gate: escalate_verdict
+    end note
+    note left of goal_fit
+        gate: goal_fit_land
     end note
     note left of land
         gate: land_verdict

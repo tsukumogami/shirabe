@@ -384,6 +384,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
             + ([ (.review_level.floor // empty | "floor " + .), (.review_level.ceiling // empty | "ceiling " + .) ] | join(", "))
             + "; /work-on'"'"'s choice must fall inside it." ]
         else [] end )
+    + [ "- [ ] Each pull request body carries your review round under `## Review panel` in its second part: a table with the columns Seat, Model, Run, Verdict and Reviewed head, one row per seat (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the head you report ready. The land step reads it and runs no review of its own." ]
     | join("\n") ),
   "",
   "## Out of scope",

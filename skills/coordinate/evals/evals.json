@@ -240,7 +240,8 @@
         "The verified head is written into the holding in the record before any merge step",
         "The head is re-read on entering the land step, and a moved head goes back to verification",
         "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
-        "After the merge, the change is confirmed on the default branch by reading the changed files there"
+        "After the merge, the change is confirmed on the default branch by reading the changed files there",
+        "The coordinator runs no review panel of its own: the land step reads the worker's Review panel table from the pull request body, and the merge carries a squash message built from the title and Part 1"
       ],
       "requirements": [
         "R10",

@@ -29,6 +29,8 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/board-record-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
+# A body with no Review panel yet: verify_board reads the board, not the round.
+BT_PRVIEW_BODY=$(printf 'Part one.\n\n---\n\nNo panel yet.\n')
 BR="$PS/board-record.sh"
 CL="$PS/coord-log.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"
@@ -82,6 +84,18 @@ eq "a check only isRequired names, unseen under the fallback: still actions-gree
 fresh; bt_board complete-board
 bash "$BR" --session "$S" --pr 12 --repo acme/widgets >/dev/null 2>&1
 eq "a readable rollup is the checks source" checks "$(ctx | jq -r .source)"
+
+echo "== the body's Review panel =="
+fresh; bt_board complete-board; bt_body | sed 's/comment-102/comment-101/' > "$T/body"; bt_prview CLEAN "$T/body"
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err")
+eq "a green board with seats sharing a Run: unevidenced, no head" "unevidenced 12 none" "${OUT% sealed:*}"
+eq "and coord/board.json names the rule broken" run-repeated "$(ctx | jq -r .evidence.reason)"
+fresh; bt_board complete-board; bt_prview CLEAN
+eq "a green board with a well-formed table: verified" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; bt_body "$H" fail > "$T/body"; bt_prview CLEAN "$T/body"
+eq "a failing seat is land's to refuse, not verify's" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/prview-12.err"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"
+eq "a body that can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 
 echo "== a board that can't be judged still leaves verify_board =="
 fresh; bt_board rules-unreadable

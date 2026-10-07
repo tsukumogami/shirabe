@@ -37,6 +37,11 @@ version: "1.0"
 #                               checks source); when no board was read
 #                               (board-unreadable from the record, unlinked),
 #                               the same fields with only the reason set
+#   coord/land.json             land: the verdict, an unready's reason, the
+#                               changed files, the Review panel as parsed, the
+#                               reviewed head's freshness and the squash
+#                               message (goal_fit's reading; the merge-order
+#                               table's message)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
 #                               predecessor_close: the stage and its facts
@@ -1463,6 +1468,12 @@ states:
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 78  # not-run
+      # A green board whose body holds a malformed Review panel table: a
+      # panel claim with seats that can't be told apart is the worker's to
+      # fix, and no verified head is recorded on it.
+      - target: rebrief
+        when:
+          gates.verify_board_verdict.exit_code: 79  # unevidenced
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 74  # not-open
@@ -1519,22 +1530,80 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state land --capture "{{LAND}}"'
         overridable: false
+    # Every posture verdict means the pull request passed the closed checks
+    # (the worker's review round, the reviewed head, the body and its squash
+    # message); goal_fit is the coordinator's one judgment before it lands or
+    # goes to the person. unready is the worker's to fix.
     transitions:
-      - target: land_merge
+      - target: goal_fit
         when:
           gates.land_verdict.exit_code: 80  # permit
-      - target: surface
+      - target: goal_fit
         when:
           gates.land_verdict.exit_code: 81  # deny
-      - target: surface
+      - target: goal_fit
         when:
           gates.land_verdict.exit_code: 82  # confirm
+      - target: rebrief
+        when:
+          gates.land_verdict.exit_code: 83  # unready
       - target: verify
         when:
           gates.land_verdict.exit_code: 53  # moved
       - target: failure
         when:
           gates.land_verdict.exit_code: 84  # dirty
+
+  goal_fit:
+    # The coordinator's judgment against the unit's brief; the land check's
+    # sealed verdict, re-read by goal_fit_land (as reconcile re-reads the
+    # start's posture), picks where a fit pull request goes. gap doesn't read
+    # the gate.
+    accepts:
+      fit:
+        type: enum
+        values: [fits, fits_with_follow_ups, gap]
+        required: true
+        description: fits when the pull request delivers what its unit asked, in the way intended, without stopping short, drifting or deciding what the lane didn't; fits_with_follow_ups when it does and what it leaves is follow-up work, not a defect; gap when the worker must correct it first.
+      rationale:
+        type: string
+        required: true
+        description: What in the pull request, against the brief, decided it; for fits_with_follow_ups, each follow-up; for gap, what to correct.
+    gates:
+      goal_fit_land:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state land --capture "{{LAND}}"'
+        overridable: false
+    transitions:
+      - target: land_merge
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 82
+      # A fit with follow-ups lands the same way; the follow-ups are filed or
+      # proposed (the directive) and named in the hand-over.
+      - target: land_merge
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 82
+      - target: rebrief
+        when:
+          fit: gap
 
   land_merge:
     accepts:
@@ -2923,6 +2992,7 @@ comes after it, so a leg-bound worker reports by message from here: the
 script moves its holding to the message path and abandons the spent request.
 A worker that's gone goes back through pick, dispatched under a new topic with
 what it pushed as what was learned.
+
 ## verify
 
 Before the board is read, write down which reds you would report and which you
@@ -2938,8 +3008,16 @@ report is shaped.
 
 Reading the pull request's board. koto runs `board-record.sh` itself: it reads
 the head from the remote and judges every workflow run and job at that head.
+On a green board it also reads the body's Review panel table, and a malformed
+one is `unevidenced`, which sends you to `rebrief`.
 
 <!-- details -->
+
+`unevidenced` means the worker's panel claim can't be read: a table whose seats
+share a Seat or a Run, or that breaks another rule `panel-evidence.sh` lists.
+The rule broken is in `coord/board.json` (`evidence.reason`) and on the
+action's output. Fixing the table is the worker's: put the rule in the re-brief.
+A body with no table yet passes here; the land step asks for it.
 
 A head is verified only when the board is non-empty, every run finished and none
 failed at startup, every job that ran concluded success on a named runner with at
@@ -3001,10 +3079,20 @@ verified sha, the run goes back to verify.
 ## land
 
 Checking the land step. koto runs `land-check.sh` itself: it re-reads the pull
-request's head against the verified one, reads the merge state, and re-reads the
-posture for the merge.
+request's head against the verified one and reads the merge state, then reads
+the worker's review round from the body's Review panel table, checks the head
+the seats reviewed, runs the body's mechanical checks, builds the squash message
+from the title and Part 1, and re-reads the posture for the merge. `unready`
+sends you to `rebrief` with the reason in `coord/land.json`.
 
 <!-- details -->
+
+The land step never runs a review panel of its own: the worker's three-seat
+round, in its body, is the panel. An `unready` names what the worker fixes: no
+table (`no-evidence`), a table that breaks the format (`malformed:<rule>`), too
+few seats, a failing seat, a reviewed head further from the head than merge-ins
+of the base branch (`stale:<why>`), or a body or message that fails its checks.
+Put that reason in the re-brief.
 
 Take each finishing step as far as the workspace's declared permissions allow,
 and no further. A denial covers the step, not the command: once the workspace
@@ -3013,6 +3101,28 @@ API call, a compound command); hand it over. A step the workspace puts behind a
 person's confirmation is reserved for a person too: hand it over rather than
 trigger the prompt. Never ask the human for a step the workspace already
 permits.
+
+## goal_fit
+
+The pull request passed the closed checks. Judge goal fit, your one call at
+this step: read it against the unit's brief and submit `fit: fits` when it
+delivers what the unit asked, in the way intended, without stopping short,
+drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
+does and what it leaves is follow-up work rather than a defect; `fit: gap` when
+the worker must correct it first. Give the `rationale`: each follow-up, or for a
+gap, what to correct.
+
+<!-- details -->
+
+Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
+brief you dispatched. Code quality is the seats' question, already answered in
+the body; don't re-review it and don't launch reviewers. A fit pull request,
+with or without follow-ups, goes on by the land check's own verdict: to
+`land_merge` where the workspace permits the merge, and to the person, with the
+merge-order table, where it doesn't. Before it goes on, file each follow-up as
+an issue where the workspace lets you, or raise it as a proposed issue in your
+report up, and name it beside the pull request in the merge-order table. A gap
+goes to `rebrief`.
 
 ## land_merge
 
@@ -3031,8 +3141,9 @@ what the workspace permits: the pull request stays verified and goes to the huma
 with the merge-order table, and its holding's Phase becomes `held`. A hold is not
 a failure, and it doesn't escalate.
 
-It reads the land check's verdict from the session log, re-reads the posture, and
-merges only at the verified head. After it returns, the next state confirms the
+It reads the land check's verdict from the session log, re-reads the posture,
+builds the squash message again from the live title and Part 1, and
+merges only at the verified head, with that message. After it returns, the next state confirms the
 change on the default branch by reading the changed files there, not by trusting
 the merge event.
 

@@ -39,6 +39,9 @@ koto	context get	-	always
 # only writes. git reads the origin remote for the host at roadmap scope.
 gh	-	-	always
 git	-	-	always
+# The land check runs the repository's PR-body rule over the pull request's
+# title and body before it builds the squash message.
+shirabe	validate	--pr-body,--pr-title,--format	always
 # The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys,
 # and reconcile-check.sh stops a read's children at its deadline with pkill.
 # It also reads a request leg and the workspace manager's listing, declared

@@ -136,6 +136,10 @@ DESIGN, a related pull request. Path, number or URL only.>
   job green, read job by job.>
 - [ ] Review level: <floor X, ceiling Y>; /work-on's choice must fall
   inside it. (Only when the input gives `review_level`.)
+- [ ] Each pull request body carries your review round under `## Review
+  panel` in its second part (the table in `verification-checklist.md`), at
+  the head you report ready. The land step reads it and runs no review of its
+  own. (Always; the renderer adds it.)
 
 ## Out of scope
 

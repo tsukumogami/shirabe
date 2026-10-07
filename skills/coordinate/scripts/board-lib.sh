@@ -297,3 +297,46 @@ bl_merge_compare() {
     rm -rf "$d"
     echo "$result"
 }
+
+# bl_reviewed_fresh <repo> <base-branch> <reviewed> <head>: is the head the
+# reviewed head, or that head plus merge-ins of the base branch and nothing
+# else? (docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 2.)
+# Walks the head's first-parent chain toward <reviewed>; at each commit C it
+# needs two parents P1 and P2, P2 already on the base branch (the comparison
+# of the base with P2 reads behind or identical), and the files C changed
+# against P1 among the files the base changed from its merge base with P1 to
+# P2. Prints `fresh` or `stale <reason>`, the reason one of not-a-merge,
+# not-on-base, files, too-many-merges or too-many-files. Returns 0 printed;
+# 2 a read failed.
+BL_MAX_MERGEINS=10
+bl_reviewed_fresh() {
+    local repo=$1 base=$2 r=$3 c=$4 d n=0 p1 p2 st
+    if [ "$r" = "$c" ]; then echo fresh; return 0; fi
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-fresh.XXXXXX") || return 2
+    while [ "$c" != "$r" ]; do
+        n=$((n + 1))
+        if [ "$n" -gt "$BL_MAX_MERGEINS" ]; then rm -rf "$d"; echo "stale too-many-merges"; return 0; fi
+        bl_gh "$d/c" api --method GET "repos/$repo/commits/$c" || { rm -rf "$d"; return 2; }
+        if [ "$(jq -r '.parents | length' "$d/c")" != 2 ]; then rm -rf "$d"; echo "stale not-a-merge"; return 0; fi
+        p1=$(jq -r '.parents[0].sha' "$d/c")
+        p2=$(jq -r '.parents[1].sha' "$d/c")
+        if ! bl_sha_ok "$p1" || ! bl_sha_ok "$p2"; then
+            echo "$PROG: commit $c has malformed parents" >&2; rm -rf "$d"; return 2
+        fi
+        bl_gh "$d/b" api --method GET "repos/$repo/compare/$base...$p2" || { rm -rf "$d"; return 2; }
+        st=$(jq -r '.status // ""' "$d/b")
+        case "$st" in behind|identical) ;; *) rm -rf "$d"; echo "stale not-on-base"; return 0 ;; esac
+        bl_gh "$d/m" api --method GET "repos/$repo/compare/$p1...$p2" || { rm -rf "$d"; return 2; }
+        bl_gh "$d/x" api --method GET "repos/$repo/compare/$p1...$c" || { rm -rf "$d"; return 2; }
+        if [ "$(jq '.files // [] | length' "$d/m")" -ge 300 ] || [ "$(jq '.files // [] | length' "$d/x")" -ge 300 ]; then
+            rm -rf "$d"; echo "stale too-many-files"; return 0
+        fi
+        if [ "$(jq -n --slurpfile m "$d/m" --slurpfile x "$d/x" \
+                '([$x[0].files[]?.filename] - [$m[0].files[]?.filename]) | length')" != 0 ]; then
+            rm -rf "$d"; echo "stale files"; return 0
+        fi
+        c=$p1
+    done
+    rm -rf "$d"
+    echo fresh
+}
