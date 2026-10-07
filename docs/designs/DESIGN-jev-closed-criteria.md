@@ -257,7 +257,17 @@ tool's 20-second timeout and single retry. `/work-on` needs no new agent
 step: `panel-scope.sh --record`, which the agent already runs once per
 round after the ledger merge, starts the shadow for that panel in the
 background with its output discarded and its status ignored, so `--record`'s
-own exit status and timing are unchanged. The template's gates, routes,
+own exit status and timing are unchanged.
+
+The hook starts the shadow whether or not the user has opted in with
+`REVIEW_SHADOW_SITES=1`, as the document sites' lines do. The opt-in gates
+the send, inside the site command, not the run: a run without it still
+writes a record of the seats' verdicts with the decider's criteria
+`unanswered` and reason `not-opted-in`. That was a requirement settled while
+this design was under review, so that a shadow ledger with no decider
+verdicts in it reads as "the decider wasn't asked" rather than as "no
+disagreements". The cost is a short local process per panel round and a
+local record holding no artifact text. The template's gates, routes,
 accepts fields and default actions are untouched.
 
 #### Alternatives Considered

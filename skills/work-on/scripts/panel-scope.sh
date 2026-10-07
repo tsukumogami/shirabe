@@ -264,8 +264,10 @@ put() {
 shadow_site() {
     local cmd root
     case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
+    # This script lives at skills/work-on/scripts/ under the plugin root.
     cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/scripts/review-shadow/review-shadow.py}"
     [ -x "$cmd" ] || return 0
+    # A stand-in command needs no python3; the real script does.
     [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
     root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
     ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
