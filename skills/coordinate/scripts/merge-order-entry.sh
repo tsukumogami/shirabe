@@ -13,8 +13,8 @@
 #
 #   **[#<pr>](https://github.com/<repo>/pull/<pr>)**, <why it is handed over>
 #
-#   - Review: <n> seats pass (<seat>, ...) at <reviewed head>, in the pull
-#     request body's Review panel section
+#   - Review: <passes> of <seats> seats pass (<seat>, ...) at <reviewed
+#     head>, in the pull request body's Review panel section
 #   - Holds: none | <hold> until <condition> (<state>), ...
 #   - Squash message:
 #
@@ -24,12 +24,19 @@
 #     <Part 1 as plain text>
 #     ```
 #
+# It refuses detail that isn't the sealed verdict's (coord/land.json's
+# verdict and pull request must match it): the check rewrites both on each
+# visit, so the block is for the pull request the latest land visit judged.
+# Print it at that pull request's own surface visit; a table of several
+# pull requests gets each block from its own visit.
+#
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. The output is what you paste; don't reword
 # it.
 #
-# Exit codes: 0 printed; 2 the capture or the detail couldn't be read, or the
-# verdict isn't one a merge is handed over on; 64 usage.
+# Exit codes: 0 printed; 2 the capture or the detail couldn't be read, the
+# detail isn't the sealed verdict's, or the verdict isn't one a merge is
+# handed over on; 64 usage.
 set -uo pipefail
 
 PROG=merge-order-entry
@@ -64,6 +71,9 @@ if [ -z "$REPO" ]; then
 fi
 
 DETAIL=$("$KOTO" context get "$SESSION" coord/land.json) || { echo "$PROG: coord/land.json couldn't be read" >&2; exit 2; }
+# The detail must be this verdict's: the land check writes both on each visit.
+printf '%s' "$DETAIL" | jq -e --arg v "$1" --arg pr "$PR" '.verdict == $v and .pr == $pr' >/dev/null \
+    || { echo "$PROG: coord/land.json is not the detail of the sealed verdict ($1 #$PR)" >&2; exit 2; }
 printf '%s' "$DETAIL" | jq -e '.evidence.status == "ok" and (.message | type) == "string"' >/dev/null \
     || { echo "$PROG: coord/land.json carries no evidence or message; the land check didn't reach them" >&2; exit 2; }
 

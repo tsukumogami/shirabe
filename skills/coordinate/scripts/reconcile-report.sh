@@ -283,7 +283,7 @@ def next_text:
    fix_ci: "worker fixes CI",
    not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
    land: "ready to land",
-   held: "verified; merge withheld by the human\u0027s direction, waiting on them",
+   held: "verified; merge stopped by a hold in the record (the land check names it)",
    wait: "wait on worker",
    read_again: "read again, then decide", refused: "refused by the record reader",
    replace_leg: "leg spent before the worker reported; replace the leg (dispatch-worker.sh --releg), keeping the worker"}[.];

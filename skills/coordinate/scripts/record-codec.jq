@@ -530,7 +530,7 @@ def parse_record:
 def parse_handoff:
   normalized | split("\n\n## ") as $parts
   | if ($parts | length) < 6 then refuse("expected four sections and the reasoning") else . end
-  | ([$parts[5:][] | select(startswith(holds_title + "\n\n") or startswith(decisions_title + "\n\n"))] | length) as $n_opt
+  | ([$parts[5:] | to_entries[] | select((.value | startswith(holds_title + "\n\n") or startswith(decisions_title + "\n\n")) | not) | .key] | first // ($parts[5:] | length)) as $n_opt
   | ($parts[5:5 + $n_opt]) as $opt
   | if ($parts | length) < 6 + $n_opt then refuse("expected the reasoning after the record's sections") else . end
   | ($parts[5 + $n_opt:] | join("\n\n## ")) as $rp

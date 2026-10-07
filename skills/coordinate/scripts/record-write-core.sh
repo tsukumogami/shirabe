@@ -12,6 +12,9 @@
 #     value in the environment never counts (exit 65). Only
 #     record-decision.sh sets it; a structure test holds every other script
 #     to that;
+#   - the Holds section likewise, through HOLDS_WRITER=1, which only
+#     record-hold.sh sets; even it may only add a hold or stamp a blank
+#     Lifted cell, never drop or change a hold (exit 65);
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
@@ -39,6 +42,7 @@ RECORD_BUDGET=60000
 # Closed by default at the moment this file is sourced, so a value in the
 # environment never counts; the decision writer opens it after sourcing.
 DECISIONS_WRITER=0
+HOLDS_WRITER=0
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -110,10 +114,28 @@ core_write() {
             exit 65
         fi
     fi
+    # The Holds section changes only through the hold writer, and even it may
+    # only add a hold or stamp a blank Lifted cell: every live hold stays, with
+    # every other cell as it was.
+    NEW_H=$(jq -cS '.holds // []' "$T/parsed.json") && LIVE_H=$(jq -cS '.holds // []' "$T/live.json") \
+        || lib_die2 "cannot compare the Holds sections"
+    if [ "$HOLDS_WRITER" != 1 ]; then
+        if [ "$NEW_H" != "$LIVE_H" ]; then
+            echo "$PROG: refused: the Holds section changes only through record-hold.sh; carry it as the live record has it" >&2
+            exit 65
+        fi
+    elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
+            all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
+                | ($m | length) == 1
+                  and ($m[0] | del(.lifted)) == ($o | del(.lifted))
+                  and ($o.lifted == "" or $m[0].lifted == $o.lifted))' > /dev/null; then
+        echo "$PROG: refused: a hold is never removed or changed, only added or lifted once" >&2
+        exit 65
+    fi
 
-    # A public host never names a private repository: not in a Holdings Repo, not
-    # in a Pull request link, not in a Side effects Target (an owner/repo token,
-    # owner/repo#n, or a github.com URL). A named repository the host can't read
+    # A public host never names a private repository: not in a Holdings Repo,
+    # not in a Pull request link, not in a hold's On or Until, not in a Side
+    # effects Target (an owner/repo token, owner/repo#n, or a github.com URL). A named repository the host can't read
     # (404) can't be shown public, so it is refused too. This finds the
     # repositories the body names and reads each one's visibility; the render
     # below refuses a cell naming any on the list (the codec's names_repo, the one
@@ -129,6 +151,8 @@ core_write() {
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
             def links: scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean;
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
+              ((.holds // [])[] | (.on | sub("#.*$"; "")),
+                (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")

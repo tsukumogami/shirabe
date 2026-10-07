@@ -7,8 +7,10 @@
 # second hold of the same name, a lifted new hold and a malformed Until
 # refused (65); --lift stamping the minute and who, only for a `lifted` hold,
 # and only once; a lift of an unknown hold refused; usage errors; reads
-# writing nothing; the write going through record-write.sh as a whole-body
-# edit.
+# writing nothing; the write as a whole-body edit. The section's one writer:
+# record-write.sh dropping or changing a hold refused (65), carrying it
+# unchanged fine; a hold naming a private repository on a public host
+# refused.
 #
 # Usage: bash skills/coordinate/scripts/record-hold_test.sh
 set -uo pipefail
@@ -64,6 +66,27 @@ bash "$RH" "${W_RM[@]}" --lift --hold go-signal --by "the human" >/dev/null 2>"$
 bash "$RH" "${W_RM[@]}" --lift --hold after-346 --by "the human" >/dev/null 2>"$T/err"; eq "a merged condition isn't lifted by hand" 65 $?
 bash "$RH" "${W_RM[@]}" --lift --hold nosuch --by "the human" >/dev/null 2>"$T/err"; eq "an unknown hold is refused" 65 $?
 eq "no hold is ever removed" 3 "$(live | jq '.holds | length')"
+
+echo "== the section has one writer =="
+W=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
+# A whole-body write through record-write.sh that drops a hold, or lifts one.
+live > "$T/now.json"
+jq -c 'del(.written) | .holds |= map(select(.hold != "after-346"))' "$T/now.json" > "$T/drop.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/drop.json" > "$T/drop.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/drop.md" >/dev/null 2>"$T/err"; eq "another writer dropping a hold is refused" 65 $?
+grep -q 'only through record-hold.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
+jq -c 'del(.written) | .holds |= map(if .hold == "tagged" then .set_by = "someone else" else . end)' "$T/now.json" > "$T/edit.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/edit.json" > "$T/edit.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/edit.md" >/dev/null 2>"$T/err"; eq "another writer changing a hold is refused" 65 $?
+jq -c 'del(.written)' "$T/now.json" > "$T/same.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/same.json" > "$T/same.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/same.md" >/dev/null 2>"$T/err"; eq "another writer carrying the holds as they are is fine" 0 $?
+eq "  ... and every hold is still there" 3 "$(live | jq '.holds | length')"
+
+echo "== a public host and a private repository =="
+db '.repos["acme/secret"] = {private: true}'
+hold leak acme/widgets#16 "merged acme/secret#5" > "$T/h6.json"
+bash "$RH" "${W_RM[@]}" --add --row-file "$T/h6.json" >/dev/null 2>"$T/err"; eq "a hold naming a private repository on a public host is refused" 65 $?
 
 echo "== usage =="
 bash "$RH" "${RM[@]}" >/dev/null 2>&1; eq "no mode" 64 $?

@@ -420,8 +420,9 @@ roadmap, Feature 8's amendment of 2026-10-01).
 evidence and before the posture, and evaluates each condition live: `merged`
 reads the named pull request's state, `tag` reads the tag, and `lifted` is met
 only when the row's Lifted cell names who and when. An unmet hold, or one whose
-condition can't be read, gives `held <pr> <sha>`, which routes to `surface` and
-sets the holding's Phase to `held`, the word's existing meaning. The coordinator
+condition can't be read, gives `held <pr> <sha>`, which routes to `surface`,
+where the coordinator writes the holding's Phase as `held`, the word's existing
+meaning, and the record step requires it. The coordinator
 reports the hold as held because the check just read it, not because it
 remembers it. `lifted` rests on a cell the coordinator writes when the person
 lifts the hold, the same trust as the `merge: held` it replaced, but now on the
@@ -433,20 +434,30 @@ It's a verdict of `land`'s own check, so it is a gate in the template's sense:
 the same sealed capture and the same non-overridable gate every check state
 uses. A separate gate on `land` would be a second reader of the same facts.
 `land_merge`'s `merge: held` went in the same pull request that added the hold
-read; a hold the human directs becomes a Holds row with `lifted`, written by
-`record-hold.sh`, the section's one writer (`--add`, `--lift`, `--list`). It
-never deletes a hold: the row is what the record says about who held what.
-`record-confirm.sh` sets Phase `held` for a `surface` entered from `land` on its
-sealed `held` verdict.
+read. A hold the human directs becomes a Holds row with `lifted`, written by
+`record-hold.sh`, the section's one writer (`--add`, `--lift`, `--list`). The
+write core enforces that: any other writer must carry the section as the live
+record has it, and even `record-hold.sh` may only add a hold or stamp a blank
+Lifted cell, never drop or change one, since the row is what the record says
+about who held what. The core's scan for private repositories reads a hold's
+On and Until too, and a rotation's handoff carries the holds as they stand,
+which `rotation-close.sh` checks: a hold outlives the rotation that set it.
+
+`record-confirm.sh` requires Phase `held` for a `surface` entered from `land`
+on its sealed `held` verdict. `land-merge.sh` re-reads the holds, as it already
+re-reads the posture, and refuses a pull request a hold recorded after the land
+check stands on.
 
 When `merge_confirm` or `merged_facts` confirms a merge and a hold on that pull
 request is still unmet, the coordinator writes a Reversals row: `hold <name>`,
 "merged while held, by" the merger as GitHub's `mergedBy` names them, the time
 and the reason. `record-confirm.sh` evaluates the holds over the record it just
-read and waits for one such row per standing hold before the loop goes on. So
-the record says who merged what it held. A hold whose condition became met
-between the merge and the confirmation isn't caught; the land step never merges
-a held pull request itself, so this only concerns a merge made outside the run.
+read and waits for one such row per standing hold before the loop goes on,
+whoever merged. So the record says who merged what it held. A hold whose
+condition became met between the merge and the confirmation isn't caught; the
+land step never merges a held pull request itself, so this concerns a merge
+made outside the run, or one made in the moment between `land-merge.sh`'s read
+and the merge call.
 
 Under a reserving posture or a hold, the person gets the merge-order table with
 a block under it per pull request, printed by `merge-order-entry.sh` from the
@@ -590,7 +601,7 @@ The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
 | `skills/coordinate/scripts/land-check.sh` | evidence, freshness, message before the posture | 1 |
 | `skills/coordinate/scripts/board-record.sh` | `unevidenced` for a malformed table | 1 |
 | `skills/coordinate/scripts/land-merge.sh` | rebuild and carry the message, close-outs included | 1 |
-| `skills/coordinate/scripts/coord-verdict.sh` and `coord-verdict-table_test.sh` | the new words | 1 |
+| `skills/coordinate/scripts/coord-verdict.sh` and `coord-verdict-table_test.sh` | the new words (`held` in 2) | 1 |
 | `skills/coordinate/koto-templates/coordinate.md` and `coordinate.mermaid.md` | the new arms, `goal_fit`, the land directives | 1 |
 | `skills/coordinate/references/verification-checklist.md`, `references/brief-template.md`, `scripts/render-brief.sh` | the merge-order table names the evidence and message; the worker's body carries the table | 1 |
 | `skills/coordinate/requires.tsv` | `shirabe validate --pr-body` | 1 |
@@ -598,7 +609,11 @@ The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
 | `skills/coordinate/scripts/record-codec.jq`, `references/record-template.md` | the Holds section, optional after Reversals and before Decisions, in the record and the handoff | 2 |
 | `skills/coordinate/scripts/record-hold.sh` | new: the section's one writer (`--add`, `--lift`, `--list`) | 2 |
 | `skills/coordinate/scripts/board-lib.sh`, `land-check.sh` | adds `bl_holds_on` and `bl_holds_eval`; the hold read before the posture | 2 |
-| `skills/coordinate/scripts/record-confirm.sh` | Phase `held` from `land` on `held`; after a merge, a Reversals row for each hold still unmet | 2 |
+| `skills/coordinate/scripts/record-confirm.sh` | requires Phase `held` after `land` on `held`; after a merge, a Reversals row for each hold still unmet | 2 |
+| `skills/coordinate/scripts/record-write-core.sh` | `HOLDS_WRITER`: only `record-hold.sh` changes the section, and only by adding or lifting; holds in the private-repository scan | 2 |
+| `skills/coordinate/scripts/land-merge.sh` | re-reads the holds before the merge | 2 |
+| `skills/coordinate/scripts/predecessor-handoff.sh`, `rotation-close.sh` | a handoff carries the holds | 2 |
+| tests and testdata | `record-hold_test.sh` (new) and cases in the codec, land, merge, record, handoff, rotation and structure tests; the gh stand-ins serve tag reads and an issue's body | 2 |
 | `skills/coordinate/scripts/merge-order-entry.sh` | new: the block under the merge-order table, from the land check's detail: the seats' evidence, the holds and the squash message | 2 |
 | `skills/coordinate/koto-templates/coordinate.md`, `references/loop.md`, `scripts/reconcile-report.sh` | `land_merge`'s `merge: held` goes; the surface, merge_confirm and merged_facts directives | 2 |
 

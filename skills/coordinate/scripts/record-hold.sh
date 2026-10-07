@@ -24,8 +24,10 @@
 # a JSON array ([] when there is none).
 #
 # Every write renders with the Written: time of the version read and goes
-# through record-write.sh, which re-reads the target and checks provenance,
-# directed transitions and repository visibility first.
+# through the record's write core (record-write-core.sh), which re-reads the
+# target and checks provenance, directed transitions and repository
+# visibility first. This is the one script that sets HOLDS_WRITER=1; every
+# other writer must carry the section as the live record has it.
 #
 # Exit codes: 0 written (prints the URL) or printed; 2 a read failed; 10
 # refused (the target isn't an open record of this scope, provenance, or a
@@ -81,58 +83,59 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || usage
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
-trap 'rm -rf "$T"' EXIT
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
+trap 'rm -rf "$WD"' EXIT
 
 if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" < /dev/null || lib_die2 "cannot read issue #$REF"
+    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" < /dev/null || lib_die2 "cannot read issue #$REF"
 else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" < /dev/null || lib_die2 "cannot read pull request #$REF"
+    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" < /dev/null || lib_die2 "cannot read pull request #$REF"
 fi
-lib_parse "$T/live.md" "$T/parsed.json"
+lib_parse "$WD/live.md" "$WD/parsed.json"
 case $? in
     0) ;;
-    3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 
 case "$MODE" in
 list)
-    jq -c '.holds // []' "$T/parsed.json"
+    jq -c '.holds // []' "$WD/parsed.json"
     exit 0
     ;;
 add)
     jq -e 'type == "object"' "$ROWFILE" > /dev/null || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }
     [ "$(jq -r '.lifted // ""' "$ROWFILE")" = "" ] || { echo "$PROG: refused: a new hold isn't lifted" >&2; exit 65; }
     H=$(jq -r '.hold // ""' "$ROWFILE")
-    if jq -e --arg h "$H" 'any(.holds[]?; .hold == $h)' "$T/parsed.json" > /dev/null; then
+    if jq -e --arg h "$H" 'any(.holds[]?; .hold == $h)' "$WD/parsed.json" > /dev/null; then
         echo "$PROG: refused: a hold named $H is already in the record" >&2; exit 65
     fi
     jq --slurpfile row "$ROWFILE" '.holds = ((.holds // []) + [$row[0] + {lifted: ""}]) | del(.written)' \
-        "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+        "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
     ;;
 lift)
-    ROW=$(jq -c --arg h "$HOLD" '[.holds[]? | select(.hold == $h)][0] // empty' "$T/parsed.json")
+    ROW=$(jq -c --arg h "$HOLD" '[.holds[]? | select(.hold == $h)][0] // empty' "$WD/parsed.json")
     [ -n "$ROW" ] || { echo "$PROG: refused: no hold named $HOLD" >&2; exit 65; }
     [ "$(printf '%s' "$ROW" | jq -r .until)" = lifted ] \
         || { echo "$PROG: refused: $HOLD waits on $(printf '%s' "$ROW" | jq -r .until), which the land check reads; only a \`lifted\` hold is lifted by hand" >&2; exit 65; }
     [ "$(printf '%s' "$ROW" | jq -r .lifted)" = "" ] || { echo "$PROG: refused: $HOLD is already lifted" >&2; exit 65; }
     NOW=$(date -u +%Y-%m-%dT%H:%MZ)
     jq --arg h "$HOLD" --arg l "$NOW by $BY" '.holds |= map(if .hold == $h then .lifted = $l else . end) | del(.written)' \
-        "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+        "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
     ;;
 esac
 
-# The render keeps the Written: time of the version just read: record-write.sh
+# The render keeps the Written: time of the version just read: the write core
 # compares it with the live body's and refuses when someone wrote in between,
 # then stamps its own time.
-bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$T/parsed.json")" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
-    || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
+bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" > "$WD/body.md" 2> "$WD/render.err" \
+    || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
 
-set -- --body-file "$T/body.md"
-[ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
-if [ "$OVERRIDE" = 1 ]; then
-    set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
-    [ "$SKIP_CHECKS" = 1 ] && set -- "$@" --skip-session-checks
-fi
-bash "$HERE/record-write.sh" "$@"
+# Through the write core, with the Holds section opened to this script alone:
+# the core still refuses a write that drops or changes an existing hold
+# beyond stamping its blank Lifted cell.
+BODY="$WD/body.md" END= CLOSE=0 CORE_CLEANUP=$WD
+lib_write_guard
+. "$HERE/record-write-core.sh"
+HOLDS_WRITER=1
+core_write

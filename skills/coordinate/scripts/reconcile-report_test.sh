@@ -307,14 +307,14 @@ out=$(facts "$MIX" | report)
 printf '%s' "$out" | jq -e '[.holdings[].next_code] == ["land","decide","wait"]' >/dev/null \
   && ok "every holding carries a next_code token" || bad "every holding carries a next_code token" "$(printf '%s' "$out" | jq -c '[.holdings[].next_code]')"
 # A held holding (the record feature's `held` phase, 3891bf4): verified, with
-# the merge withheld by the human's direction. It waits on the human, not on
+# the merge stopped by a hold in the record. It waits on the hold, not on
 # its worker, and it is neither executing nor stale.
 HELD=$(holding th "[$(pr OPEN "$VH"),$(board holds "$VH")]" '{"phase":"held"}')
 out=$(facts "[$HELD]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].phase == "held" and .holdings[0].next_code == "held" and ([.waiting[].topic] == ["th"]) and ([.not_verified[] | select(.what | test("phase"))] | length) == 0' >/dev/null \
   && ok "a held holding is verified and waits on the human, not on its worker" || bad "a held holding is verified and waits on the human" "$out"
-facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge withheld by the human's direction, waiting on them" \
-  && ok "the held line says the merge is withheld by the human's direction" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
+facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge stopped by a hold in the record (the land check names it)" \
+  && ok "the held line says a hold in the record stops the merge" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
 facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "teardown" and (.waiting | length) == 0' >/dev/null \
   && ok "a held holding whose pull request merged since goes to teardown, not waited on" || bad "a held holding whose pull request merged since goes to teardown"

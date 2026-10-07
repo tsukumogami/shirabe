@@ -104,6 +104,7 @@ lib_rotation_dates "$TITLE" || unparseable "the title is not a rotation title wi
 jq -c --arg s "$ROT_START" --arg e "$ROT_END" --arg r "$REPO" --arg u "https://github.com/$REPO/pull/$REF" '
     {scope, rotation: {start: $s, end: $e, date: $e, host_repo: $r, record_url: $u},
      holdings, deferrals, side_effects, reversals, predecessor_copy: {written: .written}}
+    + (if has("holds") then {holds} else {} end)
     + (if has("decisions") then {decisions} else {} end)' \
     "$T/parsed.json" > "$T/handoff.json" || lib_die2 "jq failed"
 bash "$HERE/record-render.sh" --format handoff "$T/handoff.json" > "$T/handoff.md" 2> "$T/render.err" \

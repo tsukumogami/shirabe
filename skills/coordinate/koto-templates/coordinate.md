@@ -37,11 +37,12 @@ version: "1.0"
 #                               checks source); when no board was read
 #                               (board-unreadable from the record, unlinked),
 #                               the same fields with only the reason set
-#   coord/land.json             land: the verdict, an unready's reason, the
-#                               changed files, the Review panel as parsed, the
-#                               reviewed head's freshness and the squash
-#                               message (goal_fit's reading; the merge-order
-#                               table's message)
+#   coord/land.json             land: the verdict and its pull request, an
+#                               unready's reason, the changed files, the
+#                               Review panel as parsed, the reviewed head's
+#                               freshness, the squash message and the holds
+#                               with their states (goal_fit's reading;
+#                               merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
 #                               predecessor_close: the stage and its facts
@@ -3085,8 +3086,10 @@ Checking the land step. koto runs `land-check.sh` itself: it re-reads the pull
 request's head against the verified one and reads the merge state, then reads
 the worker's review round from the body's Review panel table, checks the head
 the seats reviewed, runs the body's mechanical checks, builds the squash message
-from the title and Part 1, and re-reads the posture for the merge. `unready`
-sends you to `rebrief` with the reason in `coord/land.json`.
+from the title and Part 1, reads the record's holds on the pull request, and
+re-reads the posture for the merge. `unready` sends you to `rebrief` with the
+reason in `coord/land.json`; `held` sends you to `surface`, the holds and
+their states there too.
 
 <!-- details -->
 
@@ -3145,9 +3148,11 @@ state confirms the change on the default branch
 by reading the changed files there, not by trusting the merge event.
 
 A hold is not decided here. When someone asks you to hold a merge, record it
-with `record-hold.sh --add` before the land step reads it: the land check reads
-every hold in the record and sends a held pull request to the person, so a
-hold you only remember never stops a merge.
+with `record-hold.sh --add` at once: the land check reads every hold in the
+record and sends a held pull request to the person, and `land-merge.sh`
+re-reads them and refuses a pull request a hold recorded since stands on, so a
+hold you only remember never stops a merge. Submit `merge: failed` on that
+refusal; the pull request goes back through verify.
 
 ## merge_confirm
 
@@ -3167,6 +3172,15 @@ on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worke
 for a small pull request that sets the feature's status line, as a holding;
 features that depend on it stay blocked until it merges.
 
+A merge made while a hold in the record still stood on the pull request
+(`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
+whose Reversed is `hold <name> on <owner/repo#n>`, whose Now is `merged while
+held, by <login>` (the login `gh pr view <n> --repo <owner/repo> --json
+mergedBy` reads), with the time and the reason as far as you know it. The
+record step waits for one per standing hold. `land-merge.sh` re-reads the holds
+and refuses a held pull request, so a merge you made needs one only when a hold
+was recorded after that read.
+
 ## merged_facts
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
@@ -3184,21 +3198,23 @@ hold that feature's PLAN, dispatch a worker for a small pull request that sets
 the feature's status line, as a holding; features that depend on it stay blocked
 until it merges.
 
-When a hold in the record still stood on the pull request (`record-hold.sh
---list`), say so on the record: add a Reversals row whose Reversed is `hold
-<name> on <owner/repo#n>`, whose Now is `merged while held, by <login>` (the
-login `gh pr view <n> --repo <owner/repo> --json mergedBy` reads), with the time
-and the reason as far as you know it. The record step waits for one per
-standing hold. A merge you made never needs it: land doesn't merge a held pull
-request.
+A merge made while a hold in the record still stood on the pull request
+(`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
+whose Reversed is `hold <name> on <owner/repo#n>`, whose Now is `merged while
+held, by <login>` (the login `gh pr view <n> --repo <owner/repo> --json
+mergedBy` reads), with the time and the reason as far as you know it. The
+record step waits for one per standing hold. `land-merge.sh` re-reads the holds
+and refuses a held pull request, so a merge you made needs one only when a hold
+was recorded after that read.
 
 ## surface
 
 For a merge the workspace reserves, or one a hold in the record stops, put the
 merge-order table from `references/verification-checklist.md` in front of the
 human, once, with the reason for the order (`surfaced: merge_table`); under it,
-for each pull request, paste the block `merge-order-entry.sh` prints, as it
-is. For a blocked worker, show the
+for each pull request, paste the block `merge-order-entry.sh` printed at that
+pull request's own surface visit, as it is (it prints only for the pull
+request the latest land visit judged). For a blocked worker, show the
 human nothing yet: name what it needs as `need`, one of `credential <name>`,
 `reserved-step <merge|release|close|teardown> <link>` or `access <owner/repo>`,
 and submit `surfaced: blocker`. Once `surface_check` accepts it, report up at
@@ -3389,8 +3405,10 @@ Reading the rotation close-out's stage. koto runs `closeout-read.sh` itself.
 <!-- details -->
 
 At rotation end, write `docs/disciplines/<name>.md` fresh: the same four
-sections, the unsettled decisions with the same `Next decision` when the record
-holds any (the handoff renderer carries them), and a reasoning section with what
+sections, every hold as the record has it (a hold outlives its rotation;
+`rotation-close.sh` refuses a handoff without them), the unsettled decisions
+with the same `Next decision` when the record holds any (the handoff renderer
+carries them), and a reasoning section with what
 this rotation learned that the tables can't say,
 replacing the previous rotation's text, never appending to it. Commit
 it to the record branch, correct the title's end date if the rotation ended on

@@ -20,6 +20,9 @@
 #      (board-lib.sh's bl_merge_posture), must be permit. A hook that matches
 #      the typed command never sees a script that merges inside itself, so
 #      this asks the posture the question the hook would have answered.
+#   4a. (not --closeout) the record's holds on the pull request, re-read live
+#      (board-lib.sh's bl_holds_on): every one met. A hold recorded after
+#      the land check stops the merge here;
 #   5. the squash message: squash-message.sh over the pull request's live
 #      title and body (gh pr view --json title,body) must build, so the
 #      commit carries Part 1 and never the reviewer context below it. A
@@ -110,6 +113,15 @@ fi
 
 P=$(bl_merge_posture "$SESSION") || refuse "the posture re-read failed"
 [ "$P" = permit ] || refuse "the merge posture is $P now; hand the merge to the human"
+
+# The holds, re-read now as the posture is: one recorded after the land check
+# still stops the merge. A close-out merges the coordinator's own record,
+# which no hold is on.
+if [ "$CLOSEOUT" = 0 ]; then
+    HOLDS=$(bl_holds_on "$SESSION" "$REPO" "$PR") || refuse "the record's holds couldn't be re-read"
+    STANDING=$(printf '%s' "$HOLDS" | jq -r '[.[] | select(.state != "met") | "\(.hold) (\(.until), \(.state))"] | join(", ")')
+    [ -z "$STANDING" ] || refuse "a hold stands on #$PR now: $STANDING; go back through verify"
+fi
 
 # The squash message, built again from the live title and Part 1, so the
 # commit carries Part 1 and never the reviewer context below it.

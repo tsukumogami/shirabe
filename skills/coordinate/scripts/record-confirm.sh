@@ -456,7 +456,7 @@ merge_confirm|merged_facts)
             STANDING=$(bl_holds_eval "$T/rec.json" "$UREPO" "$PR") || lib_die2 "cannot read the holds on $UREPO#$PR"
             for h in $(printf '%s' "$STANDING" | jq -r '.[] | select(.state != "met") | .hold'); do
                 EXPECT="$EXPECT; a Reversals row for hold $h reading \"merged while held\""
-                holds "any(.reversals[]; (.reversed | contains(\"hold \" + \$h)) and (.now | test(\"merged while held\"; \"i\")))" \
+                holds "any(.reversals[]; ((\" \" + .reversed + \" \") | contains(\" hold \" + \$h + \" \")) and (.now | test(\"merged while held\"; \"i\")))" \
                     --arg h "$h" || OKX=0
             done
         fi

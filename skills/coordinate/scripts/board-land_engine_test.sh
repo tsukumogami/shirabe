@@ -21,7 +21,7 @@
 # and never to land, even when a check only isRequired names is unseen; an
 # unreadable board routes to wait, which then takes the next event, and a pull
 # request merged outside the run routes to surface, so verify_board never holds
-# the run; a denied posture routes land to surface; `koto next --to verify_board`
+# the run; a denied posture routes land through goal_fit to surface; `koto next --to verify_board`
 # without a prediction leaves no VERIFIED capture (board-record.sh refuses);
 # and a `--to` anywhere in the run makes land-merge.sh refuse.
 #

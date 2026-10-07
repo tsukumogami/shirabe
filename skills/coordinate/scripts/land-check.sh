@@ -29,10 +29,10 @@
 #    posture-read.sh (board-lib.sh's bl_merge_posture): `permit <pr> <sha>`,
 #    `deny <pr> <sha>` or `confirm <pr> <sha>`.
 # The token is sealed to the latest entry into land (captured as LAND). The
-# detail goes to context key coord/land.json as data: the verdict; for
-# `unready`, the reason (no-evidence, malformed:<rule>, too-few-seats,
-# not-unanimous, stale:<why>, body-checks or message); the changed files, the
-# evidence as parsed, the freshness result, the body checks' findings, the
+# detail goes to context key coord/land.json as data: the verdict and the
+# pull request it is about; for `unready`, the reason (no-evidence,
+# malformed:<rule>, too-few-seats, not-unanimous, stale:<why>, body-checks or
+# message); the changed files, the evidence as parsed, the freshness result, the body checks' findings, the
 # built message and the holds with their states, as far as the check got.
 #
 # The repository is the one the record's Holdings row for #<pr> links;
@@ -109,7 +109,7 @@ TITLE=$(jq -r '.title // ""' "$MS")
 BASE=$(jq -r '.baseRefName // ""' "$MS")
 bl_branch_ok "$BASE" || { echo "$PROG: base branch [$BASE]" >&2; exit 2; }
 
-DETAIL=$(jq -c '{files: [.files[]?.path]}' "$MS") || exit 2
+DETAIL=$(jq -c --arg pr "$PR" '{pr: $pr, files: [.files[]?.path]}' "$MS") || exit 2
 # detail <jq filter> [jq args...]: add to the check's detail.
 detail() {
     local f=$1

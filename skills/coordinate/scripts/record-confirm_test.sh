@@ -250,6 +250,8 @@ body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold after-y 'merged a
 eq "a hold until another pull request merges, still open, needs its row" waiting "$(confirm)"
 body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold other lifted | jq -c '.on = "acme/widgets#13"')" '.holdings = [$a] | .holds = [$h]')"
 eq "a hold on another pull request doesn't apply" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold go lifted)" --argjson r "$WHILE_HELD" '.holdings = [$a] | .holds = [$h] | .reversals = [$r]')"
+eq "a row for hold go-signal doesn't stand for a hold named go" waiting "$(confirm)"
 
 session
 log_to "$S" wait merge_confirm

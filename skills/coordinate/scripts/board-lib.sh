@@ -347,9 +347,11 @@ bl_reviewed_fresh() {
 #   met         `lifted` with a Lifted cell; `merged R#m` with R#m MERGED;
 #               `tag R T` with the tag on R
 #   unmet       otherwise
-#   unreadable  the condition's read failed, other than a missing tag
+#   unreadable  the condition's read failed (a refusal, a server error, a
+#               missing pull request), other than a missing tag
 # The record is read live, as bl_human_holds_merge reads it. Returns 0
-# printed; 2 the record couldn't be read or parsed.
+# printed; 2 the record couldn't be read or parsed, or a read ran out of the
+# check's time (the tick re-runs it rather than call the hold unreadable).
 bl_holds_on() {
     local s=$1 repo=$2 pr=$3 facts rrepo ref scope name d c
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
@@ -389,12 +391,18 @@ bl_holds_eval() {
                 set -f; set -- $until; set +f
                 if bl_gh "$d/m" pr view "${2##*#}" --repo "${2%#*}" --json state; then
                     if [ "$(jq -r '.state // ""' "$d/m")" = MERGED ]; then st=met; else st=unmet; fi
+                elif [ "$(cat "$d/m.fail")" = deadline ]; then rm -rf "$d"; return 2
                 else st=unreadable; fi ;;
             tag\ *)
                 set -f; set -- $until; set +f
                 if bl_gh "$d/t" api --method GET "repos/$2/git/ref/tags/$3"; then st=met
-                elif [ "$(cat "$d/t.fail" 2>/dev/null)" = notfound ]; then st=unmet
-                else st=unreadable; fi ;;
+                else
+                    case "$(cat "$d/t.fail")" in
+                        notfound) st=unmet ;;
+                        deadline) rm -rf "$d"; return 2 ;;
+                        *) st=unreadable ;;
+                    esac
+                fi ;;
             *) st=unreadable ;;
         esac
         printf '%s\n' "$st" >> "$d/states"
