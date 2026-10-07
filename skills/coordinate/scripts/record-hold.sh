@@ -36,7 +36,8 @@
 # hold was refused (the reason on stderr).
 #
 # GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body; writes happen only in record-write.sh.
+# --json body; the write happens only in the write core it sources
+# (record-write-core.sh).
 set -uo pipefail
 
 PROG=record-hold
@@ -87,10 +88,13 @@ WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
 if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" < /dev/null || lib_die2 "cannot read issue #$REF"
+    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read issue #$REF"
 else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" < /dev/null || lib_die2 "cannot read pull request #$REF"
+    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read pull request #$REF"
 fi
+# Line endings as the write core reads them, so a body GitHub serves with
+# CRLF parses the same here as there.
+tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
 lib_parse "$WD/live.md" "$WD/parsed.json"
 case $? in
     0) ;;

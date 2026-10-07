@@ -3203,9 +3203,8 @@ A merge made while a hold in the record still stood on the pull request
 whose Reversed is `hold <name> on <owner/repo#n>`, whose Now is `merged while
 held, by <login>` (the login `gh pr view <n> --repo <owner/repo> --json
 mergedBy` reads), with the time and the reason as far as you know it. The
-record step waits for one per standing hold. `land-merge.sh` re-reads the holds
-and refuses a held pull request, so a merge you made needs one only when a hold
-was recorded after that read.
+record step waits for one per standing hold: a merge the human made never went
+through `land-merge.sh`'s re-read, so every hold standing on it needs its row.
 
 ## surface
 

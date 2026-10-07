@@ -1,12 +1,12 @@
 # record-write-core.sh -- the coordinator record's one write path. Sourced, never
 # run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, and the decision writer); no check script sources
-# it, which keeps record-common.sh's promise that everything a check sources
+# record-holding.sh calls, the decision writer and the hold writer); no check
+# script sources it, which keeps record-common.sh's promise that everything a check sources
 # only reads.
 #
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists; every check from the parse on lives here.
-# The two the Decisions section brought:
+# Three of them, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
