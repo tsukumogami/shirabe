@@ -2,9 +2,9 @@
 #
 # release-eval-check.sh - shirabe's eval check for /shirabe:release
 #
-# Runs the evals of the skills changed since the last release, compares their
-# pass rates with the previous release's eval-pass-rates.json asset, and leaves
-# a record for the release to attach. Declared in
+# Runs the evals of the skills changed since the last release, compares each
+# one's pass rate with the newest earlier release whose eval-pass-rates.json
+# asset measured it, and leaves a record for the release to attach. Declared in
 # .claude/shirabe-extensions/release.md; see
 # docs/designs/current/DESIGN-evals-at-release.md (Decision 3).
 #
@@ -24,11 +24,15 @@
 #   5. Runs scripts/run-evals.sh --runs <N> --summary-out <state>/<i>.json
 #      <skill> per selected skill: N is --critical-runs for a skill in
 #      --critical and 1 otherwise. A failing skill doesn't stop the others.
-#   6. With a non-empty last tag, downloads that release's eval-pass-rates.json
-#      with gh into a mktemp -d directory. A release or asset gh reports as not
-#      found means no baseline (a missing baseline passes, by design); any
-#      other download failure exits 1 with gh's reason.
-#   7. Runs scripts/lib/eval-pass-rates.py merge, which writes
+#   6. With a non-empty last tag, downloads eval-pass-rates.json with gh into a
+#      mktemp -d directory from that release and from the older v* releases
+#      merged into HEAD, newest first, ten releases at most. A release or asset
+#      gh reports as not found is skipped, and none found anywhere means no
+#      baseline (a missing baseline passes, by design); any other download
+#      failure exits 1 with gh's reason.
+#   7. Runs scripts/lib/eval-pass-rates.py merge with every record found,
+#      newest first. It composes the baseline per skill (each skill against
+#      the newest release that measured it), writes
 #      <state>/eval-pass-rates.json, prints the comparison, and decides the
 #      exit code.
 #
@@ -273,7 +277,26 @@ fi
 
 # --- baseline -------------------------------------------------------------------
 
-PREVIOUS="-"
+# The baseline is composed per skill from the records of the last tag and the
+# releases before it (eval-pass-rates.py merge takes them newest first), so a
+# release that measured only some skills leaves the rest compared with the
+# newest older release that measured them. The walk takes the last tag, then
+# the older v* tags merged into HEAD, newest first, BASELINE_DEPTH releases in
+# all. Every record carries forward the skills it didn't measure, so a deep
+# walk is only needed after a release whose record went missing or was cut
+# short; the cap keeps a long history from costing a download per release.
+# Tags have to be fetched for the walk to see them: in a clone without them it
+# shrinks to the last tag.
+BASELINE_DEPTH=10
+
+# Reads vX.Y.Z tags, one per line, and prints "<key> <tag>". The key is
+# fixed-width and zero-padded, so string order is version order. Compare keys
+# as strings: as numbers an 18-digit key loses precision in awk.
+version_keys() {
+  awk -F'[v.]' '{ printf "%06d%06d%06d %s\n", $2, $3, $4, $0 }'
+}
+
+FOUND=""
 REASON=""
 DOWNLOAD_DIR=""
 cleanup() {
@@ -284,27 +307,64 @@ trap cleanup EXIT
 if [ -z "$LAST_TAG" ]; then
   REASON="no last tag, so no previous release"
 else
+  LAST_KEY=$(printf '%s\n' "$LAST_TAG" | version_keys | cut -d' ' -f1)
+  OLDER=$(git tag --merged HEAD --list 'v*' |
+    { grep -E "$TAG_RE" || true; } |
+    version_keys |
+    sort -r |
+    awk -v k="$LAST_KEY" -v n=$((BASELINE_DEPTH - 1)) \
+      'c < n && ($1 "") < (k "") { print $2; c++ }')
   DOWNLOAD_DIR=$(mktemp -d) || fail "could not create a temporary directory"
-  # Only "there is nothing to download" is no baseline: the release for the
-  # last tag doesn't exist, or it has no such asset. gh says those two in
-  # fixed words. Any other failure (network, auth, a wrong repository) is not
-  # evidence that no baseline exists, and passing the comparison on it would
-  # let a regression through on a warning, so it stops the check.
   DOWNLOAD_ERR="$DOWNLOAD_DIR/gh-stderr"
-  if gh release download "$LAST_TAG" --repo "$REPO" --pattern "$ASSET_NAME" \
-    --dir "$DOWNLOAD_DIR" >/dev/null 2>"$DOWNLOAD_ERR"; then
-    PREVIOUS="$DOWNLOAD_DIR/$ASSET_NAME"
-  elif grep -qxE 'no assets match the file pattern|release not found' "$DOWNLOAD_ERR"; then
-    REASON="no $ASSET_NAME on the $LAST_TAG release"
+  TRIED=0
+  # Each release downloads into a directory named for its tag, and FOUND lists
+  # the tags that had a record, newest first: the merge below passes records
+  # in FOUND's order, which is the order the baseline is composed in.
+  for tag in $LAST_TAG $OLDER; do
+    TRIED=$((TRIED + 1))
+    dir="$DOWNLOAD_DIR/$tag"
+    mkdir "$dir" || fail "could not create a temporary directory"
+    # Only "there is nothing to download" skips a release: it doesn't exist,
+    # or it has no such asset. gh says those two in fixed words. Any other
+    # failure (network, auth, a wrong repository) is not evidence that no
+    # baseline exists, and passing the comparison on it would let a regression
+    # through on a warning, so it stops the check.
+    if gh release download "$tag" --repo "$REPO" --pattern "$ASSET_NAME" \
+      --dir "$dir" >/dev/null 2>"$DOWNLOAD_ERR"; then
+      FOUND="$FOUND $tag"
+    elif ! grep -qxE 'no assets match the file pattern|release not found' "$DOWNLOAD_ERR"; then
+      fail "could not download $ASSET_NAME from the $tag release: $(head -n 3 "$DOWNLOAD_ERR" | tr -d '\r' | tr '\n' ' ')"
+    fi
+  done
+  if [ -z "$FOUND" ]; then
+    if [ "$TRIED" -eq 1 ]; then
+      REASON="no $ASSET_NAME on the $LAST_TAG release"
+    else
+      REASON="no $ASSET_NAME on the $LAST_TAG release or the $((TRIED - 1)) before it"
+    fi
   else
-    fail "could not download $ASSET_NAME from the $LAST_TAG release: $(head -n 3 "$DOWNLOAD_ERR" | tr -d '\r' | tr '\n' ' ')"
+    # Numbered, because the merge's warnings name a skipped record by its
+    # position among the records passed to it.
+    i=0
+    LISTED=""
+    for tag in $FOUND; do
+      i=$((i + 1))
+      LISTED="$LISTED $i=$tag"
+    done
+    echo "Baseline records, newest first:$LISTED"
   fi
 fi
 
 # --- merge ----------------------------------------------------------------------
 
-set -- merge --previous "$PREVIOUS" --no-baseline-reason "$REASON" \
+set -- merge --no-baseline-reason "$REASON" \
   --version "$VERSION" --last-tag "$LAST_TAG" --confirmed "$CONFIRMED" --out "$RECORD"
+if [ -z "$FOUND" ]; then
+  set -- "$@" --previous -
+fi
+for tag in $FOUND; do
+  set -- "$@" --previous "$DOWNLOAD_DIR/$tag/$ASSET_NAME"
+done
 for name in $SKILLS; do
   set -- "$@" --selected "$name"
 done

@@ -68,8 +68,10 @@ class Case(unittest.TestCase):
 
     def merge(self, previous, summaries, selected, confirmed="", last_tag="v0.23.0",
               version="0.24.0", reason=""):
-        args = ["merge", "--previous", previous, "--version", version,
+        args = ["merge", "--version", version,
                 "--last-tag", last_tag, "--out", self.out, "--confirmed", confirmed]
+        for path in ([previous] if isinstance(previous, str) else previous):
+            args += ["--previous", path]
         if reason:
             args += ["--no-baseline-reason", reason]
         for path in summaries:
@@ -288,6 +290,60 @@ class MergeTest(Case):
             rc, out = self.merge(prev, [], [])
             self.assertEqual(rc, 0, out)
             self.assertIn("skills.brief.pass_rate", out)
+
+    def test_baseline_falls_back_per_skill(self):
+        newest = self.write(record({"brief": entry(9, 10, measured_at="0.24.0")},
+                                   version="0.24.0", last_tag="v0.23.0"))
+        older = self.write(record({"brief": entry(5, 10, measured_at="0.22.0"),
+                                   "scope": entry(9, 10, measured_at="0.22.0")},
+                                  version="0.22.0", last_tag="v0.21.0"))
+        summ = self.summary({"brief": summary_entry(9, 10), "scope": summary_entry(8, 10, code=1)})
+        rc, out = self.merge([newest, older], [summ], ["brief", "scope"], last_tag="v0.24.0",
+                             version="0.25.0")
+        # brief compares with 0.24.0 (equal), scope falls back to 0.22.0 (a drop).
+        self.assertEqual(rc, 5, out)
+        self.assertEqual(out.strip().splitlines()[-1], "confirm: RELEASE_CONFIRMED_DROPS=scope")
+        self.assertRegex(out, r"scope\s+0\.8000\s+0\.9000\s+0\.22\.0")
+        self.assertRegex(out, r"brief\s+0\.9000\s+0\.9000\s+0\.24\.0")
+
+    def test_fallback_entries_are_carried_forward(self):
+        newest = self.write(record({"brief": entry(9, 10, measured_at="0.24.0")},
+                                   version="0.24.0"))
+        older = self.write(record({"brief": entry(5, 10, measured_at="0.22.0"),
+                                   "scope": entry(9, 10, measured_at="0.22.0")},
+                                  version="0.22.0"))
+        rc, out = self.merge([newest, older], [], [])
+        self.assertEqual(rc, 0, out)
+        skills = self.result()["skills"]
+        self.assertEqual(skills["brief"]["measured_at"], "0.24.0")
+        self.assertEqual(skills["scope"]["measured_at"], "0.22.0")
+
+    def test_newer_exit_code_entry_falls_back_to_older_rate(self):
+        failed = entry(0, 0, rate=None, measured_at="0.24.0")
+        failed["exit_code"] = 4
+        newest = self.write(record({"scope": failed}, version="0.24.0"))
+        older = self.write(record({"scope": entry(9, 10, measured_at="0.22.0")}, version="0.22.0"))
+        summ = self.summary({"scope": summary_entry(8, 10, code=1)})
+        rc, out = self.merge([newest, older], [summ], ["scope"])
+        self.assertEqual(rc, 5, out)
+        self.assertIn("confirm: RELEASE_CONFIRMED_DROPS=scope", out)
+
+    def test_invalid_record_is_skipped_not_the_whole_baseline(self):
+        bad = self.write(None, raw="{not json")
+        older = self.write(record({"brief": entry(9, 10, measured_at="0.22.0")}, version="0.22.0"))
+        summ = self.summary({"brief": summary_entry(8, 10, code=1)})
+        rc, out = self.merge([bad, older], [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
+        self.assertIn("warning: previous record 1 ignored: the file does not parse as JSON", out)
+        self.assertNotIn("no baseline", out)
+
+    def test_no_usable_record_among_several_is_no_baseline(self):
+        bad = self.write(None, raw="{not json")
+        summ = self.summary({"brief": summary_entry(1, 10, code=1)})
+        rc, out = self.merge([bad, "-"], [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("warning: previous record 1 ignored", out)
+        self.assertIn("warning: no baseline: no previous record was usable", out)
 
     def test_carried_entry_with_exit_code_is_valid(self):
         failed = entry(0, 0, rate=None)

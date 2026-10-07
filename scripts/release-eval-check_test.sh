@@ -20,8 +20,9 @@
 #   list-rc          --list-changed's exit code (default 0)
 #   result.<skill>   "<exit> <assertions passed> <assertions graded>"
 #   nosummary.<skill>  present: write no summary for that skill
-# The stub gh copies $STUB_DIR/asset as the downloaded asset, or fails when
-# there is none.
+# The stub gh copies $STUB_DIR/asset.<tag>, else $STUB_DIR/asset, as the
+# downloaded asset, or fails as not found when there is neither;
+# gh-error.<tag> makes the download of that one tag fail otherwise.
 
 set -uo pipefail
 
@@ -49,6 +50,7 @@ cat >"$BIN/gh" <<'EOF'
 echo "gh $*" >>"$STUB_LOG"
 if [ "$1" = release ] && [ "$2" = download ]; then
   dir=""
+  tag="$3"
   while [ $# -gt 0 ]; do
     if [ "$1" = --dir ]; then dir="$2"; fi
     shift
@@ -56,6 +58,11 @@ if [ "$1" = release ] && [ "$2" = download ]; then
   # gh's own words for the two not-found cases; gh-error stands in for any
   # other failure (network, auth).
   if [ -f "$STUB_DIR/gh-error" ]; then cat "$STUB_DIR/gh-error" >&2; exit 1; fi
+  if [ -f "$STUB_DIR/gh-error.$tag" ]; then cat "$STUB_DIR/gh-error.$tag" >&2; exit 1; fi
+  if [ -f "$STUB_DIR/asset.$tag" ]; then
+    cp "$STUB_DIR/asset.$tag" "$dir/eval-pass-rates.json"
+    exit 0
+  fi
   if [ -f "$STUB_DIR/no-release" ]; then echo "release not found" >&2; exit 1; fi
   [ -f "$STUB_DIR/asset" ] || { echo "no assets match the file pattern" >&2; exit 1; }
   cp "$STUB_DIR/asset" "$dir/eval-pass-rates.json"
@@ -148,6 +155,35 @@ write_asset() { # write_asset <skill> <passed> <graded> <rate> [<measured_at>]
  "measured_at": "${5:-0.23.0}"}}}
 JSON
 }
+
+tag_asset() { # tag_asset <tag> <version> <skill>:<passed>:<graded>:<measured_at>...
+  local tag=$1 version=$2 skills="" sep="" spec name passed graded at
+  shift 2
+  for spec in "$@"; do
+    IFS=: read -r name passed graded at <<SPEC
+$spec
+SPEC
+    skills="$skills$sep\"$name\": {\"runs\": 1, \"runs_passed\": 1,
+ \"assertions_passed\": $passed, \"assertions_graded\": $graded,
+ \"pass_rate\": $(python3 -c "print(round($passed / $graded, 4))"),
+ \"models\": [\"sonnet\"], \"measured_at\": \"$at\"}"
+    sep=", "
+  done
+  cat >"$STUB_DIR/asset.$tag" <<JSON
+{"schema": "eval-pass-rates/v1", "version": "$version", "last_tag": "",
+ "skills": {$skills}}
+JSON
+}
+
+tag_head() { # tag_head <tag>... -- a new commit carrying each tag
+  local tag
+  for tag in "$@"; do
+    new_commit
+    git -C "$REPO" tag "$tag"
+  done
+}
+
+download_tags() { sed -n 's/^gh release download \([^ ]*\) .*/\1/p' "$STUB_LOG" | tr '\n' ' '; }
 
 harness_calls() { grep -c '^run-evals --runs' "$STUB_LOG" || true; }
 list_calls() { grep -c '^run-evals --list-changed' "$STUB_LOG" || true; }
@@ -373,6 +409,74 @@ if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: schema is not
   pass "an unknown schema: no baseline, exit 0"
 else
   fail "unknown schema (rc=$RC): $OUT"
+fi
+
+# -- per-skill fallback across releases ------------------------------------------
+
+new_case
+tag_head v0.22.0 v0.23.0 v0.24.0 v0.25.0
+printf 'brief\nscope\n' >"$STUB_DIR/selection"
+echo "1 9 10" >"$STUB_DIR/result.brief"
+echo "1 8 10" >"$STUB_DIR/result.scope"
+tag_asset v0.24.0 0.24.0 brief:9:10:0.24.0
+tag_asset v0.22.0 0.22.0 brief:5:10:0.22.0 scope:9:10:0.22.0 vision:7:10:0.21.0
+run_check v0.24.0 0.25.0
+if [ "$(download_tags)" = "v0.24.0 v0.23.0 v0.22.0 " ]; then
+  pass "walks the last tag then older tags newest first, never a newer tag"
+else
+  fail "download order: $(download_tags)"
+fi
+if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=scope" ] \
+  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.22.0'; then
+  pass "a skill the last release didn't measure is compared with an older release that did"
+else
+  fail "per-skill fallback (rc=$RC): $OUT"
+fi
+if [ "$(record_field 'r["skills"]["vision"]["measured_at"]')" = 0.21.0 ] \
+  && [ "$(record_field 'r["skills"]["brief"]["measured_at"]')" = 0.25.0 ]; then
+  pass "the record carries an older release's unselected skill forward"
+else
+  fail "carry-forward across releases: $(cat "$STATE/eval-pass-rates.json" 2>/dev/null)"
+fi
+
+new_case
+tag_head v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.8.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0
+echo brief >"$STUB_DIR/selection"
+run_check v0.12.0 0.13.0
+if [ "$RC" -eq 0 ] \
+  && [ "$(download_tags)" = "v0.12.0 v0.11.0 v0.10.0 v0.9.0 v0.8.0 v0.7.0 v0.6.0 v0.5.0 v0.4.0 v0.3.0 " ] \
+  && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.12.0 release or the 9 before it'; then
+  pass "the walk stops after ten releases, in version order, and none found is no baseline"
+else
+  fail "depth cap (rc=$RC): $(download_tags) $OUT"
+fi
+
+new_case
+tag_head v0.23.0 v0.24.0
+echo brief >"$STUB_DIR/selection"
+echo "1 8 10" >"$STUB_DIR/result.brief"
+echo '{not json' >"$STUB_DIR/asset.v0.24.0"
+tag_asset v0.23.0 0.23.0 brief:9:10:0.23.0
+run_check v0.24.0 0.25.0
+if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=brief" ] \
+  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.23.0' \
+  && printf '%s\n' "$OUT" | grep -q 'warning: previous record 1 ignored: the file does not parse as JSON'; then
+  pass "an unusable record on the last tag is skipped for an older release's"
+else
+  fail "unusable newest record (rc=$RC): $OUT"
+fi
+
+new_case
+tag_head v0.23.0 v0.24.0
+echo brief >"$STUB_DIR/selection"
+tag_asset v0.24.0 0.24.0 brief:9:10:0.24.0
+echo 'HTTP 502: bad gateway' >"$STUB_DIR/gh-error.v0.23.0"
+run_check v0.24.0 0.25.0
+if [ "$RC" -eq 1 ] \
+  && printf '%s\n' "$OUT" | grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: HTTP 502: bad gateway'; then
+  pass "a download error on an older release still exits 1 with gh's reason"
+else
+  fail "older release error (rc=$RC): $OUT"
 fi
 
 # -- stale state, empty selection ------------------------------------------------
