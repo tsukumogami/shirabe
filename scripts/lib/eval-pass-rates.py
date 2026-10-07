@@ -6,27 +6,34 @@ eval-pass-rates.json. scripts/release-eval-check.sh calls this script; see
 docs/designs/current/DESIGN-evals-at-release.md (Decision 3, Security Considerations).
 
 Usage:
-  eval-pass-rates.py merge --previous <file or -> [--no-baseline-reason <text>]
+  eval-pass-rates.py merge --previous <file or ->... [--no-baseline-reason <text>]
       [--summary <file>]... [--selected <skill>]... --version <v>
       --last-tag <tag or ''> [--confirmed <a,b>] --out <file>
   eval-pass-rates.py stamp --record <file> --version <v> [--measured <skill>]...
 
 merge
   Builds the record from this run's run-evals-summary/v1 files and the previous
-  release's record, writes it to --out and prints a comparison table.
+  releases' records, writes it to --out and prints a comparison table.
+  - --previous repeats, newest release first. The baseline is composed per
+    skill: each skill's previous entry is the one in the newest record that
+    has a pass_rate for it, so a release that didn't measure a skill falls
+    back to an older release that did. A skill no record has a pass_rate for
+    takes its entry from the newest record that has one at all.
   - Every --selected skill gets an entry. A selected skill with no readable,
     well-formed summary entry is an infrastructure failure, recorded as
     exit_code 2. So is a harness exit of 0 or 1 that graded no assertion.
   - pass_rate is assertions_passed / assertions_graded rounded to four places,
     present only for a harness exit of 0 or 1 with at least one graded
     assertion. Skills with an exit of 2, 3 or 4 carry exit_code instead.
-  - Skills of the previous record that this run did not select are carried
-    forward unchanged.
-  - The previous record is untrusted. Anything wrong with it (missing, over
-    the size cap, unparseable, another schema, any field check failing) means
-    "no baseline", with a warning naming the field and never its value.
-  - A drop is a skill whose rounded rate is strictly lower than the previous
-    record's rate for it.
+  - Skills of the composed baseline that this run did not select are carried
+    forward unchanged, so the record this run writes holds every skill's
+    latest measurement and the next release finds them in one record.
+  - Every previous record is untrusted. Anything wrong with one (missing,
+    over the size cap, unparseable, another schema, any field check failing)
+    leaves it out of the baseline, with a warning naming the field and never
+    its value. No usable record at all means "no baseline".
+  - A drop is a skill whose rounded rate is strictly lower than its baseline
+    rate.
   Exit codes: 0 clean (a harness exit 1 without a drop included); 1 any
   selected skill's harness exit was 2, 3 or 4 (an infrastructure failure
   outranks a drop); 5 a drop not listed in --confirmed, the output ending with
@@ -173,6 +180,41 @@ def load_previous(path, reason):
         return None, str(exc)
 
 
+def compose_baseline(paths, reason):
+    """Compose the per-skill baseline from records ordered newest first.
+
+    Returns (skills or None, warnings). A skill takes the newest entry with a
+    pass_rate; one with no pass_rate anywhere takes the newest entry it has.
+    None means no record was usable, and the last warning says why.
+    """
+    records = []
+    warnings = []
+    why = reason or ("no previous record was usable" if len(paths) > 1 else "no previous record")
+    for index, path in enumerate(paths):
+        record, warning = load_previous(path, reason)
+        if record is not None:
+            records.append(record)
+        elif len(paths) > 1:
+            # Among several, a "-" (no record for that release) is nothing to
+            # report; with one path, its reason is the whole baseline's.
+            if path != "-":
+                warnings.append("previous record %d ignored: %s" % (index + 1, warning))
+        else:
+            why = warning
+    if not records:
+        warnings.append("no baseline: %s" % why)
+        return None, warnings
+    skills = {}
+    for record in records:
+        for name, entry in record["skills"].items():
+            if name not in skills and "pass_rate" in entry:
+                skills[name] = entry
+    for record in records:
+        for name, entry in record["skills"].items():
+            skills.setdefault(name, entry)
+    return skills, warnings
+
+
 def load_summaries(paths):
     """Collect this run's summary entries by skill. Returns (entries, warnings)."""
     entries = {}
@@ -272,16 +314,16 @@ def cmd_merge(args):
             raise UsageError("--selected has an invalid skill name")
     confirmed = set(parse_skill_list(args.confirmed, "--confirmed"))
 
-    previous, warning = load_previous(args.previous, args.no_baseline_reason)
-    if warning:
-        print("warning: no baseline: %s" % warning)
+    baseline, baseline_warnings = compose_baseline(args.previous, args.no_baseline_reason)
+    for message in baseline_warnings:
+        print("warning: %s" % message)
     summaries, summary_warnings = load_summaries(args.summary)
     for message in summary_warnings:
         print("warning: %s" % message)
 
     skills = {}
-    if previous is not None:
-        skills.update(previous["skills"])
+    if baseline is not None:
+        skills.update(baseline)
     selected = sorted(set(args.selected))
     for name in selected:
         if name not in summaries:
@@ -298,7 +340,7 @@ def cmd_merge(args):
     drops = []
     for name in selected:
         entry = skills[name]
-        prev = previous["skills"].get(name) if previous else None
+        prev = baseline.get(name) if baseline else None
         prev_at = prev["measured_at"] if prev else "-"
         print("%-24s %-10s %-10s %s" % (name, fmt_rate(entry), fmt_rate(prev), prev_at))
         if name not in summaries:
@@ -356,7 +398,7 @@ def main(argv):
     sub = parser.add_subparsers(dest="command")
     merge = sub.add_parser("merge")
     merge.error = parser.error
-    merge.add_argument("--previous", required=True)
+    merge.add_argument("--previous", action="append", required=True)
     merge.add_argument("--no-baseline-reason", default="")
     merge.add_argument("--summary", action="append", default=[])
     merge.add_argument("--selected", action="append", default=[])

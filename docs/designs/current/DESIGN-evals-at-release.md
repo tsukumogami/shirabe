@@ -20,8 +20,8 @@ decision: |
   `scripts/release-eval-check.sh`, which runs the harness per changed skill
   (three runs for work-on, scope and execute), keeps the summaries in a state
   directory under the git directory, and hands them to
-  `scripts/lib/eval-pass-rates.py`, which validates the previous release's
-  record, merges, and decides drops. The harness gains changed-since-tag
+  `scripts/lib/eval-pass-rates.py`, which validates the earlier releases'
+  records, composes the baseline per skill, merges, and decides drops. The harness gains changed-since-tag
   selection as its no-argument default, a scenario > `EVAL_MODEL` > `sonnet`
   model order, `--summary-out`, and exit-2 propagation under `--runs`. The
   scheduled CI eval run becomes manual-only.
@@ -87,10 +87,12 @@ replacing any earlier one, holding per skill `runs`, `runs_passed`,
 `measured_at`, and carrying forward skills not run this release (R12). The
 release uploads it as the asset `eval-pass-rates.json` only when it belongs
 to this release, after stamping the version confirmed in Phase 3 (R13).
-Before the notes, the check downloads the previous tag's asset and prints
-each run skill's rate beside the previous one; a strictly lower rate is a
-drop, and a missing, unparseable or unknown-schema asset is "no baseline",
-not a failure (R14). A drop fails unless the maintainer confirms it; the
+Before the notes, the check downloads the asset of the previous tag and of
+up to nine releases before it, and prints each run skill's rate beside its
+baseline: the newest of those releases that measured the skill, so a release
+that measured only some skills doesn't leave the rest without one. A strictly
+lower rate is a drop. A missing, unparseable or unknown-schema asset is
+skipped, and none usable is "no baseline", not a failure (R14). A drop fails unless the maintainer confirms it; the
 confirmation re-runs the comparison, not the evals, and an inherited
 `RELEASE_CONFIRMED_DROPS` confirms nothing. A harness exit of 1 is not a
 failure by itself (R15). An infrastructure exit (2, 3 or 4) from any selected
@@ -232,7 +234,7 @@ line `asset: <path>` names a file to attach, and the skill runs
 means nothing to attach. A non-zero exit, or a failed upload, doesn't stop
 the release, since the draft already exists. The skill reports it with the
 command to retry, and for shirabe's record it adds that the next release
-will otherwise have no baseline. The generic skill knows nothing about pass
+will otherwise fall back to older records for the skills this one measured. The generic skill knows nothing about pass
 rates; shirabe's `release.md` lists
 `scripts/release-eval-check.sh --finalize` under the heading.
 
@@ -281,15 +283,20 @@ lives in the extension):
 5. Runs `scripts/run-evals.sh --runs <N> --summary-out <state>/<i>.json
    <skill>` per selected skill, N being 3 for a critical skill and 1
    otherwise, and keeps going after a failure so every skill is reported.
-6. With a non-empty `RELEASE_LAST_TAG`, downloads the previous record with
-   `gh release download "$RELEASE_LAST_TAG" --repo <owner/repo> --pattern
-   eval-pass-rates.json` into a `mktemp -d` directory. An empty tag, or a
-   release or asset `gh` reports as not found, means no baseline, with the
-   reason passed on; a missing baseline passes by design. Any other download
-   failure (network, auth, a wrong repository) exits 1 with `gh`'s reason,
-   since it says nothing about whether a baseline exists.
-7. Calls `scripts/lib/eval-pass-rates.py merge` with the previous record (or
-   none), the summaries, the version and the last tag. It writes
+6. With a non-empty `RELEASE_LAST_TAG`, downloads earlier records with
+   `gh release download <tag> --repo <owner/repo> --pattern
+   eval-pass-rates.json`, each into its own directory under one `mktemp -d`,
+   for `RELEASE_LAST_TAG` and then the older `v*` tags merged into HEAD,
+   newest first by version, ten releases at most. A release or asset `gh`
+   reports as not found is skipped. An empty tag, or no record on any of
+   those releases, means no baseline, with the reason passed on; a missing
+   baseline passes by design. Any other download failure (network, auth, a
+   wrong repository) exits 1 with `gh`'s reason, since it says nothing about
+   whether a baseline exists.
+7. Calls `scripts/lib/eval-pass-rates.py merge` with every record found,
+   newest first (or none), the summaries, the version and the last tag. The
+   baseline is composed per skill: a skill's previous entry is the one from
+   the newest record with a `pass_rate` for it. It writes
    `<state>/eval-pass-rates.json`, prints the comparison table, and exits:
    0 when clean; 1 when any skill's harness exit was 2, 3 or 4, naming each;
    5 when there are drops not listed in `RELEASE_CONFIRMED_DROPS`, ending
@@ -462,7 +469,9 @@ work-on DoD gate ──> .claude/shirabe-extensions/work-on.md
 `pass_rate` is `assertions_passed / assertions_graded`, rounded to four
 places, present only when the harness exit was 0 or 1 and at least one
 assertion was graded. A skill absent from this release's summaries is copied
-from the previous record unchanged. Drops are decided on the rounded values.
+unchanged from the composed baseline, so the record carries each skill's
+latest measurement even when an earlier release's record lacked it. Drops are
+decided on the rounded values.
 
 **Tests.** `scripts/check-skill_test.sh` builds throwaway skills in a temp
 tree, through a test-only `CHECK_SKILL_ROOT` override, and covers each
@@ -475,6 +484,9 @@ on `PATH`, cover these cases:
 - a drop, an equal rate, and no baseline from a missing asset, an
   unparseable one, an unknown schema or an empty last tag;
 - every field-validation failure, and carry-forward;
+- the per-skill fallback to an older release, an invalid record skipped among
+  several, the walk's order and ten-release cap, and a download error on an
+  older release still exiting 1;
 - infrastructure exits, harness exit 1 with no drop, and confirmed and
   unconfirmed drops;
 - the confirmation re-run making no harness call, and a stale record being
