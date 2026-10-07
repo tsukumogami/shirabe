@@ -216,7 +216,11 @@ states never ask you to do these steps by hand.
   in for a leg-bound worker. A leg spent before its worker reported
   (cancelled, refused at the entry point's preflight, abandoned or missing)
   goes to `leg_spent`, where `scripts/dispatch-worker.sh --releg` replaces it
-  for the same holding, keeping the worker, or the human takes it. When a holding has no pull request yet and its
+  for the same holding, keeping the worker, or the human takes it. A
+  checkpoint report is `progress`, from a worker on either path: it never
+  stands for a result, so `report_facts` records it and sends it back to the
+  hub with no classification and no phase change, writing a pull request it
+  names onto a holding that has none. When a holding has no pull request yet and its
   report names one (a leg result's `pr`, or the `pull_request` you pass with a
   message), `scripts/holding-link.sh` writes that pull request and its head
   branch, as GitHub reports it, onto the holding. The report's

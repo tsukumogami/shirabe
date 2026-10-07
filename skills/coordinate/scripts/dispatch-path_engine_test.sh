@@ -22,7 +22,10 @@
 # holding by dispatch-worker.sh --releg, leg_spent's `replaced` goes to
 # record, and the worker's later result arrives on the new leg (shirabe#506); a message
 # report for a message-path worker reaches report_facts, one for a leg-bound
-# worker goes back to wait, and one with no text holds until withdrawn;
+# worker goes back to wait, and one with no text holds until withdrawn; a
+# leg-bound worker's progress message passes take_report as progress and
+# leaves its leg open, and the leg's later result still arrives through
+# wait_leg (shirabe#491);
 # teardown inventories only after the session is stopped, destroys only a
 # durable instance, sends a unique one to promote, and no override record can
 # stand in for the inventory's gate.
@@ -521,6 +524,29 @@ tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"leg"}'
 tick --with-data '{"move":"surface"}'
 eq  "leg_spent: surface goes to the human" surface "$(at)"
+
+# --- progress from a leg-bound worker ----------------------------------------------------------------
+REQ30=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w30"}' \
+    --requested-by coord --coordinator-of-record coordinate-w30 | jq -r .request_id)
+rows "[{\"worker\":\"w30\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ30:scope\"}]"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"progress","unit":"w30","report":"Checkpoint 1 reached."}'
+eq  "progress, leg: a leg-bound worker's progress passes take_report" report_facts "$(at)"
+eq  "progress, leg: as progress, not as its result" progress "$(ctx report_source)"
+eq  "progress, leg: its leg is still open" open "$(koto request get "$REQ30" | jq -r '(.request // .) | .legs.scope.disposition')"
+(cd "$T" && koto init scope-w30 --template "$T/tpl/scope.md" --var TOPIC=w30 --koto-leg "$REQ30:scope" >/dev/null 2>&1)
+(cd "$T" && koto next scope-w30 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "progress, leg: the leg's later result arrives through wait_leg" report_facts "$(at)"
+eq  "progress, leg: as the leg's result" leg "$(ctx report_source)"
+start
+rows '[]'
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"progress","unit":"nobody","report":"Checkpoint 1 reached."}'
+eq  "progress: from a topic with no holding goes back to wait" wait "$(at)"
 
 # --- the message path ---------------------------------------------------------------------------------
 

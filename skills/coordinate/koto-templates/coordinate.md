@@ -61,9 +61,11 @@ version: "1.0"
 #                               take_report; report_present checks it has
 #                               text, and report_source_ok compares a leg
 #                               report with koto's own record of the leg
-#   report_topic, report_source the reporting worker and path, written on the
-#                               same edges (report_topic by wait-target.sh on
-#                               the leg path); report_source_ok reads both.
+#   report_topic, report_source the reporting worker and path (leg, message,
+#                               or progress for a checkpoint report), written
+#                               on the same edges (report_topic by
+#                               wait-target.sh on the leg path);
+#                               report_source_ok reads both.
 #                               They are writable by the coordinator, unlike
 #                               the log report_facts derives the unit from:
 #                               shirabe#475 moves this gate onto the log too
@@ -644,7 +646,7 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise]
         required: true
         description: What arrived, or what is due.
       unit:
@@ -652,10 +654,10 @@ states:
         description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here.
       report:
         type: string
-        description: With a report event, the worker's message as it arrived.
+        description: With a report or progress event, the worker's message as it arrived.
       pull_request:
         type: string
-        description: With a report event whose message names the worker's pull request, that pull request as its URL or as owner/repo#number. report_facts has it written onto a holding that has none yet, after checking it on GitHub.
+        description: With a report or progress event whose message names the worker's pull request, that pull request as its URL or as owner/repo#number. report_facts has it written onto a holding that has none yet, after checking it on GitHub.
       decision:
         type: string
         description: Required with an answer or evidence event, which does not leave wait without it; the decision entry it names, as a plain number.
@@ -672,6 +674,15 @@ states:
           worker_report: "${evidence.report}"
           report_topic: "${evidence.unit}"
           report_source: message
+      # A checkpoint report: progress, never a result, from a worker on
+      # either return path. report_facts sends it back here unclassified.
+      - target: take_report
+        when:
+          event: progress
+        context_assignments:
+          worker_report: "${evidence.report}"
+          report_topic: "${evidence.unit}"
+          report_source: progress
       - target: leg_pick
         when:
           event: leg
@@ -936,6 +947,11 @@ states:
       - target: report_link
         when:
           gates.report_facts_verdict.exit_code: 63  # link
+      # A checkpoint report: its questions are read like any report's, and
+      # it is never classified (report_questions sends it back to wait).
+      - target: report_questions
+        when:
+          gates.report_facts_verdict.exit_code: 64  # progress
 
   report_link:
     # The report named a pull request its holding doesn't link yet, and
@@ -987,9 +1003,39 @@ states:
         when:
           gates.report_questions_verdict.exit_code: 11  # none
           gates.report_holding.exit_code: 62
+      # A checkpoint report with no questions goes back to the hub, with no
+      # classification and no phase change.
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 11  # none
+          gates.report_holding.exit_code: 64
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: rebrief
         when:
           gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 60
+      - target: rebrief
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 61
+      - target: rebrief
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 62
+      # A checkpoint report's questions in the wrong shape: no re-brief, which
+      # would move a leg-bound worker off its leg. The coordinator asks the
+      # worker again by message, by hand (the wait directive says so). A
+      # progress report whose pull request was refused reads 62 here and
+      # takes the re-brief arm, as any refused report does.
+      - target: wait
+        when:
+          gates.report_questions_verdict.exit_code: 171  # overflow
+          gates.report_holding.exit_code: 64
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
       - target: surface
         when:
           gates.report_questions_verdict.exit_code: 172  # unreadable
@@ -2435,9 +2481,11 @@ A `koto next --to` anywhere in this run sends it to the human.
 ## wait
 
 Tick on each message or notification and name the `event`, with the `unit` it is
-about; never poll. `report` for a worker's message, with the message itself as
-`report` and, when it names the worker's pull request, that pull request as
-`pull_request`; `leg` when a notification says a worker's request leg may have
+about; never poll. `progress` for a worker's checkpoint report that only says
+where it is (its brief asks for one at each checkpoint, and it is never the
+worker's result), with the message as `report` and its pull request, once it
+names one, as `pull_request`; `report` for any other message from a worker
+(done, blocked, a problem, a question), the same way; `leg` when a notification says a worker's request leg may have
 resolved, or when a leg-bound worker has been quiet; `quiet` when a worker has
 been silent; `decision` or `deferral` for a new decision from whoever
 dispatched you that isn't the answer to an escalation; `answer` when an answer
@@ -2448,6 +2496,10 @@ need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `retire` to finish with a worker; `end` when the
 rotation or the scope ends.
 
+Arriving here from `report_questions` with a checkpoint report whose questions
+were over the bound (`overflow`), message the worker to send them again in its
+brief's `Questions:` shape; nothing else asks it to.
+
 Arriving here straight after `surface` with a blocker means `surface_check`
 accepted the need (its worded cell is in `coord/need.json`): before anything
 else, report it up with the progress table and `--blocked <session>=<the
@@ -2457,9 +2509,15 @@ needs.
 <!-- details -->
 
 A worker bound to a request leg (its holding's Return path names one) reports
-through the leg; submit `leg` rather than `report` for it. A message from such a
-worker is refused at `take_report`, because only its own session's result can
-stand for it. koto 0.14.0 records a wake when a leg resolves (koto#250), but
+its result through the leg; submit `leg` rather than `report` for it. A
+`report` message from such a worker is refused at `take_report`, because only
+its own session's result can stand for it; its checkpoint messages are
+`progress`, which any worker may send. Progress is recorded against the
+worker in this run's log, writes a pull request it names onto a holding that
+has none, and comes back here: it changes no phase, is never classified, and
+never stands in for a leg's result, which is still read only through
+`wait_leg`. A progress message that asks something, or says the worker is done
+or blocked, is a `report`. koto 0.14.0 records a wake when a leg resolves (koto#250), but
 this workflow doesn't watch for it, so a leg is read when a message or
 notification makes you tick.
 ## leg_pick
@@ -2526,8 +2584,8 @@ naming the worker.
 <!-- details -->
 
 A report is admitted only when it has text and when it may stand for its
-worker: a message for a worker on the message path, or a leg result for the leg
-the record names. A message for a leg-bound worker goes back to the hub; read
+worker: a message for a worker on the message path, a leg result for the leg
+the record names, or a progress report from any worker with a holding. A message for a leg-bound worker goes back to the hub; read
 that worker's leg instead. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
@@ -2545,7 +2603,10 @@ scope's repositories, a head from another repository, or a head branch that
 differs from the holding's Branch. When the holding links no pull request yet
 and the report names one (the leg result's pull request, or the message's
 `pull_request`), it checks that one the same way and goes to `report_link` to
-have it written onto the holding.
+have it written onto the holding. A progress report reads `progress` where a
+report would read `holding`: `report_questions` reads its questions as for any
+report, and then it goes back to `wait`, with or without a pull request, never
+to classification.
 
 <!-- details -->
 
@@ -2592,10 +2653,13 @@ dispatched, an escalation or a withdrawal, stored as `coord/questions.json`.
 <!-- details -->
 
 More than ten questions, or a worker's question over 400 characters, sends the
-report back to its worker to ask again in the brief's `Questions:` shape. A
+report back to its worker to ask again in the brief's `Questions:` shape; for a
+checkpoint report (`progress`) that is a message to the worker from `wait`,
+never a re-brief. A
 report that can't be read, or an escalation that doesn't hash to its digest,
 goes to the human. With no questions the report goes on to classification when
-it has a holding, and back to `wait` when it doesn't.
+it has a holding, and back to `wait` when it doesn't or when it is a
+checkpoint report.
 
 ## decision_next
 

@@ -101,9 +101,16 @@ for e in report_facts\>classify_report report_facts\>wait failure\>wait surface\
     jq -e --arg f "${e%%>*}" --arg t "${e#*>}" 'any(.states[$f].transitions[]?; .target == $t)' "$J" >/dev/null \
         && fail "the edge the design replaced is gone: $e" || pass "the edge the design replaced is gone: $e"
 done
+# A checkpoint report (progress, 64) goes through report_questions like any
+# report, so a question it asks is still read; from there it goes back to
+# wait, never to classify_report or a re-brief (shirabe#491).
+jq -e '(.states.report_facts.transitions | any(.target == "report_questions" and .when["gates.report_facts_verdict.exit_code"] == 64))
+       and ([.states.report_questions.transitions[] | select(.when["gates.report_holding.exit_code"] == 64) | .target] | unique) == ["wait"]' "$J" >/dev/null \
+    && pass "a checkpoint report is read for questions and goes back to wait" || fail "a checkpoint report is read for questions and goes back to wait"
 # A report's pull request reaches its holding through report_link, and `done`
 # reaches verify only with a pull request: report_pr reads report_facts' seal.
 jq -e '(.states.report_facts.transitions | any(.target == "report_link" and .when["gates.report_facts_verdict.exit_code"] == 63))
+       and (.states.wait.transitions | any(.target == "take_report" and .when.event == "progress"))
        and (.states.report_link.transitions | any(.target == "report_facts" and .when.linked == "written"))
        and .states.classify_report.gates.report_pr.overridable == false
        and (.states.classify_report.gates.report_pr.command | test("report-pr\\.sh\" --session"))

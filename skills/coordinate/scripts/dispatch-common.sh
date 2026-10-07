@@ -197,7 +197,7 @@ dc_unit_forms() {
     jq -r '
         if (.units | type) != "array" then error("no units") else . end
         | .scope as $s | (.host // "") as $h | .units[]
-        | if $s == "roadmap" then .unit, "\(.unit): \(.title)"
+        | if $s == "roadmap" then .unit, (if (.title // "") == "" then empty else "\(.unit): \(.title)" end)
           else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
 }
 

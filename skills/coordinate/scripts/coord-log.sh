@@ -84,8 +84,9 @@
 #                         [--where FIELD=VALUE]... [--has FIELD]
 #       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
 #       ST in that window. --where keeps evidence whose FIELD, as a string (""
-#       when absent), is VALUE; --has keeps evidence whose FIELD is set (not
-#       null or false). Exit 0; 1 none; 2 read failure.
+#       when absent), is VALUE, or one of the values VALUE lists separated by
+#       `|` (`event=report|progress`); --has keeps evidence whose FIELD is set
+#       (not null or false). Exit 0; 1 none; 2 read failure.
 #   coord-log.sh captures --session S --name N [--after SEQ] [--before SEQ]
 #       Prints {"seq","timestamp","value"} for every engine-written capture of N
 #       in that window, oldest first, one per line; no seal is checked. Exit 0;
@@ -93,7 +94,8 @@
 #   coord-log.sh unit --session S [--before SEQ] [--event E]
 #       The unit the run's latest arrival names, before SEQ when given. An
 #       arrival is a `wait` evidence naming a unit (with --event, any `wait`
-#       evidence whose event is E, naming a unit or not), or the leg path: the
+#       evidence whose event is E, or one of the events E lists separated by
+#       `|`, naming a unit or not), or the leg path: the
 #       latest entry into take_report, when it came from wait_leg. Prints
 #       `topic <unit>` (the evidence's unit, unchecked, possibly empty) or
 #       `leg <request>:<leg>` (the first words of the latest WAIT_REQ and
@@ -397,7 +399,9 @@ entry|evidence|captures)
             select(.type == "evidence_submitted" and .payload.state == $s
                 and .seq > $a and ($b == "" or .seq < ($b | tonumber)))
             | (.payload.fields // {}) as $f
-            | select(all($w[]; ($f[.[0]] // "" | tostring) == .[1]) and ($h == "" or ($f[$h] // null) != null))
+            | select(all($w[]; ($f[.[0]] // "" | tostring) as $v
+                    | (.[1] | if . == "" then [""] else split("|") end) | index([$v]) != null)
+                and ($h == "" or ($f[$h] // null) != null))
             | {seq, timestamp, fields: $f}' "$LOG" | tail -1) || die "cannot read $LOG"
         ;;
     captures)
@@ -420,7 +424,7 @@ unit)
             and .payload.to == "take_report")] | last) as $leg
         | ([$e[] | select(.type == "evidence_submitted" and .payload.state == "wait"
             and (if $ev == "" then (.payload.fields.unit // null) != null
-                 else (.payload.fields.event // "") == $ev end))] | last) as $w
+                 else ((.payload.fields.event // "") | tostring) as $got | ($ev | split("|") | index([$got]) != null) end))] | last) as $w
         | if $leg != null and ($leg.payload.from // "") == "wait_leg" and ($w == null or $leg.seq > $w.seq) then
             cap("WAIT_REQ"; $leg.seq) as $r | cap("WAIT_LEG"; $leg.seq) as $l
             | if ($r | test("^[a-z0-9_][a-z0-9_-]{0,63}$")) and ($l | test("^[a-z0-9_-]+$")) then "leg \($r):\($l)" else "unusable" end
