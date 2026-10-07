@@ -5,11 +5,11 @@
 #
 # Covers, at roadmap scope: the record among 150 open issues through the
 # paginated listing; a closed issue, a -v2 title and a pull request with the
-# title ignored; two matches; a body larger than the pipe buffer found, and the
-# declaration check on a file past 64 KB; no declaration line (foreign); each of the four
-# sections missing (malformed); a record for another scope; an unauthorized
-# author and an unauthorized last editor; a failed permission read and a failed
-# listing (exit 2). At discipline scope: none, unopened, stale-branch, found,
+# title ignored; two matches; a body larger than the pipe buffer found, and
+# the declaration check on a file past 64 KB; no declaration line (foreign);
+# each of the four sections missing (malformed); a record for another scope;
+# an unauthorized author and an unauthorized last editor; a failed permission
+# read and a failed listing (exit 2). At discipline scope: none, unopened, stale-branch, found,
 # predecessor, foreign, ambiguous (two open, an impossible date, end before
 # start), malformed, unauthorized, a fork's and another base's pull requests
 # ignored, and a failed branch read. Also the sealed token and its context
