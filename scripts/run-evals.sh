@@ -2,37 +2,25 @@
 # run-evals.sh - Run skill evals using /skill-creator
 #
 # Usage:
-#   scripts/run-evals.sh                     Run evals for the skills changed since the last v* tag
 #   scripts/run-evals.sh <skill-name>        Run evals for one skill
 #   scripts/run-evals.sh --all               Run evals for all skills
 #   scripts/run-evals.sh --list              List skills with evals
-#   scripts/run-evals.sh --list-changed      Print the skills changed since the last v* tag, one per line
 #   scripts/run-evals.sh --validate <skill>  Re-validate existing results
 #   scripts/run-evals.sh --prep-only <skill>      Prepare workspace only (for /skill-creator)
 #
-# Options (combine with a selection):
-#   --scenario <name>     Run only the named eval from that skill's suite
-#   --runs <N>            Run the selection N times and report a pass rate
-#   --summary-out <file>  Write a machine-readable summary of the skills run
-#
-# Environment:
-#   EVAL_MODEL  The model the nested session runs on, and the default model for
-#               each scenario's agents (default: sonnet). See "Models" below.
+# Options (combine with <skill-name>):
+#   --scenario <name>  Run only the named eval from that skill's suite
+#   --runs <N>         Run the selection N times and report a pass rate
 #
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
 #
 # Exit codes:
 #   0  All assertions passed
-#   1  One or more assertions failed, or a usage error in the arguments
+#   1  One or more assertions failed
 #   2  No results produced, or a scenario graded zero assertions
-#      (infrastructure failure -- see "Grading nothing is a failure" below).
-#      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
-#      runs that only failed assertions. Also: git could not answer the
-#      changed-since-tag selection, or the --summary-out file could not be
-#      written.
-#   3  Missing prerequisites, or a model or suite the harness refuses (an
-#      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
+#      (infrastructure failure -- see "Grading nothing is a failure" below)
+#   3  Missing prerequisites
 #   4  The nested claude session stopped in plan mode or ran no command and
 #      wrote no file, so no scenario ran (runner or host failure -- see "Nested
 #      session permission mode" below)
@@ -114,42 +102,6 @@
 #   criteria at all or declared some and graded none of them, because the two
 #   have different fixes.
 #
-# Changed-since-tag selection
-#   With no skill name, the harness runs the skills that have evals/evals.json
-#   and have any added, modified, renamed or deleted file under skills/<name>/
-#   between the last v* tag (git describe --tags --abbrev=0 --match 'v*') and
-#   HEAD, through the same loop --all uses. The diff runs with -z --no-renames,
-#   so a rename counts against both the old and the new skill, and every name is
-#   checked against ^[a-z0-9][a-z0-9-]*$ before it is used. With no v* tag every
-#   skill with evals is selected. --list-changed prints the selection and runs
-#   nothing; it is what the release eval check reads.
-#
-# Models
-#   The nested session runs on EVAL_MODEL, else sonnet. Each scenario runs its
-#   with-skill and baseline agents on its own `model` key in evals.json, else
-#   EVAL_MODEL, else sonnet: prep writes the resolved value into the scenario's
-#   eval_metadata.json as `model`, and the per-eval instruction line tells the
-#   session to spawn both agents on it. A session flag alone would not reach
-#   those agents, which pick their own model unless told. Every value must match
-#   ^[A-Za-z0-9][A-Za-z0-9._:-]*$ (it cannot start with -), and the harness
-#   refuses a run or a suite that carries one that doesn't.
-#
-# Summary (--summary-out <file>)
-#   Writes {"schema": "run-evals-summary/v1", "skills": {<name>: {...}}} with,
-#   per skill run: runs (attempted, so an early stop shows), runs_passed,
-#   assertions_passed and assertions_graded (summed from each run's
-#   validation_summary.json), models (the distinct values in the iterations'
-#   eval_metadata.json) and exit_code. It is written when --runs stops early on
-#   3 or 4 too, and when the default selection finds nothing to run, so a caller
-#   never has to parse the report above. A summary that cannot be written turns
-#   an exit 0 into 2, so a caller never reads success with no summary behind it.
-#
-# Credentials
-#   The nested session starts with GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK
-#   unset. It runs shell without prompting, so this narrows what a scenario can
-#   reach; stored gh logins, git credential helpers and SSH keys on disk stay
-#   reachable, which is why the release eval check names its host before it runs.
-#
 # Tier-2 isolation:
 #   Tier-2 (execute) evals run the REAL workflow — run-cascade.sh --push, folder
 #   moves, and `git mv` into docs/designs/current/ — against a live git repo. Run
@@ -179,11 +131,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # output and grading.json write denied unless that directory were also passed
 # with --add-dir.
 SKILLS_DIR="${RUN_EVALS_SKILLS_DIR:-$REPO_ROOT/skills}"
-# RUN_EVALS_REPO_ROOT is test-only too: it overrides the repository the
-# changed-since-tag selection asks git about, so the suite can point it at a
-# temporary repository with its own tags. Nothing else reads it; the nested
-# session still runs from REPO_ROOT.
-GIT_ROOT="${RUN_EVALS_REPO_ROOT:-$REPO_ROOT}"
 CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
 
 # ---------------------------------------------------------------------------
@@ -276,23 +223,18 @@ command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 [--scenario <name>] [--runs <N>] [--summary-out <file>] [<skill-name>]"
+  echo "Usage: $0 [--scenario <name>] [--runs <N>] <skill-name>"
   echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
-  echo "       $0 --all | --list | --list-changed | --validate <skill> | --prep-only <skill>"
+  echo "       $0 --all | --list | --validate <skill> | --prep-only <skill>"
   echo ""
-  echo "  (no skill name)    Run evals for the skills changed since the last v* tag"
   echo "  <skill-name>       Run evals for a specific skill (prep + execute + validate)"
   echo "  --all              Run evals for all skills that have evals/"
   echo "  --list             List skills that have evals"
-  echo "  --list-changed     Print the skills changed since the last v* tag and run nothing"
   echo "  --validate <skill> Re-validate the latest iteration without re-running"
   echo "  --prep-only <skill>     Prepare workspace only (use with /skill-creator in Claude Code)"
   echo ""
-  echo "  --scenario <name>     Restrict the run to one eval, by its 'name' in evals.json"
-  echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
-  echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
-  echo ""
-  echo "  EVAL_MODEL=<model>    Model for the nested session and the scenarios' default (sonnet)"
+  echo "  --scenario <name>  Restrict the run to one eval, by its 'name' in evals.json"
+  echo "  --runs <N>         Repeat the run N times and report a pass rate across them"
   echo ""
   echo "  Running one scenario N times:"
   echo "    $0 --scenario baseline-malformed-state --runs 5 scope"
@@ -305,29 +247,6 @@ EVAL_SCENARIO_FILTER=""
 # How many times to repeat the selection. 1 keeps the single-run path exactly as
 # it was, aggregate reporting included only when N > 1.
 EVAL_RUNS=1
-# Where --summary-out writes, and the JSON-lines file each skill run appends its
-# tally to until then. Empty means no summary was asked for.
-SUMMARY_OUT=""
-SUMMARY_LINES=""
-
-# A model name as `claude --model` takes it: an alias or a full ID. The pattern
-# cannot start with -, so a value can never be read as an option.
-valid_model() {
-  case "$1" in
-    ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._:-]*) return 1 ;;
-  esac
-  return 0
-}
-
-EVAL_MODEL="${EVAL_MODEL:-sonnet}"
-if ! valid_model "$EVAL_MODEL"; then
-  # 3, like a refused suite, and not 1: a caller reading 1 as "assertions
-  # failed" would record a rate for a run that never started.
-  echo "Error: EVAL_MODEL must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$; refusing to run"
-  exit 3
-fi
-# Prep's Python reads it from the environment.
-export EVAL_MODEL
 
 # Peel the options off the front of the argument list. They are options rather
 # than positional arguments because they modify a run rather than name one, and
@@ -352,16 +271,6 @@ parse_run_options() {
         ;;
       --runs=*)
         EVAL_RUNS="${1#--runs=}"
-        shift
-        ;;
-      --summary-out)
-        [ $# -ge 2 ] && [ -n "$2" ] || { echo "Error: --summary-out needs a file"; exit 1; }
-        SUMMARY_OUT="$2"
-        shift 2
-        ;;
-      --summary-out=*)
-        SUMMARY_OUT="${1#--summary-out=}"
-        [ -n "$SUMMARY_OUT" ] || { echo "Error: --summary-out needs a file"; exit 1; }
         shift
         ;;
       *)
@@ -392,77 +301,6 @@ list_skills_with_evals() {
   if [ "$found" -eq 0 ]; then
     echo "  (no skills have evals)"
   fi
-}
-
-# The changed-since-tag selection (see "Changed-since-tag selection" in the
-# header). Sets CHANGED_TAG to the tag compared against, empty when there is no
-# v* tag, and CHANGED_SKILLS to the selected names, sorted. Globals rather than
-# output, so a caller can tell "no tag" from "nothing changed"; call it
-# directly, not in $(...). Returns 2 when git cannot produce the diff.
-CHANGED_TAG=""
-CHANGED_SKILLS=()
-select_changed_skills() {
-  CHANGED_TAG=""
-  CHANGED_SKILLS=()
-  local tag="" names="" name rest path
-  # Checked first so a root git can't read is an error, not a silent "no tag"
-  # that would select every skill.
-  if ! git -C "$GIT_ROOT" rev-parse --verify --quiet HEAD >/dev/null; then
-    echo "Error: $GIT_ROOT is not a git repository with a HEAD commit" >&2
-    return 2
-  fi
-  # describe exits nonzero when no v* tag is reachable; that is the no-tag case.
-  tag=$(git -C "$GIT_ROOT" describe --tags --abbrev=0 --match 'v*' 2>/dev/null) || tag=""
-
-  if [ -z "$tag" ]; then
-    for path in "$SKILLS_DIR"/*/; do
-      name=$(basename "$path")
-      case "$name" in
-        ''|[!a-z0-9]*|*[!a-z0-9-]*) continue ;;
-      esac
-      [ -f "$SKILLS_DIR/$name/evals/evals.json" ] && names="$names$name
-"
-    done
-  else
-    CHANGED_TAG="$tag"
-    local diff_file
-    diff_file=$(mktemp "${TMPDIR:-/tmp}/run-evals-diff.XXXXXX") || return 2
-    # -z keeps any path intact; --no-renames reports a rename as a delete and an
-    # add, so both the skill a file left and the one it joined are selected.
-    if ! git -C "$GIT_ROOT" diff --name-only -z --no-renames "$tag" HEAD -- skills/ > "$diff_file"; then
-      rm -f "$diff_file"
-      echo "Error: git diff $tag HEAD failed in $GIT_ROOT" >&2
-      return 2
-    fi
-    while IFS= read -r -d '' path; do
-      rest="${path#skills/}"
-      # A file directly under skills/ belongs to no skill.
-      case "$rest" in
-        */*) ;;
-        *) continue ;;
-      esac
-      name="${rest%%/*}"
-      case "$name" in
-        ''|[!a-z0-9]*|*[!a-z0-9-]*)
-          echo "  WARNING: ignoring a changed path whose skill name is not ^[a-z0-9][a-z0-9-]*\$" >&2
-          continue
-          ;;
-      esac
-      [ -f "$SKILLS_DIR/$name/evals/evals.json" ] || continue
-      names="$names$name
-"
-    done < "$diff_file"
-    rm -f "$diff_file"
-  fi
-
-  # Every name was checked against the skill-name pattern above, so splitting
-  # the sorted list on whitespace can neither split a name nor glob.
-  local sorted
-  sorted=$(printf '%s' "$names" | sort -u)
-  for name in $sorted; do
-    CHANGED_SKILLS+=("$name")
-  done
-  return 0
 }
 
 next_iteration() {
@@ -542,9 +380,8 @@ print(len(evals))
   echo "  Output: $iter_dir"
   echo ""
 
-  local prep_rc=0
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" REPO_ROOT="$REPO_ROOT" python3 << PYEOF || prep_rc=$?
-import hashlib, json, os, re, shutil, sys
+  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" REPO_ROOT="$REPO_ROOT" python3 << PYEOF
+import hashlib, json, os, shutil
 
 with open("$evals_file") as f:
     data = json.load(f)
@@ -554,28 +391,6 @@ evals_dir = os.path.dirname("$evals_file")
 fixtures_root = os.path.join(evals_dir, "fixtures")
 repo_root = os.environ["REPO_ROOT"]
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
-
-# The model each scenario's agents run on: its own model key, else EVAL_MODEL
-# (validated by the shell before this runs), else sonnet. Every scenario is
-# checked before anything is written, so a refused suite leaves no iteration.
-MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
-default_model = os.environ.get("EVAL_MODEL") or "sonnet"
-models = {}
-bad_models = []
-for eval_item in data["evals"]:
-    eval_name = eval_item.get("name", f"eval-{eval_item['id']}")
-    if selected and eval_name != selected:
-        continue
-    model = eval_item.get("model", default_model)
-    if not isinstance(model, str) or not MODEL_PATTERN.fullmatch(model):
-        bad_models.append(eval_name)
-        continue
-    models[eval_name] = model
-if bad_models:
-    for eval_name in bad_models:
-        print(f"Error: {eval_name} declares a model that does not match"
-              f" ^[A-Za-z0-9][A-Za-z0-9._:-]*$; refusing the suite")
-    sys.exit(3)
 
 # Two names for the same thing. 'expectations' is what the current suites write
 # and carries the great majority of the corpus; 'assertions' is the older name.
@@ -732,7 +547,6 @@ for eval_item in data["evals"]:
         "workspace_dir": workspace_dir,
         "files_from_fixture": from_fixture,
         "files_stubbed": stubbed,
-        "model": models[eval_name],
     }
     if refused:
         metadata["files_refused"] = refused
@@ -776,11 +590,6 @@ for eval_item in data["evals"]:
 
 print(f"\nPrepared {prepared} eval directories.")
 PYEOF
-  # 3 is the model refusal above, raised before anything was written. Any other
-  # failure here goes on as it always has, to the validation that reports it.
-  if [ "$prep_rc" -eq 3 ]; then
-    return 3
-  fi
 
   # Return values for callers
   PREP_ITER_DIR="$iter_dir"
@@ -1032,10 +841,7 @@ run_skill_evals() {
       echo "  Isolated checkout: $tier2_checkout"
       echo "  (workflow execution sandboxed; live tree will not be mutated)"
       echo ""
-      # read -d '' rather than $(cat <<...): bash 3.2 mis-parses a heredoc
-      # holding an apostrophe inside a command substitution. read keeps the
-      # trailing newline $(...) used to strip, so it is stripped below.
-      IFS= read -r -d '' tier2_isolation_block <<ISOBLOCK || true
+      tier2_isolation_block=$(cat <<ISOBLOCK
 
 TIER-2 ISOLATION (MANDATORY for every tier 2 eval):
 An isolated, throwaway clone of this repository has been prepared at:
@@ -1054,7 +860,7 @@ harness provides for it, with its own throwaway origin, at:
   $TIER2_ISOLATION_ROOT/second-clone
 Pass it to node-cut.sh with --repo-dir for that node.
 ISOBLOCK
-      tier2_isolation_block="${tier2_isolation_block%$'\n'}"
+)
     else
       echo "  WARNING: failed to set up isolated checkout for tier-2 evals." >&2
       echo "  Refusing to run tier-2 evals against the live working tree." >&2
@@ -1073,30 +879,15 @@ ISOBLOCK
     fixtures_bin="$tier2_checkout/skills/$skill_name/evals/fixtures/bin"
     preflight_fixture="$tier2_checkout/skills/$skill_name/evals/fixtures/preflight-liveness"
   fi
-  local tier_instructions=""
+  local tier_instructions
   local nested_permission_text="${EVAL_CLAUDE_PERMISSION_ARGS[*]}"
-  # Written to a file in the scratch root and read back, rather than captured
-  # with $(...): bash 3.2 mis-parses a heredoc inside a command substitution
-  # when the heredoc holds an unpaired quote.
-  local tier_file="$scratch/tier-instructions.txt"
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 > "$tier_file" << PYEOF
+  tier_instructions=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 << PYEOF
 import json, os
 
 with open("$evals_file") as f:
     data = json.load(f)
 
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
-iter_dir = "$iter_dir"
-
-
-def scenario_model(name):
-    """The model prep resolved and wrote into the scenario's metadata."""
-    try:
-        with open(os.path.join(iter_dir, name, "eval_metadata.json")) as fh:
-            return json.load(fh).get("model") or "sonnet"
-    except (OSError, ValueError):
-        return "sonnet"
-
 
 lines = []
 for ev in data["evals"]:
@@ -1104,10 +895,6 @@ for ev in data["evals"]:
     name = ev.get("name", f"eval-{ev['id']}")
     if selected and name != selected:
         continue
-    # Both agents of a scenario run on its model: a session flag alone would
-    # not reach the agents the session spawns.
-    model_text = (f" Spawn this eval's with-skill agent and its baseline agent on model "
-                  f"{scenario_model(name)} (set it as each agent's model).")
     # The liveness eval is the one scenario that must run with the injected
     # preflight check ENABLED. The harness exports SHIRABE_PREFLIGHT_DISABLE=1
     # for everything else (see the header block); clearing it here is what
@@ -1126,7 +913,7 @@ for ev in data["evals"]:
                      f"in that run, and report VERBATIM everything the nested run put in front of "
                      f"the model before the skill body, plus a byte count. Do not call "
                      f"scripts/skill-preflight.sh yourself — the point is the skill load, not the "
-                     f"script.'" + model_text)
+                     f"script.'")
         continue
     if tier == 2:
         scenario = ev.get("scenario", "")
@@ -1138,15 +925,14 @@ for ev in data["evals"]:
         if isinstance(extra, dict) and extra:
             env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
         lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
-                     f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'" + model_text)
+                     f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'")
     else:
         lines.append(f"- {name}: TIER 1 (plan_only) — "
-                     f"Instruct agent: 'Read the skill file and describe the exact sequence of commands you would run. Do NOT execute any commands.'" + model_text)
+                     f"Instruct agent: 'Read the skill file and describe the exact sequence of commands you would run. Do NOT execute any commands.'")
 
 print("\\n".join(lines))
 PYEOF
-  tier_instructions=$(cat "$tier_file")
-  rm -f "$tier_file"
+)
 
   # Step 3: Run evals via claude -p with /skill-creator
   echo ""
@@ -1156,9 +942,8 @@ PYEOF
 
   local claude_exit=0
   local transcript="$iter_dir/runner_session.jsonl"
-  local prompt=""
-  # read -d '' for the same bash 3.2 reason as the isolation block above.
-  IFS= read -r -d '' prompt <<PROMPT || true
+  local prompt
+  prompt=$(cat <<PROMPT
 Invoke /skill-creator. You already have an existing skill with evals ready to run.
 
 The skill is at: $skill_dir/SKILL.md
@@ -1234,20 +1019,17 @@ Follow the skill-creator's "Running and evaluating test cases" workflow:
 
 This is iteration $iteration for the $skill_name skill.
 PROMPT
-  prompt="${prompt%$'\n'}"
+)
 
   # Run from the repo root: acceptEdits bounds file edits to the working
   # directory plus --add-dir, so the directory the operator happened to invoke
   # this script from must not decide what the session may write. stdout is the
   # stream-json transcript the not-executed check reads; stderr stays on the
-  # terminal. The subshell drops the credentials named under "Credentials" in
-  # the header before the session starts, without touching this shell's.
+  # terminal.
   (
     cd "$REPO_ROOT" || exit 1
-    unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
-      --model "$EVAL_MODEL" \
       --add-dir "$scratch" \
       --output-format stream-json --verbose
   ) > "$transcript" || claude_exit=$?
@@ -1519,11 +1301,8 @@ PYEOF
 #   scripts/run-evals.sh --scenario baseline-malformed-state --runs 5 scope
 #
 # Each run gets its own iteration-N directory, so no run overwrites another's
-# evidence. The exit status is 0 only when every run passed, 2 when any run
-# returned 2 (a run that graded nothing is an infrastructure failure, and the
-# release check must not read it as a plain assertion failure), and 1 when runs
-# only failed assertions. The rate is printed either way, since a rate is the
-# point of asking.
+# evidence. The exit status is 0 only when every run passed; the rate is printed
+# either way, since a rate is the point of asking.
 run_skill_evals_repeated() {
   local skill_name="$1"
   local runs="$2"
@@ -1533,7 +1312,6 @@ run_skill_evals_repeated() {
   local total_assertions=0
   local passed_assertions=0
   local per_run=""
-  local saw_infra=0
 
   while [ "$run_no" -le "$runs" ]; do
     echo ""
@@ -1544,8 +1322,6 @@ run_skill_evals_repeated() {
     PREP_ITER_DIR=""
     local rc=0
     run_skill_evals "$skill_name" || rc=$?
-    # Before the early returns, so a summary shows the run that stopped.
-    tally_run "$rc"
 
     # Exit 3 is a missing prerequisite or a missing suite. Repeating it N times
     # produces N copies of the same error, so stop and say which run stopped.
@@ -1561,9 +1337,18 @@ run_skill_evals_repeated() {
       echo "  Stopping after run $run_no: the nested session did not execute, and repeating cannot fix that."
       return 4
     fi
-    [ "$rc" -eq 2 ] && saw_infra=1
 
-    local run_passed="$TALLY_LAST_PASSED" run_total="$TALLY_LAST_GRADED"
+    local tally="0 0"
+    if [ -n "$PREP_ITER_DIR" ] && [ -f "$PREP_ITER_DIR/validation_summary.json" ]; then
+      tally=$(python3 -c "
+import json
+s = json.load(open('$PREP_ITER_DIR/validation_summary.json'))
+print(s['passed_assertions'], s['total_assertions'])
+" 2>/dev/null || echo "0 0")
+    fi
+    local run_passed run_total
+    run_passed=$(echo "$tally" | cut -d' ' -f1)
+    run_total=$(echo "$tally" | cut -d' ' -f2)
     passed_assertions=$((passed_assertions + run_passed))
     total_assertions=$((total_assertions + run_total))
 
@@ -1604,215 +1389,19 @@ run_skill_evals_repeated() {
   if [ "$runs_passed" -eq "$runs" ]; then
     return 0
   fi
-  if [ "$saw_infra" -eq 1 ]; then
-    return 2
-  fi
   return 1
 }
 
-# ---------------------------------------------------------------------------
-# The per-skill tally behind --summary-out. begin_skill_tally resets it,
-# tally_run adds one run_skill_evals result to it (reading PREP_ITER_DIR, which
-# the caller clears before each run), and record_skill_summary appends the
-# skill's entry to SUMMARY_LINES. write_summary turns those lines into the
-# summary file. TALLY_LAST_* hold the run just tallied, for the --runs report.
-# ---------------------------------------------------------------------------
-TALLY_RUNS=0
-TALLY_RUNS_PASSED=0
-TALLY_ASSERTIONS_PASSED=0
-TALLY_ASSERTIONS_GRADED=0
-TALLY_ITER_DIRS=()
-TALLY_LAST_PASSED=0
-TALLY_LAST_GRADED=0
-
-begin_skill_tally() {
-  TALLY_RUNS=0
-  TALLY_RUNS_PASSED=0
-  TALLY_ASSERTIONS_PASSED=0
-  TALLY_ASSERTIONS_GRADED=0
-  TALLY_ITER_DIRS=()
-}
-
-tally_run() { # tally_run <exit code of run_skill_evals>
-  local rc="$1" tally="0 0"
-  TALLY_RUNS=$((TALLY_RUNS + 1))
-  [ "$rc" -eq 0 ] && TALLY_RUNS_PASSED=$((TALLY_RUNS_PASSED + 1))
-  if [ -n "$PREP_ITER_DIR" ]; then
-    TALLY_ITER_DIRS+=("$PREP_ITER_DIR")
-    if [ -f "$PREP_ITER_DIR/validation_summary.json" ]; then
-      tally=$(python3 -c "
-import json, sys
-s = json.load(open(sys.argv[1]))
-print(int(s['passed_assertions']), int(s['total_assertions']))
-" "$PREP_ITER_DIR/validation_summary.json" 2>/dev/null || echo "0 0")
-    fi
-  fi
-  TALLY_LAST_PASSED=$(echo "$tally" | cut -d' ' -f1)
-  TALLY_LAST_GRADED=$(echo "$tally" | cut -d' ' -f2)
-  TALLY_ASSERTIONS_PASSED=$((TALLY_ASSERTIONS_PASSED + TALLY_LAST_PASSED))
-  TALLY_ASSERTIONS_GRADED=$((TALLY_ASSERTIONS_GRADED + TALLY_LAST_GRADED))
-}
-
-record_skill_summary() { # record_skill_summary <skill> <exit code>
-  [ -n "$SUMMARY_OUT" ] || return 0
-  python3 - "$SUMMARY_LINES" "$1" "$TALLY_RUNS" "$TALLY_RUNS_PASSED" \
-    "$TALLY_ASSERTIONS_PASSED" "$TALLY_ASSERTIONS_GRADED" "$2" \
-    ${TALLY_ITER_DIRS[@]+"${TALLY_ITER_DIRS[@]}"} <<'PYEOF'
-import glob, json, os, sys
-
-out, name = sys.argv[1], sys.argv[2]
-runs, runs_passed, a_passed, a_graded, exit_code = (int(v) for v in sys.argv[3:8])
-models = set()
-for iter_dir in sys.argv[8:]:
-    for meta in glob.glob(os.path.join(iter_dir, "*", "eval_metadata.json")):
-        try:
-            with open(meta) as fh:
-                model = json.load(fh).get("model")
-        except (OSError, ValueError):
-            continue
-        if isinstance(model, str) and model:
-            models.add(model)
-entry = {
-    "runs": runs,
-    "runs_passed": runs_passed,
-    "assertions_passed": a_passed,
-    "assertions_graded": a_graded,
-    "models": sorted(models),
-    "exit_code": exit_code,
-}
-with open(out, "a") as fh:
-    fh.write(json.dumps({"skill": name, "entry": entry}) + "\n")
-PYEOF
-}
-
-write_summary() {
-  [ -n "$SUMMARY_OUT" ] || return 0
-  if ! python3 - "$SUMMARY_LINES" "$SUMMARY_OUT" <<'PYEOF'
-import json, sys
-
-skills = {}
-with open(sys.argv[1]) as fh:
-    for line in fh:
-        if line.strip():
-            record = json.loads(line)
-            skills[record["skill"]] = record["entry"]
-with open(sys.argv[2], "w") as fh:
-    json.dump({"schema": "run-evals-summary/v1", "skills": skills}, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PYEOF
-  then
-    echo "Error: could not write the summary to $SUMMARY_OUT" >&2
-    return 1
-  fi
-}
-
-cleanup_summary_lines() {
-  if [ -n "$SUMMARY_LINES" ] && [ -f "$SUMMARY_LINES" ]; then
-    rm -f "$SUMMARY_LINES"
-  fi
-}
-
-# One skill, once or --runs times, tallied for --summary-out.
-run_skill() { # run_skill <skill>
-  local name="$1" rc=0
-  begin_skill_tally
-  if [ "$EVAL_RUNS" -gt 1 ]; then
-    run_skill_evals_repeated "$name" "$EVAL_RUNS" || rc=$?
-  else
-    PREP_ITER_DIR=""
-    run_skill_evals "$name" || rc=$?
-    tally_run "$rc"
-  fi
-  record_skill_summary "$name" "$rc"
-  return "$rc"
-}
-
-# Several skills with --all's failure collection and exit precedence. Returns
-# the exit code rather than exiting, so the caller can write the summary first.
-run_skill_list() { # run_skill_list <skill>...
-  local failed_skills=() infra_failed=() not_executed=() name rc
-  for name in "$@"; do
-    rc=0
-    run_skill "$name" || rc=$?
-    if [ "$rc" -ne 0 ]; then
-      if [ "$rc" -eq 4 ]; then
-        not_executed+=("$name")
-      elif [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
-        infra_failed+=("$name")
-      else
-        failed_skills+=("$name")
-      fi
-    fi
-    echo ""
-  done
-  echo "=== Summary ==="
-  if [ ${#failed_skills[@]} -gt 0 ]; then
-    echo "  Failed assertions: ${failed_skills[*]}"
-  fi
-  if [ ${#infra_failed[@]} -gt 0 ]; then
-    echo "  Infrastructure failures: ${infra_failed[*]}"
-  fi
-  if [ ${#not_executed[@]} -gt 0 ]; then
-    echo "  Nested session did not execute: ${not_executed[*]}"
-  fi
-  if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
-    echo "  All skills passed."
-  fi
-  # A failed assertion outranks everything, as before. A session that never
-  # executed outranks a plain infra failure because it has one known cause to
-  # fix, and fixing it may be what clears the other skills' exit 2s.
-  [ ${#failed_skills[@]} -gt 0 ] && return 1
-  [ ${#not_executed[@]} -gt 0 ] && return 4
-  [ ${#infra_failed[@]} -gt 0 ] && return 2
-  return 0
-}
-
-# Write the summary, when one was asked for, and exit with the run's code.
-finish() { # finish <exit code>
-  local rc="$1"
-  write_summary || { [ "$rc" -eq 0 ] && rc=2; }
-  exit "$rc"
-}
-
 # Main
+if [ $# -eq 0 ]; then
+  usage
+fi
+
 parse_run_options "$@"
 set -- ${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}
 
-if [ -n "$SUMMARY_OUT" ]; then
-  SUMMARY_LINES=$(mktemp "${TMPDIR:-/tmp}/run-evals-summary.XXXXXX") || {
-    echo "Error: could not create a temporary file for the summary"
-    exit 3
-  }
-  trap 'cleanup_run_dirs; cleanup_summary_lines' EXIT
-fi
-
-# No skill name: the skills changed since the last v* tag.
 if [ $# -eq 0 ]; then
-  if [ -n "$EVAL_SCENARIO_FILTER" ]; then
-    echo "Error: --scenario names one eval in one suite; use it with a skill name"
-    exit 1
-  fi
-  select_changed_skills || exit 2
-  if [ -z "$CHANGED_TAG" ]; then
-    echo "No v* tag found; selecting every skill with evals."
-  fi
-  if [ ${#CHANGED_SKILLS[@]} -eq 0 ]; then
-    if [ -n "$CHANGED_TAG" ]; then
-      echo "No skill with evals changed since $CHANGED_TAG."
-    else
-      echo "No skill has evals."
-    fi
-    finish 0
-  fi
-  if [ -n "$CHANGED_TAG" ]; then
-    echo "Skills with evals changed since $CHANGED_TAG: ${CHANGED_SKILLS[*]}"
-  else
-    echo "Skills with evals: ${CHANGED_SKILLS[*]}"
-  fi
-  echo ""
-  rc=0
-  run_skill_list "${CHANGED_SKILLS[@]}" || rc=$?
-  finish "$rc"
+  usage
 fi
 
 case "$1" in
@@ -1820,32 +1409,55 @@ case "$1" in
     echo "Skills with evals:"
     list_skills_with_evals
     ;;
-  --list-changed)
-    select_changed_skills || exit 2
-    # stdout carries the names alone, for callers to read; the note goes to
-    # stderr.
-    if [ -z "$CHANGED_TAG" ]; then
-      echo "No v* tag found; selecting every skill with evals." >&2
-    fi
-    for name in ${CHANGED_SKILLS[@]+"${CHANGED_SKILLS[@]}"}; do
-      printf '%s\n' "$name"
-    done
-    exit 0
-    ;;
   --all)
     if [ -n "$EVAL_SCENARIO_FILTER" ]; then
       echo "Error: --scenario names one eval in one suite; use it with a skill name, not --all"
       exit 1
     fi
-    all_skills=()
+    failed_skills=()
+    infra_failed=()
+    not_executed=()
     for skill_dir in "$SKILLS_DIR"/*/; do
+      name=$(basename "$skill_dir")
       if [ -f "$skill_dir/evals/evals.json" ]; then
-        all_skills+=("$(basename "$skill_dir")")
+        rc=0
+        if [ "$EVAL_RUNS" -gt 1 ]; then
+          run_skill_evals_repeated "$name" "$EVAL_RUNS" || rc=$?
+        else
+          run_skill_evals "$name" || rc=$?
+        fi
+        if [ "$rc" -ne 0 ]; then
+          if [ "$rc" -eq 4 ]; then
+            not_executed+=("$name")
+          elif [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
+            infra_failed+=("$name")
+          else
+            failed_skills+=("$name")
+          fi
+        fi
+        echo ""
       fi
     done
-    rc=0
-    run_skill_list ${all_skills[@]+"${all_skills[@]}"} || rc=$?
-    finish "$rc"
+    echo "=== Summary ==="
+    if [ ${#failed_skills[@]} -gt 0 ]; then
+      echo "  Failed assertions: ${failed_skills[*]}"
+    fi
+    if [ ${#infra_failed[@]} -gt 0 ]; then
+      echo "  Infrastructure failures: ${infra_failed[*]}"
+    fi
+    if [ ${#not_executed[@]} -gt 0 ]; then
+      echo "  Nested session did not execute: ${not_executed[*]}"
+    fi
+    if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
+      echo "  All skills passed."
+    fi
+    # A failed assertion outranks everything, as before. A session that never
+    # executed outranks a plain infra failure because it has one known cause to
+    # fix, and fixing it may be what clears the other skills' exit 2s.
+    [ ${#failed_skills[@]} -gt 0 ] && exit 1
+    [ ${#not_executed[@]} -gt 0 ] && exit 4
+    [ ${#infra_failed[@]} -gt 0 ] && exit 2
+    exit 0
     ;;
   --prep-only)
     if [ $# -lt 2 ]; then
@@ -1894,8 +1506,10 @@ print(len(evals))
     usage
     ;;
   *)
-    rc=0
-    run_skill "$1" || rc=$?
-    finish "$rc"
+    if [ "$EVAL_RUNS" -gt 1 ]; then
+      run_skill_evals_repeated "$1" "$EVAL_RUNS"
+    else
+      run_skill_evals "$1"
+    fi
     ;;
 esac
