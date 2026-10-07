@@ -146,7 +146,8 @@ core_write() {
         # A cell that holds only a repository (Side effects Target) is read for
         # any owner/repo token. Decisions text is prose, where "and/or" or
         # "CI/CD" is not a repository, so only its unambiguous forms count
-        # there: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
+        # there, as the codec's text_named_repos reads them for a record entry
+        # too: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
         jq -r -L "$HERE" 'include "record-codec";
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
             def links: scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean;
@@ -157,10 +158,7 @@ core_write() {
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
                      | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?=#[0-9]|[\\s)\\]>,;:]|$)") | .[0] | clean) )),
-              (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring
-                | ( links,
-                    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
-                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) )) ]
+              (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring | text_named_repos[]) ]
             | map(select(. != "")) | unique | .[]' "$T/parsed.json" > "$T/named" || lib_die2 "jq failed"
         while IFS= read -r r; do
             [[ $r =~ $RE_REPO ]] || { echo "$PROG: refused: $r is not owner/repo" >&2; exit 65; }

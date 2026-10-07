@@ -248,9 +248,11 @@ def dec_d: gsub("&#64;"; "@") | dec;
 # record entry (record-append.sh). text_named_repos lists the repositories the
 # text names unambiguously, a github.com/<owner>/<repo> link or
 # <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
-# the caller reads each one's visibility. text_problem($private) is null, or
-# what makes the text unfit: a repository on the $private list, a
-# home-directory path or a token-shaped string.
+# both callers (record-write-core.sh for the Decisions columns,
+# record-append.sh for an entry) read each one's visibility and pass the ones
+# that aren't public back as $private. text_problem($private) is null, or what
+# makes the text unfit: a repository on the $private list, a home-directory
+# path or a token-shaped string. check_dcell and record-append.sh both use it.
 def text_named_repos:
   def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
   [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
