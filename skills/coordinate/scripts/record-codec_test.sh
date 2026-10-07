@@ -15,7 +15,11 @@
 # `Next decision: 1` isn't canonical; each malformed entry is refused; the
 # section's own grammars leave the other sections' same-named columns alone; `@`
 # is encoded; the shared escalation validator and compaction; and the handoff
-# carrying only unsettled entries, a predecessor copy carrying all.
+# carrying only unsettled entries, a predecessor copy carrying all. The Holds
+# section: each of the three conditions round-trips, beside Decisions and in a
+# pull request; no holds renders the same bytes as before the section existed;
+# it sits before Decisions; each malformed hold is refused; and a handoff
+# carries the holds as they stand.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -326,6 +330,33 @@ else bad "a handoff carries only the unsettled entries" "$(cat "$T/err"; jq -c .
 printf '%s' "$(printf '%s' "$HD" | jq -c 'del(.reasoning) | .predecessor_copy = {written: "2026-09-23T17:00:00Z"}')" > "$T/hp.json"
 bash "$R" --format handoff "$T/hp.json" | bash "$P" --format handoff | jq -e '.decisions.entries | length == 5' > /dev/null \
     && ok "a predecessor copy keeps the section as it stands, settled entries too" || bad "a predecessor copy keeps the section as it stands"
+
+echo "== the Holds section =="
+HOLD_A='{"hold":"after-346","on":"acme/widgets#12","until":"merged acme/gadgets#346","set_by":"the workspace coordinator","set":"2026-09-26T09:00Z","lifted":""}'
+HOLD_B='{"hold":"v028","on":"acme/widgets#13","until":"tag acme/gadgets v0.28.0","set_by":"the release lane","set":"2026-09-26T09:05Z","lifted":""}'
+HOLD_C='{"hold":"go","on":"acme/widgets#14","until":"lifted","set_by":"the human","set":"2026-09-26T09:10Z","lifted":"2026-09-26T10:00Z by the human"}'
+roundtrip "holds of all three conditions round-trip" "$(full_record | jq -c --argjson a "$HOLD_A" --argjson b "$HOLD_B" --argjson c "$HOLD_C" '.holds = [$a, $b, $c]')"
+roundtrip "holds round-trip beside a Decisions section" "$(decisions_record | jq -c --argjson a "$HOLD_A" '.holds = [$a]')"
+roundtrip "holds round-trip in a discipline record's pull request" "$(full_record | jq -c --argjson a "$HOLD_A" '.scope = {kind: "discipline", name: "ci-health"} | .holds = [$a]')" --container pr
+printf '%s' "$(full_record)" | bash "$R" --written "$W" > "$T/nh.md"
+printf '%s' "$(full_record | jq -c '.holds = []')" | bash "$R" --written "$W" > "$T/eh.md"
+cmp -s "$T/nh.md" "$T/eh.md" && ! grep -q '## Holds' "$T/nh.md" && ok "no holds renders no section, the same bytes as a record from before it" \
+    || bad "no holds renders no section"
+printf '%s' "$(decisions_record | jq -c --argjson a "$HOLD_A" '.holds = [$a]')" | bash "$R" --written "$W" > "$T/hd2.md"
+awk '/^## Holds$/{h=NR} /^## Decisions$/{d=NR} END{exit !(h && d && h < d)}' "$T/hd2.md" && ok "Holds sits after Reversals and before Decisions" || bad "Holds sits after Reversals and before Decisions"
+refuse "a malformed Until is refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a | .until = "until Monday"]')" "holds.until"
+refuse "On that isn't owner/repo#n is refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a | .on = "#12"]')" "holds.on"
+refuse "a lift that isn't a time and who is refused" "$(full_record | jq -c --argjson c "$HOLD_C" '.holds = [$c | .lifted = "yesterday"]')" "holds.lifted"
+refuse "a lifted cell on a merged condition is refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a | .lifted = "2026-09-26T10:00Z by me"]')" "only a \`lifted\` hold"
+refuse "two holds of one name are refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a, $a]')" "used twice"
+refuse "a column outside the section is refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a + {state: "met"}]')" "holds.state"
+refuse "a hold naming a private repository is refused" "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a]')" "isn't public" --private-repos acme/gadgets
+printf '%s' "$(full_record | jq -c --argjson a "$HOLD_A" '.holds = [$a]')" | bash "$R" --written "$W" > "$T/h.md"
+sed 's/^## Holds$/## Holdz/' "$T/h.md" > "$T/h2.md"
+bash "$P" "$T/h2.md" > /dev/null 2>&1; [ $? -eq 65 ] && ok "an unknown section after Reversals is refused" || bad "an unknown section after Reversals is refused"
+HH=$(full_record | jq -c --argjson a "$HOLD_A" '.scope = {kind: "discipline", name: "ci-health"} | del(.written) | .holds = [$a] | .rotation = {start: "2026-09-20", end: "2026-09-23", date: "2026-09-23", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"} | .reasoning = "Carry the hold."')
+printf '%s' "$HH" | bash "$R" --format handoff | bash "$P" --format handoff | jq -e '.holds[0].hold == "after-346" and .reasoning == "Carry the hold."' > /dev/null \
+    && ok "a handoff carries the holds as they stand, before the reasoning" || bad "a handoff carries the holds"
 
 echo "== usage =="
 bash "$R" --format nope < /dev/null > /dev/null 2>&1; [ $? -eq 64 ] && ok "render usage error exits 64" || bad "render usage error exits 64"

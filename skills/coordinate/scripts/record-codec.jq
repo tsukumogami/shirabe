@@ -123,6 +123,88 @@ def check_row($sec; $private):
     else . end
   | reduce $sec.cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") | check_cell($c[0]; $private)));
 
+# ---- the Holds section ------------------------------------------------------
+#
+# Holds on merges, each a condition the land step evaluates live
+# (docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 6). Like
+# Decisions, it sits after Reversals and renders only when it has a row, so a
+# record written before the section existed parses with no `holds` key and
+# renders back to the same bytes. Only record-hold.sh adds or lifts a hold.
+#
+#   Hold     a short name, unique in the section
+#   On       the held pull request, owner/repo#n
+#   Until    `merged owner/repo#m` (another pull request merges),
+#            `tag owner/repo <tag>` (a release is tagged), or `lifted` (a
+#            person lifts it)
+#   Set by   who asked for the hold, in words
+#   Set      when, YYYY-MM-DDTHH:MMZ
+#   Lifted   blank while it stands; `<YYYY-MM-DDTHH:MMZ> by <who>` once a
+#            person lifted it (only a `lifted` hold is lifted by hand)
+
+def holds_title: "Holds";
+def holds_cols: [
+  ["hold", "Hold"], ["on", "On"], ["until", "Until"], ["set_by", "Set by"],
+  ["set", "Set"], ["lifted", "Lifted"]];
+def re_pr_ref: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$";
+def re_tag: "^[A-Za-z0-9][A-Za-z0-9._+-]*$";
+
+def check_hcell($key; $private):
+  . as $v
+  | if ($v | type) != "string" then refuse("holds.\($key): not a string")
+    elif $v | test("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]") then refuse("holds.\($key): a control character")
+    elif ($v | test("[\r\n]")) then refuse("holds.\($key): a line break")
+    elif $v == "" and $key != "lifted" then refuse("holds.\($key): empty")
+    elif $v == "" then $v
+    elif $key == "hold" then (if test(re_name) then . else refuse("holds.hold: not a short name") end)
+    elif $key == "on" then (if test(re_pr_ref) then . else refuse("holds.on: not owner/repo#n") end)
+    elif $key == "until" then
+      (if . == "lifted" then .
+       elif (split(" ") | length == 2 and .[0] == "merged" and (.[1] | test(re_pr_ref))) then .
+       elif (split(" ") | length == 3 and .[0] == "tag" and (.[1] | test(re_repo)) and (.[2] | test(re_tag))) then .
+       else refuse("holds.until: not `merged owner/repo#n`, `tag owner/repo <tag>` or `lifted`") end)
+    elif $key == "set" then (if test(re_time_min) then . else refuse("holds.set: not YYYY-MM-DDTHH:MMZ") end)
+    elif $key == "lifted" then (if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z by .+$") then . else refuse("holds.lifted: not `<YYYY-MM-DDTHH:MMZ> by <who>`") end)
+    else . end
+  | if ($v != "") and ($key == "on" or $key == "until") then
+      ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
+      | if $hit != null then refuse("holds.\($key): names \($hit), a repository that isn't public") else . end
+    else . end;
+
+def check_holds($h; $private):
+  if $h == null then null
+  elif ($h | type) != "array" then refuse("holds: not a list")
+  else
+    ($h | map(. as $row
+      | if type != "object" then refuse("holds: a row that isn't an object") else . end
+      | ([keys[] | . as $k | select(any(holds_cols[]; .[0] == $k) | not)]) as $extra
+      | if ($extra | length) > 0 then refuse("holds.\($extra[0]): not a column of this section") else . end
+      | reduce holds_cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") | check_hcell($c[0]; $private)))
+      | if .lifted != "" and .until != "lifted" then refuse("holds: \(.hold): only a `lifted` hold is lifted by hand") else . end)) as $rows
+    | if ($rows | map(.hold) | unique | length) != ($rows | length) then refuse("holds: a hold name is used twice") else $rows end
+  end;
+
+def render_holds($h):
+  if $h == null or ($h | length) == 0 then ""
+  else
+    "\n\n## \(holds_title)\n\n"
+    + ("| " + (holds_cols | map(.[1]) | join(" | ")) + " |") + "\n"
+    + ("|" + (holds_cols | map("---") | join("|")) + "|")
+    + ($h | map(. as $r | "\n| " + (holds_cols | map($r[.[0]] | enc) | join(" | ")) + " |") | join(""))
+  end;
+
+def parse_holds($p):
+  ($p[(holds_title | length) + 2:]) as $body
+  | ($body | split("\n")) as $lines
+  | ("| " + (holds_cols | map(.[1]) | join(" | ")) + " |") as $header
+  | if ($lines | length) < 3 then refuse("Holds: a table needs a header, a separator and a row")
+    elif $lines[0] != $header then refuse("Holds: header row differs from the fixed columns")
+    else $lines[2:] | map(
+      (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
+       | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec)) as $cells
+      | if ($cells | length) != (holds_cols | length) then refuse("Holds: a row with \($cells | length) cells, not \(holds_cols | length)")
+        else [range(0; holds_cols | length) as $i | {(holds_cols[$i][0]): $cells[$i]}] | add end)
+    end;
+
 # ---- the Decisions section --------------------------------------------------
 #
 # A fifth section, after Reversals, rendered only when it has something to
@@ -346,18 +428,19 @@ def check_top($in; $allowed):
 
 def render_record($container; $written; $private):
   . as $in
-  | check_top($in; ["scope", "written", "holdings", "deferrals", "side_effects", "reversals", "decisions"])
+  | check_top($in; ["scope", "written", "holdings", "deferrals", "side_effects", "reversals", "holds", "decisions"])
   | if ($written | test(re_time_sec) | not) then refuse("written: not YYYY-MM-DDTHH:MM:SSZ") else . end
   | (if $container == "pr" then pr_prefix($in.scope) elif $container == "issue" then "" else refuse("container: not issue or pr") end) as $prefix
   | $prefix + declaration($in.scope) + "\n\nWritten: \($written)\n\n"
     + (checked_sections($in; $private) | map(render_table(.sec; .rows)) | join("\n\n"))
+    + render_holds(check_holds($in.holds; $private))
     + render_decisions(check_decisions($in.decisions; $private)) + "\n";
 
 def predecessor_sentence: "The outgoing rotation's reasoning was not recorded.";
 
 def render_handoff($private):
   . as $in
-  | check_top($in; ["scope", "rotation", "holdings", "deferrals", "side_effects", "reversals", "decisions", "reasoning", "predecessor_copy"])
+  | check_top($in; ["scope", "rotation", "holdings", "deferrals", "side_effects", "reversals", "holds", "decisions", "reasoning", "predecessor_copy"])
   | if ($in.scope.kind // "") != "discipline" then refuse("handoff: only a discipline has a handoff") else . end
   | scope_text($in.scope) as $_
   | ($in.rotation // refuse("rotation: missing")) as $r
@@ -378,6 +461,8 @@ def render_handoff($private):
     + "Rotation from \($r.start) to \($r.end). Host repository: \($r.host_repo). Record: \($r.record_url), kept on coordinate/discipline-\($in.scope.name).\n\n"
     + $reason.line
     + (checked_sections($in; $private) | map(render_table(.sec; .rows)) | join("\n\n"))
+    # Holds carry over as they stand: a hold outlives the rotation that set it.
+    + render_holds(check_holds($in.holds; $private))
     # The handoff carries only the unsettled entries, with the same Next
     # decision, so the next rotation's record continues the numbering; a
     # predecessor copy is copied as it stands.
@@ -419,23 +504,36 @@ def parse_scope($line):
     elif ($s | test("^the [A-Za-z0-9._-]+ discipline$")) then {kind: "discipline", name: ($s | capture("^the (?<n>.*) discipline$").n)}
     else refuse("declaration line: unknown scope") end;
 
+# optional_tail($rest): the parts after the four sections, each an optional
+# Holds then an optional Decisions, in that order, as {holds?, decisions?}.
+def optional_tail($rest):
+  ($rest | map(select(startswith(holds_title + "\n\n")))) as $h
+  | ($rest | map(select(startswith(decisions_title + "\n\n")))) as $d
+  | if ($h | length) + ($d | length) != ($rest | length) or ($h | length) > 1 or ($d | length) > 1
+    then refuse("after Reversals, only ## \(holds_title) and then ## \(decisions_title) may follow")
+    elif ($h | length) == 1 and ($d | length) == 1 and ($rest[0] | startswith(holds_title + "\n\n") | not)
+    then refuse("## \(holds_title) comes before ## \(decisions_title)")
+    else (if ($h | length) == 1 then {holds: parse_holds($h[0])} else {} end)
+         + (if ($d | length) == 1 then {decisions: parse_decisions($d[0])} else {} end) end;
+
 def parse_record:
   normalized | split("\n\n## ") as $parts
-  | if ($parts | length) != 5 and ($parts | length) != 6 then refuse("expected four sections and an optional Decisions, found \(($parts | length) - 1)") else . end
+  | if ($parts | length) < 5 or ($parts | length) > 7 then refuse("expected four sections, then an optional Holds and an optional Decisions, found \(($parts | length) - 1)") else . end
   | ($parts[0] | split("\n")) as $head
   | ([$head | to_entries[] | select(.value | startswith("> This is a **coordinator record** for ")) | .key]) as $at
   | if ($at | length) != 1 then refuse("expected one declaration line") else . end
   | ($head[$at[0] + 2] // "") as $wline
   | ($wline | capture("^Written: (?<w>.*)$") // refuse("no Written: line")).w as $written
   | {scope: parse_scope($head[$at[0]]), written: $written} + parse_sections($parts[1:5])
-    + (if ($parts | length) == 6 then {decisions: parse_decisions($parts[5])} else {} end);
+    + optional_tail($parts[5:]);
 
 def parse_handoff:
   normalized | split("\n\n## ") as $parts
   | if ($parts | length) < 6 then refuse("expected four sections and the reasoning") else . end
-  | ($parts[5] | startswith(decisions_title + "\n\n")) as $has_d
-  | if $has_d and ($parts | length) < 7 then refuse("expected the reasoning after ## \(decisions_title)") else . end
-  | ((if $has_d then $parts[6:] else $parts[5:] end) | join("\n\n## ")) as $rp
+  | ([$parts[5:][] | select(startswith(holds_title + "\n\n") or startswith(decisions_title + "\n\n"))] | length) as $n_opt
+  | ($parts[5:5 + $n_opt]) as $opt
+  | if ($parts | length) < 6 + $n_opt then refuse("expected the reasoning after the record's sections") else . end
+  | ($parts[5 + $n_opt:] | join("\n\n## ")) as $rp
   | if ($rp | startswith("Reasoning for the next rotation\n\n") | not) then refuse("expected ## Reasoning for the next rotation last") else . end
   | ($rp[("Reasoning for the next rotation\n\n" | length):]) as $text
   | ($parts[0] | split("\n\n")) as $head
@@ -446,4 +544,4 @@ def parse_handoff:
      rotation: {start: $i.s, end: $i.e, date: $h.d, host_repo: $i.r, record_url: $i.u}}
     + (if $p != null and $text == predecessor_sentence then {predecessor_copy: {written: $p.w}} else {reasoning: $text} end)
     + parse_sections($parts[1:5])
-    + (if $has_d then {decisions: parse_decisions($parts[5])} else {} end);
+    + optional_tail($opt);

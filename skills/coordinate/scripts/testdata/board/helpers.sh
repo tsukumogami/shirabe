@@ -20,7 +20,7 @@ bt_setup() {
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
              merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
-             panel-evidence.sh squash-message.sh; do
+             panel-evidence.sh squash-message.sh merge-order-entry.sh; do
         cp "$HERE/$f" "$S/$f"
     done
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -127,10 +127,10 @@ bt_verified() {
     bt_sealed "$1" verify_board VERIFIED "verified $2 $3"
     bt_enter "$1" verified_confirm
 }
-# bt_record_body <reversals-json>: record #7 on the stand-in, rendered by the
-# real codec, with the given Reversals rows.
+# bt_record_body <reversals-json> [holds-json]: record #7 on the stand-in,
+# rendered by the real codec, with the given Reversals rows and holds.
 bt_record_body() {
-    jq -nc --argjson r "$1" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r}' > "$T/rec.json"
+    jq -nc --argjson r "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r, holds: $h}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
 }

@@ -10,7 +10,10 @@
 # land-merge.sh, run by the agent, merges the verified sha through a stand-in
 # merge-exec.sh with the title and Part 1 as the squash message; a ready pull
 # request under a denied or confirm-only posture is handed to the person
-# (surface) and never merged; a goal-fit gap, a body with no Review panel and
+# (surface) and never merged, and the block merge-order-entry.sh prints for it
+# carries the seats' evidence and the squash message; a standing hold in the
+# record routes land to surface as held, its block naming the hold, and a
+# lifted one lets it go on to goal_fit; a goal-fit gap, a body with no Review panel and
 # a stale reviewed head each go to rebrief, the reason in coord/land.json; a
 # malformed table stops verify_board (unevidenced); and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
@@ -82,12 +85,28 @@ states:
         command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state start_posture --capture "{{POSTURE}}"'
         overridable: false
     transitions:
-      - target: verify
+      - target: record_find
         when:
           gates.verdict.exit_code: 25
-      - target: verify
+      - target: record_find
         when:
           gates.verdict.exit_code: 26
+  # The run's record, #7, as the real template's start finds it: the land
+  # check reads its holds there.
+  record_find:
+    default_action:
+      command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found 7"'
+      capture_stdout_as: RECORD_FIND
+      fallback: tick again
+    gates:
+      verdict:
+        type: command
+        command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state record_find --capture "{{RECORD_FIND}}"'
+        overridable: false
+    transitions:
+      - target: verify
+        when:
+          gates.verdict.exit_code: 10
   verify:
     accepts:
       prediction:
@@ -175,6 +194,9 @@ states:
       - target: failure
         when:
           gates.verdict.exit_code: 84
+      - target: surface
+        when:
+          gates.verdict.exit_code: 85
   goal_fit:
     accepts:
       fit:
@@ -262,6 +284,10 @@ states:
 
 Posture.
 
+## record_find
+
+Record.
+
 ## verify
 
 Predict.
@@ -317,6 +343,7 @@ start() { # start <session> <board case> [posture] [body-file]
     printf '%s\n' "${3:-$PERMIT}" > "$BT_STATE/posture"
     bt_board "$2"
     bt_prview CLEAN ${4:+"$4"}
+    bt_record_body '[]' "${BT_HOLDS:-[]}"
     rm -f "$BT_STATE/merge-exec.calls"
     # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
@@ -353,9 +380,36 @@ eq "a ready pull request under a denied merge reaches goal_fit" goal_fit "$(stat
 case "$(bash "$CL" capture --session "$S" --name LAND)" in "deny 12 $H sealed:"*) ok "LAND is the sealed deny: ready, the merge reserved" ;; *) bad "LAND is the sealed deny" ;; esac
 eq "and a fit one is handed to the person (surface), not merged" surface "$(state "$(tick "$S" --with-data "$FITS")")"
 [ ! -s "$BT_STATE/merge-exec.calls" ] && ok "and merge-exec is never called" || bad "and merge-exec is never called"
+# entry_has <label>: the hand-over block merge-order-entry.sh prints for this
+# run carries the seats' evidence and the squash message, line for line.
+entry_has() {
+    local out
+    out=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>"$T/err")
+    eq "$1: merge-order-entry.sh prints the block" 0 $?
+    case "$out" in *"- Review: 3 of 3 seats pass (architect, maintainer, pragmatic) at $H, in the pull request body's Review panel section"*)
+        ok "$1: the block carries the seats' evidence" ;; *) bad "$1: the block carries the seats' evidence" "$out" ;; esac
+    case "$out" in *"  feat(land): read the round"*"  Reads the worker's review round in the land step."*)
+        ok "$1: the block carries the squash message" ;; *) bad "$1: the block carries the squash message" "$out" ;; esac
+    case "$out" in *"$2"*) ok "$1: and says why it is handed over" ;; *) bad "$1: and says why it is handed over" "$out" ;; esac
+}
+entry_has "deny" "the workspace reserves the merge for you"
 start coordinate-demo-20260926T150011Z complete-board "readable merge:confirm close:permit teardown:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a merge behind a person's confirmation is handed over too" surface "$(state "$(tick "$S" --with-data "$FITS")")"
+entry_has "confirm" "the merge is behind your confirmation"
+
+echo "== holds =="
+BT_HOLDS=$(jq -nc '[{hold: "go-signal", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-26T09:00Z", lifted: ""}]')
+start coordinate-demo-20260926T150017Z complete-board
+eq "a standing hold in the record sends land to surface, before goal_fit" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "held 12 $H sealed:"*) ok "LAND is the sealed held" ;; *) bad "LAND is the sealed held" ;; esac
+entry_has "held" "held; it waits on the hold below"
+OUT=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>/dev/null)
+case "$OUT" in *"- Holds: go-signal until lifted (unmet)"*) ok "held: the block names the hold and its state" ;; *) bad "held: the block names the hold and its state" "$OUT" ;; esac
+BT_HOLDS=$(jq -nc '[{hold: "go-signal", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-26T09:00Z", lifted: "2026-09-26T09:30Z by the human"}]')
+start coordinate-demo-20260926T150018Z complete-board
+eq "once the hold is lifted, land goes on to goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+BT_HOLDS=
 start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a fit with follow-ups under a denied merge is handed to the person too" surface \

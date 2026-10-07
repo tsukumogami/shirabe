@@ -63,7 +63,7 @@ case "$WORD" in
     board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
     no-pr) exit 77 ;; not-run) exit 78 ;; unevidenced) exit 79 ;;
     # land
-    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;;
+    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;; held) exit 85 ;;
     # merge_confirm, merged_facts
     merged) exit 90 ;; unconfirmed) exit 91 ;; not-merged) exit 92 ;;
     # quiet_check

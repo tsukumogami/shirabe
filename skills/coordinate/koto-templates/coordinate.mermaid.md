@@ -76,9 +76,9 @@ stateDiagram-v2
     land --> rebrief : gates.land_verdict.exit_code: 83
     land --> verify : gates.land_verdict.exit_code: 53
     land --> failure : gates.land_verdict.exit_code: 84
+    land --> surface : gates.land_verdict.exit_code: 85
     land_merge --> merge_confirm : merge: attempted
     land_merge --> failure : merge: failed
-    land_merge --> surface : merge: held
     leg_pick --> wait_leg : gates.leg_target.matches: true
     leg_pick --> wait : gates.leg_target.matches: false
     leg_spent --> record : move: replaced

@@ -1553,6 +1553,11 @@ states:
       - target: failure
         when:
           gates.land_verdict.exit_code: 84  # dirty
+      # A hold in the record that the check read as unmet, or couldn't read:
+      # the pull request goes to the person as held, with the hold named.
+      - target: surface
+        when:
+          gates.land_verdict.exit_code: 85  # held
 
   goal_fit:
     # The coordinator's judgment against the unit's brief; the land check's
@@ -1609,9 +1614,9 @@ states:
     accepts:
       merge:
         type: enum
-        values: [attempted, failed, held]
+        values: [attempted, failed]
         required: true
-        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed; held when the human directed merges held, without running it.
+        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed.
     transitions:
       - target: merge_confirm
         when:
@@ -1619,9 +1624,6 @@ states:
       - target: failure
         when:
           merge: failed
-      - target: surface
-        when:
-          merge: held
 
   merge_confirm:
     default_action:
@@ -2295,8 +2297,9 @@ naming the posture, rewrite the record, then submit it: `permitted` or
 Until the answer is on GitHub, every finishing step stays reserved. The answer is
 the one posture fact the workflow takes on your relay, which is why it goes into
 the record where anyone can read who decided it; the land step treats a
-`permitted` merge as permitted only while that row is on GitHub. This is not
-land_merge's `merge: held`, which is the human directing a merge held.
+`permitted` merge as permitted only while that row is on GitHub. This is not a
+hold: a hold on one pull request is a Holds row (`record-hold.sh`), which the
+land check reads.
 
 ## pick_facts
 
@@ -3127,8 +3130,7 @@ goes to `rebrief`.
 ## land_merge
 
 The workspace permits the merge. Run `land-merge.sh` exactly once, then submit
-`merge: attempted`, or `failed` when it refused or the call failed. When the
-human has directed merges held, don't run it: submit `merge: held`.
+`merge: attempted`, or `failed` when it refused or the call failed.
 
 <!-- details -->
 
@@ -3136,16 +3138,16 @@ human has directed merges held, don't run it: submit `merge: held`.
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/land-merge.sh" --session "{{SESSION_NAME}}"
 ```
 
-A hold the human directed is theirs to lift, and it narrows only what you do, not
-what the workspace permits: the pull request stays verified and goes to the human
-with the merge-order table, and its holding's Phase becomes `held`. A hold is not
-a failure, and it doesn't escalate.
-
 It reads the land check's verdict from the session log, re-reads the posture,
-builds the squash message again from the live title and Part 1, and
-merges only at the verified head, with that message. After it returns, the next state confirms the
-change on the default branch by reading the changed files there, not by trusting
-the merge event.
+and builds the squash message again from the live title and Part 1. It
+merges only at the verified head, with that message. After it returns, the next
+state confirms the change on the default branch
+by reading the changed files there, not by trusting the merge event.
+
+A hold is not decided here. When someone asks you to hold a merge, record it
+with `record-hold.sh --add` before the land step reads it: the land check reads
+every hold in the record and sends a held pull request to the person, so a
+hold you only remember never stops a merge.
 
 ## merge_confirm
 
@@ -3182,11 +3184,21 @@ hold that feature's PLAN, dispatch a worker for a small pull request that sets
 the feature's status line, as a holding; features that depend on it stay blocked
 until it merges.
 
+When a hold in the record still stood on the pull request (`record-hold.sh
+--list`), say so on the record: add a Reversals row whose Reversed is `hold
+<name> on <owner/repo#n>`, whose Now is `merged while held, by <login>` (the
+login `gh pr view <n> --repo <owner/repo> --json mergedBy` reads), with the time
+and the reason as far as you know it. The record step waits for one per
+standing hold. A merge you made never needs it: land doesn't merge a held pull
+request.
+
 ## surface
 
-For a merge the workspace reserves, put the merge-order table from
-`references/verification-checklist.md` in front of the human, once, with the
-reason for the order (`surfaced: merge_table`). For a blocked worker, show the
+For a merge the workspace reserves, or one a hold in the record stops, put the
+merge-order table from `references/verification-checklist.md` in front of the
+human, once, with the reason for the order (`surfaced: merge_table`); under it,
+for each pull request, paste the block `merge-order-entry.sh` prints, as it
+is. For a blocked worker, show the
 human nothing yet: name what it needs as `need`, one of `credential <name>`,
 `reserved-step <merge|release|close|teardown> <link>` or `access <owner/repo>`,
 and submit `surfaced: blocker`. Once `surface_check` accepts it, report up at
@@ -3202,8 +3214,20 @@ A parked worker is one with a verified, ready pull request waiting only on a
 merge. After a merge-order table, the holding is already parked: its verified
 head went into the record at verified_confirm, and the record step confirms it
 there without a rewrite. Rewrite it only to set Phase `held`, when you came here
-because the human directed merges held (the record step checks it); if a pull request's head moves after you hand the table over, it drops
+from `land` on `held` (the record step checks it). If a pull request's head
+moves after you hand the table over, it drops
 back to unverified until you read it again.
+
+```bash
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/merge-order-entry.sh" --session "{{SESSION_NAME}}"
+```
+
+The block carries the seats' verdicts from the pull request's Review panel, the
+holds the land check read with their states, and the squash message the merge
+will carry, so the person merging reads neither a second review nor a message
+you wrote by hand. A held pull request goes back through `verify` when the event
+its hold names arrives: the other pull request merging, the tag, or the
+person's word, which you record with `record-hold.sh --lift`.
 
 ## surface_check
 
