@@ -19,6 +19,9 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 !`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh release 2>&1 || true`
 
+@.claude/shirabe-extensions/release.md
+@.claude/shirabe-extensions/release.local.md
+
 # Release
 
 Cut a release. Handles version selection, precondition checks, blocker
@@ -179,6 +182,78 @@ All must pass before proceeding:
    case where the tiebreaker matters most is the one where the recommending
    agent was most confident it did not.
 
+7. **Repository-declared checks**: run what the repository lists under
+   `## Release checks` in its release extension, imported above from
+   `.claude/shirabe-extensions/release.md` (tracked) and
+   `.claude/shirabe-extensions/release.local.md` (untracked, this host only).
+   Each bullet under that heading is one check: the command in its backticks,
+   which starts with a repository path. No extension file, or no
+   `## Release checks` heading in either, means there are no declared checks:
+   print nothing for this step and go on. Declared checks run in `--dry-run`
+   too, because dry-run runs this phase; a check that must not write anything
+   reads `RELEASE_DRY_RUN`.
+
+   Run these after checks 1-6, which are cheap reasons to stop first. A
+   declared check can be the slowest thing a release does.
+
+   a. **Show the code the checks will run.** From the repository root:
+
+      ```bash
+      git diff --stat "$LAST_TAG..HEAD" -- scripts/ skills/ .claude/shirabe-extensions/
+      ```
+
+      `LAST_TAG` is Phase 1's value; recompute it with Phase 1's
+      `git describe` line, since this is a new shell. On a first release
+      (no tag) drop the range and print `git diff --stat
+      "$(git hash-object -t tree /dev/null)" HEAD -- scripts/ skills/
+      .claude/shirabe-extensions/` instead.
+
+   b. **For each check, in order** (`release.md`'s first, then
+      `release.local.md`'s), print the command and the file it came from. A
+      check from `release.local.md` is labelled local: that file is untracked
+      and nobody reviewed it, so ask with AskUserQuestion before running it,
+      and skip it on a no.
+
+   c. **Run it from the repository root** (`git rev-parse --show-toplevel`),
+      exactly as written, with these variables set for the command:
+
+      | Variable | Value |
+      |----------|-------|
+      | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`) |
+      | `RELEASE_LAST_TAG` | Phase 1's `LAST_TAG`, empty on a first release |
+      | `RELEASE_DRY_RUN` | `1` under `--dry-run`, `0` otherwise |
+      | `RELEASE_CONFIRMED_DROPS` | the empty string, so a value inherited from the environment can't pre-confirm anything |
+
+      For example, with the check `scripts/example-check.sh --flag`:
+
+      ```bash
+      RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= scripts/example-check.sh --flag
+      ```
+
+      A check can run for a long time. Give it the longest timeout the
+      session allows, or run it in the background and wait for it to exit;
+      never treat a timeout as a pass.
+
+   d. **Act on the exit code.**
+      - **0**: the check passed. Go to the next one.
+      - **5**: the check needs a person to confirm something before the
+        release goes on. Its last output line reads `confirm: <NAME>=<value>`.
+        Show the check's output and ask with AskUserQuestion whether to
+        proceed, naming what the check reported. On a yes, run the same
+        command again with `<NAME>=<value>` set in place of the empty value
+        (do not ask again about a local check already approved), and act on
+        that run's exit code. On a no, or when the question can't be put to a
+        person, stop the release.
+      - **Anything else**: stop the release. Name the check (its command and
+        file) and repeat the last lines of its output.
+
+      A check that exits 5 without a `confirm:` last line is treated as any
+      other non-zero exit, and so is a `confirm:` line whose `<NAME>` is not an
+      upper-case variable name (`[A-Z_][A-Z0-9_]*`) or whose `<value>` holds
+      anything beyond letters, digits, `.`, `_`, `-` and `,`: the value goes
+      onto a command line, so it is never passed through when it could be
+      read as shell.
+
 Report the specific failure and stop on any check.
 
 ### Phase 3: Release Notes and Version Confirmation
@@ -238,7 +313,29 @@ gh release create "v<version>" \
 ```
 
 The draft survives workflow failures and is editable in the GitHub
-UI. This file and Phase 1's three release-contents files
+UI.
+
+**Release assets.** Once the draft exists, and only when this isn't a dry
+run, run each bullet under `## Release assets` in the release extension
+(`release.md`, then `release.local.md`; ask before a local one, as in Phase 2
+step 7). No heading means nothing to attach. Print each command and its file,
+then run it from the repository root with `RELEASE_VERSION` set to the
+version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
+Phase 2, and `RELEASE_DRY_RUN=0`.
+
+- Exit 0 with a last output line `asset: <path>` names a file to attach:
+
+  ```bash
+  gh release upload "v<version>" "<path>" --clobber
+  ```
+
+- Exit 0 without an `asset:` line means there is nothing to attach.
+- A non-zero exit, or a failed upload, does not stop the release: the draft
+  already exists. Report it with the command to retry (the item's command, or
+  the `gh release upload` line above), and repeat whatever the extension says
+  that failure costs.
+
+This file and Phase 1's three release-contents files
 (`wip/release-range.txt`, `wip/release-prs.txt`,
 `wip/release-unattributed.txt`) are cleaned per the standard
 pre-merge wip/ cleanup convention.
@@ -287,7 +384,11 @@ When `--dry-run` is passed:
 - Phases 1-3 run normally (version analysis and release contents, checks,
   notes + confirmation). Phase 1's derivation reads git and nothing else, so it
   runs on this path unchanged.
-- Phase 4-6 are skipped (no draft, no dispatch)
+- The repository's declared checks (Phase 2 step 7) run, with
+  `RELEASE_DRY_RUN=1`, and stop the dry run the same way they would stop a
+  release.
+- Phase 4-6 are skipped (no draft, no dispatch), so no `## Release assets`
+  command runs and nothing is attached
 - Print what would happen: which files change, what tag, what dev version
 
 ## Error Recovery
@@ -302,6 +403,9 @@ When `--dry-run` is passed:
 | 2 | Tag exists | `git push --delete origin v<version>` |
 | 2 | Draft exists | `gh release delete v<version> --yes` |
 | 2 | Blockers open | Resolve the listed issues first |
+| 2 | A declared release check exits non-zero (other than 5) | Read the tail of its output the step repeated, fix the cause, and run the release again; the check is named with the file that declared it |
+| 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
+| 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
 | 4 | Draft creation fails | Check `gh auth status` |
 | 5 | Dispatch fails | Check workflow exists and permissions |
 | 6 | Workflow fails | `gh run view <id> --log-failed` |
