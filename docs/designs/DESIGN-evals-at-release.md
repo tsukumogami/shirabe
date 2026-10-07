@@ -576,7 +576,10 @@ shell without prompting, on the maintainer's host, driven by content pull
 requests in the release range authored. The harness unsets `GH_TOKEN`,
 `GITHUB_TOKEN` and `SSH_AUTH_SOCK` for the session. That narrows the
 exposure but doesn't close it: stored `gh` logins, git credential helpers and
-SSH keys on disk stay reachable.
+SSH keys on disk stay reachable. The eval check says so in its own output:
+before running any eval it prints the host it runs on and that the nested
+sessions can reach that host's stored credentials, so the release log
+records the exposure, not only this document.
 
 This exposure isn't new. Today `CLAUDE.md` tells every agent that changes a
 skill to run the same harness, in the same mode, on whatever host it works
