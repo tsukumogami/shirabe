@@ -127,6 +127,21 @@
         "Transcript keeps 'Approve only' available so the user can override",
         "Transcript does NOT present the routing options with only a bare '(Recommended)' marker and no cited assessment"
       ]
+    },
+    {
+      "id": 17,
+      "name": "phase-2-tier-routing-under-parent",
+      "prompt": "/design docs/prds/PRD-cache-tier.md -- /scope is driving this run: its state file for topic cache-tier carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phase 1 is done and the coordination manifest holds two pending questions: 1 'Which serialization format for cache entries?' with complexity standard, and 2 'How are cache keys derived from user-supplied identifiers?' with complexity critical. Describe what Phase 2 and Phase 3 do with each question and what the finished design records about it.",
+      "expected_output": "Under the parent sentinel, Phase 2 routes each question by its tier (step 2.2a). Question 1 (standard, Tier 3) is resolved inline in Phase 2, without spawning a /decision agent, and its report is written in the decider's shape to the report path step 2.3 names. Question 2 (critical, Tier 4) still goes to a /decision decider agent. The manifest records provenance inline for question 1 and decision for question 2. Phase 3 cross-validates both reports, and each Considered Options entry opens with its provenance (Resolved inline. / Delegated to /decision.). Because one question was resolved inline, the frontmatter carries decision_provenance: inline-resolved.",
+      "files": [],
+      "expectations": [
+        "Transcript resolves question 1 (standard tier) inline in Phase 2 and spawns no /decision agent for it",
+        "Transcript sends question 2 (critical tier) to a /decision decider agent despite running under a parent",
+        "Transcript ties the routing to the question's tier recorded in the manifest, not to a judgment about the dispatch context",
+        "Transcript records each question's provenance (inline vs delegated to /decision), in the manifest and in its Considered Options entry",
+        "Transcript sets decision_provenance: inline-resolved in the design's frontmatter because a question was resolved inline",
+        "Transcript does NOT resolve the critical-tier question inline"
+      ]
     }
   ]
 }

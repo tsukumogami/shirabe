@@ -173,6 +173,7 @@ decision: |
   <1 paragraph: what approach was chosen and key properties>
 rationale: |
   <1 paragraph: why this approach over alternatives>
+decision_provenance: inline-resolved   # Only when Phase 2 resolved a question inline (step 2.2a). OMIT otherwise.
 ---
 ```
 

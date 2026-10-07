@@ -41,12 +41,13 @@ motivating_context: |                       # optional
   technical gap) and from `rationale` (which justifies the chosen
   approach against alternatives).
 user_visible_surface: true                  # optional, boolean
+decision_provenance: inline-resolved        # optional
 ---
 ```
 
 Required fields: `schema`, `status`, `problem`, `decision`,
 `rationale`. Optional: `upstream`, `spawned_from`,
-`motivating_context`, `user_visible_surface`.
+`motivating_context`, `user_visible_surface`, `decision_provenance`.
 
 - **schema** -- `design/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Proposed`, `Accepted`, `Planned`,
@@ -83,6 +84,12 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   for a `docs/guides/*` reference. Set it `false` for designs that
   add no user-facing surface (internal refactors, infra) so the
   fallback scan is not consulted.
+- **decision_provenance** -- `inline-resolved`, set when `/design`
+  ran under a parent skill and resolved at least one standard-tier
+  Phase 2 question inline instead of delegating it to `/decision`
+  (critical-tier questions always go to `/decision`). Omit it when
+  every question went to `/decision`. Each question's own provenance
+  is the first line of its Considered Options entry.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `
@@ -308,6 +315,8 @@ Phase 6 jury reviewers add discretionary rubric coverage:
   the Decision Drivers, not surface-level dismissals.
 - The chosen option is named in this section too (briefly), with
   the full elaboration in Decision Outcome.
+- Under a parent skill, each question's entry opens with its
+  provenance: `Resolved inline.` or `Delegated to /decision.`
 
 ### Decision Outcome
 

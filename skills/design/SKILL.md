@@ -139,7 +139,8 @@ investigates multiple approaches with equal depth before committing to one.
 
 The core pattern is decompose-decide-validate: Phase 1 breaks the design into
 independent decision questions. Phase 2 delegates each question to the decision skill
-for structured evaluation. Phase 3 cross-validates assumptions across decisions to
+for structured evaluation; under a parent skill, a standard-tier question is
+resolved inline instead and a critical one still goes to `/decision`. Phase 3 cross-validates assumptions across decisions to
 catch conflicts. Phases 4-6 synthesize architecture, run security review, and finalize.
 
 ### Input Modes
