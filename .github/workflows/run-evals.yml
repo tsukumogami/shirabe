@@ -1,8 +1,18 @@
+# Manual-only: this workflow runs when someone dispatches it, never on a
+# schedule. The model-graded eval signal now comes from the release check
+# (see docs/designs/DESIGN-evals-at-release.md); this workflow stays so a
+# dispatched run can show scenarios being graded once they can be.
+#
+# A run needs three things:
+# - The isolated-checkout fix tracked in shirabe#612. Until it lands, a
+#   dispatched run fails at the isolated-checkout step on a branch and
+#   grades nothing on main.
+# - The ANTHROPIC_API_KEY repository secret, which the claude CLI steps read.
+# - The skill-creator plugin, which the job installs from the official
+#   plugin marketplace before running scripts/run-evals.sh.
 name: Run skill evals
 
 on:
-  schedule:
-    - cron: '0 4 * * 1'  # Mondays at 04:00 UTC
   workflow_dispatch:
     inputs:
       skill:
