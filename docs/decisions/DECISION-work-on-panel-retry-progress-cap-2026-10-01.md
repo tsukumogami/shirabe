@@ -76,6 +76,12 @@ retries under the same rule, and its count is compared with its own earlier
 rounds only. A run whose level moves between `light` and the full panels has
 no earlier round on the other side to compare against.
 
+Since panels re-run only the seats a fix touched, a re-entered panel's count is
+the sum over the seats that ran; a seat carried forward as passed counts 0,
+which is what it would have reported. Re-check seats look only at their earlier
+findings and the fix diff, which makes a falling count easier to show after
+the floor. The ceiling bounds what that buys.
+
 Counts are compared within one panel, not across the run, because the panels
 count different things: scrutiny and review count blocking findings, QA counts
 failed scenarios. A run whose scrutiny found 7 and whose review then found 2
@@ -133,9 +139,10 @@ observed runs continue.
 - The count that decides the extra round is the one the aggregating agent
   reports. A run could game it by splitting or merging findings; the ceiling
   bounds what that buys.
-- The prose cap in the three directives changes from a number to a pointer at
-  the script plus the two numbers, and `settled-policy_test.sh` pins the new
-  wording.
+- The prose cap in the panel directives (the three full panels, and
+  `light_review` once the `light` level arrived) changes from a number to a
+  pointer at the script plus the two numbers, and `settled-policy_test.sh` pins
+  the new wording.
 - `DECISION-contradiction-retry-caps-2026-09-28.md` still governs the analysis,
   implementation, pull request and CI caps. Its note that koto will enforce the
   panel cap "with the same number" now means the same rule: an engine-side cap

@@ -20,7 +20,7 @@
 #     key as a file. No engine, so they also run on the bash 3.2 floor leg.
 #   fail-closed cases -- a record that can't be written, can't be read back,
 #     or holds a line the script didn't write is a refusal, never a grant.
-#   shipped-text cases -- no shipped /work-on file but the three panel
+#   shipped-text cases -- no shipped /work-on file but the three full-panel
 #     directives (and SKILL.md's description of the script) names
 #     `panel_retries`, so no clearing site can reset it; and,
 #     when koto is present, the same sequences against a real session.
@@ -154,8 +154,15 @@ expect "qa_validation compares its own failed scenarios" budget \
 # own: it spends from the same run-wide retries and is judged on its own counts.
 expect "light_review gets a third retry on a falling count" budget \
     light_review:4=retry light_review:3=retry light_review:1=retry light_review:1=escalate
-expect "light_review shares the ceiling and is not compared with scrutiny" budget \
+expect "light_review shares the run's retries and has no earlier round of its own" budget \
     scrutiny:5=retry scrutiny:4=retry light_review:1=escalate
+expect "light_review is held to the shared ceiling" budget \
+    scrutiny:5=retry scrutiny:4=retry scrutiny:3=retry light_review:1=escalate
+OUT=$(budget "seq-$SEQ" light_review 1 2>/dev/null)
+case "$OUT" in
+    "verdict=escalate reason=this run has used all 3 blocking retries") pass "the light_review refusal is the ceiling's" ;;
+    *) fail "light_review past the ceiling printed [$OUT]" ;;
+esac
 
 # A refusal records nothing, and the ceiling counts recorded grants only.
 expect "a refusal leaves the record as it was" budget \
@@ -240,10 +247,11 @@ expect "a count with a leading zero is read as decimal" budget \
 # Nothing that clears context may clear the record, or a retry would reset the
 # count it is about to be judged by. Every clearing site names its keys, so the
 # check is that the key's name appears in no shipped /work-on file except the
-# three panel directives that call the script, which say where the record
-# lives. The panel phase files are checked to still hold a clearing block, so
+# three full-panel directives, which say where the record lives (light_review's
+# directive calls the script without naming the key). The panel phase files
+# are checked to still hold a clearing block, so
 # the absence can't come from a block that moved.
-for f in phase-4a-scrutiny.md phase-4b-review.md phase-4c-qa.md; do
+for f in phase-4a-scrutiny.md phase-4b-review.md phase-4c-qa.md phase-4d-light.md; do
     if grep -q 'koto context remove' "$PHASES/$f"; then
         pass "$f: still holds a clearing block"
     else
@@ -260,7 +268,7 @@ HITS=$(grep -rn 'panel_retries' "$SKILL_DIR" --include='*.md' --include='*.sh' \
 OTHER=$(printf '%s\n' "$HITS" | grep . | grep -v 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
 DIRECTIVES=$(printf '%s\n' "$HITS" | grep -c 'koto-templates/work-on\.md:[0-9]*:Retry cap: ')
 if [ -z "$OTHER" ] && [ "$DIRECTIVES" -eq 3 ]; then
-    pass "panel_retries is named only by the three panel directives"
+    pass "panel_retries is named only by the three full-panel directives"
 else
     fail "panel_retries is named outside the panel directives, or not by all three ($DIRECTIVES): $OTHER"
 fi

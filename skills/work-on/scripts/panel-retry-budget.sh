@@ -70,9 +70,9 @@
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
 
-# These two numbers are also stated in: the three panel directives and the
-# scrutiny directive's has_commits note in koto-templates/work-on.md (pinned by
-# settled-policy_test.sh); this script's header; its tests; the scrutiny retry
+# These two numbers are also stated in: the four panel directives (scrutiny,
+# review, qa_validation, light_review) and the scrutiny directive's has_commits
+# note in koto-templates/work-on.md (pinned by settled-policy_test.sh); this script's header; its tests; the scrutiny retry
 # eval's fixture directive; this rule's decision record; and the supersession
 # note in DECISION-contradiction-retry-caps-2026-09-28.md. Change them together.
 FLOOR=2
