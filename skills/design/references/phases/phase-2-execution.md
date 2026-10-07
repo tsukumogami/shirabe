@@ -34,7 +34,8 @@ recorded in the manifest, per
   Weigh the options yourself and write a report in the shape a decider
   returns (status, chosen, confidence, rationale, assumptions, rejected)
   to the report path 2.3 names for that question, so Phase 3 reads it
-  like any other.
+  like any other, then update the manifest as 2.4 does for a finished
+  agent (status `complete`, report path recorded).
 - **critical** (`/decision`'s Tier 4): spawn a decider in 2.3, under a
   parent as in a direct run.
 
