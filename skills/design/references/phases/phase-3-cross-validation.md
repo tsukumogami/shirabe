@@ -83,4 +83,4 @@ the `/cleanup` command), not here.
 
 ## Next Phase
 
-Proceed to Phase 4: Investigation (`phase-4-investigation.md`)
+Proceed to Phase 4: Investigation (`phase-4-architecture.md`)

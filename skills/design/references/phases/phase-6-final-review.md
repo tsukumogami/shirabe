@@ -13,7 +13,7 @@ Ensure the design doc is complete and ready for approval:
 
 ## Resume Check
 
-If the design doc has YAML frontmatter with status "Proposed", skip to step 6.5
+If the design doc has YAML frontmatter with status "Proposed", skip to step 6.7
 (present for approval).
 
 ## Steps
