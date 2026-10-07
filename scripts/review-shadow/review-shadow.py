@@ -1640,7 +1640,7 @@ def assemble_site(args):
                 continue
             title = e.get("title") if isinstance(e.get("title"), str) else rel
             issue_id = str(e.get("issue_id")) if e.get("issue_id") is not None else None
-            art["issues"].append({"title": title, "issue_id": issue_id,
+            art["issues"].append({"title": title, "issue_id": issue_id, "file": rel,
                                   "criteria": sections(body).get("Acceptance Criteria", "")})
     else:
         session = check_identifier(args.session, "--session", SESSION_ARG)
@@ -1698,6 +1698,8 @@ def seat_packet_args(art):
         m = re.search(r"^Path:\s*(docs/\S+\.md)\s*$", analysis, re.M)
         if m:
             extras.append(m.group(1))
+        # The category seats also read every issue body, as the commissioning line says.
+        extras += [issue["file"] for issue in art.get("issues", [])]
         out = ["doc", "--doc", f"{SCRATCH_DIR}/plan_{topic}_decomposition.md",
                "--format", "skills/review-plan/references/phases/phase-3-ac-discriminability.md"]
         for e in extras:
