@@ -125,8 +125,10 @@ lib_rotation_dates() {
 
 # lib_has_declaration <file>: some line (CRLF tolerated) opens with the
 # declaration text. Which scope it declares is record-parse.sh's to judge.
+# No grep -q: stopping at the first match would SIGPIPE tr on a body larger
+# than the pipe buffer, and pipefail would read that as no declaration.
 lib_has_declaration() {
-    tr -d '\r' < "$1" | grep -qF -- "$DECL_PREFIX"
+    tr -d '\r' < "$1" | grep -F -- "$DECL_PREFIX" >/dev/null
 }
 
 # lib_parse <body-file> <out-json>: record-parse.sh for this scope and
