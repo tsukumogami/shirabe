@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   Agents that change a shirabe skill must run its full model-graded eval suite
   at work-on's definition-of-done gate. The suite is slow and noisy, it can't
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-evals-at-release](docs/briefs/BRIEF-evals-at-release.md); carried in Absorbed Brief.
 
@@ -171,8 +171,9 @@ scenario graded zero assertions), 3 (prerequisites or suite missing) and 4
   changed since the last tag. The critical skills are work-on, scope and
   execute; each of them that is among the changed skills runs with
   `--runs 3`. A critical skill that didn't change doesn't run.
-- **R12.** The eval check writes the pass-rate record to
-  `wip/eval-pass-rates.json`. The record holds a `schema` value, the release
+- **R12.** The eval check writes the pass-rate record to a file outside the
+  working tree, where no commit can pick it up, and replaces any record an
+  earlier run left there. The record holds a `schema` value, the release
   version, the last tag, and per skill: `runs`, `runs_passed`,
   `assertions_passed`, `assertions_graded`, `pass_rate`, the models its
   scenarios ran on, and `measured_at` (the version the numbers were measured
@@ -181,8 +182,10 @@ scenario graded zero assertions), 3 (prerequisites or suite missing) and 4
   record holds the latest rate for every skill ever measured.
 - **R13.** In a real release, the release skill uploads the record to the
   draft release as the asset `eval-pass-rates.json` after creating the draft,
-  replacing an existing asset of that name. In a dry run the record stays in
-  `wip/` and nothing is uploaded.
+  replacing an existing asset of that name, and only when the record's
+  version and last tag are this release's. Before uploading it sets the
+  record's version, and the `measured_at` of the skills measured in this run,
+  to the version confirmed in Phase 3. In a dry run nothing is uploaded.
 - **R14.** Before notes are drafted, the eval check downloads
   `eval-pass-rates.json` from the release for the last tag and prints, per
   skill run in this release, the current pass rate, the previous one and the
@@ -194,10 +197,13 @@ scenario graded zero assertions), 3 (prerequisites or suite missing) and 4
 - **R15.** When any skill dropped, the eval check exits non-zero unless the
   maintainer has confirmed the drop for that release. The release skill asks
   for that confirmation, naming each dropped skill and both rates, and on a
-  yes re-runs the comparison with the confirmed skills named in
-  `RELEASE_CONFIRMED_DROPS` (comma-separated). A drop whose skill isn't in
-  that list still fails. A release run without a person to ask stops on a
-  drop.
+  yes re-runs the comparison, without re-running any eval, with the
+  confirmed skills named in `RELEASE_CONFIRMED_DROPS` (comma-separated). A
+  drop whose skill isn't in that list still fails, and a value of that
+  variable inherited from the environment confirms nothing. A release run
+  without a person to ask stops on a drop. A skill whose harness exit was 1
+  (assertions failed) is not a failure by itself: its rate is recorded and
+  the drop rule decides.
 - **R16.** The eval check exits non-zero, naming the skill and the exit code,
   when the harness returns an infrastructure exit code for any selected
   skill, including when one run of a `--runs 3` repetition graded nothing. It
@@ -321,9 +327,12 @@ shirabe's release checks:
   to ask the release stops.
 - [ ] With `RELEASE_DRY_RUN=1`, the eval check makes no `gh release upload`
   call, verified against a `gh` stub in a test suite run in CI.
-- [ ] The release skill's Phase 4 uploads `wip/eval-pass-rates.json` as
-  `eval-pass-rates.json` with `--clobber` when the file exists and the run is
-  not a dry run.
+- [ ] The release skill's Phase 4 uploads the record as
+  `eval-pass-rates.json` with `--clobber` only when the record exists, its
+  last tag is this release's, and the run is not a dry run, after setting its
+  version to the confirmed one.
+- [ ] A record left by an earlier run is gone or replaced once the eval check
+  starts, verified in the eval check's test suite.
 
 Eval harness:
 
