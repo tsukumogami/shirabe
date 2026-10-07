@@ -26,7 +26,13 @@
 # name carries `+` works; a session whose recorded variables hold `+` fails
 # every tick on an older koto, because each tick re-checks recorded values. It
 # also records a batch's final view when the completing tick leaves the
-# batching state (tsukumogami/koto#263). Raise it in the pull request that adopts a feature from a
+# batching state (tsukumogami/koto#263). 0.15.0 is the release that routes a
+# `when` clause on a template variable's value (`vars.NAME: <value>` and
+# `{is_set: ...}`, tsukumogami/koto#296), enforces a variable's `pattern:` at
+# init and on every rebind, and declares `decider-check` gates
+# (tsukumogami/koto#294): /work-on's review level routes on REVIEW_LEVEL and
+# its level check carries a veto-mode decider check, so a template that has
+# them doesn't compile on an older koto. Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
@@ -64,7 +70,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.14.1}"
+FLOOR="${KOTO_FLOOR:-0.15.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically

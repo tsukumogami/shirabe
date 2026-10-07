@@ -1,0 +1,46 @@
+name: Check skill gate
+
+# scripts/check-skill.sh is what the skills/** entry of
+# .claude/shirabe-extensions/work-on.md runs on each skill a pull request
+# changes: shirabe validate, koto template compile, the skill's own script
+# suites, and the evals.json shape check in scripts/lib/check-evals-shape.py.
+# Its suite builds throwaway skills with stand-in shirabe, koto and claude, so
+# it needs only bash, git and python3, no model and no secret. The Linux leg
+# runs it under bash 5, the macOS leg on the bash 3.2 floor.
+#
+# Read-only: the suite runs shell from the pull request's own tree, as the
+# other script-suite workflows do, so the token gets nothing it could write
+# with.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/check-skill.sh'
+      - 'scripts/check-skill_test.sh'
+      - 'scripts/lib/check-evals-shape.py'
+      - '.github/workflows/check-skill-gate.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  test-check-skill:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the suite (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-skill_test.sh
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2 (shirabe#416), and the runner is the one way onto it.
+      - name: Run the suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system check-skill

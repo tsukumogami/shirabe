@@ -41,6 +41,10 @@
 #     the same push in a public repository
 #   - the stale-run fence: a new run abandons the old request, and the old
 #     run's child finishing later does not answer the new run's leg
+#   - the review-level bound: execute_run's rendered directive tells the agent
+#     to append --review-floor=standard and --review-ceiling=full on a run
+#     started with them, and renders both empty, so nothing is appended, on a
+#     run started without them
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of deliver.md with this checkout's
@@ -254,11 +258,13 @@ OTHER_MERGED="https://github.com/acme/widgets/pull/77"
 FORGED="https://github.com/acme/widgets/pull/666"
 
 # start <mode> [merge] -- init deliver-<topic> and tick into scope_run. Sets REQ.
+# START_EXTRA, when set, adds its --var arguments to the init.
+START_EXTRA=()
 start() {
     # $KOTO_LEGACY_ENV_ARG (#483) is unquoted on purpose: when the knob is off it is
     # empty and must expand to no argument at all, not to an empty one.
     k init "deliver-$TOPIC" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
-        --var MODE="${1:-auto}" --var MERGE="${2:-true}" >/dev/null 2>"$T/init.err" \
+        --var MODE="${1:-auto}" --var MERGE="${2:-true}" ${START_EXTRA[@]+"${START_EXTRA[@]}"} >/dev/null 2>"$T/init.err" \
         || { fail "$TOPIC: koto init deliver" "$(cat "$T/init.err")"; return 1; }
     # The run identity deliver-open.sh mints at the session's birth; the
     # probes only read it.
@@ -323,6 +329,30 @@ tick
 expect "happy" done outcome=merged "pr=$URL" repos=acme/widgets
 eq "happy: the result's pr equals checked_pr" "$(ctx checked_pr)" "$(result pr)"
 eq "happy: merged_check confirmed it" merged "$(ctx merged_verdict)"
+
+echo "== the review-level bound in execute_run's directive =="
+fixture bounded single-pr
+START_EXTRA=(--var REVIEW_FLOOR=standard --var REVIEW_CEILING=full)
+start auto && to_execute_run
+START_EXTRA=()
+eq "bounded: at execute_run" execute_run "$(state)"
+DIRECTIVE=$(jq -r '.directive // ""' "$T/next.json" 2>/dev/null)
+case "$DIRECTIVE" in
+    *'`--review-floor=standard`, only when that value after `='*) pass "bounded: the directive appends --review-floor=standard" ;;
+    *) fail "bounded: the directive appends --review-floor=standard" "$(printf '%s' "$DIRECTIVE" | grep -n review)" ;;
+esac
+case "$DIRECTIVE" in
+    *'`--review-ceiling=full`, only when that value after `='*) pass "bounded: the directive appends --review-ceiling=full" ;;
+    *) fail "bounded: the directive appends --review-ceiling=full" "$(printf '%s' "$DIRECTIVE" | grep -n review)" ;;
+esac
+fixture unbounded single-pr
+start auto && to_execute_run
+DIRECTIVE=$(jq -r '.directive // ""' "$T/next.json" 2>/dev/null)
+case "$DIRECTIVE" in
+    *'`--review-floor=`, only when that value after `=` is not'*'`--review-ceiling=`, only when that value after `=` is not'*)
+        pass "unbounded: both flags render empty, so the directive appends neither" ;;
+    *) fail "unbounded: both flags render empty" "$(printf '%s' "$DIRECTIVE" | grep -n review)" ;;
+esac
 
 echo "== ready-awaiting-merge carries the /execute leg's own pr =="
 fixture ready single-pr

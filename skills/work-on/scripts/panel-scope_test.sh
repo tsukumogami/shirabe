@@ -100,6 +100,17 @@ SHIM
 chmod +x "$SHIM_BIN/koto"
 export SHIM_STORE
 
+# --record starts the decider shadow in the background. By default it is a
+# stand-in that logs its arguments, so no case runs review-shadow.py itself.
+SHADOW_LOG="$WORKDIR/shadow.log"
+cat > "$WORKDIR/shadow-stub" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SHADOW_LOG"
+STUB
+chmod +x "$WORKDIR/shadow-stub"
+export SHADOW_LOG
+export REVIEW_SHADOW_SITE_CMD="$WORKDIR/shadow-stub"
+
 # --- fixtures -----------------------------------------------------------------
 #
 # fixture <name>: a repository whose main holds src/a.sh and src/b.sh (lines
@@ -141,6 +152,17 @@ OUT=""
 run() {
     OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$@" 2>"$WORKDIR/stderr")
     RC=$?
+}
+
+# packet <args>: runs review-packet.sh in the fixture, against the same koto
+# stand-in. Sets POUT (the packet path) and PRC.
+PACKET_SH="$PLUGIN_ROOT/scripts/review-packet.sh"
+PRC=0
+POUT=""
+mkdir -p "$WORKDIR/ptmp"
+packet() {
+    POUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" TMPDIR="$WORKDIR/ptmp" "$PACKET_SH" "$@" 2>"$WORKDIR/pstderr")
+    PRC=$?
 }
 
 # record <panel> <json>: records one round through --record.
@@ -208,6 +230,51 @@ case "$(reason scrutiny justification)" in
 esac
 run --carried scrutiny "$SESSION"
 expect_rc "--carried with a re-check pending" 1
+
+echo "--- script: the re-check seat's packet is its finding and the fix diff"
+
+packet recheck --session "$SESSION" --panel scrutiny --seat intent
+if [ "$PRC" -eq 0 ] && [ -f "$POUT" ]; then
+    grep -q "^fix diff from: $JUDGED (fix_diff_from)\$" "$POUT" \
+        && pass "the packet's diff starts where the seat blocked" \
+        || fail "the packet's diff base is $(grep '^fix diff from:' "$POUT")"
+    grep -q '"summary": "b.sh line 5 is wrong"' "$POUT" \
+        && pass "the packet carries the finding the scope recorded" || fail "the packet has no finding"
+    grep -q '^M	src/b.sh$' "$POUT" && grep -q '^+five$' "$POUT" && ! grep -q 'src/a.sh' "$POUT" \
+        && pass "the packet's diff is the fix alone, not the implementation" \
+        || fail "the packet's diff is not the fix diff"
+    ! grep -q '^AC: the issue body$' "$POUT" \
+        && pass "the packet leaves out the criteria the seat judged last round" \
+        || fail "the packet carries the acceptance criteria"
+    RB=$(wc -c < "$POUT" | tr -d ' ')
+    rm -f "$POUT"
+    printf 'AC: the issue body\n' > "$WORKDIR/criteria"
+    packet code --session "$SESSION" --criteria "$WORKDIR/criteria"
+    CB=$(wc -c < "$POUT" | tr -d ' ')
+    rm -f "$POUT"
+    [ "$RB" -lt "$CB" ] && pass "the re-check packet is smaller than the code packet ($RB < $CB bytes)" \
+        || fail "the re-check packet is $RB bytes, the code packet $CB"
+else
+    fail "review-packet.sh recheck exited $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+packet recheck --session "$SESSION" --panel scrutiny --seat completeness
+[ "$PRC" -eq 64 ] && pass "a kept seat gets no re-check packet: exit 64" \
+    || fail "a kept seat's re-check packet exited $PRC"
+
+# A scope from before fix_diff_from was recorded: the packet still carries
+# the fix, from impl_base, and says so.
+jq '(.decisions[] | select(.seat == "intent")) |= del(.fix_diff_from)' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" \
+    && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+packet recheck --session "$SESSION" --panel scrutiny --seat intent
+if [ "$PRC" -eq 0 ] && grep -q '^fix diff from: .*(fallback: the scope has no fix_diff_from; impl_base)$' "$POUT" \
+    && grep -q '^+five$' "$POUT"; then
+    pass "a scope with no fix_diff_from falls back to impl_base and still carries the fix"
+else
+    fail "no fix_diff_from: exit $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+[ "$PRC" -eq 0 ] && rm -f "$POUT"
+run --plan scrutiny "$SESSION"
 
 echo "--- script: re-check passes; every seat then carries"
 
@@ -427,6 +494,140 @@ GOT=$(jq -c '[.history[] | select(.panel == "review") | [.round, .spawned]]' "$S
 jq -e '.history[-1].decisions | all(.reason | length > 0)' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
     && pass "every decision in the history has a reason" || fail "a history decision has no reason"
 
+echo "--- script: the light seat's re-check packet, before and after a fix"
+
+fixture light-recheck
+record light '[{"seat":"reviewer","blocking_count":1,"findings":[{"summary":"a.sh line 45 is wrong","path":"src/a.sh","lines":"45"}]}]'
+LJUDGED=$(cd "$FX/repo" && git rev-parse HEAD)
+# Nothing committed since the seat blocked: still a re-check, and its packet
+# says the fix diff is empty rather than failing or widening it.
+run --plan light "$SESSION"
+expect_decision "nothing committed since the light seat blocked" light reviewer recheck
+packet recheck --session "$SESSION" --panel light --seat reviewer
+if [ "$PRC" -eq 0 ] && grep -q '^changed paths: 0$' "$POUT" \
+    && grep -q "^\[empty: no commit since $LJUDGED changes anything\]\$" "$POUT" \
+    && grep -q '"summary": "a.sh line 45 is wrong"' "$POUT"; then
+    pass "an empty fix diff gives the light seat its finding and an empty diff, said so"
+else
+    fail "light re-check with an empty fix diff: exit $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+[ "$PRC" -eq 0 ] && rm -f "$POUT"
+edit src/a.sh 45 forty-five
+run --plan light "$SESSION"
+expect_decision "a fix on the light seat's finding" light reviewer recheck
+packet recheck --session "$SESSION" --panel light --seat reviewer
+if [ "$PRC" -eq 0 ] && grep -q "^fix diff from: $LJUDGED (fix_diff_from)\$" "$POUT" \
+    && grep -q '^+forty-five$' "$POUT" && ! grep -q '^+50$' "$POUT"; then
+    pass "the light seat's packet carries the fix and not the implementation it judged"
+else
+    fail "light re-check after a fix: exit $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+[ "$PRC" -eq 0 ] && rm -f "$POUT"
+[ -z "$(ls "$WORKDIR/ptmp")" ] && pass "every packet was cleaned up" || fail "packets left behind: $(ls "$WORKDIR/ptmp")"
+
+echo "--- script: --record starts the decider shadow and never waits on it"
+
+# wait_for_log <n>: up to 5 seconds for the background stand-in to log n lines.
+wait_for_log() {
+    local i=0
+    while [ "$i" -lt 50 ]; do
+        [ -f "$SHADOW_LOG" ] && [ "$(wc -l < "$SHADOW_LOG" | tr -d ' ')" -ge "$1" ] && return 0
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+fixture shadow
+rm -f "$SHADOW_LOG"
+record scrutiny "$ALL_PASS"
+HEAD_SHA=$(cd "$FX/repo" && git rev-parse HEAD)
+TOP=$(cd "$FX/repo" && git rev-parse --show-toplevel)
+if wait_for_log 1; then
+    [ "$(cat "$SHADOW_LOG")" = "site work-on --session shadow --panel scrutiny --head $HEAD_SHA --repo-path $TOP" ] \
+        && pass "--record scrutiny starts the shadow with identifiers only" \
+        || fail "shadow called with [$(cat "$SHADOW_LOG")]"
+else
+    fail "--record scrutiny never started the shadow"
+fi
+for p in review light; do
+    rm -f "$SHADOW_LOG"
+    seat=pragmatic; [ "$p" = light ] && seat=reviewer
+    record "$p" "[{\"seat\":\"$seat\",\"blocking_count\":0}]"
+    wait_for_log 1 && grep -q -- "--panel $p " "$SHADOW_LOG" \
+        && pass "--record $p starts the shadow" || fail "--record $p: shadow log [$(cat "$SHADOW_LOG" 2>/dev/null)]"
+done
+for optin in "" 0 1; do
+    rm -f "$SHADOW_LOG"
+    printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITES="$optin" "$SCRIPT" --record scrutiny "$SESSION" \
+        "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
+    wait_for_log 1 && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
+        || fail "--record skipped the shadow with REVIEW_SHADOW_SITES=[$optin]"
+done
+rm -f "$SHADOW_LOG"
+record qa '[{"seat":"tester","blocking_count":0}]'
+sleep 0.5
+[ ! -s "$SHADOW_LOG" ] && pass "--record qa starts no shadow (QA is agent-only)" || fail "qa started the shadow"
+
+LEDGER_BEFORE=$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+for variant in fail missing hang; do
+    case "$variant" in
+        fail) printf '#!/usr/bin/env bash\nexit 3\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
+              CMD="$WORKDIR/shadow-bad" ;;
+        missing) CMD="$WORKDIR/no-such-shadow" ;;
+        hang) printf '#!/usr/bin/env bash\nsleep 20\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
+              CMD="$WORKDIR/shadow-bad" ;;
+    esac
+    printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    START=$SECONDS
+    OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="$CMD" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
+    RC=$?
+    ELAPSED=$((SECONDS - START))
+    expect_rc "--record with the shadow [$variant]" 0
+    [ "$ELAPSED" -lt 5 ] && pass "--record returns at once with the shadow [$variant] (${ELAPSED}s)" \
+        || fail "--record waited ${ELAPSED}s on the shadow [$variant]"
+    [ "$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")" = "$LEDGER_BEFORE" ] \
+        && pass "the ledger is the same with the shadow [$variant]" || fail "the ledger changed with the shadow [$variant]"
+done
+
+echo "--- script: through the real review-shadow.py, an unset opt-in is recorded, not silent"
+
+if command -v python3 >/dev/null 2>&1; then
+    fixture realshadow
+    (cd "$FX/repo" && printf '# demo\n\n## Repo Visibility: Public\n' > CLAUDE.md && git add CLAUDE.md \
+        && git commit -q -m "docs: visibility") >/dev/null 2>&1
+    printf '## Acceptance Criteria\n\n- [ ] `src/a.sh` prints 50 lines.\n' > "$SHIM_STORE/$SESSION/context.md"
+    printf '{"panel":"scrutiny","decisions":[{"seat":"completeness","decision":"full"}]}' \
+        > "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+    printf '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh"}]}]\n' > "$WORKDIR/round.json"
+    STORE="$WORKDIR/shadow-store"
+    (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="" REVIEW_SHADOW_SITES="" JEV_API_KEY="" \
+        KOTO_DECIDER_API_KEY="" REVIEW_SHADOW_HOME="$STORE" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" \
+        2>"$WORKDIR/stderr")
+    RC=$?
+    expect_rc "--record with the real shadow" 0
+    REC=""
+    i=0
+    while [ "$i" -lt 100 ] && [ -z "$REC" ]; do
+        REC=$(find "$STORE" -name '*.json' 2>/dev/null | head -1)
+        [ -n "$REC" ] || sleep 0.1
+        i=$((i + 1))
+    done
+    if [ -n "$REC" ]; then
+        [ "$(jq -r '.not_graded_reason' "$REC")" = not-opted-in ] \
+            && pass "the record says the decider wasn't asked (not-opted-in)" \
+            || fail "record reason [$(jq -r '.not_graded_reason' "$REC")]"
+        [ "$(jq -r '.seats[0].seat + "=" + .seats[0].verdict' "$REC")" = "completeness=pass" ] \
+            && pass "the record holds the seat's verdict from the ledger" \
+            || fail "record seats [$(jq -c '.seats' "$REC")]"
+    else
+        fail "the real shadow wrote no record"
+    fi
+else
+    echo "SKIP: python3 not on PATH"
+fi
+
 echo "--- script: refusals"
 
 fixture refusals
@@ -441,6 +642,16 @@ printf '{"seat":"intent"}\n' > "$WORKDIR/obj.json"
 run --record scrutiny "$SESSION" "$WORKDIR/obj.json";    expect_rc "--record with a non-array round file" 65
 printf '[{"seat":"pragmatic","blocking_count":0}]\n' > "$WORKDIR/wrong.json"
 run --record scrutiny "$SESSION" "$WORKDIR/wrong.json";  expect_rc "--record with another panel's seat" 65
+
+# The light review level's panel: one seat, named reviewer.
+run --plan light "$SESSION";         expect_rc "--plan for the light panel" 0
+GOT=$(jq -r '[.decisions[] | .seat] | join(",")' "$SHIM_STORE/$SESSION/light_scope.json" 2>/dev/null)
+[ "$GOT" = reviewer ] && pass "the light panel's one seat is reviewer" || fail "light_scope.json seats are [$GOT]"
+run --record light "$SESSION" "$WORKDIR/wrong.json";     expect_rc "--record light with another panel's seat" 65
+printf '[{"seat":"reviewer","blocking_count":0}]\n' > "$WORKDIR/light.json"
+run --record light "$SESSION" "$WORKDIR/light.json";     expect_rc "--record light with its reviewer seat" 0
+jq -e '.seats["light/reviewer"].verdict == "passed"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "the light seat's verdict is in the verdict ledger" || fail "no light/reviewer entry in the verdict ledger"
 FAILSESSION=fail-write
 mkdir -p "$SHIM_STORE/$FAILSESSION"
 OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" --plan scrutiny "$FAILSESSION" 2>"$WORKDIR/stderr"); RC=$?
@@ -497,6 +708,10 @@ engine_to_qa_retry() {
     printf 'AC: the issue body\n' | koto context add "$s" context.md >/dev/null 2>&1
     submit "$s" '{"plan_outcome":"plan_ready"}'
     git rev-parse main | koto context add "$s" impl_base >/dev/null 2>&1
+    # The full review level keeps all three panels on the path.
+    "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
+        || { fail "$s: review-level.sh set full failed"; return 1; }
+    koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: walk stopped at [$NEXT_STATE] before scrutiny"; return 1; }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# run-evals_test.sh -- test harness for scripts/run-evals.sh's nested session:
-# the permission mode it pins, and the failure it reports when that session
-# ends without executing anything.
+# run-evals_test.sh -- test harness for scripts/run-evals.sh: the nested
+# session's permission mode, model and environment, the failure it reports when
+# that session ends without executing anything, the changed-since-tag
+# selection, the --summary-out file and the --runs exit code.
 #
 # Usage: bash scripts/run-evals_test.sh
 #
@@ -21,6 +22,10 @@
 #   runner cases run scripts/run-evals.sh end to end against the stub.
 
 set -uo pipefail
+
+# The cases set these themselves; a value from the caller's shell would change
+# what the runner does.
+unset EVAL_MODEL STUB_CLAUDE_SEQUENCE RUN_EVALS_REPO_ROOT
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -386,6 +391,339 @@ if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXE
   pass "--validate on an ungraded iteration stays exit 2 (it has no session to classify)"
 else
   fail "--validate ungraded (rc=$RC): $OUT"
+fi
+
+# -- models -----------------------------------------------------------------
+
+# metadata_model <skill> <scenario> -- the model prep wrote for that scenario
+# in the skill's latest iteration.
+metadata_model() {
+  local dir
+  dir=$(ls -d "$SUITE/$1"/evals/workspace/iteration-* | sort -t- -k2 -n | tail -n 1)
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('model'))" \
+    "$dir/$2/eval_metadata.json"
+}
+
+run_runner grade demo
+if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
+  && [ "$(metadata_model demo demo-scenario)" = sonnet ] \
+  && grep -q "demo-scenario: .*with-skill agent and its baseline agent on model sonnet" "$LOG/prompt"; then
+  pass "model: by default the grader session gets no --model, and a tier-1 scenario runs on sonnet"
+else
+  fail "model default (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
+fi
+
+EVAL_MODEL=opus run_runner grade demo
+if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
+  && [ "$(metadata_model demo demo-scenario)" = opus ] \
+  && grep -q "demo-scenario: .*on model opus" "$LOG/prompt"; then
+  pass "model: EVAL_MODEL=opus reaches the grader session, the metadata and the per-eval line"
+else
+  fail "EVAL_MODEL=opus (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
+fi
+
+# The liveness scenario is not tier 1, so by default it inherits the session's
+# model: no override in its metadata or its instruction line.
+run_runner grade live
+if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
+  && [ "$(metadata_model live liveness)" = inherit ] \
+  && grep -q "liveness: .*with no model override, so they run on this session's model" "$LOG/prompt"; then
+  pass "model: by default a scenario that is not tier 1 inherits the session's model"
+else
+  fail "model inherit (rc=$RC): metadata=$(metadata_model live liveness)"
+fi
+
+EVAL_MODEL=opus run_runner grade live
+if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
+  && [ "$(metadata_model live liveness)" = opus ]; then
+  pass "model: an explicit EVAL_MODEL also reaches a scenario that is not tier 1"
+else
+  fail "model inherit with EVAL_MODEL (rc=$RC): metadata=$(metadata_model live liveness)"
+fi
+
+# Tier-2 scenarios are checked through --prep-only: a full run would stand up
+# the isolated clone, which is not what these cases test.
+mkdir -p "$SUITE/tiers/evals"
+echo "# tiers skill" > "$SUITE/tiers/SKILL.md"
+cat > "$SUITE/tiers/evals/evals.json" <<'EOF'
+{"skill_name": "tiers", "evals": [
+  {"id": 1, "name": "tier1-scenario", "tier": 1, "mode": "plan_only", "prompt": "one",
+   "expected_output": "one", "files": [], "expectations": ["stub criterion"]},
+  {"id": 2, "name": "tier2-scenario", "tier": 2, "mode": "execute", "prompt": "two",
+   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
+  {"id": 3, "name": "tier2-pinned", "tier": 2, "mode": "execute", "model": "haiku",
+   "prompt": "three", "expected_output": "three", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+run_runner plan --prep-only tiers
+if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] \
+  && [ "$(metadata_model tiers tier1-scenario)" = sonnet ] \
+  && [ "$(metadata_model tiers tier2-scenario)" = inherit ] \
+  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
+  pass "model: by default tier 1 gets sonnet, tier 2 inherits, and a tier-2 model key is kept"
+else
+  fail "model tiers (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
+fi
+EVAL_MODEL=opus run_runner plan --prep-only tiers
+if [ "$RC" -eq 0 ] && [ "$(metadata_model tiers tier1-scenario)" = opus ] \
+  && [ "$(metadata_model tiers tier2-scenario)" = opus ] \
+  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
+  pass "model: with EVAL_MODEL set both tiers take it, and a scenario's own key still wins"
+else
+  fail "model tiers with EVAL_MODEL (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
+fi
+rm -rf "$SUITE/tiers"
+
+mkdir -p "$SUITE/pinned/evals"
+echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
+cat > "$SUITE/pinned/evals/evals.json" <<'EOF'
+{"skill_name": "pinned", "evals": [
+  {"id": 1, "name": "pinned-scenario", "prompt": "one", "expected_output": "one",
+   "model": "haiku", "files": [], "expectations": ["stub criterion"]},
+  {"id": 2, "name": "default-scenario", "prompt": "two", "expected_output": "two",
+   "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+EVAL_MODEL=opus run_runner grade pinned
+if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
+  && [ "$(metadata_model pinned pinned-scenario)" = haiku ] \
+  && [ "$(metadata_model pinned default-scenario)" = opus ] \
+  && grep -q "pinned-scenario: .*on model haiku" "$LOG/prompt" \
+  && grep -q "default-scenario: .*on model opus" "$LOG/prompt"; then
+  pass "model: a scenario's own model wins over EVAL_MODEL; its sibling keeps EVAL_MODEL"
+else
+  fail "scenario model (rc=$RC): pinned=$(metadata_model pinned pinned-scenario) default=$(metadata_model pinned default-scenario)"
+fi
+
+EVAL_MODEL="-x" run_runner grade demo
+if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "EVAL_MODEL must match"; then
+  pass "model: an EVAL_MODEL that does not match the pattern is refused before any session"
+else
+  fail "EVAL_MODEL=-x (rc=$RC): $OUT"
+fi
+
+mkdir -p "$SUITE/badmodel/evals"
+echo "# badmodel skill" > "$SUITE/badmodel/SKILL.md"
+cat > "$SUITE/badmodel/evals/evals.json" <<'EOF'
+{"skill_name": "badmodel", "evals": [
+  {"id": 1, "name": "bad-scenario", "prompt": "one", "expected_output": "one",
+   "model": "opus; rm -rf /", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+run_runner grade badmodel
+if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && [ ! -d "$SUITE/badmodel/evals/workspace/iteration-1" ] \
+  && printf '%s' "$OUT" | grep -q "bad-scenario declares a model that does not match"; then
+  pass "model: a scenario model that does not match the pattern refuses the suite, exit 3, no iteration"
+else
+  fail "scenario model refused (rc=$RC): $OUT"
+fi
+rm -rf "$SUITE/badmodel"
+
+# -- credentials ------------------------------------------------------------
+
+GH_TOKEN=secret-token GITHUB_TOKEN=secret-token SSH_AUTH_SOCK="$T/agent.sock" run_runner grade demo
+if [ "$RC" -eq 0 ] && grep -qx "GH_TOKEN=unset" "$LOG/env" \
+  && grep -qx "GITHUB_TOKEN=unset" "$LOG/env" && grep -qx "SSH_AUTH_SOCK=unset" "$LOG/env"; then
+  pass "credentials: the nested session sees no GH_TOKEN, GITHUB_TOKEN or SSH_AUTH_SOCK"
+else
+  fail "credentials reached the stub: $(tr '\n' ' ' < "$LOG/env")"
+fi
+
+# -- summary and --runs exit ------------------------------------------------
+
+# summary_field <file> <skill> <field> -- one field of a skill's summary entry
+summary_field() {
+  python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['schema'] == 'run-evals-summary/v1', d['schema']
+v = d['skills'][sys.argv[2]][sys.argv[3]]
+print(','.join(v) if isinstance(v, list) else v)
+" "$1" "$2" "$3" 2>/dev/null || echo "missing"
+}
+
+SUM="$T/summary.json"
+rm -f "$SUM"
+EVAL_MODEL=opus run_runner grade --summary-out "$SUM" pinned
+if [ "$RC" -eq 0 ] && [ "$(summary_field "$SUM" pinned runs)" = 1 ] \
+  && [ "$(summary_field "$SUM" pinned runs_passed)" = 1 ] \
+  && [ "$(summary_field "$SUM" pinned assertions_passed)" = 2 ] \
+  && [ "$(summary_field "$SUM" pinned assertions_graded)" = 2 ] \
+  && [ "$(summary_field "$SUM" pinned models)" = "haiku,opus" ] \
+  && [ "$(summary_field "$SUM" pinned exit_code)" = 0 ]; then
+  pass "--summary-out: schema, runs, runs_passed, assertions, models and exit_code for a passing run"
+else
+  fail "--summary-out passing run (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+
+rm -f "$SUM"
+run_runner plan --runs 3 --summary-out "$SUM" demo
+if [ "$RC" -eq 4 ] && [ "$(summary_field "$SUM" demo runs)" = 1 ] \
+  && [ "$(summary_field "$SUM" demo runs_passed)" = 0 ] \
+  && [ "$(summary_field "$SUM" demo exit_code)" = 4 ]; then
+  pass "--summary-out: written when --runs stops early on 4, with the one run attempted"
+else
+  fail "--summary-out early stop (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+
+rm -f "$SUM"
+STUB_CLAUDE_SEQUENCE="nograde failgrade grade" run_runner grade --runs 3 --summary-out "$SUM" demo
+if [ "$RC" -eq 2 ] && [ "$(wc -l < "$LOG/calls" | tr -d ' ')" = 3 ] \
+  && [ "$(summary_field "$SUM" demo runs)" = 3 ] \
+  && [ "$(summary_field "$SUM" demo runs_passed)" = 1 ] \
+  && [ "$(summary_field "$SUM" demo assertions_passed)" = 1 ] \
+  && [ "$(summary_field "$SUM" demo assertions_graded)" = 2 ] \
+  && [ "$(summary_field "$SUM" demo exit_code)" = 2 ]; then
+  pass "--runs 3: a nothing-graded run makes it exit 2 although another run failed assertions"
+else
+  fail "--runs 3 nograde/fail/grade (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+
+STUB_CLAUDE_SEQUENCE="failgrade grade" run_runner grade --runs 2 demo
+if [ "$RC" -eq 1 ]; then
+  pass "--runs 2: runs that only failed assertions still exit 1"
+else
+  fail "--runs 2 fail/grade (rc=$RC): $OUT"
+fi
+
+# -- changed-since-tag selection --------------------------------------------
+
+# A throwaway repository with its own tags. RUN_EVALS_REPO_ROOT points git at
+# it and RUN_EVALS_SKILLS_DIR at its skills/, so the selection never reads
+# this checkout's history.
+REPO="$T/repo"
+mkdir -p "$REPO"
+git_t() { git -C "$REPO" -c user.email=test@example.invalid -c user.name=test "$@" >/dev/null 2>&1; }
+git_t init -q
+make_skill() { # make_skill <name> -- a skill with one passing-stub scenario
+  mkdir -p "$REPO/skills/$1/evals"
+  echo "# $1" > "$REPO/skills/$1/SKILL.md"
+  printf '{"skill_name": "%s", "evals": [{"id": 1, "name": "%s-scenario", "prompt": "p", "expected_output": "o", "files": [], "expectations": ["stub criterion"]}]}\n' "$1" "$1" \
+    > "$REPO/skills/$1/evals/evals.json"
+}
+make_skill alpha
+make_skill beta
+make_skill gamma
+mkdir -p "$REPO/skills/noevals"
+echo "# no evals" > "$REPO/skills/noevals/SKILL.md"
+echo "notes" > "$REPO/skills/gamma/notes.md"
+# Iterations the runner writes into the repository must not count as changes.
+echo "workspace/" > "$REPO/.gitignore"
+git_t add -A
+git_t commit -q -m init
+
+run_select() { # run_select <stub-mode> <runner args...>
+  local mode="$1"
+  shift
+  rm -rf "$LOG"
+  RC=0
+  OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$REPO" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
+    STUB_CLAUDE_MODE="$mode" STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" \
+    TMPDIR="$T" bash "$RUNNER" "$@" 2>&1) || RC=$?
+}
+
+run_select grade --list-changed
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "No v\* tag found" \
+  && [ "$(printf '%s\n' "$OUT" | grep -v '^No v' | tr '\n' ' ')" = "alpha beta gamma " ] \
+  && [ ! -e "$LOG/args" ]; then
+  pass "selection: with no v* tag every skill with evals is selected, and the note says so"
+else
+  fail "selection, no tag (rc=$RC): $OUT"
+fi
+
+git_t tag v0.1.0
+run_select grade
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "No skill with evals changed since v0.1.0." \
+  && [ "$(git -C "$REPO" rev-parse HEAD)" = "$(git -C "$REPO" rev-parse 'v0.1.0^{commit}')" ] \
+  && [ ! -e "$LOG/args" ]; then
+  pass "selection: a run on the tagged commit selects nothing, says so, exits 0 and starts no session"
+else
+  fail "selection, nothing changed (rc=$RC): $OUT"
+fi
+
+rm -f "$SUM"
+run_select grade --summary-out "$SUM"
+if [ "$RC" -eq 0 ] && python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d == {'schema': 'run-evals-summary/v1', 'skills': {}} else 1)
+" "$SUM"; then
+  pass "selection: nothing changed still writes an empty summary"
+else
+  fail "selection, nothing changed summary (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+
+echo "changed" >> "$REPO/skills/alpha/SKILL.md"
+# An evals/-only change: the skill body is untouched.
+printf '{"skill_name": "beta", "evals": [{"id": 1, "name": "beta-scenario", "prompt": "p2", "expected_output": "o", "files": [], "expectations": ["stub criterion"]}]}\n' \
+  > "$REPO/skills/beta/evals/evals.json"
+echo "changed" >> "$REPO/skills/noevals/SKILL.md"
+git_t commit -q -am "change alpha, beta's evals, and a skill without evals"
+
+run_select grade --list-changed
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta " ]; then
+  pass "selection: --list-changed prints a changed skill and an evals/-only change, not gamma or a skill without evals"
+else
+  fail "selection, --list-changed (rc=$RC): $OUT"
+fi
+
+run_select grade
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Skills with evals changed since v0.1.0: alpha beta" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: alpha ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: beta ===" \
+  && ! printf '%s' "$OUT" | grep -q "Preparing evals for skill: gamma" \
+  && printf '%s' "$OUT" | grep -q "All skills passed."; then
+  pass "selection: no skill name prints the selection and runs it through the --all loop"
+else
+  fail "selection, default run (rc=$RC): $OUT"
+fi
+
+make_skill delta
+git_t add -A
+git_t commit -q -m "add delta"
+git_t mv skills/gamma/notes.md skills/delta/notes.md
+git_t commit -q -m "move a file from gamma to delta"
+run_select grade --list-changed
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta delta gamma " ]; then
+  pass "selection: a rename selects both the skill the file left and the one it joined"
+else
+  fail "selection, rename (rc=$RC): $OUT"
+fi
+
+# A shallow clone that fetched no tags (the shape CI's default checkout has)
+# finds no v* tag, so a run with no skill name selects every skill with evals
+# and runs them, rather than nothing.
+SHALLOW="$T/shallow"
+git clone -q --depth 1 --no-tags "file://$REPO" "$SHALLOW" >/dev/null 2>&1
+rm -rf "$LOG"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$SHALLOW" RUN_EVALS_SKILLS_DIR="$SHALLOW/skills" \
+  STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" \
+  TMPDIR="$T" bash "$RUNNER" 2>&1) || RC=$?
+if [ "$RC" -eq 0 ] && [ "$(git -C "$SHALLOW" rev-parse --is-shallow-repository)" = true ] \
+  && [ -z "$(git -C "$SHALLOW" tag -l)" ] \
+  && printf '%s' "$OUT" | grep -q "No v\* tag found" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: alpha ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: beta ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: delta ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: gamma ===" \
+  && ! printf '%s' "$OUT" | grep -q "Preparing evals for skill: noevals" \
+  && printf '%s' "$OUT" | grep -q "All skills passed."; then
+  pass "selection: a shallow clone with no tags runs every skill with evals"
+else
+  fail "selection, shallow clone (rc=$RC): $OUT"
+fi
+
+# A root git cannot read is an error, not "no tag" selecting every skill.
+mkdir -p "$T/not-a-repo"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$T/not-a-repo" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
+  PATH="$FIXTURES/bin:$PATH" GIT_CEILING_DIRECTORIES="$T" bash "$RUNNER" --list-changed 2>&1) || RC=$?
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "is not a git repository" \
+  && ! printf '%s' "$OUT" | grep -q "No v\* tag found"; then
+  pass "selection: a repository root git cannot read exits 2 instead of selecting everything"
+else
+  fail "selection, unreadable root (rc=$RC): $OUT"
 fi
 
 echo ""

@@ -47,6 +47,21 @@
 #                                 the entry point's row pins `plan-slug`
 #                                 (today /execute) and restricts its
 #                                 targets' visibility.
+#   review_level        optional  {floor, ceiling}, one or both, each light,
+#                                 standard or full, the floor no higher than
+#                                 the ceiling: the bound on the review level
+#                                 every /work-on run under this worker picks.
+#                                 Rendered as one Acceptance criteria line
+#                                 and as --review-floor=<x> and
+#                                 --review-ceiling=<y> on the invocation
+#                                 (dispatch-common.sh dc_invocation). Refused
+#                                 on an entry point whose row in
+#                                 entry-points.tsv doesn't admit the flags.
+#                                 The flags themselves are refused in
+#                                 entry_args and run_mode: this field is
+#                                 their only route, so the level names are
+#                                 always checked. Absent, the brief is what
+#                                 it was before the field existed.
 #
 # The entry point's target requirement. references/entry-points.tsv gives each
 # entry point the visibility its targets must have (`any`, `public` or
@@ -182,6 +197,20 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
                  or (test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$") and (test("(^|/)\\.\\.(/|$)") | not))) | not )
       | "read_first: not a repository path, issue or pull request reference, or https URL: \(.)" )
   else empty end ),
+( if has("review_level") then
+    ( .review_level as $r | ["light","standard","full"] as $lv
+      | if ($r | type) != "object" or ($r | length) == 0 then "review_level: must be an object with floor, ceiling or both"
+        else
+          ( ($r | keys[]) | select(IN("floor","ceiling") | not) | "review_level: unknown key \(.); only floor and ceiling" ),
+          ( ($r | to_entries[]) | select(.key | IN("floor","ceiling"))
+            | select((.value | type) != "string" or ((.value | IN($lv[])) | not))
+            | "review_level: \(.key) must be light, standard or full" ),
+          ( if ($r.floor | type) == "string" and ($r.ceiling | type) == "string"
+               and ($r.floor | IN($lv[])) and ($r.ceiling | IN($lv[]))
+               and (($lv | index($r.floor)) > ($lv | index($r.ceiling)))
+            then "review_level: the floor (\($r.floor)) is above the ceiling (\($r.ceiling))" else empty end )
+        end )
+  else empty end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
 )
 '
@@ -197,14 +226,37 @@ if [ -n "$TOPIC" ] && ! dc_valid_topic "$TOPIC"; then
 fi
 if [ -n "$ENTRY" ]; then
     if dc_entry_row "$ENTRY" >/dev/null; then
+        # The review-level flags go only through review_level, whose values
+        # are checked: given as a flag, a value would reach the invocation
+        # unchecked.
+        while IFS='	' read -r field flag; do
+            [ -n "$flag" ] || continue
+            case "$flag" in
+                --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*)
+                    refuse "$field: ${flag%%=*} goes in review_level, not in $field" ;;
+            esac
+        done <<EOF
+$(jq -r '(if (.entry_args | type) == "array" then .entry_args[1:][] | strings | ["entry_args", .] else empty end),
+    (.run_mode // "" | strings | split(" ")[] | select(. != "") | ["run_mode", .]) | @tsv' "$INPUT")
+EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
+            dc_flag_allowed "$ENTRY" "$flag" || refuse "review_level: /shirabe:$ENTRY doesn't take ${flag%%=*}"
+        done <<EOF
+$(jq -r 'if (.review_level | type) == "object" then
+    (.review_level.floor // empty | strings | "--review-floor=" + .),
+    (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) else empty end' "$INPUT")
+EOF
+        while IFS= read -r flag; do
+            [ -n "$flag" ] || continue
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "entry_args: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r 'if (.entry_args | type) == "array" then .entry_args[1:][] | strings else empty end' "$INPUT")
 EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "run_mode: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r '.run_mode // "" | strings | split(" ")[] | select(. != "")' "$INPUT")
@@ -326,7 +378,13 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "## Acceptance criteria",
   "",
-  ( .acceptance | map("- [ ] " + .) | join("\n") ),
+  ( (.acceptance | map("- [ ] " + .))
+    + ( if (.review_level | type) == "object" then
+          [ "- [ ] Review level: "
+            + ([ (.review_level.floor // empty | "floor " + .), (.review_level.ceiling // empty | "ceiling " + .) ] | join(", "))
+            + "; /work-on'"'"'s choice must fall inside it." ]
+        else [] end )
+    | join("\n") ),
   "",
   "## Out of scope",
   "",

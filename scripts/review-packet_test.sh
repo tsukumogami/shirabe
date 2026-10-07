@@ -14,8 +14,10 @@
 # prints a canned issue body, so every case runs on a bare runner. The cases
 # pin the packet's sections, the base order (impl_base, then the merge-base),
 # the caps and their trailers, and that a failure leaves no packet behind.
-# The spawn-site cases then check that every review spawn site still names
-# a model, a call budget and the packet command.
+# The recheck cases also need jq, as the script's recheck kind does, and
+# fail without it. The spawn-site cases then check that every
+# review spawn site still names a model, a call budget and the packet command,
+# and that each /work-on panel gives the recheck packet command too.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -256,6 +258,166 @@ CODE=$?
 
 [ "$(leftover_packets)" -eq 0 ] && pass "failures leave no packet behind" || fail "a failure left a packet behind"
 
+# ------------------------------------------------------------- recheck -------
+#
+# A seat panel-scope.sh marked `recheck` gets its own findings and the diff
+# since fix_diff_from, read from <panel>_scope.json, and nothing else. The
+# scope files here are written the way panel-scope.sh --plan writes them;
+# panel-scope_test.sh drives the two scripts together.
+
+HEAD_SHA=$(git -C "$REPO" rev-parse feature)
+
+# scope <dir> <panel> <seat> <decision-json-tail>: writes a scope with one
+# recheck seat and one kept seat.
+scope() {
+    printf '{"panel":"%s","head":"%s","rev":1,"decisions":[{"seat":"other","decision":"keep","reason":"r","judged_at":"%s"},{"seat":"%s","decision":"recheck","reason":"r","findings":[{"summary":"c.txt says more","path":"c.txt","lines":"1"}]%s}]}\n' \
+        "$2" "$HEAD_SHA" "$FIRST_SHA" "$3" "$4" > "$1/$2_scope.json"
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+    # A failure, not a skip: a runner that stopped shipping jq would otherwise
+    # go green with the recheck kind untested.
+    fail "recheck: jq not on PATH, so no recheck case ran"
+else
+    RS="$ROOT/rstore"
+    mkdir -p "$RS"
+    echo "$MAIN_SHA" > "$RS/impl_base"
+    printf '## Design excerpt\nThe component does X.\n' > "$RS/context.md"
+    scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$FIRST_SHA\""
+
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
+        pass "recheck: exit 0 and a packet path on stdout"
+        grep -q '^# Review packet: recheck$' "$OUT" && grep -q '^panel: scrutiny$' "$OUT" \
+            && grep -q '^seat: intent$' "$OUT" \
+            && pass "recheck: the header names the panel and the seat" || fail "recheck: header wrong"
+        grep -q "^fix diff from: $FIRST_SHA (fix_diff_from)\$" "$OUT" \
+            && pass "recheck: the diff starts at fix_diff_from" || fail "recheck: diff base wrong"
+        grep -q '"summary": "c.txt says more"' "$OUT" && grep -q '"lines": "1"' "$OUT" \
+            && pass "recheck: carries the seat's findings verbatim" || fail "recheck: findings missing"
+        grep -q "^A	c.txt\$" "$OUT" && grep -q '^+more$' "$OUT" \
+            && ! grep -q '	b.txt$' "$OUT" && ! grep -q '^+new$' "$OUT" \
+            && pass "recheck: the paths and diff cover fix_diff_from..HEAD only" \
+            || fail "recheck: diff range wrong"
+        ! grep -q '^## Acceptance criteria' "$OUT" && ! grep -q '^## Design context' "$OUT" \
+            && ! grep -q '^The component does X\.$' "$OUT" \
+            && pass "recheck: no acceptance criteria or design context" \
+            || fail "recheck: carries sections a re-check does not read"
+        RECHECK_BYTES=$(wc -c < "$OUT" | tr -d ' ')
+        rm -f "$OUT"
+        GH_BODY="$BODY" run "$RS" code --session s --issue 12
+        CODE_BYTES=$(wc -c < "$OUT" | tr -d ' ')
+        rm -f "$OUT"
+        [ "$RECHECK_BYTES" -lt "$CODE_BYTES" ] \
+            && pass "recheck: smaller than the code packet for the same session ($RECHECK_BYTES < $CODE_BYTES bytes)" \
+            || fail "recheck: $RECHECK_BYTES bytes, the code packet $CODE_BYTES"
+    else
+        fail "recheck: exit $CODE, stderr: $ERR"
+    fi
+
+    # The light panel's one seat: its retry loop marks it recheck too.
+    scope "$RS" light reviewer ",\"fix_diff_from\":\"$FIRST_SHA\""
+    run "$RS" recheck --session s --panel light --seat reviewer
+    if [ "$CODE" -eq 0 ] && grep -q '^panel: light$' "$OUT" && grep -q '^+more$' "$OUT"; then
+        pass "recheck: the light panel's reviewer seat"
+    else
+        fail "recheck: light reviewer: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # Nothing committed since the seat blocked: the packet is still written,
+    # and says the diff is empty.
+    scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$HEAD_SHA\""
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    if [ "$CODE" -eq 0 ] && grep -q '^changed paths: 0$' "$OUT" \
+        && grep -q "^\[no changes between $HEAD_SHA and HEAD\]\$" "$OUT" \
+        && grep -q "^\[empty: no commit since $HEAD_SHA changes anything\]\$" "$OUT" \
+        && grep -q '"summary": "c.txt says more"' "$OUT"; then
+        pass "recheck: an empty fix diff writes a packet that says so, findings included"
+    else
+        fail "recheck: empty fix diff: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # No fix_diff_from: the diff falls back to the code packet's base, here
+    # impl_base, and the header and stderr say why.
+    scope "$RS" scrutiny intent ""
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    if [ "$CODE" -eq 0 ] \
+        && grep -q "^fix diff from: $MAIN_SHA (fallback: the scope has no fix_diff_from; impl_base)\$" "$OUT" \
+        && grep -q '	b.txt$' "$OUT" && grep -q '	c.txt$' "$OUT" \
+        && printf '%s' "$ERR" | grep -q 'falls back to the code packet'; then
+        pass "recheck: a missing fix_diff_from falls back to impl_base, labelled"
+    else
+        fail "recheck: missing fix_diff_from: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # ... and with no impl_base either, to the merge-base.
+    RS2="$ROOT/rstore2"
+    mkdir -p "$RS2"
+    scope "$RS2" scrutiny intent ',"fix_diff_from":null'
+    run "$RS2" recheck --session s --panel scrutiny --seat intent
+    if [ "$CODE" -eq 0 ] \
+        && grep -q "^fix diff from: $MAIN_SHA (fallback: the scope has no fix_diff_from; merge-base with main)\$" "$OUT"; then
+        pass "recheck: a null fix_diff_from with no impl_base falls back to the merge-base"
+    else
+        fail "recheck: null fix_diff_from: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    scope "$RS" scrutiny intent ',"fix_diff_from":"0123456789abcdef0123456789abcdef01234567"'
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    [ "$CODE" -eq 0 ] && grep -q '^fix diff from: .*that is not a commit here; impl_base)$' "$OUT" \
+        && pass "recheck: a fix_diff_from that names no commit falls back" \
+        || fail "recheck: unknown fix_diff_from: exit $CODE, stderr: $ERR"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    scope "$RS" scrutiny intent ',"fix_diff_from":"--output=x"'
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    [ "$CODE" -eq 0 ] && grep -q '^fix diff from: .*that is not a commit id; impl_base)$' "$OUT" \
+        && [ ! -e "$REPO/x" ] \
+        && pass "recheck: a fix_diff_from that is not a commit id never reaches git" \
+        || fail "recheck: non-id fix_diff_from: exit $CODE, stderr: $ERR"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # A commit off to the side of HEAD can't bound a fix on it.
+    SIDE_SHA=$(cd "$REPO" && git checkout -q -b side main && echo side > s.txt && git add s.txt \
+        && git commit -q -m side && git rev-parse HEAD && git checkout -q feature)
+    scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$SIDE_SHA\""
+    run "$RS" recheck --session s --panel scrutiny --seat intent
+    [ "$CODE" -eq 0 ] && grep -q '^fix diff from: .*that is not an ancestor of HEAD; impl_base)$' "$OUT" \
+        && ! grep -q 's.txt' "$OUT" \
+        && pass "recheck: a fix_diff_from off HEAD's history falls back" \
+        || fail "recheck: non-ancestor fix_diff_from: exit $CODE, stderr: $ERR"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # Refusals: a seat that isn't marked recheck gets the code packet, so
+    # this kind refuses it rather than build a narrower one.
+    scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$FIRST_SHA\""
+    run "$RS" recheck --session s --panel scrutiny --seat other
+    [ "$CODE" -eq 64 ] && printf '%s' "$ERR" | grep -q 'not recheck: commission it with the code packet' \
+        && pass "recheck: a kept seat: exit 64" || fail "recheck: kept seat: exit $CODE"
+    run "$RS" recheck --session s --panel scrutiny --seat completeness
+    [ "$CODE" -eq 64 ] && pass "recheck: a seat not in the scope: exit 64" || fail "recheck: absent seat: exit $CODE"
+    run "$RS" recheck --session s --panel review --seat pragmatic
+    [ "$CODE" -eq 64 ] && pass "recheck: no scope for the panel: exit 64" || fail "recheck: no scope: exit $CODE"
+    printf 'not json\n' > "$RS/qa_scope.json"
+    run "$RS" recheck --session s --panel qa --seat tester
+    [ "$CODE" -eq 64 ] && pass "recheck: an unreadable scope: exit 64" || fail "recheck: unreadable scope: exit $CODE"
+
+    run "$RS" recheck --session s --seat intent
+    [ "$CODE" -eq 67 ] && pass "recheck: no --panel: exit 67" || fail "recheck: no --panel: exit $CODE"
+    run "$RS" recheck --session s --panel jury --seat intent
+    [ "$CODE" -eq 67 ] && pass "recheck: unknown panel: exit 67" || fail "recheck: unknown panel: exit $CODE"
+    run "$RS" recheck --session s --panel scrutiny --seat 'x;y'
+    [ "$CODE" -eq 67 ] && pass "recheck: a seat that is not a name: exit 67" || fail "recheck: bad seat: exit $CODE"
+    run "$RS" recheck --session s --panel scrutiny --seat intent --issue 12
+    [ "$CODE" -eq 67 ] && pass "recheck: a code flag: exit 67" || fail "recheck: code flag: exit $CODE"
+
+    [ "$(leftover_packets)" -eq 0 ] && pass "recheck: refusals leave no packet" || fail "recheck: a refusal left a packet"
+fi
+
 # The diff cap: a 120 KB change is cut, the path list is not.
 (
     cd "$REPO" || exit 1
@@ -287,6 +449,7 @@ SITES="
 skills/work-on/references/phases/phase-4a-scrutiny.md
 skills/work-on/references/phases/phase-4b-review.md
 skills/work-on/references/phases/phase-4c-qa.md
+skills/work-on/references/phases/phase-4d-light.md
 skills/work-on/references/phases/phase-4-implementation.md
 skills/brief/references/phases/phase-4-validate.md
 skills/prd/references/phases/phase-4-validate.md
@@ -320,6 +483,23 @@ for site in $SITES; do
         || fail "spawn site $site: does not give the packet command"
 done
 pass "spawn sites: every listed site checked"
+
+# Each /work-on panel can mark a seat recheck, so each panel's commissioning
+# line also gives the recheck packet command, under the panel name
+# panel-scope.sh uses for that panel.
+RECHECK_SITES="
+phase-4a-scrutiny.md:scrutiny
+phase-4b-review.md:review
+phase-4c-qa.md:qa
+phase-4d-light.md:light
+"
+for entry in $RECHECK_SITES; do
+    site="skills/work-on/references/phases/${entry%%:*}"
+    line=$(grep '^\*\*Seat commissioning\*\*' "$REPO_ROOT/$site" 2>/dev/null)
+    printf '%s\n' "$line" | grep -q "scripts/review-packet.sh\" recheck --session <WF> --panel ${entry#*:} --seat " \
+        && pass "spawn site $site: gives the recheck packet for panel ${entry#*:}" \
+        || fail "spawn site $site: no recheck packet command for panel ${entry#*:}"
+done
 
 # grep -vxF rather than a case inside $(...): bash 3.2 misparses the latter.
 unlisted=$(cd "$REPO_ROOT" && grep -rl '^\*\*Seat commissioning\*\*' skills \

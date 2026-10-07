@@ -108,6 +108,26 @@ variables:
     values: ["true", "false"]
     default: "false"
     rebind: true
+  # The review-level bound, forwarded to /execute. Rebind, as MAX_ROUNDS and
+  # MERGE are: like them it is a per-invocation setting forwarded to a child,
+  # and every /deliver run is a fresh session anyway, so nothing is carried
+  # from an earlier run.
+  REVIEW_FLOOR:
+    description: >-
+      The --review-floor value forwarded to /execute: light, standard or full,
+      or empty for no floor. execute_run appends it only when it isn't empty.
+      Rebindable, as MAX_ROUNDS is.
+    pattern: '^(light|standard|full)?$'
+    default: ""
+    rebind: true
+  REVIEW_CEILING:
+    description: >-
+      The --review-ceiling value forwarded to /execute: light, standard or
+      full, or empty for no ceiling. Appended only when it isn't empty.
+      Rebindable, as MAX_ROUNDS is.
+    pattern: '^(light|standard|full)?$'
+    default: ""
+    rebind: true
 
 states:
   open_request:
@@ -1055,6 +1075,13 @@ Run `/execute` on this run's `execute` leg. Invoke the Skill tool with skill
 and then the merge flag. This run's merge setting is `{{MERGE}}`: when it reads
 `true`, append `--merge`; when it reads `false`, append nothing -- never
 `--merge=false`, never `--no-merge`.
+
+Then the review-level bound, from this run's forwarded settings:
+
+- `--review-floor={{REVIEW_FLOOR}}`, only when that value after `=` is not
+  empty;
+- `--review-ceiling={{REVIEW_CEILING}}`, only when that value after `=` is not
+  empty.
 
 Run /execute to its end exactly as its own directives say, then call
 `koto next {{SESSION_NAME}} --no-cleanup` with no evidence.

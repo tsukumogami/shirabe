@@ -5,7 +5,7 @@
     "min_runs": 3,
     "pass_rate_threshold": 1.0,
     "gating": false,
-    "note": "Each scenario is run with `scripts/run-evals.sh --scenario <name> --runs 3 deliver` and must pass 3 of 3 (R26)."
+    "note": "Each scenario is run with `scripts/run-evals.sh --scenario <name> --runs 3 deliver` and must pass 3 of 3 (R26). They run in the release precondition, not in a pull request."
   },
   "evals": [
     {

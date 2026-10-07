@@ -54,8 +54,9 @@
 # --recorded as that state's gates (evaluated on every tick there); the agent
 # runs --record once per round:
 #
-#   --plan <panel> <session>     default_action on `scrutiny`, `review` and
-#                                `qa_validation`. Writes `<panel>_scope.json`
+#   --plan <panel> <session>     default_action on `scrutiny`, `review`,
+#                                `qa_validation` and `light_review`. Writes
+#                                `<panel>_scope.json`
 #                                and appends the round's decisions, with their
 #                                reasons, to the ledger's history. When every
 #                                seat is `keep` it also writes
@@ -81,7 +82,8 @@
 #        panel-scope.sh --recorded <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #
-# <panel> is scrutiny, review or qa (the qa_validation state).
+# <panel> is scrutiny, review, qa (the qa_validation state) or light (the
+# light_review state, the `light` review level's one seat).
 #
 # ## The round file
 #
@@ -171,8 +173,9 @@ case "$PANEL" in
     scrutiny) SEATS="completeness justification intent" ;;
     review)   SEATS="pragmatic architect maintainer" ;;
     qa)       SEATS="tester" ;;
+    light)    SEATS="reviewer" ;;
     "") refuse 67 "missing panel" ;;
-    *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review or qa" ;;
+    *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light" ;;
 esac
 [ -n "$SESSION" ] || refuse 67 "missing session argument for $MODE"
 command -v jq >/dev/null || refuse 127 "jq not on PATH"
@@ -251,6 +254,30 @@ put() {
         || die 66 "koto context add failed for $1 on session [$SESSION]"
 }
 
+# The decider shadow for the round just recorded: review-shadow.py's site
+# command reads these verdicts from the ledger and records the decider's beside
+# them (docs/designs/DESIGN-jev-closed-criteria.md). It runs in the background
+# with its output discarded, so --record's status, ledger and timing are what
+# they would be without it; it runs whether or not REVIEW_SHADOW_SITES opts in,
+# because the site command records an unset opt-in rather than staying silent.
+# REVIEW_SHADOW_SITE_CMD replaces the command, for tests.
+shadow_site() {
+    local cmd root
+    case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
+    # This script lives at skills/work-on/scripts/ under the plugin root.
+    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." && pwd)/scripts/review-shadow/review-shadow.py}"
+    [ -x "$cmd" ] || return 0
+    # A stand-in command needs no python3; the real script does.
+    [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
+    # HEAD resolved above, so this is a work tree and the call can't fail here.
+    root=$(git rev-parse --show-toplevel) || return 0
+    # The shadow's own output is discarded on purpose: nothing reads it, and its
+    # result is the record it writes.
+    ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
+        </dev/null >/dev/null 2>&1 & )
+    return 0
+}
+
 # ---------------------------------------------------------------- --record ----
 
 if [ "$MODE" = "--record" ]; then
@@ -312,6 +339,7 @@ if [ "$MODE" = "--record" ]; then
                 findings: ($s.findings // [])
               })' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     put "$LEDGER" "$WORK/ledger"
+    shadow_site
     exit 0
 fi
 
@@ -443,6 +471,11 @@ for seat in $SEATS; do
             fi
         fi
     fi
+    # scripts/review-packet.sh recheck reads a recheck decision's `findings`
+    # and `fix_diff_from` to build that seat's packet, and relies on
+    # fix_diff_from being an ancestor of HEAD (checked above). Renaming either
+    # field, or offering recheck on a commit off HEAD's history, changes what
+    # that packet holds; panel-scope_test.sh drives the two scripts together.
     jq -nc --arg seat "$seat" --arg d "$decision" --arg r "$reason" --argjson e "${entry:-null}" '
         {seat: $seat, decision: $d, reason: $r}
         + (if $d == "recheck" then {findings: ($e.findings // []), fix_diff_from: $e.judged_at} else {} end)

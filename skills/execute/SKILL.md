@@ -90,6 +90,16 @@ Two more flags, on both paths:
   asked. Pass it once; a repeated `--merge` is refused by koto as
   `duplicate_var`, and `--merge=<anything but true or false>` as `invalid_var`,
   each with exit 2 and no session.
+- `--review-floor=<level>` and `--review-ceiling=<level>` (each `light`,
+  `standard` or `full`; default none) — the review-level bound every `/work-on`
+  child carries (`skills/work-on/references/review-levels.md`). They become the
+  koto variables `REVIEW_FLOOR` and `REVIEW_CEILING`, passed only when given, and
+  each child task gets them as variables, only when not empty: on a single-pr
+  PLAN through the spawn, on a coordinated one through the dispatch step. Like
+  `--merge` they belong to one invocation: a run resumed without them spawns its
+  remaining children unbounded, and children already spawned keep the bound they
+  started with. A value outside the three names is koto's `invalid_var`, a
+  repeat its `duplicate_var`, each with exit 2 and no session.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
@@ -147,7 +157,8 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 # A private directory outside the work tree for the args file.
 ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
-# of --auto, --interactive, --merge, --koto-leg=<request-id>:execute.
+# of --auto, --interactive, --merge, --review-floor=<level>,
+# --review-ceiling=<level>, --koto-leg=<request-id>:execute.
 jq -n '$ARGS.positional' --args -- <token> <token> ... > "$ARGS_DIR/tokens.json"
 ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
 ```
@@ -252,8 +263,8 @@ write this invocation's tokens to a file outside the work tree and run
 opens `execute-<plan-slug>` from `execute-coordinated.md` through
 `scripts/koto-open.sh` with `--attach-live --replace-terminal` (plus
 `--koto-leg=<request-id>:execute` when given), passing `PLAN_DOC`, `PLAN_SLUG`,
-`PLUGIN_ROOT`, `MERGE` from this invocation's `--merge`, and
-`PAUSE_BEFORE_FINALIZE`. The session stays a root, and every `koto next` on it
+`PLUGIN_ROOT`, `MERGE` from this invocation's `--merge`,
+`PAUSE_BEFORE_FINALIZE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when given. The session stays a root, and every `koto next` on it
 carries `--no-cleanup`, as on the single-pr path.
 
 The two templates share the `execute-<plan-slug>` name. A live session of that

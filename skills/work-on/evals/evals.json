@@ -220,7 +220,7 @@
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
         "Agent runs koto context remove on scrutiny_results.json, review_results.json, qa_results.json and summary.md before submitting the retry",
-        "Agent clears all four keys, not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
+        "Agent clears every key the block lists (the four panels' results keys, light_results.json among them, and summary.md), not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
         "Agent does not clear plan.md, which a code change does not invalidate",
         "Agent treats the clearing as failed if either koto context remove reports failure or koto context exists still reports the key present",
         "Agent does not run koto context exists as a guard before removing",
@@ -433,11 +433,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #501 — an issue that changes a shirabe skill (edits skills/foo/SKILL.md). The issue's branch already has the skill's evals authored and committed, but they have not been run this session.",
-      "expected_output": "The agent's plan reaches the verification state before finalization, reads the project verification map from .claude/shirabe-extensions/work-on.md, sees skills/** maps to scripts/run-evals.sh, and runs that verification, requiring it to pass. The plan explicitly treats authored-but-unrun evals as NOT satisfying the gate (existence is not execution) and does not report the issue done until the verification has run and passed.",
+      "expected_output": "The agent's plan reaches the verification state before finalization, reads the project verification map from .claude/shirabe-extensions/work-on.md, sees skills/** maps to scripts/check-skill.sh <skill>, and runs that verification for skill foo, requiring it to pass. The plan does not run scripts/run-evals.sh at the gate (evals run at release), explicitly treats a verification command that exists but was not run as NOT satisfying the gate (existence is not execution), and does not report the issue done until the verification has run and passed.",
       "files": [],
       "expectations": [
         "Agent's plan includes a verification step before finalization that runs the project-declared verification for what the issue touched",
-        "Agent reads the verification map (.claude/shirabe-extensions/work-on.md) and runs scripts/run-evals.sh for the skills/** change rather than only confirming evals exist",
+        "Agent reads the verification map (.claude/shirabe-extensions/work-on.md) and runs scripts/check-skill.sh foo for the skills/** change rather than only confirming the evals exist",
+        "Agent does not run scripts/run-evals.sh as part of the definition-of-done gate",
         "Agent states that authored-but-unrun verification does NOT satisfy the gate (existence is not execution)",
         "Agent does not report the issue done until the verification has actually run and passed"
       ]

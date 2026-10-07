@@ -104,6 +104,56 @@
         "Reads the pull request before asking, and recommends one of standard/redacted/excluded rather than listing them unranked",
         "Does NOT pass the precondition silently: the security-labeled PR is put to the user before the release proceeds"
       ]
+    },
+    {
+      "id": 10,
+      "name": "declared-check-passes",
+      "prompt": "/release 0.24.0 (the repository's .claude/shirabe-extensions/release.md lists `scripts/check-docs.sh --strict` under `## Release checks`; the built-in preconditions all pass, and the check exits 0)",
+      "expected_output": "After the six built-in preconditions, Phase 2 step 7 prints the `git diff --stat` of scripts/, skills/ and .claude/shirabe-extensions/ since the last tag, prints the declared command and the file it came from, and runs it from the repository root with RELEASE_VERSION=0.24.0, RELEASE_LAST_TAG, RELEASE_DRY_RUN and an empty RELEASE_CONFIRMED_DROPS. It exits 0, so the release goes on to the notes.",
+      "assertions": [
+        "Runs the declared check only after the built-in precondition checks",
+        "Prints `git diff --stat <last tag>..HEAD -- scripts/ skills/ .claude/shirabe-extensions/` before running the check",
+        "Prints the check's command and names release.md as the file it came from before running it",
+        "Runs the command from the repository root with RELEASE_VERSION set to the bare version 0.24.0 (no leading v), RELEASE_LAST_TAG and RELEASE_DRY_RUN set, and RELEASE_CONFIRMED_DROPS set to the empty string",
+        "Continues to Phase 3 (release notes) after the check exits 0"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "declared-check-fails-and-release-stops",
+      "prompt": "/release 0.24.0 (release.md lists `scripts/check-docs.sh --strict` under `## Release checks`; it exits 1 and its last output lines say two links are broken)",
+      "expected_output": "The declared check exits 1, which is not 0 or 5, so the release stops in Phase 2. The report names the check (its command and release.md) and repeats the tail of its output. No notes are drafted and no draft release is created.",
+      "assertions": [
+        "Stops the release after the declared check exits 1",
+        "Names the failing check by its command and the file that declared it",
+        "Repeats the last lines of the check's output (the broken links)",
+        "Does NOT draft release notes, ask for version confirmation, or run `gh release create`"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "declared-check-exits-5-and-release-asks",
+      "prompt": "/release 0.24.0 (release.md lists `scripts/release-eval-check.sh --critical work-on,scope,execute --critical-runs 3` under `## Release checks`; on its first run it exits 5, prints a table showing the scope skill's pass rate fell from 0.95 to 0.88, and its last line is `confirm: RELEASE_CONFIRMED_DROPS=scope`)",
+      "expected_output": "The check exits 5, so the skill shows its output and asks with AskUserQuestion whether to proceed with the reported drop. On a yes it re-runs the same command with RELEASE_CONFIRMED_DROPS=scope set and acts on that run's exit code; on a no the release stops.",
+      "assertions": [
+        "Treats exit 5 as a request for confirmation, not as a plain failure",
+        "Shows the check's output, including what dropped, before asking",
+        "Asks with AskUserQuestion rather than deciding on its own",
+        "On a yes, re-runs the same command with RELEASE_CONFIRMED_DROPS=scope taken from the `confirm:` line",
+        "Does NOT proceed past Phase 2 without a person's yes"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "no-extension-built-in-checks-only",
+      "prompt": "/release 0.4.0 (the repository has no .claude/shirabe-extensions/release.md and no release.local.md; the built-in preconditions all pass)",
+      "expected_output": "With no release extension there are no declared checks, so Phase 2 runs only the six built-in checks and step 7 does nothing. Phase 4 has no release assets to run, so nothing beyond the notes is attached to the draft.",
+      "assertions": [
+        "Runs the built-in precondition checks (clean tree, CI, existing tag, existing draft, blockers, security labels)",
+        "Does NOT print a `git diff --stat` for declared checks or run any repository script as a release check",
+        "Does NOT report a missing extension file as an error or a reason to stop",
+        "Does NOT run `gh release upload`"
+      ]
     }
   ]
 }

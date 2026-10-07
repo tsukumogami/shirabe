@@ -14,15 +14,18 @@
 #
 #   dc_invocation <brief-input-file> [<return-path>]
 #       Prints the worker's invocation: `/shirabe:<entry> <positional>
-#       <run_mode flags> <entry_args flags>`, then `--koto-leg=<return-path>`
-#       when a return path other than `message` is given. The one place the
-#       invocation is built: the brief shows it, the dispatch prompt carries
-#       it, and the holding's mode is the flags part of it, so the three can't
-#       disagree.
+#       <run_mode flags> <entry_args flags>`, then `--review-floor=<x>` and
+#       `--review-ceiling=<y>` from the input's `review_level` when it gives
+#       them, then `--koto-leg=<return-path>` when a return path other than
+#       `message` is given. The one place the invocation is built: the brief
+#       shows it, the dispatch prompt carries it, and the holding's mode is
+#       the run_mode and entry_args part of it, so the three can't disagree.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
-#       flags), the holding's `mode` cell.
+#       flags), the holding's `mode` cell. The review-level flags stay out of
+#       it: a re-brief rebuilds run_mode from this cell and keeps the input's
+#       review_level, so carrying them here would give them twice.
 #
 #   dc_unit_forms <pick-json-file>
 #   dc_unit_matches <unit> <pick-json-file>
@@ -240,7 +243,11 @@ dc_invocation() {
     local inv
     inv=$(jq -r "$DC_JQ_TOKENS"' as $t
         | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] | join(" "))' "$1") || return 2
+        | (if (.review_level | type) == "object" then
+             ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
+                (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
+           else [] end) as $bound
+        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;

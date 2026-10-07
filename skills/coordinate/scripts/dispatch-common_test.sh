@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # dispatch-common_test.sh -- the dispatch helpers: topic validation, niwa's
 # session-name slug and exact match, the guarded workspace-root lookup, and
-# the entry-point table reader, and a repository's visibility read.
+# the entry-point table reader, a repository's visibility read, and the
+# invocation and mode builders with a review-level bound.
 #
 # The workspace-root cases build real directory layouts: a root, an instance
 # under it, a clone inside the instance carrying its own .niwa/workspace.toml
@@ -160,6 +161,26 @@ else
     ok "deadline: no watcher left behind"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
+
+# --- the invocation and the holding's mode ---------------------------------------------
+#
+# A review_level adds its flags after the entry flags and before --koto-leg;
+# the mode cell leaves them out, so a re-brief that rebuilds run_mode from it
+# and keeps review_level doesn't give them twice.
+
+printf '%s' '{"entry_point":"work-on","entry_args":["#12"],"run_mode":"--auto"}' >"$T/inv.json"
+eq  "invocation: without a review level" "/shirabe:work-on #12 --auto" "$(dc_invocation "$T/inv.json")"
+eq  "invocation: with a leg" "/shirabe:work-on #12 --auto --koto-leg=r_1:work-on" "$(dc_invocation "$T/inv.json" r_1:work-on)"
+jq -c '.review_level = {"ceiling": "standard", "floor": "light"}' "$T/inv.json" >"$T/inv-rl.json"
+eq  "invocation: the bound, floor first, before the leg" \
+    "/shirabe:work-on #12 --auto --review-floor=light --review-ceiling=standard --koto-leg=r_1:work-on" \
+    "$(dc_invocation "$T/inv-rl.json" r_1:work-on)"
+jq -c '.review_level = {"ceiling": "standard"}' "$T/inv.json" >"$T/inv-c.json"
+eq  "invocation: a ceiling alone" "/shirabe:work-on #12 --auto --review-ceiling=standard" "$(dc_invocation "$T/inv-c.json")"
+eq  "mode: leaves the bound out" "--auto" "$(dc_mode "$T/inv-rl.json")"
+jq -c --arg m "$(dc_mode "$T/inv-rl.json")" '.run_mode = $m | .entry_args = [.entry_args[0]]' "$T/inv-rl.json" >"$T/inv-re.json"
+eq  "mode: a re-brief from the mode cell gives the bound once" \
+    "/shirabe:work-on #12 --auto --review-floor=light --review-ceiling=standard" "$(dc_invocation "$T/inv-re.json")"
 
 # The table against the skills it names: every skill exists, every template a
 # leg admits exists and declares each pinned variable, and every flag's stem

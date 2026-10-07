@@ -126,18 +126,24 @@ jobs:
         with:
           python-version: '3.x'
 
-      # The koto the offload baseline pins (template-pin.json's koto_version),
-      # checked against a sha256 recorded here rather than one read from the
-      # release it came from.
-      - name: Install the pinned koto
+      # The harness copies this checkout's templates into each fixture, so it
+      # needs a koto that compiles them: the repository's koto floor
+      # (scripts/assert-koto-floor.sh), not the offload baseline's pinned koto,
+      # which only has to compile the templates at the pinned commit. The two
+      # are the same today; they part when the floor rises past the pin.
+      # Each version's sha256 is recorded here rather than read from the
+      # release it came from; a floor with no entry fails until one is added.
+      - name: Install koto at the repository floor
         env:
           GH_TOKEN: ${{ github.token }}
-          KOTO_VERSION: "0.14.1"
-          KOTO_SHA256: "b3facd75f310b5f1a3dc8a500c3ff414e03fbe755c0e72c27771ecc74b60514a"
         run: |
           set -euo pipefail
-          pinned=$(jq -r .koto_version docs/measurement/offload-baseline/template-pin.json)
-          [ "$pinned" = "$KOTO_VERSION" ] || { echo "template pin names koto $pinned; update KOTO_VERSION and KOTO_SHA256" >&2; exit 1; }
+          KOTO_VERSION=$(scripts/assert-koto-floor.sh --print-floor)
+          case "$KOTO_VERSION" in
+            0.14.1) KOTO_SHA256=b3facd75f310b5f1a3dc8a500c3ff414e03fbe755c0e72c27771ecc74b60514a ;;
+            0.15.0) KOTO_SHA256=a3778d90112473c718ea8d3f67a822d63bf3acd1cfbbbac40e192bed89200b4e ;;
+            *) echo "no recorded sha256 for koto $KOTO_VERSION, the repository floor; add one here" >&2; exit 1 ;;
+          esac
           mkdir -p "$RUNNER_TEMP/koto-bin"
           gh release download "v$KOTO_VERSION" --repo tsukumogami/koto --pattern koto-linux-amd64 --dir "$RUNNER_TEMP/koto-bin"
           echo "$KOTO_SHA256  $RUNNER_TEMP/koto-bin/koto-linux-amd64" | sha256sum -c -
