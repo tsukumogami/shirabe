@@ -192,9 +192,9 @@ What the comment stream can't be trusted with, and how each is handled:
   clock drift, and where they disagree, creation order is the order of record.
 - **GitHub limits how fast content is created.** Its documented secondary rate
   limits allow no more than 80 content-creating requests a minute and 500 an
-  hour. The heaviest record wrote 91 entries on its busiest day (the record,
-  2026-09-30 11:32, the third archive split), so one post per entry stays far
-  inside them. A refused post exits with GitHub's message and writes nothing;
+  hour. The process owner's record wrote 100 entries on its busiest day,
+  2026-09-28 (the record, 2026-09-29 21:23, the second archive split), so one
+  post per entry stays far inside them. A refused post exits with GitHub's message and writes nothing;
   the coordinator retries it once, later, and never in a loop, as the workspace
   already treats any load signature.
 
@@ -300,17 +300,17 @@ each rendered only once it has a row, so existing records keep their bytes:
 ```
 
 **Run** is the run's facts a replacement needs before its first pick, under a
-closed set of keys: `arguments` (what it was started with), `cap` and
-`parked-bound` (in force, when a person changed them), `coordinator` (its
+closed set of keys: `arguments` (what it was started with), `cap` (in force,
+when a person changed it), `coordinator` (its
 address: the name messages to it reach, held to the Worker cell's grammar, so no
 session id, path or job id is written) and `told`, the one key that repeats, one
 row per party that has been sent that address. Writing a new `coordinator` row
-clears the `told` rows. The cap and parked bound are read in one place,
-`record-common.sh`'s `lib_bounds`, which takes Run's values over the session's
-variables when Run has them; `pick-facts.sh` and `deferral-check.sh` (the
+clears the `told` rows. The cap is read in one place, `record-common.sh`'s
+`lib_bounds`, which takes Run's value over the session's variable when Run has
+one; `pick-facts.sh` and `deferral-check.sh` (the
 `dispatch_check` state, which enforces the cap) both read through it, and the
-`pick` decider reads the cap from `coord/pick.json` instead of the `CAP`
-variable. So a cap a person changed survives a restart that didn't pass it,
+`pick` decider and the directives that print the cap read it from
+`coord/pick.json` instead of the `CAP` variable. So a cap a person changed survives a restart that didn't pass it,
 and every reader agrees on it.
 
 **Standing** holds the events only a person owns while they still bind:
@@ -518,8 +518,8 @@ after the step became due.
 | `skills/coordinate/scripts/record-state.sh` | new: the sections' one writer | 2 |
 | `skills/coordinate/scripts/record-write-core.sh` | `STATE_WRITER`; the new sections in the private-repository scan | 2 |
 | `skills/coordinate/scripts/record-handover.sh` | new: the stored set and its gaps | 2 |
-| `skills/coordinate/scripts/record-common.sh`, `pick-facts.sh`, `deferral-check.sh` | `lib_bounds` takes the cap and parked bound from Run; both readers go through it | 2 |
-| `skills/coordinate/koto-templates/coordinate.md` (`pick`'s decider input), `coordinate.pick.choice.decider.jsonl`, `evals/evals.json` | the cap from pick's facts, not the variable; fixtures carry it | 2 |
+| `skills/coordinate/scripts/record-common.sh`, `pick-facts.sh`, `deferral-check.sh` | `lib_bounds` takes the cap from Run; both readers go through it | 2 |
+| `skills/coordinate/koto-templates/coordinate.md` (`pick`'s decider input and the directives that print the cap), `coordinate.pick.choice.decider.jsonl`, `evals/evals.json` | the cap from pick's facts, not the variable; fixtures carry it | 2 |
 | `skills/coordinate/scripts/record-confirm.sh` | the `dispatch` case requires the holding's Work row | 2 |
 | `skills/coordinate/scripts/predecessor-handoff.sh`, `rotation-close.sh` | a handoff carries Run, Standing and Work | 2 |
 | `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `references/loop.md` | the reconcile gate and directives | 2 |
