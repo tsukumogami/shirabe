@@ -195,6 +195,55 @@ else
   fail "report on a mode mismatch (rc=$RC): $OUT"
 fi
 
+# The session ended while its with-skill agent still ran: it executed, so the
+# exit stays 0, but the stopped agent is named with its status, and the one
+# that completed is not.
+classify verdict "$FIXTURES/agent-stopped.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] && [ "$(field agents_launched)" = 2 ] \
+  && [ "$(field stopped_agents)" = "[{'description': 'With-skill execute eval run', 'status': 'stopped'}]" ]; then
+  pass "real stopped-agent session: two agents launched, only the stopped one is listed, with its status"
+else
+  fail "agent-stopped verdict (rc=$RC): $OUT"
+fi
+classify report "$FIXTURES/agent-stopped.jsonl" acceptEdits
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "EVAL AGENT DID NOT FINISH" \
+  && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
+  && ! printf '%s' "$OUT" | grep -q "Did not finish: Baseline"; then
+  pass "report on a stopped agent: exit 0, named failure, the stopped agent and its status"
+else
+  fail "report on a stopped agent (rc=$RC): $OUT"
+fi
+# A session that ran its agents in the foreground and waited: both complete,
+# none is listed, and the report says nothing.
+classify verdict "$FIXTURES/agents-foreground.jsonl"
+if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] && [ "$(field agents_launched)" = 2 ] \
+  && [ "$(field stopped_agents)" = "[]" ]; then
+  pass "real foreground session: two agents launched, none listed as unfinished"
+else
+  fail "agents-foreground verdict (rc=$RC): $OUT"
+fi
+classify report "$FIXTURES/agents-foreground.jsonl" acceptEdits
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+  pass "report on a foreground session: exit 0, silent"
+else
+  fail "report on a foreground session (rc=$RC): $OUT"
+fi
+# unfinished, for a run where some scenarios graded: the unfinished agents
+# alone, never the did-not-execute claim, and nothing when all completed.
+classify unfinished "$FIXTURES/agent-stopped.jsonl"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
+  && ! printf '%s' "$OUT" | grep -q "DID NOT EXECUTE"; then
+  pass "unfinished on a stopped agent: exit 0, the agent and its status only"
+else
+  fail "unfinished on a stopped agent (rc=$RC): $OUT"
+fi
+classify unfinished "$FIXTURES/agents-foreground.jsonl"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+  pass "unfinished on a foreground session: exit 0, silent"
+else
+  fail "unfinished on a foreground session (rc=$RC): $OUT"
+fi
+
 classify report "$T/missing.jsonl" acceptEdits
 if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
   pass "report on a missing transcript: exit 2, no not-executed claim"
@@ -348,6 +397,14 @@ if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
   pass "runner: a graded run exits 0 and prints the session's final message"
 else
   fail "runner, graded session (rc=$RC): $OUT"
+fi
+# The session is told to run its agents in the foreground and wait for all of
+# them: a -p session that ends its turn stops any agent still running.
+if grep -q "run_in_background set to false" "$LOG/prompt" \
+  && grep -q "Never end your turn, and never grade, while an agent you launched is still running" "$LOG/prompt"; then
+  pass "runner: the prompt has the session run its agents in the foreground and wait for every one"
+else
+  fail "runner prompt: no foreground/wait instruction"
 fi
 
 run_runner plan --runs 3 demo
@@ -724,6 +781,189 @@ if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "is not a git repository" \
   pass "selection: a repository root git cannot read exits 2 instead of selecting everything"
 else
   fail "selection, unreadable root (rc=$RC): $OUT"
+fi
+
+# -- tier-2 isolation -------------------------------------------------------
+
+# The tier-2 clone's throwaway origin has a default branch, so node-cut.sh can
+# cut a node in it (#585), on a host whose init.defaultBranch is master. A
+# detached or shallow CI checkout can't be cloned and pushed the way the
+# runner does, so this runs a copy of the runner from a throwaway repository on
+# a feature branch; the stub's hook cuts a node in the clone and in the second
+# clone while they exist.
+ISO="$T/iso-src"
+mkdir -p "$ISO/scripts" "$ISO/skills/execute/scripts"
+cp "$RUNNER" "$ISO/scripts/"
+cp -R "$SCRIPT_DIR/lib" "$ISO/scripts/lib"
+cp "$REPO_ROOT/skills/execute/scripts/node-cut.sh" "$ISO/skills/execute/scripts/"
+(cd "$ISO" && git -c init.defaultBranch=master init -q . && git add -A \
+  && git -c user.email=t@example.com -c user.name=t commit -q -m runner \
+  && git checkout -q -b feature/under-test) >/dev/null 2>&1
+ISO_HEAD=$(git -C "$ISO" rev-parse HEAD)
+mkdir -p "$T/iso-suite/isoskill/evals"
+echo "# isoskill" > "$T/iso-suite/isoskill/SKILL.md"
+cat > "$T/iso-suite/isoskill/evals/evals.json" <<'EOF'
+{"skill_name": "isoskill", "evals": [
+  {"id": 1, "name": "iso-scenario", "tier": 2, "mode": "execute", "prompt": "cut a node",
+   "expected_output": "a node", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+PROBE_OUT="$T/iso-probe.out"
+cat > "$T/iso-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Cut one node in the tier-2 clone and one in the second clone. node-cut.sh's
+# own key=value lines are prefixed home_ and second_ so each cut is read on
+# its own.
+co=$(sed -n '/^An isolated, throwaway clone of this repository has been prepared at:$/{n;s/^ *//;p;}' "$1")
+{
+  echo "checkout=$co"
+  (cd "$co" && bash skills/execute/scripts/node-cut.sh iso-test pr-core) | sed 's/^/home_/'
+  echo "home_rc=${PIPESTATUS[0]}"
+  echo "head=$(git -C "$co" rev-parse HEAD)"
+  echo "origin_head=$(git -C "$co" symbolic-ref --short refs/remotes/origin/HEAD)"
+  (cd "$(dirname "$co")/second-clone" && bash "$co/skills/execute/scripts/node-cut.sh" iso-test pr-app) | sed 's/^/second_/'
+  echo "second_rc=${PIPESTATUS[0]}"
+} > "$PROBE_OUT" 2>&1
+EOF
+chmod +x "$T/iso-probe.sh"
+rm -rf "$LOG" "$PROBE_OUT"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
+  STUB_CLAUDE_HOOK="$T/iso-probe.sh" PROBE_OUT="$PROBE_OUT" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master \
+  bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
+probe() { sed -n "s/^$1=//p" "$PROBE_OUT" 2>/dev/null | head -n 1; }
+if [ "$RC" -eq 0 ] && [ -n "$(probe checkout)" ] \
+  && [ "$(probe home_rc)" = 0 ] && [ "$(probe home_cut)" = new ] \
+  && [ "$(probe home_base)" = "$ISO_HEAD" ] && [ "$(probe head)" = "$ISO_HEAD" ] \
+  && [ "$(probe origin_head)" = origin/main ] \
+  && [ "$(probe second_rc)" = 0 ] && [ "$(probe second_cut)" = new ]; then
+  pass "tier-2: under init.defaultBranch=master, node-cut.sh cuts from the clone's origin main, at the commit under test"
+else
+  fail "tier-2 origin default (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
+fi
+
+# No koto the nested session reaches reads or writes $HOME/.koto: each run's
+# koto keeps its store in the run's scratch root. The "real" koto here is a fake
+# that records the HOME it ran under and writes a session where that HOME says,
+# and the caller names it through KOTO_BIN, not PATH, as a developer trying a
+# local koto build would. The hook reaches koto every way a session can:
+# directly, as koto-open.sh does (${KOTO_BIN:-koto}), through the eval koto
+# shim's passthrough, and through the shim again with the fake koto put ahead
+# of the run's wrapper on PATH, as a login-shell snapshot could. Afterwards the
+# caller's HOME must hold no .koto at all.
+FAKE_HOME="$T/fake-home"
+mkdir -p "$FAKE_HOME" "$T/fake-koto"
+KOTO_SEEN="$T/koto-seen"
+cat > "$T/fake-koto/koto" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$HOME" >> "$KOTO_SEEN"
+mkdir -p "$HOME/.koto/sessions/probe"
+EOF
+chmod +x "$T/fake-koto/koto"
+cat > "$T/koto-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Reach koto every way a session can.
+{
+  koto session list
+  echo "direct_rc=$?"
+  "${KOTO_BIN:-koto}" session list
+  echo "kotobin_rc=$?"
+  PATH="$EVAL_SHIM_BIN:$PATH" EVAL_SCENARIO=coord-outline-one-repo koto session list
+  echo "shim_rc=$?"
+  PATH="$EVAL_SHIM_BIN:$FAKE_KOTO_DIR:$PATH" EVAL_SCENARIO=coord-outline-one-repo koto session list
+  echo "reordered_rc=$?"
+} > "$PROBE_OUT" 2>&1
+EOF
+chmod +x "$T/koto-probe.sh"
+koto_run() { # koto_run <hook> [VAR=value...] -- the iso suite under a fake HOME; sets OUT, RC
+  local hook="$1"
+  shift
+  rm -rf "$LOG" "$PROBE_OUT" "$KOTO_SEEN" "$FAKE_HOME/.koto"
+  RC=0
+  OUT=$(cd "$T" && env HOME="$FAKE_HOME" RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade \
+    STUB_CLAUDE_LOG_DIR="$LOG" STUB_CLAUDE_HOOK="$hook" PROBE_OUT="$PROBE_OUT" KOTO_SEEN="$KOTO_SEEN" \
+    EVAL_SHIM_BIN="$REPO_ROOT/skills/execute/evals/fixtures/bin" FAKE_KOTO_DIR="$T/fake-koto" TMPDIR="$T" \
+    "$@" bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
+}
+koto_run "$T/koto-probe.sh" KOTO_BIN="$T/fake-koto/koto" PATH="$FIXTURES/bin:$PATH"
+# Five koto calls: the runner's startup help probe, in a throwaway HOME of its
+# own, and the hook's four, in the run's store.
+SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+SEEN_PROBE=$(grep -cx "$T/shirabe-eval-koto-probe\.[A-Za-z0-9]*" "$KOTO_SEEN" 2>/dev/null) || SEEN_PROBE=0
+SEEN_ALL=$(grep -c . "$KOTO_SEEN" 2>/dev/null) || SEEN_ALL=0
+if [ "$RC" -eq 0 ] && [ "$(probe direct_rc)" = 0 ] && [ "$(probe kotobin_rc)" = 0 ] \
+  && [ "$(probe shim_rc)" = 0 ] && [ "$(probe reordered_rc)" = 0 ] \
+  && [ "$SEEN_STORE" -eq 4 ] && [ "$SEEN_PROBE" -eq 1 ] && [ "$SEEN_ALL" -eq 5 ] \
+  && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: every route to koto keeps its store in the run's scratch root, never in \$HOME/.koto"
+else
+  fail "koto store (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] home_koto=$(ls -A "$FAKE_HOME" 2>/dev/null) probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
+fi
+
+# KOTO_BIN as a bare name resolves through the caller's PATH when the run
+# starts, so the wrapper runs that koto and never itself; one that names
+# nothing stops the run before any session.
+koto_run "$T/koto-probe.sh" KOTO_BIN=koto PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+if [ "$RC" -eq 0 ] && [ "$SEEN_STORE" -eq 4 ] && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: a bare-name KOTO_BIN is resolved first, and every call still lands in the run's store"
+else
+  fail "koto, bare KOTO_BIN (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
+fi
+koto_run "$T/koto-probe.sh" KOTO_BIN="$T/no-such-koto" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto"; then
+  pass "koto: a KOTO_BIN naming nothing stops the run before any session, exit 2"
+else
+  fail "koto, KOTO_BIN naming nothing (rc=$RC): $OUT"
+fi
+
+# The tripwire: a run that leaves a file naming its scratch root in
+# $HOME/.koto fails as an infrastructure failure, whatever it graded. The hook
+# writes one there itself, the way a koto run under the real HOME would.
+cat > "$T/koto-leak.sh" <<'EOF'
+#!/usr/bin/env bash
+mkdir -p "$HOME/.koto/sessions/leak"
+printf 'cwd = "%s/checkout"\n' "$TMPDIR" > "$HOME/.koto/sessions/leak/state.toml"
+EOF
+chmod +x "$T/koto-leak.sh"
+koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "EVAL RUN REACHED \$HOME/.koto" \
+  && printf '%s' "$OUT" | grep -q "$FAKE_HOME/.koto/sessions/leak/state.toml"; then
+  pass "koto: a run that wrote into \$HOME/.koto exits 2 and names the file"
+else
+  fail "koto tripwire (rc=$RC): $OUT"
+fi
+# ... and a change there that doesn't name the run, another session's, passes.
+cat > "$T/koto-other.sh" <<'EOF'
+#!/usr/bin/env bash
+mkdir -p "$HOME/.koto/sessions/other"
+printf 'cwd = "/elsewhere"\n' > "$HOME/.koto/sessions/other/state.toml"
+EOF
+chmod +x "$T/koto-other.sh"
+koto_run "$T/koto-other.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q "EVAL RUN REACHED"; then
+  pass "koto: another session's write to \$HOME/.koto during the run does not trip it"
+else
+  fail "koto tripwire, unrelated write (rc=$RC): $OUT"
+fi
+
+# With no koto at all, the run's wrapper refuses rather than leaving PATH to
+# find one. Skipped where the system directories hold a koto of their own.
+if PATH=/usr/bin:/bin command -v koto >/dev/null 2>&1; then
+  echo "SKIP: a koto in /usr/bin or /bin -- the no-koto wrapper was not checked"
+else
+  cat > "$T/koto-none.sh" <<'EOF'
+#!/usr/bin/env bash
+{ koto session list; echo "none_rc=$?"; } > "$PROBE_OUT" 2>&1
+EOF
+  chmod +x "$T/koto-none.sh"
+  koto_run "$T/koto-none.sh" KOTO_BIN= PATH="$FIXTURES/bin:/usr/bin:/bin"
+  if [ "$RC" -eq 0 ] && [ "$(probe none_rc)" = 127 ] && grep -q "found no koto to wrap" "$PROBE_OUT"; then
+    pass "koto: with no koto to wrap, the run's koto refuses (127)"
+  else
+    fail "koto, none to wrap (rc=$RC): probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
+  fi
 fi
 
 echo ""

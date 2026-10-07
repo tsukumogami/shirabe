@@ -21,6 +21,8 @@
 #   evidence no fixture answers fails as no match
 #   the drift-intent-changing assignment is the one execute.md makes
 #   the older work-on arm still answers
+#   a koto-passthrough scenario goes to EVAL_KOTO_WRAPPER ahead of PATH, and
+#     refuses when that wrapper is missing
 #
 # Usage: eval-koto-shim_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -293,6 +295,29 @@ got=$(k e2e-plan-happy "" next work-on-probe --no-cleanup | jq -c . 2>/dev/null)
 want=$(jq -c . "$FIXTURES/scenarios/e2e-plan-happy/koto-next-work-on.json")
 [ -n "$got" ] && [ "$got" = "$want" ] && pass "the work-on arm still answers koto-next-work-on.json" \
     || fail "work-on arm answered [$got]"
+
+# --- passthrough: the eval run's own koto first ------------------------------
+#
+# A koto-passthrough scenario hands each call to EVAL_KOTO_WRAPPER when the
+# runner set it, whatever PATH says, so a reordered PATH can't put the real
+# koto (and the real $HOME/.koto) in front of the run's wrapper. Without it,
+# the next koto on PATH after the shim answers, as before.
+mkdir -p "$WORK/pt/wrapper" "$WORK/pt/onpath"
+printf '#!/bin/sh\necho "wrapper $*"\n' > "$WORK/pt/wrapper/koto"
+printf '#!/bin/sh\necho "onpath $*"\n' > "$WORK/pt/onpath/koto"
+chmod +x "$WORK/pt/wrapper/koto" "$WORK/pt/onpath/koto"
+got=$(EVAL_SCENARIO=coord-outline-one-repo EVAL_KOTO_WRAPPER="$WORK/pt/wrapper/koto" \
+    PATH="$FIXTURES/bin:$WORK/pt/onpath:$PATH" "$SHIM" session list)
+[ "$got" = "wrapper session list" ] && pass "passthrough: EVAL_KOTO_WRAPPER answers ahead of any koto on PATH" \
+    || fail "passthrough with a wrapper answered [$got]"
+got=$( (unset EVAL_KOTO_WRAPPER; EVAL_SCENARIO=coord-outline-one-repo PATH="$FIXTURES/bin:$WORK/pt/onpath:$PATH" "$SHIM" session list) )
+[ "$got" = "onpath session list" ] && pass "passthrough: without one, the next koto on PATH answers" \
+    || fail "passthrough without a wrapper answered [$got]"
+got=$(EVAL_SCENARIO=coord-outline-one-repo EVAL_KOTO_WRAPPER="$WORK/pt/missing" \
+    PATH="$FIXTURES/bin:$WORK/pt/onpath:$PATH" "$SHIM" session list 2>&1); rc=$?
+[ "$rc" -eq 127 ] && case "$got" in *"is not executable"*) true ;; *) false ;; esac \
+    && pass "passthrough: a wrapper that isn't there refuses (127) instead of falling back to PATH" \
+    || fail "passthrough with a missing wrapper: rc=$rc [$got]"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
